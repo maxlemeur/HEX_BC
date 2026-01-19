@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bon de Commande Intelligent - Hydro Express</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+        
+        :root {
+            --brand-blue: #0A3D62;   /* Bleu profond - Hydro */
+            --brand-cyan: #00D2FF;   /* Cyan vif - eXpress */
+            --brand-bg: #F8FAFC;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #E2E8F0;
+            color: #1E293B;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .document-page {
+            background: white;
+            width: 210mm;
+            min-height: 297mm;
+            margin: 20px auto;
+            padding: 50px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sidebar-accent {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 12px;
+            background: linear-gradient(to bottom, var(--brand-blue), var(--brand-cyan));
+        }
+
+        .text-brand-blue { color: var(--brand-blue); }
+        .text-brand-cyan { color: var(--brand-cyan); }
+        .bg-brand-blue { background-color: var(--brand-blue); }
+        .bg-brand-cyan { background-color: var(--brand-cyan); }
+        
+        .header-box {
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            padding: 20px;
+            background: var(--brand-bg);
+        }
+
+        .table-head {
+            background-color: var(--brand-blue);
+            color: white;
+        }
+
+        .note-container {
+            border-left: 6px solid var(--brand-cyan);
+            background: linear-gradient(90deg, #F0FDFF 0%, white 100%);
+        }
+
+        .delivery-badge {
+            background: linear-gradient(135deg, var(--brand-blue) 0%, #1e40af 100%);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 12px;
+            display: inline-block;
+            box-shadow: 0 4px 12px rgba(10, 61, 98, 0.2);
+        }
+
+        .ai-btn {
+            background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 700;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .ai-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+        }
+
+        #ai-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 50;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* --- OPTIMISATION PDF / PRINT --- */
+        @media print {
+            body { 
+                background: white !important; 
+                padding: 0 !important; 
+                margin: 0 !important;
+            }
+            .document-page { 
+                margin: 0 !important; 
+                box-shadow: none !important; 
+                width: 100% !important;
+                padding: 40px !important;
+            }
+            .no-print, .ai-btn, #ai-modal, button { 
+                display: none !important; 
+            }
+            [contenteditable="true"]:focus {
+                outline: none !important;
+            }
+            /* Assurer que les badges restent colorés sur le PDF */
+            .delivery-badge, .sidebar-accent, .table-head {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Modal pour les résultats IA -->
+    <div id="ai-modal" class="no-print p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border-t-8 border-brand-cyan">
+            <h3 class="text-xl font-bold text-brand-blue mb-4 flex items-center gap-2">
+                ✨ Assistant IA Hydro Express
+            </h3>
+            <div id="ai-content" class="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed max-h-[60vh] overflow-y-auto mb-6 p-4 bg-slate-50 rounded-lg italic">
+                Traitement en cours...
+            </div>
+            <div class="flex justify-end gap-3">
+                <button onclick="closeModal()" class="px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 rounded-lg">Fermer</button>
+                <button id="apply-ai" class="px-4 py-2 text-sm font-bold bg-brand-cyan text-brand-blue rounded-lg shadow-sm">Appliquer ✨</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="no-print flex justify-center py-6 gap-4">
+        <!-- Bouton mis à jour pour mentionner le PDF -->
+        <button onclick="window.print()" class="bg-slate-900 hover:bg-black text-white px-8 py-3 rounded-full font-bold transition-all transform hover:scale-105 shadow-xl flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Télécharger en PDF / Imprimer
+        </button>
+        <button onclick="generateCompanionEmail()" class="ai-btn !py-3 !px-8 !text-sm shadow-xl">
+            Email d'accompagnement ✨
+        </button>
+    </div>
+
+    <div class="document-page">
+        <div class="sidebar-accent"></div>
+
+        <!-- Header -->
+        <div class="flex justify-between items-start mb-12">
+            <div class="flex flex-col">
+                <div class="mb-4">
+                    <div class="flex items-center gap-1">
+                        <span class="text-4xl font-extrabold tracking-tighter text-brand-blue">Hydro</span>
+                        <span class="text-4xl font-light italic tracking-tighter text-brand-cyan">eXpress</span>
+                        <span class="text-[10px] self-start mt-1 border border-brand-cyan rounded-full px-1 text-brand-cyan">R</span>
+                    </div>
+                    <p class="text-[10px] uppercase tracking-[0.3em] font-semibold text-slate-400 mt-1">Solutions de Sertissage & Plomberie</p>
+                </div>
+                
+                <div class="mt-6 text-sm">
+                    <p class="font-bold text-gray-800 underline underline-offset-4 mb-1 italic">Émis par :</p>
+                    <p class="font-bold text-brand-blue text-lg" contenteditable="true">Thomas Dupont</p>
+                    <p class="text-gray-500 italic" contenteditable="true">Chargé d'affaires</p>
+                    <p class="text-gray-400 text-xs mt-1 italic font-semibold" id="current-date">Le 22/10/2025</p>
+                </div>
+            </div>
+
+            <div class="header-box text-right min-w-[280px]">
+                <h3 class="font-extrabold text-brand-blue mb-2 text-sm uppercase tracking-wider">HYDRO EXPRESS SAS</h3>
+                <p class="text-sm text-slate-600 italic font-medium tracking-tight">29 bis, rue de la Prairie</p>
+                <p class="text-sm text-slate-600 italic font-medium tracking-tight">78120 Rambouillet</p>
+                <div class="mt-2">
+                    <p class="text-sm text-slate-600 italic font-medium tracking-tight">01 30 46 29 98</p>
+                    <p class="text-sm text-slate-600 italic font-medium tracking-tight">06 62 19 54 53</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Document Title & Ref -->
+        <div class="text-center mb-10">
+            <h2 class="text-4xl font-black text-slate-800 uppercase tracking-tight mb-4">
+                Bon de Commande
+            </h2>
+            <div class="flex items-center justify-center gap-2">
+                <p class="text-sm font-mono text-slate-400 tracking-widest bg-slate-50 py-2 inline-block px-8 rounded-full border border-slate-100 uppercase">
+                    RÉF : <span class="text-slate-900 font-bold" id="order-ref" contenteditable="true">FOURNISSEUR_PROJET_TD_2210251645</span>
+                </p>
+                <button onclick="suggestRef()" class="ai-btn no-print">Suggérer ✨</button>
+            </div>
+        </div>
+
+        <!-- Info Grid Principal -->
+        <div class="grid grid-cols-2 gap-8 mb-8">
+            <!-- Fournisseur -->
+            <div class="bg-brand-bg rounded-2xl p-6 border border-slate-100 flex flex-col justify-between">
+                <div>
+                    <h4 class="text-[10px] font-black text-brand-cyan uppercase tracking-widest mb-4 italic">Fournisseur</h4>
+                    <p class="text-2xl font-extrabold text-brand-blue mb-1" id="supplier-name" contenteditable="true">[Nom du Fournisseur]</p>
+                    <p class="text-slate-500 font-medium" contenteditable="true">[Adresse Siège]</p>
+                    <p class="text-slate-500 font-medium" contenteditable="true">[Code Postal, Ville]</p>
+                </div>
+            </div>
+            
+            <!-- Détails Mission & Livraison -->
+            <div class="bg-slate-50 rounded-2xl p-6 border border-slate-200">
+                <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 italic">Livraison & Projet</h4>
+                <div class="space-y-4">
+                    <div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Date souhaitée :</p>
+                        <div class="delivery-badge">
+                            <span class="text-lg font-black tracking-tight uppercase" contenteditable="true">Le [JJ/MM/AAAA]</span>
+                        </div>
+                    </div>
+                    <div>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase mb-1 italic tracking-wide">Chantier & Contacts :</p>
+                        <p class="text-brand-blue font-extrabold text-lg uppercase leading-tight italic mb-2" id="project-name" contenteditable="true">[Nom du Chantier]</p>
+                        <p class="text-sm text-slate-600 italic font-medium tracking-tight leading-relaxed" contenteditable="true">
+                            [Numéro, Rue]<br>
+                            [Code Postal] [VILLE / SITE COMPLET]<br>
+                            Arnold Billout : 06 17 44 82 30<br>
+                            Maxime Michelo : 06 77 56 01 68
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Espace Commentaire / Instructions -->
+        <div class="mb-8 p-5 border border-slate-200 rounded-2xl bg-white relative">
+            <div class="flex justify-between items-center mb-2">
+                <h4 class="text-[10px] font-black text-brand-blue uppercase tracking-widest">
+                    Note / Instructions complémentaires
+                </h4>
+                <button onclick="optimizeNotes()" class="ai-btn no-print">Optimiser ✨</button>
+            </div>
+            <div class="text-sm text-slate-700 italic min-h-[60px]" id="instructions-box" contenteditable="true">
+                [Zone libre pour spécifier les conditions d'accès, horaires de réception ou consignes de déchargement...]
+            </div>
+        </div>
+
+        <!-- Table des articles -->
+        <div class="overflow-hidden rounded-xl border border-slate-200 mb-6 shadow-sm">
+            <table class="w-full" id="items-table">
+                <thead>
+                    <tr class="table-head text-left text-[10px] uppercase tracking-widest font-bold">
+                        <th class="py-4 px-6">Référence</th>
+                        <th class="py-4 px-6">Désignation</th>
+                        <th class="py-4 px-6 text-center">Qté</th>
+                        <th class="py-4 px-6 text-right">P.U. HT</th>
+                        <th class="py-4 px-6 text-right">Total HT</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 text-sm">
+                    <tr>
+                        <td class="py-4 px-6 font-mono text-xs text-slate-400" contenteditable="true">FR-998822</td>
+                        <td class="py-4 px-6 text-slate-800 font-medium" contenteditable="true">Tube Inox 316L - Ø28mm</td>
+                        <td class="py-4 px-6 text-center font-bold" contenteditable="true">12</td>
+                        <td class="py-4 px-6 text-right" contenteditable="true">--,-- €</td>
+                        <td class="py-4 px-6 text-right font-bold" contenteditable="true">--,-- €</td>
+                    </tr>
+                    <tr>
+                        <td class="py-4 px-6 font-mono text-xs text-slate-400" contenteditable="true">FR-112233</td>
+                        <td class="py-4 px-6 text-slate-800 font-medium" contenteditable="true">Manchon à sertir - Ø28mm</td>
+                        <td class="py-4 px-6 text-center font-bold" contenteditable="true">50</td>
+                        <td class="py-4 px-6 text-right" contenteditable="true">--,-- €</td>
+                        <td class="py-4 px-6 text-right font-bold" contenteditable="true">--,-- €</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Récapitulatif Financier -->
+        <div class="flex justify-end mb-8">
+            <div class="w-full max-w-[340px] space-y-3">
+                <!-- Total HT Badge -->
+                <div class="delivery-badge w-full flex justify-between items-center px-8 py-4">
+                    <span class="text-[10px] uppercase font-black tracking-[0.2em] opacity-80">Total Net HT</span>
+                    <span class="text-3xl font-black" contenteditable="true">--,-- €</span>
+                </div>
+                
+                <!-- TVA & TTC Discrets -->
+                <div class="flex flex-col gap-1.5 px-6 py-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <div class="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                        <span>TVA (20%)</span>
+                        <span class="text-slate-600" contenteditable="true">--,-- €</span>
+                    </div>
+                    <div class="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                        <span>Total TTC</span>
+                        <span class="text-slate-600" contenteditable="true">--,-- €</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Note Section Fin -->
+        <div class="note-container p-6 rounded-r-2xl mb-12">
+            <div class="flex items-center gap-4">
+                <div class="h-10 w-10 rounded-full bg-brand-cyan/10 flex items-center justify-center text-brand-cyan">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                </div>
+                <div class="flex-1">
+                    <p class="text-lg text-slate-700 font-bold leading-snug italic">
+                        Merci de confirmer la bonne prise en compte de ce bon de commande et de valider les dates de livraison le cas échéant.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="absolute bottom-10 left-16 right-16 pt-6 border-t border-slate-100 text-center text-[10px] font-bold text-slate-400 tracking-widest uppercase">
+            <p class="mb-1">Hydro Express SAS</p>
+            <p>SIRET 500 735 022 00021</p>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = ""; 
+        let lastAiResult = "";
+        let targetElementId = "";
+
+        async function callGemini(prompt, systemInstruction = "") {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await response.json();
+                    return result.candidates?.[0]?.content?.parts?.[0]?.text;
+                } catch (e) {
+                    await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
+                }
+            }
+            throw new Error("Assistant indisponible.");
+        }
+
+        function showModal(content, targetId) {
+            lastAiResult = content;
+            targetElementId = targetId;
+            document.getElementById('ai-content').innerText = content;
+            document.getElementById('ai-modal').style.display = 'flex';
+            document.getElementById('apply-ai').style.display = targetId ? 'block' : 'none';
+        }
+
+        function closeModal() {
+            document.getElementById('ai-modal').style.display = 'none';
+        }
+
+        document.getElementById('apply-ai').onclick = () => {
+            if (targetElementId && lastAiResult) {
+                document.getElementById(targetElementId).innerText = lastAiResult;
+            }
+            closeModal();
+        };
+
+        async function optimizeNotes() {
+            const currentNotes = document.getElementById('instructions-box').innerText;
+            const project = document.getElementById('project-name').innerText;
+            const system = "Tu es expert logistique chez Hydro Express. Rédige des consignes de livraison professionnelles.";
+            const prompt = `Optimise ces notes pour le projet ${project} : ${currentNotes}`;
+            try {
+                const res = await callGemini(prompt, system);
+                showModal(res, 'instructions-box');
+            } catch (err) { alert("Erreur IA"); }
+        }
+
+        async function suggestRef() {
+            const supplier = document.getElementById('supplier-name').innerText;
+            const project = document.getElementById('project-name').innerText;
+            const now = new Date().toISOString().slice(2,10).replace(/-/g, '');
+            const prompt = `Génère une référence BC pour ${supplier} / ${project} au format NOMFOURNISSEUR_NOMPROJET_TD_${now}HHMM. Ne donne que la référence.`;
+            try {
+                const res = await callGemini(prompt, "Assistant administratif.");
+                showModal(res.trim(), 'order-ref');
+            } catch (err) { alert("Erreur IA"); }
+        }
+
+        async function generateCompanionEmail() {
+            const supplier = document.getElementById('supplier-name').innerText;
+            const ref = document.getElementById('order-ref').innerText;
+            const project = document.getElementById('project-name').innerText;
+            const items = Array.from(document.querySelectorAll('#items-table tbody tr'))
+                               .map(tr => tr.cells[1].innerText).join(', ');
+            const system = "Tu es Thomas Dupont chez Hydro Express. Rédige un email pro d'envoi de BC.";
+            const prompt = `Rédige un email court pour envoyer le BC ${ref} à ${supplier} (Projet ${project}). Articles : ${items}.`;
+            try {
+                const res = await callGemini(prompt, system);
+                showModal(res, null);
+            } catch (err) { alert("Erreur IA"); }
+        }
+
+        window.onload = () => {
+            const today = new Date();
+            const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
+            document.getElementById('current-date').innerText = "Le " + today.toLocaleDateString('fr-FR', options);
+        };
+    </script>
+</body>
+</html>
