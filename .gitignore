@@ -24,6 +24,9 @@
 .DS_Store
 *.pem
 nul
+.claude/skills/
+.codex/
+.windsurf/
 
 # debug
 npm-debug.log*
