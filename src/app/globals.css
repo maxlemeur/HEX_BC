@@ -81,6 +81,80 @@ body {
   box-shadow: 0 4px 12px rgba(232, 115, 47, 0.3);
 }
 
+/* ========================================
+   WYSIWYG Document Editor Styles
+   ======================================== */
+
+/* Inline inputs in WYSIWYG document */
+.doc-input {
+  background: transparent;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  outline: none;
+  transition: all 0.2s;
+  font: inherit;
+}
+
+.doc-input:hover {
+  border-color: var(--brand-orange);
+  background: rgba(232, 115, 47, 0.05);
+}
+
+.doc-input:focus {
+  border-color: var(--brand-orange);
+  background: white;
+  box-shadow: 0 0 0 3px rgba(232, 115, 47, 0.1);
+}
+
+.doc-input::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* Inline selects in WYSIWYG document */
+.doc-select {
+  background: transparent;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s;
+  font: inherit;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23E8732F' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+}
+
+.doc-select:hover {
+  border-color: var(--brand-orange);
+  background-color: rgba(232, 115, 47, 0.05);
+}
+
+.doc-select:focus {
+  border-color: var(--brand-orange);
+  background-color: white;
+  box-shadow: 0 0 0 3px rgba(232, 115, 47, 0.1);
+}
+
+/* Editable table row hover effect */
+.doc-table-row-editable:hover {
+  background: rgba(232, 115, 47, 0.03);
+}
+
+/* Remove button - hidden by default, shown on row hover */
+.doc-remove-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.doc-table-row-editable:hover .doc-remove-btn {
+  opacity: 1;
+}
+
 /* Print optimization */
 @media print {
   body {

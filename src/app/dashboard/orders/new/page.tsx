@@ -6,14 +6,40 @@ import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
 
 import {
+  PurchaseOrderDocument,
+  type OrderItemData,
+  type SupplierData,
+  type DeliverySiteData,
+} from "@/components/PurchaseOrderDocument";
+import {
   computeLineTotals,
   computeOrderTotals,
 } from "@/lib/order-calculations";
-import { formatEUR, parseEuroToCents } from "@/lib/money";
+import { parseEuroToCents } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type SupplierOption = { id: string; name: string };
-type SiteOption = { id: string; name: string; project_code: string | null };
+type SupplierOption = {
+  id: string;
+  name: string;
+  address: string | null;
+  postal_code: string | null;
+  city: string | null;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+};
+
+type SiteOption = {
+  id: string;
+  name: string;
+  project_code: string | null;
+  address: string | null;
+  postal_code: string | null;
+  city: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+};
+
 type ProductOption = {
   id: string;
   designation: string;
@@ -31,19 +57,6 @@ type DraftItem = {
   unitPriceEuros: string;
   taxRateBp: number;
 };
-
-const TAX_RATE_OPTIONS: Array<{ label: string; value: number }> = [
-  { label: "0%", value: 0 },
-  { label: "5,5%", value: 550 },
-  { label: "10%", value: 1000 },
-  { label: "20%", value: 2000 },
-];
-
-function taxLabelFromBp(taxRateBp: number) {
-  const match = TAX_RATE_OPTIONS.find((x) => x.value === taxRateBp);
-  if (match) return match.label;
-  return `${(taxRateBp / 100).toFixed(2)}%`;
-}
 
 function euroInputFromCents(cents: number) {
   return (cents / 100).toFixed(2).replace(".", ",");
@@ -76,28 +89,22 @@ export default function NewOrderPage() {
   const fetchSuppliers = useCallback(async () => {
     const { data, error } = await supabase
       .from("suppliers")
-      .select("id, name")
+      .select("id, name, address, postal_code, city, contact_name, phone, email")
       .eq("is_active", true)
       .order("name", { ascending: true });
 
-    if (error) {
-      throw error;
-    }
-
+    if (error) throw error;
     return (data ?? []) as SupplierOption[];
   }, [supabase]);
 
   const fetchSites = useCallback(async () => {
     const { data, error } = await supabase
       .from("delivery_sites")
-      .select("id, name, project_code")
+      .select("id, name, project_code, address, postal_code, city, contact_name, contact_phone")
       .eq("is_active", true)
       .order("name", { ascending: true });
 
-    if (error) {
-      throw error;
-    }
-
+    if (error) throw error;
     return (data ?? []) as SiteOption[];
   }, [supabase]);
 
@@ -108,10 +115,7 @@ export default function NewOrderPage() {
       .eq("is_active", true)
       .order("designation", { ascending: true });
 
-    if (error) {
-      throw error;
-    }
-
+    if (error) throw error;
     return (data ?? []) as ProductOption[];
   }, [supabase]);
 
@@ -119,7 +123,7 @@ export default function NewOrderPage() {
     data: suppliers = [],
     error: suppliersError,
     isLoading: isSuppliersLoading,
-  } = useSWR<SupplierOption[]>("po-suppliers", fetchSuppliers, {
+  } = useSWR<SupplierOption[]>("po-suppliers-full", fetchSuppliers, {
     refreshInterval: 30000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
@@ -129,7 +133,7 @@ export default function NewOrderPage() {
     data: sites = [],
     error: sitesError,
     isLoading: isSitesLoading,
-  } = useSWR<SiteOption[]>("po-sites", fetchSites, {
+  } = useSWR<SiteOption[]>("po-sites-full", fetchSites, {
     refreshInterval: 30000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
@@ -148,6 +152,39 @@ export default function NewOrderPage() {
   const loadError = suppliersError ?? sitesError ?? productsError;
   const isLoading = isSuppliersLoading || isSitesLoading || isProductsLoading;
   const displayError = formError ?? (loadError ? loadError.message : null);
+
+  // Get selected supplier and site data
+  const selectedSupplier: SupplierData | null = useMemo(() => {
+    if (!supplierId) return null;
+    const s = suppliers.find((x) => x.id === supplierId);
+    if (!s) return null;
+    return {
+      id: s.id,
+      name: s.name,
+      address: s.address,
+      postal_code: s.postal_code,
+      city: s.city,
+      contact_name: s.contact_name,
+      phone: s.phone,
+      email: s.email,
+    };
+  }, [supplierId, suppliers]);
+
+  const selectedSite: DeliverySiteData | null = useMemo(() => {
+    if (!deliverySiteId) return null;
+    const s = sites.find((x) => x.id === deliverySiteId);
+    if (!s) return null;
+    return {
+      id: s.id,
+      name: s.name,
+      project_code: s.project_code,
+      address: s.address,
+      postal_code: s.postal_code,
+      city: s.city,
+      contact_name: s.contact_name,
+      contact_phone: s.contact_phone,
+    };
+  }, [deliverySiteId, sites]);
 
   function applyProductToItem(itemKey: string, productId: string) {
     if (!productId) {
@@ -177,6 +214,19 @@ export default function NewOrderPage() {
     );
   }
 
+  function handleItemChange(key: string, field: string, value: string | number) {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.key !== key) return item;
+        if (field === "reference") return { ...item, reference: String(value) };
+        if (field === "designation") return { ...item, designation: String(value) };
+        if (field === "quantity") return { ...item, quantity: Math.max(1, Number(value) || 1) };
+        if (field === "unitPriceEuros") return { ...item, unitPriceEuros: String(value) };
+        return item;
+      })
+    );
+  }
+
   function removeItem(itemKey: string) {
     setItems((prev) => {
       const next = prev.filter((i) => i.key !== itemKey);
@@ -184,6 +234,11 @@ export default function NewOrderPage() {
     });
   }
 
+  function addItem() {
+    setItems((prev) => [...prev, newDraftItem()]);
+  }
+
+  // Compute line totals
   const computed = items.map((item) => {
     const unitPriceCents = parseEuroToCents(item.unitPriceEuros);
     if (unitPriceCents === null || unitPriceCents < 0) {
@@ -219,6 +274,19 @@ export default function NewOrderPage() {
       lineTotalTtcCents: item.lineTotalTtcCents,
     }))
   );
+
+  // Map items for the document component
+  const documentItems: OrderItemData[] = items.map((item) => {
+    const comp = computed.find((c) => c.key === item.key);
+    return {
+      key: item.key,
+      reference: item.reference || null,
+      designation: item.designation,
+      quantity: item.quantity,
+      unitPriceHtCents: comp?.unitPriceCents ?? 0,
+      lineTotalHtCents: comp?.lineTotalHtCents ?? 0,
+    };
+  });
 
   async function onCreateOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -288,305 +356,76 @@ export default function NewOrderPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Nouveau bon de commande
-          </h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Selectionnez le fournisseur, le chantier et ajoutez les lignes.
-          </p>
-        </div>
+    <div className="min-h-screen bg-slate-200">
+      {/* Action bar - sticky at top */}
+      <div className="no-print sticky top-0 z-10 flex items-center justify-center gap-4 bg-slate-200/95 py-4 backdrop-blur-sm">
+        <button
+          className="flex h-12 items-center justify-center gap-2 rounded-full bg-brand-orange px-8 text-sm font-bold text-white shadow-xl transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={creating || isLoading}
+          form="order-form"
+          type="submit"
+        >
+          {creating ? "Creation..." : "Creer le bon de commande"}
+        </button>
         <Link
-          className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
+          className="inline-flex h-12 items-center justify-center rounded-full border border-zinc-200 bg-white px-6 text-sm font-medium text-zinc-900 transition-all hover:bg-zinc-50"
           href="/dashboard/orders"
         >
           Annuler
         </Link>
       </div>
 
-      {displayError ? (
-        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {displayError}
-        </p>
-      ) : null}
-
-      <form className="space-y-6" onSubmit={onCreateOrder}>
-        <section className="rounded-2xl border border-zinc-200 bg-white p-6">
-          <h2 className="text-sm font-semibold">Informations</h2>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-sm font-medium">Fournisseur</span>
-              <select
-                className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
-                disabled={isLoading}
-                required
-                value={supplierId}
-                onChange={(event) => setSupplierId(event.target.value)}
-              >
-                <option value="">- Selectionner -</option>
-                {suppliers.map((supplier) => (
-                  <option key={supplier.id} value={supplier.id}>
-                    {supplier.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-sm font-medium">Chantier</span>
-              <select
-                className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
-                disabled={isLoading}
-                required
-                value={deliverySiteId}
-                onChange={(event) => setDeliverySiteId(event.target.value)}
-              >
-                <option value="">- Selectionner -</option>
-                {sites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.project_code ? `${site.project_code} - ` : ""}
-                    {site.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-sm font-medium">Livraison souhaitee</span>
-              <input
-                className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
-                type="date"
-                value={expectedDeliveryDate}
-                onChange={(event) => setExpectedDeliveryDate(event.target.value)}
-              />
-            </label>
-
-            <label className="block sm:col-span-2">
-              <span className="text-sm font-medium">Notes</span>
-              <textarea
-                className="mt-1 min-h-[96px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                placeholder="Informations complementaires"
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-              />
-            </label>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-zinc-200 bg-white">
-          <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-6 py-4">
-            <h2 className="text-sm font-semibold">Lignes</h2>
-            <button
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
-              onClick={() => setItems((prev) => [...prev, newDraftItem()])}
-              type="button"
-            >
-              Ajouter une ligne
-            </button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-600">
-                <tr>
-                  <th className="px-6 py-3">Produit</th>
-                  <th className="px-6 py-3">Reference</th>
-                  <th className="px-6 py-3">Designation</th>
-                  <th className="px-6 py-3">Qt</th>
-                  <th className="px-6 py-3">Prix HT (EUR)</th>
-                  <th className="px-6 py-3">TVA</th>
-                  <th className="px-6 py-3 text-right">Total TTC</th>
-                  <th className="px-6 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200">
-                {items.map((item) => {
-                  const amounts = computed.find((x) => x.key === item.key);
-                  const lineTotal = amounts?.lineTotalTtcCents ?? 0;
-
-                  return (
-                    <tr key={item.key} className="align-top">
-                      <td className="px-6 py-4">
-                        <select
-                          className="h-10 w-56 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
-                          value={item.productId ?? ""}
-                          onChange={(event) =>
-                            applyProductToItem(item.key, event.target.value)
-                          }
-                        >
-                          <option value="">-</option>
-                          {products.map((product) => (
-                            <option key={product.id} value={product.id}>
-                              {product.reference
-                                ? `${product.reference} - `
-                                : ""}
-                              {product.designation}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-6 py-4">
-                        <input
-                          className="h-10 w-32 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
-                          placeholder="REF"
-                          value={item.reference}
-                          onChange={(event) =>
-                            setItems((prev) =>
-                              prev.map((x) =>
-                                x.key === item.key
-                                  ? { ...x, reference: event.target.value }
-                                  : x
-                              )
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="px-6 py-4">
-                        <input
-                          className="h-10 w-72 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
-                          placeholder="Designation"
-                          required
-                          value={item.designation}
-                          onChange={(event) =>
-                            setItems((prev) =>
-                              prev.map((x) =>
-                                x.key === item.key
-                                  ? { ...x, designation: event.target.value }
-                                  : x
-                              )
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="px-6 py-4">
-                        <input
-                          className="h-10 w-20 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
-                          min={1}
-                          step={1}
-                          type="number"
-                          value={item.quantity}
-                          onChange={(event) =>
-                            setItems((prev) =>
-                              prev.map((x) =>
-                                x.key === item.key
-                                  ? {
-                                      ...x,
-                                      quantity: Math.max(
-                                        1,
-                                        Number(event.target.value || 1)
-                                      ),
-                                    }
-                                  : x
-                              )
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="px-6 py-4">
-                        <input
-                          className="h-10 w-28 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
-                          inputMode="decimal"
-                          placeholder="0,00"
-                          required
-                          value={item.unitPriceEuros}
-                          onChange={(event) =>
-                            setItems((prev) =>
-                              prev.map((x) =>
-                                x.key === item.key
-                                  ? { ...x, unitPriceEuros: event.target.value }
-                                  : x
-                              )
-                            )
-                          }
-                        />
-                        {amounts && !amounts.valid ? (
-                          <p className="mt-1 text-xs text-red-700">
-                            Prix invalide
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="px-6 py-4">
-                        <select
-                          className="h-10 w-24 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
-                          value={item.taxRateBp}
-                          onChange={(event) =>
-                            setItems((prev) =>
-                              prev.map((x) =>
-                                x.key === item.key
-                                  ? {
-                                      ...x,
-                                      taxRateBp: Number(event.target.value),
-                                    }
-                                  : x
-                              )
-                            )
-                          }
-                        >
-                          {TAX_RATE_OPTIONS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="mt-1 text-xs text-zinc-600">
-                          {taxLabelFromBp(item.taxRateBp)}
-                        </p>
-                      </td>
-                      <td className="px-6 py-4 text-right font-medium">
-                        {formatEUR(lineTotal)}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
-                          onClick={() => removeItem(item.key)}
-                          type="button"
-                        >
-                          Retirer
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="border-t border-zinc-200 px-6 py-4">
-            <div className="ml-auto grid max-w-sm gap-2 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-600">Total HT</span>
-                <span className="font-medium">
-                  {formatEUR(orderTotals.totalHtCents)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-600">TVA</span>
-                <span className="font-medium">
-                  {formatEUR(orderTotals.totalTaxCents)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-base">
-                <span className="font-semibold">Total TTC</span>
-                <span className="font-semibold">
-                  {formatEUR(orderTotals.totalTtcCents)}
-                </span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <div className="flex items-center justify-end gap-3">
-          <button
-            className="inline-flex h-11 items-center justify-center rounded-xl bg-zinc-900 px-5 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={creating}
-            type="submit"
-          >
-            {creating ? "Creation..." : "Creer le bon"}
-          </button>
+      {/* Error message */}
+      {displayError && (
+        <div className="mx-auto max-w-4xl px-4 pb-4">
+          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {displayError}
+          </p>
         </div>
+      )}
+
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="mx-auto max-w-4xl px-4 pb-4">
+          <p className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+            Chargement des donnees...
+          </p>
+        </div>
+      )}
+
+      {/* WYSIWYG Document */}
+      <form id="order-form" onSubmit={onCreateOrder}>
+        <PurchaseOrderDocument
+          editable={true}
+          issuerName="Thomas Dupont"
+          issuerRole="Charge d'affaires"
+          orderDate={new Date().toISOString()}
+          supplier={selectedSupplier}
+          supplierId={supplierId}
+          onSupplierChange={setSupplierId}
+          supplierOptions={suppliers.map((s) => ({ id: s.id, name: s.name }))}
+          deliverySite={selectedSite}
+          deliverySiteId={deliverySiteId}
+          onDeliverySiteChange={setDeliverySiteId}
+          siteOptions={sites.map((s) => ({
+            id: s.id,
+            name: s.name,
+            project_code: s.project_code,
+          }))}
+          expectedDeliveryDate={expectedDeliveryDate}
+          onExpectedDeliveryDateChange={setExpectedDeliveryDate}
+          notes={notes}
+          onNotesChange={setNotes}
+          items={documentItems}
+          onItemChange={handleItemChange}
+          onItemRemove={removeItem}
+          onItemAdd={addItem}
+          productOptions={products}
+          onProductSelect={applyProductToItem}
+          totalHtCents={orderTotals.totalHtCents}
+          totalTaxCents={orderTotals.totalTaxCents}
+          totalTtcCents={orderTotals.totalTtcCents}
+        />
       </form>
     </div>
   );
