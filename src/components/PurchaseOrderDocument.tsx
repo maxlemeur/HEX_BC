@@ -30,22 +30,15 @@ export type DeliverySiteData = {
 
 export type OrderItemData = {
   key: string;
-  reference?: string | null;
   designation: string;
   quantity: number;
+  unitPriceInput?: string;
   unitPriceHtCents: number;
   lineTotalHtCents: number;
 };
 
 export type SupplierOption = { id: string; name: string };
 export type SiteOption = { id: string; name: string; project_code?: string | null };
-export type ProductOption = {
-  id: string;
-  designation: string;
-  reference?: string | null;
-  unit_price_cents: number;
-  tax_rate_bp: number;
-};
 
 type PurchaseOrderDocumentProps = {
   // Mode
@@ -54,6 +47,8 @@ type PurchaseOrderDocumentProps = {
   // Header
   issuerName: string;
   issuerRole: string;
+  issuerPhone?: string;
+  issuerEmail?: string;
   orderDate: string;
 
   // Reference
@@ -84,8 +79,6 @@ type PurchaseOrderDocumentProps = {
   onItemChange?: (key: string, field: string, value: string | number) => void;
   onItemRemove?: (key: string) => void;
   onItemAdd?: () => void;
-  productOptions?: ProductOption[];
-  onProductSelect?: (itemKey: string, productId: string) => void;
 
   // Totaux
   totalHtCents: number;
@@ -105,6 +98,8 @@ export function PurchaseOrderDocument({
   editable = false,
   issuerName,
   issuerRole,
+  issuerPhone,
+  issuerEmail,
   orderDate,
   reference,
   supplier,
@@ -123,8 +118,6 @@ export function PurchaseOrderDocument({
   onItemChange,
   onItemRemove,
   onItemAdd,
-  productOptions = [],
-  onProductSelect,
   totalHtCents,
   totalTaxCents,
   totalTtcCents,
@@ -135,7 +128,7 @@ export function PurchaseOrderDocument({
       <div className="sidebar-accent print-color-adjust" />
 
       {/* Header */}
-      <div className="mb-12 flex items-start justify-between">
+      <div className="mb-12 flex items-start justify-between print:mb-6">
         {/* Left: Logo and issuer info */}
         <div className="flex flex-col">
           <div className="mb-4">
@@ -144,64 +137,66 @@ export function PurchaseOrderDocument({
               alt="Hydro eXpress"
               width={200}
               height={80}
-              className="h-20 w-auto"
+              className="h-20 w-auto print:h-14"
               priority
             />
           </div>
 
-          <div className="mt-6 text-sm">
-            <p className="mb-2 font-bold italic text-gray-800 underline underline-offset-4">
-              Emis par :
+          <div className="mt-6 text-sm print:mt-2">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Émis par
             </p>
             <p className="text-lg font-bold text-brand-blue">{issuerName}</p>
-            <p className="text-sm italic text-slate-500">{issuerRole}</p>
-            <p className="mt-3 text-xs font-semibold italic text-gray-400">
+            <p className="text-sm text-slate-500">{issuerRole}</p>
+            {issuerPhone && (
+              <p className="mt-1 text-sm text-slate-500">{issuerPhone}</p>
+            )}
+            {issuerEmail && (
+              <p className="text-sm text-slate-500">{issuerEmail}</p>
+            )}
+            <p className="mt-3 text-xs font-medium text-slate-500 print:mt-1">
               Le {formatDate(orderDate)}
             </p>
           </div>
         </div>
 
         {/* Right: Company info box */}
-        <div className="min-w-[280px] rounded-xl border border-slate-200 bg-brand-bg p-5 text-right">
-          <h3 className="mb-2 text-sm font-extrabold uppercase tracking-wider text-brand-blue">
+        <div className="min-w-[280px] rounded-xl border border-slate-200 bg-slate-50 p-5 text-right print:p-3">
+          <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-brand-blue">
             {COMPANY_INFO.name}
           </h3>
-          <p className="text-sm font-medium italic tracking-tight text-slate-600">
+          <p className="text-sm text-slate-600">
             {COMPANY_INFO.address.street}
           </p>
-          <p className="text-sm font-medium italic tracking-tight text-slate-600">
+          <p className="text-sm text-slate-600">
             {COMPANY_INFO.address.postalCode} {COMPANY_INFO.address.city}
           </p>
-          <div className="mt-2">
-            <p className="text-sm font-medium italic tracking-tight text-slate-600">
-              {COMPANY_INFO.phone.landline}
-            </p>
-            <p className="text-sm font-medium italic tracking-tight text-slate-600">
-              {COMPANY_INFO.phone.mobile}
-            </p>
+          <div className="mt-2 text-sm text-slate-600">
+            <p>{COMPANY_INFO.phone.landline}</p>
+            <p>{COMPANY_INFO.phone.mobile}</p>
           </div>
         </div>
       </div>
 
       {/* Document Title & Reference */}
-      <div className="mb-10 text-center">
-        <h2 className="mb-4 text-4xl font-black uppercase tracking-tight text-slate-800">
+      <div className="mb-10 text-center print:mb-4">
+        <h2 className="mb-4 text-4xl font-black uppercase tracking-tight text-slate-800 print:mb-2 print:text-3xl">
           Bon de Commande
         </h2>
-        <p className="inline-block rounded-full border border-slate-100 bg-slate-50 px-8 py-2 font-mono text-sm uppercase tracking-widest text-slate-400">
+        <p className="inline-block rounded-lg border border-slate-200 bg-slate-50 px-6 py-2 font-mono text-sm uppercase tracking-wide text-slate-500">
           REF :{" "}
           <span className="font-bold text-brand-orange">
-            {reference ?? "AUTO-GENEREE"}
+            {reference ?? "AUTO-GÉNÉRÉE"}
           </span>
         </p>
       </div>
 
       {/* Info Grid: Supplier + Delivery */}
-      <div className="mb-8 grid grid-cols-2 gap-8">
+      <div className="mb-8 grid grid-cols-2 gap-8 print:mb-4">
         {/* Supplier Box */}
-        <div className="flex flex-col justify-between rounded-2xl border border-slate-100 bg-brand-bg p-6">
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50 p-6 print:p-4">
           <div>
-            <h4 className="mb-4 text-[10px] font-black italic uppercase tracking-widest text-brand-orange">
+            <h4 className="mb-4 text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
               Fournisseur
             </h4>
             {editable ? (
@@ -248,19 +243,19 @@ export function PurchaseOrderDocument({
         </div>
 
         {/* Delivery & Project Box */}
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-          <h4 className="mb-4 text-[10px] font-black italic uppercase tracking-widest text-slate-400">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 print:p-4">
+          <h4 className="mb-4 text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
             Livraison & Projet
           </h4>
-          <div className="space-y-4">
+          <div className="space-y-4 print:space-y-2">
             <div>
-              <p className="mb-1 text-[10px] font-bold uppercase text-slate-400">
-                Date souhaitee :
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Date souhaitée
               </p>
               {editable ? (
                 <input
                   type="date"
-                  className="doc-input delivery-badge-orange w-full text-lg font-black uppercase tracking-tight print-color-adjust"
+                  className="doc-input w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-semibold text-brand-blue"
                   value={expectedDeliveryDate ?? ""}
                   onChange={(e) => onExpectedDeliveryDateChange?.(e.target.value)}
                 />
@@ -271,21 +266,21 @@ export function PurchaseOrderDocument({
                   </span>
                 </div>
               ) : (
-                <p className="text-sm italic text-slate-400">Non definie</p>
+                <p className="text-sm text-slate-500">Non définie</p>
               )}
             </div>
             <div>
-              <p className="mb-1 text-[10px] font-bold italic uppercase tracking-wide text-slate-400">
-                Chantier & Contacts :
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Chantier & Contacts
               </p>
               {editable ? (
                 <select
-                  className="doc-select mb-2 w-full text-lg font-extrabold uppercase italic text-brand-blue"
+                  className="doc-select mb-2 w-full text-base font-bold text-brand-blue"
                   value={deliverySiteId ?? ""}
                   onChange={(e) => onDeliverySiteChange?.(e.target.value)}
                   required
                 >
-                  <option value="">- Selectionner -</option>
+                  <option value="">- Sélectionner -</option>
                   {siteOptions.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.project_code ? `${s.project_code} - ` : ""}
@@ -294,12 +289,12 @@ export function PurchaseOrderDocument({
                   ))}
                 </select>
               ) : (
-                <p className="mb-2 text-lg font-extrabold uppercase italic leading-tight text-brand-blue">
+                <p className="mb-2 text-base font-bold text-brand-blue">
                   {deliverySite?.name ?? "-"}
                 </p>
               )}
               {deliverySite && (
-                <div className="text-sm font-medium italic leading-relaxed tracking-tight text-slate-600">
+                <div className="text-sm text-slate-600">
                   {deliverySite.address && <p>{deliverySite.address}</p>}
                   <p>
                     {deliverySite.postal_code} {deliverySite.city}
@@ -320,19 +315,19 @@ export function PurchaseOrderDocument({
 
       {/* Notes / Instructions */}
       {(editable || notes) && (
-        <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-5">
-          <h4 className="mb-2 text-[10px] font-black uppercase tracking-widest text-brand-blue">
-            Note / Instructions complementaires
+        <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5 print:mb-4">
+          <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-blue">
+            Note / Instructions complémentaires
           </h4>
           {editable ? (
             <textarea
-              className="doc-input min-h-[60px] w-full whitespace-pre-wrap text-sm italic text-slate-700"
-              placeholder="Informations complementaires, consignes de livraison..."
+              className="doc-input min-h-[60px] w-full resize-none whitespace-pre-wrap text-sm text-slate-700"
+              placeholder="Informations complémentaires, consignes de livraison..."
               value={notes ?? ""}
               onChange={(e) => onNotesChange?.(e.target.value)}
             />
           ) : (
-            <p className="min-h-[40px] whitespace-pre-wrap text-sm italic text-slate-700">
+            <p className="min-h-[40px] whitespace-pre-wrap text-sm text-slate-700">
               {notes}
             </p>
           )}
@@ -343,13 +338,11 @@ export function PurchaseOrderDocument({
       <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
         <table className="w-full">
           <thead>
-            <tr className="table-head bg-brand-blue text-left text-[10px] font-bold uppercase tracking-widest text-white print-color-adjust">
-              {editable && <th className="px-4 py-4 w-48">Produit</th>}
-              <th className="px-6 py-4">Reference</th>
-              <th className="px-6 py-4">Designation</th>
-              <th className="px-6 py-4 text-center">Qte</th>
-              <th className="px-6 py-4 text-right">P.U. HT</th>
-              <th className="px-6 py-4 text-right">Total HT</th>
+            <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
+              <th className="px-6 py-4 print:px-4 print:py-2">Designation</th>
+              <th className="w-20 px-3 py-4 text-center print:px-2 print:py-2">Qte</th>
+              <th className="w-28 px-3 py-4 text-right print:px-2 print:py-2">P.U. HT</th>
+              <th className="w-32 px-4 py-4 text-right print:px-2 print:py-2">Total HT</th>
               {editable && <th className="px-4 py-4 w-12"></th>}
             </tr>
           </thead>
@@ -359,39 +352,7 @@ export function PurchaseOrderDocument({
                 key={item.key}
                 className={editable ? "doc-table-row-editable" : ""}
               >
-                {editable && (
-                  <td className="px-4 py-3">
-                    <select
-                      className="doc-select w-full text-xs"
-                      onChange={(e) => onProductSelect?.(item.key, e.target.value)}
-                      defaultValue=""
-                    >
-                      <option value="">-</option>
-                      {productOptions.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.reference ? `${p.reference} - ` : ""}
-                          {p.designation}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                )}
-                <td className="px-6 py-4 font-mono text-xs text-slate-400">
-                  {editable ? (
-                    <input
-                      type="text"
-                      className="doc-input w-24"
-                      placeholder="REF"
-                      value={item.reference ?? ""}
-                      onChange={(e) =>
-                        onItemChange?.(item.key, "reference", e.target.value)
-                      }
-                    />
-                  ) : (
-                    item.reference ?? "-"
-                  )}
-                </td>
-                <td className="px-6 py-4 font-medium text-slate-800">
+                <td className="px-6 py-4 font-medium text-slate-800 print:px-4 print:py-2">
                   {editable ? (
                     <input
                       type="text"
@@ -407,11 +368,11 @@ export function PurchaseOrderDocument({
                     item.designation
                   )}
                 </td>
-                <td className="px-6 py-4 text-center font-bold">
+                <td className="w-20 px-3 py-4 text-center font-bold print:px-2 print:py-2">
                   {editable ? (
                     <input
                       type="number"
-                      className="doc-input w-16 text-center"
+                      className="doc-input w-14 text-center"
                       min={1}
                       value={item.quantity}
                       onChange={(e) =>
@@ -426,18 +387,19 @@ export function PurchaseOrderDocument({
                     item.quantity
                   )}
                 </td>
-                <td className="px-6 py-4 text-right">
+                <td className="w-28 px-3 py-4 text-right print:px-2 print:py-2">
                   {editable ? (
                     <input
                       type="text"
-                      className="doc-input w-24 text-right"
+                      className="doc-input w-20 text-right"
                       placeholder="0,00"
                       value={
-                        item.unitPriceHtCents
+                        item.unitPriceInput ??
+                        (item.unitPriceHtCents
                           ? (item.unitPriceHtCents / 100)
                               .toFixed(2)
                               .replace(".", ",")
-                          : ""
+                          : "")
                       }
                       onChange={(e) =>
                         onItemChange?.(item.key, "unitPriceEuros", e.target.value)
@@ -447,7 +409,7 @@ export function PurchaseOrderDocument({
                     formatEUR(item.unitPriceHtCents)
                   )}
                 </td>
-                <td className="px-6 py-4 text-right font-bold">
+                <td className="w-32 px-4 py-4 text-right font-bold print:px-2 print:py-2">
                   {formatEUR(item.lineTotalHtCents)}
                 </td>
                 {editable && (
@@ -491,44 +453,53 @@ export function PurchaseOrderDocument({
       </div>
 
       {/* Financial Summary */}
-      <div className="mb-8 flex justify-end">
-        <div className="w-full max-w-[340px] space-y-3">
-          {/* Total HT Badge */}
-          <div className="delivery-badge-orange flex w-full items-center justify-between px-8 py-4 print-color-adjust">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">
-              Total Net HT
-            </span>
-            <span className="text-3xl font-black">
-              {formatEUR(totalHtCents)}
-            </span>
-          </div>
-
-          {/* TVA & TTC */}
-          <div className="flex flex-col gap-1.5 rounded-xl border border-slate-100 bg-slate-50 px-6 py-3">
-            <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400">
-              <span>TVA</span>
-              <span className="text-slate-600">{formatEUR(totalTaxCents)}</span>
+      <div className="mb-8 flex justify-end print:mb-4">
+        <div className="w-full max-w-[320px] space-y-2">
+          {/* Totals Table */}
+          <div className="rounded-xl border border-slate-200 overflow-hidden">
+            {/* Total HT - Highlighted for B2B */}
+            <div className="flex justify-between items-center px-5 py-3 bg-brand-blue print-color-adjust">
+              <span className="text-xs font-bold uppercase tracking-wide text-white/80">
+                Total HT
+              </span>
+              <span className="text-xl font-bold text-white">
+                {formatEUR(totalHtCents)}
+              </span>
             </div>
-            <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400">
-              <span>Total TTC</span>
-              <span className="text-slate-600">{formatEUR(totalTtcCents)}</span>
+            {/* TVA */}
+            <div className="flex justify-between items-center px-5 py-2 bg-slate-50 border-b border-slate-100">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                TVA
+              </span>
+              <span className="text-sm font-medium text-slate-600">
+                {formatEUR(totalTaxCents)}
+              </span>
+            </div>
+            {/* Total TTC */}
+            <div className="flex justify-between items-center px-5 py-2 bg-slate-50">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Total TTC
+              </span>
+              <span className="text-sm font-semibold text-slate-600">
+                {formatEUR(totalTtcCents)}
+              </span>
             </div>
           </div>
         </div>
       </div>
 
       {/* Confirmation Note */}
-      <div className="note-container mb-12 rounded-r-2xl p-6 print-color-adjust">
+      <div className="note-container mb-12 rounded-r-xl p-5 print-color-adjust print:mb-4 print:p-3">
         <div className="flex items-center gap-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-orange/10 text-brand-orange">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-orange/15 text-brand-orange">
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="3"
+              strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
@@ -537,15 +508,15 @@ export function PurchaseOrderDocument({
               <line x1="12" y1="8" x2="12.01" y2="8" />
             </svg>
           </div>
-          <p className="text-lg font-bold italic leading-snug text-slate-700">
+          <p className="text-sm font-medium leading-relaxed text-slate-600">
             Merci de confirmer la bonne prise en compte de ce bon de commande et
-            de valider les dates de livraison le cas echeant.
+            de valider les dates de livraison le cas échéant.
           </p>
         </div>
       </div>
 
       {/* Footer */}
-      <div className="absolute bottom-10 left-16 right-16 border-t border-slate-100 pt-6 text-center text-[10px] font-bold uppercase tracking-widest text-slate-400">
+      <div className="absolute bottom-10 left-16 right-16 border-t border-slate-200 pt-5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 print:bottom-4 print:pt-3 print:left-8 print:right-8">
         <p className="mb-1">{COMPANY_INFO.name}</p>
         <p>SIRET {COMPANY_INFO.legal.siret}</p>
       </div>
