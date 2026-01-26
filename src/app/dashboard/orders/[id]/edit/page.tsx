@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 
 import {
@@ -11,7 +11,6 @@ import {
   type SupplierData,
   type DeliverySiteData,
 } from "@/components/PurchaseOrderDocument";
-import { SupplierCreateModal, type SupplierCreateResult } from "@/components/SupplierCreateModal";
 import {
   computeLineTotals,
   computeOrderTotals,
@@ -19,7 +18,16 @@ import {
 import { parseEuroToCents } from "@/lib/money";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type SupplierOption = SupplierCreateResult;
+type SupplierOption = {
+  id: string;
+  name: string;
+  address: string | null;
+  postal_code: string | null;
+  city: string | null;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+};
 
 type SiteOption = {
   id: string;
@@ -40,6 +48,36 @@ type DraftItem = {
   taxRateBp: number;
 };
 
+type ExistingOrder = {
+  id: string;
+  reference: string;
+  order_date: string;
+  expected_delivery_date: string | null;
+  notes: string | null;
+  supplier_id: string;
+  delivery_site_id: string;
+  status: string;
+};
+
+type ExistingItem = {
+  id: string;
+  designation: string;
+  quantity: number;
+  unit_price_ht_cents: number;
+  tax_rate_bp: number;
+};
+
+type UserProfile = {
+  full_name: string;
+  job_title: string | null;
+  phone: string | null;
+  work_email: string | null;
+};
+
+function euroInputFromCents(cents: number) {
+  return (cents / 100).toFixed(2).replace(".", ",");
+}
+
 function newDraftItem(): DraftItem {
   return {
     key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -50,16 +88,33 @@ function newDraftItem(): DraftItem {
   };
 }
 
-type UserProfile = {
-  full_name: string;
-  job_title: string | null;
-  phone: string | null;
-  work_email: string | null;
-};
+function existingItemToDraft(item: ExistingItem): DraftItem {
+  return {
+    key: item.id,
+    designation: item.designation,
+    quantity: item.quantity,
+    unitPriceEuros: euroInputFromCents(item.unit_price_ht_cents),
+    taxRateBp: item.tax_rate_bp,
+  };
+}
 
-export default function NewOrderPage() {
+export default function EditOrderPage({
+  params,
+}: Readonly<{ params: Promise<{ id: string }> }>) {
+  const { id } = use(params);
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  const [supplierId, setSupplierId] = useState<string>("");
+  const [deliverySiteId, setDeliverySiteId] = useState<string>("");
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>("");
+  const [notes, setNotes] = useState<string>("");
+  const [items, setItems] = useState<DraftItem[]>([]);
+  const [orderDate, setOrderDate] = useState<string>("");
+  const [reference, setReference] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
 
   // User profile for document header
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -86,14 +141,59 @@ export default function NewOrderPage() {
     loadUserProfile();
   }, [supabase]);
 
-  const [supplierId, setSupplierId] = useState<string>("");
-  const [deliverySiteId, setDeliverySiteId] = useState<string>("");
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>("");
-  const [notes, setNotes] = useState<string>("");
-  const [items, setItems] = useState<DraftItem[]>([newDraftItem()]);
-  const [creating, setCreating] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
+  // Fetch existing order
+  const fetchOrder = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("purchase_orders")
+      .select("id, reference, order_date, expected_delivery_date, notes, supplier_id, delivery_site_id, status")
+      .eq("id", id)
+      .single();
+
+    if (error) throw error;
+    return data as ExistingOrder;
+  }, [supabase, id]);
+
+  const fetchOrderItems = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("purchase_order_items")
+      .select("id, designation, quantity, unit_price_ht_cents, tax_rate_bp")
+      .eq("purchase_order_id", id)
+      .order("position", { ascending: true });
+
+    if (error) throw error;
+    return (data ?? []) as ExistingItem[];
+  }, [supabase, id]);
+
+  const { data: order, error: orderError, isLoading: isOrderLoading } = useSWR(
+    `edit-order-${id}`,
+    fetchOrder
+  );
+
+  const { data: orderItems, error: itemsError, isLoading: isItemsLoading } = useSWR(
+    `edit-order-items-${id}`,
+    fetchOrderItems
+  );
+
+  // Initialize form with existing data
+  useEffect(() => {
+    if (order && orderItems && !initialized) {
+      setSupplierId(order.supplier_id);
+      setDeliverySiteId(order.delivery_site_id);
+      setExpectedDeliveryDate(order.expected_delivery_date ?? "");
+      setNotes(order.notes ?? "");
+      setOrderDate(order.order_date);
+      setReference(order.reference);
+      setItems(
+        orderItems.length > 0
+          ? orderItems.map(existingItemToDraft)
+          : [newDraftItem()]
+      );
+      setInitialized(true);
+    }
+  }, [order, orderItems, initialized]);
+
+  // Check if order is draft
+  const isDraft = order?.status === "draft";
 
   const fetchSuppliers = useCallback(async () => {
     const { data, error } = await supabase
@@ -121,7 +221,6 @@ export default function NewOrderPage() {
     data: suppliers = [],
     error: suppliersError,
     isLoading: isSuppliersLoading,
-    mutate: mutateSuppliers,
   } = useSWR<SupplierOption[]>("po-suppliers-full", fetchSuppliers, {
     refreshInterval: 30000,
     revalidateOnFocus: true,
@@ -138,9 +237,9 @@ export default function NewOrderPage() {
     revalidateOnReconnect: true,
   });
 
-  const loadError = suppliersError ?? sitesError;
-  const isLoading = isSuppliersLoading || isSitesLoading;
-  const displayError = formError ?? (loadError ? loadError.message : null);
+  const loadError = suppliersError ?? sitesError ?? orderError ?? itemsError;
+  const isLoading = isSuppliersLoading || isSitesLoading || isOrderLoading || isItemsLoading;
+  const displayError = formError ?? (loadError ? (loadError as Error).message : null);
 
   // Get selected supplier and site data
   const selectedSupplier: SupplierData | null = useMemo(() => {
@@ -174,21 +273,6 @@ export default function NewOrderPage() {
       contact_phone: s.contact_phone,
     };
   }, [deliverySiteId, sites]);
-
-  const handleSupplierCreated = useCallback(
-    (supplier: SupplierCreateResult) => {
-      setSupplierId(supplier.id);
-      mutateSuppliers(
-        (current = []) => {
-          const exists = current.some((item) => item.id === supplier.id);
-          if (exists) return current;
-          return [...current, supplier].sort((a, b) => a.name.localeCompare(b.name));
-        },
-        { revalidate: true }
-      );
-    },
-    [mutateSuppliers]
-  );
 
   function handleItemChange(key: string, field: string, value: string | number) {
     setItems((prev) =>
@@ -263,9 +347,14 @@ export default function NewOrderPage() {
     };
   });
 
-  async function onCreateOrder(event: React.FormEvent<HTMLFormElement>) {
+  async function onSaveOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+
+    if (!isDraft) {
+      setFormError("Seuls les bons de commande en brouillon peuvent etre modifies.");
+      return;
+    }
 
     if (!supplierId || !deliverySiteId) {
       setFormError("Selectionnez un fournisseur et un chantier.");
@@ -296,10 +385,10 @@ export default function NewOrderPage() {
       return;
     }
 
-    setCreating(true);
+    setSaving(true);
 
-    const response = await fetch("/api/purchase-orders", {
-      method: "POST",
+    const response = await fetch(`/api/purchase-orders/${id}`, {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         supplierId,
@@ -310,22 +399,69 @@ export default function NewOrderPage() {
       }),
     });
 
-    setCreating(false);
+    setSaving(false);
 
-    let result: { id?: string; error?: string } | null = null;
+    let result: { success?: boolean; error?: string } | null = null;
     try {
-      result = (await response.json()) as { id?: string; error?: string };
+      result = (await response.json()) as { success?: boolean; error?: string };
     } catch {
       result = null;
     }
 
-    if (!response.ok || !result?.id) {
-      setFormError(result?.error ?? "Impossible de creer le bon.");
+    if (!response.ok || !result?.success) {
+      setFormError(result?.error ?? "Impossible de modifier le bon.");
       return;
     }
 
-    router.push(`/dashboard/orders/${result.id}`);
+    router.push(`/dashboard/orders/${id}`);
     router.refresh();
+  }
+
+  // Show error if order is not draft
+  if (order && !isDraft) {
+    return (
+      <div className="min-h-screen bg-[var(--slate-100)]">
+        <div className="border-b border-[var(--slate-200)] bg-white/80 backdrop-blur-md">
+          <div className="mx-auto flex max-w-5xl items-center gap-4 px-6 py-4">
+            <Link
+              className="btn btn-ghost btn-sm"
+              href={`/dashboard/orders/${id}`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+              Retour
+            </Link>
+          </div>
+        </div>
+        <div className="mx-auto max-w-4xl px-4 pt-6">
+          <div className="alert alert-error">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="m15 9-6 6" />
+              <path d="m9 9 6 6" />
+            </svg>
+            Seuls les bons de commande en brouillon peuvent etre modifies.
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -337,7 +473,7 @@ export default function NewOrderPage() {
           <div className="flex items-center gap-4">
             <Link
               className="btn btn-ghost btn-sm"
-              href="/dashboard/orders"
+              href={`/dashboard/orders/${id}`}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -354,21 +490,26 @@ export default function NewOrderPage() {
             </Link>
             <div className="hidden h-6 w-px bg-[var(--slate-200)] sm:block" />
             <span className="hidden text-sm font-semibold text-[var(--slate-700)] sm:block">
-              Nouveau bon de commande
+              Modifier le bon de commande
             </span>
+            {reference && (
+              <span className="hidden rounded-lg bg-[var(--brand-orange)]/10 px-2.5 py-1 font-mono text-sm font-bold text-[var(--brand-orange)] sm:inline-block">
+                {reference}
+              </span>
+            )}
           </div>
 
-          {/* Right: Create button */}
+          {/* Right: Save button */}
           <button
             className="btn btn-accent btn-lg"
-            disabled={creating || isLoading}
+            disabled={saving || isLoading || !initialized}
             form="order-form"
             type="submit"
           >
-            {creating ? (
+            {saving ? (
               <>
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
-                Creation...
+                Enregistrement...
               </>
             ) : (
               <>
@@ -381,10 +522,11 @@ export default function NewOrderPage() {
                   stroke="currentColor"
                   strokeWidth="2"
                 >
-                  <path d="M5 12h14" />
-                  <path d="M12 5v14" />
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                  <polyline points="17 21 17 13 7 13 7 21" />
+                  <polyline points="7 3 7 8 15 8" />
                 </svg>
-                Creer le bon
+                Enregistrer
               </>
             )}
           </button>
@@ -424,46 +566,42 @@ export default function NewOrderPage() {
       )}
 
       {/* WYSIWYG Document */}
-      <form id="order-form" onSubmit={onCreateOrder} className="py-8">
-        <PurchaseOrderDocument
-          editable={true}
-          issuerName={userProfile?.full_name ?? "Chargement..."}
-          issuerRole={userProfile?.job_title ?? ""}
-          issuerPhone={userProfile?.phone ?? undefined}
-          issuerEmail={userProfile?.work_email ?? undefined}
-          orderDate={new Date().toISOString()}
-          supplier={selectedSupplier}
-          supplierId={supplierId}
-          onSupplierChange={setSupplierId}
-          supplierOptions={suppliers.map((s) => ({ id: s.id, name: s.name }))}
-          onSupplierCreate={() => setIsSupplierModalOpen(true)}
-          isSupplierCreateDisabled={creating || isLoading}
-          deliverySite={selectedSite}
-          deliverySiteId={deliverySiteId}
-          onDeliverySiteChange={setDeliverySiteId}
-          siteOptions={sites.map((s) => ({
-            id: s.id,
-            name: s.name,
-            project_code: s.project_code,
-          }))}
-          expectedDeliveryDate={expectedDeliveryDate}
-          onExpectedDeliveryDateChange={setExpectedDeliveryDate}
-          notes={notes}
-          onNotesChange={setNotes}
-          items={documentItems}
-          onItemChange={handleItemChange}
-          onItemRemove={removeItem}
-          onItemAdd={addItem}
-          totalHtCents={orderTotals.totalHtCents}
-          totalTaxCents={orderTotals.totalTaxCents}
-          totalTtcCents={orderTotals.totalTtcCents}
-        />
-      </form>
-      <SupplierCreateModal
-        open={isSupplierModalOpen}
-        onClose={() => setIsSupplierModalOpen(false)}
-        onCreated={handleSupplierCreated}
-      />
+      {initialized && (
+        <form id="order-form" onSubmit={onSaveOrder} className="py-8">
+          <PurchaseOrderDocument
+            editable={true}
+            issuerName={userProfile?.full_name ?? "Chargement..."}
+            issuerRole={userProfile?.job_title ?? ""}
+            issuerPhone={userProfile?.phone ?? undefined}
+            issuerEmail={userProfile?.work_email ?? undefined}
+            orderDate={orderDate || new Date().toISOString()}
+            reference={reference}
+            supplier={selectedSupplier}
+            supplierId={supplierId}
+            onSupplierChange={setSupplierId}
+            supplierOptions={suppliers.map((s) => ({ id: s.id, name: s.name }))}
+            deliverySite={selectedSite}
+            deliverySiteId={deliverySiteId}
+            onDeliverySiteChange={setDeliverySiteId}
+            siteOptions={sites.map((s) => ({
+              id: s.id,
+              name: s.name,
+              project_code: s.project_code,
+            }))}
+            expectedDeliveryDate={expectedDeliveryDate}
+            onExpectedDeliveryDateChange={setExpectedDeliveryDate}
+            notes={notes}
+            onNotesChange={setNotes}
+            items={documentItems}
+            onItemChange={handleItemChange}
+            onItemRemove={removeItem}
+            onItemAdd={addItem}
+            totalHtCents={orderTotals.totalHtCents}
+            totalTaxCents={orderTotals.totalTaxCents}
+            totalTtcCents={orderTotals.totalTtcCents}
+          />
+        </form>
+      )}
     </div>
   );
 }

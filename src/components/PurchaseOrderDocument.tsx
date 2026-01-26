@@ -31,6 +31,7 @@ export type DeliverySiteData = {
 export type OrderItemData = {
   key: string;
   designation: string;
+  reference?: string | null;
   quantity: number;
   unitPriceInput?: string;
   unitPriceHtCents: number;
@@ -59,6 +60,8 @@ type PurchaseOrderDocumentProps = {
   supplierId?: string;
   onSupplierChange?: (id: string) => void;
   supplierOptions?: SupplierOption[];
+  onSupplierCreate?: () => void;
+  isSupplierCreateDisabled?: boolean;
 
   // Site de livraison
   deliverySite: DeliverySiteData | null;
@@ -94,6 +97,43 @@ function formatDate(dateStr: string): string {
   });
 }
 
+const BLANK_DELIVERY_SITE_NAMES = new Set([
+  "non applicable",
+  "retrait comptoir",
+]);
+
+function shouldHideDeliveryDetails(site: DeliverySiteData | null): boolean {
+  if (!site) return true;
+  const normalizedName = site.name.trim().toLowerCase();
+  return BLANK_DELIVERY_SITE_NAMES.has(normalizedName);
+}
+
+function hasDeliveryDetails(site: DeliverySiteData): boolean {
+  return Boolean(
+    site.address ||
+      site.postal_code ||
+      site.city ||
+      site.contact_name ||
+      site.contact_phone
+  );
+}
+
+function resolveItemDesignation(item: OrderItemData): string {
+  const designation = item.designation?.trim();
+  if (designation) return designation;
+  const reference = item.reference?.trim();
+  return reference || "-";
+}
+
+const MAX_NOTES_LINES = 3;
+
+function clampLines(value: string, maxLines: number): string {
+  const normalized = value.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  if (lines.length <= maxLines) return normalized;
+  return lines.slice(0, maxLines).join("\n");
+}
+
 export function PurchaseOrderDocument({
   editable = false,
   issuerName,
@@ -106,6 +146,8 @@ export function PurchaseOrderDocument({
   supplierId,
   onSupplierChange,
   supplierOptions = [],
+  onSupplierCreate,
+  isSupplierCreateDisabled = false,
   deliverySite,
   deliverySiteId,
   onDeliverySiteChange,
@@ -122,99 +164,113 @@ export function PurchaseOrderDocument({
   totalTaxCents,
   totalTtcCents,
 }: PurchaseOrderDocumentProps) {
+  const showDeliveryDetails =
+    deliverySite &&
+    !shouldHideDeliveryDetails(deliverySite) &&
+    hasDeliveryDetails(deliverySite);
+
   return (
-    <div className="document-page relative mx-auto my-5 overflow-hidden bg-white p-[50px] shadow-2xl print:m-0 print:p-10 print:shadow-none">
+    <div className="document-page relative mx-auto my-5 flex flex-col overflow-hidden bg-white px-[50px] pb-[50px] pt-[40px] shadow-2xl print:m-0 print:px-8 print:pb-8 print:pt-6 print:shadow-none">
       {/* Sidebar accent bar */}
       <div className="sidebar-accent print-color-adjust" />
 
-      {/* Header */}
-      <div className="mb-12 flex items-start justify-between print:mb-6">
-        {/* Left: Logo and issuer info */}
-        <div className="flex flex-col">
-          <div className="mb-4">
+      {/* Top Row: Logo + Title + Establishment */}
+      <div className="mb-8">
+        <div className="grid grid-cols-[240px_minmax(0,1fr)_240px] items-start gap-6 print:grid-cols-[220px_minmax(0,1fr)_220px] print:gap-x-4 print:gap-y-2 print:grid-rows-[auto_auto]">
+          <div className="flex items-start print:col-start-1 print:row-start-1">
             <Image
               src="/logo-hydro-express.jpg"
               alt="Hydro eXpress"
               width={200}
               height={80}
-              className="h-20 w-auto print:h-14"
+              className="h-20 w-auto object-contain print:h-16"
               priority
             />
           </div>
-
-          <div className="mt-6 text-sm print:mt-2">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Émis par
-            </p>
-            <p className="text-lg font-bold text-brand-blue">{issuerName}</p>
-            <p className="text-sm text-slate-500">{issuerRole}</p>
-            {issuerPhone && (
-              <p className="mt-1 text-sm text-slate-500">{issuerPhone}</p>
-            )}
-            {issuerEmail && (
-              <p className="text-sm text-slate-500">{issuerEmail}</p>
-            )}
-            <p className="mt-3 text-xs font-medium text-slate-500 print:mt-1">
-              Le {formatDate(orderDate)}
-            </p>
+          <div className="flex justify-center self-center print:col-span-3 print:col-start-1 print:row-start-2 print:mt-3">
+            <div className="text-center">
+              <h2 className="mb-2 text-3xl font-black uppercase tracking-tight text-slate-800 print:mb-1 print:text-3xl">
+                Bon de Commande
+              </h2>
+              <p className="inline-block rounded-lg border border-slate-200 bg-slate-50 px-6 py-2 font-mono text-xs uppercase tracking-wide text-slate-500 print:text-sm">
+                REF :{" "}
+                <span className="font-bold text-brand-orange">
+                  {reference ?? "AUTO-GENEREE"}
+                </span>
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end print:col-start-3 print:row-start-1">
+            <div className="min-w-[220px] max-w-[240px] rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-right text-sm print:px-3 print:py-2 print:text-xs">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Etablissement principal :
+              </p>
+              <p className="text-slate-600">{COMPANY_INFO.address.street}</p>
+              <p className="text-slate-600">
+                {COMPANY_INFO.address.postalCode} {COMPANY_INFO.address.city}
+              </p>
+              <div className="mt-1 text-slate-600">
+                <p>{COMPANY_INFO.phone.landline}</p>
+                <p>{COMPANY_INFO.phone.mobile}</p>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Right: Company info box */}
-        <div className="min-w-[280px] rounded-xl border border-slate-200 bg-slate-50 p-5 text-right print:p-3">
-          <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-brand-blue">
-            {COMPANY_INFO.name}
-          </h3>
-          <p className="text-sm text-slate-600">
-            {COMPANY_INFO.address.street}
+        <div className="mt-6 text-sm print:mt-3">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Emis par
           </p>
-          <p className="text-sm text-slate-600">
-            {COMPANY_INFO.address.postalCode} {COMPANY_INFO.address.city}
+          <p className="text-lg font-bold text-brand-blue">{issuerName}</p>
+          <p className="text-sm text-slate-500">{issuerRole}</p>
+          {issuerPhone && (
+            <p className="mt-1 text-sm text-slate-500">{issuerPhone}</p>
+          )}
+          {issuerEmail && (
+            <p className="text-sm text-slate-500">{issuerEmail}</p>
+          )}
+          <p className="mt-3 text-xs font-medium text-slate-500 print:mt-1">
+            Le {formatDate(orderDate)}
           </p>
-          <div className="mt-2 text-sm text-slate-600">
-            <p>{COMPANY_INFO.phone.landline}</p>
-            <p>{COMPANY_INFO.phone.mobile}</p>
-          </div>
         </div>
-      </div>
-
-      {/* Document Title & Reference */}
-      <div className="mb-10 text-center print:mb-4">
-        <h2 className="mb-4 text-4xl font-black uppercase tracking-tight text-slate-800 print:mb-2 print:text-3xl">
-          Bon de Commande
-        </h2>
-        <p className="inline-block rounded-lg border border-slate-200 bg-slate-50 px-6 py-2 font-mono text-sm uppercase tracking-wide text-slate-500">
-          REF :{" "}
-          <span className="font-bold text-brand-orange">
-            {reference ?? "AUTO-GÉNÉRÉE"}
-          </span>
-        </p>
       </div>
 
       {/* Info Grid: Supplier + Delivery */}
-      <div className="mb-8 grid grid-cols-2 gap-8 print:mb-4">
+      <div className="mb-8 grid grid-cols-2 gap-8 print:mb-3">
         {/* Supplier Box */}
         <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50 p-6 print:p-4">
           <div>
-            <h4 className="mb-4 text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
+            <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
               Fournisseur
             </h4>
             {editable ? (
-              <select
-                className="doc-select mb-2 w-full text-2xl font-extrabold text-brand-blue"
-                value={supplierId ?? ""}
-                onChange={(e) => onSupplierChange?.(e.target.value)}
-                required
-              >
-                <option value="">- Selectionner -</option>
-                {supplierOptions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-col gap-2">
+                <select
+                  className="doc-select w-full text-2xl font-extrabold text-brand-blue"
+                  value={supplierId ?? ""}
+                  onChange={(e) => onSupplierChange?.(e.target.value)}
+                  required
+                >
+                  <option value="">- Selectionner -</option>
+                  {supplierOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                {onSupplierCreate ? (
+                  <button
+                    type="button"
+                    className="text-sm font-semibold text-brand-orange hover:underline disabled:opacity-60 disabled:hover:no-underline"
+                    onClick={onSupplierCreate}
+                    disabled={isSupplierCreateDisabled}
+                  >
+                    + Ajouter un fournisseur
+                  </button>
+                ) : null}
+              </div>
             ) : (
-              <p className="mb-1 text-2xl font-extrabold text-brand-blue">
+              <p className="mb-1 text-2xl font-extrabold text-slate-500">
                 {supplier?.name ?? "-"}
               </p>
             )}
@@ -244,34 +300,63 @@ export function PurchaseOrderDocument({
 
         {/* Delivery & Project Box */}
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 print:p-4">
-          <h4 className="mb-4 text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
-            Livraison & Projet
+          <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
+            informations livraison
           </h4>
           <div className="space-y-4 print:space-y-2">
             <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Date souhaitée
-              </p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Livraison le
+                </p>
+                {!editable &&
+                  (expectedDeliveryDate === "TBD" ? (
+                    <div className="delivery-badge-orange print-color-adjust">
+                      <span className="text-base font-semibold uppercase tracking-wide">
+                        À déterminer
+                      </span>
+                    </div>
+                  ) : expectedDeliveryDate ? (
+                    <div className="delivery-badge-orange print-color-adjust">
+                      <span className="text-base font-semibold uppercase tracking-wide">
+                        {formatDate(expectedDeliveryDate)}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-500">Non définie</p>
+                  ))}
+              </div>
               {editable ? (
-                <input
-                  type="date"
-                  className="doc-input w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-semibold text-brand-blue"
-                  value={expectedDeliveryDate ?? ""}
-                  onChange={(e) => onExpectedDeliveryDateChange?.(e.target.value)}
-                />
-              ) : expectedDeliveryDate ? (
-                <div className="delivery-badge-orange print-color-adjust">
-                  <span className="text-lg font-black uppercase tracking-tight">
-                    Le {formatDate(expectedDeliveryDate)}
-                  </span>
+                <div className="mt-2 flex flex-col gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-brand-orange focus:ring-brand-orange"
+                      checked={expectedDeliveryDate === "TBD"}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          onExpectedDeliveryDateChange?.("TBD");
+                        } else {
+                          onExpectedDeliveryDateChange?.("");
+                        }
+                      }}
+                    />
+                    <span className="text-sm font-medium text-slate-600">À déterminer</span>
+                  </label>
+                  {expectedDeliveryDate !== "TBD" && (
+                    <input
+                      type="date"
+                      className="doc-input w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-semibold text-brand-blue"
+                      value={expectedDeliveryDate ?? ""}
+                      onChange={(e) => onExpectedDeliveryDateChange?.(e.target.value)}
+                    />
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-slate-500">Non définie</p>
-              )}
+              ) : null}
             </div>
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Chantier & Contacts
+                adresse
               </p>
               {editable ? (
                 <select
@@ -288,23 +373,29 @@ export function PurchaseOrderDocument({
                     </option>
                   ))}
                 </select>
-              ) : (
-                <p className="mb-2 text-base font-bold text-brand-blue">
-                  {deliverySite?.name ?? "-"}
-                </p>
-              )}
-              {deliverySite && (
+              ) : null}
+              {showDeliveryDetails && (
                 <div className="text-sm text-slate-600">
-                  {deliverySite.address && <p>{deliverySite.address}</p>}
-                  <p>
-                    {deliverySite.postal_code} {deliverySite.city}
-                  </p>
-                  {deliverySite.contact_name && (
-                    <p className="mt-1">
-                      {deliverySite.contact_name}
-                      {deliverySite.contact_phone &&
-                        ` : ${deliverySite.contact_phone}`}
+                  {deliverySite.address && (
+                    <p className="whitespace-pre-line">{deliverySite.address}</p>
+                  )}
+                  {(deliverySite.postal_code || deliverySite.city) && (
+                    <p>
+                      {deliverySite.postal_code} {deliverySite.city}
                     </p>
+                  )}
+                  <p className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    contact sur site
+                  </p>
+                  {deliverySite.contact_name || deliverySite.contact_phone ? (
+                    <p>
+                      {deliverySite.contact_name ?? deliverySite.contact_phone}
+                      {deliverySite.contact_name && deliverySite.contact_phone
+                        ? ` : ${deliverySite.contact_phone}`
+                        : ""}
+                    </p>
+                  ) : (
+                    <p className="text-slate-500">-</p>
                   )}
                 </div>
               )}
@@ -315,19 +406,23 @@ export function PurchaseOrderDocument({
 
       {/* Notes / Instructions */}
       {(editable || notes) && (
-        <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5 print:mb-4">
-          <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-blue">
-            Note / Instructions complémentaires
+        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 print:mb-3 print:p-3">
+          <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-blue print:mb-1">
+            Instructions complémentaires
           </h4>
           {editable ? (
             <textarea
-              className="doc-input min-h-[60px] w-full resize-none whitespace-pre-wrap text-sm text-slate-700"
+              className="doc-input min-h-[60px] w-full resize-none whitespace-pre-wrap text-sm leading-snug text-slate-700 print:min-h-[40px] print:text-xs"
               placeholder="Informations complémentaires, consignes de livraison..."
+              rows={MAX_NOTES_LINES}
               value={notes ?? ""}
-              onChange={(e) => onNotesChange?.(e.target.value)}
+              onChange={(e) => {
+                const nextValue = clampLines(e.target.value, MAX_NOTES_LINES);
+                onNotesChange?.(nextValue);
+              }}
             />
           ) : (
-            <p className="min-h-[40px] whitespace-pre-wrap text-sm text-slate-700">
+            <p className="min-h-[40px] whitespace-pre-wrap text-sm leading-snug text-slate-700 print:min-h-[32px] print:text-xs">
               {notes}
             </p>
           )}
@@ -335,7 +430,7 @@ export function PurchaseOrderDocument({
       )}
 
       {/* Items Table */}
-      <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+      <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 shadow-sm print:mb-3">
         <table className="w-full">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
@@ -346,13 +441,13 @@ export function PurchaseOrderDocument({
               {editable && <th className="px-4 py-4 w-12"></th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 text-sm">
+          <tbody className="divide-y divide-slate-100 text-sm print:text-slate-900">
             {items.map((item) => (
               <tr
                 key={item.key}
                 className={editable ? "doc-table-row-editable" : ""}
               >
-                <td className="px-6 py-4 font-medium text-slate-800 print:px-4 print:py-2">
+                <td className="px-6 py-4 font-medium text-slate-800 break-words print:px-4 print:py-2 print:text-slate-900">
                   {editable ? (
                     <input
                       type="text"
@@ -365,7 +460,7 @@ export function PurchaseOrderDocument({
                       required
                     />
                   ) : (
-                    item.designation
+                    resolveItemDesignation(item)
                   )}
                 </td>
                 <td className="w-20 px-3 py-4 text-center font-bold print:px-2 print:py-2">
@@ -516,10 +611,13 @@ export function PurchaseOrderDocument({
       </div>
 
       {/* Footer */}
-      <div className="absolute bottom-10 left-16 right-16 border-t border-slate-200 pt-5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 print:bottom-4 print:pt-3 print:left-8 print:right-8">
-        <p className="mb-1">{COMPANY_INFO.name}</p>
-        <p>SIRET {COMPANY_INFO.legal.siret}</p>
+      <div className="mt-auto border-t border-slate-200 pt-5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 print:pt-3">
+        <p className="mb-1">Siège social : 17 rue Dupin 75006 Paris</p>
+        <p>
+          SIRET {COMPANY_INFO.legal.siret} - TVA {COMPANY_INFO.legal.vat}
+        </p>
       </div>
     </div>
   );
 }
+

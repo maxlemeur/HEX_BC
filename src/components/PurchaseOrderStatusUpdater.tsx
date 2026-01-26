@@ -56,10 +56,14 @@ export function PurchaseOrderStatusUpdater({
     router.refresh();
   }
 
+  const hasChanged = value !== status;
+
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex flex-wrap items-center gap-2">
       <select
-        className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
+        className="form-input form-select h-11 w-auto min-w-[140px] text-sm"
+        name="order-status"
+        aria-label="Statut de la commande"
         value={value}
         onChange={(event) => setValue(event.target.value as PurchaseOrderStatus)}
       >
@@ -69,15 +73,26 @@ export function PurchaseOrderStatusUpdater({
           </option>
         ))}
       </select>
-      <button
-        className="inline-flex h-10 items-center justify-center rounded-xl bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={saving}
-        onClick={onSave}
-        type="button"
-      >
-        {saving ? "Enregistrement..." : "Mettre a jour"}
-      </button>
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+      {hasChanged && (
+        <button
+          className="btn btn-primary btn-sm"
+          disabled={saving}
+          onClick={onSave}
+          type="button"
+        >
+          {saving ? (
+            <>
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+              Enregistrement...
+            </>
+          ) : (
+            "Mettre a jour"
+          )}
+        </button>
+      )}
+      {error ? (
+        <span className="text-sm text-[var(--error)]">{error}</span>
+      ) : null}
     </div>
   );
 }

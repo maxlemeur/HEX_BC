@@ -273,6 +273,48 @@ export type Database = {
         };
         Relationships: [];
       };
+      purchase_order_devis: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          purchase_order_id: string;
+          user_id: string;
+          name: string;
+          original_filename: string;
+          storage_path: string;
+          file_size_bytes: number;
+          mime_type: string;
+          position: number;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          purchase_order_id: string;
+          user_id: string;
+          name: string;
+          original_filename: string;
+          storage_path: string;
+          file_size_bytes: number;
+          mime_type: string;
+          position?: number;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          purchase_order_id?: string;
+          user_id?: string;
+          name?: string;
+          original_filename?: string;
+          storage_path?: string;
+          file_size_bytes?: number;
+          mime_type?: string;
+          position?: number;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;

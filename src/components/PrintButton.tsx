@@ -1,16 +1,48 @@
 "use client";
 
-export function PrintButton() {
+import { useEffect, useRef } from "react";
+
+type PrintButtonProps = {
+  autoPrint?: boolean;
+};
+
+export function PrintButton({ autoPrint = false }: PrintButtonProps) {
+  const didAutoPrint = useRef(false);
+
+  useEffect(() => {
+    if (!autoPrint || didAutoPrint.current) {
+      return;
+    }
+
+    didAutoPrint.current = true;
+
+    const triggerPrint = async () => {
+      if (document.fonts?.ready) {
+        try {
+          await document.fonts.ready;
+        } catch {
+          // Best-effort wait; printing can proceed without font readiness.
+        }
+      }
+
+      requestAnimationFrame(() => {
+        window.print();
+      });
+    };
+
+    void triggerPrint();
+  }, [autoPrint]);
+
   return (
     <button
-      className="flex h-12 items-center justify-center gap-2 rounded-full bg-slate-900 px-8 text-sm font-bold text-white shadow-xl transition-all hover:scale-105 hover:bg-black"
+      className="btn btn-primary btn-lg"
       onClick={() => window.print()}
       type="button"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
+        width="18"
+        height="18"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -18,12 +50,11 @@ export function PrintButton() {
         strokeLinecap="round"
         strokeLinejoin="round"
       >
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <polyline points="7 10 12 15 17 10" />
-        <line x1="12" y1="15" x2="12" y2="3" />
+        <polyline points="6 9 6 2 18 2 18 9" />
+        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+        <rect width="12" height="8" x="6" y="14" />
       </svg>
-      Telecharger en PDF / Imprimer
+      Imprimer / PDF
     </button>
   );
 }
-

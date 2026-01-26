@@ -5,8 +5,6 @@ import { buildPurchaseOrderReference } from "@/lib/reference";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type LinePayload = {
-  productId: string | null;
-  reference?: string | null;
   designation: string;
   quantity: number;
   unitPriceCents: number;
@@ -54,8 +52,6 @@ export async function POST(request: Request) {
   const items = Array.isArray(payload.items) ? payload.items : [];
   const cleanedItems = items
     .map((item) => ({
-      productId: item.productId ?? null,
-      reference: toNullableString(item.reference ?? null),
       designation: typeof item.designation === "string" ? item.designation.trim() : "",
       quantity: Number(item.quantity),
       unitPriceCents: Number(item.unitPriceCents),
@@ -80,37 +76,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: supplier } = await supabase
-    .from("suppliers")
-    .select("name")
-    .eq("id", payload.supplierId)
-    .maybeSingle();
-
-  const { data: deliverySite } = await supabase
-    .from("delivery_sites")
-    .select("project_code")
-    .eq("id", payload.deliverySiteId)
-    .maybeSingle();
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (!supplier?.name) {
-    return NextResponse.json(
-      { error: "Supplier not found." },
-      { status: 400 }
-    );
-  }
-
-  const referenceBase = buildPurchaseOrderReference({
-    supplierName: supplier.name,
-    projectCode: deliverySite?.project_code ?? null,
-    fullName: profile?.full_name ?? user.email ?? "Utilisateur",
-  });
-
   const lineInputs = cleanedItems.map((item) => ({
     quantity: Math.round(item.quantity),
     unitPriceHtCents: Math.round(item.unitPriceCents),
@@ -119,64 +84,61 @@ export async function POST(request: Request) {
 
   const { lineTotals, orderTotals } = computeTotalsFromInputs(lineInputs);
 
-  let orderId: string | null = null;
-  let orderReference = referenceBase;
+  // Insert order with temporary reference, get order_number
+  const orderDate = new Date();
+  const tempReference = `TEMP-${Date.now()}`;
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const { data, error } = await supabase
-      .from("purchase_orders")
-      .insert({
-        reference: orderReference,
-        user_id: user.id,
-        supplier_id: payload.supplierId,
-        delivery_site_id: payload.deliverySiteId,
-        status: "draft",
-        expected_delivery_date: toNullableString(payload.expectedDeliveryDate),
-        notes: toNullableString(payload.notes),
-        total_ht_cents: orderTotals.totalHtCents,
-        total_tax_cents: orderTotals.totalTaxCents,
-        total_ttc_cents: orderTotals.totalTtcCents,
-        currency: "EUR",
-      })
-      .select("id, reference")
-      .single();
+  const { data: insertedOrder, error: insertError } = await supabase
+    .from("purchase_orders")
+    .insert({
+      reference: tempReference,
+      user_id: user.id,
+      supplier_id: payload.supplierId,
+      delivery_site_id: payload.deliverySiteId,
+      status: "draft",
+      expected_delivery_date: toNullableString(payload.expectedDeliveryDate),
+      notes: toNullableString(payload.notes),
+      total_ht_cents: orderTotals.totalHtCents,
+      total_tax_cents: orderTotals.totalTaxCents,
+      total_ttc_cents: orderTotals.totalTtcCents,
+      currency: "EUR",
+    })
+    .select("id, order_number")
+    .single();
 
-    if (!error && data?.id) {
-      orderId = data.id;
-      orderReference = data.reference;
-      break;
-    }
-
-    if (error?.code === "23505") {
-      orderReference = buildPurchaseOrderReference({
-        supplierName: supplier.name,
-        projectCode: deliverySite?.project_code ?? null,
-        fullName: profile?.full_name ?? user.email ?? "Utilisateur",
-        issuedAt: new Date(),
-      });
-      continue;
-    }
-
+  if (insertError || !insertedOrder) {
     return NextResponse.json(
-      { error: error?.message ?? "Unable to create purchase order." },
+      { error: insertError?.message ?? "Unable to create purchase order." },
       { status: 400 }
     );
   }
 
-  if (!orderId) {
+  const orderId = insertedOrder.id;
+  const orderNumber = insertedOrder.order_number as number;
+
+  // Generate final reference using order_number: C-AAMM-XXX
+  const finalReference = buildPurchaseOrderReference(orderNumber, orderDate);
+
+  // Update order with final reference
+  const { error: updateError } = await supabase
+    .from("purchase_orders")
+    .update({ reference: finalReference })
+    .eq("id", orderId);
+
+  if (updateError) {
+    await supabase.from("purchase_orders").delete().eq("id", orderId);
     return NextResponse.json(
-      { error: "Unable to generate a unique reference." },
-      { status: 409 }
+      { error: "Unable to set order reference." },
+      { status: 400 }
     );
   }
 
+  // Insert order items
   const itemsToInsert = cleanedItems.map((item, index) => {
     const totals = lineTotals[index];
     return {
       purchase_order_id: orderId,
       position: index + 1,
-      product_id: item.productId,
-      reference: item.reference,
       designation: item.designation,
       unit_price_ht_cents: Math.round(item.unitPriceCents),
       tax_rate_bp: Math.round(item.taxRateBp),
@@ -196,5 +158,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: itemsError.message }, { status: 400 });
   }
 
-  return NextResponse.json({ id: orderId, reference: orderReference });
+  return NextResponse.json({ id: orderId, reference: finalReference });
 }

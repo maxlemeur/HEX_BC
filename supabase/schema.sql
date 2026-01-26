@@ -4,6 +4,7 @@
 create extension if not exists "pgcrypto";
 
 -- Reset existing tables/types from previous iterations.
+drop table if exists public.purchase_order_devis cascade;
 drop table if exists public.purchase_order_items cascade;
 drop table if exists public.purchase_orders cascade;
 drop table if exists public.products cascade;
@@ -49,11 +50,13 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, full_name, phone, role)
+  insert into public.profiles (id, full_name, phone, job_title, work_email, role)
   values (
     new.id,
     coalesce(nullif(trim(new.raw_user_meta_data->>'full_name'), ''), new.email, 'Utilisateur'),
     nullif(trim(new.raw_user_meta_data->>'phone'), ''),
+    nullif(trim(new.raw_user_meta_data->>'job_title'), ''),
+    new.email,
     'buyer'
   );
   return new;
@@ -66,6 +69,8 @@ create table public.profiles (
   updated_at timestamptz not null default now(),
   full_name text not null,
   phone text,
+  job_title text,
+  work_email text,
   role employee_role not null default 'buyer'
 );
 
@@ -203,12 +208,34 @@ create index purchase_order_items_purchase_order_id_idx on public.purchase_order
 create index purchase_order_items_product_id_idx on public.purchase_order_items (product_id);
 create unique index purchase_order_items_position_unique on public.purchase_order_items (purchase_order_id, position);
 
+create table public.purchase_order_devis (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  purchase_order_id uuid not null references public.purchase_orders(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete restrict,
+  name text not null,
+  original_filename text not null,
+  storage_path text not null unique,
+  file_size_bytes integer not null,
+  mime_type text not null,
+  position integer not null default 0
+);
+
+create trigger set_purchase_order_devis_updated_at
+  before update on public.purchase_order_devis
+  for each row execute procedure public.set_updated_at();
+
+create index purchase_order_devis_purchase_order_id_idx on public.purchase_order_devis (purchase_order_id);
+create unique index purchase_order_devis_position_unique on public.purchase_order_devis (purchase_order_id, position);
+
 alter table public.profiles enable row level security;
 alter table public.suppliers enable row level security;
 alter table public.delivery_sites enable row level security;
 alter table public.products enable row level security;
 alter table public.purchase_orders enable row level security;
 alter table public.purchase_order_items enable row level security;
+alter table public.purchase_order_devis enable row level security;
 
 create policy "Profiles are viewable by authenticated users"
   on public.profiles
@@ -253,6 +280,13 @@ create policy "Authenticated can access purchase orders"
 
 create policy "Authenticated can access purchase order items"
   on public.purchase_order_items
+  for all
+  to authenticated
+  using (true)
+  with check (true);
+
+create policy "Authenticated can access devis"
+  on public.purchase_order_devis
   for all
   to authenticated
   using (true)

@@ -13,5 +13,6 @@ export const COMPANY_INFO = {
   },
   legal: {
     siret: "500 735 022 00021",
+    vat: "FR28500735022",
   },
 } as const;

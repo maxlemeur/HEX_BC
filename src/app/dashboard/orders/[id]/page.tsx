@@ -1,8 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { DeleteOrderButton } from "@/components/DeleteOrderButton";
+import { DevisList, type DevisItem } from "@/components/DevisList";
+import { DevisUploader } from "@/components/DevisUploader";
 import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
-import { formatEUR } from "@/lib/money";
+import {
+  PurchaseOrderDocument,
+  type SupplierData,
+  type DeliverySiteData,
+  type OrderItemData,
+} from "@/components/PurchaseOrderDocument";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type PurchaseOrderStatus =
@@ -36,6 +44,13 @@ type DeliverySite = {
   contact_phone: string | null;
 };
 
+type UserProfile = {
+  full_name: string;
+  job_title: string | null;
+  phone: string | null;
+  work_email: string | null;
+};
+
 type PurchaseOrder = {
   id: string;
   reference: string;
@@ -50,36 +65,18 @@ type PurchaseOrder = {
   currency: string;
   suppliers: Supplier | null;
   delivery_sites: DeliverySite | null;
+  profiles: UserProfile | null;
 };
 
 type PurchaseOrderItem = {
   id: string;
-  reference: string | null;
   designation: string;
+  reference: string | null;
   quantity: number;
   unit_price_ht_cents: number;
   tax_rate_bp: number;
   line_total_ht_cents: number;
-  line_tax_cents: number;
-  line_total_ttc_cents: number;
 };
-
-function statusLabel(status: PurchaseOrderStatus) {
-  switch (status) {
-    case "draft":
-      return "Brouillon";
-    case "sent":
-      return "Envoyee";
-    case "confirmed":
-      return "Confirmee";
-    case "received":
-      return "Recue";
-    case "canceled":
-      return "Annulee";
-    default:
-      return status;
-  }
-}
 
 export default async function OrderPage({
   params,
@@ -90,7 +87,7 @@ export default async function OrderPage({
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
     .select(
-      "id, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name, address, city, postal_code, country, email, phone, contact_name, siret, vat_number, payment_terms ), delivery_sites ( name, project_code, address, city, postal_code, contact_name, contact_phone )"
+      "id, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name, address, city, postal_code, country, email, phone, contact_name, siret, vat_number, payment_terms ), delivery_sites ( name, project_code, address, city, postal_code, contact_name, contact_phone ), profiles ( full_name, job_title, phone, work_email )"
     )
     .eq("id", id)
     .single();
@@ -101,196 +98,209 @@ export default async function OrderPage({
 
   const order = orderData as unknown as PurchaseOrder;
 
-  const { data: itemsData } = await supabase
-    .from("purchase_order_items")
-    .select(
-      "id, reference, designation, quantity, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents, line_tax_cents, line_total_ttc_cents"
-    )
-    .eq("purchase_order_id", order.id)
-    .order("position", { ascending: true });
+  const [itemsResult, devisResult] = await Promise.all([
+    supabase
+      .from("purchase_order_items")
+      .select(
+        "id, designation, reference, quantity, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents"
+      )
+      .eq("purchase_order_id", order.id)
+      .order("position", { ascending: true }),
+    supabase
+      .from("purchase_order_devis")
+      .select(
+        "id, created_at, name, original_filename, storage_path, file_size_bytes, mime_type, position"
+      )
+      .eq("purchase_order_id", order.id)
+      .order("position", { ascending: true }),
+  ]);
 
-  const items = (itemsData ?? []) as unknown as PurchaseOrderItem[];
-  const supplier = order.suppliers;
-  const deliverySite = order.delivery_sites;
+  const items = (itemsResult.data ?? []) as unknown as PurchaseOrderItem[];
+  const supplierDb = order.suppliers;
+  const deliverySiteDb = order.delivery_sites;
+  const userProfile = order.profiles;
+
+  // Map database data to component types
+  const supplier: SupplierData | null = supplierDb
+    ? {
+        name: supplierDb.name,
+        address: supplierDb.address,
+        postal_code: supplierDb.postal_code,
+        city: supplierDb.city,
+        contact_name: supplierDb.contact_name,
+        phone: supplierDb.phone,
+        email: supplierDb.email,
+      }
+    : null;
+
+  const deliverySite: DeliverySiteData | null = deliverySiteDb
+    ? {
+        name: deliverySiteDb.name,
+        project_code: deliverySiteDb.project_code,
+        address: deliverySiteDb.address,
+        postal_code: deliverySiteDb.postal_code,
+        city: deliverySiteDb.city,
+        contact_name: deliverySiteDb.contact_name,
+        contact_phone: deliverySiteDb.contact_phone,
+      }
+    : null;
+
+  const orderItems: OrderItemData[] = items.map((item) => ({
+    key: item.id,
+    designation: item.designation,
+    reference: item.reference,
+    quantity: item.quantity,
+    unitPriceHtCents: item.unit_price_ht_cents,
+    lineTotalHtCents: item.line_total_ht_cents,
+  }));
+
+  const devisRecords = devisResult.error ? [] : devisResult.data ?? [];
+  const devisItems: DevisItem[] = await Promise.all(
+    devisRecords.map(async (record) => {
+      const { data: signedData } = await supabase.storage
+        .from("devis")
+        .createSignedUrl(record.storage_path, 60 * 10);
+
+      return {
+        id: record.id,
+        name: record.name,
+        originalFilename: record.original_filename,
+        fileSizeBytes: record.file_size_bytes,
+        mimeType: record.mime_type,
+        createdAt: record.created_at,
+        position: record.position,
+        downloadUrl: signedData?.signedUrl ?? null,
+      };
+    })
+  );
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">
-              Bon de commande
-            </h1>
-            <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
-              {statusLabel(order.status)}
-            </span>
+    <div className="min-h-screen bg-[var(--slate-100)]">
+      {/* Action bar */}
+      <div className="no-print sticky top-0 z-10 border-b border-[var(--slate-200)] bg-white/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-4">
+          {/* Left: Back button and reference */}
+          <div className="flex items-center gap-4">
+            <Link
+              className="btn btn-ghost btn-sm"
+              href="/dashboard/orders"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+              Retour
+            </Link>
+            <div className="hidden h-6 w-px bg-[var(--slate-200)] sm:block" />
+            <div className="hidden sm:block">
+              <span className="text-sm font-medium text-[var(--slate-500)]">Bon de commande</span>
+              <span className="ml-2 rounded-lg bg-[var(--brand-orange)]/10 px-2.5 py-1 font-mono text-sm font-bold text-[var(--brand-orange)]">
+                {order.reference}
+              </span>
+            </div>
           </div>
-          <p className="mt-1 text-sm text-zinc-600">
-            Reference : {order.reference}
-          </p>
-          <p className="text-sm text-zinc-600">
-            Numero : {order.order_number}
-          </p>
-          <p className="text-sm text-zinc-600">Date : {order.order_date}</p>
-          <p className="text-sm text-zinc-600">
-            Livraison : {order.expected_delivery_date ?? "-"}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
-            href={`/dashboard/orders/${order.id}/print`}
-          >
-            Imprimer / PDF
-          </Link>
-          <Link
-            className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
-            href="/dashboard/orders"
-          >
-            Retour
-          </Link>
+
+          {/* Right: Actions */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Status updater */}
+            <PurchaseOrderStatusUpdater
+              orderId={order.id}
+              status={order.status}
+            />
+
+            {/* Edit button - only for draft orders */}
+            {order.status === "draft" && (
+              <Link
+                className="btn btn-accent"
+                href={`/dashboard/orders/${order.id}/edit`}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                  <path d="m15 5 4 4" />
+                </svg>
+                Modifier
+              </Link>
+            )}
+
+            <Link
+              className="btn btn-primary"
+              href={`/dashboard/orders/${order.id}/print?print=1`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Imprimer / PDF
+            </Link>
+
+            {/* Delete button - only for draft orders */}
+            {order.status === "draft" && (
+              <DeleteOrderButton
+                orderId={order.id}
+                orderReference={order.reference}
+              />
+            )}
+          </div>
         </div>
       </div>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white p-6">
-        <h2 className="text-sm font-semibold">Statut</h2>
-        <div className="mt-3">
-          <PurchaseOrderStatusUpdater
+      {/* Purchase Order Document */}
+      <div className="py-8">
+        <PurchaseOrderDocument
+          editable={false}
+          issuerName={userProfile?.full_name ?? "Utilisateur"}
+          issuerRole={userProfile?.job_title ?? ""}
+          issuerPhone={userProfile?.phone ?? undefined}
+          issuerEmail={userProfile?.work_email ?? undefined}
+          orderDate={order.order_date}
+          reference={order.reference}
+          supplier={supplier}
+          deliverySite={deliverySite}
+          expectedDeliveryDate={order.expected_delivery_date}
+          notes={order.notes}
+          items={orderItems}
+          totalHtCents={order.total_ht_cents}
+          totalTaxCents={order.total_tax_cents}
+          totalTtcCents={order.total_ttc_cents}
+        />
+      </div>
+
+      <div className="mx-auto w-full max-w-[210mm] px-4 pb-10">
+        <div className="space-y-4">
+          <DevisUploader
             orderId={order.id}
-            status={order.status}
+            canManage={order.status === "draft"}
+          />
+          <DevisList
+            orderId={order.id}
+            initialItems={devisItems}
+            canManage={order.status === "draft"}
           />
         </div>
-      </section>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <section className="rounded-2xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-          <h2 className="text-sm font-semibold">Lignes</h2>
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-600">
-                <tr>
-                  <th className="px-4 py-3">Reference</th>
-                  <th className="px-4 py-3">Designation</th>
-                  <th className="px-4 py-3 text-right">Qt</th>
-                  <th className="px-4 py-3 text-right">Prix HT</th>
-                  <th className="px-4 py-3 text-right">TVA</th>
-                  <th className="px-4 py-3 text-right">Total TTC</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200">
-                {items.map((item) => (
-                  <tr key={item.id} className="align-top">
-                    <td className="px-4 py-3">
-                      {item.reference ?? "-"}
-                    </td>
-                    <td className="px-4 py-3">{item.designation}</td>
-                    <td className="px-4 py-3 text-right">{item.quantity}</td>
-                    <td className="px-4 py-3 text-right">
-                      {formatEUR(item.unit_price_ht_cents)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {(item.tax_rate_bp / 100).toFixed(2)}%
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium">
-                      {formatEUR(item.line_total_ttc_cents)}
-                    </td>
-                  </tr>
-                ))}
-                {items.length === 0 ? (
-                  <tr>
-                    <td className="px-4 py-6 text-zinc-600" colSpan={6}>
-                      Aucune ligne.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-6 ml-auto grid max-w-sm gap-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-zinc-600">Total HT</span>
-              <span className="font-medium">
-                {formatEUR(order.total_ht_cents)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-zinc-600">TVA</span>
-              <span className="font-medium">
-                {formatEUR(order.total_tax_cents)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-base">
-              <span className="font-semibold">Total TTC</span>
-              <span className="font-semibold">
-                {formatEUR(order.total_ttc_cents)}
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-zinc-200 bg-white p-6">
-          <h2 className="text-sm font-semibold">Fournisseur</h2>
-          <div className="mt-4 space-y-2 text-sm">
-            <p className="font-medium">{supplier?.name ?? "-"}</p>
-            <p className="text-zinc-700">
-              {supplier?.contact_name ?? "-"}
-            </p>
-            <p className="text-zinc-700">{supplier?.email ?? "-"}</p>
-            <p className="text-zinc-700">{supplier?.phone ?? "-"}</p>
-            {supplier?.address ? (
-              <pre className="whitespace-pre-wrap text-zinc-700">
-                {supplier.address}
-              </pre>
-            ) : (
-              <p className="text-zinc-700">-</p>
-            )}
-            <p className="text-zinc-700">
-              {supplier?.postal_code ?? ""} {supplier?.city ?? ""}
-            </p>
-            <p className="text-zinc-700">{supplier?.country ?? ""}</p>
-            <p className="text-zinc-700">SIRET : {supplier?.siret ?? "-"}</p>
-            <p className="text-zinc-700">
-              TVA : {supplier?.vat_number ?? "-"}
-            </p>
-            <p className="text-zinc-700">
-              Paiement : {supplier?.payment_terms ?? "-"}
-            </p>
-          </div>
-
-          <h2 className="mt-6 text-sm font-semibold">Chantier</h2>
-          <div className="mt-4 space-y-2 text-sm">
-            <p className="font-medium">{deliverySite?.name ?? "-"}</p>
-            <p className="text-zinc-700">
-              Code : {deliverySite?.project_code ?? "-"}
-            </p>
-            <p className="text-zinc-700">
-              {deliverySite?.contact_name ?? "-"}
-            </p>
-            <p className="text-zinc-700">
-              {deliverySite?.contact_phone ?? "-"}
-            </p>
-            {deliverySite?.address ? (
-              <pre className="whitespace-pre-wrap text-zinc-700">
-                {deliverySite.address}
-              </pre>
-            ) : (
-              <p className="text-zinc-700">-</p>
-            )}
-            <p className="text-zinc-700">
-              {deliverySite?.postal_code ?? ""} {deliverySite?.city ?? ""}
-            </p>
-          </div>
-
-          {order.notes ? (
-            <>
-              <h3 className="mt-6 text-sm font-semibold">Notes</h3>
-              <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">
-                {order.notes}
-              </p>
-            </>
-          ) : null}
-        </section>
       </div>
     </div>
   );
