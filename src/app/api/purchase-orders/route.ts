@@ -27,29 +27,33 @@ function toNullableString(value: unknown) {
 
 export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userPromise = supabase.auth.getUser();
+  const payloadPromise = request.json().catch(() => null);
+
+  const [
+    {
+      data: { user },
+    },
+    payload,
+  ] = await Promise.all([userPromise, payloadPromise]);
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let payload: CreatePurchaseOrderPayload;
-  try {
-    payload = (await request.json()) as CreatePurchaseOrderPayload;
-  } catch {
+  if (!payload) {
     return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }
+  const parsedPayload = payload as CreatePurchaseOrderPayload;
 
-  if (!payload?.supplierId || !payload?.deliverySiteId) {
+  if (!parsedPayload?.supplierId || !parsedPayload?.deliverySiteId) {
     return NextResponse.json(
       { error: "Supplier and delivery site are required." },
       { status: 400 }
     );
   }
 
-  const items = Array.isArray(payload.items) ? payload.items : [];
+  const items = Array.isArray(parsedPayload.items) ? parsedPayload.items : [];
   const cleanedItems = items
     .map((item) => ({
       designation: typeof item.designation === "string" ? item.designation.trim() : "",
@@ -93,11 +97,11 @@ export async function POST(request: Request) {
     .insert({
       reference: tempReference,
       user_id: user.id,
-      supplier_id: payload.supplierId,
-      delivery_site_id: payload.deliverySiteId,
+      supplier_id: parsedPayload.supplierId,
+      delivery_site_id: parsedPayload.deliverySiteId,
       status: "draft",
-      expected_delivery_date: toNullableString(payload.expectedDeliveryDate),
-      notes: toNullableString(payload.notes),
+      expected_delivery_date: toNullableString(parsedPayload.expectedDeliveryDate),
+      notes: toNullableString(parsedPayload.notes),
       total_ht_cents: orderTotals.totalHtCents,
       total_tax_cents: orderTotals.totalTaxCents,
       total_ttc_cents: orderTotals.totalTtcCents,

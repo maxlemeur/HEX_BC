@@ -33,9 +33,15 @@ export async function PUT(
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userPromise = supabase.auth.getUser();
+  const payloadPromise = request.json().catch(() => null);
+
+  const [
+    {
+      data: { user },
+    },
+    payload,
+  ] = await Promise.all([userPromise, payloadPromise]);
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -63,27 +69,25 @@ export async function PUT(
     );
   }
 
-  let payload: UpdatePurchaseOrderPayload;
-  try {
-    payload = (await request.json()) as UpdatePurchaseOrderPayload;
-  } catch {
+  if (!payload) {
     return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }
+  const parsedPayload = payload as UpdatePurchaseOrderPayload;
 
   // Build update object for header fields
   const headerUpdate: Record<string, unknown> = {};
 
-  if (payload.supplierId !== undefined) {
-    headerUpdate.supplier_id = payload.supplierId;
+  if (parsedPayload.supplierId !== undefined) {
+    headerUpdate.supplier_id = parsedPayload.supplierId;
   }
-  if (payload.deliverySiteId !== undefined) {
-    headerUpdate.delivery_site_id = payload.deliverySiteId;
+  if (parsedPayload.deliverySiteId !== undefined) {
+    headerUpdate.delivery_site_id = parsedPayload.deliverySiteId;
   }
-  if (payload.expectedDeliveryDate !== undefined) {
-    headerUpdate.expected_delivery_date = toNullableString(payload.expectedDeliveryDate);
+  if (parsedPayload.expectedDeliveryDate !== undefined) {
+    headerUpdate.expected_delivery_date = toNullableString(parsedPayload.expectedDeliveryDate);
   }
-  if (payload.notes !== undefined) {
-    headerUpdate.notes = toNullableString(payload.notes);
+  if (parsedPayload.notes !== undefined) {
+    headerUpdate.notes = toNullableString(parsedPayload.notes);
   }
 
   // Update header if there are changes
@@ -99,8 +103,8 @@ export async function PUT(
   }
 
   // If items are provided, replace all existing items
-  if (payload.items !== undefined) {
-    const items = Array.isArray(payload.items) ? payload.items : [];
+  if (parsedPayload.items !== undefined) {
+    const items = Array.isArray(parsedPayload.items) ? parsedPayload.items : [];
     const cleanedItems = items
       .map((item) => ({
         productId: item.productId ?? null,

@@ -11,6 +11,12 @@ export type ExportOptions = {
   sheetName?: string;
 };
 
+export type ExportSheet<T extends Record<string, unknown>> = {
+  name: string;
+  data: T[];
+  columns: ExportColumn<T>[];
+};
+
 function getNestedValue<T>(obj: T, path: string): unknown {
   return path.split(".").reduce((current: unknown, key: string) => {
     if (current && typeof current === "object" && key in current) {
@@ -42,11 +48,10 @@ function prepareExportData<T extends Record<string, unknown>>(
   return [headers, ...rows];
 }
 
-export function exportToExcel<T extends Record<string, unknown>>(
+function buildWorksheet<T extends Record<string, unknown>>(
   data: T[],
-  columns: ExportColumn<T>[],
-  options: ExportOptions
-): void {
+  columns: ExportColumn<T>[]
+) {
   const exportData = prepareExportData(data, columns);
   const worksheet = XLSX.utils.aoa_to_sheet(exportData);
 
@@ -58,12 +63,37 @@ export function exportToExcel<T extends Record<string, unknown>>(
   });
   worksheet["!cols"] = colWidths;
 
+  return worksheet;
+}
+
+export function exportToExcel<T extends Record<string, unknown>>(
+  data: T[],
+  columns: ExportColumn<T>[],
+  options: ExportOptions
+): void {
+  const worksheet = buildWorksheet(data, columns);
+
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
     workbook,
     worksheet,
     options.sheetName ?? "Export"
   );
+
+  XLSX.writeFile(workbook, `${options.filename}.xlsx`);
+}
+
+export function exportToExcelWithSheets(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sheets: ExportSheet<any>[],
+  options: ExportOptions
+): void {
+  const workbook = XLSX.utils.book_new();
+
+  sheets.forEach((sheet) => {
+    const worksheet = buildWorksheet(sheet.data, sheet.columns);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name);
+  });
 
   XLSX.writeFile(workbook, `${options.filename}.xlsx`);
 }

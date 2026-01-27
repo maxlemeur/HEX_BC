@@ -174,64 +174,64 @@ export function PurchaseOrderDocument({
       {/* Sidebar accent bar */}
       <div className="sidebar-accent print-color-adjust" />
 
-      {/* Top Row: Logo + Title + Establishment */}
-      <div className="mb-8">
-        <div className="grid grid-cols-[240px_minmax(0,1fr)_240px] items-start gap-6 print:grid-cols-[220px_minmax(0,1fr)_220px] print:gap-x-4 print:gap-y-2 print:grid-rows-[auto_auto]">
-          <div className="flex items-start print:col-start-1 print:row-start-1">
-            <Image
-              src="/logo-hydro-express.jpg"
-              alt="Hydro eXpress"
-              width={200}
-              height={80}
-              className="h-20 w-auto object-contain print:h-16"
-              priority
-            />
-          </div>
-          <div className="flex justify-center self-center print:col-span-3 print:col-start-1 print:row-start-2 print:mt-3">
-            <div className="text-center">
-              <h2 className="mb-2 text-3xl font-black uppercase tracking-tight text-slate-800 print:mb-1 print:text-3xl">
-                Bon de Commande
-              </h2>
-              <p className="inline-block rounded-lg border border-slate-200 bg-slate-50 px-6 py-2 font-mono text-xs uppercase tracking-wide text-slate-500 print:text-sm">
-                REF :{" "}
-                <span className="font-bold text-brand-orange">
-                  {reference ?? "AUTO-GENEREE"}
-                </span>
-              </p>
-            </div>
-          </div>
-          <div className="flex justify-end print:col-start-3 print:row-start-1">
-            <div className="min-w-[220px] max-w-[240px] rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-right text-sm print:px-3 print:py-2 print:text-xs">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Etablissement principal :
-              </p>
-              <p className="text-slate-600">{COMPANY_INFO.address.street}</p>
-              <p className="text-slate-600">
-                {COMPANY_INFO.address.postalCode} {COMPANY_INFO.address.city}
-              </p>
-              <div className="mt-1 text-slate-600">
-                <p>{COMPANY_INFO.phone.landline}</p>
-                <p>{COMPANY_INFO.phone.mobile}</p>
-              </div>
+      {/* Header */}
+      <div className="mb-6">
+        {/* Ligne 1: Logo | espace | Établissement */}
+        <div className="flex items-start justify-between">
+          <Image
+            src="/logo-hydro-express.jpg"
+            alt="Hydro eXpress"
+            width={250}
+            height={100}
+            className="h-[100px] w-auto object-contain print:h-[80px]"
+            priority
+          />
+          <div className="max-w-[220px] rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-right text-sm print:px-3 print:py-2 print:text-xs">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Etablissement principal :
+            </p>
+            <p className="text-slate-600">{COMPANY_INFO.address.street}</p>
+            <p className="text-slate-600">
+              {COMPANY_INFO.address.postalCode} {COMPANY_INFO.address.city}
+            </p>
+            <div className="mt-1 text-slate-600">
+              <p>{COMPANY_INFO.phone.landline}</p>
+              <p>{COMPANY_INFO.phone.mobile}</p>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 text-sm print:mt-3">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Emis par
-          </p>
-          <p className="text-lg font-bold text-brand-blue">{issuerName}</p>
-          <p className="text-sm text-slate-500">{issuerRole}</p>
-          {issuerPhone && (
-            <p className="mt-1 text-sm text-slate-500">{issuerPhone}</p>
-          )}
-          {issuerEmail && (
-            <p className="text-sm text-slate-500">{issuerEmail}</p>
-          )}
-          <p className="mt-3 text-xs font-medium text-slate-500 print:mt-1">
-            Le {formatDate(orderDate)}
-          </p>
+        {/* Ligne 2: Émis par | Bon de Commande (centré) */}
+        <div className="mt-4 flex items-start print:mt-3">
+          {/* Émis par */}
+          <div className="w-[200px] shrink-0 text-sm">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Emis par
+            </p>
+            <p className="text-lg font-bold text-brand-blue">{issuerName}</p>
+            <p className="text-slate-500">{issuerRole}</p>
+            {issuerPhone && <p className="text-slate-500">{issuerPhone}</p>}
+            {issuerEmail && <p className="text-slate-500">{issuerEmail}</p>}
+            <p className="mt-2 text-xs font-medium text-slate-500">
+              Le {formatDate(orderDate)}
+            </p>
+          </div>
+
+          {/* Titre - centré */}
+          <div className="flex-1 text-center self-center">
+            <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-slate-800 print:mb-1 print:text-[25px]">
+              Bon de Commande
+            </h2>
+            <p className="inline-block rounded-lg border border-slate-200 bg-slate-50 px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-slate-500">
+              REF :{" "}
+              <span className="font-bold text-brand-orange">
+                {reference ?? "AUTO-GENEREE"}
+              </span>
+            </p>
+          </div>
+
+          {/* Espace pour équilibrer */}
+          <div className="w-[220px] shrink-0"></div>
         </div>
       </div>
 

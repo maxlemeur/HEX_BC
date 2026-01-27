@@ -2,8 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { DeleteOrderButton } from "@/components/DeleteOrderButton";
-import { DevisList, type DevisItem } from "@/components/DevisList";
-import { DevisUploader } from "@/components/DevisUploader";
+import { type DevisItem } from "@/components/DevisList";
+import { DevisManager } from "@/components/DevisManager";
 import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
 import {
   PurchaseOrderDocument,
@@ -84,6 +84,22 @@ export default async function OrderPage({
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
 
+  const itemsPromise = supabase
+    .from("purchase_order_items")
+    .select(
+      "id, designation, reference, quantity, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents"
+    )
+    .eq("purchase_order_id", id)
+    .order("position", { ascending: true });
+
+  const devisPromise = supabase
+    .from("purchase_order_devis")
+    .select(
+      "id, created_at, name, original_filename, storage_path, file_size_bytes, mime_type, position"
+    )
+    .eq("purchase_order_id", id)
+    .order("position", { ascending: true });
+
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
     .select(
@@ -99,20 +115,8 @@ export default async function OrderPage({
   const order = orderData as unknown as PurchaseOrder;
 
   const [itemsResult, devisResult] = await Promise.all([
-    supabase
-      .from("purchase_order_items")
-      .select(
-        "id, designation, reference, quantity, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents"
-      )
-      .eq("purchase_order_id", order.id)
-      .order("position", { ascending: true }),
-    supabase
-      .from("purchase_order_devis")
-      .select(
-        "id, created_at, name, original_filename, storage_path, file_size_bytes, mime_type, position"
-      )
-      .eq("purchase_order_id", order.id)
-      .order("position", { ascending: true }),
+    itemsPromise,
+    devisPromise,
   ]);
 
   const items = (itemsResult.data ?? []) as unknown as PurchaseOrderItem[];
@@ -290,17 +294,11 @@ export default async function OrderPage({
       </div>
 
       <div className="mx-auto w-full max-w-[210mm] px-4 pb-10">
-        <div className="space-y-4">
-          <DevisUploader
-            orderId={order.id}
-            canManage={order.status === "draft"}
-          />
-          <DevisList
-            orderId={order.id}
-            initialItems={devisItems}
-            canManage={order.status === "draft"}
-          />
-        </div>
+        <DevisManager
+          orderId={order.id}
+          initialItems={devisItems}
+          canManage={order.status === "draft"}
+        />
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 
 import {
@@ -11,6 +11,7 @@ import {
   type SupplierData,
   type DeliverySiteData,
 } from "@/components/PurchaseOrderDocument";
+import { useUserContext } from "@/components/UserContext";
 import {
   computeLineTotals,
   computeOrderTotals,
@@ -67,13 +68,6 @@ type ExistingItem = {
   tax_rate_bp: number;
 };
 
-type UserProfile = {
-  full_name: string;
-  job_title: string | null;
-  phone: string | null;
-  work_email: string | null;
-};
-
 function euroInputFromCents(cents: number) {
   return (cents / 100).toFixed(2).replace(".", ",");
 }
@@ -100,10 +94,11 @@ function existingItemToDraft(item: ExistingItem): DraftItem {
 
 export default function EditOrderPage({
   params,
-}: Readonly<{ params: Promise<{ id: string }> }>) {
-  const { id } = use(params);
+}: Readonly<{ params: { id: string } }>) {
+  const { id } = params;
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const { profile: userProfile } = useUserContext();
 
   const [supplierId, setSupplierId] = useState<string>("");
   const [deliverySiteId, setDeliverySiteId] = useState<string>("");
@@ -115,31 +110,6 @@ export default function EditOrderPage({
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
-
-  // User profile for document header
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-
-  useEffect(() => {
-    async function loadUserProfile() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) return;
-
-      const { data } = await supabase
-        .from("profiles")
-        .select("full_name, job_title, phone, work_email")
-        .eq("id", user.id)
-        .single();
-
-      if (data) {
-        setUserProfile(data as unknown as UserProfile);
-      }
-    }
-
-    loadUserProfile();
-  }, [supabase]);
 
   // Fetch existing order
   const fetchOrder = useCallback(async () => {
@@ -176,7 +146,9 @@ export default function EditOrderPage({
 
   // Initialize form with existing data
   useEffect(() => {
-    if (order && orderItems && !initialized) {
+    if (!order || !orderItems || initialized) return;
+
+    queueMicrotask(() => {
       setSupplierId(order.supplier_id);
       setDeliverySiteId(order.delivery_site_id);
       setExpectedDeliveryDate(order.expected_delivery_date ?? "");
@@ -189,7 +161,7 @@ export default function EditOrderPage({
           : [newDraftItem()]
       );
       setInitialized(true);
-    }
+    });
   }, [order, orderItems, initialized]);
 
   // Check if order is draft

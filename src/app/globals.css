@@ -123,7 +123,22 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
 }
 
+/* Devis list row styles */
+.devis-row {
+  transition: background-color 0.15s ease;
+}
+
+.devis-row:hover {
+  background-color: var(--slate-50);
+}
+
 /* Table styles */
+.table-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+  position: relative;
+}
+
 .data-table {
   width: 100%;
   border-collapse: separate;
@@ -1274,7 +1289,7 @@ body {
 }
 
 /* Expanded content row */
-.expanded-content-row td {
+.expanded-content-row > td {
   padding: 0 !important;
   border-bottom: 1px solid var(--slate-200);
   background: var(--slate-50);
@@ -1313,4 +1328,90 @@ body {
 
 .expanded-content-table tbody tr:hover {
   background: rgba(30, 58, 95, 0.03);
+}
+.action-menu {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
+.action-menu__button {
+  height: 34px;
+  width: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--slate-200);
+  background: white;
+  color: var(--slate-500);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.action-menu__button:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+  box-shadow: 0 8px 18px -12px rgba(30, 58, 95, 0.45);
+}
+
+.action-menu__button.is-open {
+  border-color: var(--brand-blue);
+  background: rgba(30, 58, 95, 0.08);
+  color: var(--brand-blue);
+}
+
+.action-menu__dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 20;
+  min-width: 260px;
+  border-radius: 14px;
+  border: 1px solid var(--slate-200);
+  background: white;
+  box-shadow: 0 18px 32px -20px rgba(15, 23, 42, 0.35);
+  padding: 10px;
+  animation: dropdownFadeIn 0.15s ease;
+}
+
+.action-menu__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--slate-700);
+  font-weight: 600;
+  font-size: 13px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.action-menu__item:hover {
+  background: var(--slate-100);
+  color: var(--slate-900);
+}
+
+.action-menu__item:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-menu__section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--slate-100);
+}
+
+.action-menu__label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--slate-400);
+  font-weight: 700;
 }

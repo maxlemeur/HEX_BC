@@ -59,9 +59,12 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
 
   useEffect(() => {
     if (!open) return;
-    setFormState(EMPTY_FORM);
-    setFormError(null);
-    setIsSubmitting(false);
+
+    queueMicrotask(() => {
+      setFormState(EMPTY_FORM);
+      setFormError(null);
+      setIsSubmitting(false);
+    });
   }, [open]);
 
   useEffect(() => {
@@ -145,7 +148,7 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
   return (
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto px-4 py-6">
       <div
-        className="fixed inset-0 bg-slate-900/40"
+        className="absolute inset-0 bg-slate-900/40"
         onClick={() => {
           if (!isSubmitting) onClose();
         }}

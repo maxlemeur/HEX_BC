@@ -25,11 +25,13 @@ const STATUS_OPTIONS: StatusOption[] = [
 type PurchaseOrderStatusUpdaterProps = {
   orderId: string;
   status: PurchaseOrderStatus;
+  onSaved?: () => void;
 };
 
 export function PurchaseOrderStatusUpdater({
   orderId,
   status,
+  onSaved,
 }: PurchaseOrderStatusUpdaterProps) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
@@ -48,13 +50,14 @@ export function PurchaseOrderStatusUpdater({
 
     setSaving(false);
 
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-
-    router.refresh();
+  if (updateError) {
+    setError(updateError.message);
+    return;
   }
+
+  router.refresh();
+  onSaved?.();
+}
 
   const hasChanged = value !== status;
 

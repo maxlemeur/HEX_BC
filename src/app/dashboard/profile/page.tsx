@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useUserContext } from "@/components/UserContext";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type Profile = {
@@ -21,14 +22,17 @@ const ROLE_LABELS: Record<Profile["role"], string> = {
 
 export default function ProfilePage() {
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const { userEmail, profile: contextProfile, setProfile: setContextProfile } =
+    useUserContext();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const [authEmail, setAuthEmail] = useState<string>("");
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [authEmail, setAuthEmail] = useState<string>(userEmail);
+  const [profile, setProfile] = useState<Profile | null>(contextProfile);
+  const [initialized, setInitialized] = useState(false);
 
   // Form state
   const [fullName, setFullName] = useState("");
@@ -37,44 +41,28 @@ export default function ProfilePage() {
   const [workEmail, setWorkEmail] = useState("");
 
   useEffect(() => {
-    async function loadProfile() {
+    if (initialized) return;
+
+    queueMicrotask(() => {
       setIsLoading(true);
       setError(null);
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        window.location.href = "/login";
-        return;
-      }
-
-      setAuthEmail(user.email ?? "");
-
-      const { data, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, full_name, phone, job_title, work_email, role")
-        .eq("id", user.id)
-        .single();
-
-      if (profileError) {
-        setError(profileError.message);
+      if (!contextProfile) {
+        setError("Profil introuvable.");
         setIsLoading(false);
         return;
       }
 
-      const profileData = data as unknown as Profile;
-      setProfile(profileData);
-      setFullName(profileData.full_name);
-      setPhone(profileData.phone ?? "");
-      setJobTitle(profileData.job_title ?? "");
-      setWorkEmail(profileData.work_email ?? user.email ?? "");
+      setProfile(contextProfile);
+      setAuthEmail(userEmail);
+      setFullName(contextProfile.full_name);
+      setPhone(contextProfile.phone ?? "");
+      setJobTitle(contextProfile.job_title ?? "");
+      setWorkEmail(contextProfile.work_email ?? userEmail ?? "");
       setIsLoading(false);
-    }
-
-    loadProfile();
-  }, [supabase]);
+      setInitialized(true);
+    });
+  }, [contextProfile, initialized, userEmail]);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -104,6 +92,17 @@ export default function ProfilePage() {
     setSuccess(true);
     // Update local profile state
     setProfile((prev) =>
+      prev
+        ? {
+            ...prev,
+            full_name: fullName.trim(),
+            phone: phone.trim() || null,
+            job_title: jobTitle.trim() || null,
+            work_email: workEmail.trim() || null,
+          }
+        : null
+    );
+    setContextProfile((prev) =>
       prev
         ? {
             ...prev,

@@ -84,14 +84,14 @@ export function TableFilterBar<T extends Record<string, unknown>>({
       </div>
 
       {/* Filter pills row */}
-      {hasFilters && (
-        <div className="table-filter-bar__filters">
-          {filters.map((filterConfig, index) => {
-            if (filterConfig.type === "date-range") {
-              return (
-                <FilterDateRange
-                  key={filterConfig.key}
-                  config={filterConfig}
+        {hasFilters && (
+          <div className="table-filter-bar__filters">
+            {filters.map((filterConfig) => {
+              if (filterConfig.type === "date-range") {
+                return (
+                  <FilterDateRange
+                    key={filterConfig.key}
+                    config={filterConfig}
                   value={(filterState[filterConfig.key] as DateRangeValue) ?? { from: "", to: "" }}
                   onChange={(value) => handleFilterChange(filterConfig.key, value)}
                   onClear={() => handleClearFilter(filterConfig.key)}

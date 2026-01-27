@@ -101,6 +101,14 @@ export default async function OrderPrintPage({
     resolvedSearchParams?.print === "true";
   const supabase = await createSupabaseServerClient();
 
+  const itemsPromise = supabase
+    .from("purchase_order_items")
+    .select(
+      "id, designation, reference, quantity, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents"
+    )
+    .eq("purchase_order_id", id)
+    .order("position", { ascending: true });
+
   const { data: orderData, error: orderError } = await supabase
     .from("purchase_orders")
     .select(
@@ -115,13 +123,7 @@ export default async function OrderPrintPage({
 
   const order = orderData as unknown as PurchaseOrder;
 
-  const { data: itemsData } = await supabase
-    .from("purchase_order_items")
-    .select(
-      "id, designation, reference, quantity, unit_price_ht_cents, tax_rate_bp, line_total_ht_cents"
-    )
-    .eq("purchase_order_id", order.id)
-    .order("position", { ascending: true });
+  const { data: itemsData } = await itemsPromise;
 
   const items = (itemsData ?? []) as unknown as PurchaseOrderItem[];
   const supplierDb = order.suppliers;

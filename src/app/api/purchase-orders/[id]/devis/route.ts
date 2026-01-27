@@ -44,6 +44,17 @@ function sanitizeFilename(filename: string) {
   return normalized.length > 0 ? normalized : "fichier";
 }
 
+function getUploadContentType(file: File) {
+  const trimmedType = file.type?.trim();
+  if (!trimmedType) return undefined;
+
+  if (trimmedType.startsWith("message/")) {
+    return "application/octet-stream";
+  }
+
+  return trimmedType;
+}
+
 function toResponseItem(record: DevisRecord, downloadUrl: string | null): DevisResponseItem {
   return {
     id: record.id,
@@ -132,18 +143,21 @@ export async function POST(
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userPromise = supabase.auth.getUser();
+  const formDataPromise = request.formData().catch(() => null);
+
+  const [
+    {
+      data: { user },
+    },
+    formData,
+  ] = await Promise.all([userPromise, formDataPromise]);
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let formData: FormData;
-  try {
-    formData = await request.formData();
-  } catch {
+  if (!formData) {
     return NextResponse.json({ error: "Invalid form payload" }, { status: 400 });
   }
 
@@ -197,7 +211,7 @@ export async function POST(
   const { error: uploadError } = await supabase.storage
     .from("devis")
     .upload(storagePath, file, {
-      contentType: file.type || undefined,
+      contentType: getUploadContentType(file),
       upsert: false,
     });
 

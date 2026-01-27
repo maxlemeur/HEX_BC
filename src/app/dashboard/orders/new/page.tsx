@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
 
 import {
@@ -12,6 +12,7 @@ import {
   type DeliverySiteData,
 } from "@/components/PurchaseOrderDocument";
 import { SupplierCreateModal, type SupplierCreateResult } from "@/components/SupplierCreateModal";
+import { useUserContext } from "@/components/UserContext";
 import {
   computeLineTotals,
   computeOrderTotals,
@@ -50,41 +51,10 @@ function newDraftItem(): DraftItem {
   };
 }
 
-type UserProfile = {
-  full_name: string;
-  job_title: string | null;
-  phone: string | null;
-  work_email: string | null;
-};
-
 export default function NewOrderPage() {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-
-  // User profile for document header
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-
-  useEffect(() => {
-    async function loadUserProfile() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) return;
-
-      const { data } = await supabase
-        .from("profiles")
-        .select("full_name, job_title, phone, work_email")
-        .eq("id", user.id)
-        .single();
-
-      if (data) {
-        setUserProfile(data as unknown as UserProfile);
-      }
-    }
-
-    loadUserProfile();
-  }, [supabase]);
+  const { profile: userProfile } = useUserContext();
 
   const [supplierId, setSupplierId] = useState<string>("");
   const [deliverySiteId, setDeliverySiteId] = useState<string>("");
