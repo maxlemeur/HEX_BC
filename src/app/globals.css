@@ -1374,6 +1374,11 @@ body {
   animation: dropdownFadeIn 0.15s ease;
 }
 
+.action-menu__dropdown--up {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
 .action-menu__item {
   width: 100%;
   display: flex;

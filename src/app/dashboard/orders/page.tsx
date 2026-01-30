@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
 import { DevisPreviewModal, isPreviewableType } from "@/components/DevisPreviewModal";
@@ -296,6 +296,7 @@ export default function OrdersPage() {
   const [showUploaderForOrder, setShowUploaderForOrder] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [downloadingOrderId, setDownloadingOrderId] = useState<string | null>(null);
+  const [menuPlacement, setMenuPlacement] = useState<"down" | "up">("down");
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const fetchOrders = useCallback(async () => {
@@ -581,6 +582,39 @@ export default function OrdersPage() {
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
+  }, [openMenuId]);
+
+  useLayoutEffect(() => {
+    if (!openMenuId) {
+      setMenuPlacement("down");
+      return;
+    }
+
+    const menuRoot = menuRef.current;
+    if (!menuRoot) return;
+
+    const dropdown = menuRoot.querySelector<HTMLElement>(".action-menu__dropdown");
+    const button = menuRoot.querySelector<HTMLElement>(".action-menu__button");
+    if (!dropdown || !button) return;
+
+    const gap = 8;
+    const dropdownRect = dropdown.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+
+    const tableScroll = menuRoot.closest<HTMLElement>(".table-scroll");
+    const tableScrollRect = tableScroll?.getBoundingClientRect();
+
+    const boundaryTop = Math.max(tableScrollRect?.top ?? 0, gap);
+    const boundaryBottom = Math.min(
+      tableScrollRect?.bottom ?? window.innerHeight,
+      window.innerHeight - gap
+    );
+
+    const spaceBelow = boundaryBottom - buttonRect.bottom;
+    const spaceAbove = buttonRect.top - boundaryTop;
+
+    const shouldOpenUp = spaceBelow < dropdownRect.height + gap && spaceAbove > spaceBelow;
+    setMenuPlacement(shouldOpenUp ? "up" : "down");
   }, [openMenuId]);
 
   // Build filter configuration with dynamic options
@@ -885,7 +919,10 @@ export default function OrdersPage() {
                               <span className="sr-only">Actions</span>
                             </button>
                             {isMenuOpen && (
-                              <div className="action-menu__dropdown" role="menu">
+                              <div
+                                className={`action-menu__dropdown ${menuPlacement === "up" ? "action-menu__dropdown--up" : ""}`}
+                                role="menu"
+                              >
                                 <button
                                   className="action-menu__item"
                                   role="menuitem"

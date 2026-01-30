@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 
@@ -92,10 +92,10 @@ function existingItemToDraft(item: ExistingItem): DraftItem {
   };
 }
 
-export default function EditOrderPage({
-  params,
-}: Readonly<{ params: { id: string } }>) {
-  const { id } = params;
+export default function EditOrderPage() {
+  const params = useParams();
+  const rawId = params?.["id"];
+  const id = Array.isArray(rawId) ? rawId[0] : rawId;
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { profile: userProfile } = useUserContext();
@@ -113,6 +113,7 @@ export default function EditOrderPage({
 
   // Fetch existing order
   const fetchOrder = useCallback(async () => {
+    if (!id) throw new Error("Identifiant du bon de commande manquant.");
     const { data, error } = await supabase
       .from("purchase_orders")
       .select("id, reference, order_date, expected_delivery_date, notes, supplier_id, delivery_site_id, status")
@@ -124,6 +125,7 @@ export default function EditOrderPage({
   }, [supabase, id]);
 
   const fetchOrderItems = useCallback(async () => {
+    if (!id) throw new Error("Identifiant du bon de commande manquant.");
     const { data, error } = await supabase
       .from("purchase_order_items")
       .select("id, designation, quantity, unit_price_ht_cents, tax_rate_bp")
@@ -135,12 +137,12 @@ export default function EditOrderPage({
   }, [supabase, id]);
 
   const { data: order, error: orderError, isLoading: isOrderLoading } = useSWR(
-    `edit-order-${id}`,
+    id ? `edit-order-${id}` : null,
     fetchOrder
   );
 
   const { data: orderItems, error: itemsError, isLoading: isItemsLoading } = useSWR(
-    `edit-order-items-${id}`,
+    id ? `edit-order-items-${id}` : null,
     fetchOrderItems
   );
 
@@ -323,6 +325,11 @@ export default function EditOrderPage({
     event.preventDefault();
     setFormError(null);
 
+    if (!id) {
+      setFormError("Identifiant du bon de commande manquant.");
+      return;
+    }
+
     if (!isDraft) {
       setFormError("Seuls les bons de commande en brouillon peuvent etre modifies.");
       return;
@@ -397,7 +404,7 @@ export default function EditOrderPage({
           <div className="mx-auto flex max-w-5xl items-center gap-4 px-6 py-4">
             <Link
               className="btn btn-ghost btn-sm"
-              href={`/dashboard/orders/${id}`}
+              href={id ? `/dashboard/orders/${id}` : "/dashboard/orders"}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -445,7 +452,7 @@ export default function EditOrderPage({
           <div className="flex items-center gap-4">
             <Link
               className="btn btn-ghost btn-sm"
-              href={`/dashboard/orders/${id}`}
+              href={id ? `/dashboard/orders/${id}` : "/dashboard/orders"}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
