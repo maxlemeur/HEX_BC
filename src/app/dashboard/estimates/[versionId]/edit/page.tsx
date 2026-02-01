@@ -221,16 +221,58 @@ export default function EditEstimatePage() {
 
       const versionRow = versionResult.data as unknown as EstimateVersionView;
       const itemsRows = itemsResult.data ?? [];
+      const rolesData = rolesResult.data ?? [];
       const discountCents = computeInitialDiscountCents(
         versionRow,
         itemsRows,
-        rolesResult.data ?? []
+        rolesData
       );
 
+      const rateById = new Map<string, number>();
+      rolesData.forEach((role) => {
+        rateById.set(role.id, role.hourly_rate_cents);
+      });
+
+      const normalizedItems = itemsRows.map((item) => {
+        if (item.item_type !== "line") return item;
+        const kFo = item.k_fo ?? 1;
+        const hMo = item.h_mo ?? 0;
+        const kMo = item.k_mo ?? 1;
+        const hourlyRate = item.labor_role_id
+          ? rateById.get(item.labor_role_id) ?? 0
+          : 0;
+        const taxRate = versionRow.tax_rate_bp ?? item.tax_rate_bp ?? 0;
+        const lineValues = computeEstimateLineValues(
+          {
+            ...item,
+            k_fo: kFo,
+            h_mo: hMo,
+            k_mo: kMo,
+            tax_rate_bp: taxRate,
+            labor_role_hourly_rate_cents: hourlyRate,
+          },
+          {
+            marginMultiplier: versionRow.margin_multiplier,
+            taxRateBp: taxRate,
+          }
+        );
+        return {
+          ...item,
+          tax_rate_bp: taxRate,
+          k_fo: kFo,
+          h_mo: hMo,
+          k_mo: kMo,
+          pu_ht_cents: lineValues.puHtCents,
+          line_total_ht_cents: lineValues.saleLineCents,
+          line_tax_cents: lineValues.taxLineCents,
+          line_total_ttc_cents: lineValues.ttcLineCents,
+        };
+      });
+
       setVersion(versionRow);
-      setItems(itemsRows);
+      setItems(normalizedItems);
       setCategories(categoriesResult.data ?? []);
-      setLaborRoles(rolesResult.data ?? []);
+      setLaborRoles(rolesData);
       setSettings({
         title: versionRow.title ?? "",
         date_devis: versionRow.date_devis,
@@ -242,6 +284,50 @@ export default function EditEstimatePage() {
         rounding_step_cents: versionRow.rounding_step_cents,
       });
       setIsLoading(false);
+
+      if (versionRow.status === "draft") {
+        const originalById = new Map(
+          itemsRows.map((item) => [item.id, item])
+        );
+        const updates = normalizedItems.filter((item) => {
+          if (item.item_type !== "line") return false;
+          const original = originalById.get(item.id);
+          if (!original) return false;
+          return (
+            original.tax_rate_bp !== item.tax_rate_bp ||
+            original.k_fo !== item.k_fo ||
+            original.h_mo !== item.h_mo ||
+            original.k_mo !== item.k_mo ||
+            original.pu_ht_cents !== item.pu_ht_cents ||
+            original.line_total_ht_cents !== item.line_total_ht_cents ||
+            original.line_tax_cents !== item.line_tax_cents ||
+            original.line_total_ttc_cents !== item.line_total_ttc_cents
+          );
+        });
+
+        if (updates.length > 0) {
+          const results = await Promise.all(
+            updates.map((item) =>
+              supabase
+                .from("estimate_items")
+                .update({
+                  tax_rate_bp: item.tax_rate_bp,
+                  k_fo: item.k_fo,
+                  h_mo: item.h_mo,
+                  k_mo: item.k_mo,
+                  pu_ht_cents: item.pu_ht_cents,
+                  line_total_ht_cents: item.line_total_ht_cents,
+                  line_tax_cents: item.line_tax_cents,
+                  line_total_ttc_cents: item.line_total_ttc_cents,
+                })
+                .eq("id", item.id)
+            )
+          );
+          if (active && results.some((result) => result.error)) {
+            setActionError("Impossible de mettre a jour les lignes.");
+          }
+        }
+      }
     }
 
     void load();
@@ -287,14 +373,14 @@ export default function EditEstimatePage() {
 
   useEffect(() => {
     if (!totals || !version || isReadOnly) return;
-    const totalsKey = `${totals.netHtCents}-${totals.adjustedTaxCents}-${totals.roundedTtcCents}`;
+    const totalsKey = `${totals.saleTotalCents}-${totals.adjustedTaxCents}-${totals.roundedTtcCents}`;
     if (totalsKey === lastTotalsKey.current) return;
 
     const timeout = setTimeout(async () => {
       const { error } = await supabase
         .from("estimate_versions")
         .update({
-          total_ht_cents: totals.netHtCents,
+          total_ht_cents: totals.saleTotalCents,
           total_tax_cents: totals.adjustedTaxCents,
           total_ttc_cents: totals.roundedTtcCents,
         })
@@ -340,7 +426,7 @@ export default function EditEstimatePage() {
     setIsSavingSettings(true);
     setActionError(null);
 
-    const discountBase = totals.withMarginHtCents;
+    const discountBase = totals.saleSubtotalCents;
     const discountBp =
       discountBase > 0
         ? Math.round((settings.discount_cents / discountBase) * 10000)
@@ -355,7 +441,7 @@ export default function EditEstimatePage() {
       tax_rate_bp: settings.tax_rate_bp,
       rounding_mode: settings.rounding_mode,
       rounding_step_cents: settings.rounding_step_cents,
-      total_ht_cents: totals.netHtCents,
+      total_ht_cents: totals.saleTotalCents,
       total_tax_cents: totals.adjustedTaxCents,
       total_ttc_cents: totals.roundedTtcCents,
     };
@@ -371,24 +457,45 @@ export default function EditEstimatePage() {
       return;
     }
 
-    if (settings.tax_rate_bp !== version.tax_rate_bp) {
+    const shouldUpdateLines =
+      settings.tax_rate_bp !== version.tax_rate_bp ||
+      settings.margin_multiplier !== version.margin_multiplier;
+
+    if (shouldUpdateLines) {
       const lineItems = itemsRef.current.filter(
         (item) => item.item_type === "line"
       );
       const updatedLines = lineItems.map((item) => {
-        const quantity = item.quantity ?? 0;
-        const unitPrice = item.unit_price_ht_cents ?? 0;
-        const lineTotals = computeEstimateLineTotals(
-          quantity,
-          unitPrice,
-          settings.tax_rate_bp
+        const kFo = item.k_fo ?? 1;
+        const hMo = item.h_mo ?? 0;
+        const kMo = item.k_mo ?? 1;
+        const hourlyRate = item.labor_role_id
+          ? laborRateById.get(item.labor_role_id) ?? 0
+          : 0;
+        const lineValues = computeEstimateLineValues(
+          {
+            ...item,
+            tax_rate_bp: settings.tax_rate_bp,
+            k_fo: kFo,
+            h_mo: hMo,
+            k_mo: kMo,
+            labor_role_hourly_rate_cents: hourlyRate,
+          },
+          {
+            marginMultiplier: settings.margin_multiplier,
+            taxRateBp: settings.tax_rate_bp,
+          }
         );
         return {
           ...item,
           tax_rate_bp: settings.tax_rate_bp,
-          line_total_ht_cents: lineTotals.lineTotalHtCents,
-          line_tax_cents: lineTotals.lineTaxCents,
-          line_total_ttc_cents: lineTotals.lineTotalTtcCents,
+          k_fo: kFo,
+          h_mo: hMo,
+          k_mo: kMo,
+          pu_ht_cents: lineValues.puHtCents,
+          line_total_ht_cents: lineValues.saleLineCents,
+          line_tax_cents: lineValues.taxLineCents,
+          line_total_ttc_cents: lineValues.ttcLineCents,
         };
       });
 
@@ -406,6 +513,10 @@ export default function EditEstimatePage() {
             .from("estimate_items")
             .update({
               tax_rate_bp: item.tax_rate_bp,
+              k_fo: item.k_fo,
+              h_mo: item.h_mo,
+              k_mo: item.k_mo,
+              pu_ht_cents: item.pu_ht_cents,
               line_total_ht_cents: item.line_total_ht_cents,
               line_tax_cents: item.line_tax_cents,
               line_total_ttc_cents: item.line_total_ttc_cents,
@@ -416,7 +527,7 @@ export default function EditEstimatePage() {
 
       const hasError = updates.some((result) => result.error);
       if (hasError) {
-        setActionError("Impossible de mettre a jour la TVA des lignes.");
+        setActionError("Impossible de mettre a jour les lignes.");
       }
     }
 
@@ -577,10 +688,21 @@ export default function EditEstimatePage() {
       }
       setActionError(null);
       const position = getNextPosition(parentId);
-      const lineTotals = computeEstimateLineTotals(
-        1,
-        0,
-        settings.tax_rate_bp
+      const lineValues = computeEstimateLineValues(
+        {
+          quantity: 1,
+          unit_price_ht_cents: 0,
+          tax_rate_bp: settings.tax_rate_bp,
+          k_fo: 1,
+          h_mo: 0,
+          k_mo: 1,
+          pu_ht_cents: 0,
+          labor_role_hourly_rate_cents: 0,
+        },
+        {
+          marginMultiplier: settings.margin_multiplier,
+          taxRateBp: settings.tax_rate_bp,
+        }
       );
 
       const { data, error } = await supabase
@@ -595,11 +717,15 @@ export default function EditEstimatePage() {
           quantity: 1,
           unit_price_ht_cents: 0,
           tax_rate_bp: settings.tax_rate_bp,
+          k_fo: 1,
+          h_mo: 0,
+          k_mo: 1,
+          pu_ht_cents: lineValues.puHtCents,
           labor_role_id: null,
           category_id: null,
-          line_total_ht_cents: lineTotals.lineTotalHtCents,
-          line_tax_cents: lineTotals.lineTaxCents,
-          line_total_ttc_cents: lineTotals.lineTotalTtcCents,
+          line_total_ht_cents: lineValues.saleLineCents,
+          line_tax_cents: lineValues.taxLineCents,
+          line_total_ttc_cents: lineValues.ttcLineCents,
         })
         .select("*")
         .single();
@@ -672,20 +798,41 @@ export default function EditEstimatePage() {
 
       if (updated.item_type === "line") {
         const taxRate =
-          updated.tax_rate_bp ?? settings?.tax_rate_bp ?? current.tax_rate_bp;
-        const quantity = updated.quantity ?? 0;
-        const unitPrice = updated.unit_price_ht_cents ?? 0;
-        const lineTotals = computeEstimateLineTotals(
-          quantity,
-          unitPrice,
-          taxRate ?? 0
+          updated.tax_rate_bp ??
+          settings?.tax_rate_bp ??
+          current.tax_rate_bp ??
+          0;
+        const marginMultiplier = settings?.margin_multiplier ?? 1;
+        const kFo = updated.k_fo ?? 1;
+        const hMo = updated.h_mo ?? 0;
+        const kMo = updated.k_mo ?? 1;
+        const hourlyRate = updated.labor_role_id
+          ? laborRateById.get(updated.labor_role_id) ?? 0
+          : 0;
+        const lineValues = computeEstimateLineValues(
+          {
+            ...updated,
+            tax_rate_bp: taxRate,
+            k_fo: kFo,
+            h_mo: hMo,
+            k_mo: kMo,
+            labor_role_hourly_rate_cents: hourlyRate,
+          },
+          {
+            marginMultiplier,
+            taxRateBp: taxRate,
+          }
         );
         updated = {
           ...updated,
-          tax_rate_bp: taxRate ?? 0,
-          line_total_ht_cents: lineTotals.lineTotalHtCents,
-          line_tax_cents: lineTotals.lineTaxCents,
-          line_total_ttc_cents: lineTotals.lineTotalTtcCents,
+          tax_rate_bp: taxRate,
+          k_fo: kFo,
+          h_mo: hMo,
+          k_mo: kMo,
+          pu_ht_cents: lineValues.puHtCents,
+          line_total_ht_cents: lineValues.saleLineCents,
+          line_tax_cents: lineValues.taxLineCents,
+          line_total_ttc_cents: lineValues.ttcLineCents,
         };
       }
 
@@ -703,6 +850,10 @@ export default function EditEstimatePage() {
               quantity: updated.quantity,
               unit_price_ht_cents: updated.unit_price_ht_cents,
               tax_rate_bp: updated.tax_rate_bp,
+              k_fo: updated.k_fo,
+              h_mo: updated.h_mo,
+              k_mo: updated.k_mo,
+              pu_ht_cents: updated.pu_ht_cents,
               labor_role_id: updated.labor_role_id,
               category_id: updated.category_id,
               line_total_ht_cents: updated.line_total_ht_cents,
@@ -723,7 +874,13 @@ export default function EditEstimatePage() {
         setItems(snapshot);
       }
     },
-    [isReadOnly, settings?.tax_rate_bp, supabase]
+    [
+      isReadOnly,
+      laborRateById,
+      settings?.margin_multiplier,
+      settings?.tax_rate_bp,
+      supabase,
+    ]
   );
 
   const handleReorder = useCallback(
