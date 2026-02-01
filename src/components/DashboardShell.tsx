@@ -31,6 +31,30 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: "/dashboard/estimates",
+    label: "Chiffrages",
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect width="16" height="20" x="4" y="2" rx="2" />
+        <path d="M8 7h8" />
+        <path d="M8 11h2" />
+        <path d="M14 11h2" />
+        <path d="M8 15h2" />
+        <path d="M14 15h2" />
+      </svg>
+    ),
+  },
+  {
     href: "/dashboard/suppliers",
     label: "Fournisseurs",
     icon: (
