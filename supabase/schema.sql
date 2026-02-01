@@ -14,10 +14,18 @@ drop table if exists public.profiles cascade;
 drop table if exists public.order_items cascade;
 drop table if exists public.orders cascade;
 drop table if exists public.customers cascade;
+drop table if exists public.estimate_items cascade;
+drop table if exists public.estimate_versions cascade;
+drop table if exists public.estimate_projects cascade;
+drop table if exists public.estimate_categories cascade;
+drop table if exists public.labor_roles cascade;
 
 drop type if exists purchase_order_status;
 drop type if exists employee_role;
 drop type if exists order_status;
+drop type if exists estimate_status;
+drop type if exists estimate_item_type;
+drop type if exists estimate_rounding_mode;
 
 do $$
 begin
@@ -30,6 +38,27 @@ do $$
 begin
   if not exists (select 1 from pg_type where typname = 'employee_role') then
     create type employee_role as enum ('buyer', 'site_manager', 'admin');
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'estimate_status') then
+    create type estimate_status as enum ('draft', 'sent', 'accepted', 'archived');
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'estimate_item_type') then
+    create type estimate_item_type as enum ('section', 'line');
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'estimate_rounding_mode') then
+    create type estimate_rounding_mode as enum ('none', 'nearest', 'up', 'down');
   end if;
 end $$;
 
@@ -229,6 +258,323 @@ create trigger set_purchase_order_devis_updated_at
 create index purchase_order_devis_purchase_order_id_idx on public.purchase_order_devis (purchase_order_id);
 create unique index purchase_order_devis_position_unique on public.purchase_order_devis (purchase_order_id, position);
 
+create table public.estimate_projects (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  user_id uuid not null references public.profiles(id) on delete restrict,
+  name text not null,
+  reference text,
+  client_name text,
+  notes text,
+  is_archived boolean not null default false
+);
+
+create trigger set_estimate_projects_updated_at
+  before update on public.estimate_projects
+  for each row execute procedure public.set_updated_at();
+
+create index estimate_projects_user_id_idx on public.estimate_projects (user_id);
+create index estimate_projects_updated_at_idx on public.estimate_projects (updated_at);
+
+create table public.estimate_versions (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  project_id uuid not null references public.estimate_projects(id) on delete cascade,
+  version_number integer not null,
+  status estimate_status not null default 'draft',
+  title text,
+  date_devis date not null default current_date,
+  validite_jours integer not null default 30 check (validite_jours > 0),
+  margin_multiplier numeric not null default 1.0 check (margin_multiplier >= 0),
+  currency text not null default 'EUR',
+  margin_bp integer not null default 0 check (margin_bp >= 0),
+  discount_bp integer not null default 0 check (discount_bp >= 0),
+  tax_rate_bp integer not null default 2000 check (tax_rate_bp >= 0 and tax_rate_bp <= 10000),
+  rounding_mode estimate_rounding_mode not null default 'none',
+  rounding_step_cents integer not null default 1 check (rounding_step_cents >= 1),
+  total_ht_cents integer not null default 0 check (total_ht_cents >= 0),
+  total_tax_cents integer not null default 0 check (total_tax_cents >= 0),
+  total_ttc_cents integer not null default 0 check (total_ttc_cents >= 0),
+  unique (project_id, version_number)
+);
+
+create trigger set_estimate_versions_updated_at
+  before update on public.estimate_versions
+  for each row execute procedure public.set_updated_at();
+
+create or replace function public.guard_estimate_versions_readonly()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.status <> 'draft' then
+    if new.status = old.status then
+      raise exception 'Estimate version is read-only';
+    end if;
+
+    if new.created_at is distinct from old.created_at
+      or new.project_id is distinct from old.project_id
+      or new.version_number is distinct from old.version_number
+      or new.title is distinct from old.title
+      or new.date_devis is distinct from old.date_devis
+      or new.validite_jours is distinct from old.validite_jours
+      or new.margin_multiplier is distinct from old.margin_multiplier
+      or new.currency is distinct from old.currency
+      or new.margin_bp is distinct from old.margin_bp
+      or new.discount_bp is distinct from old.discount_bp
+      or new.tax_rate_bp is distinct from old.tax_rate_bp
+      or new.rounding_mode is distinct from old.rounding_mode
+      or new.rounding_step_cents is distinct from old.rounding_step_cents
+      or new.total_ht_cents is distinct from old.total_ht_cents
+      or new.total_tax_cents is distinct from old.total_tax_cents
+      or new.total_ttc_cents is distinct from old.total_ttc_cents
+    then
+      raise exception 'Estimate version is read-only';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger guard_estimate_versions_readonly
+  before update on public.estimate_versions
+  for each row execute procedure public.guard_estimate_versions_readonly();
+
+create index estimate_versions_project_id_idx on public.estimate_versions (project_id);
+create index estimate_versions_status_idx on public.estimate_versions (status);
+create index estimate_versions_updated_at_idx on public.estimate_versions (updated_at);
+
+create table public.estimate_categories (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null,
+  color text,
+  position integer not null default 0,
+  unique (user_id, name)
+);
+
+create trigger set_estimate_categories_updated_at
+  before update on public.estimate_categories
+  for each row execute procedure public.set_updated_at();
+
+create index estimate_categories_user_id_idx on public.estimate_categories (user_id);
+
+create table public.labor_roles (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null,
+  hourly_rate_cents integer not null default 0 check (hourly_rate_cents >= 0),
+  is_active boolean not null default true,
+  position integer not null default 0,
+  unique (user_id, name)
+);
+
+create trigger set_labor_roles_updated_at
+  before update on public.labor_roles
+  for each row execute procedure public.set_updated_at();
+
+create index labor_roles_user_id_idx on public.labor_roles (user_id);
+
+create table public.estimate_items (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  version_id uuid not null references public.estimate_versions(id) on delete cascade,
+  parent_id uuid references public.estimate_items(id) on delete cascade deferrable initially deferred,
+  item_type estimate_item_type not null,
+  position integer not null default 0,
+  title text not null,
+  description text,
+  quantity numeric(12,3),
+  unit_price_ht_cents integer,
+    tax_rate_bp integer,
+    k_fo numeric(12,3),
+    h_mo numeric(12,3),
+    k_mo numeric(12,3),
+    pu_ht_cents integer,
+  labor_role_id uuid references public.labor_roles(id) on delete set null,
+  category_id uuid references public.estimate_categories(id) on delete set null,
+  line_total_ht_cents integer,
+  line_tax_cents integer,
+  line_total_ttc_cents integer,
+    check (quantity is null or quantity >= 0),
+    check (unit_price_ht_cents is null or unit_price_ht_cents >= 0),
+    check (tax_rate_bp is null or (tax_rate_bp >= 0 and tax_rate_bp <= 10000)),
+    check (k_fo is null or k_fo >= 0),
+    check (h_mo is null or h_mo >= 0),
+    check (k_mo is null or k_mo >= 0),
+    check (pu_ht_cents is null or pu_ht_cents >= 0),
+    check (line_total_ht_cents is null or line_total_ht_cents >= 0),
+    check (line_tax_cents is null or line_tax_cents >= 0),
+    check (line_total_ttc_cents is null or line_total_ttc_cents >= 0),
+    check (
+      (item_type = 'section'
+        and quantity is null
+        and unit_price_ht_cents is null
+        and tax_rate_bp is null
+        and k_fo is null
+        and h_mo is null
+        and k_mo is null
+        and pu_ht_cents is null
+        and labor_role_id is null
+        and category_id is null
+        and line_total_ht_cents is null
+        and line_tax_cents is null
+        and line_total_ttc_cents is null
+    )
+    or
+      (item_type = 'line'
+        and quantity is not null
+        and unit_price_ht_cents is not null
+        and tax_rate_bp is not null
+        and k_fo is not null
+        and h_mo is not null
+        and k_mo is not null
+        and pu_ht_cents is not null
+        and line_total_ht_cents is not null
+        and line_tax_cents is not null
+        and line_total_ttc_cents is not null
+      )
+    )
+  );
+
+create trigger set_estimate_items_updated_at
+  before update on public.estimate_items
+  for each row execute procedure public.set_updated_at();
+
+create index estimate_items_version_id_idx on public.estimate_items (version_id);
+create index estimate_items_parent_id_idx on public.estimate_items (parent_id);
+create index estimate_items_category_id_idx on public.estimate_items (category_id);
+create index estimate_items_labor_role_id_idx on public.estimate_items (labor_role_id);
+create unique index estimate_items_root_position_unique
+  on public.estimate_items (version_id, position)
+  where parent_id is null;
+create unique index estimate_items_child_position_unique
+  on public.estimate_items (parent_id, position)
+  where parent_id is not null;
+
+create or replace function public.duplicate_estimate_version(source_version_id uuid)
+returns uuid
+language plpgsql
+as $$
+declare
+  source_version public.estimate_versions%rowtype;
+  new_version_id uuid := gen_random_uuid();
+  new_version_number integer;
+begin
+  select v.*
+    into source_version
+  from public.estimate_versions v
+  join public.estimate_projects p on p.id = v.project_id
+  where v.id = source_version_id
+    and p.user_id = (select auth.uid());
+
+  if not found then
+    raise exception 'Estimate version not found or access denied';
+  end if;
+
+  select coalesce(max(version_number), 0) + 1
+    into new_version_number
+  from public.estimate_versions
+  where project_id = source_version.project_id;
+
+  insert into public.estimate_versions (
+    id,
+    project_id,
+    version_number,
+    status,
+    title,
+    date_devis,
+    validite_jours,
+    margin_multiplier,
+    currency,
+    margin_bp,
+    discount_bp,
+    tax_rate_bp,
+    rounding_mode,
+    rounding_step_cents,
+    total_ht_cents,
+    total_tax_cents,
+    total_ttc_cents
+  )
+  values (
+    new_version_id,
+    source_version.project_id,
+    new_version_number,
+    'draft',
+    source_version.title,
+    source_version.date_devis,
+    source_version.validite_jours,
+    source_version.margin_multiplier,
+    source_version.currency,
+    source_version.margin_bp,
+    source_version.discount_bp,
+    source_version.tax_rate_bp,
+    source_version.rounding_mode,
+    source_version.rounding_step_cents,
+    source_version.total_ht_cents,
+    source_version.total_tax_cents,
+    source_version.total_ttc_cents
+  );
+
+  create temporary table _estimate_item_map (
+    old_id uuid primary key,
+    new_id uuid not null
+  ) on commit drop;
+
+  insert into _estimate_item_map (old_id, new_id)
+  select id, gen_random_uuid()
+  from public.estimate_items
+  where version_id = source_version_id;
+
+  insert into public.estimate_items (
+    id,
+    version_id,
+    parent_id,
+    item_type,
+    position,
+    title,
+    description,
+    quantity,
+    unit_price_ht_cents,
+    tax_rate_bp,
+    labor_role_id,
+    category_id,
+    line_total_ht_cents,
+    line_tax_cents,
+    line_total_ttc_cents
+  )
+  select
+    map.new_id,
+    new_version_id,
+    parent_map.new_id,
+    src.item_type,
+    src.position,
+    src.title,
+    src.description,
+    src.quantity,
+    src.unit_price_ht_cents,
+    src.tax_rate_bp,
+    src.labor_role_id,
+    src.category_id,
+    src.line_total_ht_cents,
+    src.line_tax_cents,
+    src.line_total_ttc_cents
+  from public.estimate_items src
+  join _estimate_item_map map on map.old_id = src.id
+  left join _estimate_item_map parent_map on parent_map.old_id = src.parent_id;
+
+  return new_version_id;
+end;
+$$;
+
 alter table public.profiles enable row level security;
 alter table public.suppliers enable row level security;
 alter table public.delivery_sites enable row level security;
@@ -236,6 +582,11 @@ alter table public.products enable row level security;
 alter table public.purchase_orders enable row level security;
 alter table public.purchase_order_items enable row level security;
 alter table public.purchase_order_devis enable row level security;
+alter table public.estimate_projects enable row level security;
+alter table public.estimate_versions enable row level security;
+alter table public.estimate_items enable row level security;
+alter table public.estimate_categories enable row level security;
+alter table public.labor_roles enable row level security;
 
 create policy "Profiles are viewable by authenticated users"
   on public.profiles
@@ -291,3 +642,105 @@ create policy "Authenticated can access devis"
   to authenticated
   using (true)
   with check (true);
+
+create policy "Users can manage estimate projects"
+  on public.estimate_projects
+  for all
+  to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+create policy "Users can manage estimate versions"
+  on public.estimate_versions
+  for all
+  to authenticated
+  using (
+    project_id in (
+      select id from public.estimate_projects
+      where user_id = (select auth.uid())
+    )
+  )
+  with check (
+    project_id in (
+      select id from public.estimate_projects
+      where user_id = (select auth.uid())
+    )
+  );
+
+create policy "Users can view estimate items"
+  on public.estimate_items
+  for select
+  to authenticated
+  using (
+    version_id in (
+      select v.id
+      from public.estimate_versions v
+      join public.estimate_projects p on p.id = v.project_id
+      where p.user_id = (select auth.uid())
+    )
+  );
+
+create policy "Users can insert draft estimate items"
+  on public.estimate_items
+  for insert
+  to authenticated
+  with check (
+    version_id in (
+      select v.id
+      from public.estimate_versions v
+      join public.estimate_projects p on p.id = v.project_id
+      where p.user_id = (select auth.uid())
+        and v.status = 'draft'
+    )
+  );
+
+create policy "Users can update draft estimate items"
+  on public.estimate_items
+  for update
+  to authenticated
+  using (
+    version_id in (
+      select v.id
+      from public.estimate_versions v
+      join public.estimate_projects p on p.id = v.project_id
+      where p.user_id = (select auth.uid())
+        and v.status = 'draft'
+    )
+  )
+  with check (
+    version_id in (
+      select v.id
+      from public.estimate_versions v
+      join public.estimate_projects p on p.id = v.project_id
+      where p.user_id = (select auth.uid())
+        and v.status = 'draft'
+    )
+  );
+
+create policy "Users can delete draft estimate items"
+  on public.estimate_items
+  for delete
+  to authenticated
+  using (
+    version_id in (
+      select v.id
+      from public.estimate_versions v
+      join public.estimate_projects p on p.id = v.project_id
+      where p.user_id = (select auth.uid())
+        and v.status = 'draft'
+    )
+  );
+
+create policy "Users can manage estimate categories"
+  on public.estimate_categories
+  for all
+  to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+create policy "Users can manage labor roles"
+  on public.labor_roles
+  for all
+  to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));

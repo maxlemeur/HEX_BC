@@ -16,6 +16,8 @@ export type Database = {
           updated_at: string;
           full_name: string;
           phone: string | null;
+          job_title: string | null;
+          work_email: string | null;
           role: "buyer" | "site_manager" | "admin";
         };
         Insert: {
@@ -24,6 +26,8 @@ export type Database = {
           updated_at?: string;
           full_name: string;
           phone?: string | null;
+          job_title?: string | null;
+          work_email?: string | null;
           role?: "buyer" | "site_manager" | "admin";
         };
         Update: {
@@ -32,6 +36,8 @@ export type Database = {
           updated_at?: string;
           full_name?: string;
           phone?: string | null;
+          job_title?: string | null;
+          work_email?: string | null;
           role?: "buyer" | "site_manager" | "admin";
         };
         Relationships: [];
@@ -315,6 +321,243 @@ export type Database = {
         };
         Relationships: [];
       };
+      estimate_projects: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          user_id: string;
+          name: string;
+          reference: string | null;
+          client_name: string | null;
+          notes: string | null;
+          is_archived: boolean;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id: string;
+          name: string;
+          reference?: string | null;
+          client_name?: string | null;
+          notes?: string | null;
+          is_archived?: boolean;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id?: string;
+          name?: string;
+          reference?: string | null;
+          client_name?: string | null;
+          notes?: string | null;
+          is_archived?: boolean;
+        };
+        Relationships: [];
+      };
+      estimate_versions: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          project_id: string;
+          version_number: number;
+          status: "draft" | "sent" | "accepted" | "archived";
+          title: string | null;
+          date_devis: string;
+          validite_jours: number;
+          margin_multiplier: number;
+          currency: string;
+          margin_bp: number;
+          discount_bp: number;
+          tax_rate_bp: number;
+          rounding_mode: "none" | "nearest" | "up" | "down";
+          rounding_step_cents: number;
+          total_ht_cents: number;
+          total_tax_cents: number;
+          total_ttc_cents: number;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          project_id: string;
+          version_number: number;
+          status?: "draft" | "sent" | "accepted" | "archived";
+          title?: string | null;
+          date_devis?: string;
+          validite_jours?: number;
+          margin_multiplier?: number;
+          currency?: string;
+          margin_bp?: number;
+          discount_bp?: number;
+          tax_rate_bp?: number;
+          rounding_mode?: "none" | "nearest" | "up" | "down";
+          rounding_step_cents?: number;
+          total_ht_cents?: number;
+          total_tax_cents?: number;
+          total_ttc_cents?: number;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          project_id?: string;
+          version_number?: number;
+          status?: "draft" | "sent" | "accepted" | "archived";
+          title?: string | null;
+          date_devis?: string;
+          validite_jours?: number;
+          margin_multiplier?: number;
+          currency?: string;
+          margin_bp?: number;
+          discount_bp?: number;
+          tax_rate_bp?: number;
+          rounding_mode?: "none" | "nearest" | "up" | "down";
+          rounding_step_cents?: number;
+          total_ht_cents?: number;
+          total_tax_cents?: number;
+          total_ttc_cents?: number;
+        };
+        Relationships: [];
+      };
+      estimate_categories: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          user_id: string;
+          name: string;
+          color: string | null;
+          position: number;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id: string;
+          name: string;
+          color?: string | null;
+          position?: number;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id?: string;
+          name?: string;
+          color?: string | null;
+          position?: number;
+        };
+        Relationships: [];
+      };
+      labor_roles: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          user_id: string;
+          name: string;
+          hourly_rate_cents: number;
+          is_active: boolean;
+          position: number;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id: string;
+          name: string;
+          hourly_rate_cents?: number;
+          is_active?: boolean;
+          position?: number;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id?: string;
+          name?: string;
+          hourly_rate_cents?: number;
+          is_active?: boolean;
+          position?: number;
+        };
+        Relationships: [];
+      };
+      estimate_items: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          version_id: string;
+          parent_id: string | null;
+          item_type: "section" | "line";
+          position: number;
+          title: string;
+          description: string | null;
+          quantity: number | null;
+          unit_price_ht_cents: number | null;
+          tax_rate_bp: number | null;
+          k_fo: number | null;
+          h_mo: number | null;
+          k_mo: number | null;
+          pu_ht_cents: number | null;
+          labor_role_id: string | null;
+          category_id: string | null;
+          line_total_ht_cents: number | null;
+          line_tax_cents: number | null;
+          line_total_ttc_cents: number | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          version_id: string;
+          parent_id?: string | null;
+          item_type: "section" | "line";
+          position?: number;
+          title: string;
+          description?: string | null;
+            quantity?: number | null;
+            unit_price_ht_cents?: number | null;
+            tax_rate_bp?: number | null;
+            k_fo?: number | null;
+            h_mo?: number | null;
+            k_mo?: number | null;
+            pu_ht_cents?: number | null;
+            labor_role_id?: string | null;
+            category_id?: string | null;
+            line_total_ht_cents?: number | null;
+            line_tax_cents?: number | null;
+            line_total_ttc_cents?: number | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          version_id?: string;
+          parent_id?: string | null;
+          item_type?: "section" | "line";
+          position?: number;
+          title?: string;
+          description?: string | null;
+            quantity?: number | null;
+            unit_price_ht_cents?: number | null;
+            tax_rate_bp?: number | null;
+            k_fo?: number | null;
+            h_mo?: number | null;
+            k_mo?: number | null;
+            pu_ht_cents?: number | null;
+            labor_role_id?: string | null;
+            category_id?: string | null;
+            line_total_ht_cents?: number | null;
+            line_tax_cents?: number | null;
+            line_total_ttc_cents?: number | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -325,6 +568,9 @@ export type Database = {
     Enums: {
       purchase_order_status: "draft" | "sent" | "confirmed" | "received" | "canceled";
       employee_role: "buyer" | "site_manager" | "admin";
+      estimate_status: "draft" | "sent" | "accepted" | "archived";
+      estimate_item_type: "section" | "line";
+      estimate_rounding_mode: "none" | "nearest" | "up" | "down";
     };
     CompositeTypes: {
       [_ in never]: never;
