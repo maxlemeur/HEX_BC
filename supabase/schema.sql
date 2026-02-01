@@ -534,22 +534,26 @@ begin
   from public.estimate_items
   where version_id = source_version_id;
 
-  insert into public.estimate_items (
-    id,
-    version_id,
-    parent_id,
-    item_type,
-    position,
-    title,
-    description,
-    quantity,
-    unit_price_ht_cents,
-    tax_rate_bp,
-    labor_role_id,
-    category_id,
-    line_total_ht_cents,
-    line_tax_cents,
-    line_total_ttc_cents
+    insert into public.estimate_items (
+      id,
+      version_id,
+      parent_id,
+      item_type,
+      position,
+      title,
+      description,
+      quantity,
+      unit_price_ht_cents,
+      tax_rate_bp,
+      k_fo,
+      h_mo,
+      k_mo,
+      pu_ht_cents,
+      labor_role_id,
+      category_id,
+      line_total_ht_cents,
+      line_tax_cents,
+      line_total_ttc_cents
   )
   select
     map.new_id,
@@ -558,15 +562,19 @@ begin
     src.item_type,
     src.position,
     src.title,
-    src.description,
-    src.quantity,
-    src.unit_price_ht_cents,
-    src.tax_rate_bp,
-    src.labor_role_id,
-    src.category_id,
-    src.line_total_ht_cents,
-    src.line_tax_cents,
-    src.line_total_ttc_cents
+      src.description,
+      src.quantity,
+      src.unit_price_ht_cents,
+      src.tax_rate_bp,
+      src.k_fo,
+      src.h_mo,
+      src.k_mo,
+      src.pu_ht_cents,
+      src.labor_role_id,
+      src.category_id,
+      src.line_total_ht_cents,
+      src.line_tax_cents,
+      src.line_total_ttc_cents
   from public.estimate_items src
   join _estimate_item_map map on map.old_id = src.id
   left join _estimate_item_map parent_map on parent_map.old_id = src.parent_id;

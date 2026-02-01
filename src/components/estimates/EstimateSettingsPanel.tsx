@@ -304,7 +304,7 @@ export function EstimateSettingsPanel({
           {totals ? (
             <div className="estimate-summary__list">
               <div className="estimate-summary__row">
-                <span>Coût total</span>
+                <span>Cout total</span>
                 <strong>{formatEUR(totals.costSubtotalCents)}</strong>
               </div>
               <div className="estimate-summary__row">

@@ -1292,6 +1292,9 @@ body {
   border: 1px solid var(--slate-200);
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   padding: 20px;
+  position: sticky;
+  top: 24px;
+  align-self: start;
 }
 
 .estimate-summary__header h3 {

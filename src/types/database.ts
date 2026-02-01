@@ -421,7 +421,15 @@ export type Database = {
           total_tax_cents?: number;
           total_ttc_cents?: number;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "estimate_versions_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_projects";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       estimate_categories: {
         Row: {
@@ -520,18 +528,18 @@ export type Database = {
           position?: number;
           title: string;
           description?: string | null;
-            quantity?: number | null;
-            unit_price_ht_cents?: number | null;
-            tax_rate_bp?: number | null;
-            k_fo?: number | null;
-            h_mo?: number | null;
-            k_mo?: number | null;
-            pu_ht_cents?: number | null;
-            labor_role_id?: string | null;
-            category_id?: string | null;
-            line_total_ht_cents?: number | null;
-            line_tax_cents?: number | null;
-            line_total_ttc_cents?: number | null;
+          quantity?: number | null;
+          unit_price_ht_cents?: number | null;
+          tax_rate_bp?: number | null;
+          k_fo?: number | null;
+          h_mo?: number | null;
+          k_mo?: number | null;
+          pu_ht_cents?: number | null;
+          labor_role_id?: string | null;
+          category_id?: string | null;
+          line_total_ht_cents?: number | null;
+          line_tax_cents?: number | null;
+          line_total_ttc_cents?: number | null;
         };
         Update: {
           id?: string;
@@ -543,18 +551,18 @@ export type Database = {
           position?: number;
           title?: string;
           description?: string | null;
-            quantity?: number | null;
-            unit_price_ht_cents?: number | null;
-            tax_rate_bp?: number | null;
-            k_fo?: number | null;
-            h_mo?: number | null;
-            k_mo?: number | null;
-            pu_ht_cents?: number | null;
-            labor_role_id?: string | null;
-            category_id?: string | null;
-            line_total_ht_cents?: number | null;
-            line_tax_cents?: number | null;
-            line_total_ttc_cents?: number | null;
+          quantity?: number | null;
+          unit_price_ht_cents?: number | null;
+          tax_rate_bp?: number | null;
+          k_fo?: number | null;
+          h_mo?: number | null;
+          k_mo?: number | null;
+          pu_ht_cents?: number | null;
+          labor_role_id?: string | null;
+          category_id?: string | null;
+          line_total_ht_cents?: number | null;
+          line_tax_cents?: number | null;
+          line_total_ttc_cents?: number | null;
         };
         Relationships: [];
       };
@@ -563,7 +571,12 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      duplicate_estimate_version: {
+        Args: {
+          source_version_id: string;
+        };
+        Returns: string;
+      };
     };
     Enums: {
       purchase_order_status: "draft" | "sent" | "confirmed" | "received" | "canceled";

@@ -414,8 +414,50 @@ export default function EditEstimatePage() {
       return;
     }
 
-    setItems(data ?? []);
-  }, [resolvedVersionId, supabase]);
+    const itemsRows = data ?? [];
+    if (!version) {
+      setItems(itemsRows);
+      return;
+    }
+
+    const normalizedItems = itemsRows.map((item) => {
+      if (item.item_type !== "line") return item;
+      const kFo = item.k_fo ?? 1;
+      const hMo = item.h_mo ?? 0;
+      const kMo = item.k_mo ?? 1;
+      const hourlyRate = item.labor_role_id
+        ? laborRateById.get(item.labor_role_id) ?? 0
+        : 0;
+      const taxRate = version.tax_rate_bp ?? item.tax_rate_bp ?? 0;
+      const lineValues = computeEstimateLineValues(
+        {
+          ...item,
+          k_fo: kFo,
+          h_mo: hMo,
+          k_mo: kMo,
+          tax_rate_bp: taxRate,
+          labor_role_hourly_rate_cents: hourlyRate,
+        },
+        {
+          marginMultiplier: version.margin_multiplier,
+          taxRateBp: taxRate,
+        }
+      );
+      return {
+        ...item,
+        tax_rate_bp: taxRate,
+        k_fo: kFo,
+        h_mo: hMo,
+        k_mo: kMo,
+        pu_ht_cents: lineValues.puHtCents,
+        line_total_ht_cents: lineValues.saleLineCents,
+        line_tax_cents: lineValues.taxLineCents,
+        line_total_ttc_cents: lineValues.ttcLineCents,
+      };
+    });
+
+    setItems(normalizedItems);
+  }, [laborRateById, resolvedVersionId, supabase, version]);
 
   async function handleSaveSettings() {
     if (!settings || !version || !totals) return;
