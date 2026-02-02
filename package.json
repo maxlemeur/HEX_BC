@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "e2e": "powershell -ExecutionPolicy Bypass -File e2e\\\\smoke.ps1",
+    "e2e:auth": "powershell -ExecutionPolicy Bypass -File e2e\\\\auth.ps1",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

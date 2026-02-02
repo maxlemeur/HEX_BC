@@ -103,6 +103,8 @@ export function EstimateDocument({
   const validiteLabel =
     validiteJours > 0 ? `${validiteJours} jours` : "-";
   const taxLabel = taxEnabled ? `${formatPercent(taxRateBp)} %` : "";
+  const footerAddress =
+    `${COMPANY_INFO.address.street} ${COMPANY_INFO.address.postalCode} ${COMPANY_INFO.address.city}`;
 
   return (
     <div className="document-page relative mx-auto my-5 flex flex-col overflow-hidden bg-white px-[50px] pb-[50px] pt-[40px] shadow-2xl print:m-0 print:px-8 print:pb-8 print:pt-6 print:shadow-none">
@@ -313,7 +315,7 @@ export function EstimateDocument({
       </div>
 
       <div className="mt-auto border-t border-slate-200 pt-5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 print:pt-3">
-        <p className="mb-1">Siege social : 17 rue Dupin 75006 Paris</p>
+        <p className="mb-1">Siege social : {footerAddress}</p>
         <p>
           SIRET {COMPANY_INFO.legal.siret} - TVA {COMPANY_INFO.legal.vat}
         </p>

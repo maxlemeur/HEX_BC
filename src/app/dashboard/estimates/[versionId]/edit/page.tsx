@@ -88,6 +88,136 @@ function computeInitialDiscountCents(
   return Math.round((saleSubtotal * version.discount_bp) / 10000);
 }
 
+function computeStoredDiscountCents(
+  version: EstimateVersionRow,
+  items: EstimateItem[]
+) {
+  const saleSubtotal = items.reduce((sum, item) => {
+    if (item.item_type !== "line") return sum;
+    return sum + (item.line_total_ht_cents ?? 0);
+  }, 0);
+
+  if (Number.isFinite(version.total_ht_cents ?? NaN)) {
+    return Math.max(saleSubtotal - (version.total_ht_cents ?? 0), 0);
+  }
+
+  if (!saleSubtotal) return 0;
+  return Math.round((saleSubtotal * version.discount_bp) / 10000);
+}
+
+function normalizeDraftItems({
+  items,
+  version,
+  rateById,
+}: {
+  items: EstimateItem[];
+  version: EstimateVersionRow;
+  rateById: Map<string, number>;
+}) {
+  return items.map((item) => {
+    if (item.item_type !== "line") return item;
+    const kFo = item.k_fo ?? 1;
+    const hMo = item.h_mo ?? 0;
+    const kMo = item.k_mo ?? 1;
+    const hourlyRate = item.labor_role_id
+      ? rateById.get(item.labor_role_id) ?? 0
+      : 0;
+    const taxRate = version.tax_rate_bp ?? item.tax_rate_bp ?? 0;
+    const lineValues = computeEstimateLineValues(
+      {
+        ...item,
+        k_fo: kFo,
+        h_mo: hMo,
+        k_mo: kMo,
+        tax_rate_bp: taxRate,
+        labor_role_hourly_rate_cents: hourlyRate,
+      },
+      {
+        marginMultiplier: version.margin_multiplier,
+        taxRateBp: taxRate,
+      }
+    );
+    return {
+      ...item,
+      tax_rate_bp: taxRate,
+      k_fo: kFo,
+      h_mo: hMo,
+      k_mo: kMo,
+      pu_ht_cents: lineValues.puHtCents,
+      line_total_ht_cents: lineValues.saleLineCents,
+      line_tax_cents: lineValues.taxLineCents,
+      line_total_ttc_cents: lineValues.ttcLineCents,
+    };
+  });
+}
+
+function computeReadOnlyTotals({
+  items,
+  version,
+  discountCents,
+  laborRateById,
+}: {
+  items: EstimateItem[];
+  version: EstimateVersionRow;
+  discountCents: number;
+  laborRateById: Map<string, number>;
+}): EstimateTotals {
+  const costSubtotalCents = items.reduce((sum, item) => {
+    if (item.item_type !== "line") return sum;
+    const hourlyRate = item.labor_role_id
+      ? laborRateById.get(item.labor_role_id) ?? 0
+      : 0;
+    const lineValues = computeEstimateLineValues(
+      {
+        ...item,
+        labor_role_hourly_rate_cents: hourlyRate,
+      },
+      {
+        marginMultiplier: 1,
+        taxRateBp: 0,
+      }
+    );
+    return sum + lineValues.costLineCents;
+  }, 0);
+
+  const saleSubtotalCents = items.reduce((sum, item) => {
+    if (item.item_type !== "line") return sum;
+    return sum + (item.line_total_ht_cents ?? 0);
+  }, 0);
+
+  const saleTotalFallback = Math.max(saleSubtotalCents - discountCents, 0);
+  const saleTotalCents = Number.isFinite(version.total_ht_cents ?? NaN)
+    ? (version.total_ht_cents ?? saleTotalFallback)
+    : saleTotalFallback;
+
+  const taxStored = Number.isFinite(version.total_tax_cents ?? NaN)
+    ? (version.total_tax_cents ?? 0)
+    : null;
+
+  const roundedTtcFallback = saleTotalCents + (taxStored ?? 0);
+  const roundedTtcCents = Number.isFinite(version.total_ttc_cents ?? NaN)
+    ? (version.total_ttc_cents ?? roundedTtcFallback)
+    : roundedTtcFallback;
+
+  const adjustedTaxCents = roundedTtcCents - saleTotalCents;
+  const taxCents = taxStored ?? Math.max(adjustedTaxCents, 0);
+
+  const ttcCents = saleTotalCents + taxCents;
+  const roundingAdjustmentCents = roundedTtcCents - ttcCents;
+
+  return {
+    costSubtotalCents,
+    saleSubtotalCents,
+    discountCents,
+    saleTotalCents,
+    taxCents,
+    ttcCents,
+    roundedTtcCents,
+    roundingAdjustmentCents,
+    adjustedTaxCents,
+  };
+}
+
 function estimateStatusLabel(status: EstimateStatus) {
   switch (status) {
     case "draft":
@@ -136,6 +266,8 @@ export default function EditEstimatePage() {
 
   const [version, setVersion] = useState<EstimateVersionView | null>(null);
   const [settings, setSettings] = useState<EstimateSettingsState | null>(null);
+  const [savedSettings, setSavedSettings] =
+    useState<EstimateSettingsState | null>(null);
   const [items, setItems] = useState<EstimateItem[]>([]);
   const [categories, setCategories] = useState<EstimateCategory[]>([]);
   const [laborRoles, setLaborRoles] = useState<LaborRole[]>([]);
@@ -222,58 +354,26 @@ export default function EditEstimatePage() {
       const versionRow = versionResult.data as unknown as EstimateVersionView;
       const itemsRows = itemsResult.data ?? [];
       const rolesData = rolesResult.data ?? [];
-      const discountCents = computeInitialDiscountCents(
-        versionRow,
-        itemsRows,
-        rolesData
-      );
+      const discountCents =
+        versionRow.status === "draft"
+          ? computeInitialDiscountCents(versionRow, itemsRows, rolesData)
+          : computeStoredDiscountCents(versionRow, itemsRows);
 
       const rateById = new Map<string, number>();
       rolesData.forEach((role) => {
         rateById.set(role.id, role.hourly_rate_cents);
       });
 
-      const normalizedItems = itemsRows.map((item) => {
-        if (item.item_type !== "line") return item;
-        const kFo = item.k_fo ?? 1;
-        const hMo = item.h_mo ?? 0;
-        const kMo = item.k_mo ?? 1;
-        const hourlyRate = item.labor_role_id
-          ? rateById.get(item.labor_role_id) ?? 0
-          : 0;
-        const taxRate = versionRow.tax_rate_bp ?? item.tax_rate_bp ?? 0;
-        const lineValues = computeEstimateLineValues(
-          {
-            ...item,
-            k_fo: kFo,
-            h_mo: hMo,
-            k_mo: kMo,
-            tax_rate_bp: taxRate,
-            labor_role_hourly_rate_cents: hourlyRate,
-          },
-          {
-            marginMultiplier: versionRow.margin_multiplier,
-            taxRateBp: taxRate,
-          }
-        );
-        return {
-          ...item,
-          tax_rate_bp: taxRate,
-          k_fo: kFo,
-          h_mo: hMo,
-          k_mo: kMo,
-          pu_ht_cents: lineValues.puHtCents,
-          line_total_ht_cents: lineValues.saleLineCents,
-          line_tax_cents: lineValues.taxLineCents,
-          line_total_ttc_cents: lineValues.ttcLineCents,
-        };
-      });
+      const normalizedItems =
+        versionRow.status === "draft"
+          ? normalizeDraftItems({
+              items: itemsRows,
+              version: versionRow,
+              rateById,
+            })
+          : itemsRows;
 
-      setVersion(versionRow);
-      setItems(normalizedItems);
-      setCategories(categoriesResult.data ?? []);
-      setLaborRoles(rolesData);
-      setSettings({
+      const initialSettings = {
         title: versionRow.title ?? "",
         date_devis: versionRow.date_devis,
         validite_jours: versionRow.validite_jours,
@@ -282,7 +382,14 @@ export default function EditEstimatePage() {
         tax_rate_bp: versionRow.tax_rate_bp,
         rounding_mode: versionRow.rounding_mode,
         rounding_step_cents: versionRow.rounding_step_cents,
-      });
+      };
+
+      setVersion(versionRow);
+      setItems(normalizedItems);
+      setCategories(categoriesResult.data ?? []);
+      setLaborRoles(rolesData);
+      setSettings(initialSettings);
+      setSavedSettings(initialSettings);
       setIsLoading(false);
 
       if (versionRow.status === "draft") {
@@ -353,6 +460,14 @@ export default function EditEstimatePage() {
 
   const totals: EstimateTotals | null = useMemo(() => {
     if (!settings) return null;
+    if (isReadOnly && version) {
+      return computeReadOnlyTotals({
+        items,
+        version,
+        discountCents: settings.discount_cents,
+        laborRateById,
+      });
+    }
     const lineItems = items
       .filter((item) => item.item_type === "line")
       .map((item) => ({
@@ -369,20 +484,40 @@ export default function EditEstimatePage() {
       roundingMode: settings.rounding_mode,
       roundingStepCents: settings.rounding_step_cents,
     });
-  }, [items, laborRateById, settings]);
+  }, [isReadOnly, items, laborRateById, settings, version]);
+
+  const persistedTotals: EstimateTotals | null = useMemo(() => {
+    if (!savedSettings) return null;
+    const lineItems = items
+      .filter((item) => item.item_type === "line")
+      .map((item) => ({
+        ...item,
+        labor_role_hourly_rate_cents: item.labor_role_id
+          ? laborRateById.get(item.labor_role_id) ?? 0
+          : 0,
+      }));
+    return computeEstimateTotals({
+      lineItems,
+      marginMultiplier: savedSettings.margin_multiplier,
+      discountCents: savedSettings.discount_cents,
+      taxRateBp: savedSettings.tax_rate_bp,
+      roundingMode: savedSettings.rounding_mode,
+      roundingStepCents: savedSettings.rounding_step_cents,
+    });
+  }, [items, laborRateById, savedSettings]);
 
   useEffect(() => {
-    if (!totals || !version || isReadOnly) return;
-    const totalsKey = `${totals.saleTotalCents}-${totals.adjustedTaxCents}-${totals.roundedTtcCents}`;
+    if (!persistedTotals || !version || isReadOnly) return;
+    const totalsKey = `${persistedTotals.saleTotalCents}-${persistedTotals.adjustedTaxCents}-${persistedTotals.roundedTtcCents}`;
     if (totalsKey === lastTotalsKey.current) return;
 
     const timeout = setTimeout(async () => {
       const { error } = await supabase
         .from("estimate_versions")
         .update({
-          total_ht_cents: totals.saleTotalCents,
-          total_tax_cents: totals.adjustedTaxCents,
-          total_ttc_cents: totals.roundedTtcCents,
+          total_ht_cents: persistedTotals.saleTotalCents,
+          total_tax_cents: persistedTotals.adjustedTaxCents,
+          total_ttc_cents: persistedTotals.roundedTtcCents,
         })
         .eq("id", version.id);
 
@@ -392,7 +527,7 @@ export default function EditEstimatePage() {
     }, 400);
 
     return () => clearTimeout(timeout);
-  }, [isReadOnly, totals, supabase, version]);
+  }, [isReadOnly, persistedTotals, supabase, version]);
 
   const updateSettings = useCallback(
     (patch: Partial<EstimateSettingsState>) => {
@@ -420,41 +555,14 @@ export default function EditEstimatePage() {
       return;
     }
 
-    const normalizedItems = itemsRows.map((item) => {
-      if (item.item_type !== "line") return item;
-      const kFo = item.k_fo ?? 1;
-      const hMo = item.h_mo ?? 0;
-      const kMo = item.k_mo ?? 1;
-      const hourlyRate = item.labor_role_id
-        ? laborRateById.get(item.labor_role_id) ?? 0
-        : 0;
-      const taxRate = version.tax_rate_bp ?? item.tax_rate_bp ?? 0;
-      const lineValues = computeEstimateLineValues(
-        {
-          ...item,
-          k_fo: kFo,
-          h_mo: hMo,
-          k_mo: kMo,
-          tax_rate_bp: taxRate,
-          labor_role_hourly_rate_cents: hourlyRate,
-        },
-        {
-          marginMultiplier: version.margin_multiplier,
-          taxRateBp: taxRate,
-        }
-      );
-      return {
-        ...item,
-        tax_rate_bp: taxRate,
-        k_fo: kFo,
-        h_mo: hMo,
-        k_mo: kMo,
-        pu_ht_cents: lineValues.puHtCents,
-        line_total_ht_cents: lineValues.saleLineCents,
-        line_tax_cents: lineValues.taxLineCents,
-        line_total_ttc_cents: lineValues.ttcLineCents,
-      };
-    });
+    const normalizedItems =
+      version.status === "draft"
+        ? normalizeDraftItems({
+            items: itemsRows,
+            version,
+            rateById: laborRateById,
+          })
+        : itemsRows;
 
     setItems(normalizedItems);
   }, [laborRateById, resolvedVersionId, supabase, version]);
@@ -498,6 +606,9 @@ export default function EditEstimatePage() {
       setIsSavingSettings(false);
       return;
     }
+
+    setSavedSettings({ ...settings });
+    lastTotalsKey.current = `${totals.saleTotalCents}-${totals.adjustedTaxCents}-${totals.roundedTtcCents}`;
 
     const shouldUpdateLines =
       settings.tax_rate_bp !== version.tax_rate_bp ||
@@ -670,8 +781,83 @@ export default function EditEstimatePage() {
       setLaborRoles((prev) =>
         prev.map((role) => (role.id === id ? { ...role, ...updates } : role))
       );
+
+      if (updates.hourly_rate_cents === undefined || !settings) return;
+
+      const nextHourlyRate = updates.hourly_rate_cents ?? 0;
+      const snapshot = itemsRef.current;
+      const affectedLines = snapshot.filter(
+        (item) => item.item_type === "line" && item.labor_role_id === id
+      );
+
+      if (affectedLines.length === 0) return;
+
+      const updatedLines = affectedLines.map((item) => {
+        const kFo = item.k_fo ?? 1;
+        const hMo = item.h_mo ?? 0;
+        const kMo = item.k_mo ?? 1;
+        const taxRate = settings.tax_rate_bp ?? item.tax_rate_bp ?? 0;
+        const lineValues = computeEstimateLineValues(
+          {
+            ...item,
+            k_fo: kFo,
+            h_mo: hMo,
+            k_mo: kMo,
+            tax_rate_bp: taxRate,
+            labor_role_hourly_rate_cents: nextHourlyRate,
+          },
+          {
+            marginMultiplier: settings.margin_multiplier,
+            taxRateBp: taxRate,
+          }
+        );
+        return {
+          ...item,
+          tax_rate_bp: taxRate,
+          k_fo: kFo,
+          h_mo: hMo,
+          k_mo: kMo,
+          pu_ht_cents: lineValues.puHtCents,
+          line_total_ht_cents: lineValues.saleLineCents,
+          line_tax_cents: lineValues.taxLineCents,
+          line_total_ttc_cents: lineValues.ttcLineCents,
+        };
+      });
+
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.item_type !== "line") return item;
+          const updated = updatedLines.find((line) => line.id === item.id);
+          return updated ?? item;
+        })
+      );
+
+      if (isReadOnly) return;
+
+      const updatesResult = await Promise.all(
+        updatedLines.map((item) =>
+          supabase
+            .from("estimate_items")
+            .update({
+              tax_rate_bp: item.tax_rate_bp,
+              k_fo: item.k_fo,
+              h_mo: item.h_mo,
+              k_mo: item.k_mo,
+              pu_ht_cents: item.pu_ht_cents,
+              line_total_ht_cents: item.line_total_ht_cents,
+              line_tax_cents: item.line_tax_cents,
+              line_total_ttc_cents: item.line_total_ttc_cents,
+            })
+            .eq("id", item.id)
+        )
+      );
+
+      const hasError = updatesResult.some((result) => result.error);
+      if (hasError) {
+        setActionError("Impossible de mettre a jour les lignes.");
+      }
     },
-    [supabase]
+    [isReadOnly, settings, supabase]
   );
 
   const getNextPosition = useCallback((parentId: string | null) => {

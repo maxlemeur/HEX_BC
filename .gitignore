@@ -24,6 +24,7 @@
 .DS_Store
 *.pem
 nul
+e2e/.auth.json
 .claude/skills/
 .agent/
 .agents/

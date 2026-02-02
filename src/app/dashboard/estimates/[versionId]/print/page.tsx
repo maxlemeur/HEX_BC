@@ -70,12 +70,17 @@ export default async function PrintEstimatePage({
     itemsPromise,
   ]);
 
-  if (versionResult.error || !versionResult.data) {
+  if (
+    versionResult.error ||
+    !versionResult.data ||
+    itemsResult.error ||
+    !itemsResult.data
+  ) {
     notFound();
   }
 
   const version = versionResult.data as EstimateVersion;
-  const items = (itemsResult.data ?? []) as EstimateItem[];
+  const items = itemsResult.data as EstimateItem[];
   const project = resolveProject(version.estimate_projects);
 
   const saleSubtotalCents = items.reduce((sum, item) => {

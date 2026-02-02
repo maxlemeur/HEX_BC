@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { createPortal } from "react-dom";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
@@ -297,7 +298,10 @@ export default function OrdersPage() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [downloadingOrderId, setDownloadingOrderId] = useState<string | null>(null);
   const [menuPlacement, setMenuPlacement] = useState<"down" | "up">("down");
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
   const fetchOrders = useCallback(async () => {
     // Fetch orders
@@ -562,11 +566,16 @@ export default function OrdersPage() {
   }, [downloadingOrderId]);
 
   useEffect(() => {
+    setPortalTarget(typeof document === "undefined" ? null : document.body);
+  }, []);
+
+  useEffect(() => {
     if (!openMenuId) return;
 
     function handleClick(event: MouseEvent) {
       if (!menuRef.current) return;
       if (menuRef.current.contains(event.target as Node)) return;
+      if (dropdownRef.current?.contains(event.target as Node)) return;
       setOpenMenuId(null);
     }
 
@@ -584,18 +593,15 @@ export default function OrdersPage() {
     };
   }, [openMenuId]);
 
-  useLayoutEffect(() => {
-    if (!openMenuId) {
-      setMenuPlacement("down");
-      return;
-    }
+  const updateMenuPosition = useCallback(() => {
+    if (!openMenuId) return;
 
     const menuRoot = menuRef.current;
     if (!menuRoot) return;
 
-    const dropdown = menuRoot.querySelector<HTMLElement>(".action-menu__dropdown");
     const button = menuRoot.querySelector<HTMLElement>(".action-menu__button");
-    if (!dropdown || !button) return;
+    const dropdown = dropdownRef.current;
+    if (!button || !dropdown) return;
 
     const gap = 8;
     const dropdownRect = dropdown.getBoundingClientRect();
@@ -614,8 +620,46 @@ export default function OrdersPage() {
     const spaceAbove = buttonRect.top - boundaryTop;
 
     const shouldOpenUp = spaceBelow < dropdownRect.height + gap && spaceAbove > spaceBelow;
-    setMenuPlacement(shouldOpenUp ? "up" : "down");
+    const nextPlacement = shouldOpenUp ? "up" : "down";
+    setMenuPlacement(nextPlacement);
+
+    const maxTop = Math.max(gap, window.innerHeight - dropdownRect.height - gap);
+    const maxLeft = Math.max(gap, window.innerWidth - dropdownRect.width - gap);
+
+    const top = nextPlacement === "up"
+      ? Math.max(buttonRect.top - dropdownRect.height - gap, gap)
+      : Math.min(buttonRect.bottom + gap, maxTop);
+
+    const left = Math.min(
+      Math.max(buttonRect.right - dropdownRect.width, gap),
+      maxLeft
+    );
+
+    setMenuPosition({ top, left });
   }, [openMenuId]);
+
+  useLayoutEffect(() => {
+    if (!openMenuId || !portalTarget) {
+      setMenuPlacement("down");
+      setMenuPosition(null);
+      return;
+    }
+
+    updateMenuPosition();
+  }, [openMenuId, portalTarget, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+
+    const handleUpdate = () => updateMenuPosition();
+
+    window.addEventListener("resize", handleUpdate);
+    window.addEventListener("scroll", handleUpdate, true);
+    return () => {
+      window.removeEventListener("resize", handleUpdate);
+      window.removeEventListener("scroll", handleUpdate, true);
+    };
+  }, [openMenuId, updateMenuPosition]);
 
   // Build filter configuration with dynamic options
   const filterConfig: FilterConfig[] = useMemo(() => [
@@ -765,7 +809,7 @@ export default function OrdersPage() {
 
         {/* Table */}
         <div className="table-scroll">
-          <table className="data-table">
+          <table className="data-table data-table--orders">
             <thead>
               <tr>
                 <th className="w-12"></th>
@@ -842,11 +886,57 @@ export default function OrdersPage() {
                   const items = itemsCache[order.id];
                   const devis = devisCache[order.id];
                   const isMenuOpen = openMenuId === order.id;
+                  const dropdown = isMenuOpen ? (
+                    <div
+                      ref={dropdownRef}
+                      className="action-menu__dropdown action-menu__dropdown--portal"
+                      data-placement={menuPlacement}
+                      role="menu"
+                      style={menuPosition
+                        ? { top: menuPosition.top, left: menuPosition.left }
+                        : { top: 0, left: 0, visibility: "hidden" }}
+                    >
+                      <button
+                        className="action-menu__item"
+                        role="menuitem"
+                        type="button"
+                        onClick={() => handleDownloadZip(order.id, order.reference)}
+                        disabled={downloadingOrderId === order.id}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        {downloadingOrderId === order.id
+                          ? "Telechargement..."
+                          : "Telecharger ZIP"}
+                      </button>
+                      <div className="action-menu__section">
+                        <span className="action-menu__label">Statut</span>
+                        <PurchaseOrderStatusUpdater
+                          orderId={order.id}
+                          status={order.status}
+                          onSaved={() => {
+                            void mutate();
+                            setOpenMenuId(null);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : null;
 
                   return (
                     <Fragment key={order.id}>
                       <tr
-                        className="animate-fade-in"
+                        className={`animate-fade-in-static ${isMenuOpen ? "order-row--menu-open" : ""}`}
                         style={{ animationDelay: `${index * 0.03}s` }}
                       >
                         <td>
@@ -918,48 +1008,8 @@ export default function OrdersPage() {
                               </svg>
                               <span className="sr-only">Actions</span>
                             </button>
-                            {isMenuOpen && (
-                              <div
-                                className={`action-menu__dropdown ${menuPlacement === "up" ? "action-menu__dropdown--up" : ""}`}
-                                role="menu"
-                              >
-                                <button
-                                  className="action-menu__item"
-                                  role="menuitem"
-                                  type="button"
-                                  onClick={() => handleDownloadZip(order.id, order.reference)}
-                                  disabled={downloadingOrderId === order.id}
-                                >
-                                  <svg
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                  >
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                    <polyline points="7 10 12 15 17 10" />
-                                    <line x1="12" y1="15" x2="12" y2="3" />
-                                  </svg>
-                                  {downloadingOrderId === order.id
-                                    ? "Telechargement..."
-                                    : "Telecharger ZIP"}
-                                </button>
-                                <div className="action-menu__section">
-                                  <span className="action-menu__label">Statut</span>
-                                  <PurchaseOrderStatusUpdater
-                                    orderId={order.id}
-                                    status={order.status}
-                                    onSaved={() => {
-                                      void mutate();
-                                      setOpenMenuId(null);
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                            )}
                           </div>
+                          {isMenuOpen && portalTarget ? createPortal(dropdown, portalTarget) : null}
                         </td>
                       </tr>
 
