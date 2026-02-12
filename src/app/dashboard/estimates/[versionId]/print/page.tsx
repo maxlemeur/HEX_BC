@@ -18,6 +18,10 @@ type EstimateVersion =
   };
 type EstimateItem =
   Database["public"]["Tables"]["estimate_items"]["Row"];
+type PrintPageProps = {
+  params?: Promise<{ versionId: string }>;
+  searchParams?: Promise<Record<string, string>>;
+};
 
 function formatPrintDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -47,8 +51,11 @@ function resolveProject(
 
 export default async function PrintEstimatePage({
   params,
-}: Readonly<{ params: { versionId: string } }>) {
-  const { versionId } = params;
+}: PrintPageProps) {
+  if (!params) {
+    notFound();
+  }
+  const { versionId } = await params;
   const supabase = await createSupabaseServerClient();
 
   const versionPromise = supabase

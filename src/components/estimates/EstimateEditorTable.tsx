@@ -25,6 +25,8 @@ import type { Database } from "@/types/database";
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
+type SuggestionRule =
+  Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 
 type ItemPatch = Partial<
   Pick<
@@ -47,6 +49,7 @@ type EstimateEditorTableProps = {
   items: EstimateItem[];
   categories: EstimateCategory[];
   laborRoles: LaborRole[];
+  suggestionRules: SuggestionRule[];
   actionError: string | null;
   isReadOnly: boolean;
   onAddSection: (parentId: string | null) => void;
@@ -63,6 +66,30 @@ type EstimateEditorTableProps = {
 
 const ROOT_KEY = "root";
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
+
+function normalizeKeywords(value: string) {
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function findMatchingRule(title: string, rules: SuggestionRule[]) {
+  if (!title.trim()) return null;
+  const normalizedTitle = title.toLowerCase();
+  for (const rule of rules) {
+    if (!rule.is_active) continue;
+    if (rule.match_type !== "keyword") continue;
+    const keywords = normalizeKeywords(rule.match_value);
+    if (keywords.length === 0) continue;
+    if (
+      keywords.some((keyword) => normalizedTitle.includes(keyword.toLowerCase()))
+    ) {
+      return rule;
+    }
+  }
+  return null;
+}
 
 function getParentKey(id: string | null) {
   return id ?? ROOT_KEY;
@@ -451,6 +478,7 @@ export function EstimateEditorTable({
   items,
   categories,
   laborRoles,
+  suggestionRules,
   actionError,
   isReadOnly,
   onAddSection,
@@ -462,6 +490,9 @@ export function EstimateEditorTable({
 }: EstimateEditorTableProps) {
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, string>>({});
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<
+    Record<string, string>
+  >({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -496,6 +527,23 @@ export function EstimateEditorTable({
     walk(null, 0);
     return depth;
   }, [itemsByParent]);
+
+  const orderedRules = useMemo(
+    () => [...suggestionRules].sort((a, b) => a.position - b.position),
+    [suggestionRules]
+  );
+
+  const categoryById = useMemo(() => {
+    const map = new Map<string, EstimateCategory>();
+    categories.forEach((category) => map.set(category.id, category));
+    return map;
+  }, [categories]);
+
+  const roleById = useMemo(() => {
+    const map = new Map<string, LaborRole>();
+    laborRoles.forEach((role) => map.set(role.id, role));
+    return map;
+  }, [laborRoles]);
 
   const mergedUnitDrafts = useMemo(() => {
     const next = { ...unitDrafts };
@@ -565,6 +613,92 @@ export function EstimateEditorTable({
     onReorder(activeParent, ordered);
   }
 
+  function applySuggestion(itemId: string, rule: SuggestionRule, title: string) {
+    if (isReadOnly) return;
+    const patch: ItemPatch = {};
+    const unitValue = rule.unit?.trim();
+    if (unitValue) {
+      patch.description = unitValue;
+      setUnitDrafts((prev) => ({ ...prev, [itemId]: unitValue }));
+    }
+    if (rule.category_id) {
+      patch.category_id = rule.category_id;
+      const category = categoryById.get(rule.category_id);
+      setCategoryDrafts((prev) => ({
+        ...prev,
+        [itemId]: category?.name ?? "",
+      }));
+    }
+    if (rule.k_fo !== null) patch.k_fo = rule.k_fo;
+    if (rule.k_mo !== null) patch.k_mo = rule.k_mo;
+    if (rule.labor_role_id) patch.labor_role_id = rule.labor_role_id;
+    if (Object.keys(patch).length === 0) return;
+    onPatchItem(itemId, patch, { persist: true });
+    setDismissedSuggestions((prev) => ({ ...prev, [itemId]: title }));
+  }
+
+  function dismissSuggestion(itemId: string, title: string) {
+    setDismissedSuggestions((prev) => ({ ...prev, [itemId]: title }));
+  }
+
+  function renderSuggestionRow(item: EstimateItem) {
+    if (item.item_type !== "line" || isReadOnly) return null;
+    const rule = findMatchingRule(item.title, orderedRules);
+    if (!rule) return null;
+    if (dismissedSuggestions[item.id] === item.title) return null;
+
+    const parts: string[] = [];
+    if (rule.category_id) {
+      const category = categoryById.get(rule.category_id);
+      parts.push(`Type FO: ${category?.name ?? "Categorie inconnue"}`);
+    }
+    if (rule.unit) parts.push(`Unite: ${rule.unit}`);
+    if (rule.k_fo !== null) parts.push(`K FO: ${rule.k_fo}`);
+    if (rule.k_mo !== null) parts.push(`K MO: ${rule.k_mo}`);
+    if (rule.labor_role_id) {
+      const role = roleById.get(rule.labor_role_id);
+      parts.push(`Role MO: ${role?.name ?? "Role inconnu"}`);
+    }
+
+    if (parts.length === 0) return null;
+
+    return (
+      <div className="estimate-row estimate-row--suggestion">
+        <div className="estimate-cell estimate-cell--suggestion">
+          <div className="estimate-suggestion">
+            <div className="estimate-suggestion__title">
+              Suggestion base de chiffrage
+            </div>
+            <div className="estimate-suggestion__rule">{rule.name}</div>
+            <div className="estimate-suggestion__list">
+              {parts.map((part) => (
+                <span key={part} className="estimate-suggestion__item">
+                  {part}
+                </span>
+              ))}
+            </div>
+            <div className="estimate-suggestion__actions">
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                onClick={() => applySuggestion(item.id, rule, item.title)}
+              >
+                Appliquer
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => dismissSuggestion(item.id, item.title)}
+              >
+                Ignorer
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderList(parentId: string | null) {
     const list = itemsByParent.get(getParentKey(parentId)) ?? [];
     if (list.length === 0) return null;
@@ -597,6 +731,7 @@ export function EstimateEditorTable({
                 onCategoryCommit={handleCategoryCommit}
                 isReadOnly={isReadOnly}
               />
+              {renderSuggestionRow(item)}
               {item.item_type === "section" ? renderList(item.id) : null}
             </Fragment>
           ))}

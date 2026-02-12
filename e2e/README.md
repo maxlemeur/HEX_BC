@@ -16,6 +16,39 @@ This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
 
 - `npm run e2e:auth` logs in and saves an auth state file for future tests.
 
+## HEX ticket scripts
+
+Scripts live in `e2e/hex/` and are named after Linear tickets. Run them with PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File e2e/hex/run-all.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-140-epic.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-143-navigation.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-144-list.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-145-create.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-146-parameters.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-147-editor.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-148-calculations.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-149-duplicate.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-150-status.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-151-print.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-152-export.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-153-suggestions.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-141-db-rls.ps1
+powershell -ExecutionPolicy Bypass -File e2e/hex/ti-142-types.ps1
+```
+
+The RLS test (`ti-141-db-rls.ps1`) needs a secondary account:
+
+- `E2E_LOGIN_EMAIL_2`
+- `E2E_LOGIN_PASSWORD_2`
+
+Or via npm:
+
+```powershell
+npm run e2e:hex
+```
+
 ## Environment variables
 
 - `E2E_BASE_URL` (default: `http://localhost:3000`)

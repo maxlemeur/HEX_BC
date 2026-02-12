@@ -37,7 +37,7 @@ try {
   Invoke-AgentBrowser -Session $Session "wait" "--load" "networkidle"
 
   Invoke-AgentBrowser -Session $Session "find" "label" "Email" "fill" $Email
-  Invoke-AgentBrowser -Session $Session "find" "label" "Mot de passe" "fill" $Password
+  Invoke-AgentBrowser -Session $Session "find" "role" "textbox" "fill" "--name" "Mot de passe" $Password
   Invoke-AgentBrowser -Session $Session "find" "role" "button" "click" "--name" "Se connecter"
 
   Invoke-AgentBrowser -Session $Session "wait" "--url" "**/dashboard**"

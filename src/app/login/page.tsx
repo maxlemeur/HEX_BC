@@ -12,6 +12,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -62,15 +63,28 @@ export default function LoginPage() {
 
           <label className="block">
             <span className="text-sm font-medium">Mot de passe</span>
-            <input
-              className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
-              autoComplete="current-password"
-              name="password"
-              required
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
+            <div className="relative mt-1">
+              <input
+                className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 pr-20 text-sm outline-none focus:border-zinc-400"
+                autoComplete="current-password"
+                id="password"
+                name="password"
+                required
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+              <button
+                aria-controls="password"
+                aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                aria-pressed={showPassword}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-zinc-600 transition hover:text-zinc-900"
+                type="button"
+                onClick={() => setShowPassword((value) => !value)}
+              >
+                {showPassword ? "Masquer" : "Afficher"}
+              </button>
+            </div>
           </label>
 
           {error ? (
@@ -98,4 +112,3 @@ export default function LoginPage() {
     </main>
   );
 }
-

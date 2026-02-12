@@ -1443,6 +1443,10 @@ body {
   background: var(--slate-50);
 }
 
+.estimate-row--suggestion {
+  background: rgba(30, 58, 95, 0.04);
+}
+
 .estimate-cell {
   padding: 10px 14px;
   font-size: 13px;
@@ -1457,6 +1461,10 @@ body {
 
 .estimate-cell--section-actions {
   grid-column: 2 / -1;
+}
+
+.estimate-cell--suggestion {
+  grid-column: 1 / -1;
 }
 
 .estimate-cell--total {
@@ -1494,6 +1502,46 @@ body {
 
 .estimate-input--title {
   font-weight: 600;
+}
+
+.estimate-suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  font-size: 12px;
+  color: var(--slate-600);
+}
+
+.estimate-suggestion__title {
+  font-weight: 600;
+  color: var(--slate-700);
+}
+
+.estimate-suggestion__rule {
+  font-weight: 600;
+  color: var(--brand-blue);
+}
+
+.estimate-suggestion__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.estimate-suggestion__item {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--slate-200);
+  background: white;
+  font-size: 12px;
+  color: var(--slate-600);
+}
+
+.estimate-suggestion__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
 }
 
 .estimate-select {

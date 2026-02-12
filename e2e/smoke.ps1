@@ -20,7 +20,7 @@ try {
   Invoke-AgentBrowser -Session $Session "wait" "--url" "**/login"
 
   Invoke-AgentBrowser -Session $Session "find" "label" "Email" "click"
-  Invoke-AgentBrowser -Session $Session "find" "label" "Mot de passe" "click"
+  Invoke-AgentBrowser -Session $Session "find" "role" "textbox" "click" "--name" "Mot de passe"
 
   Write-Host "E2E smoke passed."
 } finally {

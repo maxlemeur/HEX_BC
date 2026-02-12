@@ -1,14 +1,77 @@
-﻿import Link from "next/link";
+import Link from "next/link";
+import { notFound } from "next/navigation";
 
+import { EstimateDocument } from "@/components/EstimateDocument";
 import { DuplicateEstimateButton } from "@/components/estimates/DuplicateEstimateButton";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { Database } from "@/types/database";
 
-export default function EstimateDetailPage({
+type EstimateProject =
+  Database["public"]["Tables"]["estimate_projects"]["Row"];
+type EstimateVersion =
+  Database["public"]["Tables"]["estimate_versions"]["Row"] & {
+    estimate_projects:
+      | Pick<EstimateProject, "name" | "reference" | "client_name">
+      | Pick<EstimateProject, "name" | "reference" | "client_name">[]
+      | null;
+  };
+type EstimateItem =
+  Database["public"]["Tables"]["estimate_items"]["Row"];
+
+function resolveProject(
+  value: EstimateVersion["estimate_projects"]
+) {
+  if (!value) return null;
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value;
+}
+
+export default async function EstimateDetailPage({
   params,
-}: Readonly<{ params: { versionId: string } }>) {
-  const { versionId } = params;
+}: Readonly<{ params: Promise<{ versionId: string }> }>) {
+  const { versionId } = await params;
+  const supabase = await createSupabaseServerClient();
+
+  const versionPromise = supabase
+    .from("estimate_versions")
+    .select(
+      "version_number, status, title, date_devis, validite_jours, margin_multiplier, discount_bp, tax_rate_bp, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
+    )
+    .eq("id", versionId)
+    .single();
+
+  const itemsPromise = supabase
+    .from("estimate_items")
+    .select("*")
+    .eq("version_id", versionId)
+    .order("position", { ascending: true });
+
+  const [versionResult, itemsResult] = await Promise.all([
+    versionPromise,
+    itemsPromise,
+  ]);
+
+  if (versionResult.error || !versionResult.data) {
+    notFound();
+  }
+
+  if (itemsResult.error) {
+    notFound();
+  }
+
+  const version = versionResult.data as EstimateVersion;
+  const items = (itemsResult.data ?? []) as EstimateItem[];
+  const project = resolveProject(version.estimate_projects);
+  const saleSubtotalCents = items.reduce((sum, item) => {
+    if (item.item_type !== "line") return sum;
+    return sum + (item.line_total_ht_cents ?? 0);
+  }, 0);
+  const discountCents = Math.round(
+    (saleSubtotalCents * version.discount_bp) / 10000
+  );
 
   return (
-    <div className="animate-fade-in">
+    <div className="min-h-screen bg-[var(--slate-100)] animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="page-title">Chiffrage</h1>
@@ -20,41 +83,38 @@ export default function EstimateDetailPage({
           <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
             Retour
           </Link>
-          <Link className="btn btn-secondary btn-sm" href={`/dashboard/estimates/${versionId}/edit`}>
+          <Link
+            className="btn btn-secondary btn-sm"
+            href={`/dashboard/estimates/${versionId}/edit`}
+          >
             Editer
           </Link>
           <DuplicateEstimateButton versionId={versionId} />
-          <Link className="btn btn-primary btn-sm" href={`/dashboard/estimates/${versionId}/print`}>
+          <Link
+            className="btn btn-primary btn-sm"
+            href={`/dashboard/estimates/${versionId}/print`}
+          >
             Imprimer
           </Link>
         </div>
       </div>
 
-      <div className="dashboard-card p-10">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--slate-400)"
-              strokeWidth="1.5"
-            >
-              <path d="M8 6h8" />
-              <path d="M8 10h8" />
-              <path d="M8 14h5" />
-              <rect x="4" y="3" width="16" height="18" rx="2" />
-            </svg>
-          </div>
-          <div>
-            <p className="font-medium text-[var(--slate-700)]">Aucune donnee de chiffrage</p>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Les details de cette version s&apos;afficheront ici.
-            </p>
-          </div>
-        </div>
+      <div className="py-8">
+        <EstimateDocument
+          projectName={project?.name ?? "Projet"}
+          projectClient={project?.client_name}
+          projectReference={project?.reference}
+          versionNumber={version.version_number}
+          dateDevis={version.date_devis}
+          validiteJours={version.validite_jours}
+          marginMultiplier={version.margin_multiplier}
+          discountCents={discountCents}
+          taxRateBp={version.tax_rate_bp}
+          totalHtCents={version.total_ht_cents}
+          totalTaxCents={version.total_tax_cents}
+          totalTtcCents={version.total_ttc_cents}
+          items={items}
+        />
       </div>
     </div>
   );

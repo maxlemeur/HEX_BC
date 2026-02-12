@@ -19,6 +19,7 @@ drop table if exists public.estimate_versions cascade;
 drop table if exists public.estimate_projects cascade;
 drop table if exists public.estimate_categories cascade;
 drop table if exists public.labor_roles cascade;
+drop table if exists public.estimate_suggestion_rules cascade;
 
 drop type if exists purchase_order_status;
 drop type if exists employee_role;
@@ -26,6 +27,7 @@ drop type if exists order_status;
 drop type if exists estimate_status;
 drop type if exists estimate_item_type;
 drop type if exists estimate_rounding_mode;
+drop type if exists estimate_rule_match_type;
 
 do $$
 begin
@@ -59,6 +61,13 @@ do $$
 begin
   if not exists (select 1 from pg_type where typname = 'estimate_rounding_mode') then
     create type estimate_rounding_mode as enum ('none', 'nearest', 'up', 'down');
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'estimate_rule_match_type') then
+    create type estimate_rule_match_type as enum ('keyword');
   end if;
 end $$;
 
@@ -382,6 +391,36 @@ create trigger set_labor_roles_updated_at
 
 create index labor_roles_user_id_idx on public.labor_roles (user_id);
 
+create table public.estimate_suggestion_rules (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  name text not null,
+  match_type estimate_rule_match_type not null default 'keyword',
+  match_value text not null,
+  unit text,
+  category_id uuid references public.estimate_categories(id) on delete set null,
+  k_fo numeric(12,3),
+  k_mo numeric(12,3),
+  labor_role_id uuid references public.labor_roles(id) on delete set null,
+  position integer not null default 0,
+  is_active boolean not null default true,
+  check (k_fo is null or k_fo >= 0),
+  check (k_mo is null or k_mo >= 0)
+);
+
+create trigger set_estimate_suggestion_rules_updated_at
+  before update on public.estimate_suggestion_rules
+  for each row execute procedure public.set_updated_at();
+
+create index estimate_suggestion_rules_user_id_idx
+  on public.estimate_suggestion_rules (user_id);
+create index estimate_suggestion_rules_position_idx
+  on public.estimate_suggestion_rules (position);
+create index estimate_suggestion_rules_active_idx
+  on public.estimate_suggestion_rules (is_active);
+
 create table public.estimate_items (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
@@ -595,6 +634,7 @@ alter table public.estimate_versions enable row level security;
 alter table public.estimate_items enable row level security;
 alter table public.estimate_categories enable row level security;
 alter table public.labor_roles enable row level security;
+alter table public.estimate_suggestion_rules enable row level security;
 
 create policy "Profiles are viewable by authenticated users"
   on public.profiles
@@ -748,6 +788,13 @@ create policy "Users can manage estimate categories"
 
 create policy "Users can manage labor roles"
   on public.labor_roles
+  for all
+  to authenticated
+  using (user_id = (select auth.uid()))
+  with check (user_id = (select auth.uid()));
+
+create policy "Users can manage estimate suggestion rules"
+  on public.estimate_suggestion_rules
   for all
   to authenticated
   using (user_id = (select auth.uid()))

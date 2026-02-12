@@ -37,6 +37,6 @@ Puis ouvrez http://localhost:3000
 
 ## Test user (E2E)
 
-Email: e2e.boncommande@example.com
+Email: e2e.hex@example.com
 Password: E2eTest-2026!
 

@@ -461,6 +461,57 @@ export type Database = {
         };
         Relationships: [];
       };
+      estimate_suggestion_rules: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          user_id: string;
+          name: string;
+          match_type: "keyword";
+          match_value: string;
+          unit: string | null;
+          category_id: string | null;
+          k_fo: number | null;
+          k_mo: number | null;
+          labor_role_id: string | null;
+          position: number;
+          is_active: boolean;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id: string;
+          name: string;
+          match_type?: "keyword";
+          match_value: string;
+          unit?: string | null;
+          category_id?: string | null;
+          k_fo?: number | null;
+          k_mo?: number | null;
+          labor_role_id?: string | null;
+          position?: number;
+          is_active?: boolean;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          user_id?: string;
+          name?: string;
+          match_type?: "keyword";
+          match_value?: string;
+          unit?: string | null;
+          category_id?: string | null;
+          k_fo?: number | null;
+          k_mo?: number | null;
+          labor_role_id?: string | null;
+          position?: number;
+          is_active?: boolean;
+        };
+        Relationships: [];
+      };
       labor_roles: {
         Row: {
           id: string;
@@ -584,6 +635,7 @@ export type Database = {
       estimate_status: "draft" | "sent" | "accepted" | "archived";
       estimate_item_type: "section" | "line";
       estimate_rounding_mode: "none" | "nearest" | "up" | "down";
+      estimate_rule_match_type: "keyword";
     };
     CompositeTypes: {
       [_ in never]: never;

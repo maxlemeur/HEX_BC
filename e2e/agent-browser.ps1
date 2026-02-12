@@ -33,22 +33,60 @@ function Require-AgentBrowser {
   }
 }
 
+function Get-AgentBrowserDaemonPath {
+  $cmd = Get-Command agent-browser -ErrorAction SilentlyContinue
+  if (-not $cmd) {
+    return $null
+  }
+
+  $baseDir = Split-Path $cmd.Source -Parent
+  $daemonPath = Join-Path $baseDir "node_modules/agent-browser/dist/daemon.js"
+  if (Test-Path $daemonPath) {
+    return $daemonPath
+  }
+
+  return $null
+}
+
+function Start-AgentBrowserDaemon {
+  $daemonPath = Get-AgentBrowserDaemonPath
+  if (-not $daemonPath) {
+    return $false
+  }
+
+  Start-Process -WindowStyle Hidden -FilePath "node" -ArgumentList $daemonPath | Out-Null
+  Start-Sleep -Milliseconds 800
+  return $true
+}
+
 function Invoke-AgentBrowser {
   param(
     [Parameter(Mandatory = $true)][string]$Session,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Args
   )
 
-  $cmd = @("--session", $Session)
+  $cmd = @()
+  if ($Session -and $env:E2E_DISABLE_SESSION -ne "1") {
+    $cmd += @("--session", $Session)
+  }
   if ($env:E2E_HEADED -eq "1") {
     $cmd += "--headed"
   }
   $cmd += $Args
 
   $output = & agent-browser @cmd
-  if ($LASTEXITCODE -ne 0) {
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) {
+    if (Start-AgentBrowserDaemon) {
+      $output = & agent-browser @cmd
+      $exitCode = $LASTEXITCODE
+    }
+  }
+
+  if ($exitCode -ne 0) {
     throw "agent-browser failed: $($Args -join ' ')"
   }
+
   return $output
 }
 
