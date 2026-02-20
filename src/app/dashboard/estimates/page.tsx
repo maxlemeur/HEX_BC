@@ -1,65 +1,21 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 
+import {
+  duplicateEstimateVersion,
+  fetchEstimateList,
+  type EstimateListItem,
+  type EstimateStatus,
+} from "@/lib/estimates/client";
 import { formatEUR } from "@/lib/money";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { Database } from "@/types/database";
 
 const PAGE_SIZE = 8;
 
-type EstimateProjectRow =
-  Database["public"]["Tables"]["estimate_projects"]["Row"];
-type EstimateVersionRow =
-  Database["public"]["Tables"]["estimate_versions"]["Row"];
-
-type EstimateVersionView = Pick<
-  EstimateVersionRow,
-  | "id"
-  | "project_id"
-  | "version_number"
-  | "status"
-  | "title"
-  | "updated_at"
-  | "total_ht_cents"
-> & {
-  estimate_projects:
-    | Pick<
-        EstimateProjectRow,
-        "id" | "name" | "reference" | "client_name" | "is_archived"
-      >
-    | Pick<
-        EstimateProjectRow,
-        "id" | "name" | "reference" | "client_name" | "is_archived"
-      >[]
-    | null;
-};
-
-type EstimateListItem = {
-  projectId: string;
-  projectName: string;
-  projectReference: string | null;
-  projectClient: string | null;
-  versionId: string;
-  versionNumber: number;
-  status: EstimateVersionRow["status"];
-  title: string | null;
-  updatedAt: string;
-  totalHtCents: number;
-};
-
-function resolveProject(
-  value: EstimateVersionView["estimate_projects"]
-) {
-  if (!value) return null;
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value;
-}
-
-function statusLabel(status: EstimateVersionRow["status"]) {
+function statusLabel(status: EstimateStatus) {
   switch (status) {
     case "draft":
       return "Brouillon";
@@ -74,7 +30,7 @@ function statusLabel(status: EstimateVersionRow["status"]) {
   }
 }
 
-function statusClass(status: EstimateVersionRow["status"]) {
+function statusClass(status: EstimateStatus) {
   switch (status) {
     case "draft":
       return "status-badge status-draft";
@@ -100,53 +56,11 @@ function formatDate(dateStr: string | null) {
 
 export default function EstimatesPage() {
   const router = useRouter();
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [currentPage, setCurrentPage] = useState(1);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const fetchEstimates = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("estimate_versions")
-      .select(
-        "id, project_id, version_number, status, title, updated_at, total_ht_cents, estimate_projects ( id, name, reference, client_name, is_archived )"
-      )
-      .neq("status", "archived")
-      .order("version_number", { ascending: false })
-      .order("updated_at", { ascending: false });
-
-    if (error) {
-      throw error;
-    }
-
-    const rows = (data ?? []) as EstimateVersionView[];
-    const latestByProject = new Map<string, EstimateListItem>();
-
-    rows.forEach((row) => {
-      const project = resolveProject(row.estimate_projects);
-      if (!project) return;
-      if (latestByProject.has(row.project_id)) return;
-
-      latestByProject.set(row.project_id, {
-        projectId: row.project_id,
-        projectName: project.name,
-        projectReference: project.reference,
-        projectClient: project.client_name,
-        versionId: row.id,
-        versionNumber: row.version_number,
-        status: row.status,
-        title: row.title,
-        updatedAt: row.updated_at,
-        totalHtCents: row.total_ht_cents,
-      });
-    });
-
-    return Array.from(latestByProject.values()).sort((a, b) => {
-      const left = new Date(a.updatedAt).getTime();
-      const right = new Date(b.updatedAt).getTime();
-      return right - left;
-    });
-  }, [supabase]);
+  const fetchEstimates = useCallback(async () => fetchEstimateList(), []);
 
   const {
     data: estimates = [],
@@ -180,18 +94,8 @@ export default function EstimatesPage() {
       setDuplicatingId(versionId);
 
       try {
-        const { data, error } = await supabase.rpc(
-          "duplicate_estimate_version",
-          { source_version_id: versionId }
-        );
-
-        if (error || !data) {
-          throw new Error(
-            error?.message ?? "Impossible de dupliquer le chiffrage."
-          );
-        }
-
-        router.push(`/dashboard/estimates/${data}/edit`);
+        const duplicatedVersionId = await duplicateEstimateVersion(versionId);
+        router.push(`/dashboard/estimates/${duplicatedVersionId}/edit`);
         router.refresh();
       } catch (error) {
         setActionError(
@@ -201,7 +105,7 @@ export default function EstimatesPage() {
         setDuplicatingId(null);
       }
     },
-    [duplicatingId, router, supabase]
+    [duplicatingId, router]
   );
 
   return (

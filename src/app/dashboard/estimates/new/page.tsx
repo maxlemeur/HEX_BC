@@ -2,17 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { useUserContext } from "@/components/UserContext";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createEstimate } from "@/lib/estimates/client";
 
 const DEFAULT_VALIDITE_JOURS = 30;
 const DEFAULT_MARGIN_MULTIPLIER = 1.0;
 
 export default function NewEstimatePage() {
   const router = useRouter();
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { profile } = useUserContext();
 
   const [projectName, setProjectName] = useState("");
@@ -53,71 +52,23 @@ export default function NewEstimatePage() {
 
     setIsSubmitting(true);
 
-    const { data: project, error: projectError } = await supabase
-      .from("estimate_projects")
-      .insert({
-        user_id: profile.id,
-        name: trimmedName,
-        reference: null,
-        client_name: null,
-        notes: null,
-        is_archived: false,
-      })
-      .select("id")
-      .single();
-
-    if (projectError || !project) {
-      setIsSubmitting(false);
-      setFormError(projectError?.message ?? "Impossible de creer le projet.");
-      return;
-    }
-
-    const { data: version, error: versionError } = await supabase
-      .from("estimate_versions")
-      .insert({
-        project_id: project.id,
-        version_number: 1,
-        status: "draft",
+    try {
+      const versionId = await createEstimate({
+        projectName: trimmedName,
         title: title.trim() || null,
-        date_devis: dateDevis,
-        validite_jours: parsedValidite,
-        margin_multiplier: DEFAULT_MARGIN_MULTIPLIER,
-        discount_bp: 0,
-        rounding_mode: "none",
-      })
-      .select("id")
-      .single();
-
-    if (versionError || !version) {
+        dateDevis,
+        validiteJours: parsedValidite,
+        marginMultiplier: DEFAULT_MARGIN_MULTIPLIER,
+      });
       setIsSubmitting(false);
-      setFormError(versionError?.message ?? "Impossible de creer la version.");
-      return;
+      router.push(`/dashboard/estimates/${versionId}/edit`);
+      router.refresh();
+    } catch (error) {
+      setIsSubmitting(false);
+      setFormError(
+        error instanceof Error ? error.message : "Impossible de creer la version."
+      );
     }
-
-    const defaultCategories = [
-      { name: "Materiaux", position: 1 },
-      { name: "Main d'oeuvre", position: 2 },
-      { name: "Sous-traitance", position: 3 },
-    ];
-
-    const categoriesPayload = defaultCategories.map((category) => ({
-      user_id: profile.id,
-      name: category.name,
-      position: category.position,
-      color: null,
-    }));
-
-    const { error: categoriesError } = await supabase
-      .from("estimate_categories")
-      .upsert(categoriesPayload, { onConflict: "user_id,name" });
-
-    if (categoriesError) {
-      console.error("Erreur creation categories:", categoriesError.message);
-    }
-
-    setIsSubmitting(false);
-    router.push(`/dashboard/estimates/${version.id}/edit`);
-    router.refresh();
   }
 
   return (

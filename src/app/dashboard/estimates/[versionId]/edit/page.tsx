@@ -26,7 +26,22 @@ import {
   exportToExcelWithSheets,
   type ExportColumn,
 } from "@/lib/export";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  bulkUpdateEstimateItems,
+  createEstimateCategory,
+  createEstimateItem,
+  createEstimateLaborRole,
+  createEstimateSuggestionRule,
+  deleteEstimateItem,
+  fetchEstimateEditorData,
+  fetchEstimateItemsForVersion,
+  reorderEstimateItems,
+  saveEstimateVersion,
+  updateEstimateItem,
+  updateEstimateLaborRole,
+  updateEstimateStatus,
+  updateEstimateSuggestionRule,
+} from "@/lib/estimates/client";
 import type { Database } from "@/types/database";
 
 type EstimateVersionRow =
@@ -438,7 +453,6 @@ export default function EditEstimatePage() {
   const rawVersionId = params?.["versionId"];
   const versionId = Array.isArray(rawVersionId) ? rawVersionId[0] : rawVersionId;
   const resolvedVersionId = typeof versionId === "string" ? versionId : "";
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const { profile } = useUserContext();
 
   const [version, setVersion] = useState<EstimateVersionView | null>(null);
@@ -476,157 +490,106 @@ export default function EditEstimatePage() {
       setIsLoading(true);
       setLoadError(null);
 
-      const versionPromise = supabase
-        .from("estimate_versions")
-        .select("*, estimate_projects ( name )")
-        .eq("id", resolvedVersionId)
-        .single();
+      try {
+        const data = await fetchEstimateEditorData(resolvedVersionId);
+        if (!active) return;
 
-      const itemsPromise = supabase
-        .from("estimate_items")
-        .select("*")
-        .eq("version_id", resolvedVersionId)
-        .order("position", { ascending: true });
+        const versionRow = data.version as EstimateVersionView;
+        const itemsRows = data.items ?? [];
+        const rolesData = data.laborRoles ?? [];
+        const discountCents =
+          versionRow.status === "draft"
+            ? computeInitialDiscountCents(versionRow, itemsRows, rolesData)
+            : computeStoredDiscountCents(versionRow, itemsRows);
 
-      const categoriesPromise = supabase
-        .from("estimate_categories")
-        .select("*")
-        .order("position", { ascending: true });
-
-      const rolesPromise = supabase
-        .from("labor_roles")
-        .select("*")
-        .order("position", { ascending: true });
-
-      const rulesPromise = supabase
-        .from("estimate_suggestion_rules")
-        .select("*")
-        .order("position", { ascending: true });
-
-      const [versionResult, itemsResult, categoriesResult, rolesResult, rulesResult] =
-        await Promise.all([
-          versionPromise,
-          itemsPromise,
-          categoriesPromise,
-          rolesPromise,
-          rulesPromise,
-        ]);
-
-      if (!active) return;
-
-      if (versionResult.error) {
-        setLoadError(versionResult.error.message);
-        setIsLoading(false);
-        return;
-      }
-
-      if (itemsResult.error) {
-        setLoadError(itemsResult.error.message);
-        setIsLoading(false);
-        return;
-      }
-
-      if (categoriesResult.error) {
-        setLoadError(categoriesResult.error.message);
-        setIsLoading(false);
-        return;
-      }
-
-      if (rolesResult.error) {
-        setLoadError(rolesResult.error.message);
-        setIsLoading(false);
-        return;
-      }
-
-      if (rulesResult.error) {
-        setLoadError(rulesResult.error.message);
-        setIsLoading(false);
-        return;
-      }
-
-      const versionRow = versionResult.data as unknown as EstimateVersionView;
-      const itemsRows = itemsResult.data ?? [];
-      const rolesData = rolesResult.data ?? [];
-      const discountCents =
-        versionRow.status === "draft"
-          ? computeInitialDiscountCents(versionRow, itemsRows, rolesData)
-          : computeStoredDiscountCents(versionRow, itemsRows);
-
-      const rateById = new Map<string, number>();
-      rolesData.forEach((role) => {
-        rateById.set(role.id, role.hourly_rate_cents);
-      });
-
-      const normalizedItems =
-        versionRow.status === "draft"
-          ? normalizeDraftItems({
-              items: itemsRows,
-              version: versionRow,
-              rateById,
-            })
-          : itemsRows;
-
-      const initialSettings = {
-        title: versionRow.title ?? "",
-        date_devis: versionRow.date_devis,
-        validite_jours: versionRow.validite_jours,
-        margin_multiplier: versionRow.margin_multiplier,
-        discount_cents: discountCents,
-        tax_rate_bp: versionRow.tax_rate_bp,
-        rounding_mode: versionRow.rounding_mode,
-        rounding_step_cents: versionRow.rounding_step_cents,
-      };
-
-      setVersion(versionRow);
-      setItems(normalizedItems);
-      setCategories(categoriesResult.data ?? []);
-      setLaborRoles(rolesData);
-      setSuggestionRules(rulesResult.data ?? []);
-      setSettings(initialSettings);
-      setSavedSettings(initialSettings);
-      setIsLoading(false);
-
-      if (versionRow.status === "draft") {
-        const originalById = new Map(
-          itemsRows.map((item) => [item.id, item])
-        );
-        const updates = normalizedItems.filter((item) => {
-          if (item.item_type !== "line") return false;
-          const original = originalById.get(item.id);
-          if (!original) return false;
-          return (
-            original.tax_rate_bp !== item.tax_rate_bp ||
-            original.k_fo !== item.k_fo ||
-            original.h_mo !== item.h_mo ||
-            original.k_mo !== item.k_mo ||
-            original.pu_ht_cents !== item.pu_ht_cents ||
-            original.line_total_ht_cents !== item.line_total_ht_cents ||
-            original.line_tax_cents !== item.line_tax_cents ||
-            original.line_total_ttc_cents !== item.line_total_ttc_cents
-          );
+        const rateById = new Map<string, number>();
+        rolesData.forEach((role) => {
+          rateById.set(role.id, role.hourly_rate_cents);
         });
 
-        if (updates.length > 0) {
-          const results = await Promise.all(
-            updates.map((item) =>
-              supabase
-                .from("estimate_items")
-                .update({
-                  tax_rate_bp: item.tax_rate_bp,
-                  k_fo: item.k_fo,
-                  h_mo: item.h_mo,
-                  k_mo: item.k_mo,
-                  pu_ht_cents: item.pu_ht_cents,
-                  line_total_ht_cents: item.line_total_ht_cents,
-                  line_tax_cents: item.line_tax_cents,
-                  line_total_ttc_cents: item.line_total_ttc_cents,
-                })
-                .eq("id", item.id)
-            )
+        const normalizedItems =
+          versionRow.status === "draft"
+            ? normalizeDraftItems({
+                items: itemsRows,
+                version: versionRow,
+                rateById,
+              })
+            : itemsRows;
+
+        const initialSettings = {
+          title: versionRow.title ?? "",
+          date_devis: versionRow.date_devis,
+          validite_jours: versionRow.validite_jours,
+          margin_multiplier: versionRow.margin_multiplier,
+          discount_cents: discountCents,
+          tax_rate_bp: versionRow.tax_rate_bp,
+          rounding_mode: versionRow.rounding_mode,
+          rounding_step_cents: versionRow.rounding_step_cents,
+        };
+
+        setVersion(versionRow);
+        setItems(normalizedItems);
+        setCategories(data.categories ?? []);
+        setLaborRoles(rolesData);
+        setSuggestionRules(data.suggestionRules ?? []);
+        setSettings(initialSettings);
+        setSavedSettings(initialSettings);
+
+        if (versionRow.status === "draft") {
+          const originalById = new Map(
+            itemsRows.map((item) => [item.id, item])
           );
-          if (active && results.some((result) => result.error)) {
-            setActionError("Impossible de mettre a jour les lignes.");
+          const updates = normalizedItems.filter((item) => {
+            if (item.item_type !== "line") return false;
+            const original = originalById.get(item.id);
+            if (!original) return false;
+            return (
+              original.tax_rate_bp !== item.tax_rate_bp ||
+              original.k_fo !== item.k_fo ||
+              original.h_mo !== item.h_mo ||
+              original.k_mo !== item.k_mo ||
+              original.pu_ht_cents !== item.pu_ht_cents ||
+              original.line_total_ht_cents !== item.line_total_ht_cents ||
+              original.line_tax_cents !== item.line_tax_cents ||
+              original.line_total_ttc_cents !== item.line_total_ttc_cents
+            );
+          });
+
+          if (updates.length > 0) {
+            try {
+              await bulkUpdateEstimateItems(
+                resolvedVersionId,
+                updates.map((item) => ({
+                  id: item.id,
+                  updates: {
+                    tax_rate_bp: item.tax_rate_bp,
+                    k_fo: item.k_fo,
+                    h_mo: item.h_mo,
+                    k_mo: item.k_mo,
+                    pu_ht_cents: item.pu_ht_cents,
+                    line_total_ht_cents: item.line_total_ht_cents,
+                    line_tax_cents: item.line_tax_cents,
+                    line_total_ttc_cents: item.line_total_ttc_cents,
+                  },
+                }))
+              );
+            } catch {
+              if (active) {
+                setActionError("Impossible de mettre a jour les lignes.");
+              }
+            }
           }
+        }
+      } catch (error) {
+        if (!active) return;
+        const message =
+          error instanceof Error
+            ? resolveEstimateActionError(error.message)
+            : "Impossible de charger le chiffrage.";
+        setLoadError(message);
+      } finally {
+        if (active) {
+          setIsLoading(false);
         }
       }
     }
@@ -636,7 +599,7 @@ export default function EditEstimatePage() {
     return () => {
       active = false;
     };
-  }, [resolvedVersionId, supabase]);
+  }, [resolvedVersionId]);
 
   const projectName = getProjectName(version?.estimate_projects ?? null);
   const isReadOnly = version ? version.status !== "draft" : false;
@@ -845,22 +808,20 @@ export default function EditEstimatePage() {
     if (totalsKey === lastTotalsKey.current) return;
 
     const timeout = setTimeout(async () => {
-      const { error } = await supabase
-        .from("estimate_versions")
-        .update({
+      try {
+        await saveEstimateVersion(version.id, {
           total_ht_cents: persistedTotals.saleTotalCents,
           total_tax_cents: persistedTotals.adjustedTaxCents,
           total_ttc_cents: persistedTotals.roundedTtcCents,
-        })
-        .eq("id", version.id);
-
-      if (!error) {
+        });
         lastTotalsKey.current = totalsKey;
+      } catch {
+        // Keep UI responsive: errors are surfaced on explicit save.
       }
     }, 400);
 
     return () => clearTimeout(timeout);
-  }, [isReadOnly, persistedTotals, supabase, version]);
+  }, [isReadOnly, persistedTotals, version]);
 
   const updateSettings = useCallback(
     (patch: Partial<EstimateSettingsState>) => {
@@ -871,34 +832,31 @@ export default function EditEstimatePage() {
 
   const reloadItems = useCallback(async () => {
     if (!resolvedVersionId) return;
-    const { data, error } = await supabase
-      .from("estimate_items")
-      .select("*")
-      .eq("version_id", resolvedVersionId)
-      .order("position", { ascending: true });
+    try {
+      const itemsRows = await fetchEstimateItemsForVersion(resolvedVersionId);
+      if (!version) {
+        setItems(itemsRows);
+        return;
+      }
 
-    if (error) {
-      setActionError(resolveEstimateActionError(error.message));
-      return;
+      const normalizedItems =
+        version.status === "draft"
+          ? normalizeDraftItems({
+              items: itemsRows,
+              version,
+              rateById: laborRateById,
+            })
+          : itemsRows;
+
+      setItems(normalizedItems);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? resolveEstimateActionError(error.message)
+          : "Impossible de charger les lignes.";
+      setActionError(message);
     }
-
-    const itemsRows = data ?? [];
-    if (!version) {
-      setItems(itemsRows);
-      return;
-    }
-
-    const normalizedItems =
-      version.status === "draft"
-        ? normalizeDraftItems({
-            items: itemsRows,
-            version,
-            rateById: laborRateById,
-          })
-        : itemsRows;
-
-    setItems(normalizedItems);
-  }, [laborRateById, resolvedVersionId, supabase, version]);
+  }, [laborRateById, resolvedVersionId, version]);
 
   async function handleSaveSettings() {
     if (!settings || !version || !totals) return;
@@ -929,13 +887,14 @@ export default function EditEstimatePage() {
       total_ttc_cents: totals.roundedTtcCents,
     };
 
-    const { error } = await supabase
-      .from("estimate_versions")
-      .update(payload)
-      .eq("id", version.id);
-
-    if (error) {
-      setActionError(resolveEstimateActionError(error.message));
+    try {
+      await saveEstimateVersion(version.id, payload);
+    } catch (error) {
+      setActionError(
+        resolveEstimateActionError(
+          error instanceof Error ? error.message : "Impossible de sauvegarder le chiffrage."
+        )
+      );
       setIsSavingSettings(false);
       return;
     }
@@ -993,11 +952,12 @@ export default function EditEstimatePage() {
         })
       );
 
-      const updates = await Promise.all(
-        updatedLines.map((item) =>
-          supabase
-            .from("estimate_items")
-            .update({
+      try {
+        await bulkUpdateEstimateItems(
+          version.id,
+          updatedLines.map((item) => ({
+            id: item.id,
+            updates: {
               tax_rate_bp: item.tax_rate_bp,
               k_fo: item.k_fo,
               h_mo: item.h_mo,
@@ -1006,13 +966,10 @@ export default function EditEstimatePage() {
               line_total_ht_cents: item.line_total_ht_cents,
               line_tax_cents: item.line_tax_cents,
               line_total_ttc_cents: item.line_total_ttc_cents,
-            })
-            .eq("id", item.id)
-        )
-      );
-
-      const hasError = updates.some((result) => result.error);
-      if (hasError) {
+            },
+          }))
+        );
+      } catch {
         setActionError("Impossible de mettre a jour les lignes.");
       }
     }
@@ -1039,19 +996,22 @@ export default function EditEstimatePage() {
         categories.reduce((max, category) => Math.max(max, category.position), 0) +
         1;
 
-      const { data, error } = await supabase
-        .from("estimate_categories")
-        .insert({
-          user_id: profile.id,
+      if (!version?.id) {
+        setActionError("Version introuvable.");
+        return null;
+      }
+
+      let data: EstimateCategory;
+      try {
+        data = await createEstimateCategory(version.id, {
           name: trimmed,
           color: null,
           position: nextPosition,
-        })
-        .select("*")
-        .single();
-
-      if (error || !data) {
-        setActionError(error?.message ?? "Impossible de creer la categorie.");
+        });
+      } catch (error) {
+        setActionError(
+          error instanceof Error ? error.message : "Impossible de creer la categorie."
+        );
         return null;
       }
 
@@ -1060,7 +1020,7 @@ export default function EditEstimatePage() {
       );
       return data;
     },
-    [categories, profile, supabase]
+    [categories, profile, version?.id]
   );
 
   const handleCreateRole = useCallback(
@@ -1074,20 +1034,23 @@ export default function EditEstimatePage() {
       const nextPosition =
         laborRoles.reduce((max, role) => Math.max(max, role.position), 0) + 1;
 
-      const { data, error } = await supabase
-        .from("labor_roles")
-        .insert({
-          user_id: profile.id,
+      if (!version?.id) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      let data: LaborRole;
+      try {
+        data = await createEstimateLaborRole(version.id, {
           name: payload.name,
           hourly_rate_cents: payload.hourly_rate_cents,
           is_active: true,
           position: nextPosition,
-        })
-        .select("*")
-        .single();
-
-      if (error || !data) {
-        setActionError(error?.message ?? "Impossible de creer le role.");
+        });
+      } catch (error) {
+        setActionError(
+          error instanceof Error ? error.message : "Impossible de creer le role."
+        );
         return;
       }
 
@@ -1095,19 +1058,21 @@ export default function EditEstimatePage() {
         [...prev, data].sort((a, b) => a.position - b.position)
       );
     },
-    [laborRoles, profile, supabase]
+    [laborRoles, profile, version?.id]
   );
 
   const handleUpdateRole = useCallback(
     async (id: string, updates: Partial<LaborRole>) => {
       setActionError(null);
-      const { error } = await supabase
-        .from("labor_roles")
-        .update(updates)
-        .eq("id", id);
+      if (!version?.id) {
+        setActionError("Version introuvable.");
+        return;
+      }
 
-      if (error) {
-        setActionError(error.message);
+      try {
+        await updateEstimateLaborRole(version.id, id, updates);
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : "Impossible de mettre a jour le role.");
         return;
       }
 
@@ -1167,11 +1132,12 @@ export default function EditEstimatePage() {
 
       if (isReadOnly) return;
 
-      const updatesResult = await Promise.all(
-        updatedLines.map((item) =>
-          supabase
-            .from("estimate_items")
-            .update({
+      try {
+        await bulkUpdateEstimateItems(
+          version.id,
+          updatedLines.map((item) => ({
+            id: item.id,
+            updates: {
               tax_rate_bp: item.tax_rate_bp,
               k_fo: item.k_fo,
               h_mo: item.h_mo,
@@ -1180,17 +1146,14 @@ export default function EditEstimatePage() {
               line_total_ht_cents: item.line_total_ht_cents,
               line_tax_cents: item.line_tax_cents,
               line_total_ttc_cents: item.line_total_ttc_cents,
-            })
-            .eq("id", item.id)
-        )
-      );
-
-      const hasError = updatesResult.some((result) => result.error);
-      if (hasError) {
+            },
+          }))
+        );
+      } catch {
         setActionError("Impossible de mettre a jour les lignes.");
       }
     },
-    [isReadOnly, settings, supabase]
+    [isReadOnly, settings, version?.id]
   );
 
   const handleCreateSuggestionRule = useCallback(
@@ -1208,10 +1171,15 @@ export default function EditEstimatePage() {
       const position =
         payload.position && payload.position > 0 ? payload.position : nextPosition;
 
-      const { data, error } = await supabase
-        .from("estimate_suggestion_rules")
-        .insert({
-          user_id: profile.id,
+      if (!version?.id) {
+        setIsSavingRules(false);
+        setRulesError("Version introuvable.");
+        return;
+      }
+
+      let data: SuggestionRule;
+      try {
+        data = await createEstimateSuggestionRule(version.id, {
           name: payload.name,
           match_type: "keyword",
           match_value: payload.match_value,
@@ -1222,46 +1190,51 @@ export default function EditEstimatePage() {
           labor_role_id: payload.labor_role_id,
           position,
           is_active: payload.is_active,
-        })
-        .select("*")
-        .single();
-
-      setIsSavingRules(false);
-
-      if (error || !data) {
-        setRulesError(error?.message ?? "Impossible de creer la regle.");
+        });
+      } catch (error) {
+        setIsSavingRules(false);
+        setRulesError(
+          error instanceof Error ? error.message : "Impossible de creer la regle."
+        );
         return;
       }
+
+      setIsSavingRules(false);
 
       setSuggestionRules((prev) =>
         [...prev, data].sort((a, b) => a.position - b.position)
       );
     },
-    [profile, suggestionRules, supabase]
+    [profile, suggestionRules, version?.id]
   );
 
   const handleUpdateSuggestionRule = useCallback(
     async (id: string, updates: Partial<SuggestionRule>) => {
       setRulesError(null);
-      const { data, error } = await supabase
-        .from("estimate_suggestion_rules")
-        .update(updates)
-        .eq("id", id)
-        .select("*")
-        .single();
+      if (!version?.id) {
+        setRulesError("Version introuvable.");
+        return;
+      }
 
-      if (error || !data) {
-        setRulesError(error?.message ?? "Impossible de mettre a jour la regle.");
+      let data: SuggestionRule | null = null;
+      try {
+        data = await updateEstimateSuggestionRule(version.id, id, updates);
+      } catch (error) {
+        setRulesError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de mettre a jour la regle."
+        );
         return;
       }
 
       setSuggestionRules((prev) =>
         prev
-          .map((rule) => (rule.id === id ? data : rule))
+          .map((rule) => (rule.id === id ? (data ?? { ...rule, ...updates }) : rule))
           .sort((a, b) => a.position - b.position)
       );
     },
-    [supabase]
+    [version?.id]
   );
 
   const getNextPosition = useCallback((parentId: string | null) => {
@@ -1285,22 +1258,19 @@ export default function EditEstimatePage() {
       setActionError(null);
       const position = getNextPosition(parentId);
 
-      const { data, error } = await supabase
-        .from("estimate_items")
-        .insert({
+      let data: EstimateItem;
+      try {
+        data = await createEstimateItem(version.id, {
           version_id: version.id,
           parent_id: parentId,
           item_type: "section",
           position,
           title: parentId ? "Nouveau sous-chapitre" : "Nouveau chapitre",
-        })
-        .select("*")
-        .single();
-
-      if (error || !data) {
+        });
+      } catch (error) {
         setActionError(
           resolveEstimateActionError(
-            error?.message ?? "Impossible de creer le chapitre."
+            error instanceof Error ? error.message : "Impossible de creer le chapitre."
           )
         );
         return;
@@ -1308,7 +1278,7 @@ export default function EditEstimatePage() {
 
       setItems((prev) => [...prev, data]);
     },
-    [getNextPosition, isReadOnly, supabase, version]
+    [getNextPosition, isReadOnly, version]
   );
 
   const handleAddLine = useCallback(
@@ -1337,9 +1307,9 @@ export default function EditEstimatePage() {
         }
       );
 
-      const { data, error } = await supabase
-        .from("estimate_items")
-        .insert({
+      let data: EstimateItem;
+      try {
+        data = await createEstimateItem(version.id, {
           version_id: version.id,
           parent_id: parentId,
           item_type: "line",
@@ -1358,14 +1328,11 @@ export default function EditEstimatePage() {
           line_total_ht_cents: lineValues.saleLineCents,
           line_tax_cents: lineValues.taxLineCents,
           line_total_ttc_cents: lineValues.ttcLineCents,
-        })
-        .select("*")
-        .single();
-
-      if (error || !data) {
+        });
+      } catch (error) {
         setActionError(
           resolveEstimateActionError(
-            error?.message ?? "Impossible d'ajouter la ligne."
+            error instanceof Error ? error.message : "Impossible d'ajouter la ligne."
           )
         );
         return;
@@ -1373,7 +1340,7 @@ export default function EditEstimatePage() {
 
       setItems((prev) => [...prev, data]);
     },
-    [getNextPosition, isReadOnly, settings, supabase, version]
+    [getNextPosition, isReadOnly, settings, version]
   );
 
   const handleDeleteItem = useCallback(
@@ -1398,17 +1365,24 @@ export default function EditEstimatePage() {
       collect(itemId);
       setItems((prev) => prev.filter((item) => !idsToRemove.has(item.id)));
 
-      const { error } = await supabase
-        .from("estimate_items")
-        .delete()
-        .eq("id", itemId);
+      if (!version?.id) {
+        setActionError("Version introuvable.");
+        await reloadItems();
+        return;
+      }
 
-      if (error) {
-        setActionError(resolveEstimateActionError(error.message));
+      try {
+        await deleteEstimateItem(version.id, itemId);
+      } catch (error) {
+        setActionError(
+          resolveEstimateActionError(
+            error instanceof Error ? error.message : "Impossible de supprimer la ligne."
+          )
+        );
         await reloadItems();
       }
     },
-    [isReadOnly, reloadItems, supabase]
+    [isReadOnly, reloadItems, version?.id]
   );
 
   const handlePatchItem = useCallback(
@@ -1474,6 +1448,12 @@ export default function EditEstimatePage() {
 
       if (!persist) return;
 
+      if (!version?.id) {
+        setActionError("Version introuvable.");
+        setItems(snapshot);
+        return;
+      }
+
       const payload: Database["public"]["Tables"]["estimate_items"]["Update"] =
         updated.item_type === "line"
           ? {
@@ -1496,13 +1476,14 @@ export default function EditEstimatePage() {
               title: updated.title,
             };
 
-      const { error } = await supabase
-        .from("estimate_items")
-        .update(payload)
-        .eq("id", itemId);
-
-      if (error) {
-        setActionError(resolveEstimateActionError(error.message));
+      try {
+        await updateEstimateItem(version.id, itemId, payload);
+      } catch (error) {
+        setActionError(
+          resolveEstimateActionError(
+            error instanceof Error ? error.message : "Impossible de mettre a jour la ligne."
+          )
+        );
         setItems(snapshot);
       }
     },
@@ -1511,7 +1492,7 @@ export default function EditEstimatePage() {
       laborRateById,
       settings?.margin_multiplier,
       settings?.tax_rate_bp,
-      supabase,
+      version?.id,
     ]
   );
 
@@ -1531,24 +1512,20 @@ export default function EditEstimatePage() {
 
       setItems(updated);
 
-      const updates = await Promise.all(
-        updated
-          .filter((item) => item.parent_id === parentId)
-          .map((item) =>
-            supabase
-              .from("estimate_items")
-              .update({ position: item.position })
-              .eq("id", item.id)
-          )
-      );
+      if (!version?.id) {
+        setActionError("Version introuvable.");
+        setItems(snapshot);
+        return;
+      }
 
-      const hasError = updates.some((result) => result.error);
-      if (hasError) {
+      try {
+        await reorderEstimateItems(version.id, parentId, orderedIds);
+      } catch {
         setActionError("Impossible de reordonner les lignes.");
         setItems(snapshot);
       }
     },
-    [isReadOnly, supabase]
+    [isReadOnly, version?.id]
   );
 
   async function handleStatusChange(nextStatus: EstimateStatus) {
@@ -1556,18 +1533,19 @@ export default function EditEstimatePage() {
     setStatusError(null);
     setIsUpdatingStatus(true);
 
-    const { error } = await supabase
-      .from("estimate_versions")
-      .update({ status: nextStatus })
-      .eq("id", version.id);
-
-    setIsUpdatingStatus(false);
-
-    if (error) {
-      setStatusError(resolveEstimateActionError(error.message));
+    try {
+      await updateEstimateStatus(version.id, nextStatus);
+    } catch (error) {
+      setStatusError(
+        resolveEstimateActionError(
+          error instanceof Error ? error.message : "Impossible de mettre a jour le statut."
+        )
+      );
+      setIsUpdatingStatus(false);
       return;
     }
 
+    setIsUpdatingStatus(false);
     setVersion((prev) => (prev ? { ...prev, status: nextStatus } : prev));
   }
 

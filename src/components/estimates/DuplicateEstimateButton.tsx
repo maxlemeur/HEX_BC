@@ -1,9 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { duplicateEstimateVersion } from "@/lib/estimates/client";
 
 type DuplicateEstimateButtonProps = {
   versionId: string;
@@ -15,7 +15,6 @@ export function DuplicateEstimateButton({
   className,
 }: DuplicateEstimateButtonProps) {
   const router = useRouter();
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -25,16 +24,9 @@ export function DuplicateEstimateButton({
     setIsDuplicating(true);
 
     try {
-      const { data, error } = await supabase.rpc(
-        "duplicate_estimate_version",
-        { source_version_id: versionId }
-      );
+      const duplicatedVersionId = await duplicateEstimateVersion(versionId);
 
-      if (error || !data) {
-        throw new Error(error?.message ?? "Impossible de dupliquer le chiffrage.");
-      }
-
-      router.push(`/dashboard/estimates/${data}/edit`);
+      router.push(`/dashboard/estimates/${duplicatedVersionId}/edit`);
       router.refresh();
     } catch (error) {
       setActionError(
@@ -43,7 +35,7 @@ export function DuplicateEstimateButton({
     } finally {
       setIsDuplicating(false);
     }
-  }, [isDuplicating, router, supabase, versionId]);
+  }, [isDuplicating, router, versionId]);
 
   const buttonClassName = className
     ? `btn btn-ghost btn-sm ${className}`

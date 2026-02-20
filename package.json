@@ -10,7 +10,8 @@
     "e2e:auth": "powershell -ExecutionPolicy Bypass -File e2e\\\\auth.ps1",
     "e2e:hex": "powershell -ExecutionPolicy Bypass -File e2e\\\\hex\\\\run-all.ps1",
     "lint": "eslint . --max-warnings=0",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -35,6 +36,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }
