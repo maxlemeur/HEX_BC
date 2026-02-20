@@ -434,17 +434,13 @@ export function DevisList({
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<DevisItem | null>(null);
-  const [localItems, setLocalItems] = useState<DevisItem[]>(initialItems);
+  const [optimisticItems, setOptimisticItems] = useState<DevisItem[] | null>(null);
 
   const editInputRef = useRef<HTMLInputElement>(null);
 
   const serverItems = useMemo(() => data?.items ?? [], [data?.items]);
-
-  useEffect(() => {
-    setLocalItems(serverItems);
-  }, [serverItems]);
-
-  const itemIds = useMemo(() => localItems.map((item) => item.id), [localItems]);
+  const items = optimisticItems ?? serverItems;
+  const itemIds = useMemo(() => items.map((item) => item.id), [items]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -555,13 +551,13 @@ export function DevisList({
 
     if (!over || active.id === over.id) return;
 
-    const oldIndex = localItems.findIndex((item) => item.id === active.id);
-    const newIndex = localItems.findIndex((item) => item.id === over.id);
+    const oldIndex = items.findIndex((item) => item.id === active.id);
+    const newIndex = items.findIndex((item) => item.id === over.id);
 
     if (oldIndex === -1 || newIndex === -1) return;
 
-    const newItems = arrayMove(localItems, oldIndex, newIndex);
-    setLocalItems(newItems);
+    const newItems = arrayMove(items, oldIndex, newIndex);
+    setOptimisticItems(newItems);
 
     const orderedIds = newItems.map((item) => item.id);
 
@@ -577,14 +573,15 @@ export function DevisList({
           | { error?: string }
           | null;
         setActionError(payload?.error ?? "Erreur lors du reordonnancement.");
-        setLocalItems(serverItems);
+        setOptimisticItems(null);
         return;
       }
 
       await mutate();
+      setOptimisticItems(null);
     } catch {
       setActionError("Erreur lors du reordonnancement.");
-      setLocalItems(serverItems);
+      setOptimisticItems(null);
     }
   }
 
@@ -597,21 +594,21 @@ export function DevisList({
             <h3 className="text-xl font-semibold tracking-tight text-[var(--slate-800)]">
               Documents joints
             </h3>
-            {localItems.length > 0 && (
+            {items.length > 0 && (
               <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--brand-blue)]/10 px-2 text-xs font-semibold text-[var(--brand-blue)]">
-                {localItems.length}
+                {items.length}
               </span>
             )}
           </div>
           <p className="mt-1.5 text-sm text-[var(--slate-500)]">
-            {localItems.length === 0
+            {items.length === 0
               ? "Aucun document attache a cette commande"
-              : canManage && localItems.length > 1
+              : canManage && items.length > 1
                 ? "Glissez les elements pour modifier l'ordre"
-                : `${localItems.length} document${localItems.length > 1 ? "s" : ""} attache${localItems.length > 1 ? "s" : ""}`}
+                : `${items.length} document${items.length > 1 ? "s" : ""} attache${items.length > 1 ? "s" : ""}`}
           </p>
         </div>
-        {!canManage && localItems.length > 0 && (
+        {!canManage && items.length > 0 && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--slate-100)] px-3 py-1.5 text-xs font-medium text-[var(--slate-500)]">
             <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" />
@@ -635,7 +632,7 @@ export function DevisList({
       )}
 
       {/* Loading state */}
-      {isLoading && localItems.length === 0 ? (
+      {isLoading && items.length === 0 ? (
         <div className="space-y-4">
           <SkeletonCard />
           <SkeletonCard />
@@ -643,7 +640,7 @@ export function DevisList({
       ) : null}
 
       {/* Empty state */}
-      {localItems.length === 0 && !isLoading ? (
+      {items.length === 0 && !isLoading ? (
         <div className="rounded-2xl border-2 border-dashed border-[var(--slate-200)] bg-gradient-to-b from-[var(--slate-50)] to-white px-8 py-12 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--slate-100)]">
             <DocumentIcon className="h-8 w-8 text-[var(--slate-400)]" />
@@ -667,7 +664,7 @@ export function DevisList({
             </button>
           )}
         </div>
-      ) : localItems.length > 0 ? (
+      ) : items.length > 0 ? (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -679,7 +676,7 @@ export function DevisList({
               aria-label="Liste des devis attaches"
               className="space-y-4"
             >
-              {localItems.map((item) => (
+              {items.map((item) => (
                 <SortableDevisRow
                   key={item.id}
                   item={item}
@@ -707,6 +704,7 @@ export function DevisList({
       ) : null}
 
       <DevisPreviewModal
+        key={previewItem?.id ?? "devis-preview-closed"}
         open={previewItem !== null}
         onClose={() => setPreviewItem(null)}
         devis={previewItem}

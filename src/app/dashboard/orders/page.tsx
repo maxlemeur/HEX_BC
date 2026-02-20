@@ -1281,6 +1281,7 @@ export default function OrdersPage() {
 
       {/* Preview Modal */}
       <DevisPreviewModal
+        key={previewDevis?.id ?? "devis-preview-closed"}
         open={previewDevis !== null}
         onClose={() => setPreviewDevis(null)}
         devis={previewDevis}

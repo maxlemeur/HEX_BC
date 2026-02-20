@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
 import { createPortal } from "react-dom";
 
 import type { DevisItem } from "./DevisList";
@@ -32,6 +33,21 @@ type EmailAttachment = {
   mimeType: string;
   size: number;
   content: Uint8Array | null;
+};
+
+type ParsedEmailResponse = {
+  subject?: string | null;
+  from?: EmailAddress | EmailAddress[] | null;
+  to?: EmailAddress[] | null;
+  date?: string | null;
+  text?: string | null;
+  html?: string | null;
+  attachments?: Array<{
+    filename?: string | null;
+    mimeType?: string | null;
+    content?: unknown;
+    size?: number | null;
+  }> | null;
 };
 
 function CloseIcon({ className }: { className?: string }) {
@@ -159,27 +175,46 @@ function formatAttachmentSize(bytes: number) {
   return `${megabytes.toFixed(1)} Mo`;
 }
 
+const emailPreviewFetcher = async ([, downloadUrl]: readonly [string, string]) => {
+  const response = await fetch(downloadUrl);
+  if (!response.ok) {
+    throw new Error("fetch failed");
+  }
+
+  const buffer = await response.arrayBuffer();
+  const { default: PostalMime } = await import("postal-mime");
+  const parser = new PostalMime();
+  const parsed = (await parser.parse(buffer)) as ParsedEmailResponse;
+
+  const attachments = (parsed.attachments ?? []).map((attachment, index) => {
+    const content = toUint8Array(attachment.content);
+    const size = attachment.size ?? content?.byteLength ?? 0;
+    const filename = attachment.filename?.trim() || `piece-jointe-${index + 1}`;
+    return {
+      id: `${index}-${filename}`,
+      filename,
+      mimeType: attachment.mimeType?.trim() || "application/octet-stream",
+      size,
+      content,
+    };
+  });
+
+  return {
+    subject: parsed.subject?.trim() || "(Sans objet)",
+    from: formatAddressList(parsed.from),
+    to: formatAddressList(parsed.to),
+    date: formatEmailDate(parsed.date ?? undefined),
+    text: parsed.text?.trim() || "",
+    html: parsed.html?.trim() || "",
+    attachments,
+  } satisfies EmailPreview;
+};
+
 export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [emailPreview, setEmailPreview] = useState<EmailPreview | null>(null);
   const [activeAttachmentId, setActiveAttachmentId] = useState<string | null>(null);
-  const [activeAttachmentUrl, setActiveAttachmentUrl] = useState<string | null>(null);
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setPortalTarget(document.body);
-  }, []);
-
-  useEffect(() => {
-    if (open) {
-      setLoading(true);
-      setError(null);
-      setEmailPreview(null);
-      setActiveAttachmentId(null);
-      setActiveAttachmentUrl(null);
-    }
-  }, [open, devis?.id]);
+  const portalTarget = typeof document !== "undefined" ? document.body : null;
 
   useEffect(() => {
     if (!open) return;
@@ -198,77 +233,24 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
   const normalizedFilename = originalFilename.toLowerCase();
   const isEmail = mimeType === "message/rfc822" || normalizedFilename.endsWith(".eml");
   const canPreview = isPreviewableType(mimeType, originalFilename) && Boolean(downloadUrl);
+  const shouldLoadEmailPreview = open && isEmail && Boolean(downloadUrl);
 
-  useEffect(() => {
-    if (!open || !isEmail || !downloadUrl) return;
+  const {
+    data: emailPreviewData,
+    error: emailPreviewError,
+    isLoading: isEmailPreviewLoading,
+  } = useSWR(
+    shouldLoadEmailPreview ? (["devis-email-preview", downloadUrl] as const) : null,
+    emailPreviewFetcher,
+    {
+      revalidateOnFocus: false,
+      shouldRetryOnError: false,
+    }
+  );
 
-    let isActive = true;
-    setLoading(true);
-    setError(null);
-    setEmailPreview(null);
-
-    const loadEmail = async () => {
-      try {
-        const response = await fetch(downloadUrl);
-        if (!response.ok) {
-          throw new Error("fetch failed");
-        }
-        const buffer = await response.arrayBuffer();
-        const { default: PostalMime } = await import("postal-mime");
-        const parser = new PostalMime();
-        const parsed = (await parser.parse(buffer)) as {
-          subject?: string | null;
-          from?: EmailAddress | EmailAddress[] | null;
-          to?: EmailAddress[] | null;
-          date?: string | null;
-          text?: string | null;
-          html?: string | null;
-          attachments?: Array<{
-            filename?: string | null;
-            mimeType?: string | null;
-            content?: unknown;
-            size?: number | null;
-          }> | null;
-        };
-
-        if (!isActive) return;
-
-        const attachments = (parsed.attachments ?? []).map((attachment, index) => {
-          const content = toUint8Array(attachment.content);
-          const size = attachment.size ?? content?.byteLength ?? 0;
-          const filename = attachment.filename?.trim() || `piece-jointe-${index + 1}`;
-          return {
-            id: `${index}-${filename}`,
-            filename,
-            mimeType: attachment.mimeType?.trim() || "application/octet-stream",
-            size,
-            content,
-          };
-        });
-
-        setEmailPreview({
-          subject: parsed.subject?.trim() || "(Sans objet)",
-          from: formatAddressList(parsed.from),
-          to: formatAddressList(parsed.to),
-          date: formatEmailDate(parsed.date ?? undefined),
-          text: parsed.text?.trim() || "",
-          html: parsed.html?.trim() || "",
-          attachments,
-        });
-        setLoading(false);
-      } catch {
-        if (!isActive) return;
-        setError("Impossible de lire l'email.");
-        setLoading(false);
-      }
-    };
-
-    loadEmail();
-
-    return () => {
-      isActive = false;
-    };
-  }, [open, isEmail, downloadUrl]);
+  const emailPreview = emailPreviewData ?? null;
+  const previewError = error ?? (emailPreviewError ? "Impossible de lire l'email." : null);
+  const isPreviewLoading = isEmail ? isEmailPreviewLoading : loading;
 
   function handleLoad() {
     setLoading(false);
@@ -287,23 +269,18 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
 
   const activeAttachment =
     emailPreview?.attachments.find((attachment) => attachment.id === activeAttachmentId) ?? null;
-
-  useEffect(() => {
-    if (!activeAttachment || !activeAttachment.content) {
-      setActiveAttachmentUrl(null);
-      return undefined;
-    }
-
+  const activeAttachmentUrl = useMemo(() => {
+    if (!activeAttachment?.content) return null;
     const previewBlob = new Blob([toArrayBuffer(activeAttachment.content)], {
       type: activeAttachment.mimeType || "application/octet-stream",
     });
-    const objectUrl = URL.createObjectURL(previewBlob);
-    setActiveAttachmentUrl(objectUrl);
-
-    return () => {
-      URL.revokeObjectURL(objectUrl);
-    };
+    return URL.createObjectURL(previewBlob);
   }, [activeAttachment]);
+
+  useEffect(() => {
+    if (!activeAttachmentUrl) return undefined;
+    return () => URL.revokeObjectURL(activeAttachmentUrl);
+  }, [activeAttachmentUrl]);
 
   function handleAttachmentDownload(attachment: EmailAttachment) {
     if (!attachment.content) return;
@@ -379,11 +356,11 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
             </div>
           ) : (
             <>
-              {loading && <LoadingSpinner />}
+              {isPreviewLoading && <LoadingSpinner />}
 
-              {error && (
+              {previewError && (
                 <div className="text-center">
-                  <p className="text-lg font-medium text-white">{error}</p>
+                  <p className="text-lg font-medium text-white">{previewError}</p>
                   <button
                     className="btn btn-primary mt-4"
                     type="button"
@@ -394,7 +371,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                 </div>
               )}
 
-              {isEmail && emailPreview && !loading && !error && (
+              {isEmail && emailPreview && !isPreviewLoading && !previewError && (
                 <div className="w-full max-w-5xl space-y-4">
                   <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">
                     <div className="text-base font-semibold text-white">
@@ -535,7 +512,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                 <img
                   src={devis.downloadUrl}
                   alt={devis.name}
-                  className={`max-h-full max-w-full object-contain ${loading || error ? "hidden" : ""}`}
+                  className={`max-h-full max-w-full object-contain ${isPreviewLoading || previewError ? "hidden" : ""}`}
                   onLoad={handleLoad}
                   onError={handleError}
                 />
@@ -545,7 +522,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                 <iframe
                   src={`${devis.downloadUrl}#toolbar=1&navpanes=0`}
                   title={devis.name}
-                  className={`h-full w-full rounded-lg bg-white ${loading || error ? "hidden" : ""}`}
+                  className={`h-full w-full rounded-lg bg-white ${isPreviewLoading || previewError ? "hidden" : ""}`}
                   onLoad={handleLoad}
                   onError={handleError}
                 />
