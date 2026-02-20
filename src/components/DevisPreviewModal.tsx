@@ -190,17 +190,6 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
     };
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
-
   const mimeType = devis?.mimeType ?? "";
   const originalFilename = devis?.originalFilename ?? "";
   const downloadUrl = devis?.downloadUrl ?? null;
@@ -335,13 +324,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex flex-col" role="dialog" aria-modal="true" aria-labelledby="devis-preview-title">
-      <div
-        className="absolute inset-0 bg-slate-900/80"
-        onClick={(event) => {
-          event.stopPropagation();
-          onClose();
-        }}
-      />
+      <div className="absolute inset-0 bg-slate-900/80" />
 
       <div className="relative z-10 flex h-full flex-col">
         <header className="flex items-center justify-between border-b border-white/10 bg-slate-900 px-4 py-3">

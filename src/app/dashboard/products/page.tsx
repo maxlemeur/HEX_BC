@@ -133,17 +133,6 @@ export default function ProductsPage() {
     };
   }, [isFormOpen]);
 
-  useEffect(() => {
-    if (!isFormOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !creating) {
-        closeForm();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [closeForm, creating, isFormOpen]);
-
   async function onCreateProduct(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
@@ -214,12 +203,7 @@ export default function ProductsPage() {
 
       {isFormOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
-          <div
-            className="absolute inset-0 bg-slate-900/40"
-            onClick={() => {
-              if (!creating) closeForm();
-            }}
-          />
+          <div className="absolute inset-0 bg-slate-900/40" />
           <div
             role="dialog"
             aria-modal="true"
@@ -227,7 +211,7 @@ export default function ProductsPage() {
             className="relative max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
+            <div className="border-b border-[var(--slate-200)] px-6 py-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--success)]/10">
                   <svg
@@ -254,14 +238,6 @@ export default function ProductsPage() {
                   </p>
                 </div>
               </div>
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                onClick={closeForm}
-                disabled={creating}
-              >
-                Fermer
-              </button>
             </div>
 
             <form className="grid gap-5 overflow-y-auto p-6 sm:grid-cols-2 lg:grid-cols-4" onSubmit={onCreateProduct}>

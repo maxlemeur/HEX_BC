@@ -84,17 +84,6 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
     };
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isSubmitting) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose, isSubmitting]);
-
   function updateField<K extends keyof SupplierFormState>(key: K, value: SupplierFormState[K]) {
     setFormState((prev) => ({ ...prev, [key]: value }));
   }
@@ -147,12 +136,7 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto px-4 py-6">
-      <div
-        className="absolute inset-0 bg-slate-900/40"
-        onClick={() => {
-          if (!isSubmitting) onClose();
-        }}
-      />
+      <div className="absolute inset-0 bg-slate-900/40" />
       <div
         role="dialog"
         aria-modal="true"
@@ -160,7 +144,7 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
         className="relative w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
+        <div className="border-b border-[var(--slate-200)] px-6 py-4">
           <div>
             <h2 id="supplier-modal-title" className="text-lg font-semibold text-[var(--slate-800)]">
               Nouveau fournisseur
@@ -169,14 +153,6 @@ export function SupplierCreateModal({ open, onClose, onCreated }: SupplierCreate
               Ajoutez un fournisseur sans quitter le bon de commande.
             </p>
           </div>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-          >
-            Fermer
-          </button>
         </div>
 
         <form className="grid max-h-[calc(90vh-80px)] gap-5 overflow-y-auto p-6 sm:grid-cols-2 lg:grid-cols-3" onSubmit={onSubmit}>
