@@ -529,6 +529,65 @@ body {
 .stagger-4 { animation-delay: 0.2s; }
 .stagger-5 { animation-delay: 0.25s; }
 
+/* ========================================
+   Login Page — Flowing Energy Animations
+   ======================================== */
+
+@keyframes loginBlobA {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25%      { transform: translate(30px, -40px) scale(1.1); }
+  50%      { transform: translate(-20px, 20px) scale(0.95); }
+  75%      { transform: translate(10px, -10px) scale(1.05); }
+}
+
+@keyframes loginBlobB {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(-40px, 30px) scale(1.08); }
+  66%      { transform: translate(20px, -20px) scale(0.92); }
+}
+
+@keyframes loginBlobC {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  20%      { transform: translate(25px, 25px) scale(1.06); }
+  40%      { transform: translate(-30px, -10px) scale(0.97); }
+  60%      { transform: translate(15px, -30px) scale(1.1); }
+  80%      { transform: translate(-10px, 15px) scale(0.94); }
+}
+
+@keyframes loginPulseRing {
+  0%, 100% { transform: scale(1); opacity: 0.15; }
+  50%      { transform: scale(1.15); opacity: 0.05; }
+}
+
+@keyframes loginGridScroll {
+  0%   { background-position: 0 0; }
+  100% { background-position: 40px 40px; }
+}
+
+.login-blob-a {
+  animation: loginBlobA 8s ease-in-out infinite;
+}
+
+.login-blob-b {
+  animation: loginBlobB 10s ease-in-out infinite;
+}
+
+.login-blob-c {
+  animation: loginBlobC 12s ease-in-out infinite;
+}
+
+.login-pulse-ring {
+  animation: loginPulseRing 4s ease-in-out infinite;
+}
+
+.login-grid-overlay {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  animation: loginGridScroll 20s linear infinite;
+}
+
 /* Respect user preference for reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -545,6 +604,14 @@ body {
     animation: none;
     opacity: 1;
     transform: none;
+  }
+
+  .login-blob-a,
+  .login-blob-b,
+  .login-blob-c,
+  .login-pulse-ring,
+  .login-grid-overlay {
+    animation: none;
   }
 }
 

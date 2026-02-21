@@ -1,14 +1,130 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+
+/* ─── Animation variants ─── */
+
+const brandPanelVariants = {
+  hidden: (reduced: boolean) => ({
+    opacity: 0,
+    x: reduced ? 0 : -40,
+  }),
+  visible: {
+    opacity: 1,
+    x: 0,
+    transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] as const },
+  },
+};
+
+const brandContentVariants = {
+  hidden: {},
+  visible: {
+    transition: { staggerChildren: 0.12, delayChildren: 0.1 },
+  },
+};
+
+const brandItemVariants = {
+  hidden: (reduced: boolean) => ({
+    opacity: 0,
+    y: reduced ? 0 : 20,
+  }),
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
+  },
+};
+
+const formPanelVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { duration: 0.4, delay: 0.2 },
+  },
+};
+
+const formContainerVariants = {
+  hidden: {},
+  visible: {
+    transition: { staggerChildren: 0.08, delayChildren: 0.5 },
+  },
+};
+
+const formItemVariants = {
+  hidden: (reduced: boolean) => ({
+    opacity: 0,
+    y: reduced ? 0 : 16,
+  }),
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] as const },
+  },
+};
+
+const errorVariants = {
+  hidden: { opacity: 0, height: 0, marginTop: 0 },
+  visible: {
+    opacity: 1,
+    height: "auto",
+    marginTop: 16,
+    x: [0, -8, 8, -4, 4, 0],
+    transition: { duration: 0.4, x: { duration: 0.4, ease: "easeOut" } },
+  },
+  exit: {
+    opacity: 0,
+    height: 0,
+    marginTop: 0,
+    transition: { duration: 0.2 },
+  },
+};
+
+/* ─── Feature bullets ─── */
+
+const features = [
+  {
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z" />
+        <path d="M8 10h8" /><path d="M8 14h4" />
+      </svg>
+    ),
+    text: "Chiffrage projet, devis et bons de commande en quelques clics",
+  },
+  {
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+        <path d="M14 2v6h6" /><path d="M12 18v-6" /><path d="m9 15 3-3 3 3" />
+      </svg>
+    ),
+    text: "Import DPGF, prix fournisseurs et indices matière automatisés",
+  },
+  {
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3" />
+        <path d="M21 12H11" /><path d="M21 16H11" /><path d="M21 20H11" />
+        <rect x="7" y="12" width="4" height="8" rx="1" />
+      </svg>
+    ),
+    text: "Export Excel multi-feuilles, PDF et suivi temps réel",
+  },
+];
+
+/* ─── Component ─── */
 
 export default function LoginPage() {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const prefersReduced = useReducedMotion();
+  const reduced = !!prefersReduced;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,18 +154,130 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 py-16 text-zinc-950">
-      <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
-        <h1 className="text-2xl font-semibold tracking-tight">Connexion</h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          Connectez-vous pour accéder au tableau de bord.
-        </p>
+    <main className="flex min-h-screen flex-col lg:flex-row">
+      {/* ───────── LEFT PANEL — Brand ───────── */}
+      <motion.div
+        custom={reduced}
+        variants={brandPanelVariants}
+        initial="hidden"
+        animate="visible"
+        className="relative flex w-full flex-col justify-center overflow-hidden bg-gradient-to-br from-[#1E3A5F] via-[#1a3355] to-[#152a45] px-8 py-12 text-white sm:px-12 lg:w-[45%] lg:min-h-screen lg:px-16 lg:py-20"
+      >
+        {/* Grid overlay */}
+        <div className="login-grid-overlay pointer-events-none absolute inset-0 z-0" />
 
-        <form className="mt-8 space-y-4" onSubmit={onSubmit}>
-          <label className="block">
-            <span className="text-sm font-medium">Email</span>
-            <input
-              className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
+        {/* Blobs */}
+        <div className="login-blob-a pointer-events-none absolute -left-20 -top-20 h-72 w-72 rounded-full bg-gradient-to-br from-[#E8732F]/30 to-[#E8732F]/5 blur-3xl sm:h-96 sm:w-96 lg:h-[28rem] lg:w-[28rem]" />
+        <div className="login-blob-b pointer-events-none absolute -bottom-16 right-0 hidden h-64 w-64 rounded-full bg-gradient-to-tr from-[#3b82f6]/20 to-[#1E3A5F]/10 blur-3xl md:block lg:h-80 lg:w-80" />
+        <div className="login-blob-c pointer-events-none absolute right-1/4 top-1/3 hidden h-48 w-48 rounded-full bg-gradient-to-bl from-[#E8732F]/15 to-transparent blur-3xl lg:block" />
+
+        {/* Pulse ring */}
+        <div className="login-pulse-ring pointer-events-none absolute left-1/2 top-1/2 hidden h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10 lg:block" />
+
+        {/* Brand content */}
+        <motion.div
+          variants={brandContentVariants}
+          initial="hidden"
+          animate="visible"
+          className="relative z-10"
+        >
+          {/* Logo */}
+          <motion.div custom={reduced} variants={brandItemVariants} className="mb-6 lg:mb-8">
+            <div className="inline-flex h-14 w-32 items-center justify-center overflow-hidden rounded-2xl bg-white/95 p-2 shadow-lg shadow-black/10 lg:h-16 lg:w-40 lg:rounded-3xl">
+              <Image
+                src="/logo-hydro-express.jpg"
+                alt="Hydro Express"
+                width={160}
+                height={70}
+                className="h-full w-full object-contain"
+                priority
+              />
+            </div>
+          </motion.div>
+
+          {/* Brand name */}
+          <motion.h1
+            custom={reduced}
+            variants={brandItemVariants}
+            className="font-display text-2xl font-extrabold tracking-tight sm:text-3xl lg:text-4xl"
+          >
+            TIMAX
+          </motion.h1>
+
+          {/* Tagline */}
+          <motion.p
+            custom={reduced}
+            variants={brandItemVariants}
+            className="mt-2 text-sm font-medium text-white/70 sm:text-base lg:mt-3 lg:text-lg"
+          >
+            Chiffrage et gestion des commandes
+          </motion.p>
+
+          {/* Separator */}
+          <motion.div
+            custom={reduced}
+            variants={brandItemVariants}
+            className="mt-6 h-1 w-16 rounded-full bg-gradient-to-r from-[#E8732F] to-[#E8732F]/40 lg:mt-8 lg:w-20"
+          />
+
+          {/* Feature bullets — hidden on tablet, shown on desktop */}
+          <div className="mt-8 hidden space-y-4 lg:block">
+            {features.map((feature, i) => (
+              <motion.div
+                key={i}
+                custom={reduced}
+                variants={brandItemVariants}
+                className="flex items-center gap-3 text-sm text-white/80"
+              >
+                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white/10">
+                  {feature.icon}
+                </span>
+                <span>{feature.text}</span>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      </motion.div>
+
+      {/* ───────── RIGHT PANEL — Form ───────── */}
+      <motion.div
+        variants={formPanelVariants}
+        initial="hidden"
+        animate="visible"
+        className="flex w-full flex-1 items-center justify-center bg-[#f8fafc] px-6 py-12 sm:px-10 lg:w-[55%] lg:px-16"
+      >
+        <motion.form
+          variants={formContainerVariants}
+          initial="hidden"
+          animate="visible"
+          className="w-full max-w-md space-y-6"
+          onSubmit={onSubmit}
+        >
+          {/* Heading */}
+          <div>
+            <motion.h1
+              custom={reduced}
+              variants={formItemVariants}
+              className="font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl"
+            >
+              Connexion
+            </motion.h1>
+            <motion.p
+              custom={reduced}
+              variants={formItemVariants}
+              className="mt-2 text-sm text-slate-500 sm:text-base"
+            >
+              Connectez-vous pour accéder au tableau de bord.
+            </motion.p>
+          </div>
+
+          {/* Email */}
+          <motion.label custom={reduced} variants={formItemVariants} className="block">
+            <span className="text-sm font-semibold text-slate-700">Email</span>
+            <motion.input
+              whileFocus={{ scale: 1.01, boxShadow: "0 0 0 3px rgba(30,58,95,0.1)" }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition-colors hover:border-slate-300 focus:border-[#1E3A5F]"
               autoComplete="email"
               inputMode="email"
               name="email"
@@ -59,13 +287,16 @@ export default function LoginPage() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
-          </label>
+          </motion.label>
 
-          <label className="block">
-            <span className="text-sm font-medium">Mot de passe</span>
-            <div className="relative mt-1">
-              <input
-                className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 pr-20 text-sm outline-none focus:border-zinc-400"
+          {/* Password */}
+          <motion.label custom={reduced} variants={formItemVariants} className="block">
+            <span className="text-sm font-semibold text-slate-700">Mot de passe</span>
+            <div className="relative mt-2">
+              <motion.input
+                whileFocus={{ scale: 1.01, boxShadow: "0 0 0 3px rgba(30,58,95,0.1)" }}
+                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 pr-24 text-sm outline-none transition-colors hover:border-slate-300 focus:border-[#1E3A5F]"
                 autoComplete="current-password"
                 id="password"
                 name="password"
@@ -78,37 +309,73 @@ export default function LoginPage() {
                 aria-controls="password"
                 aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                 aria-pressed={showPassword}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-zinc-600 transition hover:text-zinc-900"
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
                 type="button"
-                onClick={() => setShowPassword((value) => !value)}
+                onClick={() => setShowPassword((v) => !v)}
               >
                 {showPassword ? "Masquer" : "Afficher"}
               </button>
             </div>
-          </label>
+          </motion.label>
 
-          {error ? (
-            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </p>
-          ) : null}
+          {/* Error */}
+          <AnimatePresence mode="wait">
+            {error && (
+              <motion.p
+                key="error"
+                variants={errorVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                role="alert"
+                aria-live="assertive"
+                className="overflow-hidden rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+              >
+                {error}
+              </motion.p>
+            )}
+          </AnimatePresence>
 
-          <button
-            className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-zinc-900 px-5 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+          {/* Submit */}
+          <motion.button
+            custom={reduced}
+            variants={formItemVariants}
+            whileHover={{ scale: 1.02, backgroundColor: "#2d4a6f" }}
+            whileTap={{ scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 400, damping: 25 }}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#1E3A5F] text-sm font-semibold text-white shadow-lg shadow-[#1E3A5F]/20 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             disabled={loading}
             type="submit"
           >
-            {loading ? "Connexion..." : "Se connecter"}
-          </button>
-        </form>
+            {loading ? (
+              <>
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Connexion en cours...
+              </>
+            ) : (
+              "Se connecter"
+            )}
+          </motion.button>
 
-        <p className="mt-6 text-center text-sm text-zinc-600">
-          Pas de compte ?{" "}
-          <Link className="font-medium text-zinc-900 hover:underline" href="/signup">
-            Créer un compte
-          </Link>
-        </p>
-      </div>
+          {/* Signup link */}
+          <motion.p
+            custom={reduced}
+            variants={formItemVariants}
+            className="text-center text-sm text-slate-500"
+          >
+            Pas de compte ?{" "}
+            <Link
+              className="font-semibold text-[#1E3A5F] transition-colors hover:text-[#E8732F] hover:underline"
+              href="/signup"
+            >
+              Créer un compte
+            </Link>
+          </motion.p>
+        </motion.form>
+      </motion.div>
     </main>
   );
 }
