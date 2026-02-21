@@ -78,32 +78,42 @@ function Fill-PasswordInput {
     [string]$Password
   )
 
-  $passwordJson = ConvertTo-Json $Password -Compress
-  $js = @"
-(() => {
-  const input = document.querySelector('input#password, input[name="password"], input[type="password"]');
-  if (!input) {
-    throw new Error('Password input not found');
-  }
-  input.focus();
-  input.value = $passwordJson;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-})();
-"@
-  Invoke-AB $Session "eval" $js | Out-Null
+  Invoke-AB $Session "fill" "#password" $Password | Out-Null
 }
 
 function Login-E2E {
   param([string]$BaseUrl, [string]$Session)
   Require-AuthEnv
 
-  Invoke-AB $Session "open" "$BaseUrl/login"
-  Invoke-AB $Session "wait" "--load" "networkidle"
-  Invoke-AB $Session "find" "label" "Email" "fill" $env:E2E_LOGIN_EMAIL
-  Fill-PasswordInput -Session $Session -Password $env:E2E_LOGIN_PASSWORD
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Se connecter"
-  Wait-ForUrlContains -Session $Session -Needle "/dashboard" | Out-Null
+  $maxLoginAttempts = 2
+  for ($attempt = 1; $attempt -le $maxLoginAttempts; $attempt++) {
+    Invoke-AB $Session "open" "$BaseUrl/login"
+    Invoke-AB $Session "wait" "--load" "networkidle"
+    Invoke-AB $Session "find" "label" "Email" "fill" $env:E2E_LOGIN_EMAIL
+    Fill-PasswordInput -Session $Session -Password $env:E2E_LOGIN_PASSWORD
+    Invoke-AB $Session "find" "role" "button" "click" "--name" "Se connecter"
+
+    try {
+      Wait-ForUrlContains -Session $Session -Needle "/dashboard" -TimeoutSeconds 45 | Out-Null
+      return
+    } catch {
+      if ($attempt -lt $maxLoginAttempts) {
+        Write-Host "Login attempt $attempt failed; retrying."
+        Start-Sleep -Seconds 2
+        continue
+      }
+
+      try {
+        Wait-ForAuthCookie -Session $Session -TimeoutSeconds 45 | Out-Null
+      } catch {
+        Write-Host "Auth cookie not observed; falling back to dashboard access check."
+      }
+
+      Invoke-AB $Session "open" "$BaseUrl/dashboard"
+      Wait-ForUrlContains -Session $Session -Needle "/dashboard" -TimeoutSeconds 45 | Out-Null
+      return
+    }
+  }
 }
 
 function Get-VersionIdFromUrl {
@@ -125,7 +135,7 @@ function New-Estimate {
   )
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates/new"
-  Invoke-AB $Session "wait" "--url" "**/dashboard/estimates/new**" | Out-Null
+  Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/new" | Out-Null
 
   Invoke-AB $Session "find" "label" "Nom projet" "fill" $Project
   Invoke-AB $Session "find" "label" "Titre" "fill" $Title
@@ -133,30 +143,30 @@ function New-Estimate {
   Invoke-AB $Session "find" "label" "Validite" "fill" $Validite
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Creer le chiffrage"
 
-  $url = Invoke-AB $Session "wait" "--url" "**/dashboard/estimates/**/edit**"
+  $url = Wait-ForUrlRegex -Session $Session -Pattern "/dashboard/estimates/[^/]+/edit" -TimeoutSeconds 60
   return Get-VersionIdFromUrl -Url $url
 }
 
 function Open-EstimateEdit {
   param([string]$BaseUrl, [string]$Session, [string]$VersionId)
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates/$VersionId/edit"
-  Invoke-AB $Session "wait" "--url" "**/dashboard/estimates/$VersionId/edit**" | Out-Null
+  Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/$VersionId/edit" | Out-Null
 }
 
 function Open-EstimatePrint {
   param([string]$BaseUrl, [string]$Session, [string]$VersionId)
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates/$VersionId/print"
-  Invoke-AB $Session "wait" "--url" "**/dashboard/estimates/$VersionId/print**" | Out-Null
+  Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/$VersionId/print" | Out-Null
 }
 
 function Go-EditorTab {
   param([string]$Session)
-  Invoke-AB $Session "find" "text" "Editeur" "click"
+  Invoke-AB $Session "find" "role" "button" "click" "--name" "Editeur"
 }
 
 function Go-ParamsTab {
   param([string]$Session)
-  Invoke-AB $Session "find" "text" "Parametrage" "click"
+  Invoke-AB $Session "find" "role" "button" "click" "--name" "Parametrage"
 }
 
 function Add-Chapter {
@@ -241,5 +251,5 @@ function Ensure-NoConsoleErrors {
 function Logout {
   param([string]$Session)
   Invoke-AB $Session "find" "text" "Se deconnecter" "click"
-  Invoke-AB $Session "wait" "--url" "**/login" | Out-Null
+  Wait-ForUrlContains -Session $Session -Needle "/login" | Out-Null
 }

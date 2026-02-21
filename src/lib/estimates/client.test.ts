@@ -3,13 +3,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireEstimateDraftLock,
   bulkUpdateEstimateItems,
+  createEstimateAssembly,
   createEstimateItem,
+  deleteEstimateAssembly,
+  duplicateEstimateAssembly,
+  fetchEstimateAssemblies,
+  fetchEstimateAssembly,
   fetchEstimateEditorData,
+  insertAssemblyIntoVersion,
   isEstimateApiError,
   releaseEstimateDraftLock,
   renewEstimateDraftLock,
   saveEstimateVersion,
   sendEstimateSuggestionRuleFeedback,
+  updateEstimateAssembly,
   updateEstimateStatus,
 } from "@/lib/estimates/client";
 
@@ -18,6 +25,7 @@ const ITEM_ID = "88888888-8888-4888-8888-888888888888";
 const RULE_ID = "99999999-9999-4999-8999-999999999999";
 const LOCK_USER_ID = "11111111-1111-4111-8111-111111111111";
 const SUPPLY_TYPE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const ASSEMBLY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const UPDATED_AT = "2026-02-20T10:00:00.000Z";
 const NEXT_UPDATED_AT = "2026-02-20T10:00:01.000Z";
 const LOCK_EXPIRES_AT = "2026-02-20T10:30:00.000Z";
@@ -395,6 +403,38 @@ describe("estimate client optimistic concurrency", () => {
     });
   });
 
+  it("sends suggestion feedback count when provided", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            suggestion_rule: {
+              id: RULE_ID,
+              name: "Bois",
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEstimateSuggestionRuleFeedback(VERSION_ID, RULE_ID, "accept", 7);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      feedback: "accept",
+      count: 7,
+    });
+  });
+
   it("sends suggestion feedback reject and supports empty entity payloads", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -595,5 +635,284 @@ describe("estimate client draft lock wrappers", () => {
     expect(result).toEqual({
       released: true,
     });
+  });
+});
+
+describe("estimate client assemblies wrappers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches assembly summaries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            assemblies: [
+              {
+                id: ASSEMBLY_ID,
+                name: "Mur",
+                created_at: "2026-02-21T10:00:00.000Z",
+                updated_at: "2026-02-21T10:00:00.000Z",
+                item_count: 2,
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchEstimateAssemblies({ search: "mur" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/estimates/assemblies?search=mur",
+      expect.objectContaining({ method: "GET", credentials: "same-origin" })
+    );
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: ASSEMBLY_ID,
+        name: "Mur",
+        itemCount: 2,
+      }),
+    ]);
+  });
+
+  it("creates and updates assembly payloads with snake_case items", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: {
+              assembly: {
+                id: ASSEMBLY_ID,
+                name: "Mur",
+                created_at: "2026-02-21T10:00:00.000Z",
+                updated_at: "2026-02-21T10:00:00.000Z",
+                item_count: 1,
+                items: [
+                  {
+                    id: ITEM_ID,
+                    title: "Parpaing",
+                    position: 1,
+                  },
+                ],
+              },
+            },
+          }),
+          {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: {
+              assembly: {
+                id: ASSEMBLY_ID,
+                name: "Mur renomme",
+                created_at: "2026-02-21T10:00:00.000Z",
+                updated_at: "2026-02-21T10:00:01.000Z",
+                item_count: 1,
+                items: [
+                  {
+                    id: ITEM_ID,
+                    title: "Parpaing",
+                    position: 1,
+                  },
+                ],
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const created = await createEstimateAssembly({
+      name: "Mur",
+      items: [
+        {
+          title: "Parpaing",
+          position: 1,
+          kFo: 1.2,
+          kMo: 1.1,
+          defaultQuantity: 2,
+        },
+      ],
+    });
+    expect(created.name).toBe("Mur");
+
+    const createRequest = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(createRequest.body))).toEqual({
+      name: "Mur",
+      description: null,
+      items: [
+        {
+          title: "Parpaing",
+          unit: null,
+          k_fo: 1.2,
+          k_mo: 1.1,
+          labor_role_id: null,
+          default_quantity: 2,
+          position: 1,
+        },
+      ],
+    });
+
+    await updateEstimateAssembly(ASSEMBLY_ID, {
+      name: "Mur renomme",
+      items: [
+        {
+          title: "Parpaing",
+          position: 1,
+        },
+      ],
+    });
+    const updateRequest = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(JSON.parse(String(updateRequest.body))).toEqual({
+      name: "Mur renomme",
+      items: [
+        {
+          title: "Parpaing",
+          unit: null,
+          k_fo: 1,
+          k_mo: 1,
+          labor_role_id: null,
+          default_quantity: null,
+          position: 1,
+        },
+      ],
+    });
+  });
+
+  it("duplicates an assembly via fetch detail + create and inserts into version", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: {
+              assembly: {
+                id: ASSEMBLY_ID,
+                name: "Mur",
+                created_at: "2026-02-21T10:00:00.000Z",
+                updated_at: "2026-02-21T10:00:00.000Z",
+                item_count: 1,
+                items: [
+                  {
+                    id: ITEM_ID,
+                    title: "Parpaing",
+                    position: 1,
+                    unit: "m2",
+                    k_fo: 1.2,
+                    k_mo: 1.1,
+                    labor_role_id: null,
+                    default_quantity: 2,
+                  },
+                ],
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: {
+              assembly: {
+                id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                name: "Mur copie",
+                created_at: "2026-02-21T10:00:00.000Z",
+                updated_at: "2026-02-21T10:00:00.000Z",
+                item_count: 1,
+                items: [],
+              },
+            },
+          }),
+          {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: {
+              items: [
+                {
+                  id: ITEM_ID,
+                  item_type: "line",
+                },
+              ],
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const duplicated = await duplicateEstimateAssembly(ASSEMBLY_ID, {
+      name: "Mur copie",
+    });
+    expect(duplicated.name).toBe("Mur copie");
+
+    const inserted = await insertAssemblyIntoVersion(ASSEMBLY_ID, {
+      versionId: VERSION_ID,
+      afterItemId: ITEM_ID,
+    });
+    expect(inserted).toEqual([
+      expect.objectContaining({
+        id: ITEM_ID,
+      }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/assemblies/${ASSEMBLY_ID}/insert?versionId=${VERSION_ID}`,
+      expect.objectContaining({
+        method: "POST",
+      })
+    );
+  });
+
+  it("deletes an assembly", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, data: { deleted_id: ASSEMBLY_ID } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteEstimateAssembly(ASSEMBLY_ID);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/assemblies/${ASSEMBLY_ID}`,
+      expect.objectContaining({
+        method: "DELETE",
+      })
+    );
   });
 });

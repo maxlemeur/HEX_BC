@@ -1485,6 +1485,10 @@ body {
   background: white;
 }
 
+.estimate-row--selected {
+  background: rgba(30, 58, 95, 0.08);
+}
+
 .estimate-row--section {
   background: var(--slate-50);
 }

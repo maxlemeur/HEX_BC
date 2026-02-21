@@ -33,27 +33,38 @@ Require-AgentBrowser
 
 try {
   Write-Host "Saving auth state to $AuthStatePath"
-  Invoke-AgentBrowser -Session $Session "open" "$BaseUrl/login"
-  Invoke-AgentBrowser -Session $Session "wait" "--load" "networkidle"
+  $maxLoginAttempts = 2
 
-  Invoke-AgentBrowser -Session $Session "find" "label" "Email" "fill" $Email
-  $passwordJson = ConvertTo-Json $Password -Compress
-  $js = @"
-(() => {
-  const input = document.querySelector('input#password, input[name="password"], input[type="password"]');
-  if (!input) {
-    throw new Error('Password input not found');
+  for ($attempt = 1; $attempt -le $maxLoginAttempts; $attempt++) {
+    Invoke-AgentBrowser -Session $Session "open" "$BaseUrl/login"
+    Invoke-AgentBrowser -Session $Session "wait" "--load" "networkidle"
+
+    Invoke-AgentBrowser -Session $Session "find" "label" "Email" "fill" $Email
+    Invoke-AgentBrowser -Session $Session "fill" "#password" $Password | Out-Null
+    Invoke-AgentBrowser -Session $Session "find" "role" "button" "click" "--name" "Se connecter"
+
+    try {
+      Wait-ForUrlContains -Session $Session -Needle "/dashboard" -TimeoutSeconds 45 | Out-Null
+      break
+    } catch {
+      if ($attempt -lt $maxLoginAttempts) {
+        Write-Host "Login attempt $attempt failed; retrying."
+        Start-Sleep -Seconds 2
+        continue
+      }
+
+      try {
+        Wait-ForAuthCookie -Session $Session -TimeoutSeconds 45 | Out-Null
+      } catch {
+        Write-Host "Auth cookie not observed; falling back to dashboard access check."
+      }
+
+      Invoke-AgentBrowser -Session $Session "open" "$BaseUrl/dashboard"
+      Wait-ForUrlContains -Session $Session -Needle "/dashboard" -TimeoutSeconds 45 | Out-Null
+      break
+    }
   }
-  input.focus();
-  input.value = $passwordJson;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-})();
-"@
-  Invoke-AgentBrowser -Session $Session "eval" $js | Out-Null
-  Invoke-AgentBrowser -Session $Session "find" "role" "button" "click" "--name" "Se connecter"
 
-  Wait-ForUrlContains -Session $Session -Needle "/dashboard" | Out-Null
   Invoke-AgentBrowser -Session $Session "state" "save" $AuthStatePath
 
   Write-Host "Auth state saved."

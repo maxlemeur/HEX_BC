@@ -2413,11 +2413,11 @@ begin
       into parent_tenant_id
     from public.estimate_versions ev
     where ev.id = new.version_id;
-  elsif tg_table_name = 'audit_logs' and new.estimate_version_id is not null then
+  elsif tg_table_name = 'audit_logs' then
     select ev.tenant_id
       into parent_tenant_id
     from public.estimate_versions ev
-    where ev.id = new.estimate_version_id;
+    where ev.id = nullif(to_jsonb(new)->>'estimate_version_id', '')::uuid;
   elsif tg_table_name = 'dpgf_rows_raw' then
     select di.tenant_id
       into parent_tenant_id
@@ -5724,11 +5724,11 @@ begin
       into parent_tenant_id
     from public.estimate_templates et
     where et.id = new.template_id;
-  elsif tg_table_name = 'audit_logs' and new.estimate_version_id is not null then
+  elsif tg_table_name = 'audit_logs' then
     select ev.tenant_id
       into parent_tenant_id
     from public.estimate_versions ev
-    where ev.id = new.estimate_version_id;
+    where ev.id = nullif(to_jsonb(new)->>'estimate_version_id', '')::uuid;
   elsif tg_table_name = 'dpgf_rows_raw' then
     select di.tenant_id
       into parent_tenant_id

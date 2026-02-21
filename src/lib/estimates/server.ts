@@ -22,6 +22,7 @@ import {
 import type {
   BulkUpdateEstimateItemsInput,
   BulkUpdateEstimateVersionPatchInput,
+  CreateEstimateAssemblyInput,
   CreateEstimateInput,
   CreateEstimateCategoryInput,
   CreateEstimateTemplateFromVersionInput,
@@ -29,6 +30,7 @@ import type {
   CreateLaborRoleInput,
   DuplicateEstimateTemplateInput,
   InstantiateEstimateFromTemplateInput,
+  ListEstimateAssembliesQueryInput,
   ListEstimateTemplatesQueryInput,
   CreateSuggestionRuleInput,
   DeleteEstimateItemInput,
@@ -36,6 +38,7 @@ import type {
   PatchEstimateVersionInput,
   ReorderEstimateItemsInput,
   SuggestionRuleFeedbackInput,
+  UpdateEstimateAssemblyInput,
   UpdateEstimateTemplateInput,
   UpdateLaborRoleInput,
   UpdateEstimateItemInput,
@@ -202,6 +205,17 @@ type EstimateTemplateItemRow = {
   line_tax_cents: number | null;
   line_total_ttc_cents: number | null;
 };
+
+type EstimateAssemblyRow =
+  Database["public"]["Tables"]["estimate_assemblies"]["Row"];
+type EstimateAssemblyInsert =
+  Database["public"]["Tables"]["estimate_assemblies"]["Insert"];
+type EstimateAssemblyUpdate =
+  Database["public"]["Tables"]["estimate_assemblies"]["Update"];
+type EstimateAssemblyItemRow =
+  Database["public"]["Tables"]["estimate_assembly_items"]["Row"];
+type EstimateAssemblyItemInsert =
+  Database["public"]["Tables"]["estimate_assembly_items"]["Insert"];
 
 const DEFAULT_VALIDITE_JOURS = 30;
 const DEFAULT_MARGIN_MULTIPLIER = 1;
@@ -890,6 +904,15 @@ function throwTemplateNameConflictIfNeeded(error: PostgrestError): never | void 
   );
 }
 
+function throwAssemblyNameConflictIfNeeded(error: PostgrestError): never | void {
+  if (error.code !== "23505") return;
+  throw conflict(
+    "Un assemblage avec ce nom existe deja.",
+    error,
+    "ESTIMATE_ASSEMBLY_NAME_CONFLICT"
+  );
+}
+
 function errorMessageContains(
   error: PostgrestError,
   expectedMessageFragment: string
@@ -925,6 +948,18 @@ function toTemplateSummary(row: EstimateTemplateRow, itemCount: number) {
     name: row.name,
     description: row.description,
     source_version_id: row.source_version_id,
+    created_by: row.created_by,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    item_count: itemCount,
+  };
+}
+
+function toAssemblySummary(row: EstimateAssemblyRow, itemCount: number) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
     created_by: row.created_by,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -1006,6 +1041,106 @@ async function loadTemplateLineCountByTemplateId(input: {
   }
 
   return counts;
+}
+
+async function loadEstimateAssemblyOrThrow(input: {
+  supabase: Supabase;
+  tenantId: string;
+  assemblyId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_assemblies")
+    .select("*")
+    .eq("tenant_id", input.tenantId)
+    .eq("id", input.assemblyId)
+    .single();
+
+  if (error || !data) {
+    if (error && error.code !== "PGRST116") {
+      throw mapSupabaseError(error, "Impossible de charger l'assemblage.");
+    }
+
+    throw notFound(
+      "Assemblage introuvable.",
+      undefined,
+      "ESTIMATE_ASSEMBLY_NOT_FOUND"
+    );
+  }
+
+  return data as EstimateAssemblyRow;
+}
+
+async function loadEstimateAssemblyItems(input: {
+  supabase: Supabase;
+  tenantId: string;
+  assemblyId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_assembly_items")
+    .select("*")
+    .eq("tenant_id", input.tenantId)
+    .eq("assembly_id", input.assemblyId)
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les lignes de l'assemblage.");
+  }
+
+  return (data ?? []) as EstimateAssemblyItemRow[];
+}
+
+async function loadAssemblyItemCountByAssemblyId(input: {
+  supabase: Supabase;
+  tenantId: string;
+  assemblyIds: string[];
+}) {
+  const counts = new Map<string, number>();
+
+  if (input.assemblyIds.length === 0) {
+    return counts;
+  }
+
+  const { data, error } = await input.supabase
+    .from("estimate_assembly_items")
+    .select("assembly_id")
+    .eq("tenant_id", input.tenantId)
+    .in("assembly_id", input.assemblyIds);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger le comptage des assemblages.");
+  }
+
+  for (const row of (data ?? []) as Array<{ assembly_id: string }>) {
+    counts.set(row.assembly_id, (counts.get(row.assembly_id) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+async function loadValidLaborRoleIdsForOwner(input: {
+  supabase: Supabase;
+  tenantId: string;
+  ownerUserId: string;
+  laborRoleIds: string[];
+}) {
+  if (input.laborRoleIds.length === 0) {
+    return new Set<string>();
+  }
+
+  const uniqueRoleIds = [...new Set(input.laborRoleIds)];
+  const { data, error } = await input.supabase
+    .from("labor_roles")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .eq("user_id", input.ownerUserId)
+    .in("id", uniqueRoleIds);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les roles MO.");
+  }
+
+  return new Set((data ?? []).map((row) => row.id));
 }
 
 async function getVersionAccessOrThrow(
@@ -1803,6 +1938,384 @@ export async function instantiateEstimateFromTemplate(
     projectId,
     versionId,
     redirectTo: `/dashboard/estimates/${versionId}/edit`,
+  };
+}
+
+export async function listEstimateAssemblies(
+  query: ListEstimateAssembliesQueryInput
+) {
+  const { supabase, tenantId } = await getAuthenticatedContext();
+
+  let assembliesQuery = supabase
+    .from("estimate_assemblies")
+    .select("*")
+    .eq("tenant_id", tenantId);
+
+  const search = toNullableText(query.search);
+  if (search) {
+    assembliesQuery = assembliesQuery.or(
+      `name.ilike.%${search}%,description.ilike.%${search}%`
+    );
+  }
+
+  const { data, error } = await assembliesQuery
+    .order("updated_at", { ascending: query.order === "oldest" })
+    .limit(query.limit);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les assemblages.");
+  }
+
+  const assemblies = (data ?? []) as EstimateAssemblyRow[];
+  const itemCountByAssemblyId = await loadAssemblyItemCountByAssemblyId({
+    supabase,
+    tenantId,
+    assemblyIds: assemblies.map((assembly) => assembly.id),
+  });
+
+  return {
+    assemblies: assemblies.map((assembly) =>
+      toAssemblySummary(assembly, itemCountByAssemblyId.get(assembly.id) ?? 0)
+    ),
+  };
+}
+
+export async function getEstimateAssembly(assemblyId: string) {
+  const { supabase, tenantId } = await getAuthenticatedContext();
+
+  const assembly = await loadEstimateAssemblyOrThrow({
+    supabase,
+    tenantId,
+    assemblyId,
+  });
+  const items = await loadEstimateAssemblyItems({
+    supabase,
+    tenantId,
+    assemblyId,
+  });
+
+  return {
+    assembly: {
+      ...toAssemblySummary(assembly, items.length),
+      items,
+    },
+  };
+}
+
+export async function createEstimateAssembly(input: CreateEstimateAssemblyInput) {
+  const { supabase, tenantId, userId } = await getAuthenticatedContext();
+
+  const { data: assemblyData, error: assemblyError } = await supabase
+    .from("estimate_assemblies")
+    .insert({
+      tenant_id: tenantId,
+      created_by: userId,
+      name: input.name.trim(),
+      description: toNullableText(input.description),
+    } as EstimateAssemblyInsert)
+    .select("*")
+    .single();
+
+  if (assemblyError || !assemblyData) {
+    if (assemblyError) {
+      throwAssemblyNameConflictIfNeeded(assemblyError);
+      throw mapSupabaseError(assemblyError, "Impossible de creer l'assemblage.");
+    }
+    throw badRequest("Impossible de creer l'assemblage.");
+  }
+
+  const assembly = assemblyData as EstimateAssemblyRow;
+  const itemsPayload: EstimateAssemblyItemInsert[] = input.items.map((item) => ({
+    tenant_id: tenantId,
+    assembly_id: assembly.id,
+    title: item.title.trim(),
+    unit: toNullableText(item.unit),
+    k_fo: item.k_fo ?? 1,
+    k_mo: item.k_mo ?? 1,
+    labor_role_id: item.labor_role_id ?? null,
+    default_quantity: item.default_quantity ?? null,
+    position: item.position,
+  }));
+
+  const { data: insertedItems, error: itemsError } = await supabase
+    .from("estimate_assembly_items")
+    .insert(itemsPayload)
+    .select("*")
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (itemsError || !insertedItems) {
+    await supabase
+      .from("estimate_assemblies")
+      .delete()
+      .eq("tenant_id", tenantId)
+      .eq("id", assembly.id);
+
+    if (itemsError) {
+      throw mapSupabaseError(itemsError, "Impossible de creer l'assemblage.");
+    }
+    throw badRequest("Impossible de creer l'assemblage.");
+  }
+
+  return {
+    assembly: {
+      ...toAssemblySummary(assembly, insertedItems.length),
+      items: insertedItems as EstimateAssemblyItemRow[],
+    },
+  };
+}
+
+export async function updateEstimateAssembly(
+  assemblyId: string,
+  input: UpdateEstimateAssemblyInput
+) {
+  const { supabase, tenantId } = await getAuthenticatedContext();
+
+  await loadEstimateAssemblyOrThrow({
+    supabase,
+    tenantId,
+    assemblyId,
+  });
+
+  const assemblyPayload: EstimateAssemblyUpdate = {};
+  if ("name" in input) {
+    assemblyPayload.name = (input.name ?? "").trim();
+  }
+  if ("description" in input) {
+    assemblyPayload.description = toNullableText(input.description);
+  }
+
+  let updatedAssembly: EstimateAssemblyRow;
+  if (Object.keys(assemblyPayload).length > 0) {
+    const { data, error } = await supabase
+      .from("estimate_assemblies")
+      .update(assemblyPayload)
+      .eq("tenant_id", tenantId)
+      .eq("id", assemblyId)
+      .select("*")
+      .single();
+
+    if (error || !data) {
+      if (error) {
+        throwAssemblyNameConflictIfNeeded(error);
+        throw mapSupabaseError(error, "Impossible de mettre a jour l'assemblage.");
+      }
+      throw badRequest("Impossible de mettre a jour l'assemblage.");
+    }
+    updatedAssembly = data as EstimateAssemblyRow;
+  } else {
+    updatedAssembly = await loadEstimateAssemblyOrThrow({
+      supabase,
+      tenantId,
+      assemblyId,
+    });
+  }
+
+  if ("items" in input && input.items) {
+    const { error: deleteError } = await supabase
+      .from("estimate_assembly_items")
+      .delete()
+      .eq("tenant_id", tenantId)
+      .eq("assembly_id", assemblyId);
+
+    if (deleteError) {
+      throw mapSupabaseError(deleteError, "Impossible de mettre a jour l'assemblage.");
+    }
+
+    const itemsPayload: EstimateAssemblyItemInsert[] = input.items.map((item) => ({
+      tenant_id: tenantId,
+      assembly_id: assemblyId,
+      title: item.title.trim(),
+      unit: toNullableText(item.unit),
+      k_fo: item.k_fo ?? 1,
+      k_mo: item.k_mo ?? 1,
+      labor_role_id: item.labor_role_id ?? null,
+      default_quantity: item.default_quantity ?? null,
+      position: item.position,
+    }));
+
+    const { error: insertItemsError } = await supabase
+      .from("estimate_assembly_items")
+      .insert(itemsPayload);
+
+    if (insertItemsError) {
+      throw mapSupabaseError(
+        insertItemsError,
+        "Impossible de mettre a jour l'assemblage."
+      );
+    }
+  }
+
+  const items = await loadEstimateAssemblyItems({
+    supabase,
+    tenantId,
+    assemblyId,
+  });
+
+  return {
+    assembly: {
+      ...toAssemblySummary(updatedAssembly, items.length),
+      items,
+    },
+  };
+}
+
+export async function deleteEstimateAssembly(assemblyId: string) {
+  const { supabase, tenantId } = await getAuthenticatedContext();
+
+  await loadEstimateAssemblyOrThrow({
+    supabase,
+    tenantId,
+    assemblyId,
+  });
+
+  const { error } = await supabase
+    .from("estimate_assemblies")
+    .delete()
+    .eq("tenant_id", tenantId)
+    .eq("id", assemblyId);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de supprimer l'assemblage.");
+  }
+
+  return {
+    deleted_id: assemblyId,
+  };
+}
+
+export async function insertAssemblyIntoVersion(input: {
+  assemblyId: string;
+  versionId: string;
+  afterItemId?: string | null;
+}) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+  const { version, project } = await getVersionAccessOrThrow(
+    supabase,
+    input.versionId,
+    context
+  );
+
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId: input.versionId,
+    userId,
+  });
+
+  const assembly = await loadEstimateAssemblyOrThrow({
+    supabase,
+    tenantId,
+    assemblyId: input.assemblyId,
+  });
+  const assemblyItems = await loadEstimateAssemblyItems({
+    supabase,
+    tenantId,
+    assemblyId: assembly.id,
+  });
+
+  if (assemblyItems.length === 0) {
+    throw badRequest("Cet assemblage ne contient aucune ligne.");
+  }
+
+  const laborRoleIds = assemblyItems
+    .map((item) => item.labor_role_id)
+    .filter((value): value is string => Boolean(value));
+
+  const validLaborRoleIds = await loadValidLaborRoleIdsForOwner({
+    supabase,
+    tenantId,
+    ownerUserId: project.user_id,
+    laborRoleIds,
+  });
+  const invalidLaborRoleIds = new Set(
+    laborRoleIds.filter((laborRoleId) => !validLaborRoleIds.has(laborRoleId))
+  );
+
+  const { data, error } = await supabase.rpc(
+    "insert_estimate_assembly_into_version",
+    {
+      p_version_id: input.versionId,
+      p_assembly_id: input.assemblyId,
+      p_after_item_id: input.afterItemId ?? null,
+    }
+  );
+
+  if (error) {
+    if (errorMessageContains(error, "estimate assembly not found")) {
+      throw notFound(
+        "Assemblage introuvable.",
+        error,
+        "ESTIMATE_ASSEMBLY_NOT_FOUND"
+      );
+    }
+    if (errorMessageContains(error, "estimate version not found")) {
+      throw notFound("Version de chiffrage introuvable.", error);
+    }
+    if (errorMessageContains(error, "after_item_id invalide")) {
+      throw badRequest("afterItemId invalide.", error);
+    }
+    throw mapSupabaseError(error, "Impossible d'inserer l'assemblage.");
+  }
+
+  const insertedItems = Array.isArray(data) ? (data as EstimateItemRow[]) : [];
+  const insertedItemIds = insertedItems.map((item) => item.id);
+
+  if (insertedItemIds.length === 0) {
+    throw internalError(
+      "Impossible d'inserer l'assemblage.",
+      { data },
+      "ESTIMATE_ASSEMBLY_INSERT_FAILED"
+    );
+  }
+
+  const lineIdsWithInvalidLaborRole = insertedItems
+    .filter(
+      (item) =>
+        item.item_type === "line" &&
+        item.labor_role_id &&
+        invalidLaborRoleIds.has(item.labor_role_id)
+    )
+    .map((item) => item.id);
+
+  if (lineIdsWithInvalidLaborRole.length > 0) {
+    const { error: clearRoleError } = await supabase
+      .from("estimate_items")
+      .update({ labor_role_id: null })
+      .eq("tenant_id", tenantId)
+      .eq("version_id", input.versionId)
+      .in("id", lineIdsWithInvalidLaborRole);
+
+    if (clearRoleError) {
+      throw mapSupabaseError(
+        clearRoleError,
+        "Impossible d'inserer l'assemblage."
+      );
+    }
+  }
+
+  const { data: reloadedItems, error: reloadError } = await supabase
+    .from("estimate_items")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .eq("version_id", input.versionId)
+    .in("id", insertedItemIds);
+
+  if (reloadError) {
+    throw mapSupabaseError(reloadError, "Impossible d'inserer l'assemblage.");
+  }
+
+  const reloadedItemsById = new Map(
+    ((reloadedItems ?? []) as EstimateItemRow[]).map((item) => [item.id, item])
+  );
+  const orderedItems = insertedItemIds
+    .map((id) => reloadedItemsById.get(id))
+    .filter((item): item is EstimateItemRow => Boolean(item));
+
+  return {
+    items: orderedItems,
   };
 }
 
@@ -2969,6 +3482,21 @@ function toSuggestionUsageCount(value: unknown) {
   return 0;
 }
 
+function toSuggestionFeedbackIncrement(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 1) {
+    return Math.floor(value);
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      return parsed;
+    }
+  }
+
+  return 1;
+}
+
 export async function saveSuggestionRuleFeedback(
   versionId: string,
   ruleId: string,
@@ -3008,11 +3536,12 @@ export async function saveSuggestionRuleFeedback(
 
   const existingRuleRecord = existingRule as unknown as Record<string, unknown>;
   let usageCount = toSuggestionUsageCount(existingRuleRecord.usage_count);
+  const incrementBy = toSuggestionFeedbackIncrement(input.count);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const nowIso = new Date().toISOString();
     const payload: SuggestionRuleUpdate = {
-      usage_count: usageCount + 1,
+      usage_count: usageCount + incrementBy,
       last_used_at: nowIso,
     };
 

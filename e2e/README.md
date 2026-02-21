@@ -25,6 +25,8 @@ Scripts live in `e2e/hex/` and are named after Linear tickets. Run them cross-pl
 npm run e2e:hex
 npm run e2e:run -- e2e/hex/ti-140-epic.ps1
 npm run e2e:run -- e2e/hex/est-101-keyboard.ps1
+npm run e2e:run -- e2e/hex/est-102-inline-edit.ps1
+npm run e2e:run -- e2e/hex/est-103-multiselect.ps1
 npm run e2e:run -- e2e/hex/ti-143-navigation.ps1
 npm run e2e:run -- e2e/hex/ti-144-list.ps1
 npm run e2e:run -- e2e/hex/ti-145-create.ps1

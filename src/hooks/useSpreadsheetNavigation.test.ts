@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   createSpreadsheetNavigationModel,
+  isSpreadsheetCellEditable,
+  resolveSpreadsheetKeyCommand,
   resolveSpreadsheetNextCellId,
+  resolveSpreadsheetPointerCommand,
 } from "@/hooks/useSpreadsheetNavigation";
 
 describe("useSpreadsheetNavigation helpers", () => {
@@ -57,5 +60,196 @@ describe("useSpreadsheetNavigation helpers", () => {
     expect(resolveSpreadsheetNextCellId(model, "missing::cell", "next")).toBe(
       "row-1::title"
     );
+  });
+
+  it("starts editing on single click for editable cell container", () => {
+    expect(
+      resolveSpreadsheetPointerCommand({
+        action: "single-click",
+        disabled: false,
+        editable: true,
+        isCellTarget: true,
+      })
+    ).toEqual({
+      setActive: true,
+      startEditing: true,
+      selectAll: false,
+    });
+  });
+
+  it("keeps double-click select-all behavior for editable cells", () => {
+    expect(
+      resolveSpreadsheetPointerCommand({
+        action: "double-click",
+        disabled: false,
+        editable: true,
+        isCellTarget: false,
+      })
+    ).toEqual({
+      setActive: true,
+      startEditing: true,
+      selectAll: true,
+    });
+  });
+
+  it("prevents pointer-triggered editing for read-only cells", () => {
+    expect(
+      resolveSpreadsheetPointerCommand({
+        action: "single-click",
+        disabled: false,
+        editable: false,
+        isCellTarget: true,
+      })
+    ).toEqual({
+      setActive: true,
+      startEditing: false,
+      selectAll: false,
+    });
+  });
+
+  it("resolves keyboard navigation commands without regressions", () => {
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "Tab",
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        fromEditor: false,
+        editable: true,
+      })
+    ).toEqual({ type: "move", direction: "next", blurEditor: false });
+
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "Tab",
+        shiftKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        fromEditor: false,
+        editable: true,
+      })
+    ).toEqual({ type: "move", direction: "previous", blurEditor: false });
+
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "Enter",
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        fromEditor: true,
+        editable: true,
+      })
+    ).toEqual({ type: "move", direction: "down", blurEditor: true });
+
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "ArrowLeft",
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        fromEditor: true,
+        editable: true,
+      })
+    ).toBeNull();
+  });
+
+  it("starts editing with F2 only for editable cells", () => {
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "F2",
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        fromEditor: false,
+        editable: true,
+      })
+    ).toEqual({ type: "start-editing", selectAll: true });
+
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "F2",
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        fromEditor: false,
+        editable: false,
+      })
+    ).toBeNull();
+  });
+
+  it("opens edit and replaces value when typing a character on active cell", () => {
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "x",
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        fromEditor: false,
+        editable: true,
+      })
+    ).toEqual({ type: "replace-and-edit", value: "x" });
+
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "x",
+        shiftKey: false,
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        fromEditor: false,
+        editable: true,
+      })
+    ).toBeNull();
+  });
+
+  it("supports local undo shortcut in editor mode", () => {
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "z",
+        shiftKey: false,
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        fromEditor: true,
+        editable: true,
+      })
+    ).toEqual({ type: "undo-editor" });
+
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "Z",
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: true,
+        altKey: false,
+        fromEditor: true,
+        editable: true,
+      })
+    ).toEqual({ type: "undo-editor" });
+
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "z",
+        shiftKey: true,
+        ctrlKey: true,
+        metaKey: false,
+        altKey: false,
+        fromEditor: true,
+        editable: true,
+      })
+    ).toBeNull();
+  });
+
+  it("treats editable option as true by default", () => {
+    expect(isSpreadsheetCellEditable()).toBe(true);
+    expect(isSpreadsheetCellEditable({ editable: true })).toBe(true);
+    expect(isSpreadsheetCellEditable({ editable: false })).toBe(false);
   });
 });

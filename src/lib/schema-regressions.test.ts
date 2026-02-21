@@ -43,4 +43,10 @@ describe("schema regressions", () => {
     expect(schemaSql).toMatch(/create or replace function public\.guard_profile_role_update\(\)/);
     expect(schemaSql).toMatch(/create trigger guard_profile_role_update/);
   });
+
+  it("reads audit estimate version id safely in shared tenant trigger", () => {
+    expect(schemaSql).toMatch(/create or replace function public\.assign_tenant_id\(\)/);
+    expect(schemaSql).toMatch(/elsif tg_table_name = 'audit_logs' then/);
+    expect(schemaSql).toMatch(/to_jsonb\(new\)->>'estimate_version_id'/);
+  });
 });

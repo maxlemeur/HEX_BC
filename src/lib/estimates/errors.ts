@@ -15,7 +15,10 @@ export type ApiErrorCode =
   | "ESTIMATE_TEMPLATE_NOT_FOUND"
   | "ESTIMATE_TEMPLATE_SOURCE_VERSION_NOT_FOUND"
   | "ESTIMATE_TEMPLATE_NAME_CONFLICT"
-  | "ESTIMATE_TEMPLATE_INSTANTIATE_FAILED";
+  | "ESTIMATE_TEMPLATE_INSTANTIATE_FAILED"
+  | "ESTIMATE_ASSEMBLY_NOT_FOUND"
+  | "ESTIMATE_ASSEMBLY_NAME_CONFLICT"
+  | "ESTIMATE_ASSEMBLY_INSERT_FAILED";
 
 type ApiErrorBody = {
   code: ApiErrorCode | string;
@@ -145,7 +148,10 @@ export function mapSupabaseError(
     return conflict("Conflit de donnees.", error, "CONFLICT");
   }
 
-  if (normalizedMessage.includes("read-only")) {
+  if (
+    normalizedMessage.includes("read-only") ||
+    normalizedMessage.includes("read only")
+  ) {
     return forbidden("Cette version est en lecture seule.", error, "READ_ONLY");
   }
 

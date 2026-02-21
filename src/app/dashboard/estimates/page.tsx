@@ -121,6 +121,9 @@ export default function EstimatesPage() {
           <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/templates">
             Templates
           </Link>
+          <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/assemblies">
+            Assemblages
+          </Link>
           <Link className="btn btn-primary btn-lg" href="/dashboard/estimates/new">
             <svg
               xmlns="http://www.w3.org/2000/svg"

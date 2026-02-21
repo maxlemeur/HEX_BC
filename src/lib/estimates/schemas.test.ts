@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   bulkUpdateEstimateItemsRequestSchema,
+  createEstimateAssemblySchema,
+  insertAssemblyIntoVersionSchema,
+  listEstimateAssembliesQuerySchema,
   patchEstimateVersionSchema,
   suggestionRuleFeedbackSchema,
+  updateEstimateAssemblySchema,
 } from "@/lib/estimates/schemas";
 
 const ITEM_ID_1 = "11111111-1111-4111-8111-111111111111";
@@ -195,11 +199,151 @@ describe("suggestionRuleFeedbackSchema", () => {
     });
   });
 
+  it("accepts an optional positive count", () => {
+    expect(
+      suggestionRuleFeedbackSchema.parse({ feedback: "accept", count: 3 })
+    ).toEqual({
+      feedback: "accept",
+      count: 3,
+    });
+  });
+
   it("rejects unsupported feedback values", () => {
     const parsed = suggestionRuleFeedbackSchema.safeParse({
       feedback: "maybe",
     });
 
     expect(parsed.success).toBe(false);
+  });
+
+  it("rejects non-positive or non-integer count values", () => {
+    expect(
+      suggestionRuleFeedbackSchema.safeParse({
+        feedback: "accept",
+        count: 0,
+      }).success
+    ).toBe(false);
+
+    expect(
+      suggestionRuleFeedbackSchema.safeParse({
+        feedback: "accept",
+        count: -2,
+      }).success
+    ).toBe(false);
+
+    expect(
+      suggestionRuleFeedbackSchema.safeParse({
+        feedback: "accept",
+        count: 1.5,
+      }).success
+    ).toBe(false);
+  });
+});
+
+describe("estimate assembly schemas", () => {
+  const roleId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  it("accepts a valid assembly payload with one line", () => {
+    const parsed = createEstimateAssemblySchema.parse({
+      name: "Mur exterieur",
+      description: "Standard",
+      items: [
+        {
+          title: "Parpaing 20",
+          unit: "m2",
+          kFo: 1.1,
+          kMo: 1.2,
+          laborRoleId: roleId,
+          defaultQuantity: 2,
+          position: 1,
+        },
+      ],
+    });
+
+    expect(parsed.items).toHaveLength(1);
+    expect(parsed.items[0]).toEqual(
+      expect.objectContaining({
+        title: "Parpaing 20",
+        unit: "m2",
+        k_fo: 1.1,
+        k_mo: 1.2,
+        labor_role_id: roleId,
+        default_quantity: 2,
+        position: 1,
+      })
+    );
+  });
+
+  it("rejects assemblies with no lines or more than 50 lines", () => {
+    expect(
+      createEstimateAssemblySchema.safeParse({
+        name: "Vide",
+        items: [],
+      }).success
+    ).toBe(false);
+
+    expect(
+      createEstimateAssemblySchema.safeParse({
+        name: "Trop long",
+        items: Array.from({ length: 51 }, (_, index) => ({
+          title: `Ligne ${index + 1}`,
+          position: index + 1,
+        })),
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects duplicated positions", () => {
+    const parsed = createEstimateAssemblySchema.safeParse({
+      name: "Doublons",
+      items: [
+        { title: "Ligne A", position: 1 },
+        { title: "Ligne B", position: 1 },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("positions des lignes")
+      )
+    ).toBe(true);
+  });
+
+  it("accepts update with reordered items", () => {
+    const parsed = updateEstimateAssemblySchema.parse({
+      items: [
+        {
+          title: "Ligne B",
+          position: 2,
+        },
+        {
+          title: "Ligne A",
+          position: 1,
+        },
+      ],
+    });
+
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.items?.map((item) => item.position)).toEqual([2, 1]);
+  });
+
+  it("normalizes list query defaults", () => {
+    const parsed = listEstimateAssembliesQuerySchema.parse({});
+    expect(parsed.limit).toBe(20);
+    expect(parsed.order).toBe("recent");
+  });
+
+  it("parses insert assembly payload with query/body aliases", () => {
+    const parsed = insertAssemblyIntoVersionSchema.parse({
+      versionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      afterItemId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    });
+
+    expect(parsed).toEqual({
+      version_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      after_item_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    });
   });
 });

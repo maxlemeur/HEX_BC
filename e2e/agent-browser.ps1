@@ -65,14 +65,14 @@ function Invoke-AgentBrowser {
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Args
   )
 
-  $cmd = @()
+  $baseCmd = @()
   if ($Session -and $env:E2E_DISABLE_SESSION -ne "1") {
-    $cmd += @("--session", $Session)
+    $baseCmd += @("--session", $Session)
   }
   if ($env:E2E_HEADED -eq "1") {
-    $cmd += "--headed"
+    $baseCmd += "--headed"
   }
-  $cmd += $Args
+  $cmd = @($baseCmd + $Args)
 
   $maxAttempts = 4
   for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
@@ -83,6 +83,15 @@ function Invoke-AgentBrowser {
     }
 
     if ($attempt -lt $maxAttempts) {
+      $outputText = [string]($output | Out-String)
+      if ($Args.Count -gt 0 -and $Args[0] -ne "launch" -and $outputText -like "*Browser not launched*") {
+        & agent-browser @baseCmd "launch" | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+          Start-Sleep -Milliseconds (250 * $attempt)
+          continue
+        }
+      }
+
       Start-AgentBrowserDaemon | Out-Null
       Start-Sleep -Milliseconds (300 * $attempt)
     }
@@ -124,6 +133,92 @@ function Wait-ForUrlContains {
   }
 
   throw "Timeout waiting URL containing '$Needle'."
+}
+
+function Wait-ForUrlRegex {
+  param(
+    [Parameter(Mandatory = $true)][string]$Session,
+    [Parameter(Mandatory = $true)][string]$Pattern,
+    [int]$TimeoutSeconds = 30
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  $lastError = $null
+  $lastUrl = ""
+
+  while ((Get-Date) -lt $deadline) {
+    try {
+      $lastUrl = [string](Invoke-AgentBrowser -Session $Session "eval" "window.location.href")
+      if ($lastUrl -match $Pattern) {
+        return $lastUrl
+      }
+    } catch {
+      $lastError = $_.Exception.Message
+    }
+
+    Start-Sleep -Milliseconds 500
+  }
+
+  if ($lastUrl) {
+    throw "Timeout waiting URL regex '$Pattern'. Current URL: $lastUrl"
+  }
+
+  if ($lastError) {
+    throw "Timeout waiting URL regex '$Pattern'. Last error: $lastError"
+  }
+
+  throw "Timeout waiting URL regex '$Pattern'."
+}
+
+function Get-SupabaseAuthCookieName {
+  $supabaseUrl = $env:NEXT_PUBLIC_SUPABASE_URL
+  if (-not $supabaseUrl) {
+    return $null
+  }
+
+  try {
+    $supabaseHost = ([Uri]$supabaseUrl).Host
+  } catch {
+    return $null
+  }
+
+  if (-not $supabaseHost) {
+    return $null
+  }
+
+  $projectRef = $supabaseHost -replace "\.supabase\.co$", ""
+  if ($projectRef -eq $supabaseHost -or -not $projectRef) {
+    return $null
+  }
+
+  return "sb-$projectRef-auth-token"
+}
+
+function Wait-ForAuthCookie {
+  param(
+    [Parameter(Mandatory = $true)][string]$Session,
+    [int]$TimeoutSeconds = 45
+  )
+
+  $cookieName = Get-SupabaseAuthCookieName
+  if (-not $cookieName) {
+    throw "Unable to infer Supabase auth cookie name from NEXT_PUBLIC_SUPABASE_URL."
+  }
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  $lastCookie = ""
+  $escapedCookieName = [Regex]::Escape($cookieName)
+
+  while ((Get-Date) -lt $deadline) {
+    $rawCookie = [string](Invoke-AgentBrowser -Session $Session "eval" "document.cookie")
+    $lastCookie = $rawCookie.Trim('"')
+    if ($lastCookie -match "(^|;\s*)$escapedCookieName(\.\d+)?=") {
+      return $lastCookie
+    }
+    Start-Sleep -Milliseconds 500
+  }
+
+  throw "Timeout waiting auth cookie '$cookieName'. Current cookie: $lastCookie"
 }
 
 function Close-AgentBrowser {

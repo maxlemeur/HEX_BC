@@ -17,7 +17,7 @@ try {
   Invoke-AgentBrowser -Session $Session "wait" "--load" "networkidle"
 
   Invoke-AgentBrowser -Session $Session "find" "text" "Se connecter" "click"
-  Invoke-AgentBrowser -Session $Session "wait" "--url" "**/login"
+  Wait-ForUrlContains -Session $Session -Needle "/login" | Out-Null
 
   Invoke-AgentBrowser -Session $Session "find" "label" "Email" "click"
   Invoke-AgentBrowser -Session $Session "find" "role" "textbox" "click" "--name" "Mot de passe"

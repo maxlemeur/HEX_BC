@@ -49,7 +49,7 @@ try {
 "@
   Invoke-AB $Session "eval" $js
 
-  $dupUrl = Invoke-AB $Session "wait" "--url" "**/dashboard/estimates/**/edit**"
+  $dupUrl = Wait-ForUrlRegex -Session $Session -Pattern "/dashboard/estimates/[^/]+/edit"
   $dupId = Get-VersionIdFromUrl -Url $dupUrl
 
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Envoyer"

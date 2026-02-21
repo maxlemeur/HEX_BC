@@ -11,6 +11,8 @@ type EstimateVersionRow =
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateTemplateItem =
   Database["public"]["Tables"]["estimate_template_items"]["Row"];
+type EstimateAssemblyItemRow =
+  Database["public"]["Tables"]["estimate_assembly_items"]["Row"];
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
@@ -66,6 +68,50 @@ export type EstimateTemplateSummary = {
 
 export type EstimateTemplateDetail = EstimateTemplateSummary & {
   items: EstimateTemplateItem[];
+};
+
+export type EstimateAssemblyItem = EstimateAssemblyItemRow;
+
+export type EstimateAssemblySummary = {
+  id: string;
+  name: string;
+  description: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  itemCount: number;
+};
+
+export type EstimateAssemblyDetail = EstimateAssemblySummary & {
+  items: EstimateAssemblyItem[];
+};
+
+export type CreateEstimateAssemblyPayload = {
+  name: string;
+  description?: string | null;
+  items: Array<{
+    title: string;
+    unit?: string | null;
+    kFo?: number;
+    kMo?: number;
+    laborRoleId?: string | null;
+    defaultQuantity?: number | null;
+    position: number;
+  }>;
+};
+
+export type UpdateEstimateAssemblyPayload = {
+  name?: string;
+  description?: string | null;
+  items?: Array<{
+    title: string;
+    unit?: string | null;
+    kFo?: number;
+    kMo?: number;
+    laborRoleId?: string | null;
+    defaultQuantity?: number | null;
+    position: number;
+  }>;
 };
 
 export type CreateEstimateTemplatePayload = {
@@ -684,6 +730,69 @@ function parseEstimateTemplateDetail(payload: unknown): EstimateTemplateDetail {
 
   const items = parseEstimateTemplateItems(
     (templateEntity as JsonRecord | null)?.items ?? (isRecord(root) ? root.items : null)
+  );
+
+  return {
+    ...summary,
+    items,
+  };
+}
+
+function parseEstimateAssemblySummaryEntity(
+  value: unknown
+): EstimateAssemblySummary | null {
+  if (!isRecord(value)) return null;
+
+  const id = toStringValue(value.id);
+  const name = toStringValue(value.name);
+  const createdAt = toStringValue(value.created_at);
+  const updatedAt = toStringValue(value.updated_at);
+  if (!id || !name || !createdAt || !updatedAt) return null;
+
+  return {
+    id,
+    name,
+    description: toStringValue(value.description),
+    createdBy:
+      toStringValue(value.created_by) ?? toStringValue(value.createdBy) ?? null,
+    createdAt,
+    updatedAt,
+    itemCount: toNumber(value.item_count) ?? toNumber(value.itemCount) ?? 0,
+  };
+}
+
+function parseEstimateAssemblyItems(value: unknown): EstimateAssemblyItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry) => isRecord(entry)) as EstimateAssemblyItem[];
+}
+
+function parseEstimateAssemblySummaryList(
+  payload: unknown
+): EstimateAssemblySummary[] {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return [];
+  const rawItems = Array.isArray(root.assemblies)
+    ? root.assemblies
+    : Array.isArray(root.items)
+      ? root.items
+      : [];
+
+  return rawItems
+    .map((item) => parseEstimateAssemblySummaryEntity(item))
+    .filter((item): item is EstimateAssemblySummary => Boolean(item));
+}
+
+function parseEstimateAssemblyDetail(payload: unknown): EstimateAssemblyDetail {
+  const root = getRootPayload(payload);
+  const assemblyEntity = extractEntity(root, ["assembly"]);
+  const summary = parseEstimateAssemblySummaryEntity(assemblyEntity);
+  if (!summary) {
+    throw new Error("Impossible de recuperer l'assemblage.");
+  }
+
+  const items = parseEstimateAssemblyItems(
+    (assemblyEntity as JsonRecord | null)?.items ??
+      (isRecord(root) ? root.items : null)
   );
 
   return {
@@ -1428,8 +1537,19 @@ export async function updateEstimateSuggestionRule(
 export async function sendEstimateSuggestionRuleFeedback(
   versionId: string,
   ruleId: string,
-  feedback: SuggestionRuleFeedback
+  feedback: SuggestionRuleFeedback,
+  count?: number
 ): Promise<SuggestionRule | null> {
+  const feedbackPayload: {
+    feedback: SuggestionRuleFeedback;
+    count?: number;
+  } = {
+    feedback,
+  };
+  if (typeof count === "number") {
+    feedbackPayload.count = count;
+  }
+
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/suggestion-rules/${ruleId}/feedback`,
     {
@@ -1437,9 +1557,7 @@ export async function sendEstimateSuggestionRuleFeedback(
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        feedback,
-      }),
+      body: JSON.stringify(feedbackPayload),
     },
     "Impossible d'enregistrer le feedback de la regle."
   );
@@ -1609,4 +1727,175 @@ export async function instantiateEstimateFromTemplate(
   );
 
   return parseInstantiateTemplateResult(payload);
+}
+
+function toAssemblyItemRequestPayload(
+  item: CreateEstimateAssemblyPayload["items"][number]
+) {
+  return {
+    title: item.title,
+    unit: item.unit ?? null,
+    k_fo: item.kFo ?? 1,
+    k_mo: item.kMo ?? 1,
+    labor_role_id: item.laborRoleId ?? null,
+    default_quantity: item.defaultQuantity ?? null,
+    position: item.position,
+  };
+}
+
+export async function fetchEstimateAssemblies(options?: {
+  search?: string;
+  limit?: number;
+  order?: "recent" | "oldest";
+}): Promise<EstimateAssemblySummary[]> {
+  const params = new URLSearchParams();
+  if (options?.search?.trim()) {
+    params.set("search", options.search.trim());
+  }
+  if (options?.limit && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set("limit", String(Math.floor(options.limit)));
+  }
+  if (options?.order) {
+    params.set("order", options.order);
+  }
+
+  const query = params.toString();
+  const path = query.length > 0
+    ? `/api/estimates/assemblies?${query}`
+    : "/api/estimates/assemblies";
+
+  const payload = await requestJson<unknown>(
+    path,
+    {
+      method: "GET",
+    },
+    "Impossible de charger les assemblages."
+  );
+
+  return parseEstimateAssemblySummaryList(payload);
+}
+
+export async function fetchEstimateAssembly(
+  assemblyId: string
+): Promise<EstimateAssemblyDetail> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/assemblies/${assemblyId}`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger l'assemblage."
+  );
+
+  return parseEstimateAssemblyDetail(payload);
+}
+
+export async function createEstimateAssembly(
+  input: CreateEstimateAssemblyPayload
+): Promise<EstimateAssemblyDetail> {
+  const payload = await requestJson<unknown>(
+    "/api/estimates/assemblies",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: input.name,
+        description: input.description ?? null,
+        items: input.items.map((item) => toAssemblyItemRequestPayload(item)),
+      }),
+    },
+    "Impossible de creer l'assemblage."
+  );
+
+  return parseEstimateAssemblyDetail(payload);
+}
+
+export async function updateEstimateAssembly(
+  assemblyId: string,
+  updates: UpdateEstimateAssemblyPayload
+): Promise<EstimateAssemblyDetail> {
+  const body: Record<string, unknown> = {};
+
+  if ("name" in updates) {
+    body.name = updates.name;
+  }
+  if ("description" in updates) {
+    body.description = updates.description ?? null;
+  }
+  if ("items" in updates && updates.items) {
+    body.items = updates.items.map((item) => toAssemblyItemRequestPayload(item));
+  }
+
+  const payload = await requestJson<unknown>(
+    `/api/estimates/assemblies/${assemblyId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+    "Impossible de mettre a jour l'assemblage."
+  );
+
+  return parseEstimateAssemblyDetail(payload);
+}
+
+export async function deleteEstimateAssembly(assemblyId: string): Promise<void> {
+  await requestJson<unknown>(
+    `/api/estimates/assemblies/${assemblyId}`,
+    {
+      method: "DELETE",
+    },
+    "Impossible de supprimer l'assemblage."
+  );
+}
+
+export async function duplicateEstimateAssembly(
+  assemblyId: string,
+  options?: { name?: string | null }
+): Promise<EstimateAssemblyDetail> {
+  const source = await fetchEstimateAssembly(assemblyId);
+
+  return createEstimateAssembly({
+    name: options?.name?.trim() || `${source.name} (copie)`,
+    description: source.description,
+    items: source.items.map((item) => ({
+      title: item.title,
+      unit: item.unit,
+      kFo: item.k_fo,
+      kMo: item.k_mo,
+      laborRoleId: item.labor_role_id,
+      defaultQuantity: item.default_quantity,
+      position: item.position,
+    })),
+  });
+}
+
+export async function insertAssemblyIntoVersion(
+  assemblyId: string,
+  input: {
+    versionId: string;
+    afterItemId?: string | null;
+  }
+): Promise<EstimateItem[]> {
+  const params = new URLSearchParams();
+  params.set("versionId", input.versionId);
+
+  const payload = await requestJson<unknown>(
+    `/api/estimates/assemblies/${assemblyId}/insert?${params.toString()}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        afterItemId: input.afterItemId ?? null,
+      }),
+    },
+    "Impossible d'inserer l'assemblage."
+  );
+
+  return parseEstimateItems(payload);
 }

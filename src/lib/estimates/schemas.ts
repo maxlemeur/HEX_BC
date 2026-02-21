@@ -66,6 +66,11 @@ const templateNameSchema = z
   .trim()
   .min(1, "Nom du template obligatoire.")
   .max(160, "Nom du template trop long.");
+const assemblyNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Nom de l'assemblage obligatoire.")
+  .max(160, "Nom de l'assemblage trop long.");
 
 export const estimateStatusSchema = z.enum([
   "draft",
@@ -369,6 +374,7 @@ export const suggestionRuleFeedbackValueSchema = z.enum(["accept", "reject"]);
 
 export const suggestionRuleFeedbackSchema = z.object({
   feedback: suggestionRuleFeedbackValueSchema,
+  count: positiveIntegerSchema.optional(),
 });
 
 export const createEstimateTemplateFromVersionSchema = z.preprocess(
@@ -441,6 +447,128 @@ export const duplicateEstimateTemplateSchema = z.object({
   name: templateNameSchema.optional(),
 });
 
+const estimateAssemblyItemSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      title: record.title,
+      unit: record.unit,
+      k_fo: record.k_fo ?? record.kFo,
+      k_mo: record.k_mo ?? record.kMo,
+      labor_role_id: record.labor_role_id ?? record.laborRoleId,
+      default_quantity: record.default_quantity ?? record.defaultQuantity,
+      position: record.position,
+    };
+  },
+  z.object({
+    title: requiredTextSchema,
+    unit: optionalNullableTextSchema.optional(),
+    k_fo: nonNegativeNumberSchema.optional(),
+    k_mo: nonNegativeNumberSchema.optional(),
+    labor_role_id: nullableUuidSchema.optional(),
+    default_quantity: nullableNonNegativeNumberSchema.optional(),
+    position: positiveIntegerSchema,
+  })
+);
+
+const estimateAssemblyItemsSchema = z
+  .array(estimateAssemblyItemSchema)
+  .min(1, "Un assemblage doit contenir au moins 1 ligne.")
+  .max(50, "Un assemblage ne peut pas contenir plus de 50 lignes.")
+  .superRefine((items, ctx) => {
+    const positions = new Set<number>();
+
+    items.forEach((item, index) => {
+      if (!positions.has(item.position)) {
+        positions.add(item.position);
+        return;
+      }
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Les positions des lignes doivent etre uniques.",
+        path: [index, "position"],
+      });
+    });
+  });
+
+export const createEstimateAssemblySchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      name: record.name,
+      description: record.description,
+      items: record.items,
+    };
+  },
+  z.object({
+    name: assemblyNameSchema,
+    description: optionalNullableTextSchema.optional(),
+    items: estimateAssemblyItemsSchema,
+  })
+);
+
+export const updateEstimateAssemblySchema = z
+  .preprocess(
+    (value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return value;
+      }
+
+      const record = value as Record<string, unknown>;
+      return {
+        name: record.name,
+        description: record.description,
+        items: record.items,
+      };
+    },
+    z.object({
+      name: assemblyNameSchema.optional(),
+      description: optionalNullableTextSchema.optional(),
+      items: estimateAssemblyItemsSchema.optional(),
+    })
+  )
+  .superRefine((payload, ctx) => {
+    if (Object.keys(payload).length > 0) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Aucun champ de mise a jour fourni.",
+      path: [],
+    });
+  });
+
+export const listEstimateAssembliesQuerySchema = z.object({
+  search: optionalNullableTextSchema.optional(),
+  limit: positiveIntegerSchema.max(100, "Doit etre <= 100.").optional().default(20),
+  order: z.enum(["recent", "oldest"]).optional().default("recent"),
+});
+
+export const insertAssemblyIntoVersionSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      version_id: record.version_id ?? record.versionId,
+      after_item_id: record.after_item_id ?? record.afterItemId ?? null,
+    };
+  },
+  z.object({
+    version_id: uuidSchema,
+    after_item_id: nullableUuidSchema.optional(),
+  })
+);
+
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;
 export type PatchEstimateVersionInput = z.infer<typeof patchEstimateVersionSchema>;
 export type PatchEstimateStatusInput = z.infer<typeof patchEstimateStatusSchema>;
@@ -494,4 +622,17 @@ export type InstantiateEstimateTemplateInput = z.infer<
 >;
 export type DuplicateEstimateTemplateInput = z.infer<
   typeof duplicateEstimateTemplateSchema
+>;
+export type EstimateAssemblyItemInput = z.infer<typeof estimateAssemblyItemSchema>;
+export type CreateEstimateAssemblyInput = z.infer<
+  typeof createEstimateAssemblySchema
+>;
+export type UpdateEstimateAssemblyInput = z.infer<
+  typeof updateEstimateAssemblySchema
+>;
+export type ListEstimateAssembliesQueryInput = z.infer<
+  typeof listEstimateAssembliesQuerySchema
+>;
+export type InsertAssemblyIntoVersionInput = z.infer<
+  typeof insertAssemblyIntoVersionSchema
 >;

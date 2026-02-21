@@ -79,9 +79,11 @@ import {
   fetchEstimateEditorData,
   fetchEstimateItemsForVersion,
   fetchEstimateOutlierDismissedFlags,
+  insertAssemblyIntoVersion,
   isEstimateApiError,
   reorderEstimateItems,
   saveEstimateVersion,
+  sendEstimateSuggestionRuleFeedback,
   toggleEstimateOutlierDismissedFlag,
   updateEstimateLaborRole,
   updateEstimateStatus,
@@ -232,7 +234,6 @@ const AUTOSAVE_BUFFER_STORAGE_PREFIX = "estimate:edit:autosave-buffer:";
 const BULK_AUTOSAVE_DEBOUNCE_MS = 2000;
 const BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES = 100;
 const BULK_SUGGEST_PROGRESS_THRESHOLD = 50;
-const BULK_SUGGEST_BATCH_SIZE = 50;
 const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
 const LABOR_SPLIT_FIELD_KEYS = [
   "h_mo_atelier",
@@ -437,17 +438,6 @@ function appendLaborSplitFields(
     if (!(key in sourceRecord)) return;
     targetRecord[key] = sourceRecord[key as LaborSplitFieldKey] ?? null;
   });
-}
-
-function chunkArray<T>(values: T[], chunkSize: number) {
-  const size = Math.max(Math.floor(chunkSize), 1);
-  const chunks: T[][] = [];
-
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
-  }
-
-  return chunks;
 }
 
 function resolveLaborRoleHourlyRate(
@@ -1396,10 +1386,8 @@ export default function EditEstimatePage() {
         items,
         suggestionRules,
         categories,
-        supplyTypes,
-        laborRoles,
       }),
-    [categories, items, laborRoles, suggestionRules, supplyTypes]
+    [categories, items, suggestionRules]
   );
 
   const bulkSuggestionEligibleCount = bulkSuggestPreview.length;
@@ -1972,27 +1960,50 @@ export default function EditEstimatePage() {
     );
 
     try {
-      let nextVersionToken = versionSnapshot.updated_at;
-      const updateChunks = shouldTrackProgress
-        ? chunkArray(updatesPayload, BULK_SUGGEST_BATCH_SIZE)
-        : [updatesPayload];
+      const bulkResult = await bulkUpdateEstimateItems(
+        versionSnapshot.id,
+        versionSnapshot.updated_at,
+        updatesPayload
+      );
+      const nextVersionToken = bulkResult.versionToken.updated_at;
 
-      let processedCount = 0;
-      for (const updateChunk of updateChunks) {
-        const bulkResult = await bulkUpdateEstimateItems(
-          versionSnapshot.id,
-          nextVersionToken,
-          updateChunk
+      if (shouldTrackProgress) {
+        setBulkSuggestProgress({
+          processed: updatesPayload.length,
+          total: updatesPayload.length,
+          percentage: 100,
+        });
+      }
+
+      const suggestionUsageByRuleId = selectedBulkSuggestPreview.reduce<
+        Record<string, number>
+      >((accumulator, previewItem) => {
+        accumulator[previewItem.ruleId] =
+          (accumulator[previewItem.ruleId] ?? 0) + 1;
+        return accumulator;
+      }, {});
+
+      const suggestionUsageEntries = Object.entries(suggestionUsageByRuleId);
+      if (suggestionUsageEntries.length > 0) {
+        const feedbackResults = await Promise.allSettled(
+          suggestionUsageEntries.map(([ruleId, count]) =>
+            sendEstimateSuggestionRuleFeedback(
+              versionSnapshot.id,
+              ruleId,
+              "accept",
+              count
+            )
+          )
         );
-        nextVersionToken = bulkResult.versionToken.updated_at;
-        processedCount += updateChunk.length;
 
-        if (shouldTrackProgress) {
-          setBulkSuggestProgress({
-            processed: processedCount,
-            total: updatesPayload.length,
-            percentage: Math.round((processedCount / updatesPayload.length) * 100),
-          });
+        const failedFeedbackCount = feedbackResults.filter(
+          (result) => result.status === "rejected"
+        ).length;
+
+        if (failedFeedbackCount > 0) {
+          setActionError(
+            `${failedFeedbackCount} compteur(s) de suggestions n'ont pas pu etre mis a jour.`
+          );
         }
       }
 
@@ -2087,20 +2098,12 @@ export default function EditEstimatePage() {
     );
 
     try {
-      let nextVersionToken = versionSnapshot.updated_at;
-      const updateChunks =
-        updatesPayload.length > BULK_SUGGEST_PROGRESS_THRESHOLD
-          ? chunkArray(updatesPayload, BULK_SUGGEST_BATCH_SIZE)
-          : [updatesPayload];
-
-      for (const updateChunk of updateChunks) {
-        const bulkResult = await bulkUpdateEstimateItems(
-          versionSnapshot.id,
-          nextVersionToken,
-          updateChunk
-        );
-        nextVersionToken = bulkResult.versionToken.updated_at;
-      }
+      const bulkResult = await bulkUpdateEstimateItems(
+        versionSnapshot.id,
+        versionSnapshot.updated_at,
+        updatesPayload
+      );
+      const nextVersionToken = bulkResult.versionToken.updated_at;
 
       setVersion((previous) =>
         previous
@@ -2235,6 +2238,36 @@ export default function EditEstimatePage() {
       isFlushingBufferedUpdatesRef.current = false;
     }
   }, [handleVersionConflict, persistBufferedItemUpdatesToLocal]);
+
+  const ensureGroupedActionCanProceed = useCallback(
+    async (actionLabel: string) => {
+      const flushResult = await flushBufferedItemUpdates();
+
+      if (flushResult === "blocked") {
+        setActionError(
+          `Impossible de ${actionLabel} tant que les modifications locales ne sont pas synchronisees. Rechargez la version puis reessayez.`
+        );
+        return false;
+      }
+
+      if (flushResult === "error") {
+        setActionError(
+          `Impossible de synchroniser les modifications locales avant de ${actionLabel}. Corrigez les erreurs puis reessayez.`
+        );
+        return false;
+      }
+
+      if (flushResult === "noop" && pendingItemUpdatesRef.current.size > 0) {
+        setActionError(
+          "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
+        );
+        return false;
+      }
+
+      return true;
+    },
+    [flushBufferedItemUpdates]
+  );
 
   const {
     status: autoSaveStatus,
@@ -2876,6 +2909,78 @@ export default function EditEstimatePage() {
     ]
   );
 
+  const handleInsertAssembly = useCallback(
+    async (assemblyId: string, afterItemId: string | null) => {
+      if (!version?.id) {
+        setActionError("Version introuvable.");
+        return;
+      }
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+      if (isConflictLocked) {
+        setActionError(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+        return;
+      }
+
+      setActionError(null);
+      const snapshot = itemsRef.current;
+
+      try {
+        const insertedItems = await insertAssemblyIntoVersion(assemblyId, {
+          versionId: version.id,
+          afterItemId,
+        });
+
+        if (insertedItems.length === 0) {
+          return;
+        }
+
+        const insertedIds = new Set(insertedItems.map((item) => item.id));
+        const insertedSection =
+          insertedItems.find((item) => item.item_type === "section") ??
+          insertedItems[0];
+
+        const targetParentId = insertedSection.parent_id ?? null;
+        const targetPosition = insertedSection.position;
+
+        const shiftedExistingItems = snapshot.map((item) => {
+          if (insertedIds.has(item.id)) return item;
+          if ((item.parent_id ?? null) !== targetParentId) return item;
+          if (item.position < targetPosition) return item;
+          return {
+            ...item,
+            position: item.position + 1,
+          };
+        });
+
+        setItems([...shiftedExistingItems, ...insertedItems]);
+        setTotalsOutOfSync(false);
+      } catch (error) {
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible d'inserer l'assemblage."
+            )
+          );
+        }
+      }
+    },
+    [
+      conflictState?.message,
+      handleVersionConflict,
+      isConflictLocked,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      version?.id,
+    ]
+  );
+
   const handleDeleteItem = useCallback(
     async (itemId: string) => {
       if (isReadOnly) {
@@ -2996,6 +3101,13 @@ export default function EditEstimatePage() {
         return;
       }
 
+      const canProceed = await ensureGroupedActionCanProceed(
+        "appliquer la majoration en lot"
+      );
+      if (!canProceed) {
+        return;
+      }
+
       const versionSnapshot = versionRef.current;
       if (!versionSnapshot) {
         setActionError("Version introuvable.");
@@ -3014,6 +3126,8 @@ export default function EditEstimatePage() {
       if (selectedLines.length === 0) {
         return;
       }
+
+      setActionError(null);
 
       const marginMultiplier = settings?.margin_multiplier ?? 1;
       const fallbackTaxRateBp = settings?.tax_rate_bp ?? versionSnapshot.tax_rate_bp ?? 0;
@@ -3049,15 +3163,16 @@ export default function EditEstimatePage() {
 
       const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
       setItems((prev) => prev.map((item) => updatedById.get(item.id) ?? item));
+      const updatesPayload = updatedLines.map((item) => ({
+        id: item.id,
+        updates: buildEstimateItemUpdatePayload(item),
+      }));
 
       try {
         const bulkResult = await bulkUpdateEstimateItems(
           versionSnapshot.id,
           versionSnapshot.updated_at,
-          updatedLines.map((item) => ({
-            id: item.id,
-            updates: buildEstimateItemUpdatePayload(item),
-          }))
+          updatesPayload
         );
 
         setVersion((prev) =>
@@ -3068,6 +3183,12 @@ export default function EditEstimatePage() {
               }
             : prev
         );
+        if (versionRef.current) {
+          versionRef.current = {
+            ...versionRef.current,
+            updated_at: bulkResult.versionToken.updated_at,
+          };
+        }
         setTotalsOutOfSync(false);
       } catch (error) {
         setItems(snapshot);
@@ -3084,6 +3205,7 @@ export default function EditEstimatePage() {
     },
     [
       computeLineValuesWithLaborContext,
+      ensureGroupedActionCanProceed,
       handleVersionConflict,
       isLaborSplitEnabled,
       isReadOnly,
@@ -3093,32 +3215,399 @@ export default function EditEstimatePage() {
     ]
   );
 
-  const handleBulkDeleteLines = useCallback(async (itemIds: string[]) => {
-    if (itemIds.length === 0) return;
-  }, []);
+  const handleBulkDeleteLines = useCallback(
+    async (itemIds: string[]) => {
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+
+      const canProceed = await ensureGroupedActionCanProceed(
+        "supprimer les lignes selectionnees"
+      );
+      if (!canProceed) {
+        return;
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      const selectedIdSet = new Set(itemIds);
+      const snapshot = itemsRef.current;
+      const selectedLines = snapshot.filter(
+        (item) => item.item_type === "line" && selectedIdSet.has(item.id)
+      );
+
+      if (selectedLines.length === 0) return;
+
+      setActionError(null);
+      setItems((previous) =>
+        previous.filter((item) => !selectedIdSet.has(item.id))
+      );
+
+      let deletedCount = 0;
+      try {
+        for (const line of selectedLines) {
+          await deleteEstimateItem(versionSnapshot.id, line.id);
+          deletedCount += 1;
+        }
+        setTotalsOutOfSync(false);
+      } catch (error) {
+        setItems(snapshot);
+        if (deletedCount > 0) {
+          const hasConflict = handleVersionConflict(error, { persistDraft: true });
+          if (!hasConflict) {
+            triggerVersionReload();
+          }
+
+          const baseMessage = resolveEstimateActionError(
+            error instanceof Error
+              ? error.message
+              : "Impossible de supprimer toutes les lignes selectionnees."
+          );
+          setActionError(
+            `Suppression partielle detectee (${deletedCount}/${selectedLines.length}) : ${baseMessage}. La version a ete rechargee; verifiez les lignes puis reessayez.`
+          );
+          return;
+        }
+
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible de supprimer les lignes selectionnees."
+            )
+          );
+        }
+      }
+    },
+    [
+      ensureGroupedActionCanProceed,
+      handleVersionConflict,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      triggerVersionReload,
+    ]
+  );
 
   const handleBulkMoveLines = useCallback(
     async (itemIds: string[], targetParentId: string | null) => {
-      void targetParentId;
-      if (itemIds.length === 0) return;
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+
+      const canProceed = await ensureGroupedActionCanProceed(
+        "deplacer les lignes selectionnees"
+      );
+      if (!canProceed) {
+        return;
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      const selectedIdSet = new Set(itemIds);
+      const snapshot = itemsRef.current;
+      const selectedLines = snapshot
+        .filter(
+          (item): item is EstimateItem =>
+            item.item_type === "line" && selectedIdSet.has(item.id)
+        );
+
+      if (selectedLines.length === 0) return;
+
+      setActionError(null);
+      let nextPosition =
+        snapshot
+          .filter(
+            (item) =>
+              item.parent_id === targetParentId && !selectedIdSet.has(item.id)
+          )
+          .reduce((max, item) => Math.max(max, item.position), 0) + 1;
+
+      const movedLines = selectedLines.map((line) => {
+        const moved = {
+          ...line,
+          parent_id: targetParentId,
+          position: nextPosition,
+        };
+        nextPosition += 1;
+        return moved;
+      });
+
+      const movedById = new Map(movedLines.map((line) => [line.id, line]));
+      setItems((previous) =>
+        previous.map((item) => movedById.get(item.id) ?? item)
+      );
+      const updatesPayload = movedLines.map((line) => ({
+        id: line.id,
+        updates: {
+          parent_id: line.parent_id,
+          position: line.position,
+        },
+      }));
+
+      try {
+        const bulkResult = await bulkUpdateEstimateItems(
+          versionSnapshot.id,
+          versionSnapshot.updated_at,
+          updatesPayload
+        );
+
+        setVersion((previous) =>
+          previous
+            ? {
+                ...previous,
+                updated_at: bulkResult.versionToken.updated_at,
+              }
+            : previous
+        );
+        if (versionRef.current) {
+          versionRef.current = {
+            ...versionRef.current,
+            updated_at: bulkResult.versionToken.updated_at,
+          };
+        }
+        setTotalsOutOfSync(false);
+      } catch (error) {
+        setItems(snapshot);
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible de deplacer les lignes selectionnees."
+            )
+          );
+        }
+      }
     },
-    []
+    [
+      ensureGroupedActionCanProceed,
+      handleVersionConflict,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+    ]
   );
 
   const handleBulkSetCategory = useCallback(
     async (itemIds: string[], categoryId: string | null) => {
-      void categoryId;
-      if (itemIds.length === 0) return;
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+
+      const canProceed = await ensureGroupedActionCanProceed(
+        "appliquer la categorie en lot"
+      );
+      if (!canProceed) {
+        return;
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      const selectedIdSet = new Set(itemIds);
+      const snapshot = itemsRef.current;
+      const selectedLines = snapshot.filter(
+        (item): item is EstimateItem =>
+          item.item_type === "line" && selectedIdSet.has(item.id)
+      );
+
+      if (selectedLines.length === 0) return;
+
+      const updatedLines = selectedLines.map((line) => ({
+        ...line,
+        category_id: categoryId,
+      }));
+
+      setActionError(null);
+      const updatedById = new Map(updatedLines.map((line) => [line.id, line]));
+      setItems((previous) =>
+        previous.map((item) => updatedById.get(item.id) ?? item)
+      );
+      const updatesPayload = updatedLines.map((line) => ({
+        id: line.id,
+        updates: {
+          category_id: line.category_id,
+        },
+      }));
+
+      try {
+        const bulkResult = await bulkUpdateEstimateItems(
+          versionSnapshot.id,
+          versionSnapshot.updated_at,
+          updatesPayload
+        );
+
+        setVersion((previous) =>
+          previous
+            ? {
+                ...previous,
+                updated_at: bulkResult.versionToken.updated_at,
+              }
+            : previous
+        );
+        if (versionRef.current) {
+          versionRef.current = {
+            ...versionRef.current,
+            updated_at: bulkResult.versionToken.updated_at,
+          };
+        }
+        setTotalsOutOfSync(false);
+      } catch (error) {
+        setItems(snapshot);
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible d'appliquer la categorie en lot."
+            )
+          );
+        }
+      }
     },
-    []
+    [
+      ensureGroupedActionCanProceed,
+      handleVersionConflict,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+    ]
   );
 
   const handleBulkSetLaborRole = useCallback(
     async (itemIds: string[], laborRoleId: string | null) => {
-      void laborRoleId;
-      if (itemIds.length === 0) return;
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+
+      const canProceed = await ensureGroupedActionCanProceed(
+        "appliquer le role MO en lot"
+      );
+      if (!canProceed) {
+        return;
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      const selectedIdSet = new Set(itemIds);
+      const snapshot = itemsRef.current;
+      const selectedLines = snapshot.filter(
+        (item): item is EstimateItem =>
+          item.item_type === "line" && selectedIdSet.has(item.id)
+      );
+
+      if (selectedLines.length === 0) return;
+
+      setActionError(null);
+      const marginMultiplier = settings?.margin_multiplier ?? 1;
+      const fallbackTaxRateBp = settings?.tax_rate_bp ?? versionSnapshot.tax_rate_bp ?? 0;
+
+      const updatedLines = selectedLines.map((line) => {
+        const nextLine: EstimateItem = {
+          ...line,
+          labor_role_id: laborRoleId,
+          ...(isLaborSplitEnabled
+            ? {
+                labor_role_atelier_id: laborRoleId,
+                labor_role_chantier_id: laborRoleId,
+              }
+            : {}),
+        };
+        const taxRate = nextLine.tax_rate_bp ?? fallbackTaxRateBp;
+        const { lineInput, lineValues } = computeLineValuesWithLaborContext(nextLine, {
+          marginMultiplier,
+          taxRateBp: taxRate,
+        });
+
+        return {
+          ...nextLine,
+          tax_rate_bp: lineInput.tax_rate_bp,
+          k_fo: lineInput.k_fo,
+          h_mo: lineInput.h_mo,
+          h_mo_majoration: lineInput.h_mo_majoration,
+          k_mo: lineInput.k_mo,
+          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
+            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
+            : {}),
+          pu_ht_cents: lineValues.puHtCents,
+          line_total_ht_cents: lineValues.saleLineCents,
+          line_tax_cents: lineValues.taxLineCents,
+          line_total_ttc_cents: lineValues.ttcLineCents,
+        };
+      });
+
+      const updatedById = new Map(updatedLines.map((line) => [line.id, line]));
+      setItems((previous) =>
+        previous.map((item) => updatedById.get(item.id) ?? item)
+      );
+      const updatesPayload = updatedLines.map((line) => ({
+        id: line.id,
+        updates: buildEstimateItemUpdatePayload(line),
+      }));
+
+      try {
+        const bulkResult = await bulkUpdateEstimateItems(
+          versionSnapshot.id,
+          versionSnapshot.updated_at,
+          updatesPayload
+        );
+
+        setVersion((previous) =>
+          previous
+            ? {
+                ...previous,
+                updated_at: bulkResult.versionToken.updated_at,
+              }
+            : previous
+        );
+        if (versionRef.current) {
+          versionRef.current = {
+            ...versionRef.current,
+            updated_at: bulkResult.versionToken.updated_at,
+          };
+        }
+        setTotalsOutOfSync(false);
+      } catch (error) {
+        setItems(snapshot);
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible d'appliquer le role MO en lot."
+            )
+          );
+        }
+      }
     },
-    []
+    [
+      computeLineValuesWithLaborContext,
+      ensureGroupedActionCanProceed,
+      handleVersionConflict,
+      isLaborSplitEnabled,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      settings?.margin_multiplier,
+      settings?.tax_rate_bp,
+    ]
   );
 
   const handleToggleOutlierDismiss = useCallback(
@@ -3333,6 +3822,7 @@ export default function EditEstimatePage() {
       onToggleOutlierDismiss: handleToggleOutlierDismiss,
       onAddSection: handleAddSection,
       onAddLine: handleAddLine,
+      onInsertAssembly: handleInsertAssembly,
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,
       onApplyBulkMajoration: handleApplyBulkMajoration,
@@ -3354,6 +3844,7 @@ export default function EditEstimatePage() {
       editorTableVirtualization,
       handleAddLine,
       handleAddSection,
+      handleInsertAssembly,
       handleApplyBulkMajoration,
       handleBulkDeleteLines,
       handleBulkMoveLines,

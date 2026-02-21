@@ -8,6 +8,7 @@ import {
   useState,
   type FocusEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type RefCallback,
 } from "react";
 
@@ -58,6 +59,10 @@ export type SpreadsheetNavigationOptions = {
   onActiveCellNotMounted?: (cell: SpreadsheetCell) => void;
 };
 
+export type SpreadsheetCellOptions = {
+  editable?: boolean;
+};
+
 export type SpreadsheetCellProps = {
   ref: RefCallback<SpreadsheetCellElement>;
   role: "gridcell";
@@ -65,8 +70,9 @@ export type SpreadsheetCellProps = {
   onFocus: (event: FocusEvent<SpreadsheetCellElement>) => void;
   onBlur: (event: FocusEvent<SpreadsheetCellElement>) => void;
   onKeyDown: (event: KeyboardEvent<SpreadsheetCellElement>) => void;
-  onMouseDown: () => void;
-  onDoubleClick: () => void;
+  onMouseDown: (event: MouseEvent<SpreadsheetCellElement>) => void;
+  onClick: (event: MouseEvent<SpreadsheetCellElement>) => void;
+  onDoubleClick: (event: MouseEvent<SpreadsheetCellElement>) => void;
   "data-cell-id": string;
 };
 
@@ -83,14 +89,149 @@ export type SpreadsheetNavigationResult = {
   editingCell: SpreadsheetCell | null;
   isCellActive: (cell: SpreadsheetCell) => boolean;
   isCellEditing: (cell: SpreadsheetCell) => boolean;
-  getCellProps: (cell: SpreadsheetCell) => SpreadsheetCellProps;
+  getCellProps: (
+    cell: SpreadsheetCell,
+    options?: SpreadsheetCellOptions
+  ) => SpreadsheetCellProps;
   getEditorProps: <T extends SpreadsheetEditorElement>(
     cell: SpreadsheetCell
   ) => SpreadsheetEditorProps<T>;
 };
 
+type SpreadsheetKeyboardSnapshot = {
+  key: string;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+};
+
+export type ResolveSpreadsheetKeyCommandInput = SpreadsheetKeyboardSnapshot & {
+  fromEditor: boolean;
+  editable: boolean;
+};
+
+export type SpreadsheetKeyCommand =
+  | { type: "escape-editor" }
+  | { type: "undo-editor" }
+  | { type: "start-editing"; selectAll: boolean }
+  | { type: "replace-and-edit"; value: string }
+  | {
+      type: "move";
+      direction: SpreadsheetMoveDirection;
+      blurEditor: boolean;
+    };
+
+export type ResolveSpreadsheetPointerCommandInput = {
+  action: "single-click" | "double-click";
+  disabled: boolean;
+  editable: boolean;
+  isCellTarget: boolean;
+};
+
+export type SpreadsheetPointerCommand = {
+  setActive: boolean;
+  startEditing: boolean;
+  selectAll: boolean;
+};
+
 function toCellId(cell: SpreadsheetCell) {
   return `${cell.rowId}${CELL_ID_SEPARATOR}${cell.columnKey}`;
+}
+
+export function isSpreadsheetCellEditable(options?: SpreadsheetCellOptions) {
+  return options?.editable !== false;
+}
+
+function isSpreadsheetUndoShortcut(event: SpreadsheetKeyboardSnapshot) {
+  if (event.altKey || event.shiftKey) return false;
+  if (!event.ctrlKey && !event.metaKey) return false;
+  return event.key.toLowerCase() === "z";
+}
+
+function isSpreadsheetReplacementKey(event: SpreadsheetKeyboardSnapshot) {
+  if (event.ctrlKey || event.metaKey || event.altKey) return false;
+  return event.key.length === 1;
+}
+
+export function resolveSpreadsheetKeyCommand({
+  key,
+  shiftKey,
+  ctrlKey,
+  metaKey,
+  altKey,
+  fromEditor,
+  editable,
+}: ResolveSpreadsheetKeyCommandInput): SpreadsheetKeyCommand | null {
+  if (fromEditor && key === "Escape") {
+    return { type: "escape-editor" };
+  }
+
+  if (
+    fromEditor &&
+    isSpreadsheetUndoShortcut({ key, shiftKey, ctrlKey, metaKey, altKey })
+  ) {
+    return { type: "undo-editor" };
+  }
+
+  if (!fromEditor && key === "F2" && editable) {
+    return { type: "start-editing", selectAll: true };
+  }
+
+  if (
+    !fromEditor &&
+    editable &&
+    isSpreadsheetReplacementKey({ key, shiftKey, ctrlKey, metaKey, altKey })
+  ) {
+    return { type: "replace-and-edit", value: key };
+  }
+
+  const moveDirection = (() => {
+    if (key === "Tab") {
+      return shiftKey ? "previous" : "next";
+    }
+    if (key === "ArrowLeft") return "previous";
+    if (key === "ArrowRight") return "next";
+    if (key === "ArrowDown" || key === "Enter") return "down";
+    if (key === "ArrowUp") return "up";
+    return null;
+  })();
+
+  if (!moveDirection) {
+    return null;
+  }
+
+  if (fromEditor && key !== "Tab" && key !== "Enter") {
+    return null;
+  }
+
+  return {
+    type: "move",
+    direction: moveDirection,
+    blurEditor: fromEditor,
+  };
+}
+
+export function resolveSpreadsheetPointerCommand({
+  action,
+  disabled,
+  editable,
+  isCellTarget,
+}: ResolveSpreadsheetPointerCommandInput): SpreadsheetPointerCommand {
+  const setActive = !disabled;
+  if (disabled || !editable) {
+    return { setActive, startEditing: false, selectAll: false };
+  }
+
+  if (action === "double-click") {
+    return { setActive, startEditing: true, selectAll: true };
+  }
+
+  return {
+    setActive,
+    startEditing: isCellTarget,
+    selectAll: false,
+  };
 }
 
 function isEditorElement(value: EventTarget | null): value is SpreadsheetEditorElement {
@@ -120,6 +261,37 @@ function writeEditorValue(editor: SpreadsheetEditorElement, value: string) {
 
   const eventName = editor instanceof HTMLSelectElement ? "change" : "input";
   editor.dispatchEvent(new Event(eventName, { bubbles: true }));
+}
+
+function selectEditorText(editor: SpreadsheetEditorElement) {
+  if (
+    !(editor instanceof HTMLInputElement) &&
+    !(editor instanceof HTMLTextAreaElement)
+  ) {
+    return;
+  }
+
+  try {
+    editor.select();
+  } catch {
+    // Some input types (e.g. number) do not support text selection.
+  }
+}
+
+function setEditorCursorToEnd(editor: SpreadsheetEditorElement, value: string) {
+  if (
+    !(editor instanceof HTMLInputElement) &&
+    !(editor instanceof HTMLTextAreaElement)
+  ) {
+    return;
+  }
+
+  try {
+    const cursorPosition = value.length;
+    editor.setSelectionRange(cursorPosition, cursorPosition);
+  } catch {
+    // Some input types (e.g. number) do not expose caret positioning.
+  }
 }
 
 function mod(value: number, modulo: number) {
@@ -357,10 +529,10 @@ export function useSpreadsheetNavigation({
 
   const startEditing = useCallback(
     (cellId: string, selectAll: boolean) => {
-      if (disabled) return;
+      if (disabled) return null;
 
       const editor = editorElementsRef.current.get(cellId);
-      if (!editor) return;
+      if (!editor) return null;
 
       setActiveCellId(cellId);
       setEditingCellId((previous) => {
@@ -371,81 +543,132 @@ export function useSpreadsheetNavigation({
       });
 
       editor.focus();
-      if (
-        selectAll &&
-        (editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement)
-      ) {
-        editor.select();
+      if (selectAll) {
+        selectEditorText(editor);
       }
+
+      return editor;
     },
     [disabled]
   );
 
-  const handleEscape = useCallback((cellId: string, editor: SpreadsheetEditorElement) => {
-    const initialValue = editInitialValuesRef.current.get(cellId);
-    if (initialValue !== undefined) {
-      writeEditorValue(editor, initialValue);
-    }
+  const restoreInitialEditorValue = useCallback(
+    (cellId: string, editor: SpreadsheetEditorElement) => {
+      const initialValue = editInitialValuesRef.current.get(cellId);
+      if (initialValue === undefined) {
+        return false;
+      }
 
-    editor.blur();
-    setEditingCellId(null);
-    setActiveCellId(cellId);
-    editInitialValuesRef.current.delete(cellId);
-  }, []);
+      writeEditorValue(editor, initialValue);
+      setEditorCursorToEnd(editor, initialValue);
+
+      return true;
+    },
+    []
+  );
+
+  const startEditingWithReplacement = useCallback(
+    (cellId: string, replacementValue: string) => {
+      const editor = startEditing(cellId, false);
+      if (!editor || editor instanceof HTMLSelectElement) {
+        return;
+      }
+
+      writeEditorValue(editor, replacementValue);
+      setEditorCursorToEnd(editor, replacementValue);
+    },
+    [startEditing]
+  );
+
+  const handleEscape = useCallback(
+    (cellId: string, editor: SpreadsheetEditorElement) => {
+      restoreInitialEditorValue(cellId, editor);
+      editor.blur();
+      setEditingCellId(null);
+      setActiveCellId(cellId);
+      editInitialValuesRef.current.delete(cellId);
+    },
+    [restoreInitialEditorValue]
+  );
 
   const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLElement>, cellId: string, fromEditor: boolean) => {
+    (
+      event: KeyboardEvent<HTMLElement>,
+      cellId: string,
+      fromEditor: boolean,
+      editable: boolean
+    ) => {
       if (disabled) return;
 
-      const moveDirection = (() => {
-        if (event.key === "Tab") {
-          return event.shiftKey ? "previous" : "next";
-        }
-        if (event.key === "ArrowLeft") return "previous";
-        if (event.key === "ArrowRight") return "next";
-        if (event.key === "ArrowDown" || event.key === "Enter") return "down";
-        if (event.key === "ArrowUp") return "up";
-        return null;
-      })();
+      const command = resolveSpreadsheetKeyCommand({
+        key: event.key,
+        shiftKey: event.shiftKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+        fromEditor,
+        editable,
+      });
+      if (!command) return;
 
-      if (event.key === "Escape" && fromEditor) {
+      if (command.type === "escape-editor") {
         event.preventDefault();
         handleEscape(cellId, event.currentTarget as SpreadsheetEditorElement);
         return;
       }
 
-      if (event.key === "F2" && !fromEditor) {
+      if (command.type === "undo-editor") {
+        const restored = restoreInitialEditorValue(
+          cellId,
+          event.currentTarget as SpreadsheetEditorElement
+        );
+        if (restored) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      if (command.type === "start-editing") {
         event.preventDefault();
-        startEditing(cellId, true);
+        startEditing(cellId, command.selectAll);
         return;
       }
 
-      if (!moveDirection) {
-        return;
-      }
-
-      if (
-        fromEditor &&
-        event.key !== "Tab" &&
-        event.key !== "Enter"
-      ) {
+      if (command.type === "replace-and-edit") {
+        event.preventDefault();
+        startEditingWithReplacement(cellId, command.value);
         return;
       }
 
       event.preventDefault();
-      if (fromEditor) {
+      if (command.blurEditor) {
         (event.currentTarget as SpreadsheetEditorElement).blur();
       }
-      moveActiveCell(cellId, moveDirection);
+      moveActiveCell(cellId, command.direction);
     },
-    [disabled, handleEscape, moveActiveCell, startEditing]
+    [
+      disabled,
+      handleEscape,
+      moveActiveCell,
+      restoreInitialEditorValue,
+      startEditing,
+      startEditingWithReplacement,
+    ]
   );
 
   const handleCellFocus = useCallback(
-    (cellId: string, event: FocusEvent<SpreadsheetCellElement>) => {
+    (
+      cellId: string,
+      editable: boolean,
+      event: FocusEvent<SpreadsheetCellElement>
+    ) => {
       if (disabled) return;
 
       setActiveCellId(cellId);
+      if (!editable) {
+        return;
+      }
+
       if (!isEditorElement(event.target)) {
         return;
       }
@@ -496,20 +719,42 @@ export function useSpreadsheetNavigation({
   }, []);
 
   const getCellProps = useCallback(
-    (cell: SpreadsheetCell): SpreadsheetCellProps => {
+    (cell: SpreadsheetCell, options?: SpreadsheetCellOptions): SpreadsheetCellProps => {
       const cellId = toCellId(cell);
+      const editable = isSpreadsheetCellEditable(options);
       return {
         ref: (element) => registerCellElement(cellId, element),
         role: "gridcell",
         tabIndex: !disabled && activeCellId === cellId ? 0 : -1,
-        onFocus: (event) => handleCellFocus(cellId, event),
+        onFocus: (event) => handleCellFocus(cellId, editable, event),
         onBlur: (event) => handleCellBlur(cellId, event),
-        onKeyDown: (event) => handleKeyDown(event, cellId, false),
+        onKeyDown: (event) => handleKeyDown(event, cellId, false, editable),
         onMouseDown: () => {
           if (disabled) return;
           setActiveCellId(cellId);
         },
-        onDoubleClick: () => startEditing(cellId, true),
+        onClick: (event) => {
+          const command = resolveSpreadsheetPointerCommand({
+            action: "single-click",
+            disabled,
+            editable,
+            isCellTarget: event.target === event.currentTarget,
+          });
+          if (command.startEditing) {
+            startEditing(cellId, command.selectAll);
+          }
+        },
+        onDoubleClick: (event) => {
+          const command = resolveSpreadsheetPointerCommand({
+            action: "double-click",
+            disabled,
+            editable,
+            isCellTarget: event.target === event.currentTarget,
+          });
+          if (command.startEditing) {
+            startEditing(cellId, command.selectAll);
+          }
+        },
         "data-cell-id": cellId,
       };
     },
@@ -534,7 +779,7 @@ export function useSpreadsheetNavigation({
         tabIndex: -1,
         onFocus: (event) => handleEditorFocus(cellId, event),
         onBlur: () => handleEditorBlur(cellId),
-        onKeyDown: (event) => handleKeyDown(event, cellId, true),
+        onKeyDown: (event) => handleKeyDown(event, cellId, true, true),
       };
     },
     [handleEditorBlur, handleEditorFocus, handleKeyDown, registerEditorElement]

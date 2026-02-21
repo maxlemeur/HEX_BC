@@ -11,6 +11,7 @@ import {
   useState,
   type FocusEvent,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
   DndContext,
@@ -39,11 +40,17 @@ import {
 import {
   sendEstimateSuggestionRuleFeedback,
 } from "@/lib/estimates/client";
+import { AssemblyPicker } from "@/components/estimates/AssemblyPicker";
+import { EditableCell } from "@/components/estimates/EditableCell";
 import {
   useSpreadsheetNavigation,
   type SpreadsheetCell,
   type SpreadsheetNavigationRow,
 } from "@/hooks/useSpreadsheetNavigation";
+import {
+  useMultiSelect,
+  type MultiSelectItemInteraction,
+} from "@/hooks/useMultiSelect";
 import { useVirtualList } from "@/hooks/useVirtualList";
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
@@ -149,6 +156,19 @@ type EstimateEditorTableProps = {
     options?: { persist?: boolean }
   ) => void;
   onApplyBulkMajoration: (itemIds: string[], coefficient: number) => Promise<void>;
+  onBulkDeleteLines: (itemIds: string[]) => Promise<void>;
+  onBulkMoveLines: (
+    itemIds: string[],
+    targetParentId: string | null
+  ) => Promise<void>;
+  onBulkSetCategory: (itemIds: string[], categoryId: string | null) => Promise<void>;
+  onBulkSetLaborRole: (itemIds: string[], laborRoleId: string | null) => Promise<void>;
+  onInsertAssembly: (
+    assemblyId: string,
+    afterItemId: string | null
+  ) => Promise<void>;
+  bulkSuggestionEligibleCount: number;
+  onOpenBulkSuggestDialog: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
   virtualization?: EstimateVirtualizationConfig;
 };
@@ -160,6 +180,21 @@ const DEFAULT_VIRTUAL_OVERSCAN = 8;
 const DEFAULT_VIRTUAL_MAX_HEIGHT = 640;
 const EMPTY_ITEMS: EstimateItem[] = [];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
+const TEXT_LIKE_INPUT_TYPES = new Set([
+  "",
+  "text",
+  "search",
+  "url",
+  "tel",
+  "email",
+  "password",
+  "number",
+  "date",
+  "datetime-local",
+  "month",
+  "time",
+  "week",
+]);
 const SUGGESTION_SCORE_MAX = 5;
 const CATALOGUE_SUGGESTIONS_DEBOUNCE_MS = 300;
 const SPREADSHEET_COLUMN_KEYS = {
@@ -179,6 +214,8 @@ const SPREADSHEET_COLUMN_KEYS = {
   hMoMajoration: "h_mo_majoration",
   laborRole: "labor_role",
   kMo: "k_mo",
+  pu: "pu_ht",
+  total: "line_total_ht",
 };
 const SECTION_SPREADSHEET_COLUMN_KEYS = [SPREADSHEET_COLUMN_KEYS.title];
 const LINE_SPREADSHEET_COLUMN_KEYS = [
@@ -192,6 +229,8 @@ const LINE_SPREADSHEET_COLUMN_KEYS = [
   SPREADSHEET_COLUMN_KEYS.hMoMajoration,
   SPREADSHEET_COLUMN_KEYS.laborRole,
   SPREADSHEET_COLUMN_KEYS.kMo,
+  SPREADSHEET_COLUMN_KEYS.pu,
+  SPREADSHEET_COLUMN_KEYS.total,
 ];
 const LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT = [
   SPREADSHEET_COLUMN_KEYS.title,
@@ -207,6 +246,8 @@ const LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT = [
   SPREADSHEET_COLUMN_KEYS.hMoChantier,
   SPREADSHEET_COLUMN_KEYS.laborRoleChantier,
   SPREADSHEET_COLUMN_KEYS.kMoChantier,
+  SPREADSHEET_COLUMN_KEYS.pu,
+  SPREADSHEET_COLUMN_KEYS.total,
 ];
 const SUGGESTION_MATCH_LABELS: Record<SuggestionMatchKind, string> = {
   exact: "exact",
@@ -354,6 +395,19 @@ function parseMajorationPercentToCoefficient(value: string) {
   return Math.max(parseNumberInput(value) / 100, 0);
 }
 
+function formatNumberDisplay(
+  value: number,
+  options?: { minDecimals?: number; maxDecimals?: number }
+) {
+  const minDecimals = options?.minDecimals ?? 0;
+  const maxDecimals = options?.maxDecimals ?? minDecimals;
+  const formatter = new Intl.NumberFormat("fr-FR", {
+    minimumFractionDigits: minDecimals,
+    maximumFractionDigits: maxDecimals,
+  });
+  return formatter.format(value);
+}
+
 function formatCompactDate(value: string | null | undefined) {
   if (!value) return "-";
 
@@ -433,6 +487,30 @@ function getSpreadsheetColumnKeys(
     : isLaborSplitEnabled
       ? LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT
       : LINE_SPREADSHEET_COLUMN_KEYS;
+}
+
+function isTextEditingTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+    return true;
+  }
+
+  if (target instanceof HTMLInputElement) {
+    return TEXT_LIKE_INPUT_TYPES.has(target.type);
+  }
+
+  if (target instanceof HTMLElement && target.isContentEditable) {
+    return true;
+  }
+
+  return Boolean(
+    target.closest(
+      "[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']"
+    )
+  );
 }
 
 type SortableReturn = ReturnType<typeof useSortable>;
@@ -529,7 +607,7 @@ type SortableRowProps = {
     flagKey: EstimateOutlierFlagKey,
     dismissed: boolean
   ) => void;
-  onToggleLineSelection: (itemId: string, checked: boolean) => void;
+  onLineSelectionInteraction: (interaction: MultiSelectItemInteraction) => void;
   sectionTotals: SectionTotals | null;
   isDragDisabled: boolean;
   isOutlierActionPending: boolean;
@@ -559,7 +637,7 @@ const SortableRow = memo(function SortableRow({
   onSupplyTypeChange,
   onSupplyTypeCommit,
   onToggleOutlierDismiss,
-  onToggleLineSelection,
+  onLineSelectionInteraction,
   sectionTotals,
   isDragDisabled,
   isOutlierActionPending,
@@ -948,13 +1026,10 @@ const SortableRow = memo(function SortableRow({
   const kMoChantierValue = splitFields.k_mo_chantier ?? "";
   const hMoMajorationPercent = formatMajorationPercentInput(item.h_mo_majoration);
   const kMoValue = item.k_mo ?? 1;
-  const puValue = formatCentsInput(item.pu_ht_cents);
   const quantityCell: SpreadsheetCell = {
     rowId: item.id,
     columnKey: SPREADSHEET_COLUMN_KEYS.quantity,
   };
-  const quantityCellProps = navigation.getCellProps(quantityCell);
-  const quantityEditorProps = navigation.getEditorProps<HTMLInputElement>(quantityCell);
   const unitCell: SpreadsheetCell = {
     rowId: item.id,
     columnKey: SPREADSHEET_COLUMN_KEYS.unit,
@@ -965,8 +1040,6 @@ const SortableRow = memo(function SortableRow({
     rowId: item.id,
     columnKey: SPREADSHEET_COLUMN_KEYS.unitPrice,
   };
-  const unitPriceCellProps = navigation.getCellProps(unitPriceCell);
-  const unitPriceEditorProps = navigation.getEditorProps<HTMLInputElement>(unitPriceCell);
   const supplyTypeCell: SpreadsheetCell = {
     rowId: item.id,
     columnKey: SPREADSHEET_COLUMN_KEYS.supplyType,
@@ -1055,6 +1128,16 @@ const SortableRow = memo(function SortableRow({
   const kMoChantierEditorProps = navigation.getEditorProps<HTMLInputElement>(
     kMoChantierCell
   );
+  const puCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.pu,
+  };
+  const puCellProps = navigation.getCellProps(puCell, { editable: false });
+  const totalCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.total,
+  };
+  const totalCellProps = navigation.getCellProps(totalCell, { editable: false });
   const dismissedOutlierSet = new Set(dismissedOutlierFlags);
   const quantityOutlierActive =
     detectedOutlierFlags.includes("quantity_outlier") &&
@@ -1068,15 +1151,54 @@ const SortableRow = memo(function SortableRow({
   const actionableOutlierFlags = detectedOutlierFlags.filter((flag, index, flags) => {
     return ESTIMATE_OUTLIER_FLAG_KEYS.includes(flag) && flags.indexOf(flag) === index;
   });
+  const handleLineSelectionCheckboxClick = (event: ReactMouseEvent<HTMLInputElement>) => {
+    if (isReadOnly) return;
+    event.preventDefault();
+    onLineSelectionInteraction({
+      id: item.id,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey || event.metaKey || !event.shiftKey,
+      metaKey: event.metaKey,
+    });
+  };
+
+  const handleRowModifierSelection = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (isReadOnly) return;
+    if (!event.shiftKey && !event.ctrlKey && !event.metaKey) return;
+
+    const target = event.target as HTMLElement;
+    if (
+      target.closest(
+        "input,select,textarea,button,a,[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']"
+      )
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    onLineSelectionInteraction({
+      id: item.id,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+    });
+  };
 
   return (
-    <div ref={setNodeRef} style={style} className="estimate-row" role="row">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`estimate-row${isLineSelected ? " estimate-row--selected" : ""}`}
+      role="row"
+      onMouseDown={handleRowModifierSelection}
+    >
       <div className="estimate-cell estimate-cell--selection">
         <input
           type="checkbox"
           className="estimate-line-checkbox"
           checked={isLineSelected}
-          onChange={(event) => onToggleLineSelection(item.id, event.target.checked)}
+          onClick={handleLineSelectionCheckboxClick}
+          readOnly
           disabled={isReadOnly}
           aria-label={`Selectionner la ligne ${item.title || "sans titre"}`}
         />
@@ -1249,43 +1371,36 @@ const SortableRow = memo(function SortableRow({
           ) : null}
         </div>
       </div>
-      <div
-        {...quantityCellProps}
-        onKeyDown={toCellKeyDownHandler(quantityCellProps.onKeyDown)}
+      <EditableCell
+        cell={quantityCell}
+        navigation={navigation}
+        value={item.quantity ?? 0}
+        readOnly={isReadOnly}
         className={toCellClassName(
           navigation,
           quantityCell,
-          `estimate-cell${quantityOutlierActive ? " bg-orange-50 ring-1 ring-inset ring-orange-300" : ""}`
+          `estimate-cell estimate-editable-cell${
+            quantityOutlierActive ? " bg-orange-50 ring-1 ring-inset ring-orange-300" : ""
+          }`
         )}
-      >
-        <input
-          className="estimate-input"
-          ref={quantityEditorProps.ref}
-          tabIndex={quantityEditorProps.tabIndex}
-          type="number"
-          step="0.001"
-          min={0}
-          value={item.quantity ?? 0}
-          disabled={isReadOnly}
-          onFocus={quantityEditorProps.onFocus}
-          onKeyDown={quantityEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { quantity: parseNumberInput(event.target.value) },
-              { persist: false }
-            )
-          }
-          onBlur={(event) => {
-            quantityEditorProps.onBlur(event);
-            onPatchItem(
-              item.id,
-              { quantity: parseNumberInput(event.target.value) },
-              { persist: true }
-            );
-          }}
-        />
-      </div>
+        inputClassName="estimate-input"
+        type="number"
+        step="0.001"
+        min={0}
+        ariaLabel={`Quantite pour ${item.title || "sans titre"}`}
+        formatDisplayValue={(value) =>
+          formatNumberDisplay(parseNumberInput(String(value ?? "0")), {
+            minDecimals: 0,
+            maxDecimals: 3,
+          })
+        }
+        onChange={(value) =>
+          onPatchItem(item.id, { quantity: parseNumberInput(value) }, { persist: false })
+        }
+        onCommit={(value) =>
+          onPatchItem(item.id, { quantity: parseNumberInput(value) }, { persist: true })
+        }
+      />
       <div
         {...unitCellProps}
         onKeyDown={toCellKeyDownHandler(unitCellProps.onKeyDown)}
@@ -1308,43 +1423,44 @@ const SortableRow = memo(function SortableRow({
           disabled={isReadOnly}
         />
       </div>
-      <div
-        {...unitPriceCellProps}
-        onKeyDown={toCellKeyDownHandler(unitPriceCellProps.onKeyDown)}
+      <EditableCell
+        cell={unitPriceCell}
+        navigation={navigation}
+        value={formatCentsInput(item.unit_price_ht_cents)}
+        readOnly={isReadOnly}
         className={toCellClassName(
           navigation,
           unitPriceCell,
-          `estimate-cell${priceOutlierActive ? " bg-orange-50 ring-1 ring-inset ring-orange-300" : ""}`
+          `estimate-cell estimate-editable-cell${
+            priceOutlierActive ? " bg-orange-50 ring-1 ring-inset ring-orange-300" : ""
+          }`
         )}
-      >
-        <input
-          className="estimate-input"
-          ref={unitPriceEditorProps.ref}
-          tabIndex={unitPriceEditorProps.tabIndex}
-          type="number"
-          step="0.01"
-          min={0}
-          value={formatCentsInput(item.unit_price_ht_cents)}
-          disabled={isReadOnly}
-          onFocus={unitPriceEditorProps.onFocus}
-          onKeyDown={unitPriceEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { unit_price_ht_cents: parseEuroToCents(event.target.value) ?? 0 },
-              { persist: false }
-            )
-          }
-          onBlur={(event) => {
-            unitPriceEditorProps.onBlur(event);
-            onPatchItem(
-              item.id,
-              { unit_price_ht_cents: parseEuroToCents(event.target.value) ?? 0 },
-              { persist: true }
-            );
-          }}
-        />
-      </div>
+        inputClassName="estimate-input"
+        type="number"
+        step="0.01"
+        min={0}
+        ariaLabel={`Prix unitaire pour ${item.title || "sans titre"}`}
+        formatDisplayValue={(value) =>
+          formatNumberDisplay(parseNumberInput(String(value ?? "0")), {
+            minDecimals: 2,
+            maxDecimals: 2,
+          })
+        }
+        onChange={(value) =>
+          onPatchItem(
+            item.id,
+            { unit_price_ht_cents: parseEuroToCents(value) ?? 0 },
+            { persist: false }
+          )
+        }
+        onCommit={(value) =>
+          onPatchItem(
+            item.id,
+            { unit_price_ht_cents: parseEuroToCents(value) ?? 0 },
+            { persist: true }
+          )
+        }
+      />
       <div
         {...supplyTypeCellProps}
         onKeyDown={toCellKeyDownHandler(supplyTypeCellProps.onKeyDown)}
@@ -1781,19 +1897,37 @@ const SortableRow = memo(function SortableRow({
           </div>
         </>
       )}
-      <div className="estimate-cell">
+      <div
+        {...puCellProps}
+        onKeyDown={toCellKeyDownHandler(puCellProps.onKeyDown)}
+        className={toCellClassName(
+          navigation,
+          puCell,
+          "estimate-cell estimate-cell--readonly"
+        )}
+      >
         <input
           className="estimate-input"
-          type="number"
-          step="0.01"
-          min={0}
-          value={puValue}
+          type="text"
+          value={formatNumberDisplay((item.pu_ht_cents ?? 0) / 100, {
+            minDecimals: 2,
+            maxDecimals: 2,
+          })}
           placeholder="0.00"
           readOnly
-          disabled={isReadOnly}
+          tabIndex={-1}
+          aria-readonly
         />
       </div>
-      <div className="estimate-cell estimate-cell--total">
+      <div
+        {...totalCellProps}
+        onKeyDown={toCellKeyDownHandler(totalCellProps.onKeyDown)}
+        className={toCellClassName(
+          navigation,
+          totalCell,
+          "estimate-cell estimate-cell--total estimate-cell--readonly"
+        )}
+      >
         <span>{formatEUR(lineTotal)}</span>
       </div>
       <div className="estimate-cell estimate-cell--actions">
@@ -1841,6 +1975,11 @@ type VirtualizedSuggestionRow = {
 
 type VirtualizedRow = VirtualizedItemRow | VirtualizedSuggestionRow;
 
+type BulkMoveDestination = {
+  id: string | null;
+  label: string;
+};
+
 export function EstimateEditorTable({
   versionId,
   items,
@@ -1872,13 +2011,23 @@ export function EstimateEditorTable({
   onDeleteItem,
   onPatchItem,
   onApplyBulkMajoration,
+  onBulkDeleteLines,
+  onBulkMoveLines,
+  onBulkSetCategory,
+  onBulkSetLaborRole,
+  onInsertAssembly,
+  bulkSuggestionEligibleCount,
+  onOpenBulkSuggestDialog,
   onReorder,
   virtualization,
 }: EstimateEditorTableProps) {
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
   const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
-  const [selectedLineIds, setSelectedLineIds] = useState<Record<string, boolean>>({});
   const [bulkMajorationPercent, setBulkMajorationPercent] = useState("100");
+  const [isAssemblyPickerOpen, setIsAssemblyPickerOpen] = useState(false);
+  const [bulkMoveParentId, setBulkMoveParentId] = useState("");
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkLaborRoleId, setBulkLaborRoleId] = useState("");
   const [dismissedSuggestionsByItemId, setDismissedSuggestionsByItemId] = useState<
     Record<string, Record<string, boolean>>
   >({});
@@ -1894,6 +2043,7 @@ export function EstimateEditorTable({
   const [lastUsedAtOverrideByRuleId, setLastUsedAtOverrideByRuleId] = useState<
     Record<string, string>
   >({});
+  const tableCardRef = useRef<HTMLDivElement | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -1927,6 +2077,26 @@ export function EstimateEditorTable({
     }
     walk(null, 0);
     return depth;
+  }, [itemsByParent]);
+
+  const bulkMoveDestinations = useMemo(() => {
+    const destinations: BulkMoveDestination[] = [{ id: null, label: "Racine" }];
+
+    function walk(parentId: string | null, depth: number) {
+      const children = itemsByParent.get(getParentKey(parentId)) ?? [];
+      children.forEach((child) => {
+        if (child.item_type !== "section") return;
+        const prefix = depth > 0 ? `${"  ".repeat(depth)}- ` : "";
+        destinations.push({
+          id: child.id,
+          label: `${prefix}${child.title || "Sans titre"}`,
+        });
+        walk(child.id, depth + 1);
+      });
+    }
+
+    walk(null, 0);
+    return destinations;
   }, [itemsByParent]);
 
   const orderedRules = useMemo(
@@ -2146,85 +2316,181 @@ export function EstimateEditorTable({
     [isReadOnly, mergedUnitDrafts, onPatchItem]
   );
 
-  const selectedLineIdList = useMemo(() => {
-    return Object.entries(selectedLineIds)
-      .filter(([, isSelected]) => isSelected)
-      .map(([itemId]) => itemId);
-  }, [selectedLineIds]);
-
-  useEffect(() => {
-    const lineIdSet = new Set(
-      items.filter((item) => item.item_type === "line").map((item) => item.id)
-    );
-
-    setSelectedLineIds((prev) => {
-      let changed = false;
-      const next: Record<string, boolean> = {};
-      Object.entries(prev).forEach(([itemId, selected]) => {
-        if (!selected) return;
-        if (!lineIdSet.has(itemId)) {
-          changed = true;
-          return;
-        }
-        next[itemId] = true;
-      });
-      return changed ? next : prev;
-    });
-  }, [items]);
-
   const visibleLineIdList = useMemo(() => {
     return items
       .filter((item) => item.item_type === "line" && visibleLineIds.has(item.id))
       .map((item) => item.id);
   }, [items, visibleLineIds]);
 
+  const {
+    selectedIds: selectedLineIdList,
+    isSelected: isLineSelected,
+    handleItemSelection,
+    selectAll: selectAllVisibleLines,
+    clear: clearLineSelection,
+  } = useMultiSelect({
+    visibleIds: visibleLineIdList,
+  });
+
+  const selectedLineCount = selectedLineIdList.length;
+  const hasSelectedLines = selectedLineCount > 0;
+
   const allVisibleSelected =
-    visibleLineIdList.length > 0 &&
-    visibleLineIdList.every((lineId) => selectedLineIds[lineId]);
+    visibleLineIdList.length > 0 && selectedLineCount === visibleLineIdList.length;
 
   const toggleAllVisibleLines = useCallback(
     (checked: boolean) => {
-      setSelectedLineIds((prev) => {
-        const next = { ...prev };
-        visibleLineIdList.forEach((lineId) => {
-          if (checked) {
-            next[lineId] = true;
-          } else {
-            delete next[lineId];
-          }
-        });
-        return next;
-      });
+      if (checked) {
+        selectAllVisibleLines(visibleLineIdList);
+        return;
+      }
+      clearLineSelection();
     },
-    [visibleLineIdList]
+    [clearLineSelection, selectAllVisibleLines, visibleLineIdList]
   );
 
-  const handleToggleLineSelection = useCallback((itemId: string, checked: boolean) => {
-    setSelectedLineIds((prev) => {
-      if (checked) {
-        if (prev[itemId]) return prev;
-        return {
-          ...prev,
-          [itemId]: true,
-        };
-      }
-      if (!prev[itemId]) return prev;
-      const next = { ...prev };
-      delete next[itemId];
-      return next;
-    });
-  }, []);
+  const handleLineSelectionInteraction = useCallback(
+    (interaction: MultiSelectItemInteraction) => {
+      if (isReadOnly) return;
+      handleItemSelection(interaction);
+    },
+    [handleItemSelection, isReadOnly]
+  );
 
   const handleApplyBulkMajoration = useCallback(async () => {
-    if (isReadOnly || selectedLineIdList.length === 0) return;
+    if (isReadOnly || !hasSelectedLines) return;
     const coefficient = parseMajorationPercentToCoefficient(bulkMajorationPercent);
     await onApplyBulkMajoration(selectedLineIdList, coefficient);
-    setSelectedLineIds({});
   }, [
     bulkMajorationPercent,
+    hasSelectedLines,
     isReadOnly,
     onApplyBulkMajoration,
     selectedLineIdList,
+  ]);
+
+  const handleBulkDeleteSelection = useCallback(async () => {
+    if (isReadOnly || !hasSelectedLines) return;
+
+    const lineLabel =
+      selectedLineCount > 1 ? "lignes selectionnees" : "ligne selectionnee";
+    const confirmed = window.confirm(
+      `Supprimer ${selectedLineCount} ${lineLabel} ?`
+    );
+    if (!confirmed) return;
+
+    await onBulkDeleteLines(selectedLineIdList);
+    clearLineSelection();
+  }, [
+    clearLineSelection,
+    hasSelectedLines,
+    isReadOnly,
+    onBulkDeleteLines,
+    selectedLineCount,
+    selectedLineIdList,
+  ]);
+
+  const handleApplyBulkMove = useCallback(async () => {
+    if (isReadOnly || !hasSelectedLines) return;
+    await onBulkMoveLines(selectedLineIdList, bulkMoveParentId || null);
+  }, [
+    bulkMoveParentId,
+    hasSelectedLines,
+    isReadOnly,
+    onBulkMoveLines,
+    selectedLineIdList,
+  ]);
+
+  const handleApplyBulkCategory = useCallback(async () => {
+    if (isReadOnly || !hasSelectedLines) return;
+    await onBulkSetCategory(selectedLineIdList, bulkCategoryId || null);
+  }, [
+    bulkCategoryId,
+    hasSelectedLines,
+    isReadOnly,
+    onBulkSetCategory,
+    selectedLineIdList,
+  ]);
+
+  const handleApplyBulkLaborRole = useCallback(async () => {
+    if (isReadOnly || !hasSelectedLines) return;
+    await onBulkSetLaborRole(selectedLineIdList, bulkLaborRoleId || null);
+  }, [
+    bulkLaborRoleId,
+    hasSelectedLines,
+    isReadOnly,
+    onBulkSetLaborRole,
+    selectedLineIdList,
+  ]);
+
+  const handleTableBodyMouseDown = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (!hasSelectedLines) return;
+      const target = event.target as HTMLElement;
+      if (target.closest(".estimate-row")) return;
+      clearLineSelection();
+    },
+    [clearLineSelection, hasSelectedLines]
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      const target = event.target;
+      const withinTable =
+        tableCardRef.current && target instanceof Node
+          ? tableCardRef.current.contains(target)
+          : false;
+
+      if (!withinTable && !hasSelectedLines) {
+        return;
+      }
+
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "a"
+      ) {
+        if (isTextEditingTarget(target) || visibleLineIdList.length === 0 || isReadOnly) {
+          return;
+        }
+        event.preventDefault();
+        selectAllVisibleLines(visibleLineIdList);
+        return;
+      }
+
+      if (event.key === "Escape") {
+        if (isTextEditingTarget(target) || !hasSelectedLines) {
+          return;
+        }
+        event.preventDefault();
+        clearLineSelection();
+        return;
+      }
+
+      if (event.key === "Delete") {
+        if (
+          event.repeat ||
+          isReadOnly ||
+          !hasSelectedLines ||
+          isTextEditingTarget(target)
+        ) {
+          return;
+        }
+        event.preventDefault();
+        void handleBulkDeleteSelection();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    clearLineSelection,
+    handleBulkDeleteSelection,
+    hasSelectedLines,
+    isReadOnly,
+    selectAllVisibleLines,
+    visibleLineIdList,
   ]);
 
   const handleDragEnd = useCallback(
@@ -2588,6 +2854,8 @@ export function EstimateEditorTable({
     suggestionsByItemId,
   ]);
 
+  const insertionAnchorItemId = spreadsheetNavigation.activeCell?.rowId ?? null;
+
   const {
     scrollRef: virtualScrollRef,
     virtualItems,
@@ -2691,7 +2959,7 @@ export function EstimateEditorTable({
           supplyTypeById={supplyTypeById}
           laborRoles={laborRoles}
           navigation={spreadsheetNavigation}
-          isLineSelected={item.item_type === "line" && Boolean(selectedLineIds[item.id])}
+          isLineSelected={item.item_type === "line" && isLineSelected(item.id)}
           onAddSection={onAddSection}
           onAddLine={onAddLine}
           onDeleteItem={onDeleteItem}
@@ -2701,7 +2969,7 @@ export function EstimateEditorTable({
           onSupplyTypeChange={handleSupplyTypeDraftChange}
           onSupplyTypeCommit={handleSupplyTypeCommit}
           onToggleOutlierDismiss={onToggleOutlierDismiss}
-          onToggleLineSelection={handleToggleLineSelection}
+          onLineSelectionInteraction={handleLineSelectionInteraction}
           sectionTotals={sectionTotals}
           isDragDisabled={!canReorder}
           isOutlierActionPending={Boolean(outlierActionPendingByItemId[item.id])}
@@ -2716,10 +2984,11 @@ export function EstimateEditorTable({
       dismissedOutlierFlagsByItemId,
       handleSupplyTypeCommit,
       handleSupplyTypeDraftChange,
-      handleToggleLineSelection,
+      handleLineSelectionInteraction,
       handleUnitCommit,
       handleUnitDraftChange,
       isLaborSplitEnabled,
+      isLineSelected,
       isReadOnly,
       laborRoles,
       onAddLine,
@@ -2728,7 +2997,6 @@ export function EstimateEditorTable({
       onPatchItem,
       onToggleOutlierDismiss,
       outlierActionPendingByItemId,
-      selectedLineIds,
       spreadsheetNavigation,
       supplyTypeById,
       versionId,
@@ -2799,7 +3067,7 @@ export function EstimateEditorTable({
   }, [isVirtualized, virtualization?.containerHeight, virtualization?.maxHeight]);
 
   return (
-    <div className="dashboard-card p-6">
+    <div ref={tableCardRef} className="dashboard-card p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-[var(--slate-800)]">
@@ -2877,7 +3145,7 @@ export function EstimateEditorTable({
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
             <span className="text-xs text-[var(--slate-600)]">
-              {selectedLineIdList.length} selection(s)
+              {selectedLineCount} selection(s)
             </span>
             <input
               className="estimate-input"
@@ -2895,11 +3163,133 @@ export function EstimateEditorTable({
               className="btn btn-secondary btn-sm"
               type="button"
               onClick={() => void handleApplyBulkMajoration()}
-              disabled={isReadOnly || selectedLineIdList.length === 0}
+              disabled={isReadOnly || !hasSelectedLines}
             >
               Appliquer majoration
             </button>
+            <button
+              className="btn btn-danger btn-sm"
+              type="button"
+              onClick={() => void handleBulkDeleteSelection()}
+              disabled={isReadOnly || !hasSelectedLines}
+            >
+              Supprimer selection
+            </button>
           </div>
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1">
+            <label
+              className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+              htmlFor="estimate-bulk-move-target"
+            >
+              Deplacer
+            </label>
+            <select
+              id="estimate-bulk-move-target"
+              className="estimate-input estimate-select"
+              style={{ width: "auto", minWidth: "180px" }}
+              value={bulkMoveParentId}
+              onChange={(event) => setBulkMoveParentId(event.target.value)}
+              disabled={isReadOnly}
+            >
+              {bulkMoveDestinations.map((destination) => (
+                <option
+                  key={destination.id ?? ROOT_KEY}
+                  value={destination.id ?? ""}
+                >
+                  {destination.label}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={() => void handleApplyBulkMove()}
+              disabled={isReadOnly || !hasSelectedLines}
+            >
+              Appliquer
+            </button>
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1">
+            <label
+              className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+              htmlFor="estimate-bulk-category"
+            >
+              Categorie
+            </label>
+            <select
+              id="estimate-bulk-category"
+              className="estimate-input estimate-select"
+              style={{ width: "auto", minWidth: "180px" }}
+              value={bulkCategoryId}
+              onChange={(event) => setBulkCategoryId(event.target.value)}
+              disabled={isReadOnly}
+            >
+              <option value="">Aucune</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={() => void handleApplyBulkCategory()}
+              disabled={isReadOnly || !hasSelectedLines}
+            >
+              Appliquer
+            </button>
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1">
+            <label
+              className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+              htmlFor="estimate-bulk-labor-role"
+            >
+              Role MO
+            </label>
+            <select
+              id="estimate-bulk-labor-role"
+              className="estimate-input estimate-select"
+              style={{ width: "auto", minWidth: "180px" }}
+              value={bulkLaborRoleId}
+              onChange={(event) => setBulkLaborRoleId(event.target.value)}
+              disabled={isReadOnly}
+            >
+              <option value="">Aucun</option>
+              {laborRoles.map((role) => (
+                <option key={role.id} value={role.id} disabled={!role.is_active}>
+                  {role.name}
+                  {!role.is_active ? " (inactif)" : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={() => void handleApplyBulkLaborRole()}
+              disabled={isReadOnly || !hasSelectedLines}
+            >
+              Appliquer
+            </button>
+          </div>
+          {bulkSuggestionEligibleCount > 0 ? (
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={onOpenBulkSuggestDialog}
+              disabled={isReadOnly}
+            >
+              Appliquer les suggestions ({bulkSuggestionEligibleCount})
+            </button>
+          ) : null}
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={() => setIsAssemblyPickerOpen(true)}
+            disabled={isReadOnly}
+          >
+            Assemblages
+          </button>
           <button
             className="btn btn-secondary btn-sm"
             type="button"
@@ -2981,6 +3371,7 @@ export function EstimateEditorTable({
             ref={isVirtualized ? virtualScrollRef : undefined}
             className="estimate-table__body"
             style={virtualBodyStyle}
+            onMouseDown={handleTableBodyMouseDown}
             role="grid"
             aria-readonly={isReadOnly}
             aria-rowcount={spreadsheetNavigationRows.length}
@@ -3061,6 +3452,16 @@ export function EstimateEditorTable({
           <option key={supplyType.id} value={supplyType.name} />
         ))}
       </datalist>
+
+      <AssemblyPicker
+        isOpen={isAssemblyPickerOpen}
+        isReadOnly={isReadOnly}
+        anchorItemId={insertionAnchorItemId}
+        onClose={() => setIsAssemblyPickerOpen(false)}
+        onInsert={(assemblyId) =>
+          onInsertAssembly(assemblyId, insertionAnchorItemId)
+        }
+      />
     </div>
   );
 }
