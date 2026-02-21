@@ -43,6 +43,7 @@ function createEstimateItem(overrides: Partial<EstimateItem> = {}): EstimateItem
     labor_role_id: null,
     category_id: null,
     supply_type_id: null,
+    selected_supplier_price_id: null,
     line_total_ht_cents: 0,
     line_tax_cents: 0,
     line_total_ttc_cents: 0,

@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
 import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
 import type { SupplierPrice } from "@/components/catalogue/types";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { isPriceStale, parseStalePriceDays } from "@/lib/catalogue/stale-prices";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 
 type PricesListResponse = {
@@ -51,6 +53,7 @@ export function PricesManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchSupplierId, setSearchSupplierId] = useState("");
   const [searchProductId, setSearchProductId] = useState("");
+  const [showStaleOnly, setShowStaleOnly] = useState(false);
   const [formState, setFormState] = useState<SupplierPriceFormState>(EMPTY_FORM);
   const [bulkPayload, setBulkPayload] = useState(() =>
     JSON.stringify(
@@ -72,6 +75,24 @@ export function PricesManager() {
   );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const { value: staleDaysFlagValue } = useFeatureFlag("STALE_PRICE_DAYS");
+
+  const stalePriceDays = useMemo(
+    () => parseStalePriceDays(staleDaysFlagValue),
+    [staleDaysFlagValue]
+  );
+  const visibleItems = useMemo(() => {
+    if (!showStaleOnly) return items;
+    return items.filter((item) =>
+      isPriceStale(
+        {
+          updatedAt: item.updated_at ?? null,
+          createdAt: item.created_at ?? null,
+        },
+        stalePriceDays
+      )
+    );
+  }, [items, showStaleOnly, stalePriceDays]);
 
   const loadItems = useCallback(async () => {
     setIsLoading(true);
@@ -322,6 +343,19 @@ export function PricesManager() {
             />
           </div>
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
+            <input
+              type="checkbox"
+              checked={showStaleOnly}
+              onChange={(event) => setShowStaleOnly(event.target.checked)}
+            />
+            Prix anciens seulement
+          </label>
+          <span className="text-xs text-[var(--slate-500)]">
+            Seuil stale: {stalePriceDays} jours
+          </span>
+        </div>
 
         {error ? <div className="alert alert-error mt-4">{error}</div> : null}
         {success ? <div className="alert alert-success mt-4">{success}</div> : null}
@@ -335,59 +369,81 @@ export function PricesManager() {
                 <th>Prix</th>
                 <th>Validite</th>
                 <th>Maj</th>
+                <th>Anciennete</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-[var(--slate-500)]">
+                  <td colSpan={7} className="text-center text-[var(--slate-500)]">
                     Chargement...
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : visibleItems.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center text-[var(--slate-500)]">
-                    Aucun prix fournisseur.
+                  <td colSpan={7} className="text-center text-[var(--slate-500)]">
+                    {showStaleOnly
+                      ? "Aucun prix ancien."
+                      : "Aucun prix fournisseur."}
                   </td>
                 </tr>
               ) : (
-                items.map((item) => (
-                  <tr key={item.id}>
-                    <td className="font-mono text-xs text-[var(--slate-700)]">{item.supplier_id}</td>
-                    <td className="font-mono text-xs text-[var(--slate-700)]">
-                      {item.product_id ?? item.catalogue_item_id}
-                    </td>
-                    <td className="font-medium text-[var(--slate-900)]">
-                      {typeof item.unit_price_cents === "number"
-                        ? formatEUR(item.unit_price_cents)
-                        : "-"}
-                      {item.currency ? ` ${item.currency}` : ""}
-                    </td>
-                    <td>
-                      {formatDate(item.valid_from)} {'->'} {formatDate(item.valid_to)}
-                    </td>
-                    <td>{item.updated_at ?? item.created_at ?? "-"}</td>
-                    <td>
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => onEdit(item)}
-                        >
-                          Modifier
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          onClick={() => void onDelete(item)}
-                        >
-                          Supprimer
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                visibleItems.map((item) => {
+                  const stale = isPriceStale(
+                    {
+                      updatedAt: item.updated_at ?? null,
+                      createdAt: item.created_at ?? null,
+                    },
+                    stalePriceDays
+                  );
+
+                  return (
+                    <tr key={item.id}>
+                      <td className="font-mono text-xs text-[var(--slate-700)]">{item.supplier_id}</td>
+                      <td className="font-mono text-xs text-[var(--slate-700)]">
+                        {item.product_id ?? item.catalogue_item_id}
+                      </td>
+                      <td className="font-medium text-[var(--slate-900)]">
+                        {typeof item.unit_price_cents === "number"
+                          ? formatEUR(item.unit_price_cents)
+                          : "-"}
+                        {item.currency ? ` ${item.currency}` : ""}
+                      </td>
+                      <td>
+                        {formatDate(item.valid_from)} {'->'} {formatDate(item.valid_to)}
+                      </td>
+                      <td>{item.updated_at ?? item.created_at ?? "-"}</td>
+                      <td>
+                        {stale ? (
+                          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                            Prix ancien
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[var(--slate-500)]">Recent</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => onEdit(item)}
+                          >
+                            Modifier
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => void onDelete(item)}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

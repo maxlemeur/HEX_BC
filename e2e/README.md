@@ -5,6 +5,7 @@ This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
 ## Requirements
 
 - `agent-browser` installed and available in PATH.
+- PowerShell runtime available in PATH (`pwsh` on Linux/macOS, `pwsh` or `powershell` on Windows).
 - App running locally (default base URL is `http://localhost:3000`).
 
 ## Commands
@@ -18,25 +19,25 @@ This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
 
 ## HEX ticket scripts
 
-Scripts live in `e2e/hex/` and are named after Linear tickets. Run them with PowerShell:
+Scripts live in `e2e/hex/` and are named after Linear tickets. Run them cross-platform via npm:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File e2e/hex/run-all.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-140-epic.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/est-101-keyboard.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-143-navigation.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-144-list.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-145-create.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-146-parameters.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-147-editor.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-148-calculations.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-149-duplicate.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-150-status.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-151-print.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-152-export.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-153-suggestions.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-141-db-rls.ps1
-powershell -ExecutionPolicy Bypass -File e2e/hex/ti-142-types.ps1
+```bash
+npm run e2e:hex
+npm run e2e:run -- e2e/hex/ti-140-epic.ps1
+npm run e2e:run -- e2e/hex/est-101-keyboard.ps1
+npm run e2e:run -- e2e/hex/ti-143-navigation.ps1
+npm run e2e:run -- e2e/hex/ti-144-list.ps1
+npm run e2e:run -- e2e/hex/ti-145-create.ps1
+npm run e2e:run -- e2e/hex/ti-146-parameters.ps1
+npm run e2e:run -- e2e/hex/ti-147-editor.ps1
+npm run e2e:run -- e2e/hex/ti-148-calculations.ps1
+npm run e2e:run -- e2e/hex/ti-149-duplicate.ps1
+npm run e2e:run -- e2e/hex/ti-150-status.ps1
+npm run e2e:run -- e2e/hex/ti-151-print.ps1
+npm run e2e:run -- e2e/hex/ti-152-export.ps1
+npm run e2e:run -- e2e/hex/ti-153-suggestions.ps1
+npm run e2e:run -- e2e/hex/ti-141-db-rls.ps1
+npm run e2e:run -- e2e/hex/ti-142-types.ps1
 ```
 
 The RLS test (`ti-141-db-rls.ps1`) needs a secondary account:
@@ -44,10 +45,10 @@ The RLS test (`ti-141-db-rls.ps1`) needs a secondary account:
 - `E2E_LOGIN_EMAIL_2`
 - `E2E_LOGIN_PASSWORD_2`
 
-Or via npm:
+Direct PowerShell usage is still possible if needed:
 
-```powershell
-npm run e2e:hex
+```bash
+pwsh -NoProfile -File e2e/hex/run-all.ps1
 ```
 
 ## Environment variables
@@ -58,7 +59,7 @@ npm run e2e:hex
 - `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD` for auth state
 - `E2E_AUTH_STATE` path for saved auth state (default: `e2e/.auth.json`)
 
-## PowerShell examples
+## Environment examples
 
 ```powershell
 $env:E2E_BASE_URL = "http://localhost:3000"
@@ -70,6 +71,11 @@ npm run e2e
 $env:E2E_LOGIN_EMAIL = "user@example.com"
 $env:E2E_LOGIN_PASSWORD = "password"
 npm run e2e:auth
+```
+
+```bash
+E2E_BASE_URL="http://localhost:3000" E2E_HEADED="1" npm run e2e
+E2E_LOGIN_EMAIL="user@example.com" E2E_LOGIN_PASSWORD="password" npm run e2e:auth
 ```
 
 ## Using the saved auth state

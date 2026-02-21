@@ -1006,6 +1006,7 @@ export type Database = {
           tenant_id: string;
           flag_key: string;
           enabled: boolean;
+          value: string | null;
         };
         Insert: {
           id?: string;
@@ -1014,6 +1015,7 @@ export type Database = {
           tenant_id?: string;
           flag_key: string;
           enabled?: boolean;
+          value?: string | null;
         };
         Update: {
           id?: string;
@@ -1022,6 +1024,7 @@ export type Database = {
           tenant_id?: string;
           flag_key?: string;
           enabled?: boolean;
+          value?: string | null;
         };
         Relationships: [];
       };
@@ -1240,6 +1243,7 @@ export type Database = {
           labor_role_id: string | null;
           category_id: string | null;
           supply_type_id: string | null;
+          selected_supplier_price_id: string | null;
           line_total_ht_cents: number | null;
           line_tax_cents: number | null;
           line_total_ttc_cents: number | null;
@@ -1272,6 +1276,7 @@ export type Database = {
           labor_role_id?: string | null;
           category_id?: string | null;
           supply_type_id?: string | null;
+          selected_supplier_price_id?: string | null;
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
@@ -1304,6 +1309,7 @@ export type Database = {
           labor_role_id?: string | null;
           category_id?: string | null;
           supply_type_id?: string | null;
+          selected_supplier_price_id?: string | null;
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;

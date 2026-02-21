@@ -73,6 +73,19 @@ create policy "Lock owners and admins can insert draft locks"
   to authenticated
   with check (
     tenant_id is not null
+    and exists (
+      select 1
+      from public.estimate_versions ev
+      join public.estimate_projects ep on ep.id = ev.project_id
+      where ev.id = draft_locks.version_id
+        and ev.tenant_id = draft_locks.tenant_id
+        and ep.tenant_id = ev.tenant_id
+        and (
+          ep.user_id = (select auth.uid())
+          or (select public.has_tenant_role(ev.tenant_id, array['admin'::public.tenant_role]))
+          or (select public.is_admin_user())
+        )
+    )
     and (
       (
         user_id = (select auth.uid())
@@ -132,10 +145,8 @@ declare
   tenant_filter uuid := target_tenant_id;
   deleted_count integer;
 begin
-  if tenant_filter is null then
-    if (select auth.uid()) is not null and not (select public.is_admin_user()) then
-      tenant_filter := public.current_tenant_id();
-    end if;
+  if (select auth.uid()) is not null and not (select public.is_admin_user()) then
+    tenant_filter := public.current_tenant_id();
   end if;
 
   delete from public.draft_locks

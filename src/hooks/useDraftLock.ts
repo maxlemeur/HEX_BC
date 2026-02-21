@@ -95,7 +95,13 @@ export function useDraftLock({
       options: ReleaseEstimateDraftLockOptions = {}
     ): Promise<boolean> => {
       if (!targetVersionId) return false;
-      if (!options.force && !isOwnedByCurrentUserRef.current) return false;
+      if (
+        !options.force &&
+        !options.keepalive &&
+        !isOwnedByCurrentUserRef.current
+      ) {
+        return false;
+      }
 
       try {
         const result = await releaseEstimateDraftLock(targetVersionId, options);
@@ -133,11 +139,18 @@ export function useDraftLock({
 
     try {
       const result = await acquireEstimateDraftLock(versionId);
-      if (!isMountedRef.current) return false;
-
       const ownership = resolveLockOwnership(result.lock, currentUserIdRef.current);
       const lockedByOther = !result.acquired || ownership === false;
       const ownsLock = result.acquired && !lockedByOther;
+
+      if (!isMountedRef.current) {
+        if (ownsLock) {
+          void releaseEstimateDraftLock(versionId, { keepalive: true }).catch(
+            () => false
+          );
+        }
+        return false;
+      }
 
       setLock(result.lock);
       updateOwnershipState(ownsLock);
@@ -262,7 +275,6 @@ export function useDraftLock({
     if (!enabled || !versionId) return;
 
     const handleBeforeUnload = () => {
-      if (!isOwnedByCurrentUser) return;
       void releaseForVersion(versionId, { keepalive: true });
     };
 
@@ -271,7 +283,7 @@ export function useDraftLock({
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [enabled, isOwnedByCurrentUser, releaseForVersion, versionId]);
+  }, [enabled, releaseForVersion, versionId]);
 
   useEffect(() => {
     isMountedRef.current = true;

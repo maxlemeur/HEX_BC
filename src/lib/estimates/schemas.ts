@@ -173,6 +173,7 @@ const createLineItemSchema = z.object({
   labor_role_id: nullableUuidSchema.optional(),
   category_id: nullableUuidSchema.optional(),
   supply_type_id: nullableUuidSchema.optional(),
+  selected_supplier_price_id: nullableUuidSchema.optional(),
 });
 
 export const createEstimateItemSchema = z.discriminatedUnion("item_type", [
@@ -207,6 +208,7 @@ export const updateEstimateItemSchema = z
     labor_role_id: nullableUuidSchema.optional(),
     category_id: nullableUuidSchema.optional(),
     supply_type_id: nullableUuidSchema.optional(),
+    selected_supplier_price_id: nullableUuidSchema.optional(),
   })
   .superRefine((payload, ctx) => {
     if (Object.keys(payload).length > 1) return;

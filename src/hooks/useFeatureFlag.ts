@@ -8,6 +8,7 @@ import { useUserContext } from "@/components/UserContext";
 type FeatureFlagListItem = {
   flag_key: string;
   enabled: boolean;
+  value?: string | null;
 };
 
 type FeatureFlagsResponse = {
@@ -82,8 +83,18 @@ export function useFeatureFlag(key: string) {
     return flag?.enabled === true;
   }, [data, normalizedKey]);
 
+  const value = useMemo(() => {
+    if (!data) return null;
+
+    const flag = data.flags.find(
+      (entry) => normalizeFeatureFlagKey(entry.flag_key) === normalizedKey
+    );
+    return typeof flag?.value === "string" ? flag.value : null;
+  }, [data, normalizedKey]);
+
   return {
     enabled,
+    value,
     isLoading: Boolean(swrKey && isLoading),
     error: error instanceof Error ? error : null,
     refresh: mutate,

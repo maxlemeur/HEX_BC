@@ -4,7 +4,11 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import { isFeatureEnabled } from "@/lib/feature-flags";
+import {
+  getFeatureFlagValueForTenant,
+  getStalePriceDaysForTenant,
+  isFeatureEnabled,
+} from "@/lib/feature-flags";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
@@ -84,5 +88,71 @@ describe("isFeatureEnabled", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(isFeatureEnabled(TENANT_ID, "STALE_PRICE_DAYS")).resolves.toBe(false);
+  });
+});
+
+describe("feature flag values", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns the configured value only when the flag is enabled", async () => {
+    const supabase = createSupabaseMock({
+      data: {
+        enabled: true,
+        value: "120",
+      },
+      error: null,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      getFeatureFlagValueForTenant(TENANT_ID, "STALE_PRICE_DAYS")
+    ).resolves.toBe("120");
+  });
+
+  it("returns null when the flag is disabled", async () => {
+    const supabase = createSupabaseMock({
+      data: {
+        enabled: false,
+        value: "120",
+      },
+      error: null,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      getFeatureFlagValueForTenant(TENANT_ID, "STALE_PRICE_DAYS")
+    ).resolves.toBeNull();
+  });
+
+  it("falls back to default stale days when value is invalid", async () => {
+    const supabase = createSupabaseMock({
+      data: {
+        enabled: true,
+        value: "invalid",
+      },
+      error: null,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(90);
+  });
+
+  it("parses stale days from feature flag value", async () => {
+    const supabase = createSupabaseMock({
+      data: {
+        enabled: true,
+        value: "120",
+      },
+      error: null,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(120);
   });
 });

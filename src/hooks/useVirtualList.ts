@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type RefObject } from "react";
+import { useCallback, useRef, type RefObject } from "react";
 import {
   useVirtualizer,
   type VirtualItem,
@@ -22,6 +22,7 @@ export type UseVirtualListResult = {
   virtualItems: VirtualItem[];
   totalSize: number;
   measureElement: Virtualizer<HTMLDivElement, HTMLDivElement>["measureElement"];
+  scrollToIndex: (index: number) => void;
   isVirtualized: boolean;
 };
 
@@ -44,12 +45,20 @@ export function useVirtualList({
     overscan,
     measureElement: (element) => element.getBoundingClientRect().height,
   });
+  const scrollToIndex = useCallback(
+    (index: number) => {
+      if (!isVirtualized || index < 0 || index >= count) return;
+      virtualizer.scrollToIndex(index, { align: "auto" });
+    },
+    [count, isVirtualized, virtualizer]
+  );
 
   return {
     scrollRef,
     virtualItems: isVirtualized ? virtualizer.getVirtualItems() : [],
     totalSize: isVirtualized ? virtualizer.getTotalSize() : 0,
     measureElement: virtualizer.measureElement,
+    scrollToIndex,
     isVirtualized,
   };
 }

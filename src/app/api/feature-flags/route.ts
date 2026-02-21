@@ -17,6 +17,7 @@ const patchFeatureFlagSchema = z.object({
   tenant_id: z.string().uuid("tenant_id invalide.").optional(),
   flag_key: z.string().trim().min(1, "flag_key invalide.").max(64, "flag_key invalide."),
   enabled: z.boolean(),
+  value: z.union([z.string(), z.null()]).optional(),
 });
 
 async function parseJsonBody(request: Request): Promise<unknown> {
@@ -122,6 +123,7 @@ export async function PATCH(request: Request) {
       userId,
       key: normalizeFeatureFlagKey(payload.flag_key),
       enabled: payload.enabled,
+      value: payload.value ?? null,
       supabase,
     });
 

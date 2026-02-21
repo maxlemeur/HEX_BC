@@ -92,6 +92,7 @@ type ItemPatch = Partial<
     | "labor_role_id"
     | "category_id"
     | "supply_type_id"
+    | "selected_supplier_price_id"
   >
 > &
   LaborSplitItemFields;
@@ -106,6 +107,7 @@ type EstimateVirtualizationConfig = {
 };
 
 type EstimateEditorTableProps = {
+  versionId: string;
   items: EstimateItem[];
   categories: EstimateCategory[];
   supplyTypes: SupplyType[];
@@ -155,6 +157,7 @@ const DEFAULT_VIRTUAL_MAX_HEIGHT = 640;
 const EMPTY_ITEMS: EstimateItem[] = [];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
 const SUGGESTION_SCORE_MAX = 5;
+const CATALOGUE_SUGGESTIONS_DEBOUNCE_MS = 300;
 const SPREADSHEET_COLUMN_KEYS = {
   title: "title",
   quantity: "quantity",
@@ -213,6 +216,55 @@ const QUALITY_BADGE_CLASSNAMES: Record<EstimateQualityFlagKey, string> = {
   missing_labor_role: "border-red-200 bg-red-50 text-red-700",
   price_outlier: "border-orange-200 bg-orange-50 text-orange-700",
   quantity_outlier: "border-orange-200 bg-orange-50 text-orange-700",
+};
+
+type SupplierAlternativeKind =
+  | "best_price"
+  | "most_recent"
+  | "preferred_supplier";
+
+type SupplierAlternative = {
+  kind: SupplierAlternativeKind;
+  supplier_price_id: string;
+  supplier_id: string;
+  supplier_name: string;
+  unit_price_cents: number;
+  adjusted_unit_price_cents: number;
+  currency: string | null;
+  supplier_reference: string | null;
+  unit: string | null;
+  updated_at: string | null;
+  is_stale: boolean;
+  catalogue_url: string | null;
+};
+
+type CataloguePriceSuggestion = {
+  supplier_price_id: string;
+  product_id: string;
+  product_designation: string;
+  product_reference: string | null;
+  supplier_id: string;
+  supplier_name: string;
+  supplier_reference: string | null;
+  unit: string | null;
+  unit_price_cents: number;
+  adjusted_unit_price_cents: number;
+  currency: string | null;
+  updated_at: string | null;
+  is_stale: boolean;
+  stale_days: number;
+  relevance_score: number;
+  has_material_index_adjustment: boolean;
+  material_index_code: string | null;
+  material_index_value: number | null;
+  catalogue_url: string | null;
+  alternatives: SupplierAlternative[];
+};
+
+type SuggestPricesResponse = {
+  query: string;
+  stale_price_days: number;
+  suggestions: CataloguePriceSuggestion[];
 };
 
 function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
@@ -296,6 +348,52 @@ function formatMajorationPercentInput(value: number | null | undefined) {
 
 function parseMajorationPercentToCoefficient(value: string) {
   return Math.max(parseNumberInput(value) / 100, 0);
+}
+
+function formatCompactDate(value: string | null | undefined) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 10);
+  }
+
+  return date.toLocaleDateString("fr-FR");
+}
+
+function toAlternativeKindLabel(kind: SupplierAlternativeKind) {
+  switch (kind) {
+    case "best_price":
+      return "Meilleur prix";
+    case "most_recent":
+      return "Plus recent";
+    case "preferred_supplier":
+      return "Fournisseur prefere";
+    default:
+      return kind;
+  }
+}
+
+function resolveApiErrorMessage(payload: unknown, fallback: string) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return fallback;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const nestedError =
+    typeof record.error === "object" && record.error !== null && !Array.isArray(record.error)
+      ? (record.error as Record<string, unknown>)
+      : null;
+
+  if (typeof nestedError?.message === "string" && nestedError.message.trim().length > 0) {
+    return nestedError.message;
+  }
+
+  if (typeof record.message === "string" && record.message.trim().length > 0) {
+    return record.message;
+  }
+
+  return fallback;
 }
 
 function toFiniteNumber(value: unknown, fallback: number) {
@@ -398,6 +496,7 @@ const DragHandle = memo(function DragHandle({
 });
 
 type SortableRowProps = {
+  versionId: string;
   item: EstimateItem;
   depth: number;
   unitValue: string;
@@ -435,6 +534,7 @@ type SortableRowProps = {
 };
 
 const SortableRow = memo(function SortableRow({
+  versionId,
   item,
   depth,
   unitValue,
@@ -491,6 +591,117 @@ const SortableRow = memo(function SortableRow({
   };
   const titleCellProps = navigation.getCellProps(titleCell);
   const titleEditorProps = navigation.getEditorProps<HTMLInputElement>(titleCell);
+  const [isTitleFocused, setIsTitleFocused] = useState(false);
+  const [catalogueSuggestions, setCatalogueSuggestions] = useState<
+    CataloguePriceSuggestion[]
+  >([]);
+  const [isCatalogueLoading, setIsCatalogueLoading] = useState(false);
+  const [catalogueError, setCatalogueError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (item.item_type !== "line") {
+      setCatalogueSuggestions([]);
+      setCatalogueError(null);
+      setIsCatalogueLoading(false);
+      return;
+    }
+
+    if (!versionId || !isTitleFocused || isReadOnly) {
+      setIsCatalogueLoading(false);
+      setCatalogueError(null);
+      return;
+    }
+
+    const normalizedQuery = item.title.trim();
+    if (normalizedQuery.length < 2) {
+      setCatalogueSuggestions([]);
+      setCatalogueError(null);
+      setIsCatalogueLoading(false);
+      return;
+    }
+
+    const abortController = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      setIsCatalogueLoading(true);
+      setCatalogueError(null);
+
+      void fetch(
+        `/api/estimates/${versionId}/suggest-prices?q=${encodeURIComponent(normalizedQuery)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          signal: abortController.signal,
+        }
+      )
+        .then(async (response) => {
+          const payload = (await response.json().catch(() => null)) as unknown;
+          if (!response.ok) {
+            throw new Error(
+              resolveApiErrorMessage(payload, "Impossible de charger les suggestions catalogue.")
+            );
+          }
+
+          if (
+            !payload ||
+            typeof payload !== "object" ||
+            Array.isArray(payload)
+          ) {
+            setCatalogueSuggestions([]);
+            return;
+          }
+
+          const envelope = payload as {
+            ok?: boolean;
+            data?: SuggestPricesResponse;
+          };
+          const suggestions = Array.isArray(envelope.data?.suggestions)
+            ? envelope.data?.suggestions
+            : [];
+          setCatalogueSuggestions(suggestions ?? []);
+        })
+        .catch((error: unknown) => {
+          if (abortController.signal.aborted) return;
+          setCatalogueSuggestions([]);
+          setCatalogueError(
+            error instanceof Error
+              ? error.message
+              : "Impossible de charger les suggestions catalogue."
+          );
+        })
+        .finally(() => {
+          if (!abortController.signal.aborted) {
+            setIsCatalogueLoading(false);
+          }
+        });
+    }, CATALOGUE_SUGGESTIONS_DEBOUNCE_MS);
+
+    return () => {
+      abortController.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [isReadOnly, isTitleFocused, item.item_type, item.title, versionId]);
+
+  const showCatalogueSuggestions =
+    item.item_type === "line" &&
+    isTitleFocused &&
+    (catalogueSuggestions.length > 0 || isCatalogueLoading || Boolean(catalogueError));
+
+  const applyCatalogueSuggestion = useCallback(
+    (suggestion: CataloguePriceSuggestion) => {
+      if (isReadOnly || item.item_type !== "line") return;
+
+      const patch: ItemPatch = {
+        description: suggestion.unit ?? null,
+        unit_price_ht_cents: suggestion.adjusted_unit_price_cents,
+        selected_supplier_price_id: suggestion.supplier_price_id,
+      };
+
+      onPatchItem(item.id, patch, { persist: true });
+      onUnitChange(item.id, suggestion.unit ?? "");
+      setIsTitleFocused(false);
+    },
+    [isReadOnly, item.id, item.item_type, onPatchItem, onUnitChange]
+  );
 
   if (item.item_type === "section") {
     const supplyTypeTotals = sectionTotals?.supplyTypeFoTotalsCents ?? {};
@@ -777,17 +988,83 @@ const SortableRow = memo(function SortableRow({
             tabIndex={titleEditorProps.tabIndex}
             value={item.title}
             disabled={isReadOnly}
-            onFocus={titleEditorProps.onFocus}
+            onFocus={(event) => {
+              setIsTitleFocused(true);
+              titleEditorProps.onFocus(event);
+            }}
             onKeyDown={titleEditorProps.onKeyDown}
             onChange={(event) =>
               onPatchItem(item.id, { title: event.target.value }, { persist: false })
             }
             onBlur={(event) => {
               titleEditorProps.onBlur(event);
+              window.setTimeout(() => {
+                setIsTitleFocused(false);
+              }, 120);
               const nextTitle = event.target.value.trim() || "Nouvelle ligne";
               onPatchItem(item.id, { title: nextTitle }, { persist: true });
             }}
           />
+          {showCatalogueSuggestions ? (
+            <div className="estimate-catalogue-suggestions" role="listbox">
+              {isCatalogueLoading ? (
+                <div className="estimate-catalogue-suggestions__status">Recherche catalogue...</div>
+              ) : null}
+              {catalogueError ? (
+                <div className="estimate-catalogue-suggestions__status estimate-catalogue-suggestions__status--error">
+                  {catalogueError}
+                </div>
+              ) : null}
+              {catalogueSuggestions.map((suggestion) => (
+                <button
+                  key={`${item.id}:${suggestion.supplier_price_id}`}
+                  type="button"
+                  className="estimate-catalogue-suggestion"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applyCatalogueSuggestion(suggestion)}
+                  disabled={isReadOnly}
+                >
+                  <div className="estimate-catalogue-suggestion__head">
+                    <span className="estimate-catalogue-suggestion__supplier">
+                      {suggestion.supplier_name}
+                    </span>
+                    <span className="estimate-catalogue-suggestion__price">
+                      {formatEUR(suggestion.adjusted_unit_price_cents)}
+                      {suggestion.currency ? ` ${suggestion.currency}` : ""}
+                    </span>
+                  </div>
+                  <div className="estimate-catalogue-suggestion__meta">
+                    <span>{suggestion.product_designation}</span>
+                    <span>{formatCompactDate(suggestion.updated_at)}</span>
+                    <span>{suggestion.supplier_reference ?? "-"}</span>
+                    {suggestion.is_stale ? (
+                      <span className="estimate-catalogue-suggestion__stale">
+                        Prix ancien
+                      </span>
+                    ) : null}
+                  </div>
+                  {suggestion.alternatives.length > 0 ? (
+                    <div className="estimate-catalogue-suggestion__alternatives">
+                      {suggestion.alternatives.map((alternative) => (
+                        <span
+                          key={`${suggestion.supplier_price_id}:alt:${alternative.kind}:${alternative.supplier_price_id}`}
+                          className="estimate-catalogue-suggestion__alternative"
+                        >
+                          {toAlternativeKindLabel(alternative.kind)}: {alternative.supplier_name} |
+                          {" "}
+                          {formatEUR(alternative.adjusted_unit_price_cents)} |
+                          {" "}
+                          {formatCompactDate(alternative.updated_at)} |
+                          {" "}
+                          {alternative.supplier_reference ?? "-"}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1">
               {qualityFlags.map((flag) => (
@@ -1428,6 +1705,7 @@ type VirtualizedSuggestionRow = {
 type VirtualizedRow = VirtualizedItemRow | VirtualizedSuggestionRow;
 
 export function EstimateEditorTable({
+  versionId,
   items,
   categories,
   supplyTypes,
@@ -2178,6 +2456,7 @@ export function EstimateEditorTable({
     virtualItems,
     totalSize: virtualTotalSize,
     measureElement,
+    scrollToIndex,
     isVirtualized,
   } = useVirtualList({
     count: flattenedRows.length,
@@ -2198,6 +2477,18 @@ export function EstimateEditorTable({
     });
     return ids;
   }, [canReorder, flattenedRows, isVirtualized, virtualItems]);
+
+  const virtualRowIndexByItemId = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!isVirtualized) return map;
+
+    flattenedRows.forEach((row, index) => {
+      if (row.kind === "item") {
+        map.set(row.item.id, index);
+      }
+    });
+    return map;
+  }, [flattenedRows, isVirtualized]);
 
   const visibleItemsInOrder = useMemo(() => {
     const ordered: EstimateItem[] = [];
@@ -2223,9 +2514,22 @@ export function EstimateEditorTable({
     }));
   }, [hasVisibleRows, isLaborSplitEnabled, visibleItemsInOrder]);
 
+  const handleNavigationCellNotMounted = useCallback(
+    (cell: SpreadsheetCell) => {
+      if (!isVirtualized) return;
+      const rowIndex = virtualRowIndexByItemId.get(cell.rowId);
+      if (rowIndex === undefined) return;
+      scrollToIndex(rowIndex);
+    },
+    [isVirtualized, scrollToIndex, virtualRowIndexByItemId]
+  );
+
   const spreadsheetNavigation = useSpreadsheetNavigation({
     rows: spreadsheetNavigationRows,
     disabled: !hasVisibleRows || isReadOnly,
+    onActiveCellNotMounted: isVirtualized
+      ? handleNavigationCellNotMounted
+      : undefined,
   });
 
   const renderSortableRow = useCallback(
@@ -2239,6 +2543,7 @@ export function EstimateEditorTable({
     ) => {
       return (
         <SortableRow
+          versionId={versionId}
           item={item}
           depth={depth}
           unitValue={unitValue}
@@ -2289,6 +2594,7 @@ export function EstimateEditorTable({
       selectedLineIds,
       spreadsheetNavigation,
       supplyTypeById,
+      versionId,
     ]
   );
 

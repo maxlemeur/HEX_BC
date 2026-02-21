@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  DEFAULT_STALE_PRICE_DAYS,
+  parseStalePriceDays,
+} from "@/lib/catalogue/stale-prices";
 import { badRequest, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -14,6 +18,7 @@ export type FeatureFlagRecord = {
   tenant_id: string;
   flag_key: string;
   enabled: boolean;
+  value: string | null;
 };
 
 type TenantScopedInput = {
@@ -26,10 +31,11 @@ type TenantScopedInput = {
 type ToggleFeatureFlagInput = TenantScopedInput & {
   key: string;
   enabled: boolean;
+  value?: string | null;
 };
 
 const FEATURE_FLAGS_TABLE = "feature_flags";
-const featureFlagSelect = "tenant_id, flag_key, enabled";
+const featureFlagSelect = "tenant_id, flag_key, enabled, value";
 
 const tenantIdSchema = z.string().uuid("tenant_id invalide.");
 const userIdSchema = z.string().uuid("user_id invalide.");
@@ -44,6 +50,7 @@ const featureFlagRowSchema = z.object({
   tenant_id: z.string().uuid(),
   flag_key: z.string(),
   enabled: z.boolean(),
+  value: z.string().nullable().optional(),
 });
 
 export function normalizeFeatureFlagKey(value: string) {
@@ -96,6 +103,7 @@ function parseFeatureFlagRow(value: unknown): FeatureFlagRecord | null {
     tenant_id: parsed.data.tenant_id,
     flag_key: normalizedKey.data,
     enabled: parsed.data.enabled,
+    value: parsed.data.value ?? null,
   };
 }
 
@@ -178,6 +186,7 @@ export async function toggleFeatureFlagForTenant(
         tenant_id: tenantId,
         flag_key: key,
         enabled,
+        value: input.value ?? null,
       } as never,
       { onConflict: "tenant_id,flag_key" }
     )
@@ -197,6 +206,7 @@ export async function toggleFeatureFlagForTenant(
     tenant_id: tenantId,
     flag_key: key,
     enabled,
+    value: input.value ?? null,
   };
 }
 
@@ -230,4 +240,54 @@ export async function isFeatureEnabled(
   } catch {
     return false;
   }
+}
+
+export async function getFeatureFlagValueForTenant(
+  tenantId: string,
+  key: string,
+  input?: { supabase?: Supabase }
+): Promise<string | null> {
+  const parsedTenantId = tenantIdSchema.safeParse(tenantId);
+  const parsedKey = normalizedFlagKeySchema.safeParse(normalizeFeatureFlagKey(key));
+
+  if (!parsedTenantId.success || !parsedKey.success) {
+    return null;
+  }
+
+  try {
+    const supabase = await getSupabase(input?.supabase);
+    const { data, error } = await supabase
+      .from(FEATURE_FLAGS_TABLE)
+      .select("enabled, value")
+      .eq("tenant_id", parsedTenantId.data)
+      .eq("flag_key", parsedKey.data)
+      .maybeSingle();
+
+    if (error || !data || typeof data !== "object") {
+      return null;
+    }
+
+    const enabledValue = (data as { enabled?: unknown }).enabled;
+    if (enabledValue !== true) {
+      return null;
+    }
+
+    const value = (data as { value?: unknown }).value;
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getStalePriceDaysForTenant(
+  tenantId: string,
+  input?: { supabase?: Supabase }
+): Promise<number> {
+  const rawValue = await getFeatureFlagValueForTenant(tenantId, "STALE_PRICE_DAYS", input);
+  return parseStalePriceDays(rawValue, DEFAULT_STALE_PRICE_DAYS);
 }

@@ -54,7 +54,7 @@ function Start-AgentBrowserDaemon {
     return $false
   }
 
-  Start-Process -WindowStyle Hidden -FilePath "node" -ArgumentList $daemonPath | Out-Null
+  Start-Process -FilePath "node" -ArgumentList $daemonPath | Out-Null
   Start-Sleep -Milliseconds 800
   return $true
 }

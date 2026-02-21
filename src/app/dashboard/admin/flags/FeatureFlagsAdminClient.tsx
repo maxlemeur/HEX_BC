@@ -7,6 +7,7 @@ type FeatureFlagRecord = {
   tenant_id: string;
   flag_key: string;
   enabled: boolean;
+  value: string | null;
 };
 
 type FeatureFlagsResponse = {
@@ -68,6 +69,7 @@ async function patchFeatureFlag(input: {
   tenantId: string;
   flagKey: string;
   enabled: boolean;
+  value?: string | null;
 }) {
   const response = await fetch("/api/feature-flags", {
     method: "PATCH",
@@ -78,6 +80,7 @@ async function patchFeatureFlag(input: {
       tenant_id: input.tenantId,
       flag_key: input.flagKey,
       enabled: input.enabled,
+      value: input.value ?? null,
     }),
   });
 
@@ -109,6 +112,7 @@ function badgeClass(enabled: boolean) {
 export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: string }>) {
   const [search, setSearch] = useState("");
   const [updatingKey, setUpdatingKey] = useState<string | null>(null);
+  const [valueDraftByKey, setValueDraftByKey] = useState<Record<string, string>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -140,6 +144,10 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
         tenantId,
         flagKey: flag.flag_key,
         enabled: !flag.enabled,
+        value:
+          valueDraftByKey[flag.flag_key] === undefined
+            ? flag.value
+            : (valueDraftByKey[flag.flag_key]?.trim() || null),
       });
 
       await mutate(
@@ -164,6 +172,62 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
         toggleError instanceof Error
           ? toggleError.message
           : "Impossible de mettre a jour le feature flag."
+      );
+    } finally {
+      setUpdatingKey(null);
+    }
+  }
+
+  function getFlagValue(flag: FeatureFlagRecord) {
+    const draftValue = valueDraftByKey[flag.flag_key];
+    if (draftValue !== undefined) {
+      return draftValue;
+    }
+    return flag.value ?? "";
+  }
+
+  async function handleSaveValue(flag: FeatureFlagRecord) {
+    const nextValue = getFlagValue(flag).trim();
+    const actionKey = `${flag.flag_key}:value`;
+    setUpdatingKey(actionKey);
+    setActionError(null);
+    setSuccessMessage(null);
+
+    try {
+      const updatedFlag = await patchFeatureFlag({
+        tenantId,
+        flagKey: flag.flag_key,
+        enabled: flag.enabled,
+        value: nextValue.length > 0 ? nextValue : null,
+      });
+
+      await mutate(
+        (current) => {
+          if (!current) return current;
+
+          return {
+            ...current,
+            flags: current.flags.map((row) =>
+              row.flag_key === updatedFlag.flag_key ? updatedFlag : row
+            ),
+          };
+        },
+        { revalidate: false }
+      );
+
+      setValueDraftByKey((prev) => {
+        if (!(flag.flag_key in prev)) return prev;
+        const next = { ...prev };
+        delete next[flag.flag_key];
+        return next;
+      });
+
+      setSuccessMessage(`${updatedFlag.flag_key} valeur mise a jour.`);
+    } catch (saveError) {
+      setActionError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Impossible de mettre a jour la valeur du feature flag."
       );
     } finally {
       setUpdatingKey(null);
@@ -226,19 +290,22 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
                 <tr>
                   <th>Flag</th>
                   <th>Etat</th>
+                  <th>Valeur</th>
                   <th className="text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredFlags.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="py-10 text-center text-[var(--slate-500)]">
+                    <td colSpan={4} className="py-10 text-center text-[var(--slate-500)]">
                       Aucun feature flag trouve.
                     </td>
                   </tr>
                 ) : (
                   filteredFlags.map((flag) => {
                     const isUpdating = updatingKey === flag.flag_key;
+                    const isSavingValue = updatingKey === `${flag.flag_key}:value`;
+                    const flagValue = getFlagValue(flag);
 
                     return (
                       <tr key={flag.flag_key}>
@@ -248,11 +315,35 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
                             {flag.enabled ? "Actif" : "Inactif"}
                           </span>
                         </td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              className="form-input h-9 min-w-[170px] max-w-[220px]"
+                              placeholder="Valeur optionnelle"
+                              value={flagValue}
+                              onChange={(event) =>
+                                setValueDraftByKey((prev) => ({
+                                  ...prev,
+                                  [flag.flag_key]: event.target.value,
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-sm"
+                              disabled={isSavingValue}
+                              onClick={() => void handleSaveValue(flag)}
+                            >
+                              {isSavingValue ? "Enregistrement..." : "Sauver"}
+                            </button>
+                          </div>
+                        </td>
                         <td className="text-right">
                           <button
                             type="button"
                             className={flag.enabled ? "btn btn-secondary" : "btn btn-primary"}
-                            disabled={isUpdating}
+                            disabled={isUpdating || isSavingValue}
                             onClick={() => void handleToggle(flag)}
                           >
                             {isUpdating

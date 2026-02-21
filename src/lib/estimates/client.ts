@@ -1059,6 +1059,7 @@ export async function createEstimateItem(
   const lineItem = item as typeof item & {
     h_mo_majoration?: number | null;
     supply_type_id?: string | null;
+    selected_supplier_price_id?: string | null;
   };
   const body =
     item.item_type === "section"
@@ -1084,6 +1085,7 @@ export async function createEstimateItem(
           labor_role_id: item.labor_role_id ?? null,
           category_id: item.category_id ?? null,
           supply_type_id: lineItem.supply_type_id ?? null,
+          selected_supplier_price_id: lineItem.selected_supplier_price_id ?? null,
         };
 
   const payload = await requestJson<unknown>(

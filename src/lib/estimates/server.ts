@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
+import { isPriceStale } from "@/lib/catalogue/stale-prices";
+import {
+  getFeatureFlagValueForTenant,
+  getStalePriceDaysForTenant,
+} from "@/lib/feature-flags";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/types/database";
 
@@ -58,6 +63,7 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   k_mo_chantier?: number | null;
   labor_role_chantier_id?: string | null;
   supply_type_id?: string | null;
+  selected_supplier_price_id?: string | null;
 };
 type EstimateItemInsert = Database["public"]["Tables"]["estimate_items"]["Insert"] & {
   h_mo_majoration?: number | null;
@@ -68,6 +74,7 @@ type EstimateItemInsert = Database["public"]["Tables"]["estimate_items"]["Insert
   k_mo_chantier?: number | null;
   labor_role_chantier_id?: string | null;
   supply_type_id?: string | null;
+  selected_supplier_price_id?: string | null;
 };
 type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update"] & {
   h_mo_majoration?: number | null;
@@ -78,6 +85,7 @@ type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update
   k_mo_chantier?: number | null;
   labor_role_chantier_id?: string | null;
   supply_type_id?: string | null;
+  selected_supplier_price_id?: string | null;
 };
 type LaborRoleInsert = Database["public"]["Tables"]["labor_roles"]["Insert"];
 type LaborRoleUpdate = Database["public"]["Tables"]["labor_roles"]["Update"];
@@ -302,6 +310,46 @@ type EstimateTotalsInvariantRule =
 type EstimateTotalsInvariantViolation = {
   rule: EstimateTotalsInvariantRule;
   message: string;
+};
+
+type SupplierAlternativeKind = "best_price" | "most_recent" | "preferred_supplier";
+
+type SuggestedSupplierAlternative = {
+  kind: SupplierAlternativeKind;
+  supplier_price_id: string;
+  supplier_id: string;
+  supplier_name: string;
+  unit_price_cents: number;
+  adjusted_unit_price_cents: number;
+  currency: string | null;
+  supplier_reference: string | null;
+  unit: string | null;
+  updated_at: string | null;
+  is_stale: boolean;
+  catalogue_url: string | null;
+};
+
+type SuggestedCataloguePrice = {
+  supplier_price_id: string;
+  product_id: string;
+  product_designation: string;
+  product_reference: string | null;
+  supplier_id: string;
+  supplier_name: string;
+  supplier_reference: string | null;
+  unit: string | null;
+  unit_price_cents: number;
+  adjusted_unit_price_cents: number;
+  currency: string | null;
+  updated_at: string | null;
+  is_stale: boolean;
+  stale_days: number;
+  relevance_score: number;
+  has_material_index_adjustment: boolean;
+  material_index_code: string | null;
+  material_index_value: number | null;
+  catalogue_url: string | null;
+  alternatives: SuggestedSupplierAlternative[];
 };
 
 const DEFAULT_ESTIMATE_CATEGORIES = [
@@ -709,6 +757,74 @@ function toNullableText(value: string | null | undefined): string | null {
   if (value === null || value === undefined) return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function escapeIlikeToken(value: string) {
+  return value.replace(/[%_,()']/g, "");
+}
+
+function toTimestamp(value: string | null | undefined) {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function extractCatalogueUrl(value: string | null | undefined) {
+  if (!value) return null;
+  const match = value.match(/https?:\/\/[^\s]+/i);
+  if (!match?.[0]) return null;
+  return match[0];
+}
+
+function getMostRecentRecord<T extends { updated_at: string | null }>(rows: T[]) {
+  if (rows.length === 0) return null;
+  return [...rows].sort((left, right) => {
+    return toTimestamp(right.updated_at) - toTimestamp(left.updated_at);
+  })[0];
+}
+
+function computeSearchRelevance(input: {
+  query: string;
+  designation: string;
+  supplierName: string;
+  supplierSku: string | null;
+  productReference: string | null;
+}) {
+  const query = input.query.toLowerCase();
+  const designation = input.designation.toLowerCase();
+  const supplierName = input.supplierName.toLowerCase();
+  const supplierSku = (input.supplierSku ?? "").toLowerCase();
+  const productReference = (input.productReference ?? "").toLowerCase();
+
+  let score = 0;
+
+  if (designation === query) {
+    score += 100;
+  } else if (designation.startsWith(query)) {
+    score += 80;
+  } else if (designation.includes(query)) {
+    score += 60;
+  }
+
+  if (productReference === query) {
+    score += 50;
+  } else if (productReference.includes(query)) {
+    score += 30;
+  }
+
+  if (supplierName === query) {
+    score += 35;
+  } else if (supplierName.includes(query)) {
+    score += 20;
+  }
+
+  if (supplierSku === query) {
+    score += 25;
+  } else if (supplierSku.includes(query)) {
+    score += 12;
+  }
+
+  return score;
 }
 
 function todayDateOnly() {
@@ -1133,6 +1249,25 @@ async function ensureSupplyTypeIsValid(
 
   if (error || !data) {
     throw badRequest("supply_type_id invalide.");
+  }
+}
+
+async function ensureSupplierPriceIsValid(
+  supabase: Supabase,
+  supplierPriceId: string | null,
+  context: Pick<AuthenticatedContext, "tenantId">
+) {
+  if (supplierPriceId === null) return;
+
+  const { data, error } = await supabase
+    .from("supplier_pricebook")
+    .select("id, tenant_id")
+    .eq("id", supplierPriceId)
+    .eq("tenant_id", context.tenantId)
+    .single();
+
+  if (error || !data) {
+    throw badRequest("selected_supplier_price_id invalide.");
   }
 }
 
@@ -1939,6 +2074,387 @@ export async function listEstimateItems(versionId: string) {
   };
 }
 
+export async function suggestEstimateCataloguePrices(
+  versionId: string,
+  query: string
+) {
+  const normalizedQuery = query.trim();
+  if (normalizedQuery.length < 2) {
+    throw badRequest("Le parametre q doit contenir au moins 2 caracteres.");
+  }
+
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  await getVersionAccessOrThrow(supabase, versionId, context);
+
+  const stalePriceDays = await getStalePriceDaysForTenant(tenantId, { supabase });
+  const safeSearch = escapeIlikeToken(normalizedQuery);
+  if (safeSearch.length < 2) {
+    throw badRequest("Le parametre q contient uniquement des caracteres non supportes.");
+  }
+
+  const [productResult, supplierResult, preferredSupplierValue] = await Promise.all([
+    supabase
+      .from("products")
+      .select("id, designation, reference")
+      .eq("tenant_id", tenantId)
+      .or(`designation.ilike.%${safeSearch}%,reference.ilike.%${safeSearch}%`)
+      .limit(40),
+    supabase
+      .from("suppliers")
+      .select("id, name")
+      .eq("tenant_id", tenantId)
+      .ilike("name", `%${safeSearch}%`)
+      .limit(40),
+    getFeatureFlagValueForTenant(tenantId, "PREFERRED_SUPPLIER_ID", { supabase }),
+  ]);
+
+  if (productResult.error) {
+    throw mapSupabaseError(productResult.error, "Impossible de charger les produits catalogue.");
+  }
+  if (supplierResult.error) {
+    throw mapSupabaseError(
+      supplierResult.error,
+      "Impossible de charger les fournisseurs catalogue."
+    );
+  }
+
+  const products = (productResult.data ?? []) as Array<{
+    id: string;
+    designation: string;
+    reference: string | null;
+  }>;
+  const suppliers = (supplierResult.data ?? []) as Array<{
+    id: string;
+    name: string;
+  }>;
+
+  const productById = new Map(products.map((product) => [product.id, product]));
+  const supplierById = new Map(suppliers.map((supplier) => [supplier.id, supplier]));
+
+  const productIds = products.map((product) => product.id);
+  const supplierIds = suppliers.map((supplier) => supplier.id);
+
+  const filterClauses: string[] = [];
+  if (productIds.length > 0) {
+    filterClauses.push(`product_id.in.(${productIds.join(",")})`);
+  }
+  if (supplierIds.length > 0) {
+    filterClauses.push(`supplier_id.in.(${supplierIds.join(",")})`);
+  }
+  if (safeSearch.length > 0) {
+    filterClauses.push(`supplier_sku.ilike.%${safeSearch}%`);
+  }
+
+  if (filterClauses.length === 0) {
+    return {
+      query: normalizedQuery,
+      stale_price_days: stalePriceDays,
+      suggestions: [] as SuggestedCataloguePrice[],
+    };
+  }
+
+  let supplierPricesQuery = supabase
+    .from("supplier_pricebook")
+    .select(
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active"
+    )
+    .eq("tenant_id", tenantId)
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(400);
+
+  supplierPricesQuery = supplierPricesQuery.or(filterClauses.join(","));
+
+  const { data: supplierPricesData, error: supplierPricesError } = await supplierPricesQuery;
+
+  if (supplierPricesError) {
+    throw mapSupabaseError(
+      supplierPricesError,
+      "Impossible de charger les suggestions de prix catalogue."
+    );
+  }
+
+  const supplierPrices = (supplierPricesData ?? []) as Array<{
+    id: string;
+    supplier_id: string;
+    product_id: string;
+    supplier_sku: string | null;
+    unit: string;
+    unit_price_cents: number;
+    currency: string;
+    updated_at: string;
+    created_at: string;
+    notes: string | null;
+    is_active: boolean;
+  }>;
+
+  if (supplierPrices.length === 0) {
+    return {
+      query: normalizedQuery,
+      stale_price_days: stalePriceDays,
+      suggestions: [] as SuggestedCataloguePrice[],
+    };
+  }
+
+  const missingProductIds = Array.from(
+    new Set(
+      supplierPrices
+        .map((row) => row.product_id)
+        .filter((id) => !productById.has(id))
+    )
+  );
+  const missingSupplierIds = Array.from(
+    new Set(
+      supplierPrices
+        .map((row) => row.supplier_id)
+        .filter((id) => !supplierById.has(id))
+    )
+  );
+
+  if (missingProductIds.length > 0) {
+    const { data: missingProducts, error: missingProductsError } = await supabase
+      .from("products")
+      .select("id, designation, reference")
+      .eq("tenant_id", tenantId)
+      .in("id", missingProductIds);
+
+    if (missingProductsError) {
+      throw mapSupabaseError(
+        missingProductsError,
+        "Impossible de charger les produits des suggestions."
+      );
+    }
+
+    (missingProducts ?? []).forEach((product) => {
+      productById.set(product.id, product);
+    });
+  }
+
+  if (missingSupplierIds.length > 0) {
+    const { data: missingSuppliers, error: missingSuppliersError } = await supabase
+      .from("suppliers")
+      .select("id, name")
+      .eq("tenant_id", tenantId)
+      .in("id", missingSupplierIds);
+
+    if (missingSuppliersError) {
+      throw mapSupabaseError(
+        missingSuppliersError,
+        "Impossible de charger les fournisseurs des suggestions."
+      );
+    }
+
+    (missingSuppliers ?? []).forEach((supplier) => {
+      supplierById.set(supplier.id, supplier);
+    });
+  }
+
+  const supplierPriceIds = supplierPrices.map((row) => row.id);
+  const materialIndexBySupplierPriceId = new Map<
+    string,
+    {
+      index_code: string;
+      index_value: number;
+      updated_at: string;
+      index_date: string;
+    }
+  >();
+
+  if (supplierPriceIds.length > 0) {
+    const { data: linksData, error: linksError } = await supabase
+      .from("dpgf_catalogue_links")
+      .select("supplier_price_id, material_index_id")
+      .eq("tenant_id", tenantId)
+      .in("supplier_price_id", supplierPriceIds);
+
+    if (linksError) {
+      throw mapSupabaseError(
+        linksError,
+        "Impossible de charger les liaisons catalogue des suggestions."
+      );
+    }
+
+    const links = (linksData ?? []) as Array<{
+      supplier_price_id: string | null;
+      material_index_id: string | null;
+    }>;
+    const materialIndexIds = Array.from(
+      new Set(
+        links
+          .map((link) => link.material_index_id)
+          .filter((value): value is string => typeof value === "string")
+      )
+    );
+
+    if (materialIndexIds.length > 0) {
+      const { data: indicesData, error: indicesError } = await supabase
+        .from("material_indices")
+        .select("id, index_code, index_value, updated_at, index_date")
+        .eq("tenant_id", tenantId)
+        .in("id", materialIndexIds);
+
+      if (indicesError) {
+        throw mapSupabaseError(
+          indicesError,
+          "Impossible de charger les indices materiaux des suggestions."
+        );
+      }
+
+      const indexById = new Map(
+        ((indicesData ?? []) as Array<{
+          id: string;
+          index_code: string;
+          index_value: number;
+          updated_at: string;
+          index_date: string;
+        }>).map((index) => [index.id, index])
+      );
+
+      links.forEach((link) => {
+        if (!link.supplier_price_id || !link.material_index_id) return;
+        const index = indexById.get(link.material_index_id);
+        if (!index) return;
+        materialIndexBySupplierPriceId.set(link.supplier_price_id, index);
+      });
+    }
+  }
+
+  let preferredSupplierId: string | null = null;
+  if (preferredSupplierValue && /^[0-9a-fA-F-]{36}$/.test(preferredSupplierValue)) {
+    preferredSupplierId = preferredSupplierValue;
+  } else {
+    const supplierFrequency = new Map<string, number>();
+    supplierPrices.forEach((row) => {
+      supplierFrequency.set(
+        row.supplier_id,
+        (supplierFrequency.get(row.supplier_id) ?? 0) + 1
+      );
+    });
+    preferredSupplierId =
+      [...supplierFrequency.entries()]
+        .sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
+  }
+
+  const now = new Date();
+
+  const candidates = supplierPrices
+    .map((row) => {
+      const product = productById.get(row.product_id);
+      const supplier = supplierById.get(row.supplier_id);
+      const materialIndex = materialIndexBySupplierPriceId.get(row.id);
+      const hasMaterialIndexAdjustment =
+        typeof materialIndex?.index_value === "number" && materialIndex.index_value > 0;
+      const adjustedUnitPriceCents = hasMaterialIndexAdjustment
+        ? Math.round((row.unit_price_cents * materialIndex.index_value) / 100)
+        : row.unit_price_cents;
+      const updatedAt = row.updated_at ?? row.created_at ?? null;
+      const relevanceScore = computeSearchRelevance({
+        query: normalizedQuery,
+        designation: product?.designation ?? "",
+        supplierName: supplier?.name ?? "",
+        supplierSku: row.supplier_sku ?? null,
+        productReference: product?.reference ?? null,
+      });
+
+      return {
+        supplier_price_id: row.id,
+        product_id: row.product_id,
+        product_designation: product?.designation ?? "Produit",
+        product_reference: product?.reference ?? null,
+        supplier_id: row.supplier_id,
+        supplier_name: supplier?.name ?? "Fournisseur",
+        supplier_reference: row.supplier_sku ?? null,
+        unit: row.unit ?? null,
+        unit_price_cents: row.unit_price_cents,
+        adjusted_unit_price_cents: adjustedUnitPriceCents,
+        currency: row.currency ?? null,
+        updated_at: updatedAt,
+        is_stale: isPriceStale(
+          { updatedAt, createdAt: row.created_at ?? null },
+          stalePriceDays,
+          now
+        ),
+        stale_days: stalePriceDays,
+        relevance_score: relevanceScore,
+        has_material_index_adjustment: hasMaterialIndexAdjustment,
+        material_index_code: materialIndex?.index_code ?? null,
+        material_index_value: materialIndex?.index_value ?? null,
+        catalogue_url: extractCatalogueUrl(row.notes),
+      };
+    })
+    .filter((candidate) => candidate.relevance_score > 0)
+    .sort((left, right) => {
+      if (right.relevance_score !== left.relevance_score) {
+        return right.relevance_score - left.relevance_score;
+      }
+      return toTimestamp(right.updated_at) - toTimestamp(left.updated_at);
+    });
+
+  const candidatesByProductId = new Map<string, typeof candidates>();
+  candidates.forEach((candidate) => {
+    const productCandidates = candidatesByProductId.get(candidate.product_id) ?? [];
+    productCandidates.push(candidate);
+    candidatesByProductId.set(candidate.product_id, productCandidates);
+  });
+
+  const suggestions = candidates.slice(0, 10).map((candidate) => {
+    const productCandidates = candidatesByProductId.get(candidate.product_id) ?? [candidate];
+    const alternatives: SuggestedSupplierAlternative[] = [];
+    const pushAlternative = (
+      kind: SupplierAlternativeKind,
+      selected: (typeof productCandidates)[number] | null
+    ) => {
+      if (!selected) return;
+      if (alternatives.some((existing) => existing.supplier_price_id === selected.supplier_price_id)) {
+        return;
+      }
+      alternatives.push({
+        kind,
+        supplier_price_id: selected.supplier_price_id,
+        supplier_id: selected.supplier_id,
+        supplier_name: selected.supplier_name,
+        unit_price_cents: selected.unit_price_cents,
+        adjusted_unit_price_cents: selected.adjusted_unit_price_cents,
+        currency: selected.currency,
+        supplier_reference: selected.supplier_reference,
+        unit: selected.unit,
+        updated_at: selected.updated_at,
+        is_stale: selected.is_stale,
+        catalogue_url: selected.catalogue_url,
+      });
+    };
+
+    const bestPrice = [...productCandidates].sort((left, right) => {
+      if (left.adjusted_unit_price_cents !== right.adjusted_unit_price_cents) {
+        return left.adjusted_unit_price_cents - right.adjusted_unit_price_cents;
+      }
+      return toTimestamp(right.updated_at) - toTimestamp(left.updated_at);
+    })[0] ?? null;
+    const mostRecent = getMostRecentRecord(productCandidates);
+    const preferredSupplier = preferredSupplierId
+      ? getMostRecentRecord(
+          productCandidates.filter((entry) => entry.supplier_id === preferredSupplierId)
+        )
+      : null;
+
+    pushAlternative("best_price", bestPrice);
+    pushAlternative("most_recent", mostRecent);
+    pushAlternative("preferred_supplier", preferredSupplier);
+
+    return {
+      ...candidate,
+      alternatives,
+    } satisfies SuggestedCataloguePrice;
+  });
+
+  return {
+    query: normalizedQuery,
+    stale_price_days: stalePriceDays,
+    suggestions,
+  };
+}
+
 export async function patchEstimateVersion(
   versionId: string,
   input: PatchEstimateVersionInput,
@@ -2623,6 +3139,7 @@ export async function createEstimateItem(
   const laborRoleId = input.labor_role_id ?? null;
   const categoryId = input.category_id ?? null;
   const supplyTypeId = input.supply_type_id ?? null;
+  const selectedSupplierPriceId = input.selected_supplier_price_id ?? null;
   const isLaborSplitEnabled = isLaborSplitEnabledForItem({
     h_mo_atelier: hMoAtelier,
     k_mo_atelier: kMoAtelier,
@@ -2634,6 +3151,7 @@ export async function createEstimateItem(
 
   await ensureCategoryIsValid(supabase, categoryId, context, project.user_id);
   await ensureSupplyTypeIsValid(supabase, supplyTypeId, context);
+  await ensureSupplierPriceIsValid(supabase, selectedSupplierPriceId, context);
   const laborRateLegacyCents = await resolveLaborRateCents(
     supabase,
     laborRoleId,
@@ -2707,6 +3225,7 @@ export async function createEstimateItem(
       labor_role_id: laborRoleId,
       category_id: categoryId,
       supply_type_id: supplyTypeId,
+      selected_supplier_price_id: selectedSupplierPriceId,
       line_total_ht_cents: lineValues.saleLineCents,
       line_tax_cents: lineValues.taxLineCents,
       line_total_ttc_cents: lineValues.ttcLineCents,
@@ -2748,6 +3267,7 @@ const SECTION_ONLY_FORBIDDEN_FIELDS: (keyof UpdateEstimateItemInput)[] = [
   "labor_role_id",
   "category_id",
   "supply_type_id",
+  "selected_supplier_price_id",
 ];
 
 export async function updateEstimateItem(
@@ -2893,6 +3413,10 @@ export async function updateEstimateItem(
     "supply_type_id" in input
       ? (input.supply_type_id ?? null)
       : ((currentItem as EstimateItemRow).supply_type_id ?? null);
+  const nextSelectedSupplierPriceId =
+    "selected_supplier_price_id" in input
+      ? (input.selected_supplier_price_id ?? null)
+      : ((currentItem as EstimateItemRow).selected_supplier_price_id ?? null);
   const nextPosition =
     ("position" in input ? input.position : currentItem.position) ??
     currentItem.position;
@@ -2907,6 +3431,7 @@ export async function updateEstimateItem(
 
   await ensureCategoryIsValid(supabase, nextCategoryId, context, project.user_id);
   await ensureSupplyTypeIsValid(supabase, nextSupplyTypeId, context);
+  await ensureSupplierPriceIsValid(supabase, nextSelectedSupplierPriceId, context);
   const laborRateLegacyCents = await resolveLaborRateCents(
     supabase,
     nextLaborRoleId,
@@ -2975,6 +3500,7 @@ export async function updateEstimateItem(
     labor_role_id: nextLaborRoleId,
     category_id: nextCategoryId,
     supply_type_id: nextSupplyTypeId,
+    selected_supplier_price_id: nextSelectedSupplierPriceId,
     line_total_ht_cents: lineValues.saleLineCents,
     line_tax_cents: lineValues.taxLineCents,
     line_total_ttc_cents: lineValues.ttcLineCents,
