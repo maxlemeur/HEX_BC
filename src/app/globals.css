@@ -1434,11 +1434,15 @@ body {
 }
 
 .estimate-table {
-  --estimate-grid: minmax(220px, 2.2fr) 80px 80px 110px 140px 70px 80px 140px 70px 110px 120px 110px;
+  --estimate-grid: 52px minmax(220px, 2.2fr) 80px 80px 110px 140px 70px 80px 130px 130px 80px 110px 120px 110px;
   border: 1px solid var(--slate-200);
   border-radius: 16px;
   overflow-x: auto;
   background: white;
+}
+
+.estimate-table--labor-split {
+  --estimate-grid: 52px minmax(220px, 2.2fr) 80px 80px 110px 140px 70px 100px 90px 140px 90px 90px 140px 90px 110px 120px 110px;
 }
 
 .estimate-table__head {
@@ -1446,7 +1450,7 @@ body {
   grid-template-columns: var(--estimate-grid);
   background: var(--slate-50);
   border-bottom: 1px solid var(--slate-200);
-  min-width: 1240px;
+  min-width: 1512px;
 }
 
 .estimate-table__head > div {
@@ -1461,7 +1465,12 @@ body {
 .estimate-table__body {
   display: flex;
   flex-direction: column;
-  min-width: 1240px;
+  min-width: 1512px;
+}
+
+.estimate-table--labor-split .estimate-table__head,
+.estimate-table--labor-split .estimate-table__body {
+  min-width: 1920px;
 }
 
 .estimate-group {
@@ -1490,6 +1499,24 @@ body {
   color: var(--slate-700);
 }
 
+.estimate-cell--focusable {
+  position: relative;
+  transition: background-color 0.15s ease, outline-color 0.15s ease;
+}
+
+.estimate-cell--focusable:focus-visible,
+.estimate-cell--active {
+  outline: 2px solid rgba(30, 58, 95, 0.45);
+  outline-offset: -2px;
+  background: rgba(30, 58, 95, 0.05);
+}
+
+.estimate-cell--editing {
+  outline: 2px solid rgba(232, 115, 47, 0.55);
+  outline-offset: -2px;
+  background: rgba(232, 115, 47, 0.08);
+}
+
 .estimate-cell--designation {
   display: flex;
   align-items: center;
@@ -1497,11 +1524,22 @@ body {
 }
 
 .estimate-cell--section-actions {
-  grid-column: 2 / -1;
+  grid-column: 3 / -1;
 }
 
 .estimate-cell--suggestion {
   grid-column: 1 / -1;
+}
+
+.estimate-cell--selection {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.estimate-line-checkbox {
+  width: 16px;
+  height: 16px;
 }
 
 .estimate-cell--total {

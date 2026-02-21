@@ -1316,27 +1316,57 @@ export type Database = {
           created_at: string;
           updated_at: string;
           tenant_id: string;
-          user_id: string;
+          created_by: string;
+          source_version_id: string | null;
           name: string;
           description: string | null;
+          margin_multiplier: number;
+          margin_mode: "fixed" | "tiered";
+          currency: string;
+          margin_bp: number;
+          discount_bp: number;
+          tax_rate_bp: number;
+          rounding_mode: "none" | "nearest" | "up" | "down";
+          rounding_step_cents: number;
+          validite_jours: number;
         };
         Insert: {
           id?: string;
           created_at?: string;
           updated_at?: string;
           tenant_id?: string;
-          user_id: string;
+          created_by: string;
+          source_version_id?: string | null;
           name: string;
           description?: string | null;
+          margin_multiplier?: number;
+          margin_mode?: "fixed" | "tiered";
+          currency?: string;
+          margin_bp?: number;
+          discount_bp?: number;
+          tax_rate_bp?: number;
+          rounding_mode?: "none" | "nearest" | "up" | "down";
+          rounding_step_cents?: number;
+          validite_jours?: number;
         };
         Update: {
           id?: string;
           created_at?: string;
           updated_at?: string;
           tenant_id?: string;
-          user_id?: string;
+          created_by?: string;
+          source_version_id?: string | null;
           name?: string;
           description?: string | null;
+          margin_multiplier?: number;
+          margin_mode?: "fixed" | "tiered";
+          currency?: string;
+          margin_bp?: number;
+          discount_bp?: number;
+          tax_rate_bp?: number;
+          rounding_mode?: "none" | "nearest" | "up" | "down";
+          rounding_step_cents?: number;
+          validite_jours?: number;
         };
         Relationships: [];
       };
@@ -1506,7 +1536,10 @@ export type Database = {
           p_date_devis: string | null;
           p_validite_jours: number | null;
         };
-        Returns: string;
+        Returns: {
+          project_id: string;
+          version_id: string;
+        }[];
       };
       link_mapped_rows_to_catalogue: {
         Args: {

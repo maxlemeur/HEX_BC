@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
@@ -12,10 +12,11 @@ import {
 } from "./schemas";
 
 type Supabase = SupabaseClient<Database>;
-type JsonRecord = Record<string, unknown>;
+type JsonRecord = { [key: string]: Json | undefined };
 
 type MappingRow = Database["public"]["Tables"]["dpgf_mappings"]["Row"];
 type MappingInsert = Database["public"]["Tables"]["dpgf_mappings"]["Insert"];
+type MappedRowInsert = Database["public"]["Tables"]["dpgf_rows_mapped"]["Insert"];
 type TemplateRow = Database["public"]["Tables"]["mapping_templates"]["Row"];
 type TemplateInsert = Database["public"]["Tables"]["mapping_templates"]["Insert"];
 type MemoryRow = Database["public"]["Tables"]["mapping_memory"]["Row"];
@@ -255,6 +256,25 @@ function normalizeComparisonToken(value: unknown): string {
   return normalizeText(value).toLowerCase();
 }
 
+function toJsonValue(value: unknown): Json {
+  if (value === null) return null;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => toJsonValue(entry));
+  }
+  if (typeof value === "object") {
+    const output: Record<string, Json> = {};
+    for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+      if (nestedValue === undefined) continue;
+      output[key] = toJsonValue(nestedValue);
+    }
+    return output;
+  }
+  return normalizeText(value);
+}
+
 function stripAccents(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
@@ -387,10 +407,27 @@ function computeDuplicateGroupsFromPreview(rows: MappingPreviewRow[]) {
   return duplicates;
 }
 
-function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetField | null {
+export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetField | null {
   const normalized = stripAccents(sourceColumn.trim().toLowerCase()).replace(/[^a-z0-9]+/g, " ");
+  const words = normalized.split(" ").filter(Boolean);
+  const wordSet = new Set(words);
+  const hasWordPrefix = (prefix: string) => words.some((word) => word.startsWith(prefix));
 
   if (!normalized) return null;
+
+  if (
+    (wordSet.has("type") && wordSet.has("fo")) ||
+    (wordSet.has("famille") && wordSet.has("fo"))
+  ) {
+    return "supply_type";
+  }
+
+  if (
+    (wordSet.has("majoration") && wordSet.has("mo")) ||
+    (wordSet.has("temps") && hasWordPrefix("major"))
+  ) {
+    return "h_mo_majoration";
+  }
 
   if (
     (normalized.includes("code") &&
@@ -555,6 +592,39 @@ async function loadImportRows(
   }
 
   return data ?? [];
+}
+
+async function loadAllImportRows(
+  supabase: Supabase,
+  importId: string,
+  tenantId: string
+): Promise<Array<{ id: string; row_index: number; payload: unknown }>> {
+  const pageSize = 1000;
+  let offset = 0;
+  const rows: Array<{ id: string; row_index: number; payload: unknown }> = [];
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("dpgf_rows_raw")
+      .select("id, row_index, payload")
+      .eq("import_id", importId)
+      .eq("tenant_id", tenantId)
+      .order("row_index", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de charger les lignes source.");
+    }
+
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < pageSize) {
+      break;
+    }
+    offset += pageSize;
+  }
+
+  return rows;
 }
 
 function buildPreviewRows(
@@ -974,6 +1044,64 @@ export async function createMapping(input: {
     throw internalError("Impossible de creer le mapping.");
   }
 
+  const rawRows = await loadAllImportRows(supabase, input.import_id, tenantId);
+  const mappedRowsPayload: MappedRowInsert[] = rawRows.map((row) => {
+    const rawRow = asRecord(row.payload) ?? {};
+    const mappedRow = applyMappingToPayload(rawRow, input.mapping);
+    const rawRowJson = toJsonValue(rawRow) as Record<string, Json>;
+    const mappedRowJson = toJsonValue(mappedRow) as Record<string, Json>;
+    const reference = normalizeText(mappedRow.reference ?? mappedRow.hex_code);
+    const hexCode = normalizeText(mappedRow.hex_code ?? mappedRow.reference);
+    const designation = normalizeText(mappedRow.designation);
+    const supplyType = normalizeText(mappedRow.supply_type);
+    const hMoMajoration = normalizeText(mappedRow.h_mo_majoration);
+
+    return {
+      import_id: input.import_id,
+      raw_row_id: row.id,
+      status: "mapped",
+      payload: {
+        raw_row_id: row.id,
+        row_index: row.row_index,
+        raw_row: rawRowJson,
+        mapped_row: mappedRowJson,
+        ...mappedRowJson,
+        reference: reference || null,
+        hex_code: hexCode || null,
+        designation: designation || null,
+        supply_type: supplyType || null,
+        h_mo_majoration: hMoMajoration || null,
+      } as Json,
+    };
+  });
+
+  const { error: deleteMappedRowsError } = await supabase
+    .from("dpgf_rows_mapped")
+    .delete()
+    .eq("import_id", input.import_id)
+    .eq("tenant_id", tenantId);
+
+  if (deleteMappedRowsError) {
+    throw mapSupabaseError(deleteMappedRowsError, "Impossible de rafraichir les lignes mappees.");
+  }
+
+  if (mappedRowsPayload.length > 0) {
+    const pageSize = 500;
+    for (let index = 0; index < mappedRowsPayload.length; index += pageSize) {
+      const batch = mappedRowsPayload.slice(index, index + pageSize);
+      const { error: insertMappedRowsError } = await supabase
+        .from("dpgf_rows_mapped")
+        .insert(batch);
+
+      if (insertMappedRowsError) {
+        throw mapSupabaseError(
+          insertMappedRowsError,
+          "Impossible de persister les lignes mappees."
+        );
+      }
+    }
+  }
+
   await touchMappingMemory(supabase, tenantId, userId, input.mapping);
 
   return {
@@ -981,6 +1109,7 @@ export async function createMapping(input: {
     validation,
     duplicates,
     template: savedTemplate,
+    mapped_rows_count: mappedRowsPayload.length,
   };
 }
 

@@ -2,9 +2,17 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
+import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import {
   EstimateSettingsPanel,
   type EstimateSettingsState,
@@ -16,6 +24,7 @@ import {
 } from "@/components/estimates/EstimateSuggestionRulesManager";
 import { ExportDropdown } from "@/components/ExportDropdown";
 import { useUserContext } from "@/components/UserContext";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import {
   computeEstimateLineValues,
   computeEstimateTotals,
@@ -26,11 +35,20 @@ import {
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import {
+  serializeBufferedUpdates,
+  shouldFlushBufferedUpdates,
+  upsertBufferedUpdate,
+} from "@/lib/estimates/bulk-buffer";
+import {
   countEstimateQualityFlags,
   computeEstimateQualityFlagsByItemId,
   ESTIMATE_QUALITY_FLAG_META,
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
+import {
+  resolveEstimateEditorVirtualizationConfig,
+  type EstimateEditorVirtualizationRuntimeConfig,
+} from "@/lib/estimate-editor-virtualization";
 import {
   exportToCSV,
   exportToExcelWithSheets,
@@ -38,7 +56,6 @@ import {
 } from "@/lib/export";
 import {
   bulkUpdateEstimateItems,
-  createEstimateCategory,
   createEstimateItem,
   createEstimateLaborRole,
   createEstimateSuggestionRule,
@@ -48,11 +65,11 @@ import {
   isEstimateApiError,
   reorderEstimateItems,
   saveEstimateVersion,
-  updateEstimateItem,
   updateEstimateLaborRole,
   updateEstimateStatus,
   updateEstimateSuggestionRule,
 } from "@/lib/estimates/client";
+import { useDraftLock } from "@/hooks/useDraftLock";
 import type { Database } from "@/types/database";
 
 type EstimateVersionRow =
@@ -60,6 +77,7 @@ type EstimateVersionRow =
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
+type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
@@ -68,6 +86,15 @@ type EstimateQualityFilter = "all_lines" | "with_anomalies" | EstimateQualityFla
 
 type EstimateVersionView = EstimateVersionRow & {
   estimate_projects: { name: string } | { name: string }[] | null;
+};
+
+type LaborSplitItemFields = {
+  h_mo_atelier?: number | null;
+  k_mo_atelier?: number | null;
+  labor_role_atelier_id?: string | null;
+  h_mo_chantier?: number | null;
+  k_mo_chantier?: number | null;
+  labor_role_chantier_id?: string | null;
 };
 
 type ItemPatch = Partial<
@@ -80,11 +107,22 @@ type ItemPatch = Partial<
     | "tax_rate_bp"
     | "k_fo"
     | "h_mo"
+    | "h_mo_majoration"
     | "k_mo"
     | "pu_ht_cents"
     | "labor_role_id"
     | "category_id"
+    | "supply_type_id"
   >
+> &
+  LaborSplitItemFields;
+
+type EstimateItemUpdatePayload =
+  Database["public"]["Tables"]["estimate_items"]["Update"] &
+    LaborSplitItemFields;
+type EstimateVersionTotalsPatch = Pick<
+  EstimateVersionRow,
+  "total_ht_cents" | "total_tax_cents" | "total_ttc_cents"
 >;
 
 type EstimateRecapExportRow = {
@@ -115,11 +153,18 @@ type EstimateLineExportRow = {
   unit: string;
   quantity: number | "";
   unit_price_ht_cents: number | "";
-  category: string;
+  supply_type: string;
   k_fo: number | "";
   h_mo: number | "";
+  h_mo_majoration_pct: number | "";
   labor_role: string;
   k_mo: number | "";
+  h_mo_atelier: number | "";
+  labor_role_atelier: string;
+  k_mo_atelier: number | "";
+  h_mo_chantier: number | "";
+  labor_role_chantier: string;
+  k_mo_chantier: number | "";
   pu_ht_cents: number | "";
   line_total_ht_cents: number | "";
   tax_rate_bp: number | "";
@@ -141,9 +186,32 @@ type EstimateConflictDraft = {
   items: EstimateItem[];
   saved_at: string;
 };
+type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
+type EstimateEditorVirtualizationConfig = NonNullable<
+  EstimateEditorTableProps["virtualization"]
+>;
 
 const AUDIT_LOG_LIMIT = 25;
 const CONFLICT_DRAFT_STORAGE_PREFIX = "estimate:edit:conflict-draft:";
+const BULK_AUTOSAVE_DEBOUNCE_MS = 300;
+const BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES = 100;
+const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
+const LABOR_SPLIT_FIELD_KEYS = [
+  "h_mo_atelier",
+  "k_mo_atelier",
+  "labor_role_atelier_id",
+  "h_mo_chantier",
+  "k_mo_chantier",
+  "labor_role_chantier_id",
+] as const;
+type LaborSplitFieldKey = (typeof LABOR_SPLIT_FIELD_KEYS)[number];
+const ESTIMATE_EDITOR_VIRTUALIZATION_CONFIG: EstimateEditorVirtualizationRuntimeConfig =
+  resolveEstimateEditorVirtualizationConfig({
+    enabled: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_ENABLED,
+    rowEstimate: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_ROW_ESTIMATE,
+    overscan: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_OVERSCAN,
+    maxHeight: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_CONTAINER_HEIGHT,
+  });
 
 function getProjectName(
   value: EstimateVersionView["estimate_projects"]
@@ -227,6 +295,57 @@ function toNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function toFiniteNumber(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readLaborSplitFields(
+  source: EstimateItem | Record<string, unknown>
+): Required<LaborSplitItemFields> {
+  const record = source as Record<string, unknown>;
+  return {
+    h_mo_atelier: toFiniteNumber(record.h_mo_atelier, 0),
+    k_mo_atelier: toFiniteNumber(record.k_mo_atelier, 1),
+    labor_role_atelier_id: toNonEmptyString(record.labor_role_atelier_id),
+    h_mo_chantier: toFiniteNumber(record.h_mo_chantier, 0),
+    k_mo_chantier: toFiniteNumber(record.k_mo_chantier, 1),
+    labor_role_chantier_id: toNonEmptyString(record.labor_role_chantier_id),
+  };
+}
+
+function hasLaborSplitFields(source: EstimateItem | Record<string, unknown>) {
+  const record = source as Record<string, unknown>;
+  return LABOR_SPLIT_FIELD_KEYS.some((key) => key in record);
+}
+
+function appendLaborSplitFields(
+  source: EstimateItem | Record<string, unknown>,
+  target: EstimateItemUpdatePayload | Record<string, unknown>
+) {
+  const sourceRecord = source as Record<string, unknown>;
+  const targetRecord = target as Record<string, unknown>;
+
+  LABOR_SPLIT_FIELD_KEYS.forEach((key) => {
+    if (!(key in sourceRecord)) return;
+    targetRecord[key] = sourceRecord[key as LaborSplitFieldKey] ?? null;
+  });
+}
+
+function resolveLaborRoleHourlyRate(
+  role: LaborRole | Record<string, unknown>,
+  scope: "default" | "atelier" | "chantier"
+) {
+  const record = role as Record<string, unknown>;
+  const fallbackRate = toFiniteNumber(record.hourly_rate_cents, 0);
+  if (scope === "atelier") {
+    return toFiniteNumber(record.hourly_rate_atelier_cents, fallbackRate);
+  }
+  if (scope === "chantier") {
+    return toFiniteNumber(record.hourly_rate_chantier_cents, fallbackRate);
+  }
+  return fallbackRate;
 }
 
 function resolveAuditErrorMessage(payload: unknown, fallback: string) {
@@ -371,9 +490,10 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
     header: "Prix unitaire HT (EUR)",
     formatter: (value) => (typeof value === "number" ? value / 100 : ""),
   },
-  { key: "category", header: "Categorie" },
+  { key: "supply_type", header: "Type FO" },
   { key: "k_fo", header: "K FO" },
   { key: "h_mo", header: "h MO" },
+  { key: "h_mo_majoration_pct", header: "Majoration MO (%)" },
   { key: "labor_role", header: "Role MO" },
   { key: "k_mo", header: "K MO" },
   {
@@ -396,6 +516,16 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
     header: "Total TTC (EUR)",
     formatter: (value) => (typeof value === "number" ? value / 100 : ""),
   },
+];
+
+const LINE_EXPORT_COLUMNS_WITH_LABOR_SPLIT: ExportColumn<EstimateLineExportRow>[] = [
+  ...LINE_EXPORT_COLUMNS,
+  { key: "h_mo_atelier", header: "h MO atelier" },
+  { key: "labor_role_atelier", header: "Role MO atelier" },
+  { key: "k_mo_atelier", header: "K MO atelier" },
+  { key: "h_mo_chantier", header: "h MO chantier" },
+  { key: "labor_role_chantier", header: "Role MO chantier" },
+  { key: "k_mo_chantier", header: "K MO chantier" },
 ];
 
 function estimateStatusLabel(status: EstimateStatus) {
@@ -440,12 +570,54 @@ function isVersionConflictError(error: unknown): boolean {
   return isEstimateApiError(error) && error.status === 409;
 }
 
+function buildVersionTotalsPatch(
+  totals: EstimateTotals | null
+): EstimateVersionTotalsPatch | undefined {
+  if (!totals) return undefined;
+  return {
+    total_ht_cents: totals.saleTotalCents,
+    total_tax_cents: totals.adjustedTaxCents,
+    total_ttc_cents: totals.roundedTtcCents,
+  };
+}
+
+function buildEstimateItemUpdatePayload(item: EstimateItem): EstimateItemUpdatePayload {
+  if (item.item_type === "line") {
+    const payload: EstimateItemUpdatePayload = {
+      title: item.title,
+      description: item.description ?? null,
+      quantity: item.quantity,
+      unit_price_ht_cents: item.unit_price_ht_cents,
+      tax_rate_bp: item.tax_rate_bp,
+      k_fo: item.k_fo,
+      h_mo: item.h_mo,
+      h_mo_majoration: item.h_mo_majoration,
+      k_mo: item.k_mo,
+      pu_ht_cents: item.pu_ht_cents,
+      labor_role_id: item.labor_role_id,
+      category_id: item.category_id,
+      supply_type_id: item.supply_type_id,
+      line_total_ht_cents: item.line_total_ht_cents,
+      line_tax_cents: item.line_tax_cents,
+      line_total_ttc_cents: item.line_total_ttc_cents,
+    };
+
+    appendLaborSplitFields(item, payload);
+    return payload;
+  }
+
+  return {
+    title: item.title,
+  };
+}
+
 export default function EditEstimatePage() {
   const params = useParams();
   const rawVersionId = params?.["versionId"];
   const versionId = Array.isArray(rawVersionId) ? rawVersionId[0] : rawVersionId;
   const resolvedVersionId = typeof versionId === "string" ? versionId : "";
   const { profile } = useUserContext();
+  const { enabled: isLaborSplitEnabled } = useFeatureFlag(LABOR_SPLIT_FLAG_KEY);
 
   const [version, setVersion] = useState<EstimateVersionView | null>(null);
   const [settings, setSettings] = useState<EstimateSettingsState | null>(null);
@@ -453,6 +625,7 @@ export default function EditEstimatePage() {
     useState<EstimateSettingsState | null>(null);
   const [items, setItems] = useState<EstimateItem[]>([]);
   const [categories, setCategories] = useState<EstimateCategory[]>([]);
+  const [supplyTypes, setSupplyTypes] = useState<SupplyType[]>([]);
   const [laborRoles, setLaborRoles] = useState<LaborRole[]>([]);
   const [suggestionRules, setSuggestionRules] = useState<SuggestionRule[]>([]);
   const [qualityFilter, setQualityFilter] =
@@ -477,9 +650,20 @@ export default function EditEstimatePage() {
   const [restorableDraft, setRestorableDraft] =
     useState<EstimateConflictDraft | null>(null);
   const [isReloadingVersion, setIsReloadingVersion] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   const itemsRef = useRef<EstimateItem[]>([]);
-  const lastTotalsKey = useRef<string | null>(null);
+  const versionRef = useRef<EstimateVersionView | null>(null);
+  const persistedTotalsRef = useRef<EstimateTotals | null>(null);
+  const isSaveBlockedRef = useRef(false);
+  const pendingItemUpdatesRef = useRef<Map<string, EstimateItemUpdatePayload>>(
+    new Map()
+  );
+  const pendingBufferedUpdateCountRef = useRef(0);
+  const bufferedFlushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const isFlushingBufferedUpdatesRef = useRef(false);
 
   const registerVersionConflict = useCallback((error: unknown) => {
     if (!isVersionConflictError(error) || !isEstimateApiError(error)) {
@@ -560,6 +744,7 @@ export default function EditEstimatePage() {
         setVersion(versionRow);
         setItems(normalizedItems);
         setCategories(data.categories ?? []);
+        setSupplyTypes(data.supplyTypes ?? []);
         setLaborRoles(rolesData);
         setSuggestionRules(data.suggestionRules ?? []);
         setSettings(initialSettings);
@@ -578,7 +763,14 @@ export default function EditEstimatePage() {
               original.tax_rate_bp !== item.tax_rate_bp ||
               original.k_fo !== item.k_fo ||
               original.h_mo !== item.h_mo ||
+              original.h_mo_majoration !== item.h_mo_majoration ||
               original.k_mo !== item.k_mo ||
+              original.supply_type_id !== item.supply_type_id ||
+              LABOR_SPLIT_FIELD_KEYS.some(
+                (key) =>
+                  (original as unknown as Record<string, unknown>)[key] !==
+                  (item as unknown as Record<string, unknown>)[key]
+              ) ||
               original.pu_ht_cents !== item.pu_ht_cents ||
               original.line_total_ht_cents !== item.line_total_ht_cents ||
               original.line_tax_cents !== item.line_tax_cents ||
@@ -593,16 +785,21 @@ export default function EditEstimatePage() {
                 versionRow.updated_at,
                 updates.map((item) => ({
                   id: item.id,
-                  updates: {
-                    tax_rate_bp: item.tax_rate_bp,
-                    k_fo: item.k_fo,
-                    h_mo: item.h_mo,
-                    k_mo: item.k_mo,
-                    pu_ht_cents: item.pu_ht_cents,
-                    line_total_ht_cents: item.line_total_ht_cents,
-                    line_tax_cents: item.line_tax_cents,
-                    line_total_ttc_cents: item.line_total_ttc_cents,
-                  },
+                updates: {
+                  tax_rate_bp: item.tax_rate_bp,
+                  k_fo: item.k_fo,
+                  h_mo: item.h_mo,
+                  h_mo_majoration: item.h_mo_majoration,
+                  k_mo: item.k_mo,
+                  supply_type_id: item.supply_type_id,
+                  ...(isLaborSplitEnabled || hasLaborSplitFields(item)
+                    ? (readLaborSplitFields(item) as LaborSplitItemFields)
+                    : {}),
+                  pu_ht_cents: item.pu_ht_cents,
+                  line_total_ht_cents: item.line_total_ht_cents,
+                  line_tax_cents: item.line_tax_cents,
+                  line_total_ttc_cents: item.line_total_ttc_cents,
+                },
                 }))
               );
 
@@ -624,6 +821,9 @@ export default function EditEstimatePage() {
               if (active) {
                 if (!registerVersionConflict(error)) {
                   setActionError("Impossible de mettre a jour les lignes.");
+                } else {
+                  setIsReloadingVersion(true);
+                  setReloadNonce((prev) => prev + 1);
                 }
               }
             }
@@ -649,16 +849,74 @@ export default function EditEstimatePage() {
     return () => {
       active = false;
     };
-  }, [registerVersionConflict, resolvedVersionId]);
+  }, [isLaborSplitEnabled, registerVersionConflict, reloadNonce, resolvedVersionId]);
+
+  const {
+    holderName: draftLockHolderName,
+    isOwnedByCurrentUser: isDraftLockOwnedByCurrentUser,
+    isLockedByOther: isDraftLockedByOther,
+    isAcquiring: isDraftLockAcquiring,
+    isForcingUnlock: isForcingDraftUnlock,
+    error: draftLockError,
+    release: releaseDraftLock,
+    forceUnlockAndAcquire: forceUnlockAndAcquireDraftLock,
+  } = useDraftLock({
+    versionId: resolvedVersionId,
+    enabled: Boolean(resolvedVersionId && version?.status === "draft"),
+    currentUserId: profile?.id ?? null,
+  });
 
   const projectName = getProjectName(version?.estimate_projects ?? null);
   const isAdmin = profile?.role === "admin";
-  const isReadOnly = version ? version.status !== "draft" : false;
+  const lockHolderLabel = draftLockHolderName ?? "un autre utilisateur";
+  const isStatusReadOnly = version ? version.status !== "draft" : false;
+  const isDraftLockPending =
+    version?.status === "draft" &&
+    !isDraftLockedByOther &&
+    !isDraftLockOwnedByCurrentUser;
+  const isReadOnly = isStatusReadOnly || isDraftLockedByOther || isDraftLockPending;
   const isConflictLocked = conflictState !== null;
   const isSaveBlocked = isReadOnly || isConflictLocked;
+  const readOnlyActionErrorMessage =
+    isDraftLockPending && !isDraftLockedByOther
+      ? "Acquisition du verrou de brouillon en cours."
+      : isDraftLockedByOther
+        ? `Verrouille par ${lockHolderLabel}.`
+        : "Cette version est en lecture seule.";
   const canSend = version?.status === "draft";
   const canAccept = version?.status === "sent";
   const canArchive = version?.status !== "archived";
+
+  useEffect(() => {
+    versionRef.current = version;
+  }, [version]);
+
+  useEffect(() => {
+    isSaveBlockedRef.current = isSaveBlocked;
+  }, [isSaveBlocked]);
+  const editorTableBaseConfig = useMemo(
+    () => ({
+      marginMultiplier: settings?.margin_multiplier ?? 1,
+      discountCents: settings?.discount_cents ?? 0,
+      taxRateBp: settings?.tax_rate_bp ?? 0,
+      isReadOnly: isReadOnly || isConflictLocked,
+    }),
+    [
+      isConflictLocked,
+      isReadOnly,
+      settings?.discount_cents,
+      settings?.margin_multiplier,
+      settings?.tax_rate_bp,
+    ]
+  );
+  const editorTableVirtualization: EstimateEditorVirtualizationConfig =
+    ESTIMATE_EDITOR_VIRTUALIZATION_CONFIG;
+  const handleQualityFilterChange = useCallback(
+    (nextFilter: EstimateQualityFilter) => {
+      setQualityFilter(nextFilter);
+    },
+    []
+  );
 
   const persistConflictDraft = useCallback(() => {
     if (!resolvedVersionId) return;
@@ -673,15 +931,63 @@ export default function EditEstimatePage() {
     setRestorableDraft(draft);
   }, [items, resolvedVersionId, settings]);
 
+  const clearBufferedItemUpdates = useCallback(() => {
+    if (bufferedFlushTimeoutRef.current !== null) {
+      clearTimeout(bufferedFlushTimeoutRef.current);
+      bufferedFlushTimeoutRef.current = null;
+    }
+    pendingItemUpdatesRef.current.clear();
+    pendingBufferedUpdateCountRef.current = 0;
+  }, []);
+
+  const triggerVersionReload = useCallback(() => {
+    if (!resolvedVersionId) return;
+    setIsReloadingVersion(true);
+    setReloadNonce((prev) => prev + 1);
+  }, [resolvedVersionId]);
+
+  const handleVersionConflict = useCallback(
+    (error: unknown, options?: { persistDraft?: boolean }) => {
+      if (!registerVersionConflict(error)) return false;
+      if (options?.persistDraft) {
+        persistConflictDraft();
+      }
+      clearBufferedItemUpdates();
+      triggerVersionReload();
+      return true;
+    },
+    [
+      clearBufferedItemUpdates,
+      persistConflictDraft,
+      registerVersionConflict,
+      triggerVersionReload,
+    ]
+  );
+
   const handleReloadAfterConflict = useCallback(() => {
     if (!resolvedVersionId) return;
 
     persistConflictDraft();
     setConflictState(null);
     setActionError(null);
-    setIsReloadingVersion(true);
-    window.location.reload();
-  }, [persistConflictDraft, resolvedVersionId]);
+    triggerVersionReload();
+  }, [persistConflictDraft, resolvedVersionId, triggerVersionReload]);
+
+  const handleForceUnlockDraftLock = useCallback(async () => {
+    setActionError(null);
+
+    const acquired = await forceUnlockAndAcquireDraftLock();
+    if (!acquired) {
+      setActionError(
+        draftLockError ??
+          "Impossible de forcer le deverrouillage de cette version."
+      );
+      return;
+    }
+
+    setConflictState(null);
+    triggerVersionReload();
+  }, [draftLockError, forceUnlockAndAcquireDraftLock, triggerVersionReload]);
 
   const handleRestoreConflictDraft = useCallback(() => {
     if (!restorableDraft) return;
@@ -763,18 +1069,34 @@ export default function EditEstimatePage() {
   const laborRateById = useMemo(() => {
     const map = new Map<string, number>();
     laborRoles.forEach((role) => {
-      map.set(role.id, role.hourly_rate_cents);
+      map.set(role.id, resolveLaborRoleHourlyRate(role, "default"));
     });
     return map;
   }, [laborRoles]);
 
-  const categoryById = useMemo(() => {
-    const map = new Map<string, EstimateCategory>();
-    categories.forEach((category) => {
-      map.set(category.id, category);
+  const laborRateAtelierById = useMemo(() => {
+    const map = new Map<string, number>();
+    laborRoles.forEach((role) => {
+      map.set(role.id, resolveLaborRoleHourlyRate(role, "atelier"));
     });
     return map;
-  }, [categories]);
+  }, [laborRoles]);
+
+  const laborRateChantierById = useMemo(() => {
+    const map = new Map<string, number>();
+    laborRoles.forEach((role) => {
+      map.set(role.id, resolveLaborRoleHourlyRate(role, "chantier"));
+    });
+    return map;
+  }, [laborRoles]);
+
+  const supplyTypeById = useMemo(() => {
+    const map = new Map<string, SupplyType>();
+    supplyTypes.forEach((supplyType) => {
+      map.set(supplyType.id, supplyType);
+    });
+    return map;
+  }, [supplyTypes]);
 
   const laborRoleById = useMemo(() => {
     const map = new Map<string, LaborRole>();
@@ -794,25 +1116,119 @@ export default function EditEstimatePage() {
     [qualityFlagsByItemId]
   );
 
+  const buildLineCalculationInput = useCallback(
+    (
+      item: EstimateItem,
+      options?: {
+        taxRateBp?: number;
+        rateOverrideByRoleId?: string;
+        hourlyRateCents?: number;
+        hourlyRateAtelierCents?: number;
+        hourlyRateChantierCents?: number;
+      }
+    ) => {
+      const splitFields = readLaborSplitFields(item);
+      const taxRate = options?.taxRateBp ?? item.tax_rate_bp ?? 0;
+      const kFo = item.k_fo ?? 1;
+      const hMo = item.h_mo ?? 0;
+      const hMoMajoration = item.h_mo_majoration ?? 1;
+      const kMo = item.k_mo ?? 1;
+      const overrideRoleId = options?.rateOverrideByRoleId;
+
+      const resolveRate = (
+        roleId: string | null | undefined,
+        map: Map<string, number>,
+        overrideRate: number | undefined
+      ) => {
+        if (!roleId) return 0;
+        if (overrideRoleId && roleId === overrideRoleId) {
+          return Math.max(toFiniteNumber(overrideRate, 0), 0);
+        }
+        return map.get(roleId) ?? 0;
+      };
+
+      const hourlyRate = resolveRate(
+        item.labor_role_id,
+        laborRateById,
+        options?.hourlyRateCents
+      );
+      const hourlyRateAtelier = resolveRate(
+        splitFields.labor_role_atelier_id,
+        laborRateAtelierById,
+        options?.hourlyRateAtelierCents ?? options?.hourlyRateCents
+      );
+      const hourlyRateChantier = resolveRate(
+        splitFields.labor_role_chantier_id,
+        laborRateChantierById,
+        options?.hourlyRateChantierCents ?? options?.hourlyRateCents
+      );
+
+      return {
+        ...item,
+        tax_rate_bp: taxRate,
+        k_fo: kFo,
+        h_mo: hMo,
+        h_mo_majoration: hMoMajoration,
+        k_mo: kMo,
+        ...splitFields,
+        labor_role_hourly_rate_cents: hourlyRate,
+        labor_role_atelier_hourly_rate_cents: hourlyRateAtelier,
+        labor_role_chantier_hourly_rate_cents: hourlyRateChantier,
+      };
+    },
+    [laborRateAtelierById, laborRateById, laborRateChantierById]
+  );
+
+  const computeLineValuesWithLaborContext = useCallback(
+    (
+      item: EstimateItem,
+      options: {
+        marginMultiplier: number;
+        taxRateBp: number;
+        rateOverrideByRoleId?: string;
+        hourlyRateCents?: number;
+        hourlyRateAtelierCents?: number;
+        hourlyRateChantierCents?: number;
+      }
+    ) => {
+      const lineInput = buildLineCalculationInput(item, {
+        taxRateBp: options.taxRateBp,
+        rateOverrideByRoleId: options.rateOverrideByRoleId,
+        hourlyRateCents: options.hourlyRateCents,
+        hourlyRateAtelierCents: options.hourlyRateAtelierCents,
+        hourlyRateChantierCents: options.hourlyRateChantierCents,
+      });
+      const lineComputationOptions = {
+        marginMultiplier: options.marginMultiplier,
+        taxRateBp: options.taxRateBp,
+        isLaborSplitEnabled,
+      };
+      return {
+        lineInput,
+        lineValues: computeEstimateLineValues(lineInput, lineComputationOptions),
+      };
+    },
+    [buildLineCalculationInput, isLaborSplitEnabled]
+  );
+
   const totals: EstimateTotals | null = useMemo(() => {
     if (!settings) return null;
     if (isReadOnly && version) {
-      return computeReadOnlyTotals({
+      const readOnlyTotalsInput = {
         items,
         version,
         discountCents: settings.discount_cents,
         laborRateById,
-      });
+        isLaborSplitEnabled,
+        laborRateAtelierById,
+        laborRateChantierById,
+      };
+      return computeReadOnlyTotals(readOnlyTotalsInput);
     }
     const lineItems = items
       .filter((item) => item.item_type === "line")
-      .map((item) => ({
-        ...item,
-        labor_role_hourly_rate_cents: item.labor_role_id
-          ? laborRateById.get(item.labor_role_id) ?? 0
-          : 0,
-      }));
-    return computeEstimateTotals({
+      .map((item) => buildLineCalculationInput(item));
+    const totalsInput = {
       lineItems,
       marginMultiplier: settings.margin_multiplier,
       marginMode: settings.margin_mode,
@@ -821,8 +1237,20 @@ export default function EditEstimatePage() {
       taxRateBp: settings.tax_rate_bp,
       roundingMode: settings.rounding_mode,
       roundingStepCents: settings.rounding_step_cents,
-    });
-  }, [isReadOnly, items, laborRateById, settings, version]);
+      isLaborSplitEnabled,
+    };
+    return computeEstimateTotals(totalsInput);
+  }, [
+    buildLineCalculationInput,
+    isLaborSplitEnabled,
+    isReadOnly,
+    items,
+    laborRateAtelierById,
+    laborRateById,
+    laborRateChantierById,
+    settings,
+    version,
+  ]);
 
   const buildExportFilename = useCallback(() => {
     const dateLabel = new Date().toISOString().split("T")[0];
@@ -868,11 +1296,18 @@ export default function EditEstimatePage() {
     return items
       .filter((item) => item.item_type === "line")
       .map((item) => {
-        const categoryLabel = item.category_id
-          ? categoryById.get(item.category_id)?.name ?? ""
+        const splitFields = readLaborSplitFields(item);
+        const supplyTypeLabel = item.supply_type_id
+          ? supplyTypeById.get(item.supply_type_id)?.name ?? ""
           : "";
         const laborLabel = item.labor_role_id
           ? laborRoleById.get(item.labor_role_id)?.name ?? ""
+          : "";
+        const laborAtelierLabel = splitFields.labor_role_atelier_id
+          ? laborRoleById.get(splitFields.labor_role_atelier_id)?.name ?? ""
+          : "";
+        const laborChantierLabel = splitFields.labor_role_chantier_id
+          ? laborRoleById.get(splitFields.labor_role_chantier_id)?.name ?? ""
           : "";
         const qualityFlagsLabel = (qualityFlagsByItemId[item.id] ?? [])
           .map((flag) => ESTIMATE_QUALITY_FLAG_META[flag].label)
@@ -885,18 +1320,36 @@ export default function EditEstimatePage() {
           unit: item.description?.trim() ?? "",
           quantity: item.quantity ?? "",
           unit_price_ht_cents: item.unit_price_ht_cents ?? "",
-          category: categoryLabel,
+          supply_type: supplyTypeLabel,
           k_fo: item.k_fo ?? "",
           h_mo: item.h_mo ?? "",
+          h_mo_majoration_pct:
+            item.h_mo_majoration === null || item.h_mo_majoration === undefined
+              ? ""
+              : Math.round(item.h_mo_majoration * 10000) / 100,
           labor_role: laborLabel,
           k_mo: item.k_mo ?? "",
+          h_mo_atelier: splitFields.h_mo_atelier ?? "",
+          labor_role_atelier: laborAtelierLabel,
+          k_mo_atelier: splitFields.k_mo_atelier ?? "",
+          h_mo_chantier: splitFields.h_mo_chantier ?? "",
+          labor_role_chantier: laborChantierLabel,
+          k_mo_chantier: splitFields.k_mo_chantier ?? "",
           pu_ht_cents: item.pu_ht_cents ?? "",
           line_total_ht_cents: item.line_total_ht_cents ?? "",
           tax_rate_bp: item.tax_rate_bp ?? "",
           line_total_ttc_cents: item.line_total_ttc_cents ?? "",
         };
       });
-  }, [categoryById, items, laborRoleById, qualityFlagsByItemId]);
+  }, [items, laborRoleById, qualityFlagsByItemId, supplyTypeById]);
+
+  const lineExportColumns = useMemo(
+    () =>
+      isLaborSplitEnabled
+        ? LINE_EXPORT_COLUMNS_WITH_LABOR_SPLIT
+        : LINE_EXPORT_COLUMNS,
+    [isLaborSplitEnabled]
+  );
 
   const handleExportExcel = useCallback(() => {
     if (isExporting) return;
@@ -917,7 +1370,7 @@ export default function EditEstimatePage() {
           {
             name: "Lignes",
             data: lines,
-            columns: LINE_EXPORT_COLUMNS,
+            columns: lineExportColumns,
           },
         ],
         { filename }
@@ -932,6 +1385,7 @@ export default function EditEstimatePage() {
     buildLineRows,
     buildRecapRow,
     isExporting,
+    lineExportColumns,
   ]);
 
   const handleExportCSV = useCallback(() => {
@@ -943,13 +1397,19 @@ export default function EditEstimatePage() {
     try {
       const lines = buildLineRows();
       const filename = buildExportFilename();
-      exportToCSV(lines, LINE_EXPORT_COLUMNS, { filename });
+      exportToCSV(lines, lineExportColumns, { filename });
     } catch (error) {
       console.error("Erreur lors de l'export CSV.", error);
     } finally {
       setIsExporting(false);
     }
-  }, [buildExportFilename, buildLineRows, buildRecapRow, isExporting]);
+  }, [
+    buildExportFilename,
+    buildLineRows,
+    buildRecapRow,
+    isExporting,
+    lineExportColumns,
+  ]);
 
   const isExportDisabled = isExporting || !version || !settings || !totals;
 
@@ -957,13 +1417,8 @@ export default function EditEstimatePage() {
     if (!savedSettings) return null;
     const lineItems = items
       .filter((item) => item.item_type === "line")
-      .map((item) => ({
-        ...item,
-        labor_role_hourly_rate_cents: item.labor_role_id
-          ? laborRateById.get(item.labor_role_id) ?? 0
-          : 0,
-      }));
-    return computeEstimateTotals({
+      .map((item) => buildLineCalculationInput(item));
+    const totalsInput = {
       lineItems,
       marginMultiplier: savedSettings.margin_multiplier,
       marginMode: savedSettings.margin_mode,
@@ -972,61 +1427,141 @@ export default function EditEstimatePage() {
       taxRateBp: savedSettings.tax_rate_bp,
       roundingMode: savedSettings.rounding_mode,
       roundingStepCents: savedSettings.rounding_step_cents,
-    });
-  }, [items, laborRateById, savedSettings]);
-
-  const retryTotalsSave = useCallback(async () => {
-    if (!persistedTotals || !version || isSaveBlocked) return;
-    try {
-      const updatedVersion = await saveEstimateVersion(
-        version.id,
-        {
-          total_ht_cents: persistedTotals.saleTotalCents,
-          total_tax_cents: persistedTotals.adjustedTaxCents,
-          total_ttc_cents: persistedTotals.roundedTtcCents,
-        },
-        version.updated_at
-      );
-      const totalsKey = `${persistedTotals.saleTotalCents}-${persistedTotals.adjustedTaxCents}-${persistedTotals.roundedTtcCents}`;
-      lastTotalsKey.current = totalsKey;
-      setTotalsOutOfSync(false);
-      setVersion((prev) => (prev ? { ...prev, ...updatedVersion } : prev));
-    } catch (error) {
-      if (!registerVersionConflict(error)) {
-        setTotalsOutOfSync(true);
-      }
-    }
-  }, [isSaveBlocked, persistedTotals, registerVersionConflict, version]);
+      isLaborSplitEnabled,
+    };
+    return computeEstimateTotals(totalsInput);
+  }, [buildLineCalculationInput, isLaborSplitEnabled, items, savedSettings]);
 
   useEffect(() => {
-    if (!persistedTotals || !version || isSaveBlocked) return;
-    const totalsKey = `${persistedTotals.saleTotalCents}-${persistedTotals.adjustedTaxCents}-${persistedTotals.roundedTtcCents}`;
-    if (totalsKey === lastTotalsKey.current) return;
+    persistedTotalsRef.current = persistedTotals;
+  }, [persistedTotals]);
 
-    const timeout = setTimeout(async () => {
-      try {
-        const updatedVersion = await saveEstimateVersion(
-          version.id,
-          {
-            total_ht_cents: persistedTotals.saleTotalCents,
-            total_tax_cents: persistedTotals.adjustedTaxCents,
-            total_ttc_cents: persistedTotals.roundedTtcCents,
-          },
-          version.updated_at
+  const flushBufferedItemUpdates = useCallback(async () => {
+    if (isFlushingBufferedUpdatesRef.current) return;
+    if (isSaveBlockedRef.current) return;
+
+    const versionSnapshot = versionRef.current;
+    if (!versionSnapshot) return;
+
+    const bufferedEntries = serializeBufferedUpdates(pendingItemUpdatesRef.current);
+    if (bufferedEntries.length === 0) return;
+
+    pendingItemUpdatesRef.current.clear();
+    pendingBufferedUpdateCountRef.current = 0;
+    if (bufferedFlushTimeoutRef.current !== null) {
+      clearTimeout(bufferedFlushTimeoutRef.current);
+      bufferedFlushTimeoutRef.current = null;
+    }
+
+    isFlushingBufferedUpdatesRef.current = true;
+
+    const versionTotalsPatch = buildVersionTotalsPatch(persistedTotalsRef.current);
+
+    try {
+      const bulkResult = await bulkUpdateEstimateItems(
+        versionSnapshot.id,
+        versionSnapshot.updated_at,
+        bufferedEntries,
+        versionTotalsPatch
+      );
+
+      setTotalsOutOfSync(false);
+      setVersion((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...(versionTotalsPatch ?? {}),
+              updated_at: bulkResult.versionToken.updated_at,
+            }
+          : prev
+      );
+    } catch (error) {
+      bufferedEntries.forEach((entry) => {
+        const existing = pendingItemUpdatesRef.current.get(entry.id) ?? {};
+        pendingItemUpdatesRef.current.set(entry.id, {
+          ...entry.updates,
+          ...existing,
+        });
+      });
+      pendingBufferedUpdateCountRef.current += bufferedEntries.length;
+
+      if (!handleVersionConflict(error, { persistDraft: true })) {
+        setTotalsOutOfSync(true);
+        setActionError(
+          resolveEstimateActionError(
+            error instanceof Error
+              ? error.message
+              : "Impossible de mettre a jour les lignes."
+          )
         );
-        lastTotalsKey.current = totalsKey;
-        setTotalsOutOfSync(false);
-        setVersion((prev) => (prev ? { ...prev, ...updatedVersion } : prev));
-      } catch (error) {
-        // A4: surface the error instead of silently swallowing it
-        if (!registerVersionConflict(error)) {
-          setTotalsOutOfSync(true);
-        }
       }
-    }, 400);
+    } finally {
+      isFlushingBufferedUpdatesRef.current = false;
 
-    return () => clearTimeout(timeout);
-  }, [isSaveBlocked, persistedTotals, registerVersionConflict, version]);
+      if (
+        pendingItemUpdatesRef.current.size > 0 &&
+        !isSaveBlockedRef.current &&
+        bufferedFlushTimeoutRef.current === null
+      ) {
+        bufferedFlushTimeoutRef.current = setTimeout(() => {
+          void flushBufferedItemUpdates();
+        }, BULK_AUTOSAVE_DEBOUNCE_MS);
+      }
+    }
+  }, [handleVersionConflict]);
+
+  const scheduleBufferedItemUpdatesFlush = useCallback(() => {
+    if (isSaveBlockedRef.current) return;
+
+    if (bufferedFlushTimeoutRef.current !== null) {
+      clearTimeout(bufferedFlushTimeoutRef.current);
+    }
+
+    bufferedFlushTimeoutRef.current = setTimeout(() => {
+      bufferedFlushTimeoutRef.current = null;
+      void flushBufferedItemUpdates();
+    }, BULK_AUTOSAVE_DEBOUNCE_MS);
+  }, [flushBufferedItemUpdates]);
+
+  const enqueueBufferedItemUpdate = useCallback(
+    (itemId: string, payload: EstimateItemUpdatePayload) => {
+      upsertBufferedUpdate(pendingItemUpdatesRef.current, itemId, payload);
+
+      pendingBufferedUpdateCountRef.current += 1;
+      if (
+        shouldFlushBufferedUpdates(
+          pendingBufferedUpdateCountRef.current,
+          BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES
+        )
+      ) {
+        if (bufferedFlushTimeoutRef.current !== null) {
+          clearTimeout(bufferedFlushTimeoutRef.current);
+          bufferedFlushTimeoutRef.current = null;
+        }
+        void flushBufferedItemUpdates();
+        return;
+      }
+
+      scheduleBufferedItemUpdatesFlush();
+    },
+    [flushBufferedItemUpdates, scheduleBufferedItemUpdatesFlush]
+  );
+
+  const retryTotalsSave = useCallback(async () => {
+    await flushBufferedItemUpdates();
+  }, [flushBufferedItemUpdates]);
+
+  useEffect(() => {
+    return () => {
+      clearBufferedItemUpdates();
+    };
+  }, [clearBufferedItemUpdates]);
+
+  useEffect(() => {
+    if (isSaveBlocked) return;
+    if (pendingItemUpdatesRef.current.size === 0) return;
+    scheduleBufferedItemUpdatesFlush();
+  }, [isSaveBlocked, scheduleBufferedItemUpdatesFlush]);
 
   const updateSettings = useCallback(
     (patch: Partial<EstimateSettingsState>) => {
@@ -1066,7 +1601,7 @@ export default function EditEstimatePage() {
   async function handleSaveSettings() {
     if (!settings || !version || !totals) return;
     if (isReadOnly) {
-      setActionError("Cette version est en lecture seule.");
+      setActionError(readOnlyActionErrorMessage);
       return;
     }
     if (isConflictLocked) {
@@ -1107,7 +1642,7 @@ export default function EditEstimatePage() {
         version.updated_at
       );
     } catch (error) {
-      if (!registerVersionConflict(error)) {
+      if (!handleVersionConflict(error, { persistDraft: true })) {
         setActionError(
           resolveEstimateActionError(
             error instanceof Error
@@ -1137,7 +1672,6 @@ export default function EditEstimatePage() {
     };
     setSavedSettings(nextSavedSettings);
     setSettings(nextSavedSettings);
-    lastTotalsKey.current = `${totals.saleTotalCents}-${totals.adjustedTaxCents}-${totals.roundedTtcCents}`;
     let latestVersionToken = updatedVersion.updated_at;
 
     const shouldUpdateLines =
@@ -1149,32 +1683,19 @@ export default function EditEstimatePage() {
         (item) => item.item_type === "line"
       );
       const updatedLines = lineItems.map((item) => {
-        const kFo = item.k_fo ?? 1;
-        const hMo = item.h_mo ?? 0;
-        const kMo = item.k_mo ?? 1;
-        const hourlyRate = item.labor_role_id
-          ? laborRateById.get(item.labor_role_id) ?? 0
-          : 0;
-        const lineValues = computeEstimateLineValues(
-          {
-            ...item,
-            tax_rate_bp: settings.tax_rate_bp,
-            k_fo: kFo,
-            h_mo: hMo,
-            k_mo: kMo,
-            labor_role_hourly_rate_cents: hourlyRate,
-          },
-          {
-            marginMultiplier: totals.appliedMarginMultiplier,
-            taxRateBp: settings.tax_rate_bp,
-          }
-        );
+        const { lineInput, lineValues } = computeLineValuesWithLaborContext(item, {
+          marginMultiplier: totals.appliedMarginMultiplier,
+          taxRateBp: settings.tax_rate_bp,
+        });
         return {
           ...item,
-          tax_rate_bp: settings.tax_rate_bp,
-          k_fo: kFo,
-          h_mo: hMo,
-          k_mo: kMo,
+          tax_rate_bp: lineInput.tax_rate_bp,
+          k_fo: lineInput.k_fo,
+          h_mo: lineInput.h_mo,
+          k_mo: lineInput.k_mo,
+          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
+            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
+            : {}),
           pu_ht_cents: lineValues.puHtCents,
           line_total_ht_cents: lineValues.saleLineCents,
           line_tax_cents: lineValues.taxLineCents,
@@ -1196,16 +1717,7 @@ export default function EditEstimatePage() {
           latestVersionToken,
           updatedLines.map((item) => ({
             id: item.id,
-            updates: {
-              tax_rate_bp: item.tax_rate_bp,
-              k_fo: item.k_fo,
-              h_mo: item.h_mo,
-              k_mo: item.k_mo,
-              pu_ht_cents: item.pu_ht_cents,
-              line_total_ht_cents: item.line_total_ht_cents,
-              line_tax_cents: item.line_tax_cents,
-              line_total_ttc_cents: item.line_total_ttc_cents,
-            },
+            updates: buildEstimateItemUpdatePayload(item),
           }))
         );
 
@@ -1219,7 +1731,7 @@ export default function EditEstimatePage() {
             : prev
         );
       } catch (error) {
-        if (!registerVersionConflict(error)) {
+        if (!handleVersionConflict(error, { persistDraft: true })) {
           setActionError("Impossible de mettre a jour les lignes.");
         }
         setIsSavingSettings(false);
@@ -1232,54 +1744,13 @@ export default function EditEstimatePage() {
     setIsSavingSettings(false);
   }
 
-  const handleEnsureCategory = useCallback(
-    async (name: string) => {
-      const trimmed = name.trim();
-      if (!trimmed) return null;
-      const existing = categories.find(
-        (category) => category.name.toLowerCase() === trimmed.toLowerCase()
-      );
-      if (existing) return existing;
-
-      if (!profile?.id) {
-        setActionError("Impossible de charger votre profil.");
-        return null;
-      }
-
-      const nextPosition =
-        categories.reduce((max, category) => Math.max(max, category.position), 0) +
-        1;
-
-      if (!version?.id) {
-        setActionError("Version introuvable.");
-        return null;
-      }
-
-      let data: EstimateCategory;
-      try {
-        data = await createEstimateCategory(version.id, {
-          name: trimmed,
-          color: null,
-          position: nextPosition,
-        });
-      } catch (error) {
-        setActionError(
-          error instanceof Error ? error.message : "Impossible de creer la categorie."
-        );
-        return null;
-      }
-
-      setCategories((prev) =>
-        [...prev, data].sort((a, b) => a.position - b.position)
-      );
-      return data;
-    },
-    [categories, profile, version?.id]
-  );
-
   const handleCreateRole = useCallback(
     async (payload: { name: string; hourly_rate_cents: number }) => {
       setActionError(null);
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
       if (isConflictLocked) {
         setActionError(
           conflictState?.message ?? "Version modifiee par un autre utilisateur"
@@ -1318,12 +1789,24 @@ export default function EditEstimatePage() {
         [...prev, data].sort((a, b) => a.position - b.position)
       );
     },
-    [conflictState?.message, isConflictLocked, laborRoles, profile, version?.id]
+    [
+      conflictState?.message,
+      isConflictLocked,
+      isReadOnly,
+      laborRoles,
+      profile,
+      readOnlyActionErrorMessage,
+      version?.id,
+    ]
   );
 
   const handleUpdateRole = useCallback(
     async (id: string, updates: Partial<LaborRole>) => {
       setActionError(null);
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
       if (isConflictLocked) {
         setActionError(
           conflictState?.message ?? "Version modifiee par un autre utilisateur"
@@ -1351,36 +1834,36 @@ export default function EditEstimatePage() {
       const nextHourlyRate = updates.hourly_rate_cents ?? 0;
       const snapshot = itemsRef.current;
       const affectedLines = snapshot.filter(
-        (item) => item.item_type === "line" && item.labor_role_id === id
+        (item) => {
+          if (item.item_type !== "line") return false;
+          if (item.labor_role_id === id) return true;
+          const splitFields = readLaborSplitFields(item);
+          return (
+            splitFields.labor_role_atelier_id === id ||
+            splitFields.labor_role_chantier_id === id
+          );
+        }
       );
 
       if (affectedLines.length === 0) return;
 
       const updatedLines = affectedLines.map((item) => {
-        const kFo = item.k_fo ?? 1;
-        const hMo = item.h_mo ?? 0;
-        const kMo = item.k_mo ?? 1;
         const taxRate = settings.tax_rate_bp ?? item.tax_rate_bp ?? 0;
-        const lineValues = computeEstimateLineValues(
-          {
-            ...item,
-            k_fo: kFo,
-            h_mo: hMo,
-            k_mo: kMo,
-            tax_rate_bp: taxRate,
-            labor_role_hourly_rate_cents: nextHourlyRate,
-          },
-          {
-            marginMultiplier: settings.margin_multiplier,
-            taxRateBp: taxRate,
-          }
-        );
+        const { lineInput, lineValues } = computeLineValuesWithLaborContext(item, {
+          marginMultiplier: settings.margin_multiplier,
+          taxRateBp: taxRate,
+          rateOverrideByRoleId: id,
+          hourlyRateCents: nextHourlyRate,
+        });
         return {
           ...item,
-          tax_rate_bp: taxRate,
-          k_fo: kFo,
-          h_mo: hMo,
-          k_mo: kMo,
+          tax_rate_bp: lineInput.tax_rate_bp,
+          k_fo: lineInput.k_fo,
+          h_mo: lineInput.h_mo,
+          k_mo: lineInput.k_mo,
+          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
+            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
+            : {}),
           pu_ht_cents: lineValues.puHtCents,
           line_total_ht_cents: lineValues.saleLineCents,
           line_tax_cents: lineValues.taxLineCents,
@@ -1398,53 +1881,31 @@ export default function EditEstimatePage() {
 
       if (isSaveBlocked) return;
 
-      try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          version.id,
-          version.updated_at,
-          updatedLines.map((item) => ({
-            id: item.id,
-            updates: {
-              tax_rate_bp: item.tax_rate_bp,
-              k_fo: item.k_fo,
-              h_mo: item.h_mo,
-              k_mo: item.k_mo,
-              pu_ht_cents: item.pu_ht_cents,
-              line_total_ht_cents: item.line_total_ht_cents,
-              line_tax_cents: item.line_tax_cents,
-              line_total_ttc_cents: item.line_total_ttc_cents,
-            },
-          }))
-        );
-
-        setVersion((prev) =>
-          prev
-            ? {
-                ...prev,
-                updated_at: bulkResult.versionToken.updated_at,
-              }
-            : prev
-        );
-      } catch (error) {
-        if (!registerVersionConflict(error)) {
-          setActionError("Impossible de mettre a jour les lignes.");
-        }
-      }
+      updatedLines.forEach((item) => {
+        enqueueBufferedItemUpdate(item.id, buildEstimateItemUpdatePayload(item));
+      });
     },
     [
+      enqueueBufferedItemUpdate,
       isSaveBlocked,
-      registerVersionConflict,
       conflictState?.message,
       isConflictLocked,
+      isReadOnly,
+      readOnlyActionErrorMessage,
       settings,
       version?.id,
-      version?.updated_at,
+      computeLineValuesWithLaborContext,
+      isLaborSplitEnabled,
     ]
   );
 
   const handleCreateSuggestionRule = useCallback(
     async (payload: SuggestionRuleCreatePayload) => {
       setRulesError(null);
+      if (isReadOnly) {
+        setRulesError(readOnlyActionErrorMessage);
+        return;
+      }
       if (isConflictLocked) {
         setRulesError(
           conflictState?.message ?? "Version modifiee par un autre utilisateur"
@@ -1497,12 +1958,24 @@ export default function EditEstimatePage() {
         [...prev, data].sort((a, b) => a.position - b.position)
       );
     },
-    [conflictState?.message, isConflictLocked, profile, suggestionRules, version?.id]
+    [
+      conflictState?.message,
+      isConflictLocked,
+      isReadOnly,
+      profile,
+      readOnlyActionErrorMessage,
+      suggestionRules,
+      version?.id,
+    ]
   );
 
   const handleUpdateSuggestionRule = useCallback(
     async (id: string, updates: Partial<SuggestionRule>) => {
       setRulesError(null);
+      if (isReadOnly) {
+        setRulesError(readOnlyActionErrorMessage);
+        return;
+      }
       if (isConflictLocked) {
         setRulesError(
           conflictState?.message ?? "Version modifiee par un autre utilisateur"
@@ -1532,7 +2005,13 @@ export default function EditEstimatePage() {
           .sort((a, b) => a.position - b.position)
       );
     },
-    [conflictState?.message, isConflictLocked, version?.id]
+    [
+      conflictState?.message,
+      isConflictLocked,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      version?.id,
+    ]
   );
 
   const getNextPosition = useCallback((parentId: string | null) => {
@@ -1550,7 +2029,7 @@ export default function EditEstimatePage() {
     async (parentId: string | null) => {
       if (!version) return;
       if (isReadOnly) {
-        setActionError("Cette version est en lecture seule.");
+        setActionError(readOnlyActionErrorMessage);
         return;
       }
       setActionError(null);
@@ -1576,38 +2055,51 @@ export default function EditEstimatePage() {
 
       setItems((prev) => [...prev, data]);
     },
-    [getNextPosition, isReadOnly, version]
+    [getNextPosition, isReadOnly, readOnlyActionErrorMessage, version]
   );
 
   const handleAddLine = useCallback(
     async (parentId: string | null) => {
       if (!version || !settings) return;
       if (isReadOnly) {
-        setActionError("Cette version est en lecture seule.");
+        setActionError(readOnlyActionErrorMessage);
         return;
       }
       setActionError(null);
       const position = getNextPosition(parentId);
+      const newLineInput = {
+        quantity: 1,
+        unit_price_ht_cents: 0,
+        tax_rate_bp: settings.tax_rate_bp,
+        k_fo: 1,
+        h_mo: 0,
+        h_mo_majoration: 1,
+        k_mo: 1,
+        pu_ht_cents: 0,
+        labor_role_hourly_rate_cents: 0,
+        h_mo_atelier: 0,
+        k_mo_atelier: 1,
+        labor_role_atelier_id: null,
+        labor_role_atelier_hourly_rate_cents: 0,
+        h_mo_chantier: 0,
+        k_mo_chantier: 1,
+        labor_role_chantier_id: null,
+        labor_role_chantier_hourly_rate_cents: 0,
+      };
+      const lineComputationOptions = {
+        marginMultiplier: settings.margin_multiplier,
+        taxRateBp: settings.tax_rate_bp,
+        isLaborSplitEnabled,
+      };
       const lineValues = computeEstimateLineValues(
-        {
-          quantity: 1,
-          unit_price_ht_cents: 0,
-          tax_rate_bp: settings.tax_rate_bp,
-          k_fo: 1,
-          h_mo: 0,
-          k_mo: 1,
-          pu_ht_cents: 0,
-          labor_role_hourly_rate_cents: 0,
-        },
-        {
-          marginMultiplier: settings.margin_multiplier,
-          taxRateBp: settings.tax_rate_bp,
-        }
+        newLineInput,
+        lineComputationOptions
       );
 
       let data: EstimateItem;
       try {
-        data = await createEstimateItem(version.id, {
+        const createPayload: Database["public"]["Tables"]["estimate_items"]["Insert"] &
+          LaborSplitItemFields = {
           version_id: version.id,
           parent_id: parentId,
           item_type: "line",
@@ -1619,14 +2111,25 @@ export default function EditEstimatePage() {
           tax_rate_bp: settings.tax_rate_bp,
           k_fo: 1,
           h_mo: 0,
+          h_mo_majoration: 1,
           k_mo: 1,
           pu_ht_cents: lineValues.puHtCents,
           labor_role_id: null,
           category_id: null,
+          supply_type_id: null,
           line_total_ht_cents: lineValues.saleLineCents,
           line_tax_cents: lineValues.taxLineCents,
           line_total_ttc_cents: lineValues.ttcLineCents,
-        });
+        };
+        if (isLaborSplitEnabled) {
+          createPayload.h_mo_atelier = 0;
+          createPayload.k_mo_atelier = 1;
+          createPayload.labor_role_atelier_id = null;
+          createPayload.h_mo_chantier = 0;
+          createPayload.k_mo_chantier = 1;
+          createPayload.labor_role_chantier_id = null;
+        }
+        data = await createEstimateItem(version.id, createPayload);
       } catch (error) {
         setActionError(
           resolveEstimateActionError(
@@ -1638,13 +2141,20 @@ export default function EditEstimatePage() {
 
       setItems((prev) => [...prev, data]);
     },
-    [getNextPosition, isReadOnly, settings, version]
+    [
+      getNextPosition,
+      isLaborSplitEnabled,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      settings,
+      version,
+    ]
   );
 
   const handleDeleteItem = useCallback(
     async (itemId: string) => {
       if (isReadOnly) {
-        setActionError("Cette version est en lecture seule.");
+        setActionError(readOnlyActionErrorMessage);
         return;
       }
       if (!window.confirm("Supprimer cet element et son contenu ?")) return;
@@ -1680,7 +2190,7 @@ export default function EditEstimatePage() {
         await reloadItems();
       }
     },
-    [isReadOnly, reloadItems, version?.id]
+    [isReadOnly, readOnlyActionErrorMessage, reloadItems, version?.id]
   );
 
   const handlePatchItem = useCallback(
@@ -1690,7 +2200,7 @@ export default function EditEstimatePage() {
       options?: { persist?: boolean }
     ) => {
       if (isReadOnly) {
-        setActionError("Cette version est en lecture seule.");
+        setActionError(readOnlyActionErrorMessage);
         return;
       }
       const persist = options?.persist ?? false;
@@ -1707,32 +2217,19 @@ export default function EditEstimatePage() {
           current.tax_rate_bp ??
           0;
         const marginMultiplier = settings?.margin_multiplier ?? 1;
-        const kFo = updated.k_fo ?? 1;
-        const hMo = updated.h_mo ?? 0;
-        const kMo = updated.k_mo ?? 1;
-        const hourlyRate = updated.labor_role_id
-          ? laborRateById.get(updated.labor_role_id) ?? 0
-          : 0;
-        const lineValues = computeEstimateLineValues(
-          {
-            ...updated,
-            tax_rate_bp: taxRate,
-            k_fo: kFo,
-            h_mo: hMo,
-            k_mo: kMo,
-            labor_role_hourly_rate_cents: hourlyRate,
-          },
-          {
-            marginMultiplier,
-            taxRateBp: taxRate,
-          }
-        );
+        const { lineInput, lineValues } = computeLineValuesWithLaborContext(updated, {
+          marginMultiplier,
+          taxRateBp: taxRate,
+        });
         updated = {
           ...updated,
-          tax_rate_bp: taxRate,
-          k_fo: kFo,
-          h_mo: hMo,
-          k_mo: kMo,
+          tax_rate_bp: lineInput.tax_rate_bp,
+          k_fo: lineInput.k_fo,
+          h_mo: lineInput.h_mo,
+          k_mo: lineInput.k_mo,
+          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
+            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
+            : {}),
           pu_ht_cents: lineValues.puHtCents,
           line_total_ht_cents: lineValues.saleLineCents,
           line_tax_cents: lineValues.taxLineCents,
@@ -1752,52 +2249,129 @@ export default function EditEstimatePage() {
         return;
       }
 
-      const payload: Database["public"]["Tables"]["estimate_items"]["Update"] =
-        updated.item_type === "line"
-          ? {
-              title: updated.title,
-              description: updated.description ?? null,
-              quantity: updated.quantity,
-              unit_price_ht_cents: updated.unit_price_ht_cents,
-              tax_rate_bp: updated.tax_rate_bp,
-              k_fo: updated.k_fo,
-              h_mo: updated.h_mo,
-              k_mo: updated.k_mo,
-              pu_ht_cents: updated.pu_ht_cents,
-              labor_role_id: updated.labor_role_id,
-              category_id: updated.category_id,
-              line_total_ht_cents: updated.line_total_ht_cents,
-              line_tax_cents: updated.line_tax_cents,
-              line_total_ttc_cents: updated.line_total_ttc_cents,
-            }
-          : {
-              title: updated.title,
-            };
-
-      try {
-        await updateEstimateItem(version.id, itemId, payload);
-      } catch (error) {
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error ? error.message : "Impossible de mettre a jour la ligne."
-          )
-        );
-        setItems(snapshot);
-      }
+      enqueueBufferedItemUpdate(itemId, buildEstimateItemUpdatePayload(updated));
+      setTotalsOutOfSync(false);
     },
     [
+      enqueueBufferedItemUpdate,
+      computeLineValuesWithLaborContext,
+      isLaborSplitEnabled,
       isReadOnly,
-      laborRateById,
+      readOnlyActionErrorMessage,
       settings?.margin_multiplier,
       settings?.tax_rate_bp,
       version?.id,
     ]
   );
 
+  const handleApplyBulkMajoration = useCallback(
+    async (itemIds: string[], coefficient: number) => {
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      const normalizedCoefficient = Math.max(toFiniteNumber(coefficient, 1), 0);
+      const selectedIds = new Set(itemIds);
+      const snapshot = itemsRef.current;
+
+      const selectedLines = snapshot.filter(
+        (item): item is EstimateItem =>
+          item.item_type === "line" && selectedIds.has(item.id)
+      );
+
+      if (selectedLines.length === 0) {
+        return;
+      }
+
+      const marginMultiplier = settings?.margin_multiplier ?? 1;
+      const fallbackTaxRateBp = settings?.tax_rate_bp ?? versionSnapshot.tax_rate_bp ?? 0;
+
+      const updatedLines = selectedLines.map((item) => {
+        const nextItem: EstimateItem = {
+          ...item,
+          h_mo_majoration: normalizedCoefficient,
+        };
+
+        const taxRate = nextItem.tax_rate_bp ?? fallbackTaxRateBp;
+        const { lineInput, lineValues } = computeLineValuesWithLaborContext(nextItem, {
+          marginMultiplier,
+          taxRateBp: taxRate,
+        });
+
+        return {
+          ...nextItem,
+          tax_rate_bp: lineInput.tax_rate_bp,
+          k_fo: lineInput.k_fo,
+          h_mo: lineInput.h_mo,
+          h_mo_majoration: lineInput.h_mo_majoration,
+          k_mo: lineInput.k_mo,
+          ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
+            ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
+            : {}),
+          pu_ht_cents: lineValues.puHtCents,
+          line_total_ht_cents: lineValues.saleLineCents,
+          line_tax_cents: lineValues.taxLineCents,
+          line_total_ttc_cents: lineValues.ttcLineCents,
+        };
+      });
+
+      const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
+      setItems((prev) => prev.map((item) => updatedById.get(item.id) ?? item));
+
+      try {
+        const bulkResult = await bulkUpdateEstimateItems(
+          versionSnapshot.id,
+          versionSnapshot.updated_at,
+          updatedLines.map((item) => ({
+            id: item.id,
+            updates: buildEstimateItemUpdatePayload(item),
+          }))
+        );
+
+        setVersion((prev) =>
+          prev
+            ? {
+                ...prev,
+                updated_at: bulkResult.versionToken.updated_at,
+              }
+            : prev
+        );
+        setTotalsOutOfSync(false);
+      } catch (error) {
+        setItems(snapshot);
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible d'appliquer la majoration en lot."
+            )
+          );
+        }
+      }
+    },
+    [
+      computeLineValuesWithLaborContext,
+      handleVersionConflict,
+      isLaborSplitEnabled,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      settings?.margin_multiplier,
+      settings?.tax_rate_bp,
+    ]
+  );
+
   const handleReorder = useCallback(
     async (parentId: string | null, orderedIds: string[]) => {
       if (isReadOnly) {
-        setActionError("Cette version est en lecture seule.");
+        setActionError(readOnlyActionErrorMessage);
         return;
       }
       const snapshot = itemsRef.current;
@@ -1823,16 +2397,30 @@ export default function EditEstimatePage() {
         setItems(snapshot);
       }
     },
-    [isReadOnly, version?.id]
+    [isReadOnly, readOnlyActionErrorMessage, version?.id]
   );
 
   async function handleStatusChange(nextStatus: EstimateStatus) {
     if (!version || isUpdatingStatus) return;
+    if (isDraftLockPending) {
+      setStatusError("Acquisition du verrou de brouillon en cours.");
+      return;
+    }
+    if (isDraftLockedByOther) {
+      setStatusError(`Verrouille par ${lockHolderLabel}.`);
+      return;
+    }
     setStatusError(null);
     setIsUpdatingStatus(true);
 
+    let updatedVersion: EstimateVersionRow;
+
     try {
-      await updateEstimateStatus(version.id, nextStatus);
+      updatedVersion = await updateEstimateStatus(
+        version.id,
+        nextStatus,
+        version.updated_at
+      );
     } catch (error) {
       setStatusError(
         resolveEstimateActionError(
@@ -1844,8 +2432,79 @@ export default function EditEstimatePage() {
     }
 
     setIsUpdatingStatus(false);
-    setVersion((prev) => (prev ? { ...prev, status: nextStatus } : prev));
+    setVersion((prev) =>
+      prev
+        ? {
+            ...prev,
+            status: updatedVersion.status,
+            updated_at: updatedVersion.updated_at,
+            seal_hash: updatedVersion.seal_hash ?? prev.seal_hash,
+          }
+        : prev
+    );
+
+    if (updatedVersion.status !== "draft") {
+      try {
+        await releaseDraftLock({
+          keepalive: true,
+        });
+      } catch {
+        // Non bloquant: le lock expirera via timeout si la release echoue.
+      }
+    }
   }
+
+  const editorTableProps = useMemo<EstimateEditorTableProps>(
+    () => ({
+      items,
+      categories,
+      supplyTypes,
+      laborRoles,
+      suggestionRules,
+      qualityFlagsByItemId,
+      qualityCounts,
+      qualityFilter,
+      actionError,
+      marginMultiplier:
+        totals?.appliedMarginMultiplier ?? editorTableBaseConfig.marginMultiplier,
+      discountCents: editorTableBaseConfig.discountCents,
+      taxRateBp: editorTableBaseConfig.taxRateBp,
+      laborRateById,
+      isLaborSplitEnabled,
+      isReadOnly: editorTableBaseConfig.isReadOnly,
+      onQualityFilterChange: handleQualityFilterChange,
+      onAddSection: handleAddSection,
+      onAddLine: handleAddLine,
+      onDeleteItem: handleDeleteItem,
+      onPatchItem: handlePatchItem,
+      onApplyBulkMajoration: handleApplyBulkMajoration,
+      onReorder: handleReorder,
+      virtualization: editorTableVirtualization,
+    }),
+    [
+      actionError,
+      categories,
+      editorTableBaseConfig,
+      editorTableVirtualization,
+      handleAddLine,
+      handleAddSection,
+      handleApplyBulkMajoration,
+      handleDeleteItem,
+      handlePatchItem,
+      handleQualityFilterChange,
+      handleReorder,
+      items,
+      isLaborSplitEnabled,
+      laborRateById,
+      laborRoles,
+      qualityCounts,
+      qualityFilter,
+      qualityFlagsByItemId,
+      supplyTypes,
+      suggestionRules,
+      totals?.appliedMarginMultiplier,
+    ]
+  );
 
   if (!versionId) {
     return (
@@ -1925,12 +2584,18 @@ export default function EditEstimatePage() {
             onExportCSV={handleExportCSV}
             disabled={isExportDisabled}
           />
+          <SaveAsTemplateButton versionId={versionId} />
           {canSend ? (
             <button
               className="btn btn-secondary btn-sm"
               type="button"
               onClick={() => handleStatusChange("sent")}
-              disabled={isUpdatingStatus}
+              disabled={
+                isUpdatingStatus ||
+                isDraftLockedByOther ||
+                isDraftLockAcquiring ||
+                isForcingDraftUnlock
+              }
             >
               Envoyer
             </button>
@@ -1940,7 +2605,12 @@ export default function EditEstimatePage() {
               className="btn btn-primary btn-sm"
               type="button"
               onClick={() => handleStatusChange("accepted")}
-              disabled={isUpdatingStatus}
+              disabled={
+                isUpdatingStatus ||
+                isDraftLockedByOther ||
+                isDraftLockAcquiring ||
+                isForcingDraftUnlock
+              }
             >
               Accepter
             </button>
@@ -1950,7 +2620,12 @@ export default function EditEstimatePage() {
               className="btn btn-danger btn-sm"
               type="button"
               onClick={() => handleStatusChange("archived")}
-              disabled={isUpdatingStatus}
+              disabled={
+                isUpdatingStatus ||
+                isDraftLockedByOther ||
+                isDraftLockAcquiring ||
+                isForcingDraftUnlock
+              }
             >
               Archiver
             </button>
@@ -1980,6 +2655,58 @@ export default function EditEstimatePage() {
             <path d="m9 9 6 6" />
           </svg>
           {statusError}
+        </div>
+      )}
+
+      {isDraftLockedByOther && (
+        <div className="alert alert-warning mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span>Verrouille par {lockHolderLabel}.</span>
+          </div>
+          {isAdmin ? (
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={() => void handleForceUnlockDraftLock()}
+              disabled={isForcingDraftUnlock || isDraftLockAcquiring}
+            >
+              {isForcingDraftUnlock
+                ? "Deverrouillage..."
+                : "Forcer le deverrouillage"}
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      {draftLockError && !isDraftLockedByOther && (
+        <div className="alert alert-warning mb-6">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          {draftLockError}
         </div>
       )}
 
@@ -2073,7 +2800,7 @@ export default function EditEstimatePage() {
         </div>
       )}
 
-      {isReadOnly && (
+      {isStatusReadOnly && (
         <div className="alert alert-info mb-6">
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -2146,7 +2873,7 @@ export default function EditEstimatePage() {
           />
           <LaborRolesManager
             roles={laborRoles}
-            isSaving={isSavingSettings || isConflictLocked}
+            isSaving={isSavingSettings || isSaveBlocked}
             error={null}
             onCreate={handleCreateRole}
             onUpdate={handleUpdateRole}
@@ -2155,7 +2882,7 @@ export default function EditEstimatePage() {
             rules={suggestionRules}
             categories={categories}
             laborRoles={laborRoles}
-            isSaving={isSavingRules || isConflictLocked}
+            isSaving={isSavingRules || isSaveBlocked}
             error={rulesError}
             onCreate={handleCreateSuggestionRule}
             onUpdate={handleUpdateSuggestionRule}
@@ -2253,28 +2980,7 @@ export default function EditEstimatePage() {
         </div>
       ) : (
         <div className="mt-6">
-          <EstimateEditorTable
-            items={items}
-            categories={categories}
-            laborRoles={laborRoles}
-            suggestionRules={suggestionRules}
-            qualityFlagsByItemId={qualityFlagsByItemId}
-            qualityCounts={qualityCounts}
-            qualityFilter={qualityFilter}
-            actionError={actionError}
-            marginMultiplier={settings.margin_multiplier}
-            discountCents={settings.discount_cents}
-            taxRateBp={settings.tax_rate_bp}
-            laborRateById={laborRateById}
-            isReadOnly={isReadOnly || isConflictLocked}
-            onQualityFilterChange={setQualityFilter}
-            onAddSection={handleAddSection}
-            onAddLine={handleAddLine}
-            onDeleteItem={handleDeleteItem}
-            onPatchItem={handlePatchItem}
-            onReorder={handleReorder}
-            onEnsureCategory={handleEnsureCategory}
-          />
+          <EstimateEditorTable {...editorTableProps} />
         </div>
       )}
     </div>

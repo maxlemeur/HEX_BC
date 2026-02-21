@@ -2,6 +2,7 @@ import Image from "next/image";
 
 import {
   computeSectionTotals,
+  UNASSIGNED_SUPPLY_TYPE_KEY,
   type EstimateItemRecord,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
@@ -21,19 +22,25 @@ export type EstimateDocumentProps = {
   marginMultiplier: number;
   discountCents: number;
   taxRateBp: number;
+  isLaborSplitEnabled?: boolean;
   laborRateById: Record<string, number>;
   totalHtCents: number;
   totalTaxCents: number;
   totalTtcCents: number;
+  supplyTypeLabelsById?: Record<string, string>;
   items: EstimateItem[];
 };
 
 const ROOT_KEY = "root";
+const EMPTY_SUPPLY_TYPE_LABELS: Record<string, string> = {};
 const EMPTY_SECTION_TOTALS: SectionTotals = {
   foTotalCents: 0,
   moTotalCents: 0,
+  moAtelierTotalCents: 0,
+  moChantierTotalCents: 0,
   totalHtCents: 0,
   totalTtcCents: 0,
+  supplyTypeFoTotalsCents: {},
 };
 
 function getParentKey(value: string | null) {
@@ -61,6 +68,30 @@ function formatQuantity(value: number | null): string {
   return new Intl.NumberFormat("fr-FR", {
     maximumFractionDigits: 3,
   }).format(value ?? 0);
+}
+
+function formatMajorationPercent(value: number | null | undefined): string {
+  const percent = (value ?? 1) * 100;
+  return new Intl.NumberFormat("fr-FR", {
+    maximumFractionDigits: 2,
+  }).format(percent);
+}
+
+function formatCoefficient(value: number | null | undefined): string {
+  const normalized = Number.isFinite(value ?? NaN) ? (value as number) : 1;
+  return new Intl.NumberFormat("fr-FR", {
+    maximumFractionDigits: 2,
+  }).format(normalized);
+}
+
+function formatLaborSplitLine(params: {
+  hours: number | null;
+  coefficient: number | null;
+  laborRoleId: string | null;
+  laborRateById: Record<string, number>;
+}) {
+  const rate = params.laborRoleId ? (params.laborRateById[params.laborRoleId] ?? 0) : 0;
+  return `${formatQuantity(params.hours)} h x K ${formatCoefficient(params.coefficient)} x ${formatEUR(rate)}/h`;
 }
 
 function resolveTitle(item: EstimateItem) {
@@ -102,10 +133,12 @@ export function EstimateDocument({
   marginMultiplier,
   discountCents,
   taxRateBp,
+  isLaborSplitEnabled = false,
   laborRateById,
   totalHtCents,
   totalTaxCents,
   totalTtcCents,
+  supplyTypeLabelsById = EMPTY_SUPPLY_TYPE_LABELS,
   items,
 }: EstimateDocumentProps) {
   const rows = buildRows(items);
@@ -121,6 +154,7 @@ export function EstimateDocument({
       discountCents,
       taxRateBp,
       laborRateById: laborRateMap,
+      isLaborSplitEnabled,
     });
   });
   const taxEnabled = taxRateBp > 0;
@@ -260,6 +294,12 @@ export function EstimateDocument({
               <th className="w-16 px-3 py-4 text-center print:px-2 print:py-2">
                 U
               </th>
+              <th className="w-32 px-3 py-4 text-left print:px-2 print:py-2">
+                Type FO
+              </th>
+              <th className="w-24 px-3 py-4 text-center print:px-2 print:py-2">
+                {isLaborSplitEnabled ? "MO atelier / chantier" : "Majoration MO"}
+              </th>
               <th className="w-28 px-3 py-4 text-right print:px-2 print:py-2">
                 P.U. HT
               </th>
@@ -272,7 +312,7 @@ export function EstimateDocument({
             {rows.map(({ item, depth }) =>
               item.item_type === "section" ? (
                 <tr key={item.id} className="bg-[var(--slate-50)] print-color-adjust">
-                  <td colSpan={5} className="px-6 py-3 print:px-4 print:py-2">
+                  <td colSpan={7} className="px-6 py-3 print:px-4 print:py-2">
                     <div style={{ paddingLeft: `${depth * 16}px` }}>
                       <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
                         {resolveTitle(item)}
@@ -286,15 +326,42 @@ export function EstimateDocument({
                               <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
                                 FO {formatEUR(totals.foTotalCents)}
                               </span>
-                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                                MO {formatEUR(totals.moTotalCents)}
-                              </span>
+                              {isLaborSplitEnabled ? (
+                                <>
+                                  <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
+                                    MO atelier {formatEUR(totals.moAtelierTotalCents)}
+                                  </span>
+                                  <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
+                                    MO chantier {formatEUR(totals.moChantierTotalCents)}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
+                                  MO {formatEUR(totals.moTotalCents)}
+                                </span>
+                              )}
                               <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
                                 HT {formatEUR(totals.totalHtCents)}
                               </span>
                               <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
                                 TTC {formatEUR(totals.totalTtcCents)}
                               </span>
+                              {Object.entries(totals.supplyTypeFoTotalsCents ?? {})
+                                .sort(([, left], [, right]) => right - left)
+                                .map(([supplyTypeId, cents]) => {
+                                  const label =
+                                    supplyTypeId === UNASSIGNED_SUPPLY_TYPE_KEY
+                                      ? "Non classe"
+                                      : (supplyTypeLabelsById[supplyTypeId] ?? "Type inconnu");
+                                  return (
+                                    <span
+                                      key={`${item.id}:print-supply-type:${supplyTypeId}`}
+                                      className="rounded-full border border-slate-200 bg-white px-2 py-0.5"
+                                    >
+                                      {label} {formatEUR(cents)}
+                                    </span>
+                                  );
+                                })}
                             </>
                           );
                         })()}
@@ -314,6 +381,41 @@ export function EstimateDocument({
                   </td>
                   <td className="w-16 px-3 py-4 text-center print:px-2 print:py-2">
                     {item.description?.trim() || "-"}
+                  </td>
+                  <td className="w-32 px-3 py-4 print:px-2 print:py-2">
+                    {item.supply_type_id
+                      ? (supplyTypeLabelsById[item.supply_type_id] ?? "Type inconnu")
+                      : "Non classe"}
+                  </td>
+                  <td className="w-24 px-3 py-4 text-center print:px-2 print:py-2">
+                    {isLaborSplitEnabled ? (
+                      <div className="space-y-1 text-left text-[11px] leading-tight text-slate-700 print:text-[10px]">
+                        <div>
+                          <span className="font-semibold">Atelier:</span>{" "}
+                          {formatLaborSplitLine({
+                            hours: item.h_mo_atelier,
+                            coefficient: item.k_mo_atelier,
+                            laborRoleId: item.labor_role_atelier_id,
+                            laborRateById,
+                          })}
+                        </div>
+                        <div>
+                          <span className="font-semibold">Chantier:</span>{" "}
+                          {formatLaborSplitLine({
+                            hours: item.h_mo_chantier,
+                            coefficient: item.k_mo_chantier,
+                            laborRoleId: item.labor_role_chantier_id,
+                            laborRateById,
+                          })}
+                        </div>
+                        <div>
+                          <span className="font-semibold">Maj:</span>{" "}
+                          {formatMajorationPercent(item.h_mo_majoration)} %
+                        </div>
+                      </div>
+                    ) : (
+                      `${formatMajorationPercent(item.h_mo_majoration)} %`
+                    )}
                   </td>
                   <td className="w-28 px-3 py-4 text-right print:px-2 print:py-2">
                     {formatEUR(item.pu_ht_cents ?? 0)}

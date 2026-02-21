@@ -9,6 +9,7 @@ import {
   normalizeDraftItems,
   MAX_MARGIN_MULTIPLIER,
   MAX_CENTS,
+  UNASSIGNED_SUPPLY_TYPE_KEY,
   type EstimateLineLike,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
@@ -23,6 +24,12 @@ function createLine(overrides: Partial<EstimateLineLike> = {}): EstimateLineLike
     k_fo: 1,
     h_mo: 0,
     k_mo: 1,
+    h_mo_atelier: null,
+    k_mo_atelier: null,
+    labor_role_atelier_id: null,
+    h_mo_chantier: null,
+    k_mo_chantier: null,
+    labor_role_chantier_id: null,
     pu_ht_cents: null,
     labor_role_hourly_rate_cents: 0,
     ...overrides,
@@ -47,6 +54,12 @@ function createItemRecord(
     k_fo: 1,
     h_mo: 0,
     k_mo: 1,
+    h_mo_atelier: null,
+    k_mo_atelier: null,
+    labor_role_atelier_id: null,
+    h_mo_chantier: null,
+    k_mo_chantier: null,
+    labor_role_chantier_id: null,
     pu_ht_cents: null,
     labor_role_hourly_rate_cents: 0,
     line_total_ht_cents: null,
@@ -121,6 +134,95 @@ describe("estimate calculations", () => {
     });
   });
 
+  it("EST-031: split actif avec MO atelier + chantier", () => {
+    const line = createLine({
+      quantity: 2,
+      unit_price_ht_cents: 1000,
+      k_fo: 1,
+      h_mo: 9,
+      k_mo: 9,
+      h_mo_atelier: 1.5,
+      k_mo_atelier: 1.1,
+      h_mo_chantier: 2,
+      k_mo_chantier: 1.2,
+    });
+
+    const values = computeEstimateLineValues(line, {
+      marginMultiplier: 1.25,
+      taxRateBp: 2000,
+      isLaborSplitEnabled: true,
+      laborRateAtelierCents: 400,
+      laborRateChantierCents: 600,
+    });
+
+    expect(values).toEqual({
+      costLineCents: 4100,
+      saleLineCents: 5125,
+      puHtCents: 2562,
+      taxLineCents: 1025,
+      ttcLineCents: 6150,
+    });
+  });
+
+  it("EST-031: split actif avec une seule MO renseignee", () => {
+    const line = createLine({
+      quantity: 1,
+      unit_price_ht_cents: 1000,
+      k_fo: 1,
+      h_mo_atelier: 0,
+      k_mo_atelier: 1.3,
+      h_mo_chantier: 2,
+      k_mo_chantier: 1.5,
+    });
+
+    const values = computeEstimateLineValues(line, {
+      marginMultiplier: 1,
+      taxRateBp: 2000,
+      isLaborSplitEnabled: true,
+      laborRateAtelierCents: 400,
+      laborRateChantierCents: 500,
+    });
+
+    expect(values).toEqual({
+      costLineCents: 2500,
+      saleLineCents: 2500,
+      puHtCents: 2500,
+      taxLineCents: 500,
+      ttcLineCents: 3000,
+    });
+  });
+
+  it("EST-031: split desactive conserve le calcul legacy", () => {
+    const line = createLine({
+      quantity: 1,
+      unit_price_ht_cents: 1000,
+      k_fo: 1,
+      h_mo: 2,
+      k_mo: 1.2,
+      h_mo_atelier: 8,
+      k_mo_atelier: 4,
+      h_mo_chantier: 9,
+      k_mo_chantier: 5,
+      labor_role_hourly_rate_cents: 500,
+    });
+
+    const values = computeEstimateLineValues(line, {
+      marginMultiplier: 1,
+      taxRateBp: 2000,
+      isLaborSplitEnabled: false,
+      laborRateAtelierCents: 999,
+      laborRateChantierCents: 888,
+    });
+
+    expect(values).toEqual({
+      costLineCents: 2200,
+      saleLineCents: 2200,
+      puHtCents: 2200,
+      taxLineCents: 440,
+      ttcLineCents: 2640,
+    });
+  });
+
   it("A1: single round avoids cumulative drift from triple rounding", () => {
     // When FO and MO each produce 0.5, triple rounding rounds each up
     // but single rounding correctly sums to 1.0 then rounds to 1
@@ -182,6 +284,76 @@ describe("estimate calculations", () => {
 
     // costLine = round(2*1*1) = 2, saleLine = 2, puHtCents = bankersRound(2/2) = 1
     expect(values2.puHtCents).toBe(1);
+  });
+
+  it("EST-029: h_mo_majoration 1.0 keeps neutral MO cost", () => {
+    const withoutMajoration = createLine({
+      quantity: 1,
+      unit_price_ht_cents: 0,
+      h_mo: 2,
+      k_mo: 1,
+      labor_role_hourly_rate_cents: 500,
+    });
+
+    const withNeutralMajoration = createLine({
+      quantity: 1,
+      unit_price_ht_cents: 0,
+      h_mo: 2,
+      h_mo_majoration: 1,
+      k_mo: 1,
+      labor_role_hourly_rate_cents: 500,
+    });
+
+    const baseValues = computeEstimateLineValues(withoutMajoration, {
+      marginMultiplier: 1,
+      taxRateBp: 0,
+    });
+    const neutralValues = computeEstimateLineValues(withNeutralMajoration, {
+      marginMultiplier: 1,
+      taxRateBp: 0,
+    });
+
+    expect(baseValues.costLineCents).toBe(1000);
+    expect(neutralValues.costLineCents).toBe(1000);
+    expect(neutralValues.costLineCents).toBe(baseValues.costLineCents);
+  });
+
+  it("EST-029: h_mo_majoration > 1 increases MO cost", () => {
+    const values = computeEstimateLineValues(
+      createLine({
+        quantity: 1,
+        unit_price_ht_cents: 0,
+        h_mo: 2,
+        h_mo_majoration: 1.5,
+        k_mo: 1,
+        labor_role_hourly_rate_cents: 500,
+      }),
+      {
+        marginMultiplier: 1,
+        taxRateBp: 0,
+      }
+    );
+
+    expect(values.costLineCents).toBe(1500);
+  });
+
+  it("EST-029: h_mo_majoration < 1 decreases MO cost", () => {
+    const values = computeEstimateLineValues(
+      createLine({
+        quantity: 1,
+        unit_price_ht_cents: 0,
+        h_mo: 2,
+        h_mo_majoration: 0.5,
+        k_mo: 1,
+        labor_role_hourly_rate_cents: 500,
+      }),
+      {
+        marginMultiplier: 1,
+        taxRateBp: 0,
+      }
+    );
+
+    expect(values.costLineCents).toBe(500);
   });
 
   it("A5: sum of per-line taxes equals total tax (no discount)", () => {
@@ -557,8 +729,11 @@ describe("estimate calculations", () => {
     expect(totals).toEqual({
       foTotalCents: 0,
       moTotalCents: 0,
+      moAtelierTotalCents: 0,
+      moChantierTotalCents: 0,
       totalHtCents: 0,
       totalTtcCents: 0,
+      supplyTypeFoTotalsCents: {},
     });
   });
 
@@ -603,8 +778,13 @@ describe("estimate calculations", () => {
     expect(totals).toEqual({
       foTotalCents: 3600,
       moTotalCents: 2700,
+      moAtelierTotalCents: 0,
+      moChantierTotalCents: 2700,
       totalHtCents: 6300,
       totalTtcCents: 7560,
+      supplyTypeFoTotalsCents: {
+        [UNASSIGNED_SUPPLY_TYPE_KEY]: 3600,
+      },
     });
   });
 
@@ -650,8 +830,13 @@ describe("estimate calculations", () => {
     expect(totals).toEqual({
       foTotalCents: 1500,
       moTotalCents: 0,
+      moAtelierTotalCents: 0,
+      moChantierTotalCents: 0,
       totalHtCents: 1500,
       totalTtcCents: 1800,
+      supplyTypeFoTotalsCents: {
+        [UNASSIGNED_SUPPLY_TYPE_KEY]: 1500,
+      },
     });
   });
 });

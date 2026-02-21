@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
@@ -6,7 +6,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/types/database";
 
 import {
-  ApiError,
   badRequest,
   conflict,
   forbidden,
@@ -96,7 +95,6 @@ type TenantMembershipRow = Pick<
   Database["public"]["Tables"]["tenant_memberships"]["Row"],
   "tenant_id" | "role" | "is_default" | "created_at"
 >;
-
 type EmbeddedProjectAccess = Pick<
   EstimateProjectRow,
   | "id"
@@ -146,15 +144,22 @@ type EstimateVersionDetailsRow = EstimateVersionRow & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
 
-type UntypedSupabase = SupabaseClient<any>;
-
 type EstimateTemplateRow = {
   id: string;
   tenant_id: string;
   name: string;
   description: string | null;
-  source_version_id: string;
-  created_by: string | null;
+  source_version_id: string | null;
+  created_by: string;
+  margin_multiplier: number;
+  margin_mode: EstimateVersionRow["margin_mode"];
+  currency: string;
+  margin_bp: number;
+  discount_bp: number;
+  tax_rate_bp: number;
+  rounding_mode: EstimateVersionRow["rounding_mode"];
+  rounding_step_cents: number;
+  validite_jours: number;
   created_at: string;
   updated_at: string;
 };
@@ -168,20 +173,20 @@ type EstimateTemplateItemRow = {
   position: number;
   title: string;
   description: string | null;
-  quantity: number;
-  unit_price_ht_cents: number;
-  tax_rate_bp: number;
-  k_fo: number;
-  h_mo: number;
+  quantity: number | null;
+  unit_price_ht_cents: number | null;
+  tax_rate_bp: number | null;
+  k_fo: number | null;
+  h_mo: number | null;
   h_mo_majoration: number | null;
-  k_mo: number;
+  k_mo: number | null;
   h_mo_atelier: number | null;
   k_mo_atelier: number | null;
   labor_role_atelier_id: string | null;
   h_mo_chantier: number | null;
   k_mo_chantier: number | null;
   labor_role_chantier_id: string | null;
-  pu_ht_cents: number;
+  pu_ht_cents: number | null;
   labor_role_id: string | null;
   category_id: string | null;
   supply_type_id: string | null;
@@ -760,17 +765,42 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   };
 }
 
-function getUntypedSupabase(supabase: Supabase): UntypedSupabase {
-  return supabase as unknown as UntypedSupabase;
-}
-
 function throwTemplateNameConflictIfNeeded(error: PostgrestError): never | void {
   if (error.code !== "23505") return;
   throw conflict(
     "Un template avec ce nom existe deja.",
     error,
-    "TEMPLATE_NAME_CONFLICT"
+    "ESTIMATE_TEMPLATE_NAME_CONFLICT"
   );
+}
+
+function errorMessageContains(
+  error: PostgrestError,
+  expectedMessageFragment: string
+): boolean {
+  return (error.message ?? "")
+    .toLowerCase()
+    .includes(expectedMessageFragment.toLowerCase());
+}
+
+function throwTemplateSourceVersionNotFoundIfNeeded(
+  error: PostgrestError
+): never | void {
+  if (!errorMessageContains(error, "template source version not found")) return;
+  throw notFound(
+    "Version source introuvable.",
+    error,
+    "ESTIMATE_TEMPLATE_SOURCE_VERSION_NOT_FOUND"
+  );
+}
+
+function throwTemplateNotFoundIfNeeded(error: PostgrestError): never | void {
+  if (!errorMessageContains(error, "template not found")) return;
+  throw notFound("Template introuvable.", error, "ESTIMATE_TEMPLATE_NOT_FOUND");
+}
+
+function toRpcUuid(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 function toTemplateSummary(row: EstimateTemplateRow, itemCount: number) {
@@ -786,143 +816,12 @@ function toTemplateSummary(row: EstimateTemplateRow, itemCount: number) {
   };
 }
 
-function buildTemplateItemsInsertPayload(input: {
-  tenantId: string;
-  templateId: string;
-  sourceItems: EstimateItemRow[];
-}) {
-  const idMap = new Map<string, string>();
-
-  for (const item of input.sourceItems) {
-    idMap.set(item.id, randomUUID());
-  }
-
-  return input.sourceItems.map((item) => ({
-    id: idMap.get(item.id),
-    tenant_id: input.tenantId,
-    template_id: input.templateId,
-    parent_id: item.parent_id ? (idMap.get(item.parent_id) ?? null) : null,
-    item_type: item.item_type,
-    position: item.position,
-    title: item.title,
-    description: item.description ?? null,
-    quantity: item.quantity ?? 0,
-    unit_price_ht_cents: item.unit_price_ht_cents ?? 0,
-    tax_rate_bp: item.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
-    k_fo: item.k_fo ?? 1,
-    h_mo: item.h_mo ?? 0,
-    h_mo_majoration: item.h_mo_majoration ?? null,
-    k_mo: item.k_mo ?? 1,
-    h_mo_atelier: item.h_mo_atelier ?? null,
-    k_mo_atelier: item.k_mo_atelier ?? null,
-    labor_role_atelier_id: item.labor_role_atelier_id ?? null,
-    h_mo_chantier: item.h_mo_chantier ?? null,
-    k_mo_chantier: item.k_mo_chantier ?? null,
-    labor_role_chantier_id: item.labor_role_chantier_id ?? null,
-    pu_ht_cents: item.pu_ht_cents ?? 0,
-    labor_role_id: item.labor_role_id ?? null,
-    category_id: item.category_id ?? null,
-    supply_type_id: item.supply_type_id ?? null,
-    line_total_ht_cents: item.line_total_ht_cents ?? null,
-    line_tax_cents: item.line_tax_cents ?? null,
-    line_total_ttc_cents: item.line_total_ttc_cents ?? null,
-  }));
-}
-
-function buildEstimateItemsInsertPayload(input: {
-  tenantId: string;
-  versionId: string;
-  templateItems: EstimateTemplateItemRow[];
-}) {
-  const idMap = new Map<string, string>();
-
-  for (const item of input.templateItems) {
-    idMap.set(item.id, randomUUID());
-  }
-
-  return input.templateItems.map((item) => ({
-    id: idMap.get(item.id),
-    tenant_id: input.tenantId,
-    version_id: input.versionId,
-    parent_id: item.parent_id ? (idMap.get(item.parent_id) ?? null) : null,
-    item_type: item.item_type,
-    position: item.position,
-    title: item.title,
-    description: item.description ?? null,
-    quantity: item.quantity ?? 0,
-    unit_price_ht_cents: item.unit_price_ht_cents ?? 0,
-    tax_rate_bp: item.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
-    k_fo: item.k_fo ?? 1,
-    h_mo: item.h_mo ?? 0,
-    h_mo_majoration: item.h_mo_majoration ?? null,
-    k_mo: item.k_mo ?? 1,
-    h_mo_atelier: item.h_mo_atelier ?? null,
-    k_mo_atelier: item.k_mo_atelier ?? null,
-    labor_role_atelier_id: item.labor_role_atelier_id ?? null,
-    h_mo_chantier: item.h_mo_chantier ?? null,
-    k_mo_chantier: item.k_mo_chantier ?? null,
-    labor_role_chantier_id: item.labor_role_chantier_id ?? null,
-    pu_ht_cents: item.pu_ht_cents ?? 0,
-    labor_role_id: item.labor_role_id ?? null,
-    category_id: item.category_id ?? null,
-    supply_type_id: item.supply_type_id ?? null,
-    line_total_ht_cents: item.line_total_ht_cents ?? null,
-    line_tax_cents: item.line_tax_cents ?? null,
-    line_total_ttc_cents: item.line_total_ttc_cents ?? null,
-  }));
-}
-
-function buildDuplicatedTemplateItemsInsertPayload(input: {
-  tenantId: string;
-  targetTemplateId: string;
-  sourceItems: EstimateTemplateItemRow[];
-}) {
-  const idMap = new Map<string, string>();
-
-  for (const item of input.sourceItems) {
-    idMap.set(item.id, randomUUID());
-  }
-
-  return input.sourceItems.map((item) => ({
-    id: idMap.get(item.id),
-    tenant_id: input.tenantId,
-    template_id: input.targetTemplateId,
-    parent_id: item.parent_id ? (idMap.get(item.parent_id) ?? null) : null,
-    item_type: item.item_type,
-    position: item.position,
-    title: item.title,
-    description: item.description ?? null,
-    quantity: item.quantity ?? 0,
-    unit_price_ht_cents: item.unit_price_ht_cents ?? 0,
-    tax_rate_bp: item.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
-    k_fo: item.k_fo ?? 1,
-    h_mo: item.h_mo ?? 0,
-    h_mo_majoration: item.h_mo_majoration ?? null,
-    k_mo: item.k_mo ?? 1,
-    h_mo_atelier: item.h_mo_atelier ?? null,
-    k_mo_atelier: item.k_mo_atelier ?? null,
-    labor_role_atelier_id: item.labor_role_atelier_id ?? null,
-    h_mo_chantier: item.h_mo_chantier ?? null,
-    k_mo_chantier: item.k_mo_chantier ?? null,
-    labor_role_chantier_id: item.labor_role_chantier_id ?? null,
-    pu_ht_cents: item.pu_ht_cents ?? 0,
-    labor_role_id: item.labor_role_id ?? null,
-    category_id: item.category_id ?? null,
-    supply_type_id: item.supply_type_id ?? null,
-    line_total_ht_cents: item.line_total_ht_cents ?? null,
-    line_tax_cents: item.line_tax_cents ?? null,
-    line_total_ttc_cents: item.line_total_ttc_cents ?? null,
-  }));
-}
-
 async function loadEstimateTemplateOrThrow(input: {
   supabase: Supabase;
   tenantId: string;
   templateId: string;
 }): Promise<EstimateTemplateRow> {
-  const db = getUntypedSupabase(input.supabase);
-
-  const { data, error } = await db
+  const { data, error } = await input.supabase
     .from("estimate_templates")
     .select("*")
     .eq("tenant_id", input.tenantId)
@@ -934,10 +833,14 @@ async function loadEstimateTemplateOrThrow(input: {
       throw mapSupabaseError(error, "Impossible de charger le template.");
     }
 
-    throw notFound("Template introuvable.", undefined, "TEMPLATE_NOT_FOUND");
+    throw notFound(
+      "Template introuvable.",
+      undefined,
+      "ESTIMATE_TEMPLATE_NOT_FOUND"
+    );
   }
 
-  return data as EstimateTemplateRow;
+  return data as unknown as EstimateTemplateRow;
 }
 
 async function loadEstimateTemplateItems(input: {
@@ -945,9 +848,7 @@ async function loadEstimateTemplateItems(input: {
   tenantId: string;
   templateId: string;
 }) {
-  const db = getUntypedSupabase(input.supabase);
-
-  const { data, error } = await db
+  const { data, error } = await input.supabase
     .from("estimate_template_items")
     .select("*")
     .eq("tenant_id", input.tenantId)
@@ -962,7 +863,7 @@ async function loadEstimateTemplateItems(input: {
   return (data ?? []) as EstimateTemplateItemRow[];
 }
 
-async function loadTemplateItemCountByTemplateId(input: {
+async function loadTemplateLineCountByTemplateId(input: {
   supabase: Supabase;
   tenantId: string;
   templateIds: string[];
@@ -973,12 +874,11 @@ async function loadTemplateItemCountByTemplateId(input: {
     return counts;
   }
 
-  const db = getUntypedSupabase(input.supabase);
-
-  const { data, error } = await db
+  const { data, error } = await input.supabase
     .from("estimate_template_items")
     .select("template_id")
     .eq("tenant_id", input.tenantId)
+    .eq("item_type", "line")
     .in("template_id", input.templateIds);
 
   if (error) {
@@ -990,48 +890,6 @@ async function loadTemplateItemCountByTemplateId(input: {
   }
 
   return counts;
-}
-
-async function cleanupTemplateOnFailure(input: {
-  supabase: Supabase;
-  tenantId: string;
-  templateId: string;
-}) {
-  const db = getUntypedSupabase(input.supabase);
-
-  const { error } = await db
-    .from("estimate_templates")
-    .delete()
-    .eq("tenant_id", input.tenantId)
-    .eq("id", input.templateId);
-
-  if (error) {
-    console.error("Failed to cleanup estimate template after error", {
-      tenantId: input.tenantId,
-      templateId: input.templateId,
-      error,
-    });
-  }
-}
-
-async function cleanupInstantiatedEstimateOnFailure(input: {
-  supabase: Supabase;
-  tenantId: string;
-  projectId: string;
-}) {
-  const { error } = await input.supabase
-    .from("estimate_projects")
-    .delete()
-    .eq("tenant_id", input.tenantId)
-    .eq("id", input.projectId);
-
-  if (error) {
-    console.error("Failed to cleanup instantiated estimate after template error", {
-      tenantId: input.tenantId,
-      projectId: input.projectId,
-      error,
-    });
-  }
 }
 
 async function getVersionAccessOrThrow(
@@ -1075,6 +933,93 @@ async function getVersionAccessOrThrow(
 function assertDraftStatus(status: EstimateStatus) {
   if (status === "draft") return;
   throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
+}
+
+async function getActiveDraftLockForVersion(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("draft_locks")
+    .select("id, version_id, user_id, locked_at, expires_at")
+    .eq("tenant_id", input.tenantId)
+    .eq("version_id", input.versionId)
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de verifier le verrou de brouillon."
+    );
+  }
+
+  return (data ?? null) as
+    | {
+        id: string;
+        version_id: string;
+        user_id: string;
+        locked_at: string;
+        expires_at: string;
+      }
+    | null;
+}
+
+async function resolveDraftLockOwnerName(supabase: Supabase, userId: string) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  const fullName =
+    typeof data.full_name === "string" ? data.full_name.trim() : "";
+  return fullName.length > 0 ? fullName : null;
+}
+
+async function assertDraftLockOwnedByCurrentUser(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+  userId: string;
+}) {
+  const lock = await getActiveDraftLockForVersion({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+  });
+
+  if (!lock) {
+    throw conflict(
+      "Un verrou actif est requis pour modifier cette version brouillon.",
+      {
+        lock: null,
+      },
+      "LOCK_REQUIRED"
+    );
+  }
+
+  if (lock.user_id === input.userId) {
+    return;
+  }
+
+  const holderName = await resolveDraftLockOwnerName(input.supabase, lock.user_id);
+
+  throw conflict("Cette version est deja verrouillee par un autre utilisateur.", {
+    lock: {
+      version_id: lock.version_id,
+      user_id: lock.user_id,
+      holder_name: holderName,
+      locked_at: lock.locked_at,
+      expires_at: lock.expires_at,
+      is_owner: false,
+    },
+  });
 }
 
 async function getNextItemPosition(
@@ -1449,9 +1394,8 @@ export async function listLatestEstimates() {
 
 export async function listEstimateTemplates(query: ListEstimateTemplatesQueryInput) {
   const { supabase, tenantId } = await getAuthenticatedContext();
-  const db = getUntypedSupabase(supabase);
 
-  let templatesQuery = db
+  let templatesQuery = supabase
     .from("estimate_templates")
     .select("*")
     .eq("tenant_id", tenantId);
@@ -1464,23 +1408,23 @@ export async function listEstimateTemplates(query: ListEstimateTemplatesQueryInp
   }
 
   const { data, error } = await templatesQuery
-    .order("updated_at", { ascending: false })
+    .order("updated_at", { ascending: query.order === "oldest" })
     .limit(query.limit);
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les templates.");
   }
 
-  const templates = (data ?? []) as EstimateTemplateRow[];
-  const itemCountByTemplateId = await loadTemplateItemCountByTemplateId({
+  const templates = (data ?? []) as unknown as EstimateTemplateRow[];
+  const lineCountByTemplateId = await loadTemplateLineCountByTemplateId({
     supabase,
     tenantId,
     templateIds: templates.map((template) => template.id),
   });
 
   return {
-    items: templates.map((template) =>
-      toTemplateSummary(template, itemCountByTemplateId.get(template.id) ?? 0)
+    templates: templates.map((template) =>
+      toTemplateSummary(template, lineCountByTemplateId.get(template.id) ?? 0)
     ),
   };
 }
@@ -1498,10 +1442,11 @@ export async function getEstimateTemplate(templateId: string) {
     tenantId,
     templateId,
   });
+  const lineCount = items.filter((item) => item.item_type === "line").length;
 
   return {
     template: {
-      ...toTemplateSummary(template, items.length),
+      ...toTemplateSummary(template, lineCount),
       items,
     },
   };
@@ -1510,101 +1455,44 @@ export async function getEstimateTemplate(templateId: string) {
 export async function createEstimateTemplateFromVersion(
   input: CreateEstimateTemplateFromVersionInput
 ) {
-  const context = await getAuthenticatedContext();
-  const { supabase, tenantId, userId } = context;
-  const db = getUntypedSupabase(supabase);
+  const { supabase, tenantId } = await getAuthenticatedContext();
 
-  try {
-    await getVersionAccessOrThrow(supabase, input.source_version_id, context);
-  } catch (error) {
-    if (error instanceof ApiError && error.code === "NOT_FOUND") {
-      throw notFound(
-        "Version source introuvable.",
-        undefined,
-        "TEMPLATE_SOURCE_VERSION_NOT_FOUND"
-      );
+  const { data, error } = await supabase.rpc(
+    "create_estimate_template_from_version",
+    {
+      p_source_version_id: input.source_version_id,
+      p_name: input.name.trim(),
+      p_description: toNullableText(input.description),
     }
-    throw error;
+  );
+
+  if (error) {
+    throwTemplateNameConflictIfNeeded(error);
+    throwTemplateSourceVersionNotFoundIfNeeded(error);
+    throw mapSupabaseError(error, "Impossible de creer le template.");
   }
 
-  const { data: templateData, error: templateError } = await db
-    .from("estimate_templates")
-    .insert({
-      tenant_id: tenantId,
-      name: input.name.trim(),
-      description: toNullableText(input.description),
-      source_version_id: input.source_version_id,
-      created_by: userId,
-    })
-    .select("*")
-    .single();
-
-  if (templateError || !templateData) {
-    if (templateError) {
-      throwTemplateNameConflictIfNeeded(templateError);
-      throw mapSupabaseError(templateError, "Impossible de creer le template.");
-    }
+  const templateId = toRpcUuid(data);
+  if (!templateId) {
     throw badRequest("Impossible de creer le template.");
   }
 
-  const template = templateData as EstimateTemplateRow;
-
-  const { data: sourceItemsData, error: sourceItemsError } = await supabase
-    .from("estimate_items")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .eq("version_id", input.source_version_id)
-    .order("position", { ascending: true })
-    .order("id", { ascending: true });
-
-  if (sourceItemsError) {
-    await cleanupTemplateOnFailure({
-      supabase,
-      tenantId,
-      templateId: template.id,
-    });
-    throw mapSupabaseError(
-      sourceItemsError,
-      "Impossible de charger les lignes de la version source."
-    );
-  }
-
-  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
-  const templateItemsPayload = buildTemplateItemsInsertPayload({
-    tenantId,
-    templateId: template.id,
-    sourceItems,
-  });
-
-  if (templateItemsPayload.length > 0) {
-    const { error: insertItemsError } = await db
-      .from("estimate_template_items")
-      .insert(templateItemsPayload);
-
-    if (insertItemsError) {
-      await cleanupTemplateOnFailure({
-        supabase,
-        tenantId,
-        templateId: template.id,
-      });
-      throw mapSupabaseError(
-        insertItemsError,
-        "Impossible de copier les lignes dans le template."
-      );
-    }
-  }
-
-  const items = await loadEstimateTemplateItems({
+  const template = await loadEstimateTemplateOrThrow({
     supabase,
     tenantId,
-    templateId: template.id,
+    templateId,
+  });
+  const lineCountByTemplateId = await loadTemplateLineCountByTemplateId({
+    supabase,
+    tenantId,
+    templateIds: [template.id],
   });
 
   return {
-    template: {
-      ...toTemplateSummary(template, items.length),
-      items,
-    },
+    template: toTemplateSummary(
+      template,
+      lineCountByTemplateId.get(template.id) ?? 0
+    ),
   };
 }
 
@@ -1613,7 +1501,6 @@ export async function updateEstimateTemplate(
   input: UpdateEstimateTemplateInput
 ) {
   const { supabase, tenantId } = await getAuthenticatedContext();
-  const db = getUntypedSupabase(supabase);
 
   await loadEstimateTemplateOrThrow({
     supabase,
@@ -1624,13 +1511,13 @@ export async function updateEstimateTemplate(
   const payload: Record<string, unknown> = {};
 
   if ("name" in input) {
-    payload.name = input.name.trim();
+    payload.name = (input.name ?? "").trim();
   }
   if ("description" in input) {
     payload.description = toNullableText(input.description);
   }
 
-  const { data, error } = await db
+  const { data, error } = await supabase
     .from("estimate_templates")
     .update(payload)
     .eq("tenant_id", tenantId)
@@ -1646,8 +1533,8 @@ export async function updateEstimateTemplate(
     throw badRequest("Impossible de mettre a jour le template.");
   }
 
-  const updatedTemplate = data as EstimateTemplateRow;
-  const itemCountByTemplateId = await loadTemplateItemCountByTemplateId({
+  const updatedTemplate = data as unknown as EstimateTemplateRow;
+  const lineCountByTemplateId = await loadTemplateLineCountByTemplateId({
     supabase,
     tenantId,
     templateIds: [updatedTemplate.id],
@@ -1656,14 +1543,13 @@ export async function updateEstimateTemplate(
   return {
     template: toTemplateSummary(
       updatedTemplate,
-      itemCountByTemplateId.get(updatedTemplate.id) ?? 0
+      lineCountByTemplateId.get(updatedTemplate.id) ?? 0
     ),
   };
 }
 
 export async function deleteEstimateTemplate(templateId: string) {
   const { supabase, tenantId } = await getAuthenticatedContext();
-  const db = getUntypedSupabase(supabase);
 
   await loadEstimateTemplateOrThrow({
     supabase,
@@ -1671,7 +1557,7 @@ export async function deleteEstimateTemplate(templateId: string) {
     templateId,
   });
 
-  const { error: deleteItemsError } = await db
+  const { error: deleteItemsError } = await supabase
     .from("estimate_template_items")
     .delete()
     .eq("tenant_id", tenantId)
@@ -1681,7 +1567,7 @@ export async function deleteEstimateTemplate(templateId: string) {
     throw mapSupabaseError(deleteItemsError, "Impossible de supprimer le template.");
   }
 
-  const { error: deleteTemplateError } = await db
+  const { error: deleteTemplateError } = await supabase
     .from("estimate_templates")
     .delete()
     .eq("tenant_id", tenantId)
@@ -1700,87 +1586,40 @@ export async function duplicateEstimateTemplate(
   templateId: string,
   input: DuplicateEstimateTemplateInput
 ) {
-  const { supabase, tenantId, userId } = await getAuthenticatedContext();
-  const db = getUntypedSupabase(supabase);
+  const { supabase, tenantId } = await getAuthenticatedContext();
 
-  const sourceTemplate = await loadEstimateTemplateOrThrow({
-    supabase,
-    tenantId,
-    templateId,
-  });
-  const sourceItems = await loadEstimateTemplateItems({
-    supabase,
-    tenantId,
-    templateId,
+  const { data, error } = await supabase.rpc("duplicate_estimate_template", {
+    p_template_id: templateId,
+    p_name: toNullableText(input.name) ?? "",
   });
 
-  const duplicateName = toNullableText(input.name) ?? `${sourceTemplate.name} (copie)`;
-  const duplicateDescription =
-    "description" in input
-      ? toNullableText(input.description)
-      : sourceTemplate.description;
+  if (error) {
+    throwTemplateNameConflictIfNeeded(error);
+    throwTemplateNotFoundIfNeeded(error);
+    throw mapSupabaseError(error, "Impossible de dupliquer le template.");
+  }
 
-  const { data: duplicatedTemplateData, error: duplicateTemplateError } = await db
-    .from("estimate_templates")
-    .insert({
-      tenant_id: tenantId,
-      name: duplicateName,
-      description: duplicateDescription,
-      source_version_id: sourceTemplate.source_version_id,
-      created_by: userId,
-    })
-    .select("*")
-    .single();
-
-  if (duplicateTemplateError || !duplicatedTemplateData) {
-    if (duplicateTemplateError) {
-      throwTemplateNameConflictIfNeeded(duplicateTemplateError);
-      throw mapSupabaseError(
-        duplicateTemplateError,
-        "Impossible de dupliquer le template."
-      );
-    }
-
+  const duplicatedTemplateId = toRpcUuid(data);
+  if (!duplicatedTemplateId) {
     throw badRequest("Impossible de dupliquer le template.");
   }
 
-  const duplicatedTemplate = duplicatedTemplateData as EstimateTemplateRow;
-
-  if (sourceItems.length > 0) {
-    const duplicatedItemsPayload = buildDuplicatedTemplateItemsInsertPayload({
-      tenantId,
-      targetTemplateId: duplicatedTemplate.id,
-      sourceItems,
-    });
-
-    const { error: duplicateItemsError } = await db
-      .from("estimate_template_items")
-      .insert(duplicatedItemsPayload);
-
-    if (duplicateItemsError) {
-      await cleanupTemplateOnFailure({
-        supabase,
-        tenantId,
-        templateId: duplicatedTemplate.id,
-      });
-      throw mapSupabaseError(
-        duplicateItemsError,
-        "Impossible de dupliquer les lignes du template."
-      );
-    }
-  }
-
-  const duplicatedItems = await loadEstimateTemplateItems({
+  const duplicatedTemplate = await loadEstimateTemplateOrThrow({
     supabase,
     tenantId,
-    templateId: duplicatedTemplate.id,
+    templateId: duplicatedTemplateId,
+  });
+  const lineCountByTemplateId = await loadTemplateLineCountByTemplateId({
+    supabase,
+    tenantId,
+    templateIds: [duplicatedTemplate.id],
   });
 
   return {
-    template: {
-      ...toTemplateSummary(duplicatedTemplate, duplicatedItems.length),
-      items: duplicatedItems,
-    },
+    template: toTemplateSummary(
+      duplicatedTemplate,
+      lineCountByTemplateId.get(duplicatedTemplate.id) ?? 0
+    ),
   };
 }
 
@@ -1788,54 +1627,47 @@ export async function instantiateEstimateFromTemplate(
   templateId: string,
   input: InstantiateEstimateFromTemplateInput
 ) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
+  const { supabase } = await getAuthenticatedContext();
 
-  await loadEstimateTemplateOrThrow({
-    supabase,
-    tenantId,
-    templateId,
-  });
-  const templateItems = await loadEstimateTemplateItems({
-    supabase,
-    tenantId,
-    templateId,
+  const { data, error } = await supabase.rpc("instantiate_estimate_from_template", {
+    p_template_id: templateId,
+    p_project_name: input.project_name.trim(),
+    p_version_title: toNullableText(input.version_title),
+    p_date_devis: input.date_devis ?? null,
+    p_validite_jours: input.validite_jours ?? null,
   });
 
-  const created = await createEstimate({
-    project: input.project,
-    version: input.version,
-  });
+  if (error) {
+    throwTemplateNotFoundIfNeeded(error);
+    throw internalError(
+      "Impossible d'instancier le template.",
+      error,
+      "ESTIMATE_TEMPLATE_INSTANTIATE_FAILED"
+    );
+  }
 
-  const estimateItemsPayload = buildEstimateItemsInsertPayload({
-    tenantId,
-    versionId: created.version.id,
-    templateItems,
-  });
+  const row = Array.isArray(data) ? data[0] : data;
+  const projectId =
+    row && typeof row === "object" && "project_id" in row
+      ? toRpcUuid((row as { project_id?: unknown }).project_id)
+      : null;
+  const versionId =
+    row && typeof row === "object" && "version_id" in row
+      ? toRpcUuid((row as { version_id?: unknown }).version_id)
+      : null;
 
-  if (estimateItemsPayload.length > 0) {
-    const { error: insertItemsError } = await supabase
-      .from("estimate_items")
-      .insert(estimateItemsPayload as EstimateItemInsert[]);
-
-    if (insertItemsError) {
-      await cleanupInstantiatedEstimateOnFailure({
-        supabase,
-        tenantId,
-        projectId: created.project.id,
-      });
-      throw internalError(
-        "Impossible d'instancier le template.",
-        insertItemsError,
-        "TEMPLATE_INSTANTIATE_FAILED"
-      );
-    }
+  if (!projectId || !versionId) {
+    throw internalError(
+      "Impossible d'instancier le template.",
+      { data },
+      "ESTIMATE_TEMPLATE_INSTANTIATE_FAILED"
+    );
   }
 
   return {
-    project: created.project,
-    version: created.version,
-    template_id: templateId,
-    inserted_count: estimateItemsPayload.length,
+    projectId,
+    versionId,
+    redirectTo: `/dashboard/estimates/${versionId}/edit`,
   };
 }
 
@@ -2117,6 +1949,12 @@ export async function patchEstimateVersion(
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
 
   const payload: EstimateVersionUpdate = {};
@@ -2217,6 +2055,14 @@ export async function patchEstimateStatus(
   const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
+  if (version.status === "draft") {
+    await assertDraftLockOwnedByCurrentUser({
+      supabase,
+      tenantId,
+      versionId,
+      userId,
+    });
+  }
 
   if (version.status === input.status) {
     const { data, error } = await supabase
@@ -2321,8 +2167,15 @@ export async function createEstimateCategory(
   input: CreateEstimateCategoryInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const { project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { supabase, tenantId, userId } = context;
+  const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const position =
     input.position ??
@@ -2357,8 +2210,15 @@ export async function createLaborRole(
   input: CreateLaborRoleInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const { project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { supabase, tenantId, userId } = context;
+  const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const position =
     input.position ??
@@ -2395,8 +2255,15 @@ export async function updateLaborRole(
   input: UpdateLaborRoleInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const { project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { supabase, tenantId, userId } = context;
+  const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const existingRoleQuery = supabase
     .from("labor_roles")
@@ -2445,8 +2312,15 @@ export async function createSuggestionRule(
   input: CreateSuggestionRuleInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const { project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { supabase, tenantId, userId } = context;
+  const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const categoryId = input.category_id ?? null;
   const laborRoleId = input.labor_role_id ?? null;
@@ -2494,8 +2368,15 @@ export async function updateSuggestionRule(
   input: UpdateSuggestionRuleInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const { project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { supabase, tenantId, userId } = context;
+  const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const existingRuleQuery = supabase
     .from("estimate_suggestion_rules")
@@ -2578,8 +2459,15 @@ export async function saveSuggestionRuleFeedback(
   input: SuggestionRuleFeedbackInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
-  const { project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { supabase, tenantId, userId } = context;
+  const { version, project } = await getVersionAccessOrThrow(supabase, versionId, context);
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const existingRuleQuery = supabase
     .from("estimate_suggestion_rules")
@@ -2603,46 +2491,61 @@ export async function saveSuggestionRuleFeedback(
   }
 
   const existingRuleRecord = existingRule as unknown as Record<string, unknown>;
-  const nowIso = new Date().toISOString();
-  const payload: SuggestionRuleUpdate & Record<string, unknown> = {};
+  let usageCount = toSuggestionUsageCount(existingRuleRecord.usage_count);
 
-  if ("usage_count" in existingRuleRecord) {
-    payload.usage_count = toSuggestionUsageCount(existingRuleRecord.usage_count) + 1;
-  }
-  if ("last_used_at" in existingRuleRecord) {
-    payload.last_used_at = nowIso;
-  }
-
-  if (Object.keys(payload).length === 0) {
-    return {
-      suggestion_rule: existingRule,
-      feedback: input.feedback,
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const nowIso = new Date().toISOString();
+    const payload: SuggestionRuleUpdate = {
+      usage_count: usageCount + 1,
+      last_used_at: nowIso,
     };
-  }
 
-  const updateRuleQuery = supabase
-    .from("estimate_suggestion_rules")
-    .update(payload as SuggestionRuleUpdate)
-    .eq("id", ruleId)
-    .eq("tenant_id", tenantId)
-    .eq("user_id", project.user_id);
+    const updateRuleQuery = supabase
+      .from("estimate_suggestion_rules")
+      .update(payload)
+      .eq("id", ruleId)
+      .eq("tenant_id", tenantId)
+      .eq("user_id", project.user_id)
+      .eq("usage_count", usageCount);
 
-  const { data, error } = await updateRuleQuery.select("*").single();
+    const { data, error } = await updateRuleQuery.select("*").maybeSingle();
 
-  if (error || !data) {
     if (error) {
+      throw mapSupabaseError(error, "Impossible d'enregistrer le feedback de la regle.");
+    }
+
+    if (data) {
+      return {
+        suggestion_rule: data,
+        feedback: input.feedback,
+      };
+    }
+
+    const { data: latestRule, error: latestRuleError } = await supabase
+      .from("estimate_suggestion_rules")
+      .select("usage_count")
+      .eq("id", ruleId)
+      .eq("tenant_id", tenantId)
+      .eq("user_id", project.user_id)
+      .maybeSingle();
+
+    if (latestRuleError) {
       throw mapSupabaseError(
-        error,
+        latestRuleError,
         "Impossible d'enregistrer le feedback de la regle."
       );
     }
-    throw badRequest("Impossible d'enregistrer le feedback de la regle.");
+
+    if (!latestRule) {
+      throw notFound("Regle introuvable.");
+    }
+
+    usageCount = toSuggestionUsageCount(
+      (latestRule as unknown as Record<string, unknown>).usage_count
+    );
   }
 
-  return {
-    suggestion_rule: data,
-    feedback: input.feedback,
-  };
+  throw conflict("La regle a ete modifiee simultanement. Veuillez reessayer.");
 }
 
 export async function createEstimateItem(
@@ -2650,7 +2553,7 @@ export async function createEstimateItem(
   input: CreateEstimateItemInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
+  const { supabase, tenantId, userId } = context;
   const { version, project } = await getVersionAccessOrThrow(
     supabase,
     versionId,
@@ -2658,6 +2561,12 @@ export async function createEstimateItem(
   );
 
   assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const parentId = input.parent_id ?? null;
   await ensureParentIsValid({
@@ -2846,7 +2755,7 @@ export async function updateEstimateItem(
   input: UpdateEstimateItemInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
+  const { supabase, tenantId, userId } = context;
   const { version, project } = await getVersionAccessOrThrow(
     supabase,
     versionId,
@@ -2854,6 +2763,12 @@ export async function updateEstimateItem(
   );
 
   assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const { data: currentItem, error: currentItemError } = await supabase
     .from("estimate_items")
@@ -3097,6 +3012,12 @@ export async function bulkUpdateEstimateItems(
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
 
   if (versionPatch) {
@@ -3174,10 +3095,16 @@ export async function deleteEstimateItem(
   input: DeleteEstimateItemInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
+  const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const { data: currentItem, error: currentItemError } = await supabase
     .from("estimate_items")
@@ -3212,10 +3139,16 @@ export async function reorderEstimateItems(
   input: ReorderEstimateItemsInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
+  const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
 
   const parentId = input.parent_id ?? null;
 

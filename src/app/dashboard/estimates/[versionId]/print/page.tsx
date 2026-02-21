@@ -4,6 +4,13 @@ import { notFound } from "next/navigation";
 import { EstimateDocument } from "@/components/EstimateDocument";
 import { PrintButton } from "@/components/PrintButton";
 import { PrintTitle } from "@/components/PrintTitle";
+import {
+  SealIntegrityBadge,
+  type SealIntegrityState,
+} from "@/components/estimates/SealIntegrityBadge";
+import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { isFeatureEnabled } from "@/lib/feature-flags";
+import { verifyEstimateSeal } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -21,6 +28,10 @@ type EstimateItem =
 type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
+>;
+type SupplyTypeLabel = Pick<
+  Database["public"]["Tables"]["supply_types"]["Row"],
+  "id" | "name"
 >;
 type PrintPageProps = {
   params?: Promise<{ versionId: string }>;
@@ -65,7 +76,7 @@ export default async function PrintEstimatePage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "version_number, date_devis, validite_jours, margin_multiplier, discount_bp, tax_rate_bp, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
+      "tenant_id, version_number, status, seal_hash, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -93,14 +104,24 @@ export default async function PrintEstimatePage({
   const version = versionResult.data as EstimateVersion;
   const items = itemsResult.data as EstimateItem[];
   const project = resolveProject(version.estimate_projects);
+  const isLaborSplitEnabled = await isFeatureEnabled(
+    version.tenant_id,
+    "EST_031_LABOR_SPLIT",
+    { supabase }
+  );
   const laborRoleIds = Array.from(
     new Set(
       items
-        .map((item) => item.labor_role_id)
+        .flatMap((item) => [
+          item.labor_role_id,
+          item.labor_role_atelier_id,
+          item.labor_role_chantier_id,
+        ])
         .filter((value): value is string => Boolean(value))
     )
   );
   const laborRateById: Record<string, number> = {};
+  const supplyTypeLabelsById: Record<string, string> = {};
 
   if (laborRoleIds.length > 0) {
     const laborRolesResult = await supabase
@@ -117,6 +138,20 @@ export default async function PrintEstimatePage({
     });
   }
 
+  const supplyTypesResult = await supabase
+    .from("supply_types")
+    .select("id, name")
+    .eq("tenant_id", version.tenant_id)
+    .order("name", { ascending: true });
+
+  if (supplyTypesResult.error) {
+    notFound();
+  }
+
+  ((supplyTypesResult.data ?? []) as SupplyTypeLabel[]).forEach((supplyType) => {
+    supplyTypeLabelsById[supplyType.id] = supplyType.name;
+  });
+
   const saleSubtotalCents = items.reduce((sum, item) => {
     if (item.item_type !== "line") return sum;
     return sum + (item.line_total_ht_cents ?? 0);
@@ -124,6 +159,48 @@ export default async function PrintEstimatePage({
   const discountCents = Math.round(
     (saleSubtotalCents * version.discount_bp) / 10000
   );
+  const lineItems = items
+    .filter((item) => item.item_type === "line")
+      .map((item) => ({
+        ...item,
+        labor_role_hourly_rate_cents: item.labor_role_id
+          ? (laborRateById[item.labor_role_id] ?? 0)
+          : 0,
+        labor_role_atelier_hourly_rate_cents: item.labor_role_atelier_id
+          ? (laborRateById[item.labor_role_atelier_id] ?? 0)
+          : 0,
+        labor_role_chantier_hourly_rate_cents: item.labor_role_chantier_id
+          ? (laborRateById[item.labor_role_chantier_id] ?? 0)
+          : 0,
+      }));
+  const appliedMarginMultiplier = computeEstimateTotals({
+    lineItems,
+    marginMultiplier: version.margin_multiplier,
+    marginMode: version.margin_mode,
+    discountCents,
+    taxRateBp: version.tax_rate_bp,
+    roundingMode: version.rounding_mode,
+    roundingStepCents: version.rounding_step_cents,
+  }).appliedMarginMultiplier;
+
+  let sealState: SealIntegrityState = "unsealed";
+  let sealHashPrefix = version.seal_hash?.slice(0, 8) ?? null;
+
+  if (version.status !== "draft" && version.seal_hash) {
+    try {
+      const verification = await verifyEstimateSeal(versionId);
+      sealState = verification.valid ? "valid" : "invalid";
+      if (verification.stored_hash) {
+        sealHashPrefix = verification.stored_hash.slice(0, 8);
+      }
+    } catch (error) {
+      console.error("Failed to verify estimate seal for print", {
+        versionId,
+        error,
+      });
+      sealState = "error";
+    }
+  }
 
   const rawTitle = [
     project?.name ?? "devis",
@@ -164,6 +241,7 @@ export default async function PrintEstimatePage({
             <span className="hidden rounded-lg bg-[var(--brand-orange)]/10 px-2.5 py-1 font-mono text-sm font-bold text-[var(--brand-orange)] sm:inline-block">
               {project?.reference ?? `V${version.version_number}`}
             </span>
+            <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
           </div>
           <PrintButton />
         </div>
@@ -177,13 +255,15 @@ export default async function PrintEstimatePage({
           versionNumber={version.version_number}
           dateDevis={version.date_devis}
           validiteJours={version.validite_jours}
-          marginMultiplier={version.margin_multiplier}
+          marginMultiplier={appliedMarginMultiplier}
           discountCents={discountCents}
           taxRateBp={version.tax_rate_bp}
+          isLaborSplitEnabled={isLaborSplitEnabled}
           laborRateById={laborRateById}
           totalHtCents={version.total_ht_cents}
           totalTaxCents={version.total_tax_cents}
           totalTtcCents={version.total_ttc_cents}
+          supplyTypeLabelsById={supplyTypeLabelsById}
           items={items}
         />
       </div>

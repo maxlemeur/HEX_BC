@@ -1,6 +1,15 @@
 "use client";
+/* eslint-disable react-hooks/refs */
 
-import { Fragment, useMemo, useState } from "react";
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -21,9 +30,17 @@ import { CSS } from "@dnd-kit/utilities";
 
 import {
   computeSectionTotals,
+  UNASSIGNED_SUPPLY_TYPE_KEY,
   type EstimateItemRecord,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
+import { sendEstimateSuggestionRuleFeedback } from "@/lib/estimates/client";
+import {
+  useSpreadsheetNavigation,
+  type SpreadsheetCell,
+  type SpreadsheetNavigationRow,
+} from "@/hooks/useSpreadsheetNavigation";
+import { useVirtualList } from "@/hooks/useVirtualList";
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
   ESTIMATE_QUALITY_FLAG_META,
@@ -31,14 +48,27 @@ import {
   type EstimateQualityFlagKey,
   type EstimateQualityFlagsByItemId,
 } from "@/lib/estimate-quality";
+import {
+  rankSuggestions,
+  type SuggestionMatchKind,
+} from "@/lib/estimates/suggestion-scoring";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
+type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
+type LaborSplitItemFields = {
+  h_mo_atelier?: number | null;
+  k_mo_atelier?: number | null;
+  labor_role_atelier_id?: string | null;
+  h_mo_chantier?: number | null;
+  k_mo_chantier?: number | null;
+  labor_role_chantier_id?: string | null;
+};
 
 type ItemPatch = Partial<
   Pick<
@@ -50,18 +80,29 @@ type ItemPatch = Partial<
     | "tax_rate_bp"
     | "k_fo"
     | "h_mo"
+    | "h_mo_majoration"
     | "k_mo"
     | "pu_ht_cents"
     | "labor_role_id"
     | "category_id"
+    | "supply_type_id"
   >
->;
+> &
+  LaborSplitItemFields;
 
 type EstimateQualityFilter = "all_lines" | "with_anomalies" | EstimateQualityFlagKey;
+type EstimateVirtualizationConfig = {
+  enabled?: boolean;
+  rowEstimate?: number;
+  overscan?: number;
+  maxHeight?: number;
+  containerHeight?: number;
+};
 
 type EstimateEditorTableProps = {
   items: EstimateItem[];
   categories: EstimateCategory[];
+  supplyTypes: SupplyType[];
   laborRoles: LaborRole[];
   suggestionRules: SuggestionRule[];
   qualityFlagsByItemId: EstimateQualityFlagsByItemId;
@@ -72,6 +113,7 @@ type EstimateEditorTableProps = {
   discountCents: number;
   taxRateBp: number;
   laborRateById: Map<string, number>;
+  isLaborSplitEnabled?: boolean;
   isReadOnly: boolean;
   onQualityFilterChange: (value: EstimateQualityFilter) => void;
   onAddSection: (parentId: string | null) => void;
@@ -82,17 +124,69 @@ type EstimateEditorTableProps = {
     patch: ItemPatch,
     options?: { persist?: boolean }
   ) => void;
+  onApplyBulkMajoration: (itemIds: string[], coefficient: number) => Promise<void>;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
-  onEnsureCategory: (name: string) => Promise<EstimateCategory | null>;
+  virtualization?: EstimateVirtualizationConfig;
 };
 
 const ROOT_KEY = "root";
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
-const EMPTY_SECTION_TOTALS: SectionTotals = {
-  foTotalCents: 0,
-  moTotalCents: 0,
-  totalHtCents: 0,
-  totalTtcCents: 0,
+const DEFAULT_VIRTUAL_ROW_ESTIMATE = 56;
+const DEFAULT_VIRTUAL_OVERSCAN = 8;
+const DEFAULT_VIRTUAL_MAX_HEIGHT = 640;
+const EMPTY_ITEMS: EstimateItem[] = [];
+const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
+const SUGGESTION_SCORE_MAX = 5;
+const SPREADSHEET_COLUMN_KEYS = {
+  title: "title",
+  quantity: "quantity",
+  unit: "unit",
+  unitPrice: "unit_price",
+  supplyType: "supply_type",
+  kFo: "k_fo",
+  hMo: "h_mo",
+  hMoAtelier: "h_mo_atelier",
+  laborRoleAtelier: "labor_role_atelier",
+  kMoAtelier: "k_mo_atelier",
+  hMoChantier: "h_mo_chantier",
+  laborRoleChantier: "labor_role_chantier",
+  kMoChantier: "k_mo_chantier",
+  hMoMajoration: "h_mo_majoration",
+  laborRole: "labor_role",
+  kMo: "k_mo",
+};
+const SECTION_SPREADSHEET_COLUMN_KEYS = [SPREADSHEET_COLUMN_KEYS.title];
+const LINE_SPREADSHEET_COLUMN_KEYS = [
+  SPREADSHEET_COLUMN_KEYS.title,
+  SPREADSHEET_COLUMN_KEYS.quantity,
+  SPREADSHEET_COLUMN_KEYS.unit,
+  SPREADSHEET_COLUMN_KEYS.unitPrice,
+  SPREADSHEET_COLUMN_KEYS.supplyType,
+  SPREADSHEET_COLUMN_KEYS.kFo,
+  SPREADSHEET_COLUMN_KEYS.hMo,
+  SPREADSHEET_COLUMN_KEYS.hMoMajoration,
+  SPREADSHEET_COLUMN_KEYS.laborRole,
+  SPREADSHEET_COLUMN_KEYS.kMo,
+];
+const LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT = [
+  SPREADSHEET_COLUMN_KEYS.title,
+  SPREADSHEET_COLUMN_KEYS.quantity,
+  SPREADSHEET_COLUMN_KEYS.unit,
+  SPREADSHEET_COLUMN_KEYS.unitPrice,
+  SPREADSHEET_COLUMN_KEYS.supplyType,
+  SPREADSHEET_COLUMN_KEYS.kFo,
+  SPREADSHEET_COLUMN_KEYS.hMoMajoration,
+  SPREADSHEET_COLUMN_KEYS.hMoAtelier,
+  SPREADSHEET_COLUMN_KEYS.laborRoleAtelier,
+  SPREADSHEET_COLUMN_KEYS.kMoAtelier,
+  SPREADSHEET_COLUMN_KEYS.hMoChantier,
+  SPREADSHEET_COLUMN_KEYS.laborRoleChantier,
+  SPREADSHEET_COLUMN_KEYS.kMoChantier,
+];
+const SUGGESTION_MATCH_LABELS: Record<SuggestionMatchKind, string> = {
+  exact: "exact",
+  partial: "partiel",
+  fuzzy: "fuzzy",
 };
 const QUALITY_BADGE_CLASSNAMES: Record<EstimateQualityFlagKey, string> = {
   missing_price: "border-rose-200 bg-rose-50 text-rose-700",
@@ -120,28 +214,39 @@ function matchesQualityFilter(
   return qualityFlags.includes(filter);
 }
 
-function normalizeKeywords(value: string) {
-  return value
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
-
-function findMatchingRule(title: string, rules: SuggestionRule[]) {
-  if (!title.trim()) return null;
-  const normalizedTitle = title.toLowerCase();
-  for (const rule of rules) {
-    if (!rule.is_active) continue;
-    if (rule.match_type !== "keyword") continue;
-    const keywords = normalizeKeywords(rule.match_value);
-    if (keywords.length === 0) continue;
-    if (
-      keywords.some((keyword) => normalizedTitle.includes(keyword.toLowerCase()))
-    ) {
-      return rule;
+function toSuggestionUsageCount(rule: SuggestionRule | Record<string, unknown>) {
+  const usageValue = (rule as Record<string, unknown>).usage_count;
+  if (typeof usageValue === "number" && Number.isFinite(usageValue) && usageValue >= 0) {
+    return Math.floor(usageValue);
+  }
+  if (typeof usageValue === "string") {
+    const parsed = Number.parseInt(usageValue, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
     }
   }
-  return null;
+  return 0;
+}
+
+function toSuggestionLastUsedAt(rule: SuggestionRule | Record<string, unknown>) {
+  const lastUsedAt = (rule as Record<string, unknown>).last_used_at;
+  return typeof lastUsedAt === "string" ? lastUsedAt : undefined;
+}
+
+function addDismissedSuggestion(
+  previous: Record<string, Record<string, boolean>>,
+  itemId: string,
+  ruleId: string
+) {
+  const itemDismissed = previous[itemId];
+  if (itemDismissed?.[ruleId]) return previous;
+  return {
+    ...previous,
+    [itemId]: {
+      ...(itemDismissed ?? {}),
+      [ruleId]: true,
+    },
+  };
 }
 
 function getParentKey(id: string | null) {
@@ -159,14 +264,94 @@ function parseNumberInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function formatMajorationPercentInput(value: number | null | undefined) {
+  if (!Number.isFinite(value ?? NaN)) return "100";
+  const percent = (value ?? 1) * 100;
+  return Number.isInteger(percent) ? String(percent) : percent.toFixed(2);
+}
+
+function parseMajorationPercentToCoefficient(value: string) {
+  return Math.max(parseNumberInput(value) / 100, 0);
+}
+
+function toFiniteNumber(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function toNonEmptyString(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readLaborSplitFields(
+  source: EstimateItem | Record<string, unknown>
+): Required<LaborSplitItemFields> {
+  const record = source as Record<string, unknown>;
+  return {
+    h_mo_atelier: toFiniteNumber(record.h_mo_atelier, 0),
+    k_mo_atelier: toFiniteNumber(record.k_mo_atelier, 1),
+    labor_role_atelier_id: toNonEmptyString(record.labor_role_atelier_id),
+    h_mo_chantier: toFiniteNumber(record.h_mo_chantier, 0),
+    k_mo_chantier: toFiniteNumber(record.k_mo_chantier, 1),
+    labor_role_chantier_id: toNonEmptyString(record.labor_role_chantier_id),
+  };
+}
+
+function getSpreadsheetColumnKeys(
+  itemType: EstimateItem["item_type"],
+  isLaborSplitEnabled: boolean
+) {
+  return itemType === "section"
+    ? SECTION_SPREADSHEET_COLUMN_KEYS
+    : isLaborSplitEnabled
+      ? LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT
+      : LINE_SPREADSHEET_COLUMN_KEYS;
+}
+
 type SortableReturn = ReturnType<typeof useSortable>;
+type SpreadsheetNavigationState = ReturnType<typeof useSpreadsheetNavigation>;
 type DragHandleProps = {
   listeners?: SortableReturn["listeners"];
   attributes?: SortableReturn["attributes"];
   disabled?: boolean;
 };
 
-function DragHandle({ listeners, attributes, disabled }: DragHandleProps) {
+function toCellClassName(
+  navigation: SpreadsheetNavigationState,
+  cell: SpreadsheetCell,
+  baseClassName: string
+) {
+  const classNames = [baseClassName, "estimate-cell--focusable"];
+
+  if (navigation.isCellActive(cell)) {
+    classNames.push("estimate-cell--active");
+  }
+
+  if (navigation.isCellEditing(cell)) {
+    classNames.push("estimate-cell--editing");
+  }
+
+  return classNames.join(" ");
+}
+
+function toCellKeyDownHandler(
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
+) {
+  return (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+
+    onKeyDown(event);
+  };
+}
+
+const DragHandle = memo(function DragHandle({
+  listeners,
+  attributes,
+  disabled,
+}: DragHandleProps) {
   return (
     <button
       type="button"
@@ -186,33 +371,18 @@ function DragHandle({ listeners, attributes, disabled }: DragHandleProps) {
       </svg>
     </button>
   );
-}
+});
 
-function SortableRow({
-  item,
-  depth,
-  unitValue,
-  categoryValue,
-  qualityFlags,
-  laborRoles,
-  onAddSection,
-  onAddLine,
-  onDeleteItem,
-  onPatchItem,
-  onUnitChange,
-  onUnitCommit,
-  onCategoryChange,
-  onCategoryCommit,
-  sectionTotals,
-  isDragDisabled,
-  isReadOnly,
-}: {
+type SortableRowProps = {
   item: EstimateItem;
   depth: number;
   unitValue: string;
-  categoryValue: string;
+  supplyTypeValue: string;
   qualityFlags: EstimateQualityFlagKey[];
+  supplyTypeById: Map<string, SupplyType>;
   laborRoles: LaborRole[];
+  navigation: SpreadsheetNavigationState;
+  isLineSelected: boolean;
   onAddSection: (parentId: string | null) => void;
   onAddLine: (parentId: string | null) => void;
   onDeleteItem: (itemId: string) => void;
@@ -223,12 +393,39 @@ function SortableRow({
   ) => void;
   onUnitChange: (itemId: string, value: string) => void;
   onUnitCommit: (itemId: string) => void;
-  onCategoryChange: (itemId: string, value: string) => void;
-  onCategoryCommit: (itemId: string) => void;
+  onSupplyTypeChange: (itemId: string, value: string) => void;
+  onSupplyTypeCommit: (itemId: string) => void;
+  onToggleLineSelection: (itemId: string, checked: boolean) => void;
   sectionTotals: SectionTotals | null;
   isDragDisabled: boolean;
   isReadOnly: boolean;
-}) {
+  isLaborSplitEnabled: boolean;
+};
+
+const SortableRow = memo(function SortableRow({
+  item,
+  depth,
+  unitValue,
+  supplyTypeValue,
+  qualityFlags,
+  supplyTypeById,
+  laborRoles,
+  navigation,
+  isLineSelected,
+  onAddSection,
+  onAddLine,
+  onDeleteItem,
+  onPatchItem,
+  onUnitChange,
+  onUnitCommit,
+  onSupplyTypeChange,
+  onSupplyTypeCommit,
+  onToggleLineSelection,
+  sectionTotals,
+  isDragDisabled,
+  isReadOnly,
+  isLaborSplitEnabled,
+}: SortableRowProps) {
   const {
     attributes,
     listeners,
@@ -252,14 +449,37 @@ function SortableRow({
     paddingLeft: `${depth * 20}px`,
   };
 
+  const titleCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.title,
+  };
+  const titleCellProps = navigation.getCellProps(titleCell);
+  const titleEditorProps = navigation.getEditorProps<HTMLInputElement>(titleCell);
+
   if (item.item_type === "section") {
+    const supplyTypeTotals = sectionTotals?.supplyTypeFoTotalsCents ?? {};
+    const supplyTypeEntries = Object.entries(supplyTypeTotals).sort(
+      ([, leftValue], [, rightValue]) => rightValue - leftValue
+    );
+
     return (
       <div
         ref={setNodeRef}
         style={style}
         className="estimate-row estimate-row--section"
+        role="row"
       >
-        <div className="estimate-cell estimate-cell--designation" style={indentStyle}>
+        <div className="estimate-cell estimate-cell--selection" />
+        <div
+          {...titleCellProps}
+          onKeyDown={toCellKeyDownHandler(titleCellProps.onKeyDown)}
+          className={toCellClassName(
+            navigation,
+            titleCell,
+            "estimate-cell estimate-cell--designation"
+          )}
+          style={indentStyle}
+        >
           <DragHandle
             listeners={listeners}
             attributes={attributes}
@@ -268,12 +488,17 @@ function SortableRow({
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <input
               className="estimate-input estimate-input--title"
+              ref={titleEditorProps.ref}
+              tabIndex={titleEditorProps.tabIndex}
               value={item.title}
               disabled={isReadOnly}
+              onFocus={titleEditorProps.onFocus}
+              onKeyDown={titleEditorProps.onKeyDown}
               onChange={(event) =>
                 onPatchItem(item.id, { title: event.target.value }, { persist: false })
               }
               onBlur={(event) => {
+                titleEditorProps.onBlur(event);
                 const nextTitle = event.target.value.trim() || "Sans titre";
                 onPatchItem(item.id, { title: nextTitle }, { persist: true });
               }}
@@ -282,15 +507,40 @@ function SortableRow({
               <span className="estimate-section-total-chip">
                 FO {formatEUR(sectionTotals?.foTotalCents ?? 0)}
               </span>
-              <span className="estimate-section-total-chip">
-                MO {formatEUR(sectionTotals?.moTotalCents ?? 0)}
-              </span>
+              {isLaborSplitEnabled ? (
+                <>
+                  <span className="estimate-section-total-chip">
+                    MO atelier {formatEUR(sectionTotals?.moAtelierTotalCents ?? 0)}
+                  </span>
+                  <span className="estimate-section-total-chip">
+                    MO chantier {formatEUR(sectionTotals?.moChantierTotalCents ?? 0)}
+                  </span>
+                </>
+              ) : (
+                <span className="estimate-section-total-chip">
+                  MO {formatEUR(sectionTotals?.moTotalCents ?? 0)}
+                </span>
+              )}
               <span className="estimate-section-total-chip">
                 HT {formatEUR(sectionTotals?.totalHtCents ?? 0)}
               </span>
               <span className="estimate-section-total-chip">
                 TTC {formatEUR(sectionTotals?.totalTtcCents ?? 0)}
               </span>
+              {supplyTypeEntries.map(([supplyTypeId, cents]) => {
+                const label =
+                  supplyTypeId === UNASSIGNED_SUPPLY_TYPE_KEY
+                    ? "Non classe"
+                    : (supplyTypeById.get(supplyTypeId)?.name ?? "Type inconnu");
+                return (
+                  <span
+                    key={`${item.id}:supply_type:${supplyTypeId}`}
+                    className="estimate-section-total-chip"
+                  >
+                    {label} {formatEUR(cents)}
+                  </span>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -329,12 +579,143 @@ function SortableRow({
   const lineTotal = item.line_total_ht_cents ?? 0;
   const kFoValue = item.k_fo ?? 1;
   const hMoValue = item.h_mo ?? 0;
+  const splitFields = readLaborSplitFields(item);
+  const hMoAtelierValue = splitFields.h_mo_atelier ?? "";
+  const kMoAtelierValue = splitFields.k_mo_atelier ?? "";
+  const hMoChantierValue = splitFields.h_mo_chantier ?? "";
+  const kMoChantierValue = splitFields.k_mo_chantier ?? "";
+  const hMoMajorationPercent = formatMajorationPercentInput(item.h_mo_majoration);
   const kMoValue = item.k_mo ?? 1;
   const puValue = formatCentsInput(item.pu_ht_cents);
+  const quantityCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.quantity,
+  };
+  const quantityCellProps = navigation.getCellProps(quantityCell);
+  const quantityEditorProps = navigation.getEditorProps<HTMLInputElement>(quantityCell);
+  const unitCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.unit,
+  };
+  const unitCellProps = navigation.getCellProps(unitCell);
+  const unitEditorProps = navigation.getEditorProps<HTMLInputElement>(unitCell);
+  const unitPriceCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.unitPrice,
+  };
+  const unitPriceCellProps = navigation.getCellProps(unitPriceCell);
+  const unitPriceEditorProps = navigation.getEditorProps<HTMLInputElement>(unitPriceCell);
+  const supplyTypeCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.supplyType,
+  };
+  const supplyTypeCellProps = navigation.getCellProps(supplyTypeCell);
+  const supplyTypeEditorProps = navigation.getEditorProps<HTMLInputElement>(supplyTypeCell);
+  const kFoCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.kFo,
+  };
+  const kFoCellProps = navigation.getCellProps(kFoCell);
+  const kFoEditorProps = navigation.getEditorProps<HTMLInputElement>(kFoCell);
+  const hMoCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.hMo,
+  };
+  const hMoCellProps = navigation.getCellProps(hMoCell);
+  const hMoEditorProps = navigation.getEditorProps<HTMLInputElement>(hMoCell);
+  const hMoMajorationCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.hMoMajoration,
+  };
+  const hMoMajorationCellProps = navigation.getCellProps(hMoMajorationCell);
+  const hMoMajorationEditorProps = navigation.getEditorProps<HTMLInputElement>(
+    hMoMajorationCell
+  );
+  const laborRoleCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.laborRole,
+  };
+  const laborRoleCellProps = navigation.getCellProps(laborRoleCell);
+  const laborRoleEditorProps = navigation.getEditorProps<HTMLSelectElement>(
+    laborRoleCell
+  );
+  const kMoCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.kMo,
+  };
+  const kMoCellProps = navigation.getCellProps(kMoCell);
+  const kMoEditorProps = navigation.getEditorProps<HTMLInputElement>(kMoCell);
+  const hMoAtelierCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.hMoAtelier,
+  };
+  const hMoAtelierCellProps = navigation.getCellProps(hMoAtelierCell);
+  const hMoAtelierEditorProps = navigation.getEditorProps<HTMLInputElement>(
+    hMoAtelierCell
+  );
+  const laborRoleAtelierCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.laborRoleAtelier,
+  };
+  const laborRoleAtelierCellProps = navigation.getCellProps(laborRoleAtelierCell);
+  const laborRoleAtelierEditorProps = navigation.getEditorProps<HTMLSelectElement>(
+    laborRoleAtelierCell
+  );
+  const kMoAtelierCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.kMoAtelier,
+  };
+  const kMoAtelierCellProps = navigation.getCellProps(kMoAtelierCell);
+  const kMoAtelierEditorProps = navigation.getEditorProps<HTMLInputElement>(
+    kMoAtelierCell
+  );
+  const hMoChantierCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.hMoChantier,
+  };
+  const hMoChantierCellProps = navigation.getCellProps(hMoChantierCell);
+  const hMoChantierEditorProps = navigation.getEditorProps<HTMLInputElement>(
+    hMoChantierCell
+  );
+  const laborRoleChantierCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.laborRoleChantier,
+  };
+  const laborRoleChantierCellProps = navigation.getCellProps(laborRoleChantierCell);
+  const laborRoleChantierEditorProps = navigation.getEditorProps<HTMLSelectElement>(
+    laborRoleChantierCell
+  );
+  const kMoChantierCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.kMoChantier,
+  };
+  const kMoChantierCellProps = navigation.getCellProps(kMoChantierCell);
+  const kMoChantierEditorProps = navigation.getEditorProps<HTMLInputElement>(
+    kMoChantierCell
+  );
 
   return (
-    <div ref={setNodeRef} style={style} className="estimate-row">
-      <div className="estimate-cell estimate-cell--designation" style={indentStyle}>
+    <div ref={setNodeRef} style={style} className="estimate-row" role="row">
+      <div className="estimate-cell estimate-cell--selection">
+        <input
+          type="checkbox"
+          className="estimate-line-checkbox"
+          checked={isLineSelected}
+          onChange={(event) => onToggleLineSelection(item.id, event.target.checked)}
+          disabled={isReadOnly}
+          aria-label={`Selectionner la ligne ${item.title || "sans titre"}`}
+        />
+      </div>
+      <div
+        {...titleCellProps}
+        onKeyDown={toCellKeyDownHandler(titleCellProps.onKeyDown)}
+        className={toCellClassName(
+          navigation,
+          titleCell,
+          "estimate-cell estimate-cell--designation"
+        )}
+        style={indentStyle}
+      >
         <DragHandle
           listeners={listeners}
           attributes={attributes}
@@ -343,12 +724,17 @@ function SortableRow({
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <input
             className="estimate-input estimate-input--title"
+            ref={titleEditorProps.ref}
+            tabIndex={titleEditorProps.tabIndex}
             value={item.title}
             disabled={isReadOnly}
+            onFocus={titleEditorProps.onFocus}
+            onKeyDown={titleEditorProps.onKeyDown}
             onChange={(event) =>
               onPatchItem(item.id, { title: event.target.value }, { persist: false })
             }
             onBlur={(event) => {
+              titleEditorProps.onBlur(event);
               const nextTitle = event.target.value.trim() || "Nouvelle ligne";
               onPatchItem(item.id, { title: nextTitle }, { persist: true });
             }}
@@ -368,14 +754,22 @@ function SortableRow({
           ) : null}
         </div>
       </div>
-      <div className="estimate-cell">
+      <div
+        {...quantityCellProps}
+        onKeyDown={toCellKeyDownHandler(quantityCellProps.onKeyDown)}
+        className={toCellClassName(navigation, quantityCell, "estimate-cell")}
+      >
         <input
           className="estimate-input"
+          ref={quantityEditorProps.ref}
+          tabIndex={quantityEditorProps.tabIndex}
           type="number"
           step="0.001"
           min={0}
           value={item.quantity ?? 0}
           disabled={isReadOnly}
+          onFocus={quantityEditorProps.onFocus}
+          onKeyDown={quantityEditorProps.onKeyDown}
           onChange={(event) =>
             onPatchItem(
               item.id,
@@ -383,34 +777,54 @@ function SortableRow({
               { persist: false }
             )
           }
-          onBlur={(event) =>
+          onBlur={(event) => {
+            quantityEditorProps.onBlur(event);
             onPatchItem(
               item.id,
               { quantity: parseNumberInput(event.target.value) },
               { persist: true }
-            )
-          }
+            );
+          }}
         />
       </div>
-      <div className="estimate-cell">
+      <div
+        {...unitCellProps}
+        onKeyDown={toCellKeyDownHandler(unitCellProps.onKeyDown)}
+        className={toCellClassName(navigation, unitCell, "estimate-cell")}
+      >
         <input
           className="estimate-input"
+          ref={unitEditorProps.ref}
+          tabIndex={unitEditorProps.tabIndex}
           list="estimate-unit-options"
           value={unitValue}
+          onFocus={unitEditorProps.onFocus}
+          onKeyDown={unitEditorProps.onKeyDown}
           onChange={(event) => onUnitChange(item.id, event.target.value)}
-          onBlur={() => onUnitCommit(item.id)}
+          onBlur={(event) => {
+            unitEditorProps.onBlur(event);
+            onUnitCommit(item.id);
+          }}
           placeholder="u"
           disabled={isReadOnly}
         />
       </div>
-      <div className="estimate-cell">
+      <div
+        {...unitPriceCellProps}
+        onKeyDown={toCellKeyDownHandler(unitPriceCellProps.onKeyDown)}
+        className={toCellClassName(navigation, unitPriceCell, "estimate-cell")}
+      >
         <input
           className="estimate-input"
+          ref={unitPriceEditorProps.ref}
+          tabIndex={unitPriceEditorProps.tabIndex}
           type="number"
           step="0.01"
           min={0}
           value={formatCentsInput(item.unit_price_ht_cents)}
           disabled={isReadOnly}
+          onFocus={unitPriceEditorProps.onFocus}
+          onKeyDown={unitPriceEditorProps.onKeyDown}
           onChange={(event) =>
             onPatchItem(
               item.id,
@@ -418,33 +832,53 @@ function SortableRow({
               { persist: false }
             )
           }
-          onBlur={(event) =>
+          onBlur={(event) => {
+            unitPriceEditorProps.onBlur(event);
             onPatchItem(
               item.id,
               { unit_price_ht_cents: parseEuroToCents(event.target.value) ?? 0 },
               { persist: true }
-            )
-          }
+            );
+          }}
         />
       </div>
-      <div className="estimate-cell">
+      <div
+        {...supplyTypeCellProps}
+        onKeyDown={toCellKeyDownHandler(supplyTypeCellProps.onKeyDown)}
+        className={toCellClassName(navigation, supplyTypeCell, "estimate-cell")}
+      >
         <input
           className="estimate-input"
+          ref={supplyTypeEditorProps.ref}
+          tabIndex={supplyTypeEditorProps.tabIndex}
           list="estimate-fo-type-options"
-          value={categoryValue}
-          onChange={(event) => onCategoryChange(item.id, event.target.value)}
-          onBlur={() => onCategoryCommit(item.id)}
-          placeholder="Materiaux"
+          value={supplyTypeValue}
+          onFocus={supplyTypeEditorProps.onFocus}
+          onKeyDown={supplyTypeEditorProps.onKeyDown}
+          onChange={(event) => onSupplyTypeChange(item.id, event.target.value)}
+          onBlur={(event) => {
+            supplyTypeEditorProps.onBlur(event);
+            onSupplyTypeCommit(item.id);
+          }}
+          placeholder="Tube"
           disabled={isReadOnly}
         />
       </div>
-      <div className="estimate-cell">
+      <div
+        {...kFoCellProps}
+        onKeyDown={toCellKeyDownHandler(kFoCellProps.onKeyDown)}
+        className={toCellClassName(navigation, kFoCell, "estimate-cell")}
+      >
         <input
           className="estimate-input"
+          ref={kFoEditorProps.ref}
+          tabIndex={kFoEditorProps.tabIndex}
           type="number"
           step="0.01"
           min={0}
           value={kFoValue}
+          onFocus={kFoEditorProps.onFocus}
+          onKeyDown={kFoEditorProps.onKeyDown}
           onChange={(event) =>
             onPatchItem(
               item.id,
@@ -452,89 +886,398 @@ function SortableRow({
               { persist: false }
             )
           }
-          onBlur={(event) =>
+          onBlur={(event) => {
+            kFoEditorProps.onBlur(event);
             onPatchItem(
               item.id,
               { k_fo: parseNumberInput(event.target.value) },
               { persist: true }
-            )
-          }
+            );
+          }}
           placeholder="1.00"
           disabled={isReadOnly}
         />
       </div>
-      <div className="estimate-cell">
-        <input
-          className="estimate-input"
-          type="number"
-          step="0.1"
-          min={0}
-          value={hMoValue}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { h_mo: parseNumberInput(event.target.value) },
-              { persist: false }
-            )
-          }
-          onBlur={(event) =>
-            onPatchItem(
-              item.id,
-              { h_mo: parseNumberInput(event.target.value) },
-              { persist: true }
-            )
-          }
-          placeholder="0.0"
-          disabled={isReadOnly}
-        />
-      </div>
-      <div className="estimate-cell">
-        <select
-          className="estimate-input estimate-select"
-          value={item.labor_role_id ?? ""}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { labor_role_id: event.target.value || null },
-              { persist: true }
-            )
-          }
-          disabled={isReadOnly}
-        >
-          <option value="">-</option>
-          {laborRoles.map((role) => (
-            <option key={role.id} value={role.id} disabled={!role.is_active}>
-              {role.name}
-              {!role.is_active ? " (inactif)" : ""}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="estimate-cell">
-        <input
-          className="estimate-input"
-          type="number"
-          step="0.01"
-          min={0}
-          value={kMoValue}
-          onChange={(event) =>
-            onPatchItem(
-              item.id,
-              { k_mo: parseNumberInput(event.target.value) },
-              { persist: false }
-            )
-          }
-          onBlur={(event) =>
-            onPatchItem(
-              item.id,
-              { k_mo: parseNumberInput(event.target.value) },
-              { persist: true }
-            )
-          }
-          placeholder="1.00"
-          disabled={isReadOnly}
-        />
-      </div>
+      {isLaborSplitEnabled ? (
+        <>
+          <div
+            {...hMoMajorationCellProps}
+            onKeyDown={toCellKeyDownHandler(hMoMajorationCellProps.onKeyDown)}
+            className={toCellClassName(navigation, hMoMajorationCell, "estimate-cell")}
+          >
+            <input
+              className="estimate-input"
+              ref={hMoMajorationEditorProps.ref}
+              tabIndex={hMoMajorationEditorProps.tabIndex}
+              type="number"
+              step="0.1"
+              min={0}
+              value={hMoMajorationPercent}
+              onFocus={hMoMajorationEditorProps.onFocus}
+              onKeyDown={hMoMajorationEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { h_mo_majoration: parseMajorationPercentToCoefficient(event.target.value) },
+                  { persist: false }
+                )
+              }
+              onBlur={(event) => {
+                hMoMajorationEditorProps.onBlur(event);
+                onPatchItem(
+                  item.id,
+                  { h_mo_majoration: parseMajorationPercentToCoefficient(event.target.value) },
+                  { persist: true }
+                );
+              }}
+              placeholder="100"
+              disabled={isReadOnly}
+            />
+          </div>
+          <div
+            {...hMoAtelierCellProps}
+            onKeyDown={toCellKeyDownHandler(hMoAtelierCellProps.onKeyDown)}
+            className={toCellClassName(navigation, hMoAtelierCell, "estimate-cell")}
+          >
+            <input
+              className="estimate-input"
+              ref={hMoAtelierEditorProps.ref}
+              tabIndex={hMoAtelierEditorProps.tabIndex}
+              type="number"
+              step="0.1"
+              min={0}
+              value={hMoAtelierValue}
+              onFocus={hMoAtelierEditorProps.onFocus}
+              onKeyDown={hMoAtelierEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { h_mo_atelier: parseNumberInput(event.target.value) },
+                  { persist: false }
+                )
+              }
+              onBlur={(event) => {
+                hMoAtelierEditorProps.onBlur(event);
+                onPatchItem(
+                  item.id,
+                  { h_mo_atelier: parseNumberInput(event.target.value) },
+                  { persist: true }
+                );
+              }}
+              placeholder="0.0"
+              disabled={isReadOnly}
+            />
+          </div>
+          <div
+            {...laborRoleAtelierCellProps}
+            onKeyDown={toCellKeyDownHandler(laborRoleAtelierCellProps.onKeyDown)}
+            className={toCellClassName(
+              navigation,
+              laborRoleAtelierCell,
+              "estimate-cell"
+            )}
+          >
+            <select
+              className="estimate-input estimate-select"
+              ref={laborRoleAtelierEditorProps.ref}
+              tabIndex={laborRoleAtelierEditorProps.tabIndex}
+              value={splitFields.labor_role_atelier_id ?? ""}
+              onFocus={laborRoleAtelierEditorProps.onFocus}
+              onBlur={laborRoleAtelierEditorProps.onBlur}
+              onKeyDown={laborRoleAtelierEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { labor_role_atelier_id: event.target.value || null },
+                  { persist: true }
+                )
+              }
+              disabled={isReadOnly}
+            >
+              <option value="">-</option>
+              {laborRoles.map((role) => (
+                <option key={role.id} value={role.id} disabled={!role.is_active}>
+                  {role.name}
+                  {!role.is_active ? " (inactif)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div
+            {...kMoAtelierCellProps}
+            onKeyDown={toCellKeyDownHandler(kMoAtelierCellProps.onKeyDown)}
+            className={toCellClassName(navigation, kMoAtelierCell, "estimate-cell")}
+          >
+            <input
+              className="estimate-input"
+              ref={kMoAtelierEditorProps.ref}
+              tabIndex={kMoAtelierEditorProps.tabIndex}
+              type="number"
+              step="0.01"
+              min={0}
+              value={kMoAtelierValue}
+              onFocus={kMoAtelierEditorProps.onFocus}
+              onKeyDown={kMoAtelierEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { k_mo_atelier: parseNumberInput(event.target.value) },
+                  { persist: false }
+                )
+              }
+              onBlur={(event) => {
+                kMoAtelierEditorProps.onBlur(event);
+                onPatchItem(
+                  item.id,
+                  { k_mo_atelier: parseNumberInput(event.target.value) },
+                  { persist: true }
+                );
+              }}
+              placeholder="1.00"
+              disabled={isReadOnly}
+            />
+          </div>
+          <div
+            {...hMoChantierCellProps}
+            onKeyDown={toCellKeyDownHandler(hMoChantierCellProps.onKeyDown)}
+            className={toCellClassName(navigation, hMoChantierCell, "estimate-cell")}
+          >
+            <input
+              className="estimate-input"
+              ref={hMoChantierEditorProps.ref}
+              tabIndex={hMoChantierEditorProps.tabIndex}
+              type="number"
+              step="0.1"
+              min={0}
+              value={hMoChantierValue}
+              onFocus={hMoChantierEditorProps.onFocus}
+              onKeyDown={hMoChantierEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { h_mo_chantier: parseNumberInput(event.target.value) },
+                  { persist: false }
+                )
+              }
+              onBlur={(event) => {
+                hMoChantierEditorProps.onBlur(event);
+                onPatchItem(
+                  item.id,
+                  { h_mo_chantier: parseNumberInput(event.target.value) },
+                  { persist: true }
+                );
+              }}
+              placeholder="0.0"
+              disabled={isReadOnly}
+            />
+          </div>
+          <div
+            {...laborRoleChantierCellProps}
+            onKeyDown={toCellKeyDownHandler(laborRoleChantierCellProps.onKeyDown)}
+            className={toCellClassName(
+              navigation,
+              laborRoleChantierCell,
+              "estimate-cell"
+            )}
+          >
+            <select
+              className="estimate-input estimate-select"
+              ref={laborRoleChantierEditorProps.ref}
+              tabIndex={laborRoleChantierEditorProps.tabIndex}
+              value={splitFields.labor_role_chantier_id ?? ""}
+              onFocus={laborRoleChantierEditorProps.onFocus}
+              onBlur={laborRoleChantierEditorProps.onBlur}
+              onKeyDown={laborRoleChantierEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { labor_role_chantier_id: event.target.value || null },
+                  { persist: true }
+                )
+              }
+              disabled={isReadOnly}
+            >
+              <option value="">-</option>
+              {laborRoles.map((role) => (
+                <option key={role.id} value={role.id} disabled={!role.is_active}>
+                  {role.name}
+                  {!role.is_active ? " (inactif)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div
+            {...kMoChantierCellProps}
+            onKeyDown={toCellKeyDownHandler(kMoChantierCellProps.onKeyDown)}
+            className={toCellClassName(navigation, kMoChantierCell, "estimate-cell")}
+          >
+            <input
+              className="estimate-input"
+              ref={kMoChantierEditorProps.ref}
+              tabIndex={kMoChantierEditorProps.tabIndex}
+              type="number"
+              step="0.01"
+              min={0}
+              value={kMoChantierValue}
+              onFocus={kMoChantierEditorProps.onFocus}
+              onKeyDown={kMoChantierEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { k_mo_chantier: parseNumberInput(event.target.value) },
+                  { persist: false }
+                )
+              }
+              onBlur={(event) => {
+                kMoChantierEditorProps.onBlur(event);
+                onPatchItem(
+                  item.id,
+                  { k_mo_chantier: parseNumberInput(event.target.value) },
+                  { persist: true }
+                );
+              }}
+              placeholder="1.00"
+              disabled={isReadOnly}
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <div
+            {...hMoCellProps}
+            onKeyDown={toCellKeyDownHandler(hMoCellProps.onKeyDown)}
+            className={toCellClassName(navigation, hMoCell, "estimate-cell")}
+          >
+            <input
+              className="estimate-input"
+              ref={hMoEditorProps.ref}
+              tabIndex={hMoEditorProps.tabIndex}
+              type="number"
+              step="0.1"
+              min={0}
+              value={hMoValue}
+              onFocus={hMoEditorProps.onFocus}
+              onKeyDown={hMoEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { h_mo: parseNumberInput(event.target.value) },
+                  { persist: false }
+                )
+              }
+              onBlur={(event) => {
+                hMoEditorProps.onBlur(event);
+                onPatchItem(
+                  item.id,
+                  { h_mo: parseNumberInput(event.target.value) },
+                  { persist: true }
+                );
+              }}
+              placeholder="0.0"
+              disabled={isReadOnly}
+            />
+          </div>
+          <div
+            {...hMoMajorationCellProps}
+            onKeyDown={toCellKeyDownHandler(hMoMajorationCellProps.onKeyDown)}
+            className={toCellClassName(navigation, hMoMajorationCell, "estimate-cell")}
+          >
+            <input
+              className="estimate-input"
+              ref={hMoMajorationEditorProps.ref}
+              tabIndex={hMoMajorationEditorProps.tabIndex}
+              type="number"
+              step="0.1"
+              min={0}
+              value={hMoMajorationPercent}
+              onFocus={hMoMajorationEditorProps.onFocus}
+              onKeyDown={hMoMajorationEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { h_mo_majoration: parseMajorationPercentToCoefficient(event.target.value) },
+                  { persist: false }
+                )
+              }
+              onBlur={(event) => {
+                hMoMajorationEditorProps.onBlur(event);
+                onPatchItem(
+                  item.id,
+                  { h_mo_majoration: parseMajorationPercentToCoefficient(event.target.value) },
+                  { persist: true }
+                );
+              }}
+              placeholder="100"
+              disabled={isReadOnly}
+            />
+          </div>
+          <div
+            {...laborRoleCellProps}
+            onKeyDown={toCellKeyDownHandler(laborRoleCellProps.onKeyDown)}
+            className={toCellClassName(navigation, laborRoleCell, "estimate-cell")}
+          >
+            <select
+              className="estimate-input estimate-select"
+              ref={laborRoleEditorProps.ref}
+              tabIndex={laborRoleEditorProps.tabIndex}
+              value={item.labor_role_id ?? ""}
+              onFocus={laborRoleEditorProps.onFocus}
+              onBlur={laborRoleEditorProps.onBlur}
+              onKeyDown={laborRoleEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { labor_role_id: event.target.value || null },
+                  { persist: true }
+                )
+              }
+              disabled={isReadOnly}
+            >
+              <option value="">-</option>
+              {laborRoles.map((role) => (
+                <option key={role.id} value={role.id} disabled={!role.is_active}>
+                  {role.name}
+                  {!role.is_active ? " (inactif)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div
+            {...kMoCellProps}
+            onKeyDown={toCellKeyDownHandler(kMoCellProps.onKeyDown)}
+            className={toCellClassName(navigation, kMoCell, "estimate-cell")}
+          >
+            <input
+              className="estimate-input"
+              ref={kMoEditorProps.ref}
+              tabIndex={kMoEditorProps.tabIndex}
+              type="number"
+              step="0.01"
+              min={0}
+              value={kMoValue}
+              onFocus={kMoEditorProps.onFocus}
+              onKeyDown={kMoEditorProps.onKeyDown}
+              onChange={(event) =>
+                onPatchItem(
+                  item.id,
+                  { k_mo: parseNumberInput(event.target.value) },
+                  { persist: false }
+                )
+              }
+              onBlur={(event) => {
+                kMoEditorProps.onBlur(event);
+                onPatchItem(
+                  item.id,
+                  { k_mo: parseNumberInput(event.target.value) },
+                  { persist: true }
+                );
+              }}
+              placeholder="1.00"
+              disabled={isReadOnly}
+            />
+          </div>
+        </>
+      )}
       <div className="estimate-cell">
         <input
           className="estimate-input"
@@ -562,11 +1305,43 @@ function SortableRow({
       </div>
     </div>
   );
-}
+});
+
+DragHandle.displayName = "DragHandle";
+SortableRow.displayName = "SortableRow";
+
+type SuggestionPreview = {
+  rule: SuggestionRule;
+  score: number;
+  matchKind: SuggestionMatchKind;
+  matchedKeyword: string;
+  usageCount: number;
+  parts: string[];
+};
+
+type VirtualizedItemRow = {
+  key: string;
+  kind: "item";
+  item: EstimateItem;
+  depth: number;
+  unitValue: string;
+  supplyTypeValue: string;
+  qualityFlags: EstimateQualityFlagKey[];
+};
+
+type VirtualizedSuggestionRow = {
+  key: string;
+  kind: "suggestion";
+  item: EstimateItem;
+  suggestions: SuggestionPreview[];
+};
+
+type VirtualizedRow = VirtualizedItemRow | VirtualizedSuggestionRow;
 
 export function EstimateEditorTable({
   items,
   categories,
+  supplyTypes,
   laborRoles,
   suggestionRules,
   qualityFlagsByItemId,
@@ -577,18 +1352,34 @@ export function EstimateEditorTable({
   discountCents,
   taxRateBp,
   laborRateById,
+  isLaborSplitEnabled = false,
   isReadOnly,
   onQualityFilterChange,
   onAddSection,
   onAddLine,
   onDeleteItem,
   onPatchItem,
+  onApplyBulkMajoration,
   onReorder,
-  onEnsureCategory,
+  virtualization,
 }: EstimateEditorTableProps) {
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
-  const [categoryDrafts, setCategoryDrafts] = useState<Record<string, string>>({});
-  const [dismissedSuggestions, setDismissedSuggestions] = useState<
+  const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
+  const [selectedLineIds, setSelectedLineIds] = useState<Record<string, boolean>>({});
+  const [bulkMajorationPercent, setBulkMajorationPercent] = useState("100");
+  const [dismissedSuggestionsByItemId, setDismissedSuggestionsByItemId] = useState<
+    Record<string, Record<string, boolean>>
+  >({});
+  const [selectedSuggestionByItemId, setSelectedSuggestionByItemId] = useState<
+    Record<string, string>
+  >({});
+  const [feedbackPendingByItemId, setFeedbackPendingByItemId] = useState<
+    Record<string, boolean>
+  >({});
+  const [usageCountOverrideByRuleId, setUsageCountOverrideByRuleId] = useState<
+    Record<string, number>
+  >({});
+  const [lastUsedAtOverrideByRuleId, setLastUsedAtOverrideByRuleId] = useState<
     Record<string, string>
   >({});
 
@@ -631,37 +1422,48 @@ export function EstimateEditorTable({
     [suggestionRules]
   );
 
+  const scoringRules = useMemo(() => {
+    return orderedRules.map((rule) => {
+      const enrichedRule: SuggestionRule & Record<string, unknown> = { ...rule };
+      const usageCountOverride = usageCountOverrideByRuleId[rule.id];
+      const lastUsedAtOverride = lastUsedAtOverrideByRuleId[rule.id];
+
+      if (usageCountOverride !== undefined) {
+        enrichedRule.usage_count = usageCountOverride;
+      }
+      if (lastUsedAtOverride !== undefined) {
+        enrichedRule.last_used_at = lastUsedAtOverride;
+      }
+
+      return enrichedRule;
+    });
+  }, [lastUsedAtOverrideByRuleId, orderedRules, usageCountOverrideByRuleId]);
+
   const categoryById = useMemo(() => {
     const map = new Map<string, EstimateCategory>();
     categories.forEach((category) => map.set(category.id, category));
     return map;
   }, [categories]);
 
+  const supplyTypeById = useMemo(() => {
+    const map = new Map<string, SupplyType>();
+    supplyTypes.forEach((supplyType) => map.set(supplyType.id, supplyType));
+    return map;
+  }, [supplyTypes]);
+
+  const supplyTypeByLowerName = useMemo(() => {
+    const map = new Map<string, SupplyType>();
+    supplyTypes.forEach((supplyType) => {
+      map.set(supplyType.name.toLowerCase(), supplyType);
+    });
+    return map;
+  }, [supplyTypes]);
+
   const roleById = useMemo(() => {
     const map = new Map<string, LaborRole>();
     laborRoles.forEach((role) => map.set(role.id, role));
     return map;
   }, [laborRoles]);
-
-  const sectionTotalsById = useMemo(() => {
-    const map = new Map<string, SectionTotals>();
-    const calcItems = items as EstimateItemRecord[];
-    items.forEach((item) => {
-      if (item.item_type !== "section") return;
-      map.set(
-        item.id,
-        computeSectionTotals({
-          items: calcItems,
-          sectionId: item.id,
-          marginMultiplier,
-          discountCents,
-          taxRateBp,
-          laborRateById,
-        })
-      );
-    });
-    return map;
-  }, [discountCents, items, laborRateById, marginMultiplier, taxRateBp]);
 
   const visibleLineIds = useMemo(() => {
     const visible = new Set<string>();
@@ -706,15 +1508,62 @@ export function EstimateEditorTable({
     return visible;
   }, [itemsByParent, qualityFilter, visibleLineIds]);
 
-  function getVisibleItems(parentId: string | null) {
-    const list = itemsByParent.get(getParentKey(parentId)) ?? [];
-    return list.filter((item) => {
-      if (item.item_type === "line") {
-        return visibleLineIds.has(item.id);
-      }
-      return visibleSectionIds.has(item.id);
+  const sectionTotalsById = useMemo(() => {
+    const map = new Map<string, SectionTotals>();
+    const calcItems = items as EstimateItemRecord[];
+    visibleSectionIds.forEach((sectionId) => {
+      const sectionTotalsInput = {
+        items: calcItems,
+        sectionId,
+        marginMultiplier,
+        discountCents,
+        taxRateBp,
+        laborRateById,
+        isLaborSplitEnabled,
+      };
+      map.set(
+        sectionId,
+        computeSectionTotals(sectionTotalsInput)
+      );
     });
-  }
+    return map;
+  }, [
+    discountCents,
+    isLaborSplitEnabled,
+    items,
+    laborRateById,
+    marginMultiplier,
+    taxRateBp,
+    visibleSectionIds,
+  ]);
+
+  const getSectionTotals = useCallback(
+    (sectionId: string) => sectionTotalsById.get(sectionId) ?? null,
+    [sectionTotalsById]
+  );
+
+  const visibleItemsByParent = useMemo(() => {
+    const map = new Map<string, EstimateItem[]>();
+    itemsByParent.forEach((list, parentKey) => {
+      const visibleList = list.filter((item) => {
+        if (item.item_type === "line") {
+          return visibleLineIds.has(item.id);
+        }
+        return visibleSectionIds.has(item.id);
+      });
+      if (visibleList.length > 0) {
+        map.set(parentKey, visibleList);
+      }
+    });
+    return map;
+  }, [itemsByParent, visibleLineIds, visibleSectionIds]);
+
+  const getVisibleItems = useCallback(
+    (parentId: string | null) => {
+      return visibleItemsByParent.get(getParentKey(parentId)) ?? EMPTY_ITEMS;
+    },
+    [visibleItemsByParent]
+  );
 
   const hasVisibleRows = getVisibleItems(null).length > 0;
   const canReorder = !isReadOnly && qualityFilter === "all_lines";
@@ -730,148 +1579,630 @@ export function EstimateEditorTable({
     return next;
   }, [items, unitDrafts]);
 
-  const mergedCategoryDrafts = useMemo(() => {
-    const next = { ...categoryDrafts };
+  const mergedSupplyTypeDrafts = useMemo(() => {
+    const next = { ...supplyTypeDrafts };
     items.forEach((item) => {
       if (item.item_type !== "line") return;
       if (next[item.id] !== undefined) return;
-      const category = categories.find((cat) => cat.id === item.category_id);
-      next[item.id] = category?.name ?? "";
+      next[item.id] = item.supply_type_id
+        ? (supplyTypeById.get(item.supply_type_id)?.name ?? "")
+        : "";
     });
     return next;
-  }, [items, categories, categoryDrafts]);
+  }, [items, supplyTypeById, supplyTypeDrafts]);
 
-  async function handleCategoryCommit(itemId: string) {
-    if (isReadOnly) return;
-    const value = (mergedCategoryDrafts[itemId] ?? "").trim();
-    if (!value) {
-      onPatchItem(itemId, { category_id: null }, { persist: true });
-      return;
-    }
-    const existing = categories.find(
-      (category) => category.name.toLowerCase() === value.toLowerCase()
+  const handleUnitDraftChange = useCallback((itemId: string, value: string) => {
+    setUnitDrafts((prev) => {
+      if (prev[itemId] === value) return prev;
+      return { ...prev, [itemId]: value };
+    });
+  }, []);
+
+  const handleSupplyTypeDraftChange = useCallback((itemId: string, value: string) => {
+    setSupplyTypeDrafts((prev) => {
+      if (prev[itemId] === value) return prev;
+      return { ...prev, [itemId]: value };
+    });
+  }, []);
+
+  const handleSupplyTypeCommit = useCallback(
+    (itemId: string) => {
+      if (isReadOnly) return;
+      const value = (mergedSupplyTypeDrafts[itemId] ?? "").trim();
+      if (!value) {
+        onPatchItem(itemId, { supply_type_id: null }, { persist: true });
+        return;
+      }
+
+      const existing = supplyTypeByLowerName.get(value.toLowerCase());
+      if (existing) {
+        onPatchItem(itemId, { supply_type_id: existing.id }, { persist: true });
+        return;
+      }
+
+      onPatchItem(itemId, { supply_type_id: null }, { persist: true });
+    },
+    [isReadOnly, mergedSupplyTypeDrafts, onPatchItem, supplyTypeByLowerName]
+  );
+
+  const handleUnitCommit = useCallback(
+    (itemId: string) => {
+      if (isReadOnly) return;
+      const value = (mergedUnitDrafts[itemId] ?? "").trim();
+      onPatchItem(itemId, { description: value || null }, { persist: true });
+    },
+    [isReadOnly, mergedUnitDrafts, onPatchItem]
+  );
+
+  const selectedLineIdList = useMemo(() => {
+    return Object.entries(selectedLineIds)
+      .filter(([, isSelected]) => isSelected)
+      .map(([itemId]) => itemId);
+  }, [selectedLineIds]);
+
+  useEffect(() => {
+    const lineIdSet = new Set(
+      items.filter((item) => item.item_type === "line").map((item) => item.id)
     );
-    if (existing) {
-      onPatchItem(itemId, { category_id: existing.id }, { persist: true });
-      return;
-    }
-    const created = await onEnsureCategory(value);
-    if (created) {
-      onPatchItem(itemId, { category_id: created.id }, { persist: true });
-    }
-  }
 
-  function handleUnitCommit(itemId: string) {
-    if (isReadOnly) return;
-    const value = (mergedUnitDrafts[itemId] ?? "").trim();
-    onPatchItem(itemId, { description: value || null }, { persist: true });
-  }
+    setSelectedLineIds((prev) => {
+      let changed = false;
+      const next: Record<string, boolean> = {};
+      Object.entries(prev).forEach(([itemId, selected]) => {
+        if (!selected) return;
+        if (!lineIdSet.has(itemId)) {
+          changed = true;
+          return;
+        }
+        next[itemId] = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [items]);
 
-  function handleDragEnd(event: DragEndEvent) {
-    if (!canReorder) return;
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
+  const visibleLineIdList = useMemo(() => {
+    return items
+      .filter((item) => item.item_type === "line" && visibleLineIds.has(item.id))
+      .map((item) => item.id);
+  }, [items, visibleLineIds]);
 
-    const activeParent = active.data.current?.parentId ?? null;
-    const overParent = over.data.current?.parentId ?? null;
-    if (activeParent !== overParent) return;
+  const allVisibleSelected =
+    visibleLineIdList.length > 0 &&
+    visibleLineIdList.every((lineId) => selectedLineIds[lineId]);
 
-    const siblings = itemsByParent.get(getParentKey(activeParent)) ?? [];
-    const oldIndex = siblings.findIndex((item) => item.id === active.id);
-    const newIndex = siblings.findIndex((item) => item.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
+  const toggleAllVisibleLines = useCallback(
+    (checked: boolean) => {
+      setSelectedLineIds((prev) => {
+        const next = { ...prev };
+        visibleLineIdList.forEach((lineId) => {
+          if (checked) {
+            next[lineId] = true;
+          } else {
+            delete next[lineId];
+          }
+        });
+        return next;
+      });
+    },
+    [visibleLineIdList]
+  );
 
-    const ordered = arrayMove(siblings, oldIndex, newIndex).map(
-      (item) => item.id
-    );
-    onReorder(activeParent, ordered);
-  }
+  const handleToggleLineSelection = useCallback((itemId: string, checked: boolean) => {
+    setSelectedLineIds((prev) => {
+      if (checked) {
+        if (prev[itemId]) return prev;
+        return {
+          ...prev,
+          [itemId]: true,
+        };
+      }
+      if (!prev[itemId]) return prev;
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
+  }, []);
 
-  function applySuggestion(itemId: string, rule: SuggestionRule, title: string) {
-    if (isReadOnly) return;
-    const patch: ItemPatch = {};
-    const unitValue = rule.unit?.trim();
-    if (unitValue) {
-      patch.description = unitValue;
-      setUnitDrafts((prev) => ({ ...prev, [itemId]: unitValue }));
-    }
-    if (rule.category_id) {
-      patch.category_id = rule.category_id;
-      const category = categoryById.get(rule.category_id);
-      setCategoryDrafts((prev) => ({
-        ...prev,
-        [itemId]: category?.name ?? "",
-      }));
-    }
-    if (rule.k_fo !== null) patch.k_fo = rule.k_fo;
-    if (rule.k_mo !== null) patch.k_mo = rule.k_mo;
-    if (rule.labor_role_id) patch.labor_role_id = rule.labor_role_id;
-    if (Object.keys(patch).length === 0) return;
-    onPatchItem(itemId, patch, { persist: true });
-    setDismissedSuggestions((prev) => ({ ...prev, [itemId]: title }));
-  }
+  const handleApplyBulkMajoration = useCallback(async () => {
+    if (isReadOnly || selectedLineIdList.length === 0) return;
+    const coefficient = parseMajorationPercentToCoefficient(bulkMajorationPercent);
+    await onApplyBulkMajoration(selectedLineIdList, coefficient);
+    setSelectedLineIds({});
+  }, [
+    bulkMajorationPercent,
+    isReadOnly,
+    onApplyBulkMajoration,
+    selectedLineIdList,
+  ]);
 
-  function dismissSuggestion(itemId: string, title: string) {
-    setDismissedSuggestions((prev) => ({ ...prev, [itemId]: title }));
-  }
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (!canReorder) return;
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
 
-  function renderSuggestionRow(item: EstimateItem) {
-    if (item.item_type !== "line" || isReadOnly) return null;
-    const rule = findMatchingRule(item.title, orderedRules);
-    if (!rule) return null;
-    if (dismissedSuggestions[item.id] === item.title) return null;
+      const activeParent = active.data.current?.parentId ?? null;
+      const overParent = over.data.current?.parentId ?? null;
+      if (activeParent !== overParent) return;
 
-    const parts: string[] = [];
-    if (rule.category_id) {
-      const category = categoryById.get(rule.category_id);
-      parts.push(`Type FO: ${category?.name ?? "Categorie inconnue"}`);
-    }
-    if (rule.unit) parts.push(`Unite: ${rule.unit}`);
-    if (rule.k_fo !== null) parts.push(`K FO: ${rule.k_fo}`);
-    if (rule.k_mo !== null) parts.push(`K MO: ${rule.k_mo}`);
-    if (rule.labor_role_id) {
-      const role = roleById.get(rule.labor_role_id);
-      parts.push(`Role MO: ${role?.name ?? "Role inconnu"}`);
-    }
+      const siblings = itemsByParent.get(getParentKey(activeParent)) ?? EMPTY_ITEMS;
+      const oldIndex = siblings.findIndex((item) => item.id === active.id);
+      const newIndex = siblings.findIndex((item) => item.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
 
-    if (parts.length === 0) return null;
+      const ordered = arrayMove(siblings, oldIndex, newIndex).map((item) => item.id);
+      onReorder(activeParent, ordered);
+    },
+    [canReorder, itemsByParent, onReorder]
+  );
 
-    return (
-      <div className="estimate-row estimate-row--suggestion">
-        <div className="estimate-cell estimate-cell--suggestion">
-          <div className="estimate-suggestion">
-            <div className="estimate-suggestion__title">
-              Suggestion base de chiffrage
-            </div>
-            <div className="estimate-suggestion__rule">{rule.name}</div>
-            <div className="estimate-suggestion__list">
-              {parts.map((part) => (
-                <span key={part} className="estimate-suggestion__item">
-                  {part}
+  const sendSuggestionFeedback = useCallback(
+    async (
+      item: EstimateItem,
+      suggestion: SuggestionPreview,
+      feedback: "accept" | "reject"
+    ) => {
+      if (item.item_type !== "line") return;
+
+      setFeedbackPendingByItemId((prev) => ({ ...prev, [item.id]: true }));
+
+      const optimisticUsageCount =
+        feedback === "accept" ? suggestion.usageCount + 1 : suggestion.usageCount;
+      const optimisticLastUsedAt =
+        feedback === "accept" ? new Date().toISOString() : null;
+
+      if (feedback === "accept") {
+        setUsageCountOverrideByRuleId((prev) => ({
+          ...prev,
+          [suggestion.rule.id]: optimisticUsageCount,
+        }));
+        if (optimisticLastUsedAt) {
+          setLastUsedAtOverrideByRuleId((prev) => ({
+            ...prev,
+            [suggestion.rule.id]: optimisticLastUsedAt,
+          }));
+        }
+      }
+
+      try {
+        const updatedRule = await sendEstimateSuggestionRuleFeedback(
+          item.version_id,
+          suggestion.rule.id,
+          feedback
+        );
+
+        if (!updatedRule || feedback !== "accept") {
+          return;
+        }
+
+        setUsageCountOverrideByRuleId((prev) => ({
+          ...prev,
+          [suggestion.rule.id]: toSuggestionUsageCount(updatedRule),
+        }));
+
+        const lastUsedAt = toSuggestionLastUsedAt(updatedRule);
+        if (lastUsedAt) {
+          setLastUsedAtOverrideByRuleId((prev) => ({
+            ...prev,
+            [suggestion.rule.id]: lastUsedAt,
+          }));
+        }
+      } catch (error) {
+        console.error("Impossible d'enregistrer le feedback de suggestion.", error);
+
+        if (feedback === "accept") {
+          setUsageCountOverrideByRuleId((prev) => ({
+            ...prev,
+            [suggestion.rule.id]: suggestion.usageCount,
+          }));
+          const previousLastUsedAt = toSuggestionLastUsedAt(suggestion.rule);
+          setLastUsedAtOverrideByRuleId((prev) => {
+            const next = { ...prev };
+            if (previousLastUsedAt) {
+              next[suggestion.rule.id] = previousLastUsedAt;
+            } else {
+              delete next[suggestion.rule.id];
+            }
+            return next;
+          });
+        }
+      } finally {
+        setFeedbackPendingByItemId((prev) => {
+          if (!prev[item.id]) return prev;
+          const next = { ...prev };
+          delete next[item.id];
+          return next;
+        });
+      }
+    },
+    []
+  );
+
+  const applySuggestion = useCallback(
+    (item: EstimateItem, suggestion: SuggestionPreview) => {
+      if (isReadOnly || item.item_type !== "line") return;
+
+      const patch: ItemPatch = {};
+      const unitValue = suggestion.rule.unit?.trim();
+      if (unitValue) {
+        patch.description = unitValue;
+        setUnitDrafts((prev) => ({ ...prev, [item.id]: unitValue }));
+      }
+      if (suggestion.rule.category_id) {
+        patch.category_id = suggestion.rule.category_id;
+        const category = categoryById.get(suggestion.rule.category_id);
+        if (category) {
+          const matchedSupplyType = supplyTypeByLowerName.get(category.name.toLowerCase());
+          if (matchedSupplyType) {
+            patch.supply_type_id = matchedSupplyType.id;
+          }
+          setSupplyTypeDrafts((prev) => ({
+            ...prev,
+            [item.id]: category.name,
+          }));
+        }
+      }
+      if (suggestion.rule.k_fo !== null) patch.k_fo = suggestion.rule.k_fo;
+      if (suggestion.rule.k_mo !== null) patch.k_mo = suggestion.rule.k_mo;
+      if (suggestion.rule.labor_role_id) {
+        patch.labor_role_id = suggestion.rule.labor_role_id;
+      }
+
+      if (Object.keys(patch).length === 0) return;
+
+      onPatchItem(item.id, patch, { persist: true });
+      setDismissedSuggestionsByItemId((prev) =>
+        addDismissedSuggestion(prev, item.id, suggestion.rule.id)
+      );
+      void sendSuggestionFeedback(item, suggestion, "accept");
+    },
+    [categoryById, isReadOnly, onPatchItem, sendSuggestionFeedback, supplyTypeByLowerName]
+  );
+
+  const dismissSuggestion = useCallback(
+    (item: EstimateItem, suggestion: SuggestionPreview) => {
+      if (item.item_type !== "line") return;
+      setDismissedSuggestionsByItemId((prev) =>
+        addDismissedSuggestion(prev, item.id, suggestion.rule.id)
+      );
+      void sendSuggestionFeedback(item, suggestion, "reject");
+    },
+    [sendSuggestionFeedback]
+  );
+
+  const buildSuggestionParts = useCallback(
+    (rule: SuggestionRule) => {
+      const parts: string[] = [];
+      if (rule.category_id) {
+        const category = categoryById.get(rule.category_id);
+        parts.push(`Type FO: ${category?.name ?? "Categorie inconnue"}`);
+      }
+      if (rule.unit) parts.push(`Unite: ${rule.unit}`);
+      if (rule.k_fo !== null) parts.push(`K FO: ${rule.k_fo}`);
+      if (rule.k_mo !== null) parts.push(`K MO: ${rule.k_mo}`);
+      if (rule.labor_role_id) {
+        const role = roleById.get(rule.labor_role_id);
+        parts.push(`Role MO: ${role?.name ?? "Role inconnu"}`);
+      }
+      return parts;
+    },
+    [categoryById, roleById]
+  );
+
+  const suggestionsByItemId = useMemo(() => {
+    const map = new Map<string, SuggestionPreview[]>();
+    if (isReadOnly) return map;
+
+    items.forEach((item) => {
+      if (item.item_type !== "line") return;
+      if (!visibleLineIds.has(item.id)) return;
+
+      const dismissedRuleIds = dismissedSuggestionsByItemId[item.id] ?? {};
+      const rankedSuggestions = rankSuggestions({
+        title: item.title,
+        rules: scoringRules,
+        limit: SUGGESTION_SCORE_MAX,
+      });
+
+      const visibleSuggestions = rankedSuggestions
+        .filter((suggestion) => !dismissedRuleIds[suggestion.rule.id])
+        .map((suggestion) => {
+          const rule = suggestion.rule as SuggestionRule;
+          const parts = buildSuggestionParts(rule);
+          return {
+            rule,
+            score: suggestion.score,
+            matchKind: suggestion.matchKind,
+            matchedKeyword: suggestion.matchedKeyword,
+            usageCount: suggestion.usageCount,
+            parts,
+          } satisfies SuggestionPreview;
+        })
+        .filter((suggestion) => suggestion.parts.length > 0);
+
+      if (visibleSuggestions.length > 0) {
+        map.set(item.id, visibleSuggestions);
+      }
+    });
+
+    return map;
+  }, [
+    buildSuggestionParts,
+    dismissedSuggestionsByItemId,
+    isReadOnly,
+    items,
+    scoringRules,
+    visibleLineIds,
+  ]);
+
+  const getSelectedSuggestion = useCallback(
+    (itemId: string, suggestions: SuggestionPreview[]) => {
+      if (suggestions.length === 0) return null;
+      const selectedRuleId = selectedSuggestionByItemId[itemId];
+      return (
+        suggestions.find((suggestion) => suggestion.rule.id === selectedRuleId) ??
+        suggestions[0]
+      );
+    },
+    [selectedSuggestionByItemId]
+  );
+
+  const renderSuggestionRow = useCallback(
+    (item: EstimateItem, suggestions: SuggestionPreview[]) => {
+      const selectedSuggestion = getSelectedSuggestion(item.id, suggestions);
+      if (!selectedSuggestion) return null;
+
+      const isFeedbackPending = feedbackPendingByItemId[item.id] ?? false;
+      return (
+        <div className="estimate-row estimate-row--suggestion">
+          <div className="estimate-cell estimate-cell--suggestion">
+            <div className="estimate-suggestion">
+              <div className="estimate-suggestion__title">
+                Suggestions de chiffrage (Top 5)
+              </div>
+              <select
+                className="estimate-input estimate-select"
+                value={selectedSuggestion.rule.id}
+                style={{ width: "min(560px, 100%)" }}
+                onChange={(event) =>
+                  setSelectedSuggestionByItemId((prev) => ({
+                    ...prev,
+                    [item.id]: event.target.value,
+                  }))
+                }
+                disabled={isReadOnly || isFeedbackPending}
+              >
+                {suggestions.map((suggestion) => (
+                  <option key={suggestion.rule.id} value={suggestion.rule.id}>
+                    {suggestion.rule.name} (score {suggestion.score.toFixed(2)})
+                  </option>
+                ))}
+              </select>
+              <div className="estimate-suggestion__rule">{selectedSuggestion.rule.name}</div>
+              <div className="estimate-suggestion__list">
+                <span className="estimate-suggestion__item">
+                  Score: {selectedSuggestion.score.toFixed(2)}
                 </span>
-              ))}
-            </div>
-            <div className="estimate-suggestion__actions">
-              <button
-                className="btn btn-primary btn-sm"
-                type="button"
-                onClick={() => applySuggestion(item.id, rule, item.title)}
-              >
-                Appliquer
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                onClick={() => dismissSuggestion(item.id, item.title)}
-              >
-                Ignorer
-              </button>
+                <span className="estimate-suggestion__item">
+                  Match: {SUGGESTION_MATCH_LABELS[selectedSuggestion.matchKind]}
+                </span>
+                <span className="estimate-suggestion__item">
+                  Mot-cle: {selectedSuggestion.matchedKeyword}
+                </span>
+                <span className="estimate-suggestion__item">
+                  Usage: {selectedSuggestion.usageCount}
+                </span>
+                {selectedSuggestion.parts.map((part) => (
+                  <span key={part} className="estimate-suggestion__item">
+                    {part}
+                  </span>
+                ))}
+              </div>
+              <div className="estimate-suggestion__actions">
+                <button
+                  className="btn btn-primary btn-sm"
+                  type="button"
+                  onClick={() => applySuggestion(item, selectedSuggestion)}
+                  disabled={isReadOnly || isFeedbackPending}
+                >
+                  Appliquer
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  onClick={() => dismissSuggestion(item, selectedSuggestion)}
+                  disabled={isReadOnly || isFeedbackPending}
+                >
+                  Ignorer
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    );
-  }
+      );
+    },
+    [
+      applySuggestion,
+      dismissSuggestion,
+      feedbackPendingByItemId,
+      getSelectedSuggestion,
+      isReadOnly,
+    ]
+  );
+
+  const shouldVirtualize = Boolean(virtualization?.enabled);
+  const flattenedRows = useMemo(() => {
+    if (!shouldVirtualize) return [] as VirtualizedRow[];
+
+    const rows: VirtualizedRow[] = [];
+    const walk = (parentId: string | null) => {
+      const list = getVisibleItems(parentId);
+      list.forEach((item) => {
+        rows.push({
+          key: `item:${item.id}`,
+          kind: "item",
+          item,
+          depth: depthMap.get(item.id) ?? 0,
+          unitValue: mergedUnitDrafts[item.id] ?? "",
+          supplyTypeValue: mergedSupplyTypeDrafts[item.id] ?? "",
+          qualityFlags: qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
+        });
+
+        const suggestions = suggestionsByItemId.get(item.id);
+        if (suggestions && suggestions.length > 0) {
+          rows.push({
+            key: `suggestion:${item.id}`,
+            kind: "suggestion",
+            item,
+            suggestions,
+          });
+        }
+
+        if (item.item_type === "section") {
+          walk(item.id);
+        }
+      });
+    };
+
+    walk(null);
+    return rows;
+  }, [
+    depthMap,
+    getVisibleItems,
+    mergedSupplyTypeDrafts,
+    mergedUnitDrafts,
+    qualityFlagsByItemId,
+    shouldVirtualize,
+    suggestionsByItemId,
+  ]);
+
+  const {
+    scrollRef: virtualScrollRef,
+    virtualItems,
+    totalSize: virtualTotalSize,
+    measureElement,
+    isVirtualized,
+  } = useVirtualList({
+    count: flattenedRows.length,
+    enabled: shouldVirtualize && hasVisibleRows,
+    estimateSize: virtualization?.rowEstimate ?? DEFAULT_VIRTUAL_ROW_ESTIMATE,
+    overscan: virtualization?.overscan ?? DEFAULT_VIRTUAL_OVERSCAN,
+  });
+
+  const virtualizedSortableIds = useMemo(() => {
+    if (!canReorder || !isVirtualized) return [] as string[];
+
+    const ids: string[] = [];
+    virtualItems.forEach((virtualRow) => {
+      const row = flattenedRows[virtualRow.index];
+      if (row?.kind === "item") {
+        ids.push(row.item.id);
+      }
+    });
+    return ids;
+  }, [canReorder, flattenedRows, isVirtualized, virtualItems]);
+
+  const visibleItemsInOrder = useMemo(() => {
+    const ordered: EstimateItem[] = [];
+    const walk = (parentId: string | null) => {
+      const list = getVisibleItems(parentId);
+      list.forEach((item) => {
+        ordered.push(item);
+        if (item.item_type === "section") {
+          walk(item.id);
+        }
+      });
+    };
+    walk(null);
+    return ordered;
+  }, [getVisibleItems]);
+
+  const spreadsheetNavigationRows = useMemo(() => {
+    if (!hasVisibleRows) return [] as SpreadsheetNavigationRow[];
+
+    return visibleItemsInOrder.map((item) => ({
+      rowId: item.id,
+      columnKeys: getSpreadsheetColumnKeys(item.item_type, isLaborSplitEnabled),
+    }));
+  }, [hasVisibleRows, isLaborSplitEnabled, visibleItemsInOrder]);
+
+  const spreadsheetNavigation = useSpreadsheetNavigation({
+    rows: spreadsheetNavigationRows,
+    disabled: !hasVisibleRows || isReadOnly,
+  });
+
+  const renderSortableRow = useCallback(
+    (
+      item: EstimateItem,
+      depth: number,
+      unitValue: string,
+      supplyTypeValue: string,
+      qualityFlags: EstimateQualityFlagKey[],
+      sectionTotals: SectionTotals | null
+    ) => {
+      return (
+        <SortableRow
+          item={item}
+          depth={depth}
+          unitValue={unitValue}
+          supplyTypeValue={supplyTypeValue}
+          qualityFlags={qualityFlags}
+          supplyTypeById={supplyTypeById}
+          laborRoles={laborRoles}
+          navigation={spreadsheetNavigation}
+          isLineSelected={item.item_type === "line" && Boolean(selectedLineIds[item.id])}
+          onAddSection={onAddSection}
+          onAddLine={onAddLine}
+          onDeleteItem={onDeleteItem}
+          onPatchItem={onPatchItem}
+          onUnitChange={handleUnitDraftChange}
+          onUnitCommit={handleUnitCommit}
+          onSupplyTypeChange={handleSupplyTypeDraftChange}
+          onSupplyTypeCommit={handleSupplyTypeCommit}
+          onToggleLineSelection={handleToggleLineSelection}
+          sectionTotals={sectionTotals}
+          isDragDisabled={!canReorder}
+          isReadOnly={isReadOnly}
+          isLaborSplitEnabled={isLaborSplitEnabled}
+        />
+      );
+    },
+    [
+      canReorder,
+      handleSupplyTypeCommit,
+      handleSupplyTypeDraftChange,
+      handleToggleLineSelection,
+      handleUnitCommit,
+      handleUnitDraftChange,
+      isLaborSplitEnabled,
+      isReadOnly,
+      laborRoles,
+      onAddLine,
+      onAddSection,
+      onDeleteItem,
+      onPatchItem,
+      selectedLineIds,
+      spreadsheetNavigation,
+      supplyTypeById,
+    ]
+  );
+
+  const renderVirtualRow = useCallback(
+    (row: VirtualizedRow) => {
+      if (row.kind === "suggestion") {
+        return renderSuggestionRow(row.item, row.suggestions);
+      }
+      return renderSortableRow(
+        row.item,
+        row.depth,
+        row.unitValue,
+        row.supplyTypeValue,
+        row.qualityFlags,
+        row.item.item_type === "section" ? getSectionTotals(row.item.id) : null
+      );
+    },
+    [getSectionTotals, renderSortableRow, renderSuggestionRow]
+  );
 
   function renderList(parentId: string | null) {
     const list = getVisibleItems(parentId);
@@ -883,43 +2214,41 @@ export function EstimateEditorTable({
           items={list.map((item) => item.id)}
           strategy={verticalListSortingStrategy}
         >
-          {list.map((item) => (
-            <Fragment key={item.id}>
-              <SortableRow
-                item={item}
-                depth={depthMap.get(item.id) ?? 0}
-                unitValue={mergedUnitDrafts[item.id] ?? ""}
-                categoryValue={mergedCategoryDrafts[item.id] ?? ""}
-                qualityFlags={qualityFlagsByItemId[item.id] ?? []}
-                laborRoles={laborRoles}
-                onAddSection={onAddSection}
-                onAddLine={onAddLine}
-                onDeleteItem={onDeleteItem}
-                onPatchItem={onPatchItem}
-                onUnitChange={(id, value) =>
-                  setUnitDrafts((prev) => ({ ...prev, [id]: value }))
-                }
-                onUnitCommit={handleUnitCommit}
-                onCategoryChange={(id, value) =>
-                  setCategoryDrafts((prev) => ({ ...prev, [id]: value }))
-                }
-                onCategoryCommit={handleCategoryCommit}
-                sectionTotals={
+          {list.map((item) => {
+            const suggestions = suggestionsByItemId.get(item.id);
+            return (
+              <Fragment key={item.id}>
+                {renderSortableRow(
+                  item,
+                  depthMap.get(item.id) ?? 0,
+                  mergedUnitDrafts[item.id] ?? "",
+                  mergedSupplyTypeDrafts[item.id] ?? "",
+                  qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
                   item.item_type === "section"
-                    ? (sectionTotalsById.get(item.id) ?? EMPTY_SECTION_TOTALS)
+                    ? getSectionTotals(item.id)
                     : null
-                }
-                isDragDisabled={!canReorder}
-                isReadOnly={isReadOnly}
-              />
-              {renderSuggestionRow(item)}
-              {item.item_type === "section" ? renderList(item.id) : null}
-            </Fragment>
-          ))}
+                )}
+                {suggestions ? renderSuggestionRow(item, suggestions) : null}
+                {item.item_type === "section" ? renderList(item.id) : null}
+              </Fragment>
+            );
+          })}
         </SortableContext>
       </div>
     );
   }
+
+  const virtualBodyStyle = useMemo(() => {
+    if (!isVirtualized) return undefined;
+    const maxHeight =
+      virtualization?.maxHeight ??
+      virtualization?.containerHeight ??
+      DEFAULT_VIRTUAL_MAX_HEIGHT;
+    return {
+      maxHeight: `${maxHeight}px`,
+      overflowY: "auto" as const,
+    };
+  }, [isVirtualized, virtualization?.containerHeight, virtualization?.maxHeight]);
 
   return (
     <div className="dashboard-card p-6">
@@ -964,6 +2293,31 @@ export function EstimateEditorTable({
               </option>
             ))}
           </select>
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
+            <span className="text-xs text-[var(--slate-600)]">
+              {selectedLineIdList.length} selection(s)
+            </span>
+            <input
+              className="estimate-input"
+              style={{ width: "92px" }}
+              type="number"
+              step="0.1"
+              min={0}
+              value={bulkMajorationPercent}
+              onChange={(event) => setBulkMajorationPercent(event.target.value)}
+              placeholder="100"
+              disabled={isReadOnly}
+              aria-label="Majoration MO en pourcentage"
+            />
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={() => void handleApplyBulkMajoration()}
+              disabled={isReadOnly || selectedLineIdList.length === 0}
+            >
+              Appliquer majoration
+            </button>
+          </div>
           <button
             className="btn btn-secondary btn-sm"
             type="button"
@@ -994,17 +2348,44 @@ export function EstimateEditorTable({
         </div>
       )}
 
-      <div className="estimate-table mt-6">
+      <div
+        className={`estimate-table mt-6${isLaborSplitEnabled ? " estimate-table--labor-split" : ""}`}
+      >
         <div className="estimate-table__head">
+          <div>
+            <input
+              type="checkbox"
+              className="estimate-line-checkbox"
+              checked={allVisibleSelected}
+              onChange={(event) => toggleAllVisibleLines(event.target.checked)}
+              disabled={isReadOnly || visibleLineIdList.length === 0}
+              aria-label="Selectionner toutes les lignes visibles"
+            />
+          </div>
           <div>Designation</div>
           <div>Qte</div>
           <div>U</div>
           <div>PR. FO</div>
           <div>Type FO</div>
           <div>K FO</div>
-          <div>h MO</div>
-          <div>Type MO</div>
-          <div>K MO</div>
+          {isLaborSplitEnabled ? (
+            <>
+              <div>Majoration MO (%)</div>
+              <div>h MO atelier</div>
+              <div>Type MO atelier</div>
+              <div>K MO atelier</div>
+              <div>h MO chantier</div>
+              <div>Type MO chantier</div>
+              <div>K MO chantier</div>
+            </>
+          ) : (
+            <>
+              <div>h MO</div>
+              <div>Majoration MO (%)</div>
+              <div>Type MO</div>
+              <div>K MO</div>
+            </>
+          )}
           <div>P.U.</div>
           <div>Prix total</div>
           <div></div>
@@ -1014,7 +2395,15 @@ export function EstimateEditorTable({
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
         >
-          <div className="estimate-table__body">
+          <div
+            ref={isVirtualized ? virtualScrollRef : undefined}
+            className="estimate-table__body"
+            style={virtualBodyStyle}
+            role="grid"
+            aria-readonly={isReadOnly}
+            aria-rowcount={spreadsheetNavigationRows.length}
+            aria-label="Lignes de devis"
+          >
             {items.length === 0 ? (
               <div className="estimate-empty">
                 <p>Aucune ligne pour le moment.</p>
@@ -1038,6 +2427,40 @@ export function EstimateEditorTable({
                   Afficher toutes les lignes
                 </button>
               </div>
+            ) : isVirtualized ? (
+              <SortableContext
+                items={virtualizedSortableIds}
+                strategy={verticalListSortingStrategy}
+              >
+                <div
+                  style={{
+                    height: `${virtualTotalSize}px`,
+                    position: "relative",
+                    width: "100%",
+                  }}
+                >
+                  {virtualItems.map((virtualRow) => {
+                    const row = flattenedRows[virtualRow.index];
+                    if (!row) return null;
+                    return (
+                      <div
+                        key={row.key}
+                        ref={measureElement}
+                        data-index={virtualRow.index}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        {renderVirtualRow(row)}
+                      </div>
+                    );
+                  })}
+                </div>
+              </SortableContext>
             ) : (
               renderList(null)
             )}
@@ -1052,8 +2475,8 @@ export function EstimateEditorTable({
       </datalist>
 
       <datalist id="estimate-fo-type-options">
-        {categories.map((category) => (
-          <option key={category.id} value={category.name} />
+        {supplyTypes.map((supplyType) => (
+          <option key={supplyType.id} value={supplyType.name} />
         ))}
       </datalist>
     </div>

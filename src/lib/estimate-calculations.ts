@@ -21,9 +21,26 @@ export type EstimateLineLike = {
   tax_rate_bp: number | null;
   k_fo: number | null;
   h_mo: number | null;
+  h_mo_majoration?: number | null;
   k_mo: number | null;
+  h_mo_atelier?: number | null;
+  k_mo_atelier?: number | null;
+  labor_role_atelier_id?: string | null;
+  h_mo_chantier?: number | null;
+  k_mo_chantier?: number | null;
+  labor_role_chantier_id?: string | null;
+  labor_role_atelier_hourly_rate_cents?: number | null;
+  labor_role_chantier_hourly_rate_cents?: number | null;
   pu_ht_cents: number | null;
   labor_role_hourly_rate_cents?: number | null;
+};
+
+export type ComputeEstimateLineValuesOptions = {
+  marginMultiplier: number;
+  taxRateBp: number;
+  isLaborSplitEnabled?: boolean;
+  laborRateAtelierCents?: number | null;
+  laborRateChantierCents?: number | null;
 };
 
 export type EstimateLineValues = {
@@ -49,6 +66,7 @@ export type EstimateTotals = {
 
 export type RoundingMode = "none" | "nearest" | "up" | "down";
 export type MarginMode = "fixed" | "tiered";
+export const UNASSIGNED_SUPPLY_TYPE_KEY = "__unassigned__";
 
 /* ---------- helpers ---------- */
 
@@ -85,24 +103,65 @@ export function computeEstimateLineValues(
   {
     marginMultiplier,
     taxRateBp,
-  }: { marginMultiplier: number; taxRateBp: number }
+    isLaborSplitEnabled,
+    laborRateAtelierCents,
+    laborRateChantierCents,
+  }: ComputeEstimateLineValuesOptions
 ): EstimateLineValues {
   const quantity = Math.max(toSafeNumber(item.quantity, 0), 0);
   const unitPrice = Math.max(toSafeNumber(item.unit_price_ht_cents, 0), 0);
   const kFo = Math.max(toSafeNumber(item.k_fo, 1), 0);
-  const hMo = Math.max(toSafeNumber(item.h_mo, 0), 0);
-  const kMo = Math.max(toSafeNumber(item.k_mo, 1), 0);
-  const hourlyRate = Math.max(
+  const hMoMajoration = Math.max(toSafeNumber(item.h_mo_majoration, 1), 0);
+  const hourlyRateLegacy = Math.max(
     toSafeNumber(item.labor_role_hourly_rate_cents ?? 0, 0),
     0
   );
+  const hourlyRateAtelier = Math.max(
+    toSafeNumber(
+      laborRateAtelierCents ?? item.labor_role_atelier_hourly_rate_cents,
+      0
+    ),
+    0
+  );
+  const hourlyRateChantier = Math.max(
+    toSafeNumber(
+      laborRateChantierCents ?? item.labor_role_chantier_hourly_rate_cents,
+      0
+    ),
+    0
+  );
+  const hMo = Math.max(toSafeNumber(item.h_mo, 0), 0);
+  const kMo = Math.max(toSafeNumber(item.k_mo, 1), 0);
+  const hMoAtelier = Math.max(toSafeNumber(item.h_mo_atelier, 0), 0);
+  const kMoAtelier = Math.max(toSafeNumber(item.k_mo_atelier, 1), 0);
+  const hMoChantier = Math.max(toSafeNumber(item.h_mo_chantier, 0), 0);
+  const kMoChantier = Math.max(toSafeNumber(item.k_mo_chantier, 1), 0);
+  const hasSplitPayload =
+    item.h_mo_atelier !== null && item.h_mo_atelier !== undefined ||
+    item.k_mo_atelier !== null && item.k_mo_atelier !== undefined ||
+    item.labor_role_atelier_id !== null &&
+      item.labor_role_atelier_id !== undefined ||
+    item.h_mo_chantier !== null && item.h_mo_chantier !== undefined ||
+    item.k_mo_chantier !== null && item.k_mo_chantier !== undefined ||
+    item.labor_role_chantier_id !== null &&
+      item.labor_role_chantier_id !== undefined ||
+    item.labor_role_atelier_hourly_rate_cents !== null &&
+      item.labor_role_atelier_hourly_rate_cents !== undefined ||
+    item.labor_role_chantier_hourly_rate_cents !== null &&
+      item.labor_role_chantier_hourly_rate_cents !== undefined;
+  const shouldUseLaborSplit = isLaborSplitEnabled ?? hasSplitPayload;
+  const moCostCents = shouldUseLaborSplit
+    ? hMoMajoration *
+      (hMoAtelier * hourlyRateAtelier * kMoAtelier +
+        hMoChantier * hourlyRateChantier * kMoChantier)
+    : hMoMajoration * hMo * hourlyRateLegacy * kMo;
   // A6: cap margin to prevent integer overflow
   const safeMargin = clampMarginMultiplier(marginMultiplier);
   const safeTaxRate = Math.max(toSafeNumber(taxRateBp, 0), 0);
 
   // A1: single round after summation (was rounding FO and MO independently)
   const costLineCents = clampNonNegative(
-    capCents(Math.round(quantity * unitPrice * kFo + hMo * hourlyRate * kMo))
+    capCents(Math.round(quantity * unitPrice * kFo + moCostCents))
   );
   // A6: cap sale line to avoid DB overflow
   const saleLineCents = clampNonNegative(
@@ -227,7 +286,10 @@ export type EstimateItemRecord = EstimateLineLike & {
   description: string | null;
   position: number;
   labor_role_id: string | null;
+  labor_role_atelier_id?: string | null;
+  labor_role_chantier_id?: string | null;
   category_id: string | null;
+  supply_type_id?: string | null;
   line_total_ht_cents: number | null;
   line_tax_cents: number | null;
   line_total_ttc_cents: number | null;
@@ -247,8 +309,11 @@ export type EstimateVersionForCalc = {
 export type SectionTotals = {
   foTotalCents: number;
   moTotalCents: number;
+  moAtelierTotalCents: number;
+  moChantierTotalCents: number;
   totalHtCents: number;
   totalTtcCents: number;
+  supplyTypeFoTotalsCents?: Record<string, number>;
 };
 
 export type ComputeSectionTotalsInput = {
@@ -258,11 +323,16 @@ export type ComputeSectionTotalsInput = {
   taxRateBp: number;
   discountCents: number;
   laborRateById: Map<string, number>;
+  isLaborSplitEnabled?: boolean;
+  laborRateAtelierById?: Map<string, number>;
+  laborRateChantierById?: Map<string, number>;
 };
 
 type SectionLineSplit = {
   foSaleLineCents: number;
   moSaleLineCents: number;
+  moAtelierSaleLineCents: number;
+  moChantierSaleLineCents: number;
   saleLineCents: number;
   taxLineCents: number;
 };
@@ -273,33 +343,73 @@ function computeSectionLineSplit(
     marginMultiplier,
     taxRateBp,
     laborRateById,
+    isLaborSplitEnabled,
+    laborRateAtelierById,
+    laborRateChantierById,
   }: {
     marginMultiplier: number;
     taxRateBp: number;
     laborRateById: Map<string, number>;
+    isLaborSplitEnabled: boolean;
+    laborRateAtelierById: Map<string, number>;
+    laborRateChantierById: Map<string, number>;
   }
 ): SectionLineSplit {
   const quantity = Math.max(toSafeNumber(item.quantity, 0), 0);
   const unitPrice = Math.max(toSafeNumber(item.unit_price_ht_cents, 0), 0);
   const kFo = Math.max(toSafeNumber(item.k_fo, 1), 0);
+  const hMoMajoration = Math.max(toSafeNumber(item.h_mo_majoration, 1), 0);
   const hMo = Math.max(toSafeNumber(item.h_mo, 0), 0);
   const kMo = Math.max(toSafeNumber(item.k_mo, 1), 0);
-  const hourlyRate = item.labor_role_id
+  const legacyHourlyRate = item.labor_role_id
     ? Math.max(toSafeNumber(laborRateById.get(item.labor_role_id), 0), 0)
     : 0;
+  const atelierHourlyRate = item.labor_role_atelier_id
+    ? Math.max(
+        toSafeNumber(
+          laborRateAtelierById.get(item.labor_role_atelier_id) ??
+            laborRateById.get(item.labor_role_atelier_id),
+          0
+        ),
+        0
+      )
+    : 0;
+  const chantierHourlyRate = item.labor_role_chantier_id
+    ? Math.max(
+        toSafeNumber(
+          laborRateChantierById.get(item.labor_role_chantier_id) ??
+            laborRateById.get(item.labor_role_chantier_id),
+          0
+        ),
+        0
+      )
+    : 0;
+  const hMoAtelier = Math.max(toSafeNumber(item.h_mo_atelier, 0), 0);
+  const kMoAtelier = Math.max(toSafeNumber(item.k_mo_atelier, 1), 0);
+  const hMoChantier = Math.max(toSafeNumber(item.h_mo_chantier, 0), 0);
+  const kMoChantier = Math.max(toSafeNumber(item.k_mo_chantier, 1), 0);
 
   const foCostRaw = quantity * unitPrice * kFo;
-  const moCostRaw = hMo * hourlyRate * kMo;
+  const moAtelierCostRaw = isLaborSplitEnabled
+    ? hMoMajoration * hMoAtelier * atelierHourlyRate * kMoAtelier
+    : 0;
+  const moChantierCostRaw = isLaborSplitEnabled
+    ? hMoMajoration * hMoChantier * chantierHourlyRate * kMoChantier
+    : hMoMajoration * hMo * legacyHourlyRate * kMo;
+  const moCostRaw = moAtelierCostRaw + moChantierCostRaw;
   const costRawTotal = foCostRaw + moCostRaw;
 
   const lineValues = computeEstimateLineValues(
     {
       ...item,
-      labor_role_hourly_rate_cents: hourlyRate,
+      labor_role_hourly_rate_cents: legacyHourlyRate,
     },
     {
       marginMultiplier,
       taxRateBp,
+      isLaborSplitEnabled,
+      laborRateAtelierCents: atelierHourlyRate,
+      laborRateChantierCents: chantierHourlyRate,
     }
   );
 
@@ -307,6 +417,8 @@ function computeSectionLineSplit(
     return {
       foSaleLineCents: 0,
       moSaleLineCents: lineValues.saleLineCents,
+      moAtelierSaleLineCents: 0,
+      moChantierSaleLineCents: lineValues.saleLineCents,
       saleLineCents: lineValues.saleLineCents,
       taxLineCents: lineValues.taxLineCents,
     };
@@ -318,10 +430,18 @@ function computeSectionLineSplit(
     lineValues.saleLineCents
   );
   const moSaleLineCents = lineValues.saleLineCents - foSaleLineCents;
+  const moAtelierShare = moCostRaw > 0 ? moAtelierCostRaw / moCostRaw : 0;
+  const moAtelierSaleLineCents = Math.min(
+    Math.max(bankersRound(moSaleLineCents * moAtelierShare), 0),
+    moSaleLineCents
+  );
+  const moChantierSaleLineCents = moSaleLineCents - moAtelierSaleLineCents;
 
   return {
     foSaleLineCents,
     moSaleLineCents,
+    moAtelierSaleLineCents,
+    moChantierSaleLineCents,
     saleLineCents: lineValues.saleLineCents,
     taxLineCents: lineValues.taxLineCents,
   };
@@ -338,6 +458,9 @@ export function computeSectionTotals({
   taxRateBp,
   discountCents,
   laborRateById,
+  isLaborSplitEnabled = false,
+  laborRateAtelierById = laborRateById,
+  laborRateChantierById = laborRateById,
 }: ComputeSectionTotalsInput): SectionTotals {
   const section = items.find(
     (item) => item.id === sectionId && item.item_type === "section"
@@ -346,8 +469,11 @@ export function computeSectionTotals({
     return {
       foTotalCents: 0,
       moTotalCents: 0,
+      moAtelierTotalCents: 0,
+      moChantierTotalCents: 0,
       totalHtCents: 0,
       totalTtcCents: 0,
+      supplyTypeFoTotalsCents: {},
     };
   }
 
@@ -373,6 +499,9 @@ export function computeSectionTotals({
       marginMultiplier: safeMargin,
       taxRateBp: safeTaxRate,
       laborRateById,
+      isLaborSplitEnabled,
+      laborRateAtelierById,
+      laborRateChantierById,
     });
     lineSplitById.set(item.id, split);
     return sum + split.saleLineCents;
@@ -403,24 +532,40 @@ export function computeSectionTotals({
     return {
       foTotalCents: 0,
       moTotalCents: 0,
+      moAtelierTotalCents: 0,
+      moChantierTotalCents: 0,
       totalHtCents: 0,
       totalTtcCents: 0,
+      supplyTypeFoTotalsCents: {},
     };
   }
 
+  const foSaleSubtotalBySupplyType = new Map<string, number>();
   const sectionBeforeDiscount = sectionLines.reduce(
     (acc, line) => {
       const split = lineSplitById.get(line.id);
       if (!split) return acc;
       acc.foSaleSubtotalCents += split.foSaleLineCents;
       acc.moSaleSubtotalCents += split.moSaleLineCents;
+      acc.moAtelierSaleSubtotalCents += split.moAtelierSaleLineCents;
+      acc.moChantierSaleSubtotalCents += split.moChantierSaleLineCents;
       acc.htSubtotalCents += split.saleLineCents;
       acc.taxSubtotalCents += split.taxLineCents;
+
+      if (split.foSaleLineCents > 0) {
+        const key = line.supply_type_id ?? UNASSIGNED_SUPPLY_TYPE_KEY;
+        foSaleSubtotalBySupplyType.set(
+          key,
+          (foSaleSubtotalBySupplyType.get(key) ?? 0) + split.foSaleLineCents
+        );
+      }
       return acc;
     },
     {
       foSaleSubtotalCents: 0,
       moSaleSubtotalCents: 0,
+      moAtelierSaleSubtotalCents: 0,
+      moChantierSaleSubtotalCents: 0,
       htSubtotalCents: 0,
       taxSubtotalCents: 0,
     }
@@ -460,6 +605,25 @@ export function computeSectionTotals({
     totalHtCents
   );
   const moTotalCents = totalHtCents - foTotalCents;
+  const moDiscountCents = Math.max(sectionDiscountCents - foDiscountCents, 0);
+  const moAtelierDiscountCents =
+    moDiscountCents > 0 && sectionBeforeDiscount.moSaleSubtotalCents > 0
+      ? Math.min(
+          sectionBeforeDiscount.moAtelierSaleSubtotalCents,
+          Math.round(
+            (moDiscountCents * sectionBeforeDiscount.moAtelierSaleSubtotalCents) /
+              sectionBeforeDiscount.moSaleSubtotalCents
+          )
+        )
+      : 0;
+  const moAtelierTotalCents = Math.min(
+    Math.max(
+      sectionBeforeDiscount.moAtelierSaleSubtotalCents - moAtelierDiscountCents,
+      0
+    ),
+    moTotalCents
+  );
+  const moChantierTotalCents = moTotalCents - moAtelierTotalCents;
   const discountTaxCents = computeTaxCents(sectionDiscountCents, safeTaxRate);
   const taxAfterDiscountCents = Math.max(
     sectionBeforeDiscount.taxSubtotalCents - discountTaxCents,
@@ -467,11 +631,40 @@ export function computeSectionTotals({
   );
   const totalTtcCents = totalHtCents + taxAfterDiscountCents;
 
+  const supplyTypeFoTotalsCents: Record<string, number> = {};
+  const groupedEntries = Array.from(foSaleSubtotalBySupplyType.entries());
+  if (groupedEntries.length > 0 && sectionBeforeDiscount.foSaleSubtotalCents > 0) {
+    let allocatedDiscount = 0;
+    let allocatedTotals = 0;
+
+    groupedEntries.forEach(([key, subtotal], index) => {
+      const isLast = index === groupedEntries.length - 1;
+      const discountShare = isLast
+        ? Math.max(foDiscountCents - allocatedDiscount, 0)
+        : Math.min(
+            subtotal,
+            Math.round(
+              (foDiscountCents * subtotal) / sectionBeforeDiscount.foSaleSubtotalCents
+            )
+          );
+      allocatedDiscount += discountShare;
+
+      const netTotal = isLast
+        ? Math.max(foTotalCents - allocatedTotals, 0)
+        : Math.max(subtotal - discountShare, 0);
+      allocatedTotals += netTotal;
+      supplyTypeFoTotalsCents[key] = netTotal;
+    });
+  }
+
   return {
     foTotalCents,
     moTotalCents,
+    moAtelierTotalCents,
+    moChantierTotalCents,
     totalHtCents,
     totalTtcCents,
+    supplyTypeFoTotalsCents,
   };
 }
 
@@ -545,6 +738,7 @@ export function normalizeDraftItems<
     if (item.item_type !== "line") return item;
     const kFo = item.k_fo ?? 1;
     const hMo = item.h_mo ?? 0;
+    const hMoMajoration = item.h_mo_majoration ?? 1;
     const kMo = item.k_mo ?? 1;
     const hourlyRate = item.labor_role_id
       ? rateById.get(item.labor_role_id) ?? 0
@@ -555,6 +749,7 @@ export function normalizeDraftItems<
         ...item,
         k_fo: kFo,
         h_mo: hMo,
+        h_mo_majoration: hMoMajoration,
         k_mo: kMo,
         tax_rate_bp: taxRate,
         labor_role_hourly_rate_cents: hourlyRate,
@@ -569,6 +764,7 @@ export function normalizeDraftItems<
       tax_rate_bp: taxRate,
       k_fo: kFo,
       h_mo: hMo,
+      h_mo_majoration: hMoMajoration,
       k_mo: kMo,
       pu_ht_cents: lineValues.puHtCents,
       line_total_ht_cents: lineValues.saleLineCents,
