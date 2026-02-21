@@ -33,7 +33,8 @@ function parseExpectedDeliveryDate(value: unknown) {
   }
 
   const trimmed = value.trim();
-  if (!trimmed || trimmed.toUpperCase() === "TBD") return null;
+  if (!trimmed) return null;
+  if (trimmed.toUpperCase() === "TBD") return "TBD";
 
   if (!isValidDateOnly(trimmed)) {
     throw new Error("Date de livraison invalide (YYYY-MM-DD attendu).");

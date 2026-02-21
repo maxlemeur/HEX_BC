@@ -50,6 +50,7 @@ type DevisRow = {
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return "";
+  if (dateStr === "TBD") return "À déterminer";
   const date = new Date(dateStr);
   if (Number.isNaN(date.getTime())) return "";
   return date.toISOString().split("T")[0];
