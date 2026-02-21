@@ -538,6 +538,16 @@ body {
   to { stroke-dashoffset: 0; }
 }
 
+/* Right panel — dot pulse animation */
+@keyframes rightDotPulse {
+  0%, 100% { opacity: 0.08; }
+  50% { opacity: 0.24; }
+}
+
+.right-dot-pulse {
+  animation: rightDotPulse 3.5s ease-in-out infinite;
+}
+
 /* Hide extra fluid packets on mobile for performance */
 @media (max-width: 767px) {
   .pipe-packet-mobile-hide {
@@ -563,9 +573,15 @@ body {
     transform: none;
   }
 
-  .pipe-packet {
+  .pipe-packet,
+  .right-pipe-flow {
     animation: none !important;
     display: none;
+  }
+
+  .right-dot-pulse {
+    animation: none !important;
+    opacity: 0.08;
   }
 }
 

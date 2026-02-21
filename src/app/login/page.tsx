@@ -241,13 +241,88 @@ export default function LoginPage() {
         variants={formPanelVariants}
         initial="hidden"
         animate="visible"
-        className="flex w-full flex-1 items-center justify-center bg-[#f8fafc] px-6 py-12 sm:px-10 lg:w-[55%] lg:px-16"
+        className="relative flex w-full flex-1 items-center justify-center overflow-hidden bg-[#f8fafc] px-6 py-12 sm:px-10 lg:w-[55%] lg:px-16"
       >
+        {/* Decorative pipe fragments — animated echo of left panel */}
+        <svg
+          className="absolute inset-0 h-full w-full"
+          viewBox="0 0 800 800"
+          preserveAspectRatio="xMidYMid slice"
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id="rightOrangeFlow" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#E8732F" />
+              <stop offset="100%" stopColor="#f5945a" />
+            </linearGradient>
+            <linearGradient id="rightBlueFlow" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#3b82f6" />
+              <stop offset="100%" stopColor="#60a5fa" />
+            </linearGradient>
+          </defs>
+
+          {/* ── Pipe 1: top-left curve ── */}
+          <path
+            d="M -20 120 Q 80 120 80 200 Q 80 280 160 280 H 300"
+            fill="none" stroke="rgba(30,58,95,0.07)" strokeWidth="2.5" strokeLinecap="round"
+          />
+          <path
+            className="right-pipe-flow"
+            d="M -20 120 Q 80 120 80 200 Q 80 280 160 280 H 300"
+            pathLength={1} fill="none" stroke="url(#rightOrangeFlow)" strokeWidth="2" strokeLinecap="round"
+            strokeDasharray="0.08 0.92" style={{ opacity: 0.13, animation: "pipeFlow 6s linear 0s infinite" }}
+          />
+
+          {/* ── Pipe 2: top-right drop ── */}
+          <path
+            d="M 600 -20 V 100 Q 600 140 640 140 H 820"
+            fill="none" stroke="rgba(30,58,95,0.07)" strokeWidth="2.5" strokeLinecap="round"
+          />
+          <path
+            className="right-pipe-flow"
+            d="M 600 -20 V 100 Q 600 140 640 140 H 820"
+            pathLength={1} fill="none" stroke="url(#rightBlueFlow)" strokeWidth="2" strokeLinecap="round"
+            strokeDasharray="0.08 0.92" style={{ opacity: 0.11, animation: "pipeFlow 5s linear 1.5s infinite" }}
+          />
+
+          {/* ── Pipe 3: right side descent ── */}
+          <path
+            d="M 820 500 H 650 Q 620 500 620 530 V 700 Q 620 740 580 740 H 400"
+            fill="none" stroke="rgba(30,58,95,0.07)" strokeWidth="2.5" strokeLinecap="round"
+          />
+          <path
+            className="right-pipe-flow"
+            d="M 820 500 H 650 Q 620 500 620 530 V 700 Q 620 740 580 740 H 400"
+            pathLength={1} fill="none" stroke="url(#rightOrangeFlow)" strokeWidth="2" strokeLinecap="round"
+            strokeDasharray="0.08 0.92" style={{ opacity: 0.11, animation: "pipeFlow 7s linear 0.5s infinite" }}
+          />
+
+          {/* ── Pipe 4: bottom-left rise ── */}
+          <path
+            d="M 200 820 V 680 Q 200 650 230 650 H 380"
+            fill="none" stroke="rgba(30,58,95,0.055)" strokeWidth="2" strokeLinecap="round"
+          />
+          <path
+            className="right-pipe-flow"
+            d="M 200 820 V 680 Q 200 650 230 650 H 380"
+            pathLength={1} fill="none" stroke="url(#rightBlueFlow)" strokeWidth="1.5" strokeLinecap="round"
+            strokeDasharray="0.1 0.9" style={{ opacity: 0.11, animation: "pipeFlow 5.5s linear 2s infinite" }}
+          />
+
+          {/* Junction dots with pulse */}
+          <circle cx="80" cy="200" r="3.5" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "0s" }} />
+          <circle cx="600" cy="100" r="3.5" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-1s" }} />
+          <circle cx="620" cy="530" r="3.5" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-2s" }} />
+          <circle cx="200" cy="680" r="3.5" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-1.5s" }} />
+          <circle cx="160" cy="280" r="3" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-0.5s" }} />
+          <circle cx="640" cy="140" r="3" fill="rgb(30,58,95)" className="right-dot-pulse" style={{ animationDelay: "-2.5s" }} />
+        </svg>
+
         <motion.form
           variants={formContainerVariants}
           initial="hidden"
           animate="visible"
-          className="w-full max-w-md space-y-6"
+          className="relative w-full max-w-md space-y-6"
           onSubmit={onSubmit}
         >
           {/* Heading */}
