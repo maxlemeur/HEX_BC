@@ -11,6 +11,7 @@ import {
   type ComponentProps,
 } from "react";
 
+import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import {
@@ -36,10 +37,16 @@ import {
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import {
+  applyBufferedUpdatesToItems,
+  rehydrateBufferedUpdates,
   serializeBufferedUpdates,
   shouldFlushBufferedUpdates,
   upsertBufferedUpdate,
 } from "@/lib/estimates/bulk-buffer";
+import {
+  buildBulkSuggestPreview,
+  type BulkSuggestPreviewItem,
+} from "@/lib/estimates/bulk-suggest";
 import {
   countEstimateQualityFlags,
   computeEstimateQualityFlagsByItemId,
@@ -205,6 +212,15 @@ type EstimateAutoSaveDraft = {
   }[];
   saved_at: string;
 };
+type BulkSuggestProgressState = {
+  processed: number;
+  total: number;
+  percentage: number;
+};
+type BulkSuggestUndoState = {
+  previousItems: EstimateItem[];
+  appliedItemIds: string[];
+};
 type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
 type EstimateEditorVirtualizationConfig = NonNullable<
   EstimateEditorTableProps["virtualization"]
@@ -215,6 +231,8 @@ const CONFLICT_DRAFT_STORAGE_PREFIX = "estimate:edit:conflict-draft:";
 const AUTOSAVE_BUFFER_STORAGE_PREFIX = "estimate:edit:autosave-buffer:";
 const BULK_AUTOSAVE_DEBOUNCE_MS = 2000;
 const BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES = 100;
+const BULK_SUGGEST_PROGRESS_THRESHOLD = 50;
+const BULK_SUGGEST_BATCH_SIZE = 50;
 const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
 const LABOR_SPLIT_FIELD_KEYS = [
   "h_mo_atelier",
@@ -421,30 +439,15 @@ function appendLaborSplitFields(
   });
 }
 
-function mergeBufferedUpdatesIntoItems(
-  sourceItems: EstimateItem[],
-  bufferedUpdates: EstimateAutoSaveDraft["buffered_updates"]
-) {
-  if (sourceItems.length === 0 || bufferedUpdates.length === 0) {
-    return sourceItems;
+function chunkArray<T>(values: T[], chunkSize: number) {
+  const size = Math.max(Math.floor(chunkSize), 1);
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
   }
 
-  const updatesById = new Map(
-    bufferedUpdates.map((entry) => [entry.id, entry.updates] as const)
-  );
-
-  let changed = false;
-  const nextItems = sourceItems.map((item) => {
-    const updates = updatesById.get(item.id);
-    if (!updates) return item;
-    changed = true;
-    return {
-      ...item,
-      ...updates,
-    };
-  });
-
-  return changed ? nextItems : sourceItems;
+  return chunks;
 }
 
 function resolveLaborRoleHourlyRate(
@@ -772,6 +775,18 @@ export default function EditEstimatePage() {
   );
   const [restorableDraft, setRestorableDraft] =
     useState<EstimateConflictDraft | null>(null);
+  const [isBulkSuggestDialogOpen, setIsBulkSuggestDialogOpen] = useState(false);
+  const [selectedBulkSuggestItemIds, setSelectedBulkSuggestItemIds] = useState<
+    string[]
+  >([]);
+  const [bulkSuggestDialogError, setBulkSuggestDialogError] =
+    useState<string | null>(null);
+  const [isApplyingBulkSuggest, setIsApplyingBulkSuggest] = useState(false);
+  const [bulkSuggestProgress, setBulkSuggestProgress] =
+    useState<BulkSuggestProgressState | null>(null);
+  const [bulkSuggestUndoState, setBulkSuggestUndoState] =
+    useState<BulkSuggestUndoState | null>(null);
+  const [isUndoingBulkSuggest, setIsUndoingBulkSuggest] = useState(false);
   const [isReloadingVersion, setIsReloadingVersion] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
 
@@ -786,7 +801,7 @@ export default function EditEstimatePage() {
   const isFlushingBufferedUpdatesRef = useRef(false);
   const applyPendingBufferedUpdatesToItems = useCallback(
     (sourceItems: EstimateItem[]) =>
-      mergeBufferedUpdatesIntoItems(
+      applyBufferedUpdatesToItems(
         sourceItems,
         serializeBufferedUpdates(pendingItemUpdatesRef.current)
       ),
@@ -1191,19 +1206,15 @@ export default function EditEstimatePage() {
     const draft = readAutoSaveDraftFromLocal(resolvedVersionId);
     if (!draft) return;
 
-    draft.buffered_updates.forEach((entry) => {
-      upsertBufferedUpdate(pendingItemUpdatesRef.current, entry.id, entry.updates);
-    });
-
-    pendingBufferedUpdateCountRef.current = pendingItemUpdatesRef.current.size;
-    const hasPendingUpdates = pendingItemUpdatesRef.current.size > 0;
-    setHasPendingBufferedUpdates(hasPendingUpdates);
-    setItems((previous) =>
-      mergeBufferedUpdatesIntoItems(
-        previous,
-        serializeBufferedUpdates(pendingItemUpdatesRef.current)
-      )
+    const rehydration = rehydrateBufferedUpdates(
+      itemsRef.current,
+      draft.buffered_updates,
+      pendingItemUpdatesRef.current
     );
+    pendingBufferedUpdateCountRef.current = rehydration.pendingUpdateCount;
+    const hasPendingUpdates = rehydration.hasPendingUpdates;
+    setHasPendingBufferedUpdates(hasPendingUpdates);
+    setItems(rehydration.mergedItems);
 
     if (hasPendingUpdates) {
       setTotalsOutOfSync(true);
@@ -1378,6 +1389,20 @@ export default function EditEstimatePage() {
     });
     return map;
   }, [laborRoles]);
+
+  const bulkSuggestPreview = useMemo(
+    () =>
+      buildBulkSuggestPreview({
+        items,
+        suggestionRules,
+        categories,
+        supplyTypes,
+        laborRoles,
+      }),
+    [categories, items, laborRoles, suggestionRules, supplyTypes]
+  );
+
+  const bulkSuggestionEligibleCount = bulkSuggestPreview.length;
 
   const detectedOutlierFlagsByItemId = useMemo(
     () =>
@@ -1722,6 +1747,403 @@ export default function EditEstimatePage() {
   useEffect(() => {
     persistedTotalsRef.current = persistedTotals;
   }, [persistedTotals]);
+
+  const selectedBulkSuggestPreview = useMemo(() => {
+    if (selectedBulkSuggestItemIds.length === 0) {
+      return [] as BulkSuggestPreviewItem[];
+    }
+
+    const selectedIdSet = new Set(selectedBulkSuggestItemIds);
+    return bulkSuggestPreview.filter((previewItem) =>
+      selectedIdSet.has(previewItem.itemId)
+    );
+  }, [bulkSuggestPreview, selectedBulkSuggestItemIds]);
+
+  const showBulkSuggestProgress = useMemo(() => {
+    const progressTotal = bulkSuggestProgress?.total ?? selectedBulkSuggestPreview.length;
+    return progressTotal > BULK_SUGGEST_PROGRESS_THRESHOLD;
+  }, [bulkSuggestProgress, selectedBulkSuggestPreview.length]);
+
+  useEffect(() => {
+    setSelectedBulkSuggestItemIds((previous) => {
+      if (previous.length === 0) return previous;
+
+      const eligibleItemIds = new Set(
+        bulkSuggestPreview.map((previewItem) => previewItem.itemId)
+      );
+      const next = previous.filter((itemId) => eligibleItemIds.has(itemId));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [bulkSuggestPreview]);
+
+  useEffect(() => {
+    setBulkSuggestUndoState((previous) => {
+      if (!previous) return previous;
+
+      const lineItemIds = new Set(
+        items
+          .filter((item) => item.item_type === "line")
+          .map((item) => item.id)
+      );
+      const stillValid = previous.previousItems.filter((item) =>
+        lineItemIds.has(item.id)
+      );
+      if (stillValid.length === previous.previousItems.length) {
+        return previous;
+      }
+      if (stillValid.length === 0) {
+        return null;
+      }
+      return {
+        previousItems: stillValid,
+        appliedItemIds: stillValid.map((item) => item.id),
+      };
+    });
+  }, [items]);
+
+  const handleOpenBulkSuggestDialog = useCallback(() => {
+    if (isReadOnly) {
+      setActionError(readOnlyActionErrorMessage);
+      return;
+    }
+
+    if (isConflictLocked) {
+      setActionError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+
+    if (bulkSuggestPreview.length === 0) return;
+
+    setActionError(null);
+    setBulkSuggestDialogError(null);
+    setBulkSuggestProgress(null);
+    setSelectedBulkSuggestItemIds(
+      bulkSuggestPreview.map((previewItem) => previewItem.itemId)
+    );
+    setIsBulkSuggestDialogOpen(true);
+  }, [
+    bulkSuggestPreview,
+    conflictState?.message,
+    isConflictLocked,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+  ]);
+
+  const handleCloseBulkSuggestDialog = useCallback(() => {
+    if (isApplyingBulkSuggest) return;
+    setIsBulkSuggestDialogOpen(false);
+    setBulkSuggestDialogError(null);
+    setBulkSuggestProgress(null);
+  }, [isApplyingBulkSuggest]);
+
+  const handleToggleBulkSuggestItem = useCallback(
+    (itemId: string, checked: boolean) => {
+      setSelectedBulkSuggestItemIds((previous) => {
+        if (checked) {
+          if (previous.includes(itemId)) return previous;
+          return [...previous, itemId];
+        }
+        if (!previous.includes(itemId)) return previous;
+        return previous.filter((id) => id !== itemId);
+      });
+    },
+    []
+  );
+
+  const handleToggleAllBulkSuggestItems = useCallback(
+    (checked: boolean) => {
+      if (!checked) {
+        setSelectedBulkSuggestItemIds([]);
+        return;
+      }
+
+      setSelectedBulkSuggestItemIds(
+        bulkSuggestPreview.map((previewItem) => previewItem.itemId)
+      );
+    },
+    [bulkSuggestPreview]
+  );
+
+  const handleApplyBulkSuggest = useCallback(async () => {
+    if (isApplyingBulkSuggest) return;
+
+    if (isReadOnly) {
+      setBulkSuggestDialogError(readOnlyActionErrorMessage);
+      return;
+    }
+
+    if (isConflictLocked) {
+      setBulkSuggestDialogError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+
+    const versionSnapshot = versionRef.current;
+    if (!versionSnapshot) {
+      setBulkSuggestDialogError("Version introuvable.");
+      return;
+    }
+
+    const selectedPreviewByItemId = new Map(
+      selectedBulkSuggestPreview.map((previewItem) => [previewItem.itemId, previewItem])
+    );
+
+    if (selectedPreviewByItemId.size === 0) {
+      setBulkSuggestDialogError("Selectionnez au moins une suggestion.");
+      return;
+    }
+
+    const snapshot = itemsRef.current;
+    const selectedLines = snapshot.filter(
+      (item): item is EstimateItem =>
+        item.item_type === "line" && selectedPreviewByItemId.has(item.id)
+    );
+
+    if (selectedLines.length === 0) {
+      setBulkSuggestDialogError("Aucune ligne eligible selectionnee.");
+      return;
+    }
+
+    const marginMultiplier = settings?.margin_multiplier ?? 1;
+    const fallbackTaxRateBp = settings?.tax_rate_bp ?? versionSnapshot.tax_rate_bp ?? 0;
+
+    const updatedLines = selectedLines.map((item) => {
+      const previewItem = selectedPreviewByItemId.get(item.id);
+      if (!previewItem) return item;
+
+      const nextItem: EstimateItem = {
+        ...item,
+        ...previewItem.patch,
+      };
+      const taxRate = nextItem.tax_rate_bp ?? fallbackTaxRateBp;
+      const { lineInput, lineValues } = computeLineValuesWithLaborContext(nextItem, {
+        marginMultiplier,
+        taxRateBp: taxRate,
+      });
+
+      return {
+        ...nextItem,
+        tax_rate_bp: lineInput.tax_rate_bp,
+        k_fo: lineInput.k_fo,
+        h_mo: lineInput.h_mo,
+        h_mo_majoration: lineInput.h_mo_majoration,
+        k_mo: lineInput.k_mo,
+        ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
+          ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
+          : {}),
+        pu_ht_cents: lineValues.puHtCents,
+        line_total_ht_cents: lineValues.saleLineCents,
+        line_tax_cents: lineValues.taxLineCents,
+        line_total_ttc_cents: lineValues.ttcLineCents,
+      };
+    });
+
+    const updatesPayload = updatedLines.map((item) => ({
+      id: item.id,
+      updates: buildEstimateItemUpdatePayload(item),
+    }));
+
+    if (updatesPayload.length === 0) {
+      setBulkSuggestDialogError("Aucune mise a jour a appliquer.");
+      return;
+    }
+
+    const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
+    const previousItems = selectedLines.map((item) => ({ ...item }));
+    const shouldTrackProgress =
+      updatesPayload.length > BULK_SUGGEST_PROGRESS_THRESHOLD;
+
+    setBulkSuggestDialogError(null);
+    setIsApplyingBulkSuggest(true);
+    setBulkSuggestProgress(
+      shouldTrackProgress
+        ? {
+            processed: 0,
+            total: updatesPayload.length,
+            percentage: 0,
+          }
+        : null
+    );
+    setItems((previous) =>
+      previous.map((item) => updatedById.get(item.id) ?? item)
+    );
+
+    try {
+      let nextVersionToken = versionSnapshot.updated_at;
+      const updateChunks = shouldTrackProgress
+        ? chunkArray(updatesPayload, BULK_SUGGEST_BATCH_SIZE)
+        : [updatesPayload];
+
+      let processedCount = 0;
+      for (const updateChunk of updateChunks) {
+        const bulkResult = await bulkUpdateEstimateItems(
+          versionSnapshot.id,
+          nextVersionToken,
+          updateChunk
+        );
+        nextVersionToken = bulkResult.versionToken.updated_at;
+        processedCount += updateChunk.length;
+
+        if (shouldTrackProgress) {
+          setBulkSuggestProgress({
+            processed: processedCount,
+            total: updatesPayload.length,
+            percentage: Math.round((processedCount / updatesPayload.length) * 100),
+          });
+        }
+      }
+
+      setVersion((previous) =>
+        previous
+          ? {
+              ...previous,
+              updated_at: nextVersionToken,
+            }
+          : previous
+      );
+      if (versionRef.current) {
+        versionRef.current = {
+          ...versionRef.current,
+          updated_at: nextVersionToken,
+        };
+      }
+
+      setBulkSuggestUndoState({
+        previousItems,
+        appliedItemIds: previousItems.map((item) => item.id),
+      });
+      setTotalsOutOfSync(false);
+      setIsBulkSuggestDialogOpen(false);
+      setSelectedBulkSuggestItemIds([]);
+      setBulkSuggestDialogError(null);
+    } catch (error) {
+      setItems(snapshot);
+      if (!handleVersionConflict(error, { persistDraft: true })) {
+        setBulkSuggestDialogError(
+          resolveEstimateActionError(
+            error instanceof Error
+              ? error.message
+              : "Impossible d'appliquer les suggestions en lot."
+          )
+        );
+      } else {
+        setIsBulkSuggestDialogOpen(false);
+      }
+    } finally {
+      setIsApplyingBulkSuggest(false);
+      setBulkSuggestProgress(null);
+    }
+  }, [
+    computeLineValuesWithLaborContext,
+    conflictState?.message,
+    handleVersionConflict,
+    isApplyingBulkSuggest,
+    isConflictLocked,
+    isLaborSplitEnabled,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+    selectedBulkSuggestPreview,
+    settings?.margin_multiplier,
+    settings?.tax_rate_bp,
+  ]);
+
+  const handleUndoBulkSuggest = useCallback(async () => {
+    if (!bulkSuggestUndoState || isUndoingBulkSuggest) return;
+
+    if (isReadOnly) {
+      setActionError(readOnlyActionErrorMessage);
+      return;
+    }
+
+    if (isConflictLocked) {
+      setActionError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+
+    const versionSnapshot = versionRef.current;
+    if (!versionSnapshot) {
+      setActionError("Version introuvable.");
+      return;
+    }
+
+    const currentItemsSnapshot = itemsRef.current;
+    const previousById = new Map(
+      bulkSuggestUndoState.previousItems.map((item) => [item.id, item])
+    );
+    const updatesPayload = bulkSuggestUndoState.previousItems.map((item) => ({
+      id: item.id,
+      updates: buildEstimateItemUpdatePayload(item),
+    }));
+
+    setActionError(null);
+    setIsUndoingBulkSuggest(true);
+    setItems((previous) =>
+      previous.map((item) => previousById.get(item.id) ?? item)
+    );
+
+    try {
+      let nextVersionToken = versionSnapshot.updated_at;
+      const updateChunks =
+        updatesPayload.length > BULK_SUGGEST_PROGRESS_THRESHOLD
+          ? chunkArray(updatesPayload, BULK_SUGGEST_BATCH_SIZE)
+          : [updatesPayload];
+
+      for (const updateChunk of updateChunks) {
+        const bulkResult = await bulkUpdateEstimateItems(
+          versionSnapshot.id,
+          nextVersionToken,
+          updateChunk
+        );
+        nextVersionToken = bulkResult.versionToken.updated_at;
+      }
+
+      setVersion((previous) =>
+        previous
+          ? {
+              ...previous,
+              updated_at: nextVersionToken,
+            }
+          : previous
+      );
+      if (versionRef.current) {
+        versionRef.current = {
+          ...versionRef.current,
+          updated_at: nextVersionToken,
+        };
+      }
+
+      setBulkSuggestUndoState(null);
+      setTotalsOutOfSync(false);
+    } catch (error) {
+      setItems(currentItemsSnapshot);
+      if (!handleVersionConflict(error, { persistDraft: true })) {
+        setActionError(
+          resolveEstimateActionError(
+            error instanceof Error
+              ? error.message
+              : "Impossible d'annuler les suggestions."
+          )
+        );
+      } else {
+        setBulkSuggestUndoState(null);
+      }
+    } finally {
+      setIsUndoingBulkSuggest(false);
+    }
+  }, [
+    bulkSuggestUndoState,
+    conflictState?.message,
+    handleVersionConflict,
+    isConflictLocked,
+    isReadOnly,
+    isUndoingBulkSuggest,
+    readOnlyActionErrorMessage,
+  ]);
 
   const flushBufferedItemUpdates = useCallback(async () => {
     if (isFlushingBufferedUpdatesRef.current) return "noop" as const;
@@ -2671,6 +3093,34 @@ export default function EditEstimatePage() {
     ]
   );
 
+  const handleBulkDeleteLines = useCallback(async (itemIds: string[]) => {
+    if (itemIds.length === 0) return;
+  }, []);
+
+  const handleBulkMoveLines = useCallback(
+    async (itemIds: string[], targetParentId: string | null) => {
+      void targetParentId;
+      if (itemIds.length === 0) return;
+    },
+    []
+  );
+
+  const handleBulkSetCategory = useCallback(
+    async (itemIds: string[], categoryId: string | null) => {
+      void categoryId;
+      if (itemIds.length === 0) return;
+    },
+    []
+  );
+
+  const handleBulkSetLaborRole = useCallback(
+    async (itemIds: string[], laborRoleId: string | null) => {
+      void laborRoleId;
+      if (itemIds.length === 0) return;
+    },
+    []
+  );
+
   const handleToggleOutlierDismiss = useCallback(
     async (
       itemId: string,
@@ -2886,6 +3336,12 @@ export default function EditEstimatePage() {
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,
       onApplyBulkMajoration: handleApplyBulkMajoration,
+      onBulkDeleteLines: handleBulkDeleteLines,
+      onBulkMoveLines: handleBulkMoveLines,
+      onBulkSetCategory: handleBulkSetCategory,
+      onBulkSetLaborRole: handleBulkSetLaborRole,
+      bulkSuggestionEligibleCount,
+      onOpenBulkSuggestDialog: handleOpenBulkSuggestDialog,
       onReorder: handleReorder,
       virtualization: editorTableVirtualization,
     }),
@@ -2899,12 +3355,17 @@ export default function EditEstimatePage() {
       handleAddLine,
       handleAddSection,
       handleApplyBulkMajoration,
+      handleBulkDeleteLines,
+      handleBulkMoveLines,
+      handleBulkSetCategory,
+      handleBulkSetLaborRole,
       handleDeleteItem,
       handleOutlierMethodChange,
       handlePatchItem,
       handleOutlierThresholdChange,
       handleQualityFilterChange,
       handleReorder,
+      handleOpenBulkSuggestDialog,
       handleToggleOutlierDismiss,
       items,
       isLaborSplitEnabled,
@@ -2918,6 +3379,7 @@ export default function EditEstimatePage() {
       qualityFlagsByItemId,
       supplyTypes,
       suggestionRules,
+      bulkSuggestionEligibleCount,
       totals?.appliedMarginMultiplier,
       version?.id,
       resolvedVersionId,
@@ -3240,6 +3702,37 @@ export default function EditEstimatePage() {
         </div>
       )}
 
+      {bulkSuggestUndoState ? (
+        <div className="alert alert-info mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4" />
+              <path d="M12 16h.01" />
+            </svg>
+            <span>
+              Suggestions appliquees sur {bulkSuggestUndoState.appliedItemIds.length} ligne(s).
+            </span>
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={() => void handleUndoBulkSuggest()}
+            disabled={isUndoingBulkSuggest || isSaveBlocked}
+          >
+            {isUndoingBulkSuggest ? "Annulation..." : "Annuler les suggestions"}
+          </button>
+        </div>
+      ) : null}
+
       <div className="estimate-tabs mt-6">
         <button
           className={`estimate-tab ${
@@ -3404,6 +3897,20 @@ export default function EditEstimatePage() {
           <EstimateEditorTable {...editorTableProps} />
         </div>
       )}
+
+      <BulkSuggestDialog
+        isOpen={isBulkSuggestDialogOpen}
+        rows={bulkSuggestPreview}
+        selectedItemIds={selectedBulkSuggestItemIds}
+        isApplying={isApplyingBulkSuggest}
+        progress={bulkSuggestProgress}
+        showProgress={showBulkSuggestProgress}
+        error={bulkSuggestDialogError}
+        onClose={handleCloseBulkSuggestDialog}
+        onConfirm={() => void handleApplyBulkSuggest()}
+        onToggleItem={handleToggleBulkSuggestItem}
+        onToggleAll={handleToggleAllBulkSuggestItems}
+      />
     </div>
   );
 }
