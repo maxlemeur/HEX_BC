@@ -1541,6 +1541,25 @@ body {
   font-weight: 600;
 }
 
+.estimate-section-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.estimate-section-total-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--slate-200);
+  background: white;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-600);
+}
+
 .estimate-suggestion {
   display: flex;
   flex-wrap: wrap;

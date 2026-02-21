@@ -45,6 +45,7 @@ import {
   deleteEstimateItem,
   fetchEstimateEditorData,
   fetchEstimateItemsForVersion,
+  isEstimateApiError,
   reorderEstimateItems,
   saveEstimateVersion,
   updateEstimateItem,
@@ -131,8 +132,18 @@ type AuditLogEntry = Pick<
 >;
 
 type JsonRecord = Record<string, unknown>;
+type EstimateConflictState = {
+  message: string;
+  details: unknown;
+};
+type EstimateConflictDraft = {
+  settings: EstimateSettingsState | null;
+  items: EstimateItem[];
+  saved_at: string;
+};
 
 const AUDIT_LOG_LIMIT = 25;
+const CONFLICT_DRAFT_STORAGE_PREFIX = "estimate:edit:conflict-draft:";
 
 function getProjectName(
   value: EstimateVersionView["estimate_projects"]
@@ -159,6 +170,57 @@ function resolveItemTitle(value: string | null | undefined, fallback: string) {
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function buildConflictDraftStorageKey(versionId: string) {
+  return `${CONFLICT_DRAFT_STORAGE_PREFIX}${versionId}`;
+}
+
+function readConflictDraftFromSession(versionId: string): EstimateConflictDraft | null {
+  if (!versionId || typeof window === "undefined") return null;
+
+  const raw = window.sessionStorage.getItem(buildConflictDraftStorageKey(versionId));
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed)) return null;
+
+    const settingsValue = parsed.settings;
+    if (settingsValue !== null && settingsValue !== undefined && !isRecord(settingsValue)) {
+      return null;
+    }
+
+    if (!Array.isArray(parsed.items)) return null;
+
+    return {
+      settings:
+        settingsValue === null || settingsValue === undefined
+          ? null
+          : (settingsValue as EstimateSettingsState),
+      items: parsed.items as EstimateItem[],
+      saved_at: toNonEmptyString(parsed.saved_at) ?? new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeConflictDraftToSession(
+  versionId: string,
+  draft: EstimateConflictDraft
+) {
+  if (!versionId || typeof window === "undefined") return;
+
+  window.sessionStorage.setItem(
+    buildConflictDraftStorageKey(versionId),
+    JSON.stringify(draft)
+  );
+}
+
+function clearConflictDraftFromSession(versionId: string) {
+  if (!versionId || typeof window === "undefined") return;
+  window.sessionStorage.removeItem(buildConflictDraftStorageKey(versionId));
 }
 
 function toNonEmptyString(value: unknown): string | null {
@@ -374,6 +436,10 @@ function resolveEstimateActionError(message: string) {
   return message;
 }
 
+function isVersionConflictError(error: unknown): boolean {
+  return isEstimateApiError(error) && error.status === 409;
+}
+
 export default function EditEstimatePage() {
   const params = useParams();
   const rawVersionId = params?.["versionId"];
@@ -405,13 +471,42 @@ export default function EditEstimatePage() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [isAuditLoading, setIsAuditLoading] = useState(false);
   const [totalsOutOfSync, setTotalsOutOfSync] = useState(false);
+  const [conflictState, setConflictState] = useState<EstimateConflictState | null>(
+    null
+  );
+  const [restorableDraft, setRestorableDraft] =
+    useState<EstimateConflictDraft | null>(null);
+  const [isReloadingVersion, setIsReloadingVersion] = useState(false);
 
   const itemsRef = useRef<EstimateItem[]>([]);
   const lastTotalsKey = useRef<string | null>(null);
 
+  const registerVersionConflict = useCallback((error: unknown) => {
+    if (!isVersionConflictError(error) || !isEstimateApiError(error)) {
+      return false;
+    }
+
+    const message = resolveEstimateActionError(error.message);
+    setConflictState({
+      message,
+      details: error.details,
+    });
+    setActionError(message);
+    return true;
+  }, []);
+
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    if (!resolvedVersionId) {
+      setRestorableDraft(null);
+      return;
+    }
+
+    setRestorableDraft(readConflictDraftFromSession(resolvedVersionId));
+  }, [resolvedVersionId]);
 
   useEffect(() => {
     if (!resolvedVersionId) return;
@@ -426,7 +521,7 @@ export default function EditEstimatePage() {
         const data = await fetchEstimateEditorData(resolvedVersionId);
         if (!active) return;
 
-        const versionRow = data.version as EstimateVersionView;
+        let versionRow = data.version as EstimateVersionView;
         const itemsRows = data.items ?? [];
         const rolesData = data.laborRoles ?? [];
 
@@ -454,6 +549,8 @@ export default function EditEstimatePage() {
           date_devis: versionRow.date_devis,
           validite_jours: versionRow.validite_jours,
           margin_multiplier: versionRow.margin_multiplier,
+          margin_mode: versionRow.margin_mode ?? "fixed",
+          margin_tiers: data.marginTiers ?? [],
           discount_cents: discountCents,
           tax_rate_bp: versionRow.tax_rate_bp,
           rounding_mode: versionRow.rounding_mode,
@@ -467,6 +564,7 @@ export default function EditEstimatePage() {
         setSuggestionRules(data.suggestionRules ?? []);
         setSettings(initialSettings);
         setSavedSettings(initialSettings);
+        setConflictState(null);
 
         if (versionRow.status === "draft") {
           const originalById = new Map(
@@ -490,8 +588,9 @@ export default function EditEstimatePage() {
 
           if (updates.length > 0) {
             try {
-              await bulkUpdateEstimateItems(
+              const bulkResult = await bulkUpdateEstimateItems(
                 resolvedVersionId,
+                versionRow.updated_at,
                 updates.map((item) => ({
                   id: item.id,
                   updates: {
@@ -506,9 +605,26 @@ export default function EditEstimatePage() {
                   },
                 }))
               );
-            } catch {
+
+              versionRow = {
+                ...versionRow,
+                updated_at: bulkResult.versionToken.updated_at,
+              };
               if (active) {
-                setActionError("Impossible de mettre a jour les lignes.");
+                setVersion((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        updated_at: bulkResult.versionToken.updated_at,
+                      }
+                    : prev
+                );
+              }
+            } catch (error) {
+              if (active) {
+                if (!registerVersionConflict(error)) {
+                  setActionError("Impossible de mettre a jour les lignes.");
+                }
               }
             }
           }
@@ -523,6 +639,7 @@ export default function EditEstimatePage() {
       } finally {
         if (active) {
           setIsLoading(false);
+          setIsReloadingVersion(false);
         }
       }
     }
@@ -532,14 +649,53 @@ export default function EditEstimatePage() {
     return () => {
       active = false;
     };
-  }, [resolvedVersionId]);
+  }, [registerVersionConflict, resolvedVersionId]);
 
   const projectName = getProjectName(version?.estimate_projects ?? null);
   const isAdmin = profile?.role === "admin";
   const isReadOnly = version ? version.status !== "draft" : false;
+  const isConflictLocked = conflictState !== null;
+  const isSaveBlocked = isReadOnly || isConflictLocked;
   const canSend = version?.status === "draft";
   const canAccept = version?.status === "sent";
   const canArchive = version?.status !== "archived";
+
+  const persistConflictDraft = useCallback(() => {
+    if (!resolvedVersionId) return;
+
+    const draft: EstimateConflictDraft = {
+      settings,
+      items,
+      saved_at: new Date().toISOString(),
+    };
+
+    writeConflictDraftToSession(resolvedVersionId, draft);
+    setRestorableDraft(draft);
+  }, [items, resolvedVersionId, settings]);
+
+  const handleReloadAfterConflict = useCallback(() => {
+    if (!resolvedVersionId) return;
+
+    persistConflictDraft();
+    setConflictState(null);
+    setActionError(null);
+    setIsReloadingVersion(true);
+    window.location.reload();
+  }, [persistConflictDraft, resolvedVersionId]);
+
+  const handleRestoreConflictDraft = useCallback(() => {
+    if (!restorableDraft) return;
+
+    if (restorableDraft.settings) {
+      setSettings(restorableDraft.settings);
+    }
+    setItems(restorableDraft.items);
+    clearConflictDraftFromSession(resolvedVersionId);
+    setRestorableDraft(null);
+    setActionError(
+      "Modifications locales restaurees. Pensez a enregistrer le parametrage."
+    );
+  }, [resolvedVersionId, restorableDraft]);
 
   const loadAuditLogs = useCallback(
     async (signal?: AbortSignal) => {
@@ -659,6 +815,8 @@ export default function EditEstimatePage() {
     return computeEstimateTotals({
       lineItems,
       marginMultiplier: settings.margin_multiplier,
+      marginMode: settings.margin_mode,
+      marginTiers: settings.margin_tiers,
       discountCents: settings.discount_cents,
       taxRateBp: settings.tax_rate_bp,
       roundingMode: settings.rounding_mode,
@@ -690,7 +848,7 @@ export default function EditEstimatePage() {
       status: version.status,
       date_devis: settings.date_devis,
       validite_jours: settings.validite_jours,
-      margin_multiplier: settings.margin_multiplier,
+      margin_multiplier: totals.appliedMarginMultiplier,
       discount_cents: settings.discount_cents,
       discount_bp: discountBp,
       tax_rate_bp: settings.tax_rate_bp,
@@ -808,6 +966,8 @@ export default function EditEstimatePage() {
     return computeEstimateTotals({
       lineItems,
       marginMultiplier: savedSettings.margin_multiplier,
+      marginMode: savedSettings.margin_mode,
+      marginTiers: savedSettings.margin_tiers,
       discountCents: savedSettings.discount_cents,
       taxRateBp: savedSettings.tax_rate_bp,
       roundingMode: savedSettings.rounding_mode,
@@ -816,43 +976,57 @@ export default function EditEstimatePage() {
   }, [items, laborRateById, savedSettings]);
 
   const retryTotalsSave = useCallback(async () => {
-    if (!persistedTotals || !version || isReadOnly) return;
+    if (!persistedTotals || !version || isSaveBlocked) return;
     try {
-      await saveEstimateVersion(version.id, {
-        total_ht_cents: persistedTotals.saleTotalCents,
-        total_tax_cents: persistedTotals.adjustedTaxCents,
-        total_ttc_cents: persistedTotals.roundedTtcCents,
-      });
+      const updatedVersion = await saveEstimateVersion(
+        version.id,
+        {
+          total_ht_cents: persistedTotals.saleTotalCents,
+          total_tax_cents: persistedTotals.adjustedTaxCents,
+          total_ttc_cents: persistedTotals.roundedTtcCents,
+        },
+        version.updated_at
+      );
       const totalsKey = `${persistedTotals.saleTotalCents}-${persistedTotals.adjustedTaxCents}-${persistedTotals.roundedTtcCents}`;
       lastTotalsKey.current = totalsKey;
       setTotalsOutOfSync(false);
-    } catch {
-      setTotalsOutOfSync(true);
+      setVersion((prev) => (prev ? { ...prev, ...updatedVersion } : prev));
+    } catch (error) {
+      if (!registerVersionConflict(error)) {
+        setTotalsOutOfSync(true);
+      }
     }
-  }, [isReadOnly, persistedTotals, version]);
+  }, [isSaveBlocked, persistedTotals, registerVersionConflict, version]);
 
   useEffect(() => {
-    if (!persistedTotals || !version || isReadOnly) return;
+    if (!persistedTotals || !version || isSaveBlocked) return;
     const totalsKey = `${persistedTotals.saleTotalCents}-${persistedTotals.adjustedTaxCents}-${persistedTotals.roundedTtcCents}`;
     if (totalsKey === lastTotalsKey.current) return;
 
     const timeout = setTimeout(async () => {
       try {
-        await saveEstimateVersion(version.id, {
-          total_ht_cents: persistedTotals.saleTotalCents,
-          total_tax_cents: persistedTotals.adjustedTaxCents,
-          total_ttc_cents: persistedTotals.roundedTtcCents,
-        });
+        const updatedVersion = await saveEstimateVersion(
+          version.id,
+          {
+            total_ht_cents: persistedTotals.saleTotalCents,
+            total_tax_cents: persistedTotals.adjustedTaxCents,
+            total_ttc_cents: persistedTotals.roundedTtcCents,
+          },
+          version.updated_at
+        );
         lastTotalsKey.current = totalsKey;
         setTotalsOutOfSync(false);
-      } catch {
+        setVersion((prev) => (prev ? { ...prev, ...updatedVersion } : prev));
+      } catch (error) {
         // A4: surface the error instead of silently swallowing it
-        setTotalsOutOfSync(true);
+        if (!registerVersionConflict(error)) {
+          setTotalsOutOfSync(true);
+        }
       }
     }, 400);
 
     return () => clearTimeout(timeout);
-  }, [isReadOnly, persistedTotals, version]);
+  }, [isSaveBlocked, persistedTotals, registerVersionConflict, version]);
 
   const updateSettings = useCallback(
     (patch: Partial<EstimateSettingsState>) => {
@@ -895,6 +1069,12 @@ export default function EditEstimatePage() {
       setActionError("Cette version est en lecture seule.");
       return;
     }
+    if (isConflictLocked) {
+      setActionError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
     setIsSavingSettings(true);
     setActionError(null);
 
@@ -908,7 +1088,8 @@ export default function EditEstimatePage() {
       title: settings.title.trim() || null,
       date_devis: settings.date_devis,
       validite_jours: settings.validite_jours,
-      margin_multiplier: settings.margin_multiplier,
+      margin_multiplier: totals.appliedMarginMultiplier,
+      margin_mode: settings.margin_mode ?? "fixed",
       discount_bp: discountBp,
       tax_rate_bp: settings.tax_rate_bp,
       rounding_mode: settings.rounding_mode,
@@ -918,24 +1099,50 @@ export default function EditEstimatePage() {
       total_ttc_cents: totals.roundedTtcCents,
     };
 
+    let updatedVersion: EstimateVersionRow;
     try {
-      await saveEstimateVersion(version.id, payload);
-    } catch (error) {
-      setActionError(
-        resolveEstimateActionError(
-          error instanceof Error ? error.message : "Impossible de sauvegarder le chiffrage."
-        )
+      updatedVersion = await saveEstimateVersion(
+        version.id,
+        payload,
+        version.updated_at
       );
+    } catch (error) {
+      if (!registerVersionConflict(error)) {
+        setActionError(
+          resolveEstimateActionError(
+            error instanceof Error
+              ? error.message
+              : "Impossible de sauvegarder le chiffrage."
+          )
+        );
+      }
       setIsSavingSettings(false);
       return;
     }
 
-    setSavedSettings({ ...settings });
+    setVersion((prev) =>
+      prev
+        ? {
+            ...prev,
+            ...payload,
+            ...updatedVersion,
+          }
+        : prev
+    );
+
+    const nextSavedSettings = {
+      ...settings,
+      margin_multiplier: totals.appliedMarginMultiplier,
+      margin_mode: settings.margin_mode ?? "fixed",
+    };
+    setSavedSettings(nextSavedSettings);
+    setSettings(nextSavedSettings);
     lastTotalsKey.current = `${totals.saleTotalCents}-${totals.adjustedTaxCents}-${totals.roundedTtcCents}`;
+    let latestVersionToken = updatedVersion.updated_at;
 
     const shouldUpdateLines =
       settings.tax_rate_bp !== version.tax_rate_bp ||
-      settings.margin_multiplier !== version.margin_multiplier;
+      totals.appliedMarginMultiplier !== version.margin_multiplier;
 
     if (shouldUpdateLines) {
       const lineItems = itemsRef.current.filter(
@@ -958,7 +1165,7 @@ export default function EditEstimatePage() {
             labor_role_hourly_rate_cents: hourlyRate,
           },
           {
-            marginMultiplier: settings.margin_multiplier,
+            marginMultiplier: totals.appliedMarginMultiplier,
             taxRateBp: settings.tax_rate_bp,
           }
         );
@@ -984,8 +1191,9 @@ export default function EditEstimatePage() {
       );
 
       try {
-        await bulkUpdateEstimateItems(
+        const bulkResult = await bulkUpdateEstimateItems(
           version.id,
+          latestVersionToken,
           updatedLines.map((item) => ({
             id: item.id,
             updates: {
@@ -1000,12 +1208,27 @@ export default function EditEstimatePage() {
             },
           }))
         );
-      } catch {
-        setActionError("Impossible de mettre a jour les lignes.");
+
+        latestVersionToken = bulkResult.versionToken.updated_at;
+        setVersion((prev) =>
+          prev
+            ? {
+                ...prev,
+                updated_at: latestVersionToken,
+              }
+            : prev
+        );
+      } catch (error) {
+        if (!registerVersionConflict(error)) {
+          setActionError("Impossible de mettre a jour les lignes.");
+        }
+        setIsSavingSettings(false);
+        return;
       }
     }
 
-    setVersion((prev) => (prev ? { ...prev, ...payload } : prev));
+    clearConflictDraftFromSession(resolvedVersionId);
+    setRestorableDraft(null);
     setIsSavingSettings(false);
   }
 
@@ -1057,6 +1280,12 @@ export default function EditEstimatePage() {
   const handleCreateRole = useCallback(
     async (payload: { name: string; hourly_rate_cents: number }) => {
       setActionError(null);
+      if (isConflictLocked) {
+        setActionError(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+        return;
+      }
       if (!profile?.id) {
         setActionError("Impossible de charger votre profil.");
         return;
@@ -1089,12 +1318,18 @@ export default function EditEstimatePage() {
         [...prev, data].sort((a, b) => a.position - b.position)
       );
     },
-    [laborRoles, profile, version?.id]
+    [conflictState?.message, isConflictLocked, laborRoles, profile, version?.id]
   );
 
   const handleUpdateRole = useCallback(
     async (id: string, updates: Partial<LaborRole>) => {
       setActionError(null);
+      if (isConflictLocked) {
+        setActionError(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+        return;
+      }
       if (!version?.id) {
         setActionError("Version introuvable.");
         return;
@@ -1161,11 +1396,12 @@ export default function EditEstimatePage() {
         })
       );
 
-      if (isReadOnly) return;
+      if (isSaveBlocked) return;
 
       try {
-        await bulkUpdateEstimateItems(
+        const bulkResult = await bulkUpdateEstimateItems(
           version.id,
+          version.updated_at,
           updatedLines.map((item) => ({
             id: item.id,
             updates: {
@@ -1180,16 +1416,41 @@ export default function EditEstimatePage() {
             },
           }))
         );
-      } catch {
-        setActionError("Impossible de mettre a jour les lignes.");
+
+        setVersion((prev) =>
+          prev
+            ? {
+                ...prev,
+                updated_at: bulkResult.versionToken.updated_at,
+              }
+            : prev
+        );
+      } catch (error) {
+        if (!registerVersionConflict(error)) {
+          setActionError("Impossible de mettre a jour les lignes.");
+        }
       }
     },
-    [isReadOnly, settings, version?.id]
+    [
+      isSaveBlocked,
+      registerVersionConflict,
+      conflictState?.message,
+      isConflictLocked,
+      settings,
+      version?.id,
+      version?.updated_at,
+    ]
   );
 
   const handleCreateSuggestionRule = useCallback(
     async (payload: SuggestionRuleCreatePayload) => {
       setRulesError(null);
+      if (isConflictLocked) {
+        setRulesError(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+        return;
+      }
       if (!profile?.id) {
         setRulesError("Impossible de charger votre profil.");
         return;
@@ -1236,12 +1497,18 @@ export default function EditEstimatePage() {
         [...prev, data].sort((a, b) => a.position - b.position)
       );
     },
-    [profile, suggestionRules, version?.id]
+    [conflictState?.message, isConflictLocked, profile, suggestionRules, version?.id]
   );
 
   const handleUpdateSuggestionRule = useCallback(
     async (id: string, updates: Partial<SuggestionRule>) => {
       setRulesError(null);
+      if (isConflictLocked) {
+        setRulesError(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+        return;
+      }
       if (!version?.id) {
         setRulesError("Version introuvable.");
         return;
@@ -1265,7 +1532,7 @@ export default function EditEstimatePage() {
           .sort((a, b) => a.position - b.position)
       );
     },
-    [version?.id]
+    [conflictState?.message, isConflictLocked, version?.id]
   );
 
   const getNextPosition = useCallback((parentId: string | null) => {
@@ -1716,7 +1983,69 @@ export default function EditEstimatePage() {
         </div>
       )}
 
-      {totalsOutOfSync && !isReadOnly && (
+      {conflictState && (
+        <div className="alert alert-warning mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            <span>
+              {conflictState.message}. Rechargez la version pour recuperer les
+              donnees serveur.
+            </span>
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={handleReloadAfterConflict}
+            disabled={isReloadingVersion}
+          >
+            {isReloadingVersion ? "Rechargement..." : "Recharger"}
+          </button>
+        </div>
+      )}
+
+      {restorableDraft && !conflictState && (
+        <div className="alert alert-info mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4" />
+              <path d="M12 16h.01" />
+            </svg>
+            <span>
+              Des modifications locales ont ete conservees en memoire de session.
+            </span>
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={handleRestoreConflictDraft}
+          >
+            Restaurer mes changements
+          </button>
+        </div>
+      )}
+
+      {totalsOutOfSync && !isSaveBlocked && (
         <div className="alert alert-warning mb-6 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <svg
@@ -1810,14 +2139,14 @@ export default function EditEstimatePage() {
             settings={settings}
             totals={totals}
             isSaving={isSavingSettings}
-            isReadOnly={isReadOnly}
+            isReadOnly={isSaveBlocked}
             error={null}
             onChange={updateSettings}
             onSave={handleSaveSettings}
           />
           <LaborRolesManager
             roles={laborRoles}
-            isSaving={isSavingSettings}
+            isSaving={isSavingSettings || isConflictLocked}
             error={null}
             onCreate={handleCreateRole}
             onUpdate={handleUpdateRole}
@@ -1826,7 +2155,7 @@ export default function EditEstimatePage() {
             rules={suggestionRules}
             categories={categories}
             laborRoles={laborRoles}
-            isSaving={isSavingRules}
+            isSaving={isSavingRules || isConflictLocked}
             error={rulesError}
             onCreate={handleCreateSuggestionRule}
             onUpdate={handleUpdateSuggestionRule}
@@ -1933,7 +2262,11 @@ export default function EditEstimatePage() {
             qualityCounts={qualityCounts}
             qualityFilter={qualityFilter}
             actionError={actionError}
-            isReadOnly={isReadOnly}
+            marginMultiplier={settings.margin_multiplier}
+            discountCents={settings.discount_cents}
+            taxRateBp={settings.tax_rate_bp}
+            laborRateById={laborRateById}
+            isReadOnly={isReadOnly || isConflictLocked}
             onQualityFilterChange={setQualityFilter}
             onAddSection={handleAddSection}
             onAddLine={handleAddLine}

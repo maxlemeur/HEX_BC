@@ -20,6 +20,11 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 import {
+  computeSectionTotals,
+  type EstimateItemRecord,
+  type SectionTotals,
+} from "@/lib/estimate-calculations";
+import {
   ESTIMATE_QUALITY_FLAG_KEYS,
   ESTIMATE_QUALITY_FLAG_META,
   type EstimateQualityFlagCounts,
@@ -63,6 +68,10 @@ type EstimateEditorTableProps = {
   qualityCounts: EstimateQualityFlagCounts;
   qualityFilter: EstimateQualityFilter;
   actionError: string | null;
+  marginMultiplier: number;
+  discountCents: number;
+  taxRateBp: number;
+  laborRateById: Map<string, number>;
   isReadOnly: boolean;
   onQualityFilterChange: (value: EstimateQualityFilter) => void;
   onAddSection: (parentId: string | null) => void;
@@ -79,6 +88,12 @@ type EstimateEditorTableProps = {
 
 const ROOT_KEY = "root";
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
+const EMPTY_SECTION_TOTALS: SectionTotals = {
+  foTotalCents: 0,
+  moTotalCents: 0,
+  totalHtCents: 0,
+  totalTtcCents: 0,
+};
 const QUALITY_BADGE_CLASSNAMES: Record<EstimateQualityFlagKey, string> = {
   missing_price: "border-rose-200 bg-rose-50 text-rose-700",
   missing_quantity: "border-amber-200 bg-amber-50 text-amber-700",
@@ -188,6 +203,7 @@ function SortableRow({
   onUnitCommit,
   onCategoryChange,
   onCategoryCommit,
+  sectionTotals,
   isDragDisabled,
   isReadOnly,
 }: {
@@ -209,6 +225,7 @@ function SortableRow({
   onUnitCommit: (itemId: string) => void;
   onCategoryChange: (itemId: string, value: string) => void;
   onCategoryCommit: (itemId: string) => void;
+  sectionTotals: SectionTotals | null;
   isDragDisabled: boolean;
   isReadOnly: boolean;
 }) {
@@ -248,18 +265,34 @@ function SortableRow({
             attributes={attributes}
             disabled={isReadOnly || isDragDisabled}
           />
-          <input
-            className="estimate-input estimate-input--title"
-            value={item.title}
-            disabled={isReadOnly}
-            onChange={(event) =>
-              onPatchItem(item.id, { title: event.target.value }, { persist: false })
-            }
-            onBlur={(event) => {
-              const nextTitle = event.target.value.trim() || "Sans titre";
-              onPatchItem(item.id, { title: nextTitle }, { persist: true });
-            }}
-          />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <input
+              className="estimate-input estimate-input--title"
+              value={item.title}
+              disabled={isReadOnly}
+              onChange={(event) =>
+                onPatchItem(item.id, { title: event.target.value }, { persist: false })
+              }
+              onBlur={(event) => {
+                const nextTitle = event.target.value.trim() || "Sans titre";
+                onPatchItem(item.id, { title: nextTitle }, { persist: true });
+              }}
+            />
+            <div className="estimate-section-totals">
+              <span className="estimate-section-total-chip">
+                FO {formatEUR(sectionTotals?.foTotalCents ?? 0)}
+              </span>
+              <span className="estimate-section-total-chip">
+                MO {formatEUR(sectionTotals?.moTotalCents ?? 0)}
+              </span>
+              <span className="estimate-section-total-chip">
+                HT {formatEUR(sectionTotals?.totalHtCents ?? 0)}
+              </span>
+              <span className="estimate-section-total-chip">
+                TTC {formatEUR(sectionTotals?.totalTtcCents ?? 0)}
+              </span>
+            </div>
+          </div>
         </div>
         <div className="estimate-cell estimate-cell--section-actions">
           <div className="estimate-row-actions">
@@ -540,6 +573,10 @@ export function EstimateEditorTable({
   qualityCounts,
   qualityFilter,
   actionError,
+  marginMultiplier,
+  discountCents,
+  taxRateBp,
+  laborRateById,
   isReadOnly,
   onQualityFilterChange,
   onAddSection,
@@ -605,6 +642,26 @@ export function EstimateEditorTable({
     laborRoles.forEach((role) => map.set(role.id, role));
     return map;
   }, [laborRoles]);
+
+  const sectionTotalsById = useMemo(() => {
+    const map = new Map<string, SectionTotals>();
+    const calcItems = items as EstimateItemRecord[];
+    items.forEach((item) => {
+      if (item.item_type !== "section") return;
+      map.set(
+        item.id,
+        computeSectionTotals({
+          items: calcItems,
+          sectionId: item.id,
+          marginMultiplier,
+          discountCents,
+          taxRateBp,
+          laborRateById,
+        })
+      );
+    });
+    return map;
+  }, [discountCents, items, laborRateById, marginMultiplier, taxRateBp]);
 
   const visibleLineIds = useMemo(() => {
     const visible = new Set<string>();
@@ -847,6 +904,11 @@ export function EstimateEditorTable({
                   setCategoryDrafts((prev) => ({ ...prev, [id]: value }))
                 }
                 onCategoryCommit={handleCategoryCommit}
+                sectionTotals={
+                  item.item_type === "section"
+                    ? (sectionTotalsById.get(item.id) ?? EMPTY_SECTION_TOTALS)
+                    : null
+                }
                 isDragDisabled={!canReorder}
                 isReadOnly={isReadOnly}
               />

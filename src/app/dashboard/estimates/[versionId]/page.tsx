@@ -17,6 +17,10 @@ type EstimateVersion =
   };
 type EstimateItem =
   Database["public"]["Tables"]["estimate_items"]["Row"];
+type LaborRoleRate = Pick<
+  Database["public"]["Tables"]["labor_roles"]["Row"],
+  "id" | "hourly_rate_cents"
+>;
 
 function resolveProject(
   value: EstimateVersion["estimate_projects"]
@@ -62,6 +66,30 @@ export default async function EstimateDetailPage({
   const version = versionResult.data as EstimateVersion;
   const items = (itemsResult.data ?? []) as EstimateItem[];
   const project = resolveProject(version.estimate_projects);
+  const laborRoleIds = Array.from(
+    new Set(
+      items
+        .map((item) => item.labor_role_id)
+        .filter((value): value is string => Boolean(value))
+    )
+  );
+  const laborRateById: Record<string, number> = {};
+
+  if (laborRoleIds.length > 0) {
+    const laborRolesResult = await supabase
+      .from("labor_roles")
+      .select("id, hourly_rate_cents")
+      .in("id", laborRoleIds);
+
+    if (laborRolesResult.error) {
+      notFound();
+    }
+
+    ((laborRolesResult.data ?? []) as LaborRoleRate[]).forEach((role) => {
+      laborRateById[role.id] = role.hourly_rate_cents ?? 0;
+    });
+  }
+
   const saleSubtotalCents = items.reduce((sum, item) => {
     if (item.item_type !== "line") return sum;
     return sum + (item.line_total_ht_cents ?? 0);
@@ -110,6 +138,7 @@ export default async function EstimateDetailPage({
           marginMultiplier={version.margin_multiplier}
           discountCents={discountCents}
           taxRateBp={version.tax_rate_bp}
+          laborRateById={laborRateById}
           totalHtCents={version.total_ht_cents}
           totalTaxCents={version.total_tax_cents}
           totalTtcCents={version.total_ttc_cents}

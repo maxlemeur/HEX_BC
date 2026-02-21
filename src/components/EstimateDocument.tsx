@@ -1,5 +1,10 @@
 import Image from "next/image";
 
+import {
+  computeSectionTotals,
+  type EstimateItemRecord,
+  type SectionTotals,
+} from "@/lib/estimate-calculations";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { formatEUR } from "@/lib/money";
 import type { Database } from "@/types/database";
@@ -16,6 +21,7 @@ export type EstimateDocumentProps = {
   marginMultiplier: number;
   discountCents: number;
   taxRateBp: number;
+  laborRateById: Record<string, number>;
   totalHtCents: number;
   totalTaxCents: number;
   totalTtcCents: number;
@@ -23,11 +29,16 @@ export type EstimateDocumentProps = {
 };
 
 const ROOT_KEY = "root";
+const EMPTY_SECTION_TOTALS: SectionTotals = {
+  foTotalCents: 0,
+  moTotalCents: 0,
+  totalHtCents: 0,
+  totalTtcCents: 0,
+};
 
 function getParentKey(value: string | null) {
   return value ?? ROOT_KEY;
 }
-
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
   if (Number.isNaN(date.getTime())) return "-";
@@ -91,12 +102,27 @@ export function EstimateDocument({
   marginMultiplier,
   discountCents,
   taxRateBp,
+  laborRateById,
   totalHtCents,
   totalTaxCents,
   totalTtcCents,
   items,
 }: EstimateDocumentProps) {
   const rows = buildRows(items);
+  const sectionTotalsById: Record<string, SectionTotals> = {};
+  const calcItems = items as EstimateItemRecord[];
+  const laborRateMap = new Map(Object.entries(laborRateById));
+  items.forEach((item) => {
+    if (item.item_type !== "section") return;
+    sectionTotalsById[item.id] = computeSectionTotals({
+      items: calcItems,
+      sectionId: item.id,
+      marginMultiplier,
+      discountCents,
+      taxRateBp,
+      laborRateById: laborRateMap,
+    });
+  });
   const taxEnabled = taxRateBp > 0;
   const discountLabel =
     discountCents > 0 ? `-${formatEUR(discountCents)}` : formatEUR(0);
@@ -245,13 +271,34 @@ export function EstimateDocument({
           <tbody className="divide-y divide-slate-100 text-sm print:text-slate-900">
             {rows.map(({ item, depth }) =>
               item.item_type === "section" ? (
-                <tr
-                  key={item.id}
-                  className="bg-[var(--slate-50)] text-xs uppercase tracking-wide text-[var(--slate-500)] print-color-adjust"
-                >
+                <tr key={item.id} className="bg-[var(--slate-50)] print-color-adjust">
                   <td colSpan={5} className="px-6 py-3 print:px-4 print:py-2">
                     <div style={{ paddingLeft: `${depth * 16}px` }}>
-                      {resolveTitle(item)}
+                      <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
+                        {resolveTitle(item)}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold normal-case tracking-normal text-[var(--slate-600)]">
+                        {(() => {
+                          const totals =
+                            sectionTotalsById[item.id] ?? EMPTY_SECTION_TOTALS;
+                          return (
+                            <>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
+                                FO {formatEUR(totals.foTotalCents)}
+                              </span>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
+                                MO {formatEUR(totals.moTotalCents)}
+                              </span>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
+                                HT {formatEUR(totals.totalHtCents)}
+                              </span>
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
+                                TTC {formatEUR(totals.totalTtcCents)}
+                              </span>
+                            </>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </td>
                 </tr>

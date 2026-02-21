@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeEstimateLineValues,
   computeEstimateTotals,
+  computeSectionTotals,
   computeInitialDiscountCents,
   computeStoredDiscountCents,
   normalizeDraftItems,
@@ -11,6 +12,7 @@ import {
   type EstimateLineLike,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
+import { getMarginTiers } from "@/lib/estimates/margin-tiers";
 import { bankersRound } from "@/lib/money";
 
 function createLine(overrides: Partial<EstimateLineLike> = {}): EstimateLineLike {
@@ -52,6 +54,16 @@ function createItemRecord(
     line_total_ttc_cents: null,
     ...overrides,
   };
+}
+
+function createSectionRecord(
+  overrides: Partial<EstimateItemRecord> = {}
+): EstimateItemRecord {
+  return createItemRecord({
+    item_type: "section",
+    title: "Section test",
+    ...overrides,
+  });
 }
 
 describe("bankersRound", () => {
@@ -292,6 +304,7 @@ describe("estimate calculations", () => {
       costSubtotalCents: 8000,
       saleSubtotalCents: 12000,
       discountCents: 2000,
+      appliedMarginMultiplier: 1.5,
       saleTotalCents: 10000,
       taxCents: 1000,
       ttcCents: 11000,
@@ -391,6 +404,255 @@ describe("estimate calculations", () => {
     expect(totals.taxCents).toBe(0);
     expect(totals.ttcCents).toBe(0);
     expect(totals.roundedTtcCents).toBe(0);
+  });
+
+  it("EST-028: applies low tier multiplier below first threshold", () => {
+    const totals = computeEstimateTotals({
+      lineItems: [
+        createLine({
+          quantity: 1,
+          unit_price_ht_cents: 5_000_000,
+          k_fo: 1,
+          h_mo: 0,
+          k_mo: 1,
+        }),
+      ],
+      marginMultiplier: 1.1,
+      marginMode: "tiered",
+      marginTiers: getMarginTiers(),
+      discountCents: 0,
+      taxRateBp: 0,
+      roundingMode: "none",
+      roundingStepCents: 1,
+    });
+
+    expect(totals.costSubtotalCents).toBe(5_000_000);
+    expect(totals.appliedMarginMultiplier).toBe(1.6);
+    expect(totals.saleSubtotalCents).toBe(8_000_000);
+  });
+
+  it("EST-028: applies mid tier multiplier between thresholds", () => {
+    const totals = computeEstimateTotals({
+      lineItems: [
+        createLine({
+          quantity: 1,
+          unit_price_ht_cents: 50_000_000,
+          k_fo: 1,
+          h_mo: 0,
+          k_mo: 1,
+        }),
+      ],
+      marginMultiplier: 1.1,
+      marginMode: "tiered",
+      marginTiers: getMarginTiers(),
+      discountCents: 0,
+      taxRateBp: 0,
+      roundingMode: "none",
+      roundingStepCents: 1,
+    });
+
+    expect(totals.costSubtotalCents).toBe(50_000_000);
+    expect(totals.appliedMarginMultiplier).toBe(1.45);
+    expect(totals.saleSubtotalCents).toBe(72_500_000);
+  });
+
+  it("EST-028: applies high tier multiplier above last threshold", () => {
+    const totals = computeEstimateTotals({
+      lineItems: [
+        createLine({
+          quantity: 1,
+          unit_price_ht_cents: 120_000_000,
+          k_fo: 1,
+          h_mo: 0,
+          k_mo: 1,
+        }),
+      ],
+      marginMultiplier: 1.1,
+      marginMode: "tiered",
+      marginTiers: getMarginTiers(),
+      discountCents: 0,
+      taxRateBp: 0,
+      roundingMode: "none",
+      roundingStepCents: 1,
+    });
+
+    expect(totals.costSubtotalCents).toBe(120_000_000);
+    expect(totals.appliedMarginMultiplier).toBe(1.4);
+    expect(totals.saleSubtotalCents).toBe(168_000_000);
+  });
+
+  it("EST-028: value exactly at threshold resolves to that tier", () => {
+    const totals = computeEstimateTotals({
+      lineItems: [
+        createLine({
+          quantity: 1,
+          unit_price_ht_cents: 10_000_000,
+          k_fo: 1,
+          h_mo: 0,
+          k_mo: 1,
+        }),
+      ],
+      marginMultiplier: 1.1,
+      marginMode: "tiered",
+      marginTiers: getMarginTiers(),
+      discountCents: 0,
+      taxRateBp: 0,
+      roundingMode: "none",
+      roundingStepCents: 1,
+    });
+
+    expect(totals.costSubtotalCents).toBe(10_000_000);
+    expect(totals.appliedMarginMultiplier).toBe(1.45);
+    expect(totals.saleSubtotalCents).toBe(14_500_000);
+  });
+
+  it("EST-028: empty estimate in tiered mode uses first tier and stays at zero", () => {
+    const totals = computeEstimateTotals({
+      lineItems: [],
+      marginMultiplier: 1.1,
+      marginMode: "tiered",
+      marginTiers: getMarginTiers(),
+      discountCents: 0,
+      taxRateBp: 0,
+      roundingMode: "none",
+      roundingStepCents: 1,
+    });
+
+    expect(totals.costSubtotalCents).toBe(0);
+    expect(totals.appliedMarginMultiplier).toBe(1.6);
+    expect(totals.saleSubtotalCents).toBe(0);
+    expect(totals.saleTotalCents).toBe(0);
+    expect(totals.roundedTtcCents).toBe(0);
+  });
+
+  it("EST-121: returns zero totals for an empty section", () => {
+    const sectionId = "section-empty";
+    const otherSectionId = "section-other";
+    const items: EstimateItemRecord[] = [
+      createSectionRecord({ id: sectionId, parent_id: null, position: 1 }),
+      createSectionRecord({ id: otherSectionId, parent_id: null, position: 2 }),
+      createItemRecord({
+        id: "line-other",
+        parent_id: otherSectionId,
+        position: 1,
+        quantity: 1,
+        unit_price_ht_cents: 1000,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+        tax_rate_bp: 2000,
+        labor_role_id: null,
+      }),
+    ];
+
+    const totals = computeSectionTotals({
+      items,
+      sectionId,
+      marginMultiplier: 1.5,
+      taxRateBp: 2000,
+      discountCents: 300,
+      laborRateById: new Map(),
+    });
+
+    expect(totals).toEqual({
+      foTotalCents: 0,
+      moTotalCents: 0,
+      totalHtCents: 0,
+      totalTtcCents: 0,
+    });
+  });
+
+  it("EST-121: computes FO/MO/HT/TTC with proportional discount", () => {
+    const sectionId = "section-target";
+    const items: EstimateItemRecord[] = [
+      createSectionRecord({ id: sectionId, parent_id: null, position: 1 }),
+      createSectionRecord({ id: "section-other", parent_id: null, position: 2 }),
+      createItemRecord({
+        id: "line-target",
+        parent_id: sectionId,
+        position: 1,
+        quantity: 2,
+        unit_price_ht_cents: 1000,
+        k_fo: 1,
+        h_mo: 3,
+        k_mo: 1,
+        labor_role_id: "role-a",
+      }),
+      createItemRecord({
+        id: "line-other",
+        parent_id: "section-other",
+        position: 1,
+        quantity: 1,
+        unit_price_ht_cents: 1500,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+        labor_role_id: null,
+      }),
+    ];
+
+    const totals = computeSectionTotals({
+      items,
+      sectionId,
+      marginMultiplier: 2,
+      taxRateBp: 2000,
+      discountCents: 1000,
+      laborRateById: new Map([["role-a", 500]]),
+    });
+
+    expect(totals).toEqual({
+      foTotalCents: 3600,
+      moTotalCents: 2700,
+      totalHtCents: 6300,
+      totalTtcCents: 7560,
+    });
+  });
+
+  it("EST-121: parent section includes nested subsection lines", () => {
+    const parentSectionId = "section-parent";
+    const childSectionId = "section-child";
+    const items: EstimateItemRecord[] = [
+      createSectionRecord({ id: parentSectionId, parent_id: null, position: 1 }),
+      createSectionRecord({ id: childSectionId, parent_id: parentSectionId, position: 1 }),
+      createItemRecord({
+        id: "line-parent",
+        parent_id: parentSectionId,
+        position: 2,
+        quantity: 1,
+        unit_price_ht_cents: 1000,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+        labor_role_id: null,
+      }),
+      createItemRecord({
+        id: "line-child",
+        parent_id: childSectionId,
+        position: 1,
+        quantity: 1,
+        unit_price_ht_cents: 500,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+        labor_role_id: null,
+      }),
+    ];
+
+    const totals = computeSectionTotals({
+      items,
+      sectionId: parentSectionId,
+      marginMultiplier: 1,
+      taxRateBp: 2000,
+      discountCents: 0,
+      laborRateById: new Map(),
+    });
+
+    expect(totals).toEqual({
+      foTotalCents: 1500,
+      moTotalCents: 0,
+      totalHtCents: 1500,
+      totalTtcCents: 1800,
+    });
   });
 });
 
