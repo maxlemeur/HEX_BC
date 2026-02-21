@@ -74,6 +74,28 @@ describe("suggestion scoring", () => {
     expect(scored?.similarity ?? 0).toBeGreaterThan(0.72);
   });
 
+  it("treats token-in-phrase containment as partial instead of exact", () => {
+    const ranked = rankSuggestionRules(
+      "PVC",
+      [
+        createRule({
+          id: "phrase",
+          match_value: "pose de fenetre pvc",
+        }),
+        createRule({
+          id: "exact",
+          match_value: "pvc",
+        }),
+      ],
+      { limit: 10 }
+    );
+
+    expect(ranked.map((entry) => entry.rule.id)).toEqual(["exact", "phrase"]);
+    expect(ranked.find((entry) => entry.rule.id === "phrase")?.matchKind).toBe(
+      "partial"
+    );
+  });
+
   it("uses usage_count to rank equal-score rules by frequency", () => {
     const ranked = rankSuggestionRules(
       "Cloison",

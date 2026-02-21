@@ -160,9 +160,9 @@ function resolveKeywordMatch(title: string, keyword: string) {
     keywordTokens.some((token) => token === title)
   ) {
     return {
-      matchKind: "exact" as const,
-      score: EXACT_BASE_SCORE,
-      similarity: 1,
+      matchKind: "partial" as const,
+      score: PARTIAL_BASE_SCORE,
+      similarity: 0.85,
     };
   }
 
