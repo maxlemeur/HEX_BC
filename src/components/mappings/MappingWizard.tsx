@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMapper, type ColumnMapping } from "@/components/mappings/ColumnMapper";
 import { DataPreview } from "@/components/mappings/DataPreview";
@@ -145,6 +145,7 @@ export function MappingWizard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const previewRequestIdRef = useRef(0);
 
   const selectedImport = useMemo(
     () => imports.find((item) => item.id === selectedImportId) ?? null,
@@ -218,6 +219,8 @@ export function MappingWizard() {
   const refreshPreview = useCallback(
     async (importId: string, nextMapping: ColumnMapping) => {
       if (!importId) return;
+      const requestId = previewRequestIdRef.current + 1;
+      previewRequestIdRef.current = requestId;
 
       setIsPreviewLoading(true);
 
@@ -240,11 +243,21 @@ export function MappingWizard() {
           }),
         });
 
+        if (requestId !== previewRequestIdRef.current) return;
+
         setSourceColumns(data.source_columns ?? []);
         setValidation(data.validation ?? null);
         setPreviewRows(data.rows ?? []);
         setDuplicates(data.duplicates ?? null);
+      } catch (previewError) {
+        if (requestId !== previewRequestIdRef.current) return;
+        setError(
+          previewError instanceof Error
+            ? previewError.message
+            : "Impossible de charger l'apercu de mapping."
+        );
       } finally {
+        if (requestId !== previewRequestIdRef.current) return;
         setIsPreviewLoading(false);
       }
     },

@@ -1,5 +1,6 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { ZodError } from "zod";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -18,6 +19,16 @@ type MappingInsert = Database["public"]["Tables"]["dpgf_mappings"]["Insert"];
 type TemplateRow = Database["public"]["Tables"]["mapping_templates"]["Row"];
 type TemplateInsert = Database["public"]["Tables"]["mapping_templates"]["Insert"];
 type MemoryRow = Database["public"]["Tables"]["mapping_memory"]["Row"];
+type TenantMembershipRow = Pick<
+  Database["public"]["Tables"]["tenant_memberships"]["Row"],
+  "tenant_id" | "role"
+>;
+type AuthenticatedContext = {
+  supabase: Supabase;
+  userId: string;
+  tenantId: string;
+  isTenantAdmin: boolean;
+};
 
 type ApiErrorCode =
   | "BAD_REQUEST"
@@ -25,6 +36,7 @@ type ApiErrorCode =
   | "FORBIDDEN"
   | "NOT_FOUND"
   | "CONFLICT"
+  | "VALIDATION_ERROR"
   | "INTERNAL_ERROR";
 
 type ApiErrorBody = {
@@ -190,6 +202,18 @@ export function toErrorResponse(error: unknown) {
 
   if (error instanceof MappingsApiError) {
     apiError = error;
+  } else if (error instanceof ZodError) {
+    apiError = badRequest(
+      "Payload invalide.",
+      {
+        issues: error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          code: issue.code,
+          message: issue.message,
+        })),
+      },
+      "VALIDATION_ERROR"
+    );
   } else {
     console.error("Unexpected mappings API error", error);
     apiError = internalError();
@@ -441,7 +465,7 @@ function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetField | 
   return null;
 }
 
-async function getAuthenticatedContext() {
+async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -451,23 +475,57 @@ async function getAuthenticatedContext() {
     throw unauthorized();
   }
 
+  const membership = await getCurrentMembershipOrThrow(supabase, user.id);
+
   return {
     supabase,
     userId: user.id,
+    tenantId: membership.tenant_id,
+    isTenantAdmin: membership.role === "admin",
   };
 }
 
-async function ensureUserOwnsImport(
+async function getCurrentMembershipOrThrow(
+  supabase: Supabase,
+  userId: string
+): Promise<TenantMembershipRow> {
+  const { data, error } = await supabase
+    .from("tenant_memberships")
+    .select("tenant_id, role, is_default, created_at")
+    .eq("user_id", userId)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger le tenant courant.");
+  }
+
+  const membership = data?.[0] as TenantMembershipRow | undefined;
+
+  if (!membership) {
+    throw forbidden("Aucun tenant actif pour cet utilisateur.");
+  }
+
+  return membership;
+}
+
+async function ensureImportAccess(
   supabase: Supabase,
   importId: string,
-  userId: string
+  context: Pick<AuthenticatedContext, "userId" | "tenantId" | "isTenantAdmin">
 ): Promise<void> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("dpgf_imports")
     .select("id")
     .eq("id", importId)
-    .eq("user_id", userId)
-    .single();
+    .eq("tenant_id", context.tenantId);
+
+  if (!context.isTenantAdmin) {
+    query = query.eq("user_id", context.userId);
+  }
+
+  const { data, error } = await query.single();
 
   if (error) {
     throw mapSupabaseError(error, "Import introuvable.");
@@ -481,12 +539,14 @@ async function ensureUserOwnsImport(
 async function loadImportRows(
   supabase: Supabase,
   importId: string,
+  tenantId: string,
   limit: number
 ): Promise<Array<{ row_index: number; payload: unknown }>> {
   const { data, error } = await supabase
     .from("dpgf_rows_raw")
     .select("row_index, payload")
     .eq("import_id", importId)
+    .eq("tenant_id", tenantId)
     .order("row_index", { ascending: true })
     .limit(limit);
 
@@ -520,6 +580,7 @@ function buildPreviewRows(
 
 async function touchMappingMemory(
   supabase: Supabase,
+  tenantId: string,
   userId: string,
   mapping: SourceToTargetMapping
 ) {
@@ -529,6 +590,7 @@ async function touchMappingMemory(
     const { data: existing, error: existingError } = await supabase
       .from("mapping_memory")
       .select("id, usage_count, confidence")
+      .eq("tenant_id", tenantId)
       .eq("user_id", userId)
       .eq("source_column", sourceColumn)
       .eq("target_field", targetField)
@@ -557,6 +619,7 @@ async function touchMappingMemory(
     }
 
     const { error: insertError } = await supabase.from("mapping_memory").insert({
+      tenant_id: tenantId,
       user_id: userId,
       source_column: sourceColumn,
       target_field: targetField,
@@ -573,6 +636,7 @@ async function touchMappingMemory(
 
 async function upsertTemplate(
   supabase: Supabase,
+  tenantId: string,
   userId: string,
   input: {
     name: string;
@@ -585,6 +649,7 @@ async function upsertTemplate(
     const { error: resetDefaultError } = await supabase
       .from("mapping_templates")
       .update({ is_default: false })
+      .eq("tenant_id", tenantId)
       .eq("user_id", userId)
       .neq("name", input.name);
 
@@ -594,6 +659,7 @@ async function upsertTemplate(
   }
 
   const payload: TemplateInsert = {
+    tenant_id: tenantId,
     user_id: userId,
     name: input.name,
     supplier_name: input.supplier_name,
@@ -626,18 +692,28 @@ function ensureCreateIsValid(validation: MappingValidation) {
 }
 
 export async function listMappings(options: { importId?: string | null; limit: number }) {
-  const { supabase, userId } = await getAuthenticatedContext();
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
 
   let scopedImportIds: string[] = [];
 
   if (options.importId) {
-    await ensureUserOwnsImport(supabase, options.importId, userId);
+    await ensureImportAccess(supabase, options.importId, {
+      userId,
+      tenantId,
+      isTenantAdmin,
+    });
     scopedImportIds = [options.importId];
   } else {
-    const { data: userImports, error: userImportsError } = await supabase
+    let importsQuery = supabase
       .from("dpgf_imports")
       .select("id")
-      .eq("user_id", userId);
+      .eq("tenant_id", tenantId);
+
+    if (!isTenantAdmin) {
+      importsQuery = importsQuery.eq("user_id", userId);
+    }
+
+    const { data: userImports, error: userImportsError } = await importsQuery;
 
     if (userImportsError) {
       throw mapSupabaseError(userImportsError, "Impossible de charger les imports.");
@@ -652,6 +728,7 @@ export async function listMappings(options: { importId?: string | null; limit: n
     let query = supabase
       .from("dpgf_mappings")
       .select("*")
+      .eq("tenant_id", tenantId)
       .order("created_at", { ascending: false })
       .limit(options.limit);
 
@@ -670,12 +747,18 @@ export async function listMappings(options: { importId?: string | null; limit: n
     mappings = (mappingsData ?? []) as MappingRow[];
   }
 
-  const { data: templates, error: templatesError } = await supabase
+  let templatesQuery = supabase
     .from("mapping_templates")
     .select("*")
-    .eq("user_id", userId)
+    .eq("tenant_id", tenantId)
     .order("updated_at", { ascending: false })
     .limit(50);
+
+  if (!isTenantAdmin) {
+    templatesQuery = templatesQuery.eq("user_id", userId);
+  }
+
+  const { data: templates, error: templatesError } = await templatesQuery;
 
   if (templatesError) {
     throw mapSupabaseError(templatesError, "Impossible de charger les templates de mapping.");
@@ -692,10 +775,14 @@ export async function previewMapping(input: {
   mapping: SourceToTargetMapping;
   limit: number;
 }) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await ensureUserOwnsImport(supabase, input.import_id, userId);
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
+  await ensureImportAccess(supabase, input.import_id, {
+    userId,
+    tenantId,
+    isTenantAdmin,
+  });
 
-  const rows = await loadImportRows(supabase, input.import_id, input.limit);
+  const rows = await loadImportRows(supabase, input.import_id, tenantId, input.limit);
   const previewRows = buildPreviewRows(rows, input.mapping);
   const duplicateGroups = computeDuplicateGroupsFromPreview(previewRows);
 
@@ -712,23 +799,33 @@ export async function previewMapping(input: {
 }
 
 export async function suggestMapping(input: { import_id: string }): Promise<MappingSuggestion> {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await ensureUserOwnsImport(supabase, input.import_id, userId);
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
+  await ensureImportAccess(supabase, input.import_id, {
+    userId,
+    tenantId,
+    isTenantAdmin,
+  });
 
-  const sampleRows = await loadImportRows(supabase, input.import_id, 100);
+  const sampleRows = await loadImportRows(supabase, input.import_id, tenantId, 100);
   const sourceColumns = toSourceColumns(sampleRows);
 
   const suggestions: SourceToTargetMapping = {};
 
   if (sourceColumns.length > 0) {
-    const { data: memoryRows, error: memoryError } = await supabase
+    let memoryQuery = supabase
       .from("mapping_memory")
       .select("*")
-      .eq("user_id", userId)
+      .eq("tenant_id", tenantId)
       .in("source_column", sourceColumns)
       .order("usage_count", { ascending: false })
       .order("confidence", { ascending: false })
       .order("last_used_at", { ascending: false });
+
+    if (!isTenantAdmin) {
+      memoryQuery = memoryQuery.eq("user_id", userId);
+    }
+
+    const { data: memoryRows, error: memoryError } = await memoryQuery;
 
     if (memoryError) {
       throw mapSupabaseError(memoryError, "Impossible de charger les suggestions de mapping.");
@@ -757,12 +854,18 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
     }
   }
 
-  const { data: templates, error: templatesError } = await supabase
+  let templatesQuery = supabase
     .from("mapping_templates")
     .select("*")
-    .eq("user_id", userId)
+    .eq("tenant_id", tenantId)
     .order("updated_at", { ascending: false })
     .limit(20);
+
+  if (!isTenantAdmin) {
+    templatesQuery = templatesQuery.eq("user_id", userId);
+  }
+
+  const { data: templates, error: templatesError } = await templatesQuery;
 
   if (templatesError) {
     throw mapSupabaseError(templatesError, "Impossible de charger les templates de mapping.");
@@ -784,10 +887,14 @@ export async function findDuplicates(input: {
   mapping: SourceToTargetMapping;
   limit: number;
 }) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await ensureUserOwnsImport(supabase, input.import_id, userId);
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
+  await ensureImportAccess(supabase, input.import_id, {
+    userId,
+    tenantId,
+    isTenantAdmin,
+  });
 
-  const rows = await loadImportRows(supabase, input.import_id, input.limit);
+  const rows = await loadImportRows(supabase, input.import_id, tenantId, input.limit);
   const previewRows = buildPreviewRows(rows, input.mapping);
   const duplicateGroups = computeDuplicateGroupsFromPreview(previewRows);
 
@@ -808,8 +915,12 @@ export async function createMapping(input: {
   template_name?: string | null;
   supplier_name?: string | null;
 }) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await ensureUserOwnsImport(supabase, input.import_id, userId);
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
+  await ensureImportAccess(supabase, input.import_id, {
+    userId,
+    tenantId,
+    isTenantAdmin,
+  });
 
   const validation = computeValidation(input.mapping);
   ensureCreateIsValid(validation);
@@ -828,7 +939,7 @@ export async function createMapping(input: {
       throw badRequest("template_name est requis quand save_template=true.");
     }
 
-    savedTemplate = await upsertTemplate(supabase, userId, {
+    savedTemplate = await upsertTemplate(supabase, tenantId, userId, {
       name: input.template_name,
       supplier_name: input.supplier_name ?? null,
       mapping: input.mapping,
@@ -863,7 +974,7 @@ export async function createMapping(input: {
     throw internalError("Impossible de creer le mapping.");
   }
 
-  await touchMappingMemory(supabase, userId, input.mapping);
+  await touchMappingMemory(supabase, tenantId, userId, input.mapping);
 
   return {
     mapping: data as MappingRow,
@@ -879,19 +990,19 @@ export async function saveTemplate(input: {
   mapping: SourceToTargetMapping;
   is_default: boolean;
 }) {
-  const { supabase, userId } = await getAuthenticatedContext();
+  const { supabase, userId, tenantId } = await getAuthenticatedContext();
 
   const validation = computeValidation(input.mapping);
   ensureCreateIsValid(validation);
 
-  const template = await upsertTemplate(supabase, userId, {
+  const template = await upsertTemplate(supabase, tenantId, userId, {
     name: input.name,
     supplier_name: input.supplier_name ?? null,
     mapping: input.mapping,
     is_default: input.is_default,
   });
 
-  await touchMappingMemory(supabase, userId, input.mapping);
+  await touchMappingMemory(supabase, tenantId, userId, input.mapping);
 
   return {
     template,

@@ -19,6 +19,10 @@ import { useUserContext } from "@/components/UserContext";
 import {
   computeEstimateLineValues,
   computeEstimateTotals,
+  computeInitialDiscountCents,
+  computeStoredDiscountCents,
+  normalizeDraftItems,
+  computeReadOnlyTotals,
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import {
@@ -332,168 +336,6 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   },
 ];
 
-function computeInitialDiscountCents(
-  version: EstimateVersionRow,
-  items: EstimateItem[],
-  laborRoles: LaborRole[]
-) {
-  const rateById = new Map<string, number>();
-  laborRoles.forEach((role) => {
-    rateById.set(role.id, role.hourly_rate_cents);
-  });
-
-  const saleSubtotal = items.reduce((sum, item) => {
-    if (item.item_type !== "line") return sum;
-    const hourlyRate = item.labor_role_id
-      ? rateById.get(item.labor_role_id) ?? 0
-      : 0;
-    const lineValues = computeEstimateLineValues(
-      {
-        ...item,
-        labor_role_hourly_rate_cents: hourlyRate,
-      },
-      {
-        marginMultiplier: version.margin_multiplier,
-        taxRateBp: version.tax_rate_bp,
-      }
-    );
-    return sum + lineValues.saleLineCents;
-  }, 0);
-
-  if (!saleSubtotal) return 0;
-  return Math.round((saleSubtotal * version.discount_bp) / 10000);
-}
-
-function computeStoredDiscountCents(
-  version: EstimateVersionRow,
-  items: EstimateItem[]
-) {
-  const saleSubtotal = items.reduce((sum, item) => {
-    if (item.item_type !== "line") return sum;
-    return sum + (item.line_total_ht_cents ?? 0);
-  }, 0);
-
-  if (Number.isFinite(version.total_ht_cents ?? NaN)) {
-    return Math.max(saleSubtotal - (version.total_ht_cents ?? 0), 0);
-  }
-
-  if (!saleSubtotal) return 0;
-  return Math.round((saleSubtotal * version.discount_bp) / 10000);
-}
-
-function normalizeDraftItems({
-  items,
-  version,
-  rateById,
-}: {
-  items: EstimateItem[];
-  version: EstimateVersionRow;
-  rateById: Map<string, number>;
-}) {
-  return items.map((item) => {
-    if (item.item_type !== "line") return item;
-    const kFo = item.k_fo ?? 1;
-    const hMo = item.h_mo ?? 0;
-    const kMo = item.k_mo ?? 1;
-    const hourlyRate = item.labor_role_id
-      ? rateById.get(item.labor_role_id) ?? 0
-      : 0;
-    const taxRate = version.tax_rate_bp ?? item.tax_rate_bp ?? 0;
-    const lineValues = computeEstimateLineValues(
-      {
-        ...item,
-        k_fo: kFo,
-        h_mo: hMo,
-        k_mo: kMo,
-        tax_rate_bp: taxRate,
-        labor_role_hourly_rate_cents: hourlyRate,
-      },
-      {
-        marginMultiplier: version.margin_multiplier,
-        taxRateBp: taxRate,
-      }
-    );
-    return {
-      ...item,
-      tax_rate_bp: taxRate,
-      k_fo: kFo,
-      h_mo: hMo,
-      k_mo: kMo,
-      pu_ht_cents: lineValues.puHtCents,
-      line_total_ht_cents: lineValues.saleLineCents,
-      line_tax_cents: lineValues.taxLineCents,
-      line_total_ttc_cents: lineValues.ttcLineCents,
-    };
-  });
-}
-
-function computeReadOnlyTotals({
-  items,
-  version,
-  discountCents,
-  laborRateById,
-}: {
-  items: EstimateItem[];
-  version: EstimateVersionRow;
-  discountCents: number;
-  laborRateById: Map<string, number>;
-}): EstimateTotals {
-  const costSubtotalCents = items.reduce((sum, item) => {
-    if (item.item_type !== "line") return sum;
-    const hourlyRate = item.labor_role_id
-      ? laborRateById.get(item.labor_role_id) ?? 0
-      : 0;
-    const lineValues = computeEstimateLineValues(
-      {
-        ...item,
-        labor_role_hourly_rate_cents: hourlyRate,
-      },
-      {
-        marginMultiplier: 1,
-        taxRateBp: 0,
-      }
-    );
-    return sum + lineValues.costLineCents;
-  }, 0);
-
-  const saleSubtotalCents = items.reduce((sum, item) => {
-    if (item.item_type !== "line") return sum;
-    return sum + (item.line_total_ht_cents ?? 0);
-  }, 0);
-
-  const saleTotalFallback = Math.max(saleSubtotalCents - discountCents, 0);
-  const saleTotalCents = Number.isFinite(version.total_ht_cents ?? NaN)
-    ? (version.total_ht_cents ?? saleTotalFallback)
-    : saleTotalFallback;
-
-  const taxStored = Number.isFinite(version.total_tax_cents ?? NaN)
-    ? (version.total_tax_cents ?? 0)
-    : null;
-
-  const roundedTtcFallback = saleTotalCents + (taxStored ?? 0);
-  const roundedTtcCents = Number.isFinite(version.total_ttc_cents ?? NaN)
-    ? (version.total_ttc_cents ?? roundedTtcFallback)
-    : roundedTtcFallback;
-
-  const adjustedTaxCents = roundedTtcCents - saleTotalCents;
-  const taxCents = taxStored ?? Math.max(adjustedTaxCents, 0);
-
-  const ttcCents = saleTotalCents + taxCents;
-  const roundingAdjustmentCents = roundedTtcCents - ttcCents;
-
-  return {
-    costSubtotalCents,
-    saleSubtotalCents,
-    discountCents,
-    saleTotalCents,
-    taxCents,
-    ttcCents,
-    roundedTtcCents,
-    roundingAdjustmentCents,
-    adjustedTaxCents,
-  };
-}
-
 function estimateStatusLabel(status: EstimateStatus) {
   switch (status) {
     case "draft":
@@ -562,6 +404,7 @@ export default function EditEstimatePage() {
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [isAuditLoading, setIsAuditLoading] = useState(false);
+  const [totalsOutOfSync, setTotalsOutOfSync] = useState(false);
 
   const itemsRef = useRef<EstimateItem[]>([]);
   const lastTotalsKey = useRef<string | null>(null);
@@ -586,15 +429,16 @@ export default function EditEstimatePage() {
         const versionRow = data.version as EstimateVersionView;
         const itemsRows = data.items ?? [];
         const rolesData = data.laborRoles ?? [];
-        const discountCents =
-          versionRow.status === "draft"
-            ? computeInitialDiscountCents(versionRow, itemsRows, rolesData)
-            : computeStoredDiscountCents(versionRow, itemsRows);
 
         const rateById = new Map<string, number>();
         rolesData.forEach((role) => {
           rateById.set(role.id, role.hourly_rate_cents);
         });
+
+        const discountCents =
+          versionRow.status === "draft"
+            ? computeInitialDiscountCents(versionRow, itemsRows, rateById)
+            : computeStoredDiscountCents(versionRow, itemsRows);
 
         const normalizedItems =
           versionRow.status === "draft"
@@ -971,6 +815,22 @@ export default function EditEstimatePage() {
     });
   }, [items, laborRateById, savedSettings]);
 
+  const retryTotalsSave = useCallback(async () => {
+    if (!persistedTotals || !version || isReadOnly) return;
+    try {
+      await saveEstimateVersion(version.id, {
+        total_ht_cents: persistedTotals.saleTotalCents,
+        total_tax_cents: persistedTotals.adjustedTaxCents,
+        total_ttc_cents: persistedTotals.roundedTtcCents,
+      });
+      const totalsKey = `${persistedTotals.saleTotalCents}-${persistedTotals.adjustedTaxCents}-${persistedTotals.roundedTtcCents}`;
+      lastTotalsKey.current = totalsKey;
+      setTotalsOutOfSync(false);
+    } catch {
+      setTotalsOutOfSync(true);
+    }
+  }, [isReadOnly, persistedTotals, version]);
+
   useEffect(() => {
     if (!persistedTotals || !version || isReadOnly) return;
     const totalsKey = `${persistedTotals.saleTotalCents}-${persistedTotals.adjustedTaxCents}-${persistedTotals.roundedTtcCents}`;
@@ -984,8 +844,10 @@ export default function EditEstimatePage() {
           total_ttc_cents: persistedTotals.roundedTtcCents,
         });
         lastTotalsKey.current = totalsKey;
+        setTotalsOutOfSync(false);
       } catch {
-        // Keep UI responsive: errors are surfaced on explicit save.
+        // A4: surface the error instead of silently swallowing it
+        setTotalsOutOfSync(true);
       }
     }, 400);
 
@@ -1851,6 +1713,34 @@ export default function EditEstimatePage() {
             <path d="m9 9 6 6" />
           </svg>
           {statusError}
+        </div>
+      )}
+
+      {totalsOutOfSync && !isReadOnly && (
+        <div className="alert alert-warning mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" y1="9" x2="12" y2="13" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+            Les totaux n&apos;ont pas pu etre sauvegardes. Vos modifications locales sont conservees.
+          </div>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={() => void retryTotalsSave()}
+          >
+            Reessayer
+          </button>
         </div>
       )}
 

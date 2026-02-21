@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useFileParser, type ParsedImportRow } from "@/hooks/useFileParser";
 
@@ -237,12 +237,12 @@ export function useImportFlow() {
   const [workerError, setWorkerError] = useState<string | null>(null);
   const [modeMessage, setModeMessage] = useState<string | null>(null);
   const [lastMode, setLastMode] = useState<ImportExecutionMode | null>(null);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
 
   const refreshImports = useCallback(
     async (options?: RefreshOptions) => {
       const silent = options?.silent ?? false;
-      const shouldShowLoader = !hasLoadedOnce;
+      const shouldShowLoader = !hasLoadedOnceRef.current;
 
       if (shouldShowLoader) setIsLoadingImports(true);
       if (!shouldShowLoader && !silent) setIsRefreshing(true);
@@ -260,12 +260,12 @@ export function useImportFlow() {
           );
         }
       } finally {
-        setHasLoadedOnce(true);
+        hasLoadedOnceRef.current = true;
         setIsLoadingImports(false);
         if (!silent) setIsRefreshing(false);
       }
     },
-    [hasLoadedOnce]
+    []
   );
 
   const importFile = useCallback(

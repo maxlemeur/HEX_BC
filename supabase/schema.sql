@@ -301,7 +301,7 @@ create table public.estimate_versions (
   title text,
   date_devis date not null default current_date,
   validite_jours integer not null default 30 check (validite_jours > 0),
-  margin_multiplier numeric not null default 1.0 check (margin_multiplier >= 0),
+  margin_multiplier numeric not null default 1.0 check (margin_multiplier >= 0 and margin_multiplier <= 100),
   currency text not null default 'EUR',
   margin_bp integer not null default 0 check (margin_bp >= 0),
   discount_bp integer not null default 0 check (discount_bp >= 0),
