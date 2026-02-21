@@ -38,6 +38,30 @@ la roadmap V1.
 
 ---
 
+## Plan de sequencement (3 equipes)
+
+Le plan de sequencement detaille pour 3 equipes de developpement est disponible dans :
+**[SEQUENCING-3-TEAMS.md](./SEQUENCING-3-TEAMS.md)**
+
+Il contient :
+- L'affectation des tickets aux 3 equipes (A, B, C) par vague
+- Les dependances et le graphe critique
+- Les tags couche par ticket (`[DB]`, `[Back]`, `[Front]`)
+- La timeline estimee (~24 semaines MVP core, ~30 semaines complet)
+
+---
+
+## Index execution par ticket (EST-xxx)
+
+Pour le suivi quotidien dev/PM, les tickets explicites sont maintenant disponibles ici :
+**[tickets/README.md](./tickets/README.md)**
+
+Convention :
+- Les fichiers `EST-E..` restent la source macro (epics, vision, scope complet).
+- Les fichiers `tickets/EST-xxx.md` sont la vue execution (owner, dependances, done, liens PR).
+
+---
+
 ## Index des epics
 
 | Code      | Nom                                | Milestone | Priorite | Fichier                                                          |
