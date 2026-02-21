@@ -5547,9 +5547,20 @@ create table if not exists public.estimate_templates (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   tenant_id uuid not null references public.tenants(id) on delete restrict,
-  user_id uuid not null references public.profiles(id) on delete restrict,
+  created_by uuid not null references public.profiles(id) on delete restrict,
+  source_version_id uuid references public.estimate_versions(id) on delete set null,
   name text not null,
-  description text
+  description text,
+  margin_multiplier numeric not null default 1 check (margin_multiplier >= 0),
+  margin_mode public.estimate_margin_mode not null default 'fixed',
+  currency text not null default 'EUR',
+  margin_bp integer not null default 0 check (margin_bp >= 0),
+  discount_bp integer not null default 0 check (discount_bp >= 0),
+  tax_rate_bp integer not null default 2000 check (tax_rate_bp >= 0 and tax_rate_bp <= 10000),
+  rounding_mode public.estimate_rounding_mode not null default 'none',
+  rounding_step_cents integer not null default 1 check (rounding_step_cents >= 1),
+  validite_jours integer not null default 30 check (validite_jours >= 1),
+  unique (tenant_id, created_by, name)
 );
 
 create table if not exists public.estimate_template_items (
@@ -5583,83 +5594,66 @@ create table if not exists public.estimate_template_items (
   line_total_ht_cents integer,
   line_tax_cents integer,
   line_total_ttc_cents integer,
-  constraint estimate_template_items_quantity_nonnegative_check
-    check (quantity is null or quantity >= 0),
-  constraint estimate_template_items_unit_price_ht_nonnegative_check
-    check (unit_price_ht_cents is null or unit_price_ht_cents >= 0),
-  constraint estimate_template_items_tax_rate_bp_range_check
-    check (tax_rate_bp is null or (tax_rate_bp >= 0 and tax_rate_bp <= 10000)),
-  constraint estimate_template_items_k_fo_nonnegative_check
-    check (k_fo is null or k_fo >= 0),
-  constraint estimate_template_items_h_mo_nonnegative_check
-    check (h_mo is null or h_mo >= 0),
-  constraint estimate_template_items_h_mo_majoration_nonnegative_check
-    check (h_mo_majoration >= 0),
-  constraint estimate_template_items_k_mo_nonnegative_check
-    check (k_mo is null or k_mo >= 0),
-  constraint estimate_template_items_h_mo_atelier_nonnegative_check
-    check (h_mo_atelier is null or h_mo_atelier >= 0),
-  constraint estimate_template_items_k_mo_atelier_nonnegative_check
-    check (k_mo_atelier is null or k_mo_atelier >= 0),
-  constraint estimate_template_items_h_mo_chantier_nonnegative_check
-    check (h_mo_chantier is null or h_mo_chantier >= 0),
-  constraint estimate_template_items_k_mo_chantier_nonnegative_check
-    check (k_mo_chantier is null or k_mo_chantier >= 0),
-  constraint estimate_template_items_pu_ht_nonnegative_check
-    check (pu_ht_cents is null or pu_ht_cents >= 0),
-  constraint estimate_template_items_line_total_ht_nonnegative_check
-    check (line_total_ht_cents is null or line_total_ht_cents >= 0),
-  constraint estimate_template_items_line_tax_nonnegative_check
-    check (line_tax_cents is null or line_tax_cents >= 0),
-  constraint estimate_template_items_line_total_ttc_nonnegative_check
-    check (line_total_ttc_cents is null or line_total_ttc_cents >= 0),
-  constraint estimate_template_items_line_total_ttc_gte_ht_check
-    check (
-      line_total_ht_cents is null
-      or line_total_ttc_cents is null
-      or line_total_ttc_cents >= line_total_ht_cents
-    ),
-  constraint estimate_template_items_item_type_payload_check
-    check (
-      (
-        item_type = 'section'
-        and quantity is null
-        and unit_price_ht_cents is null
-        and tax_rate_bp is null
-        and k_fo is null
-        and h_mo is null
-        and h_mo_majoration = 1.0
-        and k_mo is null
-        and h_mo_atelier is null
-        and k_mo_atelier = 1.0
-        and labor_role_atelier_id is null
-        and h_mo_chantier is null
-        and k_mo_chantier = 1.0
-        and labor_role_chantier_id is null
-        and pu_ht_cents is null
-        and labor_role_id is null
-        and category_id is null
-        and supply_type_id is null
-        and line_total_ht_cents is null
-        and line_tax_cents is null
-        and line_total_ttc_cents is null
-      )
-      or
-      (
-        item_type = 'line'
-        and quantity is not null
-        and unit_price_ht_cents is not null
-        and tax_rate_bp is not null
-        and k_fo is not null
-        and h_mo is not null
-        and h_mo_majoration is not null
-        and k_mo is not null
-        and pu_ht_cents is not null
-        and line_total_ht_cents is not null
-        and line_tax_cents is not null
-        and line_total_ttc_cents is not null
-      )
+  check (quantity is null or quantity >= 0),
+  check (unit_price_ht_cents is null or unit_price_ht_cents >= 0),
+  check (tax_rate_bp is null or (tax_rate_bp >= 0 and tax_rate_bp <= 10000)),
+  check (k_fo is null or k_fo >= 0),
+  check (h_mo is null or h_mo >= 0),
+  check (h_mo_majoration >= 0),
+  check (k_mo is null or k_mo >= 0),
+  check (h_mo_atelier is null or h_mo_atelier >= 0),
+  check (k_mo_atelier is null or k_mo_atelier >= 0),
+  check (h_mo_chantier is null or h_mo_chantier >= 0),
+  check (k_mo_chantier is null or k_mo_chantier >= 0),
+  check (pu_ht_cents is null or pu_ht_cents >= 0),
+  check (line_total_ht_cents is null or line_total_ht_cents >= 0),
+  check (line_tax_cents is null or line_tax_cents >= 0),
+  check (line_total_ttc_cents is null or line_total_ttc_cents >= 0),
+  check (
+    line_total_ht_cents is null
+    or line_total_ttc_cents is null
+    or line_total_ttc_cents >= line_total_ht_cents
+  ),
+  check (
+    (
+      item_type = 'section'
+      and quantity is null
+      and unit_price_ht_cents is null
+      and tax_rate_bp is null
+      and k_fo is null
+      and h_mo is null
+      and h_mo_majoration = 1.0
+      and k_mo is null
+      and h_mo_atelier is null
+      and k_mo_atelier = 1.0
+      and labor_role_atelier_id is null
+      and h_mo_chantier is null
+      and k_mo_chantier = 1.0
+      and labor_role_chantier_id is null
+      and pu_ht_cents is null
+      and labor_role_id is null
+      and category_id is null
+      and supply_type_id is null
+      and line_total_ht_cents is null
+      and line_tax_cents is null
+      and line_total_ttc_cents is null
     )
+    or
+    (
+      item_type = 'line'
+      and quantity is not null
+      and unit_price_ht_cents is not null
+      and tax_rate_bp is not null
+      and k_fo is not null
+      and h_mo is not null
+      and h_mo_majoration is not null
+      and k_mo is not null
+      and pu_ht_cents is not null
+      and line_total_ht_cents is not null
+      and line_tax_cents is not null
+      and line_total_ttc_cents is not null
+    )
+  )
 );
 
 drop trigger if exists set_estimate_templates_updated_at on public.estimate_templates;
@@ -5672,14 +5666,20 @@ create trigger set_estimate_template_items_updated_at
   before update on public.estimate_template_items
   for each row execute procedure public.set_updated_at();
 
-create index if not exists estimate_templates_tenant_id_idx
-  on public.estimate_templates (tenant_id);
+create index if not exists estimate_templates_tenant_created_at_idx
+  on public.estimate_templates (tenant_id, created_at desc);
+create index if not exists estimate_templates_source_version_id_idx
+  on public.estimate_templates (source_version_id);
 create index if not exists estimate_template_items_tenant_id_idx
   on public.estimate_template_items (tenant_id);
 create index if not exists estimate_template_items_template_id_idx
   on public.estimate_template_items (template_id);
 create index if not exists estimate_template_items_parent_id_idx
   on public.estimate_template_items (parent_id);
+create index if not exists estimate_template_items_category_id_idx
+  on public.estimate_template_items (category_id);
+create index if not exists estimate_template_items_labor_role_id_idx
+  on public.estimate_template_items (labor_role_id);
 create unique index if not exists estimate_template_items_root_position_unique
   on public.estimate_template_items (template_id, position)
   where parent_id is null;
@@ -5787,14 +5787,14 @@ create policy "Users can manage estimate templates"
   using (
     (select public.is_tenant_member(tenant_id))
     and (
-      user_id = (select auth.uid())
+      created_by = (select auth.uid())
       or (select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role]))
     )
   )
   with check (
     (select public.is_tenant_member(tenant_id))
     and (
-      user_id = (select auth.uid())
+      created_by = (select auth.uid())
       or (select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role]))
     )
   );
@@ -5811,7 +5811,7 @@ create policy "Users can view estimate template items"
         and t.tenant_id = estimate_template_items.tenant_id
         and (select public.is_tenant_member(t.tenant_id))
         and (
-          t.user_id = (select auth.uid())
+          t.created_by = (select auth.uid())
           or (select public.has_tenant_role(t.tenant_id, array['admin'::public.tenant_role]))
         )
     )
@@ -5829,7 +5829,7 @@ create policy "Users can insert estimate template items"
         and t.tenant_id = estimate_template_items.tenant_id
         and (select public.is_tenant_member(t.tenant_id))
         and (
-          t.user_id = (select auth.uid())
+          t.created_by = (select auth.uid())
           or (select public.has_tenant_role(t.tenant_id, array['admin'::public.tenant_role]))
         )
     )
@@ -5837,10 +5837,10 @@ create policy "Users can insert estimate template items"
       estimate_template_items.parent_id is null
       or exists (
         select 1
-        from public.estimate_template_items parent_item
-        where parent_item.id = estimate_template_items.parent_id
-          and parent_item.template_id = estimate_template_items.template_id
-          and parent_item.tenant_id = estimate_template_items.tenant_id
+        from public.estimate_template_items p
+        where p.id = estimate_template_items.parent_id
+          and p.template_id = estimate_template_items.template_id
+          and p.tenant_id = estimate_template_items.tenant_id
       )
     )
   );
@@ -5857,7 +5857,7 @@ create policy "Users can update estimate template items"
         and t.tenant_id = estimate_template_items.tenant_id
         and (select public.is_tenant_member(t.tenant_id))
         and (
-          t.user_id = (select auth.uid())
+          t.created_by = (select auth.uid())
           or (select public.has_tenant_role(t.tenant_id, array['admin'::public.tenant_role]))
         )
     )
@@ -5870,7 +5870,7 @@ create policy "Users can update estimate template items"
         and t.tenant_id = estimate_template_items.tenant_id
         and (select public.is_tenant_member(t.tenant_id))
         and (
-          t.user_id = (select auth.uid())
+          t.created_by = (select auth.uid())
           or (select public.has_tenant_role(t.tenant_id, array['admin'::public.tenant_role]))
         )
     )
@@ -5878,10 +5878,10 @@ create policy "Users can update estimate template items"
       estimate_template_items.parent_id is null
       or exists (
         select 1
-        from public.estimate_template_items parent_item
-        where parent_item.id = estimate_template_items.parent_id
-          and parent_item.template_id = estimate_template_items.template_id
-          and parent_item.tenant_id = estimate_template_items.tenant_id
+        from public.estimate_template_items p
+        where p.id = estimate_template_items.parent_id
+          and p.template_id = estimate_template_items.template_id
+          and p.tenant_id = estimate_template_items.tenant_id
       )
     )
   );
@@ -5898,7 +5898,7 @@ create policy "Users can delete estimate template items"
         and t.tenant_id = estimate_template_items.tenant_id
         and (select public.is_tenant_member(t.tenant_id))
         and (
-          t.user_id = (select auth.uid())
+          t.created_by = (select auth.uid())
           or (select public.has_tenant_role(t.tenant_id, array['admin'::public.tenant_role]))
         )
     )
@@ -5915,8 +5915,9 @@ set search_path = public
 as $$
 declare
   source_version public.estimate_versions%rowtype;
-  new_template_id uuid := gen_random_uuid();
+  source_owner_id uuid;
   current_user_id uuid := (select auth.uid());
+  new_template_id uuid := gen_random_uuid();
 begin
   if current_user_id is null then
     raise exception 'Authentication required';
@@ -5926,10 +5927,12 @@ begin
     raise exception 'Template name is required';
   end if;
 
-  select v.*
-    into source_version
+  select v.*, p.user_id
+    into source_version, source_owner_id
   from public.estimate_versions v
-  join public.estimate_projects p on p.id = v.project_id
+  join public.estimate_projects p
+    on p.id = v.project_id
+   and p.tenant_id = v.tenant_id
   where v.id = p_source_version_id
     and (select public.is_tenant_member(v.tenant_id))
     and (
@@ -5938,22 +5941,42 @@ begin
     );
 
   if not found then
-    raise exception 'Estimate version not found or access denied';
+    raise exception 'Template source version not found or access denied';
   end if;
 
   insert into public.estimate_templates (
     id,
     tenant_id,
-    user_id,
+    created_by,
+    source_version_id,
     name,
-    description
+    description,
+    margin_multiplier,
+    margin_mode,
+    currency,
+    margin_bp,
+    discount_bp,
+    tax_rate_bp,
+    rounding_mode,
+    rounding_step_cents,
+    validite_jours
   )
   values (
     new_template_id,
     source_version.tenant_id,
     current_user_id,
+    source_version.id,
     btrim(p_name),
-    nullif(btrim(coalesce(p_description, '')), '')
+    nullif(btrim(coalesce(p_description, '')), ''),
+    source_version.margin_multiplier,
+    source_version.margin_mode,
+    source_version.currency,
+    source_version.margin_bp,
+    source_version.discount_bp,
+    source_version.tax_rate_bp,
+    source_version.rounding_mode,
+    source_version.rounding_step_cents,
+    source_version.validite_jours
   );
 
   create temporary table _estimate_template_item_map (
@@ -6044,15 +6067,12 @@ set search_path = public
 as $$
 declare
   source_template public.estimate_templates%rowtype;
-  new_template_id uuid := gen_random_uuid();
   current_user_id uuid := (select auth.uid());
+  new_template_id uuid := gen_random_uuid();
+  duplicate_name text;
 begin
   if current_user_id is null then
     raise exception 'Authentication required';
-  end if;
-
-  if nullif(btrim(coalesce(p_name, '')), '') is null then
-    raise exception 'Template name is required';
   end if;
 
   select t.*
@@ -6061,35 +6081,60 @@ begin
   where t.id = p_template_id
     and (select public.is_tenant_member(t.tenant_id))
     and (
-      t.user_id = current_user_id
+      t.created_by = current_user_id
       or (select public.has_tenant_role(t.tenant_id, array['admin'::public.tenant_role]))
     );
 
   if not found then
-    raise exception 'Estimate template not found or access denied';
+    raise exception 'Template not found or access denied';
+  end if;
+
+  duplicate_name := nullif(btrim(coalesce(p_name, '')), '');
+  if duplicate_name is null then
+    duplicate_name := source_template.name || ' (copie)';
   end if;
 
   insert into public.estimate_templates (
     id,
     tenant_id,
-    user_id,
+    created_by,
+    source_version_id,
     name,
-    description
+    description,
+    margin_multiplier,
+    margin_mode,
+    currency,
+    margin_bp,
+    discount_bp,
+    tax_rate_bp,
+    rounding_mode,
+    rounding_step_cents,
+    validite_jours
   )
   values (
     new_template_id,
     source_template.tenant_id,
     current_user_id,
-    btrim(p_name),
-    source_template.description
+    source_template.source_version_id,
+    duplicate_name,
+    source_template.description,
+    source_template.margin_multiplier,
+    source_template.margin_mode,
+    source_template.currency,
+    source_template.margin_bp,
+    source_template.discount_bp,
+    source_template.tax_rate_bp,
+    source_template.rounding_mode,
+    source_template.rounding_step_cents,
+    source_template.validite_jours
   );
 
-  create temporary table _estimate_template_item_duplicate_map (
+  create temporary table _estimate_template_duplicate_map (
     old_id uuid primary key,
     new_id uuid not null
   ) on commit drop;
 
-  insert into _estimate_template_item_duplicate_map (old_id, new_id)
+  insert into _estimate_template_duplicate_map (old_id, new_id)
   select id, gen_random_uuid()
   from public.estimate_template_items
   where template_id = p_template_id;
@@ -6154,8 +6199,8 @@ begin
     src.line_tax_cents,
     src.line_total_ttc_cents
   from public.estimate_template_items src
-  join _estimate_template_item_duplicate_map map on map.old_id = src.id
-  left join _estimate_template_item_duplicate_map parent_map on parent_map.old_id = src.parent_id
+  join _estimate_template_duplicate_map map on map.old_id = src.id
+  left join _estimate_template_duplicate_map parent_map on parent_map.old_id = src.parent_id
   where src.template_id = p_template_id;
 
   return new_template_id;
@@ -6169,16 +6214,16 @@ create or replace function public.instantiate_estimate_from_template(
   p_date_devis date,
   p_validite_jours integer
 )
-returns uuid
+returns table (project_id uuid, version_id uuid)
 language plpgsql
 set search_path = public
 as $$
 declare
   source_template public.estimate_templates%rowtype;
+  current_user_id uuid := (select auth.uid());
   new_project_id uuid := gen_random_uuid();
   new_version_id uuid := gen_random_uuid();
-  current_user_id uuid := (select auth.uid());
-  target_validite_jours integer := coalesce(p_validite_jours, 30);
+  target_validite_jours integer;
   total_ht integer := 0;
   total_tax integer := 0;
   total_ttc integer := 0;
@@ -6191,22 +6236,23 @@ begin
     raise exception 'Project name is required';
   end if;
 
-  if target_validite_jours <= 0 then
-    raise exception 'validite_jours must be greater than 0';
-  end if;
-
   select t.*
     into source_template
   from public.estimate_templates t
   where t.id = p_template_id
     and (select public.is_tenant_member(t.tenant_id))
     and (
-      t.user_id = current_user_id
+      t.created_by = current_user_id
       or (select public.has_tenant_role(t.tenant_id, array['admin'::public.tenant_role]))
     );
 
   if not found then
-    raise exception 'Estimate template not found or access denied';
+    raise exception 'Template not found or access denied';
+  end if;
+
+  target_validite_jours := coalesce(p_validite_jours, source_template.validite_jours);
+  if target_validite_jours <= 0 then
+    raise exception 'validite_jours must be greater than 0';
   end if;
 
   select
@@ -6242,6 +6288,14 @@ begin
     title,
     date_devis,
     validite_jours,
+    margin_multiplier,
+    margin_mode,
+    currency,
+    margin_bp,
+    discount_bp,
+    tax_rate_bp,
+    rounding_mode,
+    rounding_step_cents,
     total_ht_cents,
     total_tax_cents,
     total_ttc_cents
@@ -6255,17 +6309,25 @@ begin
     nullif(btrim(coalesce(p_version_title, '')), ''),
     coalesce(p_date_devis, current_date),
     target_validite_jours,
+    source_template.margin_multiplier,
+    source_template.margin_mode,
+    source_template.currency,
+    source_template.margin_bp,
+    source_template.discount_bp,
+    source_template.tax_rate_bp,
+    source_template.rounding_mode,
+    source_template.rounding_step_cents,
     total_ht,
     total_tax,
     total_ttc
   );
 
-  create temporary table _estimate_template_item_instantiation_map (
+  create temporary table _estimate_template_instantiation_map (
     old_id uuid primary key,
     new_id uuid not null
   ) on commit drop;
 
-  insert into _estimate_template_item_instantiation_map (old_id, new_id)
+  insert into _estimate_template_instantiation_map (old_id, new_id)
   select id, gen_random_uuid()
   from public.estimate_template_items
   where template_id = p_template_id;
@@ -6330,10 +6392,11 @@ begin
     src.line_tax_cents,
     src.line_total_ttc_cents
   from public.estimate_template_items src
-  join _estimate_template_item_instantiation_map map on map.old_id = src.id
-  left join _estimate_template_item_instantiation_map parent_map on parent_map.old_id = src.parent_id
+  join _estimate_template_instantiation_map map on map.old_id = src.id
+  left join _estimate_template_instantiation_map parent_map on parent_map.old_id = src.parent_id
   where src.template_id = p_template_id;
 
-  return new_version_id;
+  return query
+  select new_project_id, new_version_id;
 end;
 $$;
