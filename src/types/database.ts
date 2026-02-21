@@ -42,11 +42,72 @@ export type Database = {
         };
         Relationships: [];
       };
+      tenants: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          name: string;
+          slug: string;
+          created_by: string | null;
+          is_active: boolean;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          name: string;
+          slug: string;
+          created_by?: string | null;
+          is_active?: boolean;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          name?: string;
+          slug?: string;
+          created_by?: string | null;
+          is_active?: boolean;
+        };
+        Relationships: [];
+      };
+      tenant_memberships: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          user_id: string;
+          role: "admin" | "engineer" | "viewer";
+          is_default: boolean;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id: string;
+          user_id: string;
+          role?: "admin" | "engineer" | "viewer";
+          is_default?: boolean;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id?: string;
+          role?: "admin" | "engineer" | "viewer";
+          is_default?: boolean;
+        };
+        Relationships: [];
+      };
       suppliers: {
         Row: {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           name: string;
           address: string | null;
           city: string | null;
@@ -64,6 +125,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           name: string;
           address?: string | null;
           city?: string | null;
@@ -81,6 +143,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           name?: string;
           address?: string | null;
           city?: string | null;
@@ -101,6 +164,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           name: string;
           project_code: string | null;
           address: string | null;
@@ -114,6 +178,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           name: string;
           project_code?: string | null;
           address?: string | null;
@@ -127,6 +192,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           name?: string;
           project_code?: string | null;
           address?: string | null;
@@ -143,6 +209,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           reference: string | null;
           designation: string;
           unit_price_cents: number;
@@ -153,6 +220,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           reference?: string | null;
           designation: string;
           unit_price_cents: number;
@@ -163,6 +231,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           reference?: string | null;
           designation?: string;
           unit_price_cents?: number;
@@ -176,6 +245,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           order_number: number;
           reference: string;
           user_id: string;
@@ -194,6 +264,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           order_number?: number;
           reference: string;
           user_id: string;
@@ -212,6 +283,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           order_number?: number;
           reference?: string;
           user_id?: string;
@@ -233,6 +305,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           purchase_order_id: string;
           position: number;
           product_id: string | null;
@@ -249,6 +322,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           purchase_order_id: string;
           position?: number;
           product_id?: string | null;
@@ -265,6 +339,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           purchase_order_id?: string;
           position?: number;
           product_id?: string | null;
@@ -284,6 +359,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           purchase_order_id: string;
           user_id: string;
           name: string;
@@ -297,6 +373,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           purchase_order_id: string;
           user_id: string;
           name: string;
@@ -310,6 +387,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           purchase_order_id?: string;
           user_id?: string;
           name?: string;
@@ -321,11 +399,429 @@ export type Database = {
         };
         Relationships: [];
       };
+      supplier_pricebook: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          supplier_id: string;
+          product_id: string;
+          supplier_sku: string | null;
+          unit: string;
+          min_quantity: number;
+          unit_price_cents: number;
+          currency: string;
+          valid_from: string;
+          valid_to: string | null;
+          is_active: boolean;
+          source_import_id: string | null;
+          source_mapped_row_id: string | null;
+          created_by: string | null;
+          notes: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          supplier_id: string;
+          product_id: string;
+          supplier_sku?: string | null;
+          unit?: string;
+          min_quantity?: number;
+          unit_price_cents: number;
+          currency?: string;
+          valid_from?: string;
+          valid_to?: string | null;
+          is_active?: boolean;
+          source_import_id?: string | null;
+          source_mapped_row_id?: string | null;
+          created_by?: string | null;
+          notes?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          supplier_id?: string;
+          product_id?: string;
+          supplier_sku?: string | null;
+          unit?: string;
+          min_quantity?: number;
+          unit_price_cents?: number;
+          currency?: string;
+          valid_from?: string;
+          valid_to?: string | null;
+          is_active?: boolean;
+          source_import_id?: string | null;
+          source_mapped_row_id?: string | null;
+          created_by?: string | null;
+          notes?: string | null;
+        };
+        Relationships: [];
+      };
+      material_indices: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          index_code: string;
+          label: string;
+          index_date: string;
+          index_value: number;
+          unit: string;
+          source: string | null;
+          metadata: Json;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          index_code: string;
+          label: string;
+          index_date: string;
+          index_value: number;
+          unit?: string;
+          source?: string | null;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          index_code?: string;
+          label?: string;
+          index_date?: string;
+          index_value?: number;
+          unit?: string;
+          source?: string | null;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Relationships: [];
+      };
+      dpgf_catalogue_links: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          import_id: string;
+          mapped_row_id: string;
+          product_id: string | null;
+          supplier_price_id: string | null;
+          material_index_id: string | null;
+          status: string;
+          message: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          import_id: string;
+          mapped_row_id: string;
+          product_id?: string | null;
+          supplier_price_id?: string | null;
+          material_index_id?: string | null;
+          status?: string;
+          message?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          import_id?: string;
+          mapped_row_id?: string;
+          product_id?: string | null;
+          supplier_price_id?: string | null;
+          material_index_id?: string | null;
+          status?: string;
+          message?: string | null;
+        };
+        Relationships: [];
+      };
+      audit_logs: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          user_id: string | null;
+          table_name: string;
+          record_id: string;
+          estimate_version_id: string | null;
+          action: string;
+          before_data: Json | null;
+          after_data: Json | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          user_id?: string | null;
+          table_name: string;
+          record_id: string;
+          estimate_version_id?: string | null;
+          action: string;
+          before_data?: Json | null;
+          after_data?: Json | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          user_id?: string | null;
+          table_name?: string;
+          record_id?: string;
+          estimate_version_id?: string | null;
+          action?: string;
+          before_data?: Json | null;
+          after_data?: Json | null;
+        };
+        Relationships: [];
+      };
+      dpgf_imports: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          user_id: string;
+          filename: string;
+          source_format: string;
+          status: string;
+          row_count: number;
+          error_message: string | null;
+          parse_mode: string;
+          storage_path: string | null;
+          file_size_bytes: number | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id: string;
+          filename: string;
+          source_format: string;
+          status?: string;
+          row_count?: number;
+          error_message?: string | null;
+          parse_mode: string;
+          storage_path?: string | null;
+          file_size_bytes?: number | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id?: string;
+          filename?: string;
+          source_format?: string;
+          status?: string;
+          row_count?: number;
+          error_message?: string | null;
+          parse_mode?: string;
+          storage_path?: string | null;
+          file_size_bytes?: number | null;
+        };
+        Relationships: [];
+      };
+      dpgf_rows_raw: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          import_id: string;
+          row_index: number;
+          payload: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id?: string;
+          import_id: string;
+          row_index: number;
+          payload: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          tenant_id?: string;
+          import_id?: string;
+          row_index?: number;
+          payload?: Json;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      dpgf_rows_mapped: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          import_id: string;
+          raw_row_id: string | null;
+          payload: Json;
+          status: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id?: string;
+          import_id: string;
+          raw_row_id?: string | null;
+          payload: Json;
+          status?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          tenant_id?: string;
+          import_id?: string;
+          raw_row_id?: string | null;
+          payload?: Json;
+          status?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      dpgf_mappings: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          import_id: string;
+          template_id: string | null;
+          status: string;
+          column_mapping: Json;
+          required_fields_present: boolean;
+          missing_required_fields: string[];
+          duplicate_count: number;
+          notes: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          import_id: string;
+          template_id?: string | null;
+          status?: string;
+          column_mapping: Json;
+          required_fields_present?: boolean;
+          missing_required_fields?: string[];
+          duplicate_count?: number;
+          notes?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          import_id?: string;
+          template_id?: string | null;
+          status?: string;
+          column_mapping?: Json;
+          required_fields_present?: boolean;
+          missing_required_fields?: string[];
+          duplicate_count?: number;
+          notes?: string | null;
+        };
+        Relationships: [];
+      };
+      mapping_memory: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          user_id: string;
+          source_column: string;
+          target_field: string;
+          usage_count: number;
+          confidence: number;
+          last_used_at: string;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id: string;
+          source_column: string;
+          target_field: string;
+          usage_count?: number;
+          confidence?: number;
+          last_used_at?: string;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id?: string;
+          source_column?: string;
+          target_field?: string;
+          usage_count?: number;
+          confidence?: number;
+          last_used_at?: string;
+        };
+        Relationships: [];
+      };
+      mapping_templates: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          user_id: string;
+          name: string;
+          supplier_name: string | null;
+          mapping: Json;
+          is_default: boolean;
+          last_used_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id: string;
+          name: string;
+          supplier_name?: string | null;
+          mapping: Json;
+          is_default?: boolean;
+          last_used_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id?: string;
+          name?: string;
+          supplier_name?: string | null;
+          mapping?: Json;
+          is_default?: boolean;
+          last_used_at?: string | null;
+        };
+        Relationships: [];
+      };
       estimate_projects: {
         Row: {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           user_id: string;
           name: string;
           reference: string | null;
@@ -337,6 +833,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           user_id: string;
           name: string;
           reference?: string | null;
@@ -348,6 +845,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           user_id?: string;
           name?: string;
           reference?: string | null;
@@ -362,6 +860,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           project_id: string;
           version_number: number;
           status: "draft" | "sent" | "accepted" | "archived";
@@ -383,6 +882,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           project_id: string;
           version_number: number;
           status?: "draft" | "sent" | "accepted" | "archived";
@@ -404,6 +904,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           project_id?: string;
           version_number?: number;
           status?: "draft" | "sent" | "accepted" | "archived";
@@ -436,6 +937,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           user_id: string;
           name: string;
           color: string | null;
@@ -445,6 +947,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           user_id: string;
           name: string;
           color?: string | null;
@@ -454,6 +957,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           user_id?: string;
           name?: string;
           color?: string | null;
@@ -466,6 +970,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           user_id: string;
           name: string;
           match_type: "keyword";
@@ -482,6 +987,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           user_id: string;
           name: string;
           match_type?: "keyword";
@@ -498,6 +1004,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           user_id?: string;
           name?: string;
           match_type?: "keyword";
@@ -517,6 +1024,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           user_id: string;
           name: string;
           hourly_rate_cents: number;
@@ -527,6 +1035,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           user_id: string;
           name: string;
           hourly_rate_cents?: number;
@@ -537,6 +1046,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           user_id?: string;
           name?: string;
           hourly_rate_cents?: number;
@@ -550,6 +1060,7 @@ export type Database = {
           id: string;
           created_at: string;
           updated_at: string;
+          tenant_id: string;
           version_id: string;
           parent_id: string | null;
           item_type: "section" | "line";
@@ -573,6 +1084,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           version_id: string;
           parent_id?: string | null;
           item_type: "section" | "line";
@@ -596,6 +1108,7 @@ export type Database = {
           id?: string;
           created_at?: string;
           updated_at?: string;
+          tenant_id?: string;
           version_id?: string;
           parent_id?: string | null;
           item_type?: "section" | "line";
@@ -622,11 +1135,58 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      bulk_create_supplier_prices: {
+        Args: {
+          price_rows: Json;
+          target_tenant_id?: string;
+        };
+        Returns: number;
+      };
+      bulk_update_estimate_items: {
+        Args: {
+          target_version_id: string;
+          item_updates: Json;
+        };
+        Returns: number;
+      };
+      bulk_upsert_material_indices: {
+        Args: {
+          index_rows: Json;
+          target_tenant_id?: string;
+        };
+        Returns: number;
+      };
+      current_tenant_id: {
+        Args: Record<PropertyKey, never>;
+        Returns: string | null;
+      };
       duplicate_estimate_version: {
         Args: {
           source_version_id: string;
         };
         Returns: string;
+      };
+      link_mapped_rows_to_catalogue: {
+        Args: {
+          link_rows: Json;
+          target_tenant_id?: string;
+        };
+        Returns: number;
+      };
+      reorder_estimate_items: {
+        Args: {
+          target_parent_id: string | null;
+          target_version_id: string;
+          ordered_item_ids: string[];
+        };
+        Returns: number;
+      };
+      reorder_purchase_order_devis: {
+        Args: {
+          target_purchase_order_id: string;
+          ordered_devis_ids: string[];
+        };
+        Returns: number;
       };
     };
     Enums: {
@@ -636,6 +1196,7 @@ export type Database = {
       estimate_item_type: "section" | "line";
       estimate_rounding_mode: "none" | "nearest" | "up" | "down";
       estimate_rule_match_type: "keyword";
+      tenant_role: "admin" | "engineer" | "viewer";
     };
     CompositeTypes: {
       [_ in never]: never;
