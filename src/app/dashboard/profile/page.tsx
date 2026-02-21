@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { useUserContext } from "@/components/UserContext";
@@ -39,6 +40,7 @@ export default function ProfilePage() {
   const [phone, setPhone] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [workEmail, setWorkEmail] = useState("");
+  const canManageMemberships = contextProfile?.tenant_role === "admin";
 
   useEffect(() => {
     if (initialized) return;
@@ -132,11 +134,18 @@ export default function ProfilePage() {
   return (
     <div className="animate-fade-in">
       {/* Page header */}
-      <div className="page-header">
-        <h1 className="page-title">Mon profil</h1>
-        <p className="page-description">
-          Ces informations apparaitront sur les bons de commande que vous emettez.
-        </p>
+      <div className="page-header flex items-start justify-between gap-6">
+        <div>
+          <h1 className="page-title">Mon profil</h1>
+          <p className="page-description">
+            Ces informations apparaitront sur les bons de commande que vous emettez.
+          </p>
+        </div>
+        {canManageMemberships ? (
+          <Link className="btn btn-secondary" href="/dashboard/memberships">
+            Gerer les membres
+          </Link>
+        ) : null}
       </div>
 
       <div className="max-w-2xl">
