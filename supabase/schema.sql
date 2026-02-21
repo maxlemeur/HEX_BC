@@ -4,6 +4,11 @@
 create extension if not exists "pgcrypto";
 
 -- Reset existing tables/types from previous iterations.
+drop table if exists public.dpgf_catalogue_links cascade;
+drop table if exists public.material_indices cascade;
+drop table if exists public.supplier_pricebook cascade;
+drop table if exists public.tenant_memberships cascade;
+drop table if exists public.tenants cascade;
 drop table if exists public.purchase_order_devis cascade;
 drop table if exists public.purchase_order_items cascade;
 drop table if exists public.purchase_orders cascade;
@@ -119,9 +124,32 @@ create table public.profiles (
   role employee_role not null default 'buyer'
 );
 
+create or replace function public.guard_profile_role_update()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.role is distinct from old.role and (select auth.uid()) is not null then
+    raise exception
+      using
+        errcode = '42501',
+        message = 'PROFILE_ROLE_IMMUTABLE',
+        detail = 'Only server-side workflows can change profiles.role.';
+  end if;
+
+  return new;
+end;
+$$;
+
 create trigger set_profiles_updated_at
   before update on public.profiles
   for each row execute procedure public.set_updated_at();
+
+drop trigger if exists guard_profile_role_update on public.profiles;
+create trigger guard_profile_role_update
+  before update on public.profiles
+  for each row execute procedure public.guard_profile_role_update();
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
@@ -822,12 +850,7 @@ begin
           where tm.tenant_id = po.tenant_id
             and tm.user_id = (select auth.uid())
         )
-        or exists (
-          select 1
-          from public.profiles p
-          where p.id = (select auth.uid())
-            and p.role = 'admin'
-        )
+        or (select public.is_admin_user())
       )
       and (
         po.user_id = (select auth.uid())
@@ -838,12 +861,7 @@ begin
             and tm.user_id = (select auth.uid())
             and tm.role::text = 'admin'
         )
-        or exists (
-          select 1
-          from public.profiles p
-          where p.id = (select auth.uid())
-            and p.role = 'admin'
-        )
+        or (select public.is_admin_user())
       )
   ) then
     return 0;
@@ -1009,6 +1027,7 @@ declare
   updated_count integer := 0;
   expected_count integer := 0;
   snapshot_count integer := 0;
+  locked_count integer := 0;
 begin
   if coalesce(jsonb_typeof(item_updates), '') <> 'array' then
     raise exception 'item_updates must be a JSON array';
@@ -1092,6 +1111,27 @@ begin
           'expected_count=%s,updated_count=%s',
           expected_count,
           snapshot_count
+        );
+  end if;
+
+  perform item.id
+  from public.estimate_items item
+  join _estimate_item_bulk_snapshot snapshot
+    on item.id = snapshot.id
+    and item.version_id = target_version_id
+  for update;
+
+  get diagnostics locked_count = row_count;
+
+  if locked_count <> expected_count then
+    raise exception
+      using
+        errcode = 'P0001',
+        message = 'STALE_BULK_UPDATE_ITEMS',
+        detail = format(
+          'expected_count=%s,locked_count=%s',
+          expected_count,
+          locked_count
         );
   end if;
 
@@ -1270,12 +1310,9 @@ language sql
 stable
 set search_path = public
 as $$
-  select exists (
-    select 1
-    from public.profiles p
-    where p.id = (select auth.uid())
-      and p.role = 'admin'
-  );
+  select
+    coalesce((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin', false)
+    or coalesce((auth.jwt() -> 'app_metadata' ->> 'is_admin') = 'true', false);
 $$;
 
 alter table public.profiles enable row level security;
@@ -1793,6 +1830,9 @@ create table if not exists public.tenants (
   is_active boolean not null default true
 );
 
+alter table public.tenants
+  alter column created_by set default auth.uid();
+
 create table if not exists public.tenant_memberships (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
@@ -1881,9 +1921,38 @@ as $$
     );
 $$;
 
+create or replace function public.can_bootstrap_tenant_membership(
+  target_tenant_id uuid,
+  target_user_id uuid,
+  target_role public.tenant_role
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    target_tenant_id is not null
+    and target_user_id = (select auth.uid())
+    and target_role = 'admin'::public.tenant_role
+    and exists (
+      select 1
+      from public.tenants t
+      where t.id = target_tenant_id
+        and t.created_by = (select auth.uid())
+    )
+    and not exists (
+      select 1
+      from public.tenant_memberships tm
+      where tm.tenant_id = target_tenant_id
+    );
+$$;
+
 grant execute on function public.current_tenant_id() to authenticated;
 grant execute on function public.is_tenant_member(uuid) to authenticated;
 grant execute on function public.has_tenant_role(uuid, public.tenant_role[]) to authenticated;
+grant execute on function public.can_bootstrap_tenant_membership(uuid, uuid, public.tenant_role) to authenticated;
 
 do $$
 declare
@@ -2839,7 +2908,10 @@ create policy "Users can view own tenants"
   on public.tenants
   for select
   to authenticated
-  using ((select public.is_tenant_member(id)));
+  using (
+    (select public.is_tenant_member(id))
+    or created_by = (select auth.uid())
+  );
 
 create policy "Authenticated can create tenants"
   on public.tenants
@@ -2847,7 +2919,7 @@ create policy "Authenticated can create tenants"
   to authenticated
   with check (
     (select auth.uid()) is not null
-    and (created_by is null or created_by = (select auth.uid()))
+    and created_by = (select auth.uid())
   );
 
 create policy "Tenant admins can update tenants"
@@ -2876,7 +2948,10 @@ create policy "Tenant admins can insert memberships"
   on public.tenant_memberships
   for insert
   to authenticated
-  with check ((select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role])));
+  with check (
+    (select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role]))
+    or (select public.can_bootstrap_tenant_membership(tenant_id, user_id, role))
+  );
 
 create policy "Tenant admins can update memberships"
   on public.tenant_memberships
