@@ -71,17 +71,27 @@ async function patchFeatureFlag(input: {
   enabled: boolean;
   value?: string | null;
 }) {
+  const requestBody: {
+    tenant_id: string;
+    flag_key: string;
+    enabled: boolean;
+    value?: string | null;
+  } = {
+    tenant_id: input.tenantId,
+    flag_key: input.flagKey,
+    enabled: input.enabled,
+  };
+
+  if ("value" in input) {
+    requestBody.value = input.value ?? null;
+  }
+
   const response = await fetch("/api/feature-flags", {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      tenant_id: input.tenantId,
-      flag_key: input.flagKey,
-      enabled: input.enabled,
-      value: input.value ?? null,
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   const payload = (await response.json().catch(() => null)) as unknown;
@@ -134,19 +144,32 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
     );
   }, [data?.flags, search]);
 
+  function clearValueDraft(flagKey: string) {
+    setValueDrafts((current) => {
+      if (!(flagKey in current)) return current;
+      const next = { ...current };
+      delete next[flagKey];
+      return next;
+    });
+  }
+
   async function handleToggle(flag: FeatureFlagRecord) {
     setUpdatingKey(flag.flag_key);
     setActionError(null);
     setSuccessMessage(null);
 
-    const draftValue = valueDrafts[flag.flag_key] ?? flag.value ?? "";
+    const hasDraftValue = Object.prototype.hasOwnProperty.call(
+      valueDrafts,
+      flag.flag_key
+    );
+    const draftValue = hasDraftValue ? valueDrafts[flag.flag_key] ?? "" : undefined;
 
     try {
       const updatedFlag = await patchFeatureFlag({
         tenantId,
         flagKey: flag.flag_key,
         enabled: !flag.enabled,
-        value: draftValue,
+        ...(hasDraftValue ? { value: draftValue } : {}),
       });
 
       await mutate(
@@ -162,6 +185,8 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
         },
         { revalidate: false }
       );
+
+      clearValueDraft(updatedFlag.flag_key);
 
       setSuccessMessage(
         `${updatedFlag.flag_key} ${updatedFlag.enabled ? "active" : "desactive"}.`
@@ -203,6 +228,8 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
         },
         { revalidate: false }
       );
+
+      clearValueDraft(updatedFlag.flag_key);
 
       setSuccessMessage(`Valeur de ${updatedFlag.flag_key} mise a jour.`);
     } catch (updateError) {

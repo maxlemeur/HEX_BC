@@ -3574,6 +3574,21 @@ export async function bulkUpdateEstimateItems(
     };
   }
 
+  const supplierPriceIdsToValidate = new Set<string | null>();
+  updatesPayload.forEach((item) => {
+    if (!Object.prototype.hasOwnProperty.call(item, "selected_supplier_price_id")) {
+      return;
+    }
+
+    supplierPriceIdsToValidate.add(item.selected_supplier_price_id ?? null);
+  });
+
+  await Promise.all(
+    Array.from(supplierPriceIdsToValidate).map((supplierPriceId) =>
+      ensureSupplierPriceIsValid(supabase, supplierPriceId, context)
+    )
+  );
+
   const { data: rpcUpdatedCount, error: bulkUpdateError } = await supabase.rpc(
     "bulk_update_estimate_items",
     {

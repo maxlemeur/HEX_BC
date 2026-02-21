@@ -123,7 +123,7 @@ export async function PATCH(request: Request) {
       userId,
       key: normalizeFeatureFlagKey(payload.flag_key),
       enabled: payload.enabled,
-      value: payload.value ?? null,
+      ...("value" in payload ? { value: payload.value ?? null } : {}),
       supabase,
     });
 

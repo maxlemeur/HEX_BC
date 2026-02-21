@@ -178,7 +178,8 @@ export async function toggleFeatureFlagForTenant(
   const userId = parseUserIdOrThrow(input.userId);
   const key = parseFeatureFlagKeyOrThrow(input.key);
   const enabled = input.enabled === true;
-  const value = normalizeFeatureFlagValue(input.value);
+  const hasExplicitValue = Object.prototype.hasOwnProperty.call(input, "value");
+  const normalizedValue = normalizeFeatureFlagValue(input.value);
   const supabase = await getSupabase(input.supabase);
 
   const membership = await getTenantMembershipOrThrow(supabase, tenantId, userId);
@@ -186,17 +187,24 @@ export async function toggleFeatureFlagForTenant(
     throw forbidden("Acces reserve aux administrateurs du tenant.");
   }
 
+  const upsertPayload: {
+    tenant_id: string;
+    flag_key: string;
+    enabled: boolean;
+    value?: string | null;
+  } = {
+    tenant_id: tenantId,
+    flag_key: key,
+    enabled,
+  };
+
+  if (hasExplicitValue) {
+    upsertPayload.value = normalizedValue;
+  }
+
   const { data, error } = await supabase
     .from(FEATURE_FLAGS_TABLE)
-    .upsert(
-      {
-        tenant_id: tenantId,
-        flag_key: key,
-        enabled,
-        value,
-      } as never,
-      { onConflict: "tenant_id,flag_key" }
-    )
+    .upsert(upsertPayload as never, { onConflict: "tenant_id,flag_key" })
     .select(featureFlagSelect)
     .maybeSingle();
 
@@ -213,7 +221,7 @@ export async function toggleFeatureFlagForTenant(
     tenant_id: tenantId,
     flag_key: key,
     enabled,
-    value,
+    value: hasExplicitValue ? normalizedValue : null,
   };
 }
 

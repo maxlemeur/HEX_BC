@@ -735,21 +735,20 @@ const SortableRow = memo(function SortableRow({
 
       const selectedSupplierPriceId =
         alternative?.supplier_price_id ?? suggestion.supplier_price_id;
-      const selectedUnit = (alternative?.unit ?? suggestion.unit)?.trim() ?? "";
+      const selectedDescription = suggestion.product_designation.trim();
       const selectedAdjustedUnitPrice =
         alternative?.adjusted_unit_price_cents ?? suggestion.adjusted_unit_price_cents;
 
       const patch: ItemPatch = {
-        description: selectedUnit.length > 0 ? selectedUnit : null,
+        description: selectedDescription.length > 0 ? selectedDescription : null,
         unit_price_ht_cents: selectedAdjustedUnitPrice,
         selected_supplier_price_id: selectedSupplierPriceId,
       };
 
       onPatchItem(item.id, patch, { persist: true });
-      onUnitChange(item.id, selectedUnit);
       setIsTitleFocused(false);
     },
-    [isReadOnly, item.id, item.item_type, onPatchItem, onUnitChange]
+    [isReadOnly, item.id, item.item_type, onPatchItem]
   );
 
   const handleLineTitleFocus = useCallback(
