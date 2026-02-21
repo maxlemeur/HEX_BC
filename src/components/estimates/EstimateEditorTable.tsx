@@ -38,7 +38,6 @@ import {
 } from "@/lib/estimate-calculations";
 import {
   sendEstimateSuggestionRuleFeedback,
-  updateEstimateItem,
 } from "@/lib/estimates/client";
 import {
   useSpreadsheetNavigation,
@@ -703,6 +702,9 @@ const SortableRow = memo(function SortableRow({
 
     return () => {
       window.clearTimeout(timeoutId);
+      if (catalogueAbortRef.current) {
+        catalogueAbortRef.current.abort();
+      }
     };
   }, [isReadOnly, isTitleFocused, item.item_type, item.title, versionId]);
 
@@ -728,7 +730,7 @@ const SortableRow = memo(function SortableRow({
     (catalogueSuggestions.length > 0 || isCatalogueLoading || Boolean(catalogueError));
 
   const applyCatalogueSuggestion = useCallback(
-    async (suggestion: CataloguePriceSuggestion, alternative?: SupplierAlternative) => {
+    (suggestion: CataloguePriceSuggestion, alternative?: SupplierAlternative) => {
       if (isReadOnly || item.item_type !== "line") return;
 
       const selectedSupplierPriceId =
@@ -746,18 +748,8 @@ const SortableRow = memo(function SortableRow({
       onPatchItem(item.id, patch, { persist: true });
       onUnitChange(item.id, selectedUnit);
       setIsTitleFocused(false);
-
-      try {
-        await updateEstimateItem(versionId, item.id, {
-          description: selectedUnit.length > 0 ? selectedUnit : null,
-          unit_price_ht_cents: selectedAdjustedUnitPrice,
-          selected_supplier_price_id: selectedSupplierPriceId,
-        });
-      } catch (error) {
-        console.error("Impossible d'enregistrer le fournisseur selectionne.", error);
-      }
     },
-    [isReadOnly, item.id, item.item_type, onPatchItem, onUnitChange, versionId]
+    [isReadOnly, item.id, item.item_type, onPatchItem, onUnitChange]
   );
 
   const handleLineTitleFocus = useCallback(

@@ -265,12 +265,17 @@ export async function getFeatureFlagValueForTenant(
     const supabase = await getSupabase(input?.supabase);
     const { data, error } = await supabase
       .from(FEATURE_FLAGS_TABLE)
-      .select("value")
+      .select("enabled, value")
       .eq("tenant_id", parsedTenantId.data)
       .eq("flag_key", parsedKey.data)
       .maybeSingle();
 
     if (error || !data || typeof data !== "object") {
+      return null;
+    }
+
+    const enabledValue = (data as { enabled?: unknown }).enabled;
+    if (enabledValue !== true) {
       return null;
     }
 

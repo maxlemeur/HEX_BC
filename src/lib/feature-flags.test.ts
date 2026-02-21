@@ -5,6 +5,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import {
+  getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
   isFeatureEnabled,
 } from "@/lib/feature-flags";
@@ -98,6 +99,7 @@ describe("getStalePriceDaysForTenant", () => {
   it("returns configured stale days when the flag value is valid", async () => {
     const supabase = createSupabaseMock({
       data: {
+        enabled: true,
         value: "120",
       },
       error: null,
@@ -116,6 +118,23 @@ describe("getStalePriceDaysForTenant", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
+    await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(90);
+  });
+
+  it("ignores value-backed flags when the flag is disabled", async () => {
+    const supabase = createSupabaseMock({
+      data: {
+        enabled: false,
+        value: "120",
+      },
+      error: null,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(getFeatureFlagValueForTenant(TENANT_ID, "STALE_PRICE_DAYS")).resolves.toBe(
+      null
+    );
     await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(90);
   });
 });
