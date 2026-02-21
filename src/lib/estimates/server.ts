@@ -1151,13 +1151,13 @@ function isLaborSplitEnabledForItem(
 ) {
   return (
     (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
-    (item.k_mo_atelier !== null && item.k_mo_atelier !== undefined) ||
     (item.labor_role_atelier_id !== null &&
       item.labor_role_atelier_id !== undefined) ||
     (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
-    (item.k_mo_chantier !== null && item.k_mo_chantier !== undefined) ||
     (item.labor_role_chantier_id !== null &&
-      item.labor_role_chantier_id !== undefined)
+      item.labor_role_chantier_id !== undefined) ||
+    ((item.k_mo_atelier ?? 1) !== 1) ||
+    ((item.k_mo_chantier ?? 1) !== 1)
   );
 }
 

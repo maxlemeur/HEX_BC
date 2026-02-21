@@ -9,6 +9,7 @@ import {
   type SealIntegrityState,
 } from "@/components/estimates/SealIntegrityBadge";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { isFeatureEnabled } from "@/lib/feature-flags";
 import { verifyEstimateSeal } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -28,6 +29,10 @@ type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
 >;
+type SupplyTypeLabel = Pick<
+  Database["public"]["Tables"]["supply_types"]["Row"],
+  "id" | "name"
+>;
 
 function resolveProject(
   value: EstimateVersion["estimate_projects"]
@@ -46,7 +51,7 @@ export default async function EstimateDetailPage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
+      "tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -73,14 +78,24 @@ export default async function EstimateDetailPage({
   const version = versionResult.data as EstimateVersion;
   const items = (itemsResult.data ?? []) as EstimateItem[];
   const project = resolveProject(version.estimate_projects);
+  const isLaborSplitEnabled = await isFeatureEnabled(
+    version.tenant_id,
+    "EST_031_LABOR_SPLIT",
+    { supabase }
+  );
   const laborRoleIds = Array.from(
     new Set(
       items
-        .map((item) => item.labor_role_id)
+        .flatMap((item) => [
+          item.labor_role_id,
+          item.labor_role_atelier_id,
+          item.labor_role_chantier_id,
+        ])
         .filter((value): value is string => Boolean(value))
     )
   );
   const laborRateById: Record<string, number> = {};
+  const supplyTypeLabelsById: Record<string, string> = {};
 
   if (laborRoleIds.length > 0) {
     const laborRolesResult = await supabase
@@ -97,6 +112,20 @@ export default async function EstimateDetailPage({
     });
   }
 
+  const supplyTypesResult = await supabase
+    .from("supply_types")
+    .select("id, name")
+    .eq("tenant_id", version.tenant_id)
+    .order("name", { ascending: true });
+
+  if (supplyTypesResult.error) {
+    notFound();
+  }
+
+  ((supplyTypesResult.data ?? []) as SupplyTypeLabel[]).forEach((supplyType) => {
+    supplyTypeLabelsById[supplyType.id] = supplyType.name;
+  });
+
   const saleSubtotalCents = items.reduce((sum, item) => {
     if (item.item_type !== "line") return sum;
     return sum + (item.line_total_ht_cents ?? 0);
@@ -110,6 +139,12 @@ export default async function EstimateDetailPage({
       ...item,
       labor_role_hourly_rate_cents: item.labor_role_id
         ? (laborRateById[item.labor_role_id] ?? 0)
+        : 0,
+      labor_role_atelier_hourly_rate_cents: item.labor_role_atelier_id
+        ? (laborRateById[item.labor_role_atelier_id] ?? 0)
+        : 0,
+      labor_role_chantier_hourly_rate_cents: item.labor_role_chantier_id
+        ? (laborRateById[item.labor_role_chantier_id] ?? 0)
         : 0,
     }));
   const appliedMarginMultiplier = computeEstimateTotals({
@@ -183,10 +218,12 @@ export default async function EstimateDetailPage({
           marginMultiplier={appliedMarginMultiplier}
           discountCents={discountCents}
           taxRateBp={version.tax_rate_bp}
+          isLaborSplitEnabled={isLaborSplitEnabled}
           laborRateById={laborRateById}
           totalHtCents={version.total_ht_cents}
           totalTaxCents={version.total_tax_cents}
           totalTtcCents={version.total_ttc_cents}
+          supplyTypeLabelsById={supplyTypeLabelsById}
           items={items}
         />
       </div>

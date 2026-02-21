@@ -82,6 +82,29 @@ function clampMarginMultiplier(value: number | null | undefined): number {
   return Math.min(Math.max(toSafeNumber(value, 1), 0), MAX_MARGIN_MULTIPLIER);
 }
 
+function hasLaborSplitPayload(
+  item: Pick<
+    EstimateLineLike,
+    | "h_mo_atelier"
+    | "k_mo_atelier"
+    | "labor_role_atelier_id"
+    | "h_mo_chantier"
+    | "k_mo_chantier"
+    | "labor_role_chantier_id"
+  >
+) {
+  return (
+    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
+    (item.labor_role_atelier_id !== null &&
+      item.labor_role_atelier_id !== undefined) ||
+    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
+    (item.labor_role_chantier_id !== null &&
+      item.labor_role_chantier_id !== undefined) ||
+    ((item.k_mo_atelier ?? 1) !== 1) ||
+    ((item.k_mo_chantier ?? 1) !== 1)
+  );
+}
+
 /** Cap a cents value to the PostgreSQL integer range. */
 function capCents(value: number): number {
   return Math.min(value, MAX_CENTS);
@@ -136,19 +159,7 @@ export function computeEstimateLineValues(
   const kMoAtelier = Math.max(toSafeNumber(item.k_mo_atelier, 1), 0);
   const hMoChantier = Math.max(toSafeNumber(item.h_mo_chantier, 0), 0);
   const kMoChantier = Math.max(toSafeNumber(item.k_mo_chantier, 1), 0);
-  const hasSplitPayload =
-    item.h_mo_atelier !== null && item.h_mo_atelier !== undefined ||
-    item.k_mo_atelier !== null && item.k_mo_atelier !== undefined ||
-    item.labor_role_atelier_id !== null &&
-      item.labor_role_atelier_id !== undefined ||
-    item.h_mo_chantier !== null && item.h_mo_chantier !== undefined ||
-    item.k_mo_chantier !== null && item.k_mo_chantier !== undefined ||
-    item.labor_role_chantier_id !== null &&
-      item.labor_role_chantier_id !== undefined ||
-    item.labor_role_atelier_hourly_rate_cents !== null &&
-      item.labor_role_atelier_hourly_rate_cents !== undefined ||
-    item.labor_role_chantier_hourly_rate_cents !== null &&
-      item.labor_role_chantier_hourly_rate_cents !== undefined;
+  const hasSplitPayload = hasLaborSplitPayload(item);
   const shouldUseLaborSplit = isLaborSplitEnabled ?? hasSplitPayload;
   const moCostCents = shouldUseLaborSplit
     ? hMoMajoration *
@@ -388,12 +399,13 @@ function computeSectionLineSplit(
   const kMoAtelier = Math.max(toSafeNumber(item.k_mo_atelier, 1), 0);
   const hMoChantier = Math.max(toSafeNumber(item.h_mo_chantier, 0), 0);
   const kMoChantier = Math.max(toSafeNumber(item.k_mo_chantier, 1), 0);
+  const shouldUseLaborSplit = isLaborSplitEnabled && hasLaborSplitPayload(item);
 
   const foCostRaw = quantity * unitPrice * kFo;
-  const moAtelierCostRaw = isLaborSplitEnabled
+  const moAtelierCostRaw = shouldUseLaborSplit
     ? hMoMajoration * hMoAtelier * atelierHourlyRate * kMoAtelier
     : 0;
-  const moChantierCostRaw = isLaborSplitEnabled
+  const moChantierCostRaw = shouldUseLaborSplit
     ? hMoMajoration * hMoChantier * chantierHourlyRate * kMoChantier
     : hMoMajoration * hMo * legacyHourlyRate * kMo;
   const moCostRaw = moAtelierCostRaw + moChantierCostRaw;
@@ -407,7 +419,7 @@ function computeSectionLineSplit(
     {
       marginMultiplier,
       taxRateBp,
-      isLaborSplitEnabled,
+      isLaborSplitEnabled: shouldUseLaborSplit,
       laborRateAtelierCents: atelierHourlyRate,
       laborRateChantierCents: chantierHourlyRate,
     }

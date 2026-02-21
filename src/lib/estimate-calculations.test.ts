@@ -223,6 +223,31 @@ describe("estimate calculations", () => {
     });
   });
 
+  it("EST-031: coefficients split par defaut n'activent pas le mode split", () => {
+    const line = createLine({
+      quantity: 1,
+      unit_price_ht_cents: 0,
+      h_mo: 2,
+      k_mo: 1,
+      k_mo_atelier: 1,
+      k_mo_chantier: 1,
+      labor_role_hourly_rate_cents: 500,
+    });
+
+    const values = computeEstimateLineValues(line, {
+      marginMultiplier: 1,
+      taxRateBp: 0,
+    });
+
+    expect(values).toEqual({
+      costLineCents: 1000,
+      saleLineCents: 1000,
+      puHtCents: 1000,
+      taxLineCents: 0,
+      ttcLineCents: 1000,
+    });
+  });
+
   it("A1: single round avoids cumulative drift from triple rounding", () => {
     // When FO and MO each produce 0.5, triple rounding rounds each up
     // but single rounding correctly sums to 1.0 then rounds to 1
@@ -784,6 +809,52 @@ describe("estimate calculations", () => {
       totalTtcCents: 7560,
       supplyTypeFoTotalsCents: {
         [UNASSIGNED_SUPPLY_TYPE_KEY]: 3600,
+      },
+    });
+  });
+
+  it("EST-031: split global actif conserve MO legacy quand la ligne n'est pas split", () => {
+    const sectionId = "section-legacy-mo";
+    const items: EstimateItemRecord[] = [
+      createSectionRecord({ id: sectionId, parent_id: null, position: 1 }),
+      createItemRecord({
+        id: "line-legacy-mo",
+        parent_id: sectionId,
+        position: 1,
+        quantity: 1,
+        unit_price_ht_cents: 1000,
+        k_fo: 1,
+        h_mo: 2,
+        k_mo: 1,
+        labor_role_id: "role-legacy",
+        h_mo_atelier: null,
+        k_mo_atelier: 1,
+        labor_role_atelier_id: null,
+        h_mo_chantier: null,
+        k_mo_chantier: 1,
+        labor_role_chantier_id: null,
+      }),
+    ];
+
+    const totals = computeSectionTotals({
+      items,
+      sectionId,
+      marginMultiplier: 1,
+      taxRateBp: 2000,
+      discountCents: 0,
+      laborRateById: new Map([["role-legacy", 500]]),
+      isLaborSplitEnabled: true,
+    });
+
+    expect(totals).toEqual({
+      foTotalCents: 1000,
+      moTotalCents: 1000,
+      moAtelierTotalCents: 0,
+      moChantierTotalCents: 1000,
+      totalHtCents: 2000,
+      totalTtcCents: 2400,
+      supplyTypeFoTotalsCents: {
+        [UNASSIGNED_SUPPLY_TYPE_KEY]: 1000,
       },
     });
   });

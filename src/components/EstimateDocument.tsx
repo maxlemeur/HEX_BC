@@ -22,17 +22,16 @@ export type EstimateDocumentProps = {
   marginMultiplier: number;
   discountCents: number;
   taxRateBp: number;
-  isLaborSplitEnabled?: boolean;
+  isLaborSplitEnabled: boolean;
   laborRateById: Record<string, number>;
   totalHtCents: number;
   totalTaxCents: number;
   totalTtcCents: number;
-  supplyTypeLabelsById?: Record<string, string>;
+  supplyTypeLabelsById: Record<string, string>;
   items: EstimateItem[];
 };
 
 const ROOT_KEY = "root";
-const EMPTY_SUPPLY_TYPE_LABELS: Record<string, string> = {};
 const EMPTY_SECTION_TOTALS: SectionTotals = {
   foTotalCents: 0,
   moTotalCents: 0,
@@ -133,12 +132,12 @@ export function EstimateDocument({
   marginMultiplier,
   discountCents,
   taxRateBp,
-  isLaborSplitEnabled = false,
+  isLaborSplitEnabled,
   laborRateById,
   totalHtCents,
   totalTaxCents,
   totalTtcCents,
-  supplyTypeLabelsById = EMPTY_SUPPLY_TYPE_LABELS,
+  supplyTypeLabelsById,
   items,
 }: EstimateDocumentProps) {
   const rows = buildRows(items);
