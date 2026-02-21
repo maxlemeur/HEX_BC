@@ -21,7 +21,11 @@ function createPutSupabaseMock() {
     error: null,
   });
 
-  const selectEq = vi.fn((column: string, value: string) => {
+  const selectEq = vi.fn<
+    (column: string, value: string) => {
+      single: typeof selectSingle;
+    }
+  >((column: string, value: string) => {
     void column;
     void value;
     return {
@@ -81,7 +85,11 @@ describe("purchase orders [id] route regressions", () => {
       data: { id: ORDER_ID },
       error: null,
     });
-    const selectEq = vi.fn((column: string, value: string) => {
+    const selectEq = vi.fn<
+      (column: string, value: string) => {
+        single: typeof selectSingle;
+      }
+    >((column: string, value: string) => {
       void column;
       void value;
       return { single: selectSingle };
