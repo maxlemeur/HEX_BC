@@ -13,6 +13,7 @@ import {
 
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
+import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import {
   EstimateSettingsPanel,
@@ -2959,6 +2960,16 @@ export default function EditEstimatePage() {
 
         setItems([...shiftedExistingItems, ...insertedItems]);
         setTotalsOutOfSync(false);
+
+        const refreshed = await fetchEstimateEditorData(version.id);
+        setVersion((previous) =>
+          previous
+            ? {
+                ...previous,
+                updated_at: refreshed.version.updated_at,
+              }
+            : previous
+        );
       } catch (error) {
         if (!handleVersionConflict(error, { persistDraft: true })) {
           setActionError(
@@ -3316,11 +3327,14 @@ export default function EditEstimatePage() {
 
       const selectedIdSet = new Set(itemIds);
       const snapshot = itemsRef.current;
-      const selectedLines = snapshot
-        .filter(
-          (item): item is EstimateItem =>
-            item.item_type === "line" && selectedIdSet.has(item.id)
-        );
+      const lineById = new Map(
+        snapshot
+          .filter((item): item is EstimateItem => item.item_type === "line")
+          .map((item) => [item.id, item])
+      );
+      const selectedLines = itemIds
+        .map((itemId) => lineById.get(itemId) ?? null)
+        .filter((item): item is EstimateItem => item !== null);
 
       if (selectedLines.length === 0) return;
 
@@ -3958,6 +3972,7 @@ export default function EditEstimatePage() {
             onExportCSV={handleExportCSV}
             disabled={isExportDisabled}
           />
+          <EstimatePdfDownloadButton versionId={versionId} />
           <SaveAsTemplateButton versionId={versionId} />
           {canSend ? (
             <button

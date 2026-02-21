@@ -454,6 +454,43 @@ function resolveApiErrorMessage(payload: unknown, fallback: string) {
   return fallback;
 }
 
+async function fetchCatalogueSuggestions(
+  versionId: string,
+  query: string,
+  signal: AbortSignal
+): Promise<CataloguePriceSuggestion[]> {
+  const response = await fetch(
+    `/api/estimates/${versionId}/suggest-prices?q=${encodeURIComponent(query)}`,
+    {
+      method: "GET",
+      cache: "no-store",
+      signal,
+    }
+  );
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    throw new Error(
+      resolveApiErrorMessage(payload, "Impossible de charger les suggestions catalogue.")
+    );
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return [];
+  }
+
+  const envelope = payload as {
+    ok?: boolean;
+    data?: SuggestPricesResponse;
+  };
+  const suggestions =
+    envelope.ok && Array.isArray(envelope.data?.suggestions)
+      ? envelope.data.suggestions
+      : [];
+
+  return suggestions.slice(0, 10);
+}
+
 function toFiniteNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -726,40 +763,13 @@ const SortableRow = memo(function SortableRow({
       setIsCatalogueLoading(true);
       setCatalogueError(null);
 
-      void fetch(
-        `/api/estimates/${versionId}/suggest-prices?q=${encodeURIComponent(normalizedQuery)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-          signal: abortController.signal,
-        }
+      void fetchCatalogueSuggestions(
+        versionId,
+        normalizedQuery,
+        abortController.signal
       )
-        .then(async (response) => {
-          const payload = (await response.json().catch(() => null)) as unknown;
-          if (!response.ok) {
-            throw new Error(
-              resolveApiErrorMessage(payload, "Impossible de charger les suggestions catalogue.")
-            );
-          }
-
-          if (
-            !payload ||
-            typeof payload !== "object" ||
-            Array.isArray(payload)
-          ) {
-            setCatalogueSuggestions([]);
-            return;
-          }
-
-          const envelope = payload as {
-            ok?: boolean;
-            data?: SuggestPricesResponse;
-          };
-          const suggestions =
-            envelope.ok && Array.isArray(envelope.data?.suggestions)
-              ? envelope.data.suggestions
-              : [];
-          setCatalogueSuggestions(suggestions.slice(0, 10));
+        .then((suggestions) => {
+          setCatalogueSuggestions(suggestions);
           setActiveCatalogueSuggestionIndex(0);
         })
         .catch((error: unknown) => {
@@ -2441,7 +2451,7 @@ export function EstimateEditorTable({
           ? tableCardRef.current.contains(target)
           : false;
 
-      if (!withinTable && !hasSelectedLines) {
+      if (!withinTable) {
         return;
       }
 
@@ -2854,8 +2864,6 @@ export function EstimateEditorTable({
     suggestionsByItemId,
   ]);
 
-  const insertionAnchorItemId = spreadsheetNavigation.activeCell?.rowId ?? null;
-
   const {
     scrollRef: virtualScrollRef,
     virtualItems,
@@ -2936,6 +2944,7 @@ export function EstimateEditorTable({
       ? handleNavigationCellNotMounted
       : undefined,
   });
+  const insertionAnchorItemId = spreadsheetNavigation.activeCell?.rowId ?? null;
 
   const renderSortableRow = useCallback(
     (

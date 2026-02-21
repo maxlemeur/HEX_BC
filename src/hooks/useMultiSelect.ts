@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 export type SelectionInput =
   | ReadonlySet<string>
@@ -285,11 +285,7 @@ export function useMultiSelect({
     });
   });
 
-  useEffect(() => {
-    setState((previousState) =>
-      reduceMultiSelectState(previousState, { type: "prune", visibleIds })
-    );
-  }, [visibleIds]);
+  const visibleIdSet = useMemo(() => new Set(visibleIds), [visibleIds]);
 
   const handleItemSelection = useCallback(
     (interaction: MultiSelectItemInteraction) => {
@@ -329,9 +325,9 @@ export function useMultiSelect({
 
   const isSelected = useCallback(
     (id: string) => {
-      return state.selected.has(id);
+      return visibleIdSet.has(id) && state.selected.has(id);
     },
-    [state.selected]
+    [state.selected, visibleIdSet]
   );
 
   const selectedIds = useMemo(() => {
