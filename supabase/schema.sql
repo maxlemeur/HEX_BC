@@ -810,6 +810,45 @@ begin
     return 0;
   end if;
 
+  if not exists (
+    select 1
+    from public.purchase_orders po
+    where po.id = target_purchase_order_id
+      and po.tenant_id is not null
+      and (
+        exists (
+          select 1
+          from public.tenant_memberships tm
+          where tm.tenant_id = po.tenant_id
+            and tm.user_id = (select auth.uid())
+        )
+        or exists (
+          select 1
+          from public.profiles p
+          where p.id = (select auth.uid())
+            and p.role = 'admin'
+        )
+      )
+      and (
+        po.user_id = (select auth.uid())
+        or exists (
+          select 1
+          from public.tenant_memberships tm
+          where tm.tenant_id = po.tenant_id
+            and tm.user_id = (select auth.uid())
+            and tm.role::text = 'admin'
+        )
+        or exists (
+          select 1
+          from public.profiles p
+          where p.id = (select auth.uid())
+            and p.role = 'admin'
+        )
+      )
+  ) then
+    return 0;
+  end if;
+
   with ordered as (
     select
       src.id,
@@ -820,8 +859,7 @@ begin
   set position = -ordered.position
   from ordered
   where devis.id = ordered.id
-    and devis.purchase_order_id = target_purchase_order_id
-    and devis.user_id = (select auth.uid());
+    and devis.purchase_order_id = target_purchase_order_id;
 
   with ordered as (
     select
@@ -833,8 +871,7 @@ begin
   set position = ordered.position
   from ordered
   where devis.id = ordered.id
-    and devis.purchase_order_id = target_purchase_order_id
-    and devis.user_id = (select auth.uid());
+    and devis.purchase_order_id = target_purchase_order_id;
 
   get diagnostics updated_count = row_count;
   return updated_count;
@@ -970,12 +1007,16 @@ set search_path = public
 as $$
 declare
   updated_count integer := 0;
+  expected_count integer := 0;
+  snapshot_count integer := 0;
 begin
   if coalesce(jsonb_typeof(item_updates), '') <> 'array' then
     raise exception 'item_updates must be a JSON array';
   end if;
 
-  if coalesce(jsonb_array_length(item_updates), 0) = 0 then
+  expected_count := coalesce(jsonb_array_length(item_updates), 0);
+
+  if expected_count = 0 then
     return 0;
   end if;
 
@@ -1038,6 +1079,22 @@ begin
     snapshot.line_total_ttc_cents
   from public.snapshot_estimate_item_bulk_updates(target_version_id, item_updates) snapshot;
 
+  select count(*)
+    into snapshot_count
+  from _estimate_item_bulk_snapshot;
+
+  if snapshot_count <> expected_count then
+    raise exception
+      using
+        errcode = 'P0001',
+        message = 'STALE_BULK_UPDATE_ITEMS',
+        detail = format(
+          'expected_count=%s,updated_count=%s',
+          expected_count,
+          snapshot_count
+        );
+  end if;
+
   update public.estimate_items item
   set position = -snapshot.item_position
   from _estimate_item_bulk_snapshot snapshot
@@ -1067,6 +1124,19 @@ begin
     and item.version_id = target_version_id;
 
   get diagnostics updated_count = row_count;
+
+  if updated_count <> expected_count then
+    raise exception
+      using
+        errcode = 'P0001',
+        message = 'STALE_BULK_UPDATE_ITEMS',
+        detail = format(
+          'expected_count=%s,updated_count=%s',
+          expected_count,
+          updated_count
+        );
+  end if;
+
   return updated_count;
 end;
 $$;
