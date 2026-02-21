@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
+import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
 import type { SupplierPrice } from "@/components/catalogue/types";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 
@@ -51,7 +52,7 @@ export function PricesManager() {
   const [searchSupplierId, setSearchSupplierId] = useState("");
   const [searchProductId, setSearchProductId] = useState("");
   const [formState, setFormState] = useState<SupplierPriceFormState>(EMPTY_FORM);
-  const [bulkPayload, setBulkPayload] = useState(
+  const [bulkPayload, setBulkPayload] = useState(() =>
     JSON.stringify(
       [
         {
@@ -279,6 +280,8 @@ export function PricesManager() {
 
   return (
     <div className="space-y-6">
+      <PriceBookCsvImport onImported={loadItems} />
+
       <section className="dashboard-card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
