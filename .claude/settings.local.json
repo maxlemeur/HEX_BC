@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(npm run build:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx next build:*)",
+      "Bash(git -C /home/tchau@france.groupe.intra/CascadeProjects/HEX_BC diff --stat)",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(pdftotext:*)",
+      "Bash(done)",
+      "Bash(npm install:*)"
     ]
   }
 }
