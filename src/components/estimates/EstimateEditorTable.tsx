@@ -188,6 +188,7 @@ function SortableRow({
   onUnitCommit,
   onCategoryChange,
   onCategoryCommit,
+  isDragDisabled,
   isReadOnly,
 }: {
   item: EstimateItem;
@@ -208,6 +209,7 @@ function SortableRow({
   onUnitCommit: (itemId: string) => void;
   onCategoryChange: (itemId: string, value: string) => void;
   onCategoryCommit: (itemId: string) => void;
+  isDragDisabled: boolean;
   isReadOnly: boolean;
 }) {
   const {
@@ -220,7 +222,7 @@ function SortableRow({
   } = useSortable({
     id: item.id,
     data: { parentId: item.parent_id ?? null },
-    disabled: isReadOnly,
+    disabled: isReadOnly || isDragDisabled,
   });
 
   const style = {
@@ -244,7 +246,7 @@ function SortableRow({
           <DragHandle
             listeners={listeners}
             attributes={attributes}
-            disabled={isReadOnly}
+            disabled={isReadOnly || isDragDisabled}
           />
           <input
             className="estimate-input estimate-input--title"
@@ -303,7 +305,7 @@ function SortableRow({
         <DragHandle
           listeners={listeners}
           attributes={attributes}
-          disabled={isReadOnly}
+          disabled={isReadOnly || isDragDisabled}
         />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <input
@@ -658,6 +660,7 @@ export function EstimateEditorTable({
   }
 
   const hasVisibleRows = getVisibleItems(null).length > 0;
+  const canReorder = !isReadOnly && qualityFilter === "all_lines";
 
   const mergedUnitDrafts = useMemo(() => {
     const next = { ...unitDrafts };
@@ -708,7 +711,7 @@ export function EstimateEditorTable({
   }
 
   function handleDragEnd(event: DragEndEvent) {
-    if (isReadOnly) return;
+    if (!canReorder) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -844,6 +847,7 @@ export function EstimateEditorTable({
                   setCategoryDrafts((prev) => ({ ...prev, [id]: value }))
                 }
                 onCategoryCommit={handleCategoryCommit}
+                isDragDisabled={!canReorder}
                 isReadOnly={isReadOnly}
               />
               {renderSuggestionRow(item)}

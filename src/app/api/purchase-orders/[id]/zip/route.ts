@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { Readable } from "stream";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getOwnedPurchaseOrderOrNull } from "../route";
+import { getAccessiblePurchaseOrderOrNull } from "../route";
 
 export const runtime = "nodejs";
 
@@ -275,10 +275,9 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const order = await getOwnedPurchaseOrderOrNull<OrderRow>(
+  const order = await getAccessiblePurchaseOrderOrNull<OrderRow>(
     supabase,
     id,
-    user.id,
     "id, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name ), delivery_sites ( name )"
   );
 
@@ -299,7 +298,6 @@ export async function GET(
       .from("purchase_order_devis")
       .select("id, name, original_filename, storage_path, file_size_bytes, mime_type, position")
       .eq("purchase_order_id", id)
-      .eq("user_id", user.id)
       .order("position", { ascending: true }),
   ]);
 

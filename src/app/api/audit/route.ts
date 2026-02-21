@@ -44,23 +44,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  if (profileError) {
-    return NextResponse.json(
-      { error: profileError.message ?? "Unable to validate user role." },
-      { status: 500 }
-    );
-  }
-
-  if (!profile || profile.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const { searchParams } = new URL(request.url);
   const tableName = parseOptionalText(searchParams.get("table_name"));
   const estimateVersionId = parseOptionalText(
@@ -101,6 +84,10 @@ export async function GET(request: Request) {
   const { data, error } = await query;
 
   if (error) {
+    const normalized = (error.message ?? "").toLowerCase();
+    if (normalized.includes("row-level security")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     return NextResponse.json(
       { error: error.message ?? "Unable to fetch audit logs." },
       { status: 500 }

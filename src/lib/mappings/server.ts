@@ -670,7 +670,7 @@ async function upsertTemplate(
 
   const { data, error } = await supabase
     .from("mapping_templates")
-    .upsert(payload, { onConflict: "user_id,name" })
+    .upsert(payload, { onConflict: "tenant_id,user_id,name" })
     .select("*")
     .single();
 

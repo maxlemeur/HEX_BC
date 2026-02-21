@@ -827,7 +827,7 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
 
     if (!input.create_missing) continue;
 
-    const key = `${normalizeToken(candidate.reference)}||${normalizeToken(candidate.designation)}`;
+    const key = normalizeToken(candidate.reference);
     if (rowsToCreate.has(key)) continue;
     rowsToCreate.set(key, {
       reference: candidate.reference,
@@ -1298,7 +1298,7 @@ export async function bulkUpsertMaterialIndices(input: BulkUpsertMaterialIndices
   const { data: upserted, error: upsertError } = await supabase
     .from(MATERIAL_INDICES_TABLE)
     .upsert(fallbackRows, {
-      onConflict: "index_code,index_date",
+      onConflict: "tenant_id,index_code,index_date",
     })
     .select("id");
 

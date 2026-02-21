@@ -23,7 +23,17 @@ type ImportRow = Database["public"]["Tables"]["dpgf_imports"]["Row"];
 type ImportInsert = Database["public"]["Tables"]["dpgf_imports"]["Insert"];
 type ImportUpdate = Database["public"]["Tables"]["dpgf_imports"]["Update"];
 type RawRowInsert = Database["public"]["Tables"]["dpgf_rows_raw"]["Insert"];
+type TenantMembershipRow = Pick<
+  Database["public"]["Tables"]["tenant_memberships"]["Row"],
+  "tenant_id" | "role"
+>;
 type JsonRecord = Record<string, unknown>;
+type AuthenticatedContext = {
+  supabase: Supabase;
+  userId: string;
+  tenantId: string;
+  isTenantAdmin: boolean;
+};
 
 type ApiErrorCode =
   | "BAD_REQUEST"
@@ -295,7 +305,7 @@ function validateImportFile(file: File) {
   }
 }
 
-async function getAuthenticatedContext() {
+async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -305,10 +315,39 @@ async function getAuthenticatedContext() {
     throw unauthorized();
   }
 
+  const membership = await getCurrentMembershipOrThrow(supabase, user.id);
+
   return {
     supabase,
     userId: user.id,
+    tenantId: membership.tenant_id,
+    isTenantAdmin: membership.role === "admin",
   };
+}
+
+async function getCurrentMembershipOrThrow(
+  supabase: Supabase,
+  userId: string
+): Promise<TenantMembershipRow> {
+  const { data, error } = await supabase
+    .from("tenant_memberships")
+    .select("tenant_id, role, is_default, created_at")
+    .eq("user_id", userId)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger le tenant courant.");
+  }
+
+  const membership = data?.[0] as TenantMembershipRow | undefined;
+
+  if (!membership) {
+    throw forbidden("Aucun tenant actif pour cet utilisateur.");
+  }
+
+  return membership;
 }
 
 async function createImportRecord(
@@ -405,13 +444,19 @@ function formatUnexpectedImportError(error: unknown): ImportsApiError {
 }
 
 export async function listUserImports() {
-  const { supabase, userId } = await getAuthenticatedContext();
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("dpgf_imports")
     .select(IMPORT_SELECT_COLUMNS)
-    .eq("user_id", userId)
+    .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false });
+
+  if (!isTenantAdmin) {
+    query = query.eq("user_id", userId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de recuperer les imports.");
@@ -439,7 +484,7 @@ export async function createImportFromJsonBody(body: unknown) {
   const sourceFormat = resolveSourceFormatInput(input);
   const storagePath = toOptionalNonEmptyString(input.storagePath);
   const fileSizeBytes = parseFileSizeBytes(input.fileSizeBytes);
-  const { supabase, userId } = await getAuthenticatedContext();
+  const { supabase, userId, tenantId } = await getAuthenticatedContext();
 
   let importRecord: ImportRow | null = null;
 
@@ -447,6 +492,7 @@ export async function createImportFromJsonBody(body: unknown) {
     const normalizedRows = normalizeRowsFromJson(rawRows);
 
     importRecord = await createImportRecord(supabase, {
+      tenant_id: tenantId,
       user_id: userId,
       filename,
       source_format: sourceFormat,
@@ -486,7 +532,7 @@ export async function createImportFromMultipartFormData(formData: FormData) {
 
   validateImportFile(fileEntry);
 
-  const { supabase, userId } = await getAuthenticatedContext();
+  const { supabase, userId, tenantId } = await getAuthenticatedContext();
   const filename = sanitizeFilename(
     toOptionalNonEmptyString(formData.get("filename")) ??
       toOptionalNonEmptyString(fileEntry.name) ??
@@ -510,6 +556,7 @@ export async function createImportFromMultipartFormData(formData: FormData) {
 
   try {
     importRecord = await createImportRecord(supabase, {
+      tenant_id: tenantId,
       user_id: userId,
       filename,
       source_format: sourceFormat,

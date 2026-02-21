@@ -17,6 +17,15 @@ const optionalTextSchema = z
     return trimmed.length > 0 ? trimmed : null;
   });
 
+const optionalTextUpdateSchema = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((value) => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  });
+
 const positiveIntegerSchema = z.number().int().min(1, "Valeur numerique invalide.");
 const positiveNumberSchema = z.number().gt(0, "Valeur numerique invalide.");
 const nonNegativeIntegerSchema = z.number().int().min(0, "Valeur numerique invalide.");
@@ -51,6 +60,25 @@ const optionalDateSchema = z
     return trimmed;
   });
 
+const optionalDateUpdateSchema = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((value, ctx) => {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    if (!isValidDateOnly(trimmed)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Date invalide (YYYY-MM-DD).",
+      });
+      return z.NEVER;
+    }
+
+    return trimmed;
+  });
+
 export const catalogueListQuerySchema = z.object({
   search: z.union([z.string(), z.null()]).optional(),
   limit: positiveIntegerSchema.max(500).optional().default(100),
@@ -66,19 +94,33 @@ const catalogueWriteFieldsSchema = z.object({
   unit: optionalTextSchema,
   category: optionalTextSchema,
   notes: optionalTextSchema,
+  is_active: z.boolean().optional(),
+});
+
+const catalogueCreateFieldsSchema = catalogueWriteFieldsSchema.extend({
   is_active: z.boolean().optional().default(true),
 });
 
-const createCatalogueItemBodySchema = catalogueWriteFieldsSchema.superRefine((payload, ctx) => {
-  if (payload.reference || payload.hex_code) return;
-  ctx.addIssue({
-    code: z.ZodIssueCode.custom,
-    path: ["reference"],
-    message: "Le champ reference (ou hex_code) est requis.",
-  });
+const catalogueUpdateFieldsSchema = catalogueWriteFieldsSchema.extend({
+  reference: optionalTextUpdateSchema,
+  hex_code: optionalTextUpdateSchema,
+  unit: optionalTextUpdateSchema,
+  category: optionalTextUpdateSchema,
+  notes: optionalTextUpdateSchema,
 });
 
-const updateCatalogueItemBodySchema = catalogueWriteFieldsSchema.partial().superRefine(
+const createCatalogueItemBodySchema = catalogueCreateFieldsSchema.superRefine(
+  (payload, ctx) => {
+    if (payload.reference || payload.hex_code) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["reference"],
+      message: "Le champ reference (ou hex_code) est requis.",
+    });
+  }
+);
+
+const updateCatalogueItemBodySchema = catalogueUpdateFieldsSchema.partial().superRefine(
   (payload, ctx) => {
     if (Object.keys(payload).length > 0) return;
     ctx.addIssue({
@@ -136,7 +178,7 @@ const supplierPriceWriteFieldsSchema = z.object({
   unit: optionalTextSchema,
   min_quantity: optionalPositiveNumberSchema,
   unit_price_cents: nonNegativeIntegerSchema,
-  currency: z.string().trim().min(3).max(3).optional().default("EUR"),
+  currency: z.string().trim().min(3).max(3).optional(),
   valid_from: optionalDateSchema,
   valid_to: optionalDateSchema,
   is_active: z.boolean().optional(),
@@ -161,13 +203,26 @@ const ensureProductIdentifier = (
   });
 };
 
-const createSupplierPriceBodySchema = supplierPriceWriteFieldsSchema.superRefine(
+const supplierPriceCreateFieldsSchema = supplierPriceWriteFieldsSchema.extend({
+  currency: z.string().trim().min(3).max(3).optional().default("EUR"),
+});
+
+const supplierPriceUpdateFieldsSchema = supplierPriceWriteFieldsSchema.extend({
+  supplier_sku: optionalTextUpdateSchema,
+  unit: optionalTextUpdateSchema,
+  valid_from: optionalDateUpdateSchema,
+  valid_to: optionalDateUpdateSchema,
+  source: optionalTextUpdateSchema,
+  notes: optionalTextUpdateSchema,
+});
+
+const createSupplierPriceBodySchema = supplierPriceCreateFieldsSchema.superRefine(
   (payload, ctx) => {
     ensureProductIdentifier(payload, ctx);
   }
 );
 
-const updateSupplierPriceBodySchema = supplierPriceWriteFieldsSchema.partial().superRefine(
+const updateSupplierPriceBodySchema = supplierPriceUpdateFieldsSchema.partial().superRefine(
   (payload, ctx) => {
     if (Object.keys(payload).length === 0) {
       ctx.addIssue({
@@ -203,7 +258,7 @@ export const deleteSupplierPriceSchema = z.object({
   id: z.string().uuid(UUID_ERROR_MESSAGE),
 });
 
-const bulkCreatePriceItemSchema = supplierPriceWriteFieldsSchema
+const bulkCreatePriceItemSchema = supplierPriceCreateFieldsSchema
   .extend({
     external_ref: optionalTextSchema,
   })
@@ -279,7 +334,17 @@ const createMaterialIndexBodySchema = materialIndexWriteFieldsSchema.superRefine
   }
 );
 
-const updateMaterialIndexBodySchema = materialIndexWriteFieldsSchema.partial().superRefine(
+const materialIndexUpdateFieldsSchema = materialIndexWriteFieldsSchema.extend({
+  index_code: optionalTextUpdateSchema,
+  code: optionalTextUpdateSchema,
+  index_date: optionalDateUpdateSchema,
+  effective_date: optionalDateUpdateSchema,
+  unit: optionalTextUpdateSchema,
+  source: optionalTextUpdateSchema,
+  notes: optionalTextUpdateSchema,
+});
+
+const updateMaterialIndexBodySchema = materialIndexUpdateFieldsSchema.partial().superRefine(
   (payload, ctx) => {
     if (Object.keys(payload).length === 0) {
       ctx.addIssue({

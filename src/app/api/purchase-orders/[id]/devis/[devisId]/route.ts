@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getOwnedPurchaseOrderOrNull } from "../../route";
+import { getAccessiblePurchaseOrderOrNull } from "../../route";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
@@ -70,10 +70,10 @@ export async function PATCH(
     );
   }
 
-  const order = await getOwnedPurchaseOrderOrNull<{
+  const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     status: "draft" | "sent" | "confirmed" | "received" | "canceled";
-  }>(supabase, id, user.id, "id, status");
+  }>(supabase, id, "id, status");
 
   if (!order) {
     return NextResponse.json(
@@ -94,7 +94,6 @@ export async function PATCH(
     .update({ name })
     .eq("id", devisId)
     .eq("purchase_order_id", id)
-    .eq("user_id", user.id)
     .select(
       "id, created_at, name, original_filename, storage_path, file_size_bytes, mime_type, position"
     )
@@ -131,10 +130,10 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const order = await getOwnedPurchaseOrderOrNull<{
+  const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     status: "draft" | "sent" | "confirmed" | "received" | "canceled";
-  }>(supabase, id, user.id, "id, status");
+  }>(supabase, id, "id, status");
 
   if (!order) {
     return NextResponse.json(
@@ -155,7 +154,6 @@ export async function DELETE(
     .select("id, storage_path")
     .eq("id", devisId)
     .eq("purchase_order_id", id)
-    .eq("user_id", user.id)
     .single();
 
   if (devisError || !devis) {
@@ -174,8 +172,7 @@ export async function DELETE(
     .from("purchase_order_devis")
     .delete()
     .eq("id", devisId)
-    .eq("purchase_order_id", id)
-    .eq("user_id", user.id);
+    .eq("purchase_order_id", id);
 
   if (deleteError) {
     return NextResponse.json({ error: deleteError.message }, { status: 400 });

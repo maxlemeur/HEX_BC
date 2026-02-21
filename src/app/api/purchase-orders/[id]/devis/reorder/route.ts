@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getOwnedPurchaseOrderOrNull } from "../../route";
+import { getAccessiblePurchaseOrderOrNull } from "../../route";
 
 type ReorderRequestBody = {
   orderedIds: string[];
@@ -46,10 +46,10 @@ export async function PATCH(
     );
   }
 
-  const order = await getOwnedPurchaseOrderOrNull<{
+  const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     status: "draft" | "sent" | "confirmed" | "received" | "canceled";
-  }>(supabase, id, user.id, "id, status");
+  }>(supabase, id, "id, status");
 
   if (!order) {
     return NextResponse.json(
@@ -68,8 +68,7 @@ export async function PATCH(
   const { data: existingDevis, error: fetchError } = await supabase
     .from("purchase_order_devis")
     .select("id")
-    .eq("purchase_order_id", id)
-    .eq("user_id", user.id);
+    .eq("purchase_order_id", id);
 
   if (fetchError) {
     return NextResponse.json({ error: fetchError.message }, { status: 400 });

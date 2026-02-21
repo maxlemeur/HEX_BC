@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { validateFileForUpload } from "@/lib/file-validation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getOwnedPurchaseOrderOrNull } from "../route";
+import { getAccessiblePurchaseOrderOrNull } from "../route";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
@@ -84,10 +84,9 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const order = await getOwnedPurchaseOrderOrNull<{ id: string }>(
+  const order = await getAccessiblePurchaseOrderOrNull<{ id: string }>(
     supabase,
     id,
-    user.id,
     "id"
   );
 
@@ -104,7 +103,6 @@ export async function GET(
       "id, created_at, name, original_filename, storage_path, file_size_bytes, mime_type, position"
     )
     .eq("purchase_order_id", id)
-    .eq("user_id", user.id)
     .order("position", { ascending: true });
 
   if (devisError) {
@@ -177,10 +175,10 @@ export async function POST(
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
-  const order = await getOwnedPurchaseOrderOrNull<{
+  const order = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     status: "draft" | "sent" | "confirmed" | "received" | "canceled";
-  }>(supabase, id, user.id, "id, status");
+  }>(supabase, id, "id, status");
 
   if (!order) {
     return NextResponse.json(
@@ -205,7 +203,6 @@ export async function POST(
     .from("purchase_order_devis")
     .select("position")
     .eq("purchase_order_id", id)
-    .eq("user_id", user.id)
     .order("position", { ascending: false })
     .limit(1);
 

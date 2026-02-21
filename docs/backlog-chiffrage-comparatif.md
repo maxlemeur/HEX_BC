@@ -249,7 +249,7 @@ Converger `HEX_BC` vers un niveau fonctionnel et technique comparable au projet 
 - Priorite: `P2`
 - Effort: `XL`
 - Type: Fonctionnel + Technique
-- Statut: `IN_PROGRESS` (2026-02-21)
+- Statut: `DONE` (2026-02-21)
 - Description:
   - Introduire isolation par tenant et roles (`admin/engineer/viewer`) sur l'ensemble du domaine.
 - Fichiers cibles:
@@ -259,9 +259,10 @@ Converger `HEX_BC` vers un niveau fonctionnel et technique comparable au projet 
   - `src/app/api/**` (ajout tenant context)
 - Taches:
   - Tables `tenants`, `tenant_memberships` et adaptation des FK. (`DONE`)
-  - Propagation `tenant_id` dans les requetes serveur prioritaires S1-S4. (`DONE` partiel, via RLS + filtres API)
-  - Ecrans/admin API de gestion des memberships. (`TODO`)
-  - Harmoniser tous les controles API sur `tenant_role` (admin/engineer/viewer) et retirer les checks legacy `profiles.role`. (`TODO`)
+  - Propagation `tenant_id` dans les requetes serveur prioritaires S1-S4. (`DONE`, via RLS + filtres API)
+  - Ecrans/admin API de gestion des memberships. (`DONE`, lot initial: listing + set-role + set-default)
+  - Harmoniser tous les controles API sur `tenant_role` (admin/engineer/viewer) et retirer les checks legacy `profiles.role`. (`DONE`, lot final: estimates + imports/mappings + purchase-orders + audit)
+  - Migrations operationnelles a appliquer sur les environnements distants: `019_reorder_purchase_order_devis_tenant_access_s5.sql`, `020_multitenant_unique_keys_s5.sql`. (`TODO` ops, connecteur MCP Supabase a re-authentifier)
 - Criteres d'acceptation:
   - Un utilisateur ne voit que les donnees de son tenant.
   - Les autorisations rolees sont appliquees en API + DB.

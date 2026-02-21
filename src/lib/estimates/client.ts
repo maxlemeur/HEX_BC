@@ -526,6 +526,10 @@ export async function bulkUpdateEstimateItems(
     updates: Database["public"]["Tables"]["estimate_items"]["Update"];
   }>
 ): Promise<void> {
+  if (updates.length === 0) {
+    return;
+  }
+
   await requestJson<unknown>(
     `/api/estimates/${versionId}/items/bulk`,
     {

@@ -26,17 +26,15 @@ type UpdatePurchaseOrderPayload = {
   items?: LinePayload[];
 };
 
-export async function getOwnedPurchaseOrderOrNull<T extends Record<string, unknown>>(
+export async function getAccessiblePurchaseOrderOrNull<T extends Record<string, unknown>>(
   supabase: Supabase,
   orderId: string,
-  userId: string,
   selectColumns: string
 ): Promise<T | null> {
   const { data, error } = await supabase
     .from("purchase_orders")
     .select(selectColumns)
     .eq("id", orderId)
-    .eq("user_id", userId)
     .single();
 
   if (error || !data) {
@@ -90,10 +88,10 @@ export async function PUT(
   }
 
   // Fetch existing order
-  const existingOrder = await getOwnedPurchaseOrderOrNull<{
+  const existingOrder = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     status: PurchaseOrderStatus;
-  }>(supabase, id, user.id, "id, status");
+  }>(supabase, id, "id, status");
 
   if (!existingOrder) {
     return NextResponse.json(
@@ -145,8 +143,7 @@ export async function PUT(
     const { error: updateError } = await supabase
       .from("purchase_orders")
       .update(headerUpdate)
-      .eq("id", id)
-      .eq("user_id", user.id);
+      .eq("id", id);
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 400 });
@@ -237,8 +234,7 @@ export async function PUT(
         total_tax_cents: orderTotals.totalTaxCents,
         total_ttc_cents: orderTotals.totalTtcCents,
       })
-      .eq("id", id)
-      .eq("user_id", user.id);
+      .eq("id", id);
 
     if (totalsError) {
       return NextResponse.json({ error: totalsError.message }, { status: 400 });
@@ -264,10 +260,10 @@ export async function DELETE(
   }
 
   // Fetch existing order
-  const existingOrder = await getOwnedPurchaseOrderOrNull<{
+  const existingOrder = await getAccessiblePurchaseOrderOrNull<{
     id: string;
     status: PurchaseOrderStatus;
-  }>(supabase, id, user.id, "id, status");
+  }>(supabase, id, "id, status");
 
   if (!existingOrder) {
     return NextResponse.json(
@@ -288,8 +284,7 @@ export async function DELETE(
   const { error: deleteError } = await supabase
     .from("purchase_orders")
     .delete()
-    .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("id", id);
 
   if (deleteError) {
     return NextResponse.json({ error: deleteError.message }, { status: 400 });

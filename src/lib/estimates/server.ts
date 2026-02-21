@@ -49,10 +49,22 @@ type SuggestionRuleUpdate =
 type SuggestionRuleRow =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
+type TenantRole = Database["public"]["Enums"]["tenant_role"];
+type TenantMembershipRow = Pick<
+  Database["public"]["Tables"]["tenant_memberships"]["Row"],
+  "tenant_id" | "role" | "is_default" | "created_at"
+>;
 
 type EmbeddedProjectAccess = Pick<
   EstimateProjectRow,
-  "id" | "user_id" | "name" | "reference" | "client_name" | "notes" | "is_archived"
+  | "id"
+  | "tenant_id"
+  | "user_id"
+  | "name"
+  | "reference"
+  | "client_name"
+  | "notes"
+  | "is_archived"
 >;
 
 type VersionAccessRow = Pick<
@@ -90,12 +102,38 @@ const DEFAULT_TAX_RATE_BP = 2000;
 const DEFAULT_ROUNDING_MODE: EstimateVersionRow["rounding_mode"] = "none";
 const DEFAULT_ROUNDING_STEP_CENTS = 1;
 const DEFAULT_CURRENCY = "EUR";
+const TENANT_ADMIN_ROLE: TenantRole = "admin";
+const STALE_BULK_UPDATE_ERROR_MESSAGE = "STALE_BULK_UPDATE_ITEMS";
+
+type AuthenticatedContext = {
+  supabase: Supabase;
+  userId: string;
+  tenantId: string;
+  tenantRole: TenantRole;
+};
 
 const DEFAULT_ESTIMATE_CATEGORIES = [
   { name: "Materiaux", position: 1 },
   { name: "Main d'oeuvre", position: 2 },
   { name: "Sous-traitance", position: 3 },
 ] as const;
+
+function parseBulkUpdateCountDetails(details: string | null | undefined) {
+  const match = details?.match(/expected_count=(\d+),updated_count=(\d+)/);
+  if (!match) return null;
+
+  const expectedCount = Number.parseInt(match[1], 10);
+  const updatedCount = Number.parseInt(match[2], 10);
+
+  if (!Number.isFinite(expectedCount) || !Number.isFinite(updatedCount)) {
+    return null;
+  }
+
+  return {
+    expected_count: expectedCount,
+    updated_count: updatedCount,
+  };
+}
 
 function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   if (!value) return null;
@@ -113,7 +151,21 @@ function todayDateOnly() {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function getAuthenticatedContext() {
+function isTenantAdmin(tenantRole: TenantRole) {
+  return tenantRole === TENANT_ADMIN_ROLE;
+}
+
+function canAccessOwnerResource(input: {
+  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
+  resourceUserId: string;
+}) {
+  return (
+    input.resourceUserId === input.context.userId ||
+    isTenantAdmin(input.context.tenantRole)
+  );
+}
+
+async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -123,23 +175,44 @@ async function getAuthenticatedContext() {
     throw unauthorized();
   }
 
+  const { data: memberships, error: membershipError } = await supabase
+    .from("tenant_memberships")
+    .select("tenant_id, role, is_default, created_at")
+    .eq("user_id", user.id)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  if (membershipError) {
+    throw mapSupabaseError(membershipError, "Impossible de charger le tenant courant.");
+  }
+
+  const membership = memberships?.[0] as TenantMembershipRow | undefined;
+
+  if (!membership?.tenant_id || !membership.role) {
+    throw forbidden("Aucun tenant actif pour cet utilisateur.");
+  }
+
   return {
     supabase,
     userId: user.id,
+    tenantId: membership.tenant_id,
+    tenantRole: membership.role,
   };
 }
 
 async function getVersionAccessOrThrow(
   supabase: Supabase,
   versionId: string,
-  userId: string
+  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
 ): Promise<{ version: VersionAccessRow; project: EmbeddedProjectAccess }> {
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_multiplier, tax_rate_bp, estimate_projects!inner(id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_multiplier, tax_rate_bp, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
+    .eq("tenant_id", context.tenantId)
     .single();
 
   if (error || !data) {
@@ -149,7 +222,14 @@ async function getVersionAccessOrThrow(
   const row = data as unknown as VersionAccessRow;
   const project = resolveEmbeddedOne(row.estimate_projects);
 
-  if (!project || project.user_id !== userId) {
+  if (
+    !project ||
+    project.tenant_id !== context.tenantId ||
+    !canAccessOwnerResource({
+      context,
+      resourceUserId: project.user_id,
+    })
+  ) {
     throw notFound("Version de chiffrage introuvable.");
   }
 
@@ -226,17 +306,30 @@ async function ensureParentIsValid({
 async function ensureCategoryIsValid(
   supabase: Supabase,
   categoryId: string | null,
-  userId: string
+  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
 ) {
   if (categoryId === null) return;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("estimate_categories")
-    .select("id, user_id")
+    .select("id, tenant_id, user_id")
     .eq("id", categoryId)
-    .single();
+    .eq("tenant_id", context.tenantId);
 
-  if (error || !data || data.user_id !== userId) {
+  if (!isTenantAdmin(context.tenantRole)) {
+    query = query.eq("user_id", context.userId);
+  }
+
+  const { data, error } = await query.single();
+
+  if (
+    error ||
+    !data ||
+    !canAccessOwnerResource({
+      context,
+      resourceUserId: data.user_id,
+    })
+  ) {
     throw badRequest("category_id invalide.");
   }
 }
@@ -244,17 +337,30 @@ async function ensureCategoryIsValid(
 async function resolveLaborRateCents(
   supabase: Supabase,
   laborRoleId: string | null,
-  userId: string
+  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
 ) {
   if (laborRoleId === null) return 0;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("labor_roles")
-    .select("id, user_id, hourly_rate_cents")
+    .select("id, tenant_id, user_id, hourly_rate_cents")
     .eq("id", laborRoleId)
-    .single();
+    .eq("tenant_id", context.tenantId);
 
-  if (error || !data || data.user_id !== userId) {
+  if (!isTenantAdmin(context.tenantRole)) {
+    query = query.eq("user_id", context.userId);
+  }
+
+  const { data, error } = await query.single();
+
+  if (
+    error ||
+    !data ||
+    !canAccessOwnerResource({
+      context,
+      resourceUserId: data.user_id,
+    })
+  ) {
     throw badRequest("labor_role_id invalide.");
   }
 
@@ -264,28 +370,50 @@ async function resolveLaborRateCents(
 async function ensureLaborRoleIsValid(
   supabase: Supabase,
   laborRoleId: string | null,
-  userId: string
+  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
 ) {
   if (laborRoleId === null) return;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("labor_roles")
-    .select("id, user_id")
+    .select("id, tenant_id, user_id")
     .eq("id", laborRoleId)
-    .single();
+    .eq("tenant_id", context.tenantId);
 
-  if (error || !data || data.user_id !== userId) {
+  if (!isTenantAdmin(context.tenantRole)) {
+    query = query.eq("user_id", context.userId);
+  }
+
+  const { data, error } = await query.single();
+
+  if (
+    error ||
+    !data ||
+    !canAccessOwnerResource({
+      context,
+      resourceUserId: data.user_id,
+    })
+  ) {
     throw badRequest("labor_role_id invalide.");
   }
 }
 
-async function getNextCategoryPosition(supabase: Supabase, userId: string) {
-  const { data, error } = await supabase
+async function getNextCategoryPosition(
+  supabase: Supabase,
+  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
+) {
+  let query = supabase
     .from("estimate_categories")
     .select("position")
-    .eq("user_id", userId)
+    .eq("tenant_id", context.tenantId)
     .order("position", { ascending: false })
     .limit(1);
+
+  if (!isTenantAdmin(context.tenantRole)) {
+    query = query.eq("user_id", context.userId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de determiner la prochaine position.");
@@ -294,13 +422,22 @@ async function getNextCategoryPosition(supabase: Supabase, userId: string) {
   return (data?.[0]?.position ?? 0) + 1;
 }
 
-async function getNextLaborRolePosition(supabase: Supabase, userId: string) {
-  const { data, error } = await supabase
+async function getNextLaborRolePosition(
+  supabase: Supabase,
+  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
+) {
+  let query = supabase
     .from("labor_roles")
     .select("position")
-    .eq("user_id", userId)
+    .eq("tenant_id", context.tenantId)
     .order("position", { ascending: false })
     .limit(1);
+
+  if (!isTenantAdmin(context.tenantRole)) {
+    query = query.eq("user_id", context.userId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de determiner la prochaine position.");
@@ -309,13 +446,22 @@ async function getNextLaborRolePosition(supabase: Supabase, userId: string) {
   return (data?.[0]?.position ?? 0) + 1;
 }
 
-async function getNextSuggestionRulePosition(supabase: Supabase, userId: string) {
-  const { data, error } = await supabase
+async function getNextSuggestionRulePosition(
+  supabase: Supabase,
+  context: Pick<AuthenticatedContext, "tenantId" | "tenantRole" | "userId">
+) {
+  let query = supabase
     .from("estimate_suggestion_rules")
     .select("position")
-    .eq("user_id", userId)
+    .eq("tenant_id", context.tenantId)
     .order("position", { ascending: false })
     .limit(1);
+
+  if (!isTenantAdmin(context.tenantRole)) {
+    query = query.eq("user_id", context.userId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de determiner la prochaine position.");
@@ -325,16 +471,23 @@ async function getNextSuggestionRulePosition(supabase: Supabase, userId: string)
 }
 
 export async function listLatestEstimates() {
-  const { supabase, userId } = await getAuthenticatedContext();
+  const { supabase, userId, tenantId, tenantRole } = await getAuthenticatedContext();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("estimate_versions")
     .select(
       "id, project_id, version_number, status, title, updated_at, total_ht_cents, estimate_projects!inner(id, name, reference, client_name, is_archived)"
     )
-    .eq("estimate_projects.user_id", userId)
+    .eq("tenant_id", tenantId)
+    .eq("estimate_projects.tenant_id", tenantId)
     .eq("estimate_projects.is_archived", false)
-    .neq("status", "archived")
+    .neq("status", "archived");
+
+  if (!isTenantAdmin(tenantRole)) {
+    query = query.eq("estimate_projects.user_id", userId);
+  }
+
+  const { data, error } = await query
     .order("version_number", { ascending: false })
     .order("updated_at", { ascending: false });
 
@@ -388,8 +541,9 @@ export async function listLatestEstimates() {
 }
 
 export async function duplicateEstimateVersion(versionId: string) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase } = context;
+  await getVersionAccessOrThrow(supabase, versionId, context);
 
   const { data, error } = await supabase.rpc("duplicate_estimate_version", {
     source_version_id: versionId,
@@ -408,11 +562,12 @@ export async function duplicateEstimateVersion(versionId: string) {
 }
 
 export async function createEstimate(input: CreateEstimateInput) {
-  const { supabase, userId } = await getAuthenticatedContext();
+  const { supabase, userId, tenantId } = await getAuthenticatedContext();
 
   const { data: project, error: projectError } = await supabase
     .from("estimate_projects")
     .insert({
+      tenant_id: tenantId,
       user_id: userId,
       name: input.project.name,
       reference: toNullableText(input.project.reference),
@@ -431,6 +586,7 @@ export async function createEstimate(input: CreateEstimateInput) {
   }
 
   const versionPayload: EstimateVersionInsert = {
+    tenant_id: tenantId,
     project_id: project.id,
     version_number: 1,
     status: "draft",
@@ -468,6 +624,7 @@ export async function createEstimate(input: CreateEstimateInput) {
 
   const categoriesPayload: EstimateCategoryInsert[] = DEFAULT_ESTIMATE_CATEGORIES.map(
     (category) => ({
+      tenant_id: tenantId,
       user_id: userId,
       name: category.name,
       position: category.position,
@@ -478,7 +635,7 @@ export async function createEstimate(input: CreateEstimateInput) {
   const { error: categoriesError } = await supabase
     .from("estimate_categories")
     .upsert(categoriesPayload, {
-      onConflict: "user_id,name",
+      onConflict: "tenant_id,user_id,name",
       ignoreDuplicates: true,
     });
 
@@ -494,14 +651,16 @@ export async function createEstimate(input: CreateEstimateInput) {
 }
 
 export async function getEstimateVersionDetails(versionId: string) {
-  const { supabase, userId } = await getAuthenticatedContext();
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, tenantRole } = context;
 
   const { data: versionData, error: versionError } = await supabase
     .from("estimate_versions")
     .select(
-      "*, estimate_projects!inner(id, user_id, name, reference, client_name, notes, is_archived)"
+      "*, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
+    .eq("tenant_id", tenantId)
     .single();
 
   if (versionError || !versionData) {
@@ -511,8 +670,37 @@ export async function getEstimateVersionDetails(versionId: string) {
   const version = versionData as unknown as EstimateVersionDetailsRow;
   const project = resolveEmbeddedOne(version.estimate_projects);
 
-  if (!project || project.user_id !== userId) {
+  if (
+    !project ||
+    project.tenant_id !== tenantId ||
+    !canAccessOwnerResource({
+      context,
+      resourceUserId: project.user_id,
+    })
+  ) {
     throw notFound("Version de chiffrage introuvable.");
+  }
+
+  let categoriesQuery = supabase
+    .from("estimate_categories")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true });
+  let laborRolesQuery = supabase
+    .from("labor_roles")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true });
+  let rulesQuery = supabase
+    .from("estimate_suggestion_rules")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: true });
+
+  if (!isTenantAdmin(tenantRole)) {
+    categoriesQuery = categoriesQuery.eq("user_id", context.userId);
+    laborRolesQuery = laborRolesQuery.eq("user_id", context.userId);
+    rulesQuery = rulesQuery.eq("user_id", context.userId);
   }
 
   const [itemsResult, categoriesResult, laborRolesResult, rulesResult] =
@@ -520,23 +708,12 @@ export async function getEstimateVersionDetails(versionId: string) {
       supabase
         .from("estimate_items")
         .select("*")
+        .eq("tenant_id", tenantId)
         .eq("version_id", versionId)
         .order("position", { ascending: true }),
-      supabase
-        .from("estimate_categories")
-        .select("*")
-        .eq("user_id", userId)
-        .order("position", { ascending: true }),
-      supabase
-        .from("labor_roles")
-        .select("*")
-        .eq("user_id", userId)
-        .order("position", { ascending: true }),
-      supabase
-        .from("estimate_suggestion_rules")
-        .select("*")
-        .eq("user_id", userId)
-        .order("position", { ascending: true }),
+      categoriesQuery,
+      laborRolesQuery,
+      rulesQuery,
     ]);
 
   if (itemsResult.error) {
@@ -577,12 +754,14 @@ export async function getEstimateVersionDetails(versionId: string) {
 }
 
 export async function listEstimateItems(versionId: string) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  await getVersionAccessOrThrow(supabase, versionId, context);
 
   const { data, error } = await supabase
     .from("estimate_items")
     .select("*")
+    .eq("tenant_id", tenantId)
     .eq("version_id", versionId)
     .order("position", { ascending: true });
 
@@ -599,8 +778,9 @@ export async function patchEstimateVersion(
   versionId: string,
   input: PatchEstimateVersionInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
 
@@ -650,6 +830,7 @@ export async function patchEstimateVersion(
     .from("estimate_versions")
     .update(payload)
     .eq("id", versionId)
+    .eq("tenant_id", tenantId)
     .select("*")
     .single();
 
@@ -669,14 +850,16 @@ export async function patchEstimateStatus(
   versionId: string,
   input: PatchEstimateStatusInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   if (version.status === input.status) {
     const { data, error } = await supabase
       .from("estimate_versions")
       .select("*")
       .eq("id", versionId)
+      .eq("tenant_id", tenantId)
       .single();
 
     if (error || !data) {
@@ -695,6 +878,7 @@ export async function patchEstimateStatus(
     .from("estimate_versions")
     .update({ status: input.status })
     .eq("id", versionId)
+    .eq("tenant_id", tenantId)
     .select("*")
     .single();
 
@@ -714,15 +898,17 @@ export async function createEstimateCategory(
   versionId: string,
   input: CreateEstimateCategoryInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, userId, tenantId } = context;
+  await getVersionAccessOrThrow(supabase, versionId, context);
 
   const position =
-    input.position ?? (await getNextCategoryPosition(supabase, userId));
+    input.position ?? (await getNextCategoryPosition(supabase, context));
 
   const { data, error } = await supabase
     .from("estimate_categories")
     .insert({
+      tenant_id: tenantId,
       user_id: userId,
       name: input.name.trim(),
       color: toNullableText(input.color),
@@ -747,15 +933,17 @@ export async function createLaborRole(
   versionId: string,
   input: CreateLaborRoleInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, userId, tenantId } = context;
+  await getVersionAccessOrThrow(supabase, versionId, context);
 
   const position =
-    input.position ?? (await getNextLaborRolePosition(supabase, userId));
+    input.position ?? (await getNextLaborRolePosition(supabase, context));
 
   const { data, error } = await supabase
     .from("labor_roles")
     .insert({
+      tenant_id: tenantId,
       user_id: userId,
       name: input.name.trim(),
       hourly_rate_cents: input.hourly_rate_cents ?? 0,
@@ -782,15 +970,21 @@ export async function updateLaborRole(
   roleId: string,
   input: UpdateLaborRoleInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, userId, tenantId, tenantRole } = context;
+  await getVersionAccessOrThrow(supabase, versionId, context);
 
-  const { data: existingRole, error: existingRoleError } = await supabase
+  let existingRoleQuery = supabase
     .from("labor_roles")
     .select("id")
     .eq("id", roleId)
-    .eq("user_id", userId)
-    .single();
+    .eq("tenant_id", tenantId);
+
+  if (!isTenantAdmin(tenantRole)) {
+    existingRoleQuery = existingRoleQuery.eq("user_id", userId);
+  }
+
+  const { data: existingRole, error: existingRoleError } = await existingRoleQuery.single();
 
   if (existingRoleError || !existingRole) {
     throw notFound("Role introuvable.");
@@ -804,13 +998,17 @@ export async function updateLaborRole(
   if ("is_active" in input) payload.is_active = input.is_active;
   if ("position" in input) payload.position = input.position;
 
-  const { data, error } = await supabase
+  let updateRoleQuery = supabase
     .from("labor_roles")
     .update(payload)
     .eq("id", roleId)
-    .eq("user_id", userId)
-    .select("*")
-    .single();
+    .eq("tenant_id", tenantId);
+
+  if (!isTenantAdmin(tenantRole)) {
+    updateRoleQuery = updateRoleQuery.eq("user_id", userId);
+  }
+
+  const { data, error } = await updateRoleQuery.select("*").single();
 
   if (error || !data) {
     if (error) {
@@ -828,20 +1026,22 @@ export async function createSuggestionRule(
   versionId: string,
   input: CreateSuggestionRuleInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, userId, tenantId } = context;
+  await getVersionAccessOrThrow(supabase, versionId, context);
 
   const categoryId = input.category_id ?? null;
   const laborRoleId = input.labor_role_id ?? null;
-  await ensureCategoryIsValid(supabase, categoryId, userId);
-  await ensureLaborRoleIsValid(supabase, laborRoleId, userId);
+  await ensureCategoryIsValid(supabase, categoryId, context);
+  await ensureLaborRoleIsValid(supabase, laborRoleId, context);
 
   const position =
-    input.position ?? (await getNextSuggestionRulePosition(supabase, userId));
+    input.position ?? (await getNextSuggestionRulePosition(supabase, context));
 
   const { data, error } = await supabase
     .from("estimate_suggestion_rules")
     .insert({
+      tenant_id: tenantId,
       user_id: userId,
       name: input.name.trim(),
       match_type: input.match_type ?? "keyword",
@@ -874,15 +1074,21 @@ export async function updateSuggestionRule(
   ruleId: string,
   input: UpdateSuggestionRuleInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, userId, tenantId, tenantRole } = context;
+  await getVersionAccessOrThrow(supabase, versionId, context);
 
-  const { data: existingRule, error: existingRuleError } = await supabase
+  let existingRuleQuery = supabase
     .from("estimate_suggestion_rules")
     .select("id")
     .eq("id", ruleId)
-    .eq("user_id", userId)
-    .single();
+    .eq("tenant_id", tenantId);
+
+  if (!isTenantAdmin(tenantRole)) {
+    existingRuleQuery = existingRuleQuery.eq("user_id", userId);
+  }
+
+  const { data: existingRule, error: existingRuleError } = await existingRuleQuery.single();
 
   if (existingRuleError || !existingRule) {
     throw notFound("Regle introuvable.");
@@ -894,10 +1100,10 @@ export async function updateSuggestionRule(
     "labor_role_id" in input ? (input.labor_role_id ?? null) : undefined;
 
   if (categoryId !== undefined) {
-    await ensureCategoryIsValid(supabase, categoryId, userId);
+    await ensureCategoryIsValid(supabase, categoryId, context);
   }
   if (laborRoleId !== undefined) {
-    await ensureLaborRoleIsValid(supabase, laborRoleId, userId);
+    await ensureLaborRoleIsValid(supabase, laborRoleId, context);
   }
 
   const payload: SuggestionRuleUpdate = {};
@@ -914,13 +1120,17 @@ export async function updateSuggestionRule(
   if ("position" in input) payload.position = input.position;
   if ("is_active" in input) payload.is_active = input.is_active;
 
-  const { data, error } = await supabase
+  let updateRuleQuery = supabase
     .from("estimate_suggestion_rules")
     .update(payload)
     .eq("id", ruleId)
-    .eq("user_id", userId)
-    .select("*")
-    .single();
+    .eq("tenant_id", tenantId);
+
+  if (!isTenantAdmin(tenantRole)) {
+    updateRuleQuery = updateRuleQuery.eq("user_id", userId);
+  }
+
+  const { data, error } = await updateRuleQuery.select("*").single();
 
   if (error || !data) {
     if (error) {
@@ -938,8 +1148,9 @@ export async function createEstimateItem(
   versionId: string,
   input: CreateEstimateItemInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
 
@@ -958,6 +1169,7 @@ export async function createEstimateItem(
     const { data, error } = await supabase
       .from("estimate_items")
       .insert({
+        tenant_id: tenantId,
         version_id: versionId,
         parent_id: parentId,
         item_type: "section",
@@ -990,8 +1202,8 @@ export async function createEstimateItem(
   const laborRoleId = input.labor_role_id ?? null;
   const categoryId = input.category_id ?? null;
 
-  await ensureCategoryIsValid(supabase, categoryId, userId);
-  const laborRateCents = await resolveLaborRateCents(supabase, laborRoleId, userId);
+  await ensureCategoryIsValid(supabase, categoryId, context);
+  const laborRateCents = await resolveLaborRateCents(supabase, laborRoleId, context);
 
   const lineValues = computeEstimateLineValues(
     {
@@ -1013,6 +1225,7 @@ export async function createEstimateItem(
   const { data, error } = await supabase
     .from("estimate_items")
     .insert({
+      tenant_id: tenantId,
       version_id: versionId,
       parent_id: parentId,
       item_type: "line",
@@ -1063,14 +1276,16 @@ export async function updateEstimateItem(
   versionId: string,
   input: UpdateEstimateItemInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
 
   const { data: currentItem, error: currentItemError } = await supabase
     .from("estimate_items")
     .select("*")
+    .eq("tenant_id", tenantId)
     .eq("id", input.id)
     .eq("version_id", versionId)
     .single();
@@ -1115,6 +1330,7 @@ export async function updateEstimateItem(
     const { data, error } = await supabase
       .from("estimate_items")
       .update(payload)
+      .eq("tenant_id", tenantId)
       .eq("id", currentItem.id)
       .eq("version_id", versionId)
       .select("*")
@@ -1161,8 +1377,12 @@ export async function updateEstimateItem(
     ("position" in input ? input.position : currentItem.position) ??
     currentItem.position;
 
-  await ensureCategoryIsValid(supabase, nextCategoryId, userId);
-  const laborRateCents = await resolveLaborRateCents(supabase, nextLaborRoleId, userId);
+  await ensureCategoryIsValid(supabase, nextCategoryId, context);
+  const laborRateCents = await resolveLaborRateCents(
+    supabase,
+    nextLaborRoleId,
+    context
+  );
 
   const lineValues = computeEstimateLineValues(
     {
@@ -1203,6 +1423,7 @@ export async function updateEstimateItem(
   const { data, error } = await supabase
     .from("estimate_items")
     .update(payload)
+    .eq("tenant_id", tenantId)
     .eq("id", currentItem.id)
     .eq("version_id", versionId)
     .select("*")
@@ -1224,8 +1445,9 @@ export async function bulkUpdateEstimateItems(
   versionId: string,
   input: BulkUpdateEstimateItemsInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
 
@@ -1240,23 +1462,27 @@ export async function bulkUpdateEstimateItems(
   );
 
   if (bulkUpdateError) {
+    if (
+      bulkUpdateError.code === "P0001" &&
+      bulkUpdateError.message === STALE_BULK_UPDATE_ERROR_MESSAGE
+    ) {
+      const parsedDetails = parseBulkUpdateCountDetails(bulkUpdateError.details);
+      throw conflict(
+        "La liste de mise a jour est obsolete.",
+        parsedDetails ?? {
+          expected_count: input.length,
+        }
+      );
+    }
+
     throw mapSupabaseError(
       bulkUpdateError,
       "Impossible de mettre a jour les lignes."
     );
   }
 
-  const normalizedUpdatedCount = updatedCount ?? 0;
-
-  if (normalizedUpdatedCount !== input.length) {
-    throw conflict("La liste de mise a jour est obsolete.", {
-      expected_count: input.length,
-      updated_count: normalizedUpdatedCount,
-    });
-  }
-
   return {
-    updated_count: normalizedUpdatedCount,
+    updated_count: updatedCount ?? 0,
   };
 }
 
@@ -1264,14 +1490,16 @@ export async function deleteEstimateItem(
   versionId: string,
   input: DeleteEstimateItemInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
 
   const { data: currentItem, error: currentItemError } = await supabase
     .from("estimate_items")
     .select("id")
+    .eq("tenant_id", tenantId)
     .eq("id", input.id)
     .eq("version_id", versionId)
     .single();
@@ -1283,6 +1511,7 @@ export async function deleteEstimateItem(
   const { error } = await supabase
     .from("estimate_items")
     .delete()
+    .eq("tenant_id", tenantId)
     .eq("id", input.id)
     .eq("version_id", versionId);
 
@@ -1299,8 +1528,9 @@ export async function reorderEstimateItems(
   versionId: string,
   input: ReorderEstimateItemsInput
 ) {
-  const { supabase, userId } = await getAuthenticatedContext();
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, userId);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
 
@@ -1315,6 +1545,7 @@ export async function reorderEstimateItems(
   let siblingsQuery = supabase
     .from("estimate_items")
     .select("id")
+    .eq("tenant_id", tenantId)
     .eq("version_id", versionId);
 
   siblingsQuery = parentId === null
