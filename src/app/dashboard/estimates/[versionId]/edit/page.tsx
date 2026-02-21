@@ -124,6 +124,7 @@ type ItemPatch = Partial<
     | "labor_role_id"
     | "category_id"
     | "supply_type_id"
+    | "selected_supplier_price_id"
   >
 > &
   LaborSplitItemFields;
@@ -684,6 +685,7 @@ function buildEstimateItemUpdatePayload(item: EstimateItem): EstimateItemUpdateP
       labor_role_id: item.labor_role_id,
       category_id: item.category_id,
       supply_type_id: item.supply_type_id,
+      selected_supplier_price_id: item.selected_supplier_price_id,
       line_total_ht_cents: item.line_total_ht_cents,
       line_tax_cents: item.line_tax_cents,
       line_total_ttc_cents: item.line_total_ttc_cents,
@@ -2373,6 +2375,7 @@ export default function EditEstimatePage() {
           labor_role_id: null,
           category_id: null,
           supply_type_id: null,
+          selected_supplier_price_id: null,
           line_total_ht_cents: lineValues.saleLineCents,
           line_tax_cents: lineValues.taxLineCents,
           line_total_ttc_cents: lineValues.ttcLineCents,
@@ -2808,6 +2811,7 @@ export default function EditEstimatePage() {
 
   const editorTableProps = useMemo<EstimateEditorTableProps>(
     () => ({
+      versionId: version?.id ?? resolvedVersionId,
       items,
       categories,
       supplyTypes,
@@ -2871,6 +2875,8 @@ export default function EditEstimatePage() {
       supplyTypes,
       suggestionRules,
       totals?.appliedMarginMultiplier,
+      version?.id,
+      resolvedVersionId,
     ]
   );
 
