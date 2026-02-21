@@ -24,6 +24,7 @@ import {
 } from "@/components/estimates/EstimateSuggestionRulesManager";
 import { ExportDropdown } from "@/components/ExportDropdown";
 import { useUserContext } from "@/components/UserContext";
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import {
   computeEstimateLineValues,
@@ -46,6 +47,14 @@ import {
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
 import {
+  DEFAULT_ESTIMATE_OUTLIER_CONFIG,
+  detectEstimateOutliers,
+  type EstimateOutlierDetectionConfig,
+  type EstimateOutlierFlagKey,
+  type EstimateOutlierFlagsByItemId,
+  type EstimateOutlierMethod,
+} from "@/lib/estimates/outlier-detection";
+import {
   resolveEstimateEditorVirtualizationConfig,
   type EstimateEditorVirtualizationRuntimeConfig,
 } from "@/lib/estimate-editor-virtualization";
@@ -62,9 +71,11 @@ import {
   deleteEstimateItem,
   fetchEstimateEditorData,
   fetchEstimateItemsForVersion,
+  fetchEstimateOutlierDismissedFlags,
   isEstimateApiError,
   reorderEstimateItems,
   saveEstimateVersion,
+  toggleEstimateOutlierDismissedFlag,
   updateEstimateLaborRole,
   updateEstimateStatus,
   updateEstimateSuggestionRule,
@@ -186,6 +197,13 @@ type EstimateConflictDraft = {
   items: EstimateItem[];
   saved_at: string;
 };
+type EstimateAutoSaveDraft = {
+  buffered_updates: {
+    id: string;
+    updates: EstimateItemUpdatePayload;
+  }[];
+  saved_at: string;
+};
 type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
 type EstimateEditorVirtualizationConfig = NonNullable<
   EstimateEditorTableProps["virtualization"]
@@ -193,7 +211,8 @@ type EstimateEditorVirtualizationConfig = NonNullable<
 
 const AUDIT_LOG_LIMIT = 25;
 const CONFLICT_DRAFT_STORAGE_PREFIX = "estimate:edit:conflict-draft:";
-const BULK_AUTOSAVE_DEBOUNCE_MS = 300;
+const AUTOSAVE_BUFFER_STORAGE_PREFIX = "estimate:edit:autosave-buffer:";
+const BULK_AUTOSAVE_DEBOUNCE_MS = 2000;
 const BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES = 100;
 const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
 const LABOR_SPLIT_FIELD_KEYS = [
@@ -244,6 +263,10 @@ function buildConflictDraftStorageKey(versionId: string) {
   return `${CONFLICT_DRAFT_STORAGE_PREFIX}${versionId}`;
 }
 
+function buildAutoSaveDraftStorageKey(versionId: string) {
+  return `${AUTOSAVE_BUFFER_STORAGE_PREFIX}${versionId}`;
+}
+
 function readConflictDraftFromSession(versionId: string): EstimateConflictDraft | null {
   if (!versionId || typeof window === "undefined") return null;
 
@@ -289,6 +312,70 @@ function writeConflictDraftToSession(
 function clearConflictDraftFromSession(versionId: string) {
   if (!versionId || typeof window === "undefined") return;
   window.sessionStorage.removeItem(buildConflictDraftStorageKey(versionId));
+}
+
+function readAutoSaveDraftFromLocal(versionId: string): EstimateAutoSaveDraft | null {
+  if (!versionId || typeof window === "undefined") return null;
+
+  const raw = window.localStorage.getItem(buildAutoSaveDraftStorageKey(versionId));
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || !Array.isArray(parsed.buffered_updates)) {
+      return null;
+    }
+
+    const bufferedUpdates = parsed.buffered_updates
+      .map((entry) => {
+        if (!isRecord(entry)) return null;
+        if (typeof entry.id !== "string" || !entry.id) return null;
+        if (!isRecord(entry.updates)) return null;
+        return {
+          id: entry.id,
+          updates: entry.updates as EstimateItemUpdatePayload,
+        };
+      })
+      .filter((value): value is EstimateAutoSaveDraft["buffered_updates"][number] =>
+        value !== null
+      );
+
+    if (bufferedUpdates.length === 0) return null;
+
+    return {
+      buffered_updates: bufferedUpdates,
+      saved_at: toNonEmptyString(parsed.saved_at) ?? new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeAutoSaveDraftToLocal(
+  versionId: string,
+  bufferedUpdates: EstimateAutoSaveDraft["buffered_updates"]
+) {
+  if (!versionId || typeof window === "undefined") return;
+
+  if (bufferedUpdates.length === 0) {
+    clearAutoSaveDraftFromLocal(versionId);
+    return;
+  }
+
+  const payload: EstimateAutoSaveDraft = {
+    buffered_updates: bufferedUpdates,
+    saved_at: new Date().toISOString(),
+  };
+
+  window.localStorage.setItem(
+    buildAutoSaveDraftStorageKey(versionId),
+    JSON.stringify(payload)
+  );
+}
+
+function clearAutoSaveDraftFromLocal(versionId: string) {
+  if (!versionId || typeof window === "undefined") return;
+  window.localStorage.removeItem(buildAutoSaveDraftStorageKey(versionId));
 }
 
 function toNonEmptyString(value: unknown): string | null {
@@ -628,6 +715,13 @@ export default function EditEstimatePage() {
   const [supplyTypes, setSupplyTypes] = useState<SupplyType[]>([]);
   const [laborRoles, setLaborRoles] = useState<LaborRole[]>([]);
   const [suggestionRules, setSuggestionRules] = useState<SuggestionRule[]>([]);
+  const [dismissedOutlierFlagsByItemId, setDismissedOutlierFlagsByItemId] =
+    useState<EstimateOutlierFlagsByItemId>({});
+  const [outlierActionPendingByItemId, setOutlierActionPendingByItemId] =
+    useState<Record<string, boolean>>({});
+  const [outlierConfig, setOutlierConfig] = useState<EstimateOutlierDetectionConfig>(
+    DEFAULT_ESTIMATE_OUTLIER_CONFIG
+  );
   const [qualityFilter, setQualityFilter] =
     useState<EstimateQualityFilter>("all_lines");
   const [activeTab, setActiveTab] = useState<"settings" | "editor">("settings");
@@ -644,6 +738,7 @@ export default function EditEstimatePage() {
   const [auditError, setAuditError] = useState<string | null>(null);
   const [isAuditLoading, setIsAuditLoading] = useState(false);
   const [totalsOutOfSync, setTotalsOutOfSync] = useState(false);
+  const [hasPendingBufferedUpdates, setHasPendingBufferedUpdates] = useState(false);
   const [conflictState, setConflictState] = useState<EstimateConflictState | null>(
     null
   );
@@ -660,9 +755,6 @@ export default function EditEstimatePage() {
     new Map()
   );
   const pendingBufferedUpdateCountRef = useRef(0);
-  const bufferedFlushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
   const isFlushingBufferedUpdatesRef = useRef(false);
 
   const registerVersionConflict = useCallback((error: unknown) => {
@@ -681,6 +773,52 @@ export default function EditEstimatePage() {
 
   useEffect(() => {
     itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    const lineIds = new Set(
+      items.filter((item) => item.item_type === "line").map((item) => item.id)
+    );
+
+    setDismissedOutlierFlagsByItemId((prev) => {
+      let changed = false;
+      const next: EstimateOutlierFlagsByItemId = {};
+
+      Object.entries(prev).forEach(([itemId, flags]) => {
+        if (!lineIds.has(itemId)) {
+          changed = true;
+          return;
+        }
+
+        const deduped = flags.filter((flag, index) => flags.indexOf(flag) === index);
+        if (deduped.length !== flags.length) {
+          changed = true;
+        }
+        if (deduped.length === 0) {
+          changed = true;
+          return;
+        }
+        next[itemId] = deduped;
+      });
+
+      return changed ? next : prev;
+    });
+
+    setOutlierActionPendingByItemId((prev) => {
+      let changed = false;
+      const next: Record<string, boolean> = {};
+
+      Object.entries(prev).forEach(([itemId, isPending]) => {
+        if (!isPending) return;
+        if (!lineIds.has(itemId)) {
+          changed = true;
+          return;
+        }
+        next[itemId] = true;
+      });
+
+      return changed ? next : prev;
+    });
   }, [items]);
 
   useEffect(() => {
@@ -851,6 +989,33 @@ export default function EditEstimatePage() {
     };
   }, [isLaborSplitEnabled, registerVersionConflict, reloadNonce, resolvedVersionId]);
 
+  useEffect(() => {
+    if (!resolvedVersionId) {
+      setDismissedOutlierFlagsByItemId({});
+      setOutlierActionPendingByItemId({});
+      return;
+    }
+
+    let active = true;
+
+    async function loadDismissedOutliers() {
+      try {
+        const dismissed = await fetchEstimateOutlierDismissedFlags(resolvedVersionId);
+        if (!active) return;
+        setDismissedOutlierFlagsByItemId(dismissed);
+      } catch {
+        if (!active) return;
+        setDismissedOutlierFlagsByItemId({});
+      }
+    }
+
+    void loadDismissedOutliers();
+
+    return () => {
+      active = false;
+    };
+  }, [reloadNonce, resolvedVersionId]);
+
   const {
     holderName: draftLockHolderName,
     isOwnedByCurrentUser: isDraftLockOwnedByCurrentUser,
@@ -894,6 +1059,19 @@ export default function EditEstimatePage() {
   useEffect(() => {
     isSaveBlockedRef.current = isSaveBlocked;
   }, [isSaveBlocked]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasPendingBufferedUpdates) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [hasPendingBufferedUpdates]);
   const editorTableBaseConfig = useMemo(
     () => ({
       marginMultiplier: settings?.margin_multiplier ?? 1,
@@ -917,7 +1095,19 @@ export default function EditEstimatePage() {
     },
     []
   );
-
+  const handleOutlierMethodChange = useCallback((nextMethod: EstimateOutlierMethod) => {
+    setOutlierConfig((previous) => ({
+      ...previous,
+      method: nextMethod,
+    }));
+  }, []);
+  const handleOutlierThresholdChange = useCallback((nextThreshold: number) => {
+    if (!Number.isFinite(nextThreshold) || nextThreshold <= 0) return;
+    setOutlierConfig((previous) => ({
+      ...previous,
+      threshold: nextThreshold,
+    }));
+  }, []);
   const persistConflictDraft = useCallback(() => {
     if (!resolvedVersionId) return;
 
@@ -931,14 +1121,49 @@ export default function EditEstimatePage() {
     setRestorableDraft(draft);
   }, [items, resolvedVersionId, settings]);
 
-  const clearBufferedItemUpdates = useCallback(() => {
-    if (bufferedFlushTimeoutRef.current !== null) {
-      clearTimeout(bufferedFlushTimeoutRef.current);
-      bufferedFlushTimeoutRef.current = null;
-    }
+  const clearBufferedItemUpdates = useCallback((options?: { clearPersisted?: boolean }) => {
     pendingItemUpdatesRef.current.clear();
     pendingBufferedUpdateCountRef.current = 0;
-  }, []);
+    setHasPendingBufferedUpdates(false);
+    if (options?.clearPersisted && resolvedVersionId) {
+      clearAutoSaveDraftFromLocal(resolvedVersionId);
+    }
+  }, [resolvedVersionId]);
+
+  const persistBufferedItemUpdatesToLocal = useCallback(() => {
+    if (!resolvedVersionId) return;
+
+    const bufferedEntries = serializeBufferedUpdates(pendingItemUpdatesRef.current);
+    writeAutoSaveDraftToLocal(
+      resolvedVersionId,
+      bufferedEntries.map((entry) => ({
+        id: entry.id,
+        updates: entry.updates,
+      }))
+    );
+  }, [resolvedVersionId]);
+
+  useEffect(() => {
+    if (!resolvedVersionId) return;
+
+    const draft = readAutoSaveDraftFromLocal(resolvedVersionId);
+    if (!draft) return;
+
+    draft.buffered_updates.forEach((entry) => {
+      upsertBufferedUpdate(pendingItemUpdatesRef.current, entry.id, entry.updates);
+    });
+
+    pendingBufferedUpdateCountRef.current = pendingItemUpdatesRef.current.size;
+    const hasPendingUpdates = pendingItemUpdatesRef.current.size > 0;
+    setHasPendingBufferedUpdates(hasPendingUpdates);
+
+    if (hasPendingUpdates) {
+      setTotalsOutOfSync(true);
+      setActionError(
+        "Des modifications locales ont ete recuperees et seront re-sauvegardees automatiquement."
+      );
+    }
+  }, [resolvedVersionId]);
 
   const triggerVersionReload = useCallback(() => {
     if (!resolvedVersionId) return;
@@ -952,7 +1177,7 @@ export default function EditEstimatePage() {
       if (options?.persistDraft) {
         persistConflictDraft();
       }
-      clearBufferedItemUpdates();
+      clearBufferedItemUpdates({ clearPersisted: true });
       triggerVersionReload();
       return true;
     },
@@ -1106,9 +1331,23 @@ export default function EditEstimatePage() {
     return map;
   }, [laborRoles]);
 
+  const detectedOutlierFlagsByItemId = useMemo(
+    () =>
+      detectEstimateOutliers({
+        items,
+        categories,
+        config: outlierConfig,
+      }),
+    [categories, items, outlierConfig]
+  );
+
   const qualityFlagsByItemId = useMemo(
-    () => computeEstimateQualityFlagsByItemId(items),
-    [items]
+    () =>
+      computeEstimateQualityFlagsByItemId(items, {
+        outlierFlagsByItemId: detectedOutlierFlagsByItemId,
+        dismissedOutlierFlagsByItemId,
+      }),
+    [detectedOutlierFlagsByItemId, dismissedOutlierFlagsByItemId, items]
   );
 
   const qualityCounts = useMemo(
@@ -1437,21 +1676,28 @@ export default function EditEstimatePage() {
   }, [persistedTotals]);
 
   const flushBufferedItemUpdates = useCallback(async () => {
-    if (isFlushingBufferedUpdatesRef.current) return;
-    if (isSaveBlockedRef.current) return;
+    if (isFlushingBufferedUpdatesRef.current) return "noop" as const;
+    if (isSaveBlockedRef.current) {
+      return pendingItemUpdatesRef.current.size > 0
+        ? ("blocked" as const)
+        : ("noop" as const);
+    }
 
     const versionSnapshot = versionRef.current;
-    if (!versionSnapshot) return;
+    if (!versionSnapshot) {
+      return pendingItemUpdatesRef.current.size > 0
+        ? ("blocked" as const)
+        : ("noop" as const);
+    }
 
     const bufferedEntries = serializeBufferedUpdates(pendingItemUpdatesRef.current);
-    if (bufferedEntries.length === 0) return;
+    if (bufferedEntries.length === 0) {
+      setHasPendingBufferedUpdates(false);
+      return "noop" as const;
+    }
 
     pendingItemUpdatesRef.current.clear();
     pendingBufferedUpdateCountRef.current = 0;
-    if (bufferedFlushTimeoutRef.current !== null) {
-      clearTimeout(bufferedFlushTimeoutRef.current);
-      bufferedFlushTimeoutRef.current = null;
-    }
 
     isFlushingBufferedUpdatesRef.current = true;
 
@@ -1475,6 +1721,21 @@ export default function EditEstimatePage() {
             }
           : prev
       );
+      const nextVersionSnapshot = versionRef.current
+        ? {
+            ...versionRef.current,
+            ...(versionTotalsPatch ?? {}),
+            updated_at: bulkResult.versionToken.updated_at,
+          }
+        : null;
+      if (nextVersionSnapshot) {
+        versionRef.current = nextVersionSnapshot;
+      }
+      if (resolvedVersionId) {
+        clearAutoSaveDraftFromLocal(resolvedVersionId);
+      }
+      setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
+      return "saved" as const;
     } catch (error) {
       bufferedEntries.forEach((entry) => {
         const existing = pendingItemUpdatesRef.current.get(entry.id) ?? {};
@@ -1484,48 +1745,52 @@ export default function EditEstimatePage() {
         });
       });
       pendingBufferedUpdateCountRef.current += bufferedEntries.length;
+      setHasPendingBufferedUpdates(true);
+      persistBufferedItemUpdatesToLocal();
 
-      if (!handleVersionConflict(error, { persistDraft: true })) {
-        setTotalsOutOfSync(true);
-        setActionError(
-          resolveEstimateActionError(
-            error instanceof Error
-              ? error.message
-              : "Impossible de mettre a jour les lignes."
-          )
-        );
+      const hasConflict = handleVersionConflict(error, { persistDraft: true });
+      if (hasConflict) {
+        setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
+        return "blocked" as const;
       }
+
+      setTotalsOutOfSync(true);
+      setActionError(
+        resolveEstimateActionError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de mettre a jour les lignes."
+        )
+      );
+      return "error" as const;
     } finally {
       isFlushingBufferedUpdatesRef.current = false;
-
-      if (
-        pendingItemUpdatesRef.current.size > 0 &&
-        !isSaveBlockedRef.current &&
-        bufferedFlushTimeoutRef.current === null
-      ) {
-        bufferedFlushTimeoutRef.current = setTimeout(() => {
-          void flushBufferedItemUpdates();
-        }, BULK_AUTOSAVE_DEBOUNCE_MS);
-      }
     }
-  }, [handleVersionConflict]);
+  }, [handleVersionConflict, persistBufferedItemUpdatesToLocal, resolvedVersionId]);
 
-  const scheduleBufferedItemUpdatesFlush = useCallback(() => {
-    if (isSaveBlockedRef.current) return;
+  const {
+    status: autoSaveStatus,
+    statusLabel: autoSaveStatusLabel,
+    flushNow: flushAutoSaveNow,
+    scheduleSave: scheduleAutoSave,
+  } = useAutoSave({
+    enabled: Boolean(resolvedVersionId && !isSaveBlocked),
+    hasPendingChanges: hasPendingBufferedUpdates,
+    debounceMs: BULK_AUTOSAVE_DEBOUNCE_MS,
+    onSave: flushBufferedItemUpdates,
+  });
 
-    if (bufferedFlushTimeoutRef.current !== null) {
-      clearTimeout(bufferedFlushTimeoutRef.current);
-    }
-
-    bufferedFlushTimeoutRef.current = setTimeout(() => {
-      bufferedFlushTimeoutRef.current = null;
-      void flushBufferedItemUpdates();
-    }, BULK_AUTOSAVE_DEBOUNCE_MS);
-  }, [flushBufferedItemUpdates]);
+  const autoSaveStatusClassName = useMemo(() => {
+    if (autoSaveStatus === "saving") return "status-badge status-sent";
+    if (autoSaveStatus === "error") return "status-badge status-canceled";
+    return "status-badge status-confirmed";
+  }, [autoSaveStatus]);
 
   const enqueueBufferedItemUpdate = useCallback(
     (itemId: string, payload: EstimateItemUpdatePayload) => {
       upsertBufferedUpdate(pendingItemUpdatesRef.current, itemId, payload);
+      setHasPendingBufferedUpdates(true);
+      persistBufferedItemUpdatesToLocal();
 
       pendingBufferedUpdateCountRef.current += 1;
       if (
@@ -1534,34 +1799,25 @@ export default function EditEstimatePage() {
           BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES
         )
       ) {
-        if (bufferedFlushTimeoutRef.current !== null) {
-          clearTimeout(bufferedFlushTimeoutRef.current);
-          bufferedFlushTimeoutRef.current = null;
-        }
-        void flushBufferedItemUpdates();
+        void flushAutoSaveNow();
         return;
       }
 
-      scheduleBufferedItemUpdatesFlush();
+      scheduleAutoSave();
     },
-    [flushBufferedItemUpdates, scheduleBufferedItemUpdatesFlush]
+    [flushAutoSaveNow, persistBufferedItemUpdatesToLocal, scheduleAutoSave]
   );
 
   const retryTotalsSave = useCallback(async () => {
-    await flushBufferedItemUpdates();
-  }, [flushBufferedItemUpdates]);
+    await flushAutoSaveNow();
+  }, [flushAutoSaveNow]);
 
   useEffect(() => {
     return () => {
+      persistBufferedItemUpdatesToLocal();
       clearBufferedItemUpdates();
     };
-  }, [clearBufferedItemUpdates]);
-
-  useEffect(() => {
-    if (isSaveBlocked) return;
-    if (pendingItemUpdatesRef.current.size === 0) return;
-    scheduleBufferedItemUpdatesFlush();
-  }, [isSaveBlocked, scheduleBufferedItemUpdatesFlush]);
+  }, [clearBufferedItemUpdates, persistBufferedItemUpdatesToLocal]);
 
   const updateSettings = useCallback(
     (patch: Partial<EstimateSettingsState>) => {
@@ -2368,6 +2624,69 @@ export default function EditEstimatePage() {
     ]
   );
 
+  const handleToggleOutlierDismiss = useCallback(
+    async (
+      itemId: string,
+      flagKey: EstimateOutlierFlagKey,
+      dismissed: boolean
+    ) => {
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+      if (isConflictLocked) {
+        setActionError(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+        return;
+      }
+      if (!version?.id) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      setActionError(null);
+      setOutlierActionPendingByItemId((prev) => ({
+        ...prev,
+        [itemId]: true,
+      }));
+
+      try {
+        const nextDismissed = await toggleEstimateOutlierDismissedFlag(version.id, {
+          itemId,
+          flagKey,
+          dismissed,
+        });
+        setDismissedOutlierFlagsByItemId(nextDismissed);
+      } catch (error) {
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible de mettre a jour l'acceptation de l'outlier."
+            )
+          );
+        }
+      } finally {
+        setOutlierActionPendingByItemId((prev) => {
+          if (!prev[itemId]) return prev;
+          const next = { ...prev };
+          delete next[itemId];
+          return next;
+        });
+      }
+    },
+    [
+      conflictState?.message,
+      handleVersionConflict,
+      isConflictLocked,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      version?.id,
+    ]
+  );
+
   const handleReorder = useCallback(
     async (parentId: string | null, orderedIds: string[]) => {
       if (isReadOnly) {
@@ -2413,13 +2732,46 @@ export default function EditEstimatePage() {
     setStatusError(null);
     setIsUpdatingStatus(true);
 
+    if (isFlushingBufferedUpdatesRef.current) {
+      setStatusError(
+        "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
+      );
+      setIsUpdatingStatus(false);
+      return;
+    }
+
+    const flushResult = await flushBufferedItemUpdates();
+    if (flushResult === "blocked" || flushResult === "error") {
+      setStatusError(
+        flushResult === "blocked"
+          ? "Impossible de changer le statut tant que les modifications locales ne sont pas synchronisees."
+          : "Impossible de synchroniser les modifications avant changement de statut."
+      );
+      setIsUpdatingStatus(false);
+      return;
+    }
+    if (flushResult === "noop" && pendingItemUpdatesRef.current.size > 0) {
+      setStatusError(
+        "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
+      );
+      setIsUpdatingStatus(false);
+      return;
+    }
+
+    const versionSnapshot = versionRef.current;
+    if (!versionSnapshot) {
+      setStatusError("Version introuvable.");
+      setIsUpdatingStatus(false);
+      return;
+    }
+
     let updatedVersion: EstimateVersionRow;
 
     try {
       updatedVersion = await updateEstimateStatus(
-        version.id,
+        versionSnapshot.id,
         nextStatus,
-        version.updated_at
+        versionSnapshot.updated_at
       );
     } catch (error) {
       setStatusError(
@@ -2461,6 +2813,11 @@ export default function EditEstimatePage() {
       supplyTypes,
       laborRoles,
       suggestionRules,
+      detectedOutlierFlagsByItemId,
+      dismissedOutlierFlagsByItemId,
+      outlierActionPendingByItemId,
+      outlierDetectionMethod: outlierConfig.method,
+      outlierThreshold: outlierConfig.threshold,
       qualityFlagsByItemId,
       qualityCounts,
       qualityFilter,
@@ -2473,6 +2830,9 @@ export default function EditEstimatePage() {
       isLaborSplitEnabled,
       isReadOnly: editorTableBaseConfig.isReadOnly,
       onQualityFilterChange: handleQualityFilterChange,
+      onOutlierDetectionMethodChange: handleOutlierMethodChange,
+      onOutlierThresholdChange: handleOutlierThresholdChange,
+      onToggleOutlierDismiss: handleToggleOutlierDismiss,
       onAddSection: handleAddSection,
       onAddLine: handleAddLine,
       onDeleteItem: handleDeleteItem,
@@ -2484,19 +2844,27 @@ export default function EditEstimatePage() {
     [
       actionError,
       categories,
+      detectedOutlierFlagsByItemId,
+      dismissedOutlierFlagsByItemId,
       editorTableBaseConfig,
       editorTableVirtualization,
       handleAddLine,
       handleAddSection,
       handleApplyBulkMajoration,
       handleDeleteItem,
+      handleOutlierMethodChange,
       handlePatchItem,
+      handleOutlierThresholdChange,
       handleQualityFilterChange,
       handleReorder,
+      handleToggleOutlierDismiss,
       items,
       isLaborSplitEnabled,
       laborRateById,
       laborRoles,
+      outlierActionPendingByItemId,
+      outlierConfig.method,
+      outlierConfig.threshold,
       qualityCounts,
       qualityFilter,
       qualityFlagsByItemId,
@@ -2579,6 +2947,9 @@ export default function EditEstimatePage() {
           <span className={estimateStatusClass(version.status)}>
             {estimateStatusLabel(version.status)}
           </span>
+          {version.status === "draft" ? (
+            <span className={autoSaveStatusClassName}>{autoSaveStatusLabel}</span>
+          ) : null}
           <ExportDropdown
             onExportExcel={handleExportExcel}
             onExportCSV={handleExportCSV}

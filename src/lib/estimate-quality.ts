@@ -1,4 +1,8 @@
 import type { Database } from "@/types/database";
+import type {
+  EstimateOutlierFlagsByItemId,
+  EstimateOutlierFlagKey,
+} from "@/lib/estimates/outlier-detection";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
@@ -7,6 +11,8 @@ export const ESTIMATE_QUALITY_FLAG_KEYS = [
   "missing_quantity",
   "missing_labor_time",
   "missing_labor_role",
+  "price_outlier",
+  "quantity_outlier",
 ] as const;
 
 export type EstimateQualityFlagKey = (typeof ESTIMATE_QUALITY_FLAG_KEYS)[number];
@@ -37,6 +43,16 @@ export const ESTIMATE_QUALITY_FLAG_META: Record<
     description:
       "Un temps MO est saisi mais aucun role de main d'oeuvre n'est selectionne.",
   },
+  price_outlier: {
+    label: "Prix atypique",
+    description:
+      "Le prix unitaire est statistiquement atypique par rapport aux autres lignes comparees.",
+  },
+  quantity_outlier: {
+    label: "Quantite atypique",
+    description:
+      "La quantite est statistiquement atypique par rapport aux autres lignes comparees.",
+  },
 };
 
 export type EstimateQualityFlagsByItemId = Record<string, EstimateQualityFlagKey[]>;
@@ -53,8 +69,31 @@ function parsePositiveNumber(value: number | null) {
   return value ?? 0;
 }
 
+type EstimateQualityComputationOptions = {
+  outlierFlagsByItemId?: EstimateOutlierFlagsByItemId;
+  dismissedOutlierFlagsByItemId?: EstimateOutlierFlagsByItemId;
+};
+
+function isOutlierFlag(flag: EstimateQualityFlagKey): flag is EstimateOutlierFlagKey {
+  return flag === "price_outlier" || flag === "quantity_outlier";
+}
+
+function resolveActiveOutlierFlags(input: {
+  itemId: string;
+  outlierFlagsByItemId?: EstimateOutlierFlagsByItemId;
+  dismissedOutlierFlagsByItemId?: EstimateOutlierFlagsByItemId;
+}): EstimateOutlierFlagKey[] {
+  const detected = input.outlierFlagsByItemId?.[input.itemId] ?? [];
+  const dismissed = new Set(
+    input.dismissedOutlierFlagsByItemId?.[input.itemId] ?? []
+  );
+
+  return detected.filter((flag) => !dismissed.has(flag));
+}
+
 export function computeEstimateQualityFlagsForItem(
-  item: EstimateItem
+  item: EstimateItem,
+  options?: EstimateQualityComputationOptions
 ): EstimateQualityFlagKey[] {
   if (item.item_type !== "line") return [];
 
@@ -77,17 +116,30 @@ export function computeEstimateQualityFlagsForItem(
     flags.push("missing_labor_role");
   }
 
+  const activeOutlierFlags = resolveActiveOutlierFlags({
+    itemId: item.id,
+    outlierFlagsByItemId: options?.outlierFlagsByItemId,
+    dismissedOutlierFlagsByItemId: options?.dismissedOutlierFlagsByItemId,
+  });
+
+  activeOutlierFlags.forEach((flag) => {
+    if (isOutlierFlag(flag)) {
+      flags.push(flag);
+    }
+  });
+
   return flags;
 }
 
 export function computeEstimateQualityFlagsByItemId(
-  items: EstimateItem[]
+  items: EstimateItem[],
+  options?: EstimateQualityComputationOptions
 ): EstimateQualityFlagsByItemId {
   const result: EstimateQualityFlagsByItemId = {};
 
   items.forEach((item) => {
     if (item.item_type !== "line") return;
-    result[item.id] = computeEstimateQualityFlagsForItem(item);
+    result[item.id] = computeEstimateQualityFlagsForItem(item, options);
   });
 
   return result;

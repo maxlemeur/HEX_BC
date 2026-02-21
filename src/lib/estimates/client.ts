@@ -1,4 +1,8 @@
 import type { Database } from "@/types/database";
+import type {
+  EstimateOutlierFlagKey,
+  EstimateOutlierFlagsByItemId,
+} from "@/lib/estimates/outlier-detection";
 
 type EstimateProjectRow =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -157,6 +161,12 @@ export type ReleaseEstimateDraftLockResult = {
   released: boolean;
 };
 
+export type ToggleEstimateOutlierDismissPayload = {
+  itemId: string;
+  flagKey: EstimateOutlierFlagKey;
+  dismissed: boolean;
+};
+
 export class EstimateApiError extends Error {
   readonly status: number;
   readonly details: unknown;
@@ -207,6 +217,54 @@ function toBooleanValue(value: unknown): boolean | null {
     if (normalized === "false") return false;
   }
   return null;
+}
+
+function isEstimateOutlierFlagKey(value: unknown): value is EstimateOutlierFlagKey {
+  return value === "price_outlier" || value === "quantity_outlier";
+}
+
+function normalizeOutlierDismissedByItemId(
+  payload: unknown
+): EstimateOutlierFlagsByItemId {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return {};
+
+  const mapCandidate = root.dismissed_by_item_id ?? root.dismissedByItemId;
+  if (isRecord(mapCandidate)) {
+    const parsedMap: EstimateOutlierFlagsByItemId = {};
+    Object.entries(mapCandidate).forEach(([itemId, value]) => {
+      if (!Array.isArray(value)) return;
+      const flags = value.filter((entry): entry is EstimateOutlierFlagKey =>
+        isEstimateOutlierFlagKey(entry)
+      );
+      if (flags.length === 0) return;
+      parsedMap[itemId] = flags;
+    });
+    return parsedMap;
+  }
+
+  const dismissals = Array.isArray(root.dismissals) ? root.dismissals : [];
+  const parsedMap: EstimateOutlierFlagsByItemId = {};
+
+  dismissals.forEach((dismissal) => {
+    if (!isRecord(dismissal)) return;
+    const itemId =
+      toStringValue(dismissal.item_id) ??
+      toStringValue(dismissal.itemId);
+    const flagKeyRaw =
+      toStringValue(dismissal.flag_key) ??
+      toStringValue(dismissal.flagKey);
+
+    if (!itemId || !flagKeyRaw || !isEstimateOutlierFlagKey(flagKeyRaw)) {
+      return;
+    }
+
+    const current = parsedMap[itemId] ?? [];
+    if (current.includes(flagKeyRaw)) return;
+    parsedMap[itemId] = [...current, flagKeyRaw];
+  });
+
+  return parsedMap;
 }
 
 function isEstimateStatus(value: string): value is EstimateStatus {
@@ -872,6 +930,43 @@ export async function fetchEstimateItemsForVersion(
   );
 
   return parseEstimateItems(payload);
+}
+
+export async function fetchEstimateOutlierDismissedFlags(
+  versionId: string
+): Promise<EstimateOutlierFlagsByItemId> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/outliers`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger les outliers acceptes."
+  );
+
+  return normalizeOutlierDismissedByItemId(payload);
+}
+
+export async function toggleEstimateOutlierDismissedFlag(
+  versionId: string,
+  input: ToggleEstimateOutlierDismissPayload
+): Promise<EstimateOutlierFlagsByItemId> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/outliers`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        item_id: input.itemId,
+        flag_key: input.flagKey,
+        dismissed: input.dismissed,
+      }),
+    },
+    "Impossible de mettre a jour le statut d'acceptation de l'outlier."
+  );
+
+  return normalizeOutlierDismissedByItemId(payload);
 }
 
 export async function saveEstimateVersion(

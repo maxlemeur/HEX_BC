@@ -49,6 +49,12 @@ import {
   type EstimateQualityFlagsByItemId,
 } from "@/lib/estimate-quality";
 import {
+  ESTIMATE_OUTLIER_FLAG_KEYS,
+  type EstimateOutlierFlagKey,
+  type EstimateOutlierFlagsByItemId,
+  type EstimateOutlierMethod,
+} from "@/lib/estimates/outlier-detection";
+import {
   rankSuggestions,
   type SuggestionMatchKind,
 } from "@/lib/estimates/suggestion-scoring";
@@ -105,6 +111,11 @@ type EstimateEditorTableProps = {
   supplyTypes: SupplyType[];
   laborRoles: LaborRole[];
   suggestionRules: SuggestionRule[];
+  detectedOutlierFlagsByItemId: EstimateOutlierFlagsByItemId;
+  dismissedOutlierFlagsByItemId: EstimateOutlierFlagsByItemId;
+  outlierActionPendingByItemId: Record<string, boolean>;
+  outlierDetectionMethod: EstimateOutlierMethod;
+  outlierThreshold: number;
   qualityFlagsByItemId: EstimateQualityFlagsByItemId;
   qualityCounts: EstimateQualityFlagCounts;
   qualityFilter: EstimateQualityFilter;
@@ -116,6 +127,13 @@ type EstimateEditorTableProps = {
   isLaborSplitEnabled?: boolean;
   isReadOnly: boolean;
   onQualityFilterChange: (value: EstimateQualityFilter) => void;
+  onOutlierDetectionMethodChange: (value: EstimateOutlierMethod) => void;
+  onOutlierThresholdChange: (value: number) => void;
+  onToggleOutlierDismiss: (
+    itemId: string,
+    flagKey: EstimateOutlierFlagKey,
+    dismissed: boolean
+  ) => void;
   onAddSection: (parentId: string | null) => void;
   onAddLine: (parentId: string | null) => void;
   onDeleteItem: (itemId: string) => void;
@@ -193,6 +211,8 @@ const QUALITY_BADGE_CLASSNAMES: Record<EstimateQualityFlagKey, string> = {
   missing_quantity: "border-amber-200 bg-amber-50 text-amber-700",
   missing_labor_time: "border-orange-200 bg-orange-50 text-orange-700",
   missing_labor_role: "border-red-200 bg-red-50 text-red-700",
+  price_outlier: "border-orange-200 bg-orange-50 text-orange-700",
+  quantity_outlier: "border-orange-200 bg-orange-50 text-orange-700",
 };
 
 function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
@@ -203,6 +223,10 @@ function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
     return value as EstimateQualityFlagKey;
   }
   return "all_lines";
+}
+
+function parseOutlierMethod(value: string): EstimateOutlierMethod {
+  return value === "zscore" ? "zscore" : "iqr";
 }
 
 function matchesQualityFilter(
@@ -379,6 +403,8 @@ type SortableRowProps = {
   unitValue: string;
   supplyTypeValue: string;
   qualityFlags: EstimateQualityFlagKey[];
+  detectedOutlierFlags: EstimateOutlierFlagKey[];
+  dismissedOutlierFlags: EstimateOutlierFlagKey[];
   supplyTypeById: Map<string, SupplyType>;
   laborRoles: LaborRole[];
   navigation: SpreadsheetNavigationState;
@@ -395,9 +421,15 @@ type SortableRowProps = {
   onUnitCommit: (itemId: string) => void;
   onSupplyTypeChange: (itemId: string, value: string) => void;
   onSupplyTypeCommit: (itemId: string) => void;
+  onToggleOutlierDismiss: (
+    itemId: string,
+    flagKey: EstimateOutlierFlagKey,
+    dismissed: boolean
+  ) => void;
   onToggleLineSelection: (itemId: string, checked: boolean) => void;
   sectionTotals: SectionTotals | null;
   isDragDisabled: boolean;
+  isOutlierActionPending: boolean;
   isReadOnly: boolean;
   isLaborSplitEnabled: boolean;
 };
@@ -408,6 +440,8 @@ const SortableRow = memo(function SortableRow({
   unitValue,
   supplyTypeValue,
   qualityFlags,
+  detectedOutlierFlags,
+  dismissedOutlierFlags,
   supplyTypeById,
   laborRoles,
   navigation,
@@ -420,9 +454,11 @@ const SortableRow = memo(function SortableRow({
   onUnitCommit,
   onSupplyTypeChange,
   onSupplyTypeCommit,
+  onToggleOutlierDismiss,
   onToggleLineSelection,
   sectionTotals,
   isDragDisabled,
+  isOutlierActionPending,
   isReadOnly,
   isLaborSplitEnabled,
 }: SortableRowProps) {
@@ -693,6 +729,19 @@ const SortableRow = memo(function SortableRow({
   const kMoChantierEditorProps = navigation.getEditorProps<HTMLInputElement>(
     kMoChantierCell
   );
+  const dismissedOutlierSet = new Set(dismissedOutlierFlags);
+  const quantityOutlierActive =
+    detectedOutlierFlags.includes("quantity_outlier") &&
+    !dismissedOutlierSet.has("quantity_outlier");
+  const priceOutlierActive =
+    detectedOutlierFlags.includes("price_outlier") &&
+    !dismissedOutlierSet.has("price_outlier");
+  const dismissedOutlierBadges = detectedOutlierFlags.filter((flag, index, flags) => {
+    return dismissedOutlierSet.has(flag) && flags.indexOf(flag) === index;
+  });
+  const actionableOutlierFlags = detectedOutlierFlags.filter((flag, index, flags) => {
+    return ESTIMATE_OUTLIER_FLAG_KEYS.includes(flag) && flags.indexOf(flag) === index;
+  });
 
   return (
     <div ref={setNodeRef} style={style} className="estimate-row" role="row">
@@ -739,7 +788,7 @@ const SortableRow = memo(function SortableRow({
               onPatchItem(item.id, { title: nextTitle }, { persist: true });
             }}
           />
-          {qualityFlags.length > 0 ? (
+          {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1">
               {qualityFlags.map((flag) => (
                 <span
@@ -750,6 +799,38 @@ const SortableRow = memo(function SortableRow({
                   {ESTIMATE_QUALITY_FLAG_META[flag].label}
                 </span>
               ))}
+              {dismissedOutlierBadges.map((flag) => (
+                <span
+                  key={`dismissed:${flag}`}
+                  className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+                  title={`${ESTIMATE_QUALITY_FLAG_META[flag].description} (accepte)`}
+                >
+                  {ESTIMATE_QUALITY_FLAG_META[flag].label} accepte
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {actionableOutlierFlags.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1">
+              {actionableOutlierFlags.map((flag) => {
+                const isDismissed = dismissedOutlierSet.has(flag);
+                return (
+                  <button
+                    key={`toggle:${flag}`}
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() =>
+                      onToggleOutlierDismiss(item.id, flag, !isDismissed)
+                    }
+                    disabled={isReadOnly || isOutlierActionPending}
+                    title={ESTIMATE_QUALITY_FLAG_META[flag].description}
+                  >
+                    {isDismissed
+                      ? `Reactiver ${ESTIMATE_QUALITY_FLAG_META[flag].label}`
+                      : `Accepter ${ESTIMATE_QUALITY_FLAG_META[flag].label}`}
+                  </button>
+                );
+              })}
             </div>
           ) : null}
         </div>
@@ -757,7 +838,11 @@ const SortableRow = memo(function SortableRow({
       <div
         {...quantityCellProps}
         onKeyDown={toCellKeyDownHandler(quantityCellProps.onKeyDown)}
-        className={toCellClassName(navigation, quantityCell, "estimate-cell")}
+        className={toCellClassName(
+          navigation,
+          quantityCell,
+          `estimate-cell${quantityOutlierActive ? " bg-orange-50 ring-1 ring-inset ring-orange-300" : ""}`
+        )}
       >
         <input
           className="estimate-input"
@@ -812,7 +897,11 @@ const SortableRow = memo(function SortableRow({
       <div
         {...unitPriceCellProps}
         onKeyDown={toCellKeyDownHandler(unitPriceCellProps.onKeyDown)}
-        className={toCellClassName(navigation, unitPriceCell, "estimate-cell")}
+        className={toCellClassName(
+          navigation,
+          unitPriceCell,
+          `estimate-cell${priceOutlierActive ? " bg-orange-50 ring-1 ring-inset ring-orange-300" : ""}`
+        )}
       >
         <input
           className="estimate-input"
@@ -1344,6 +1433,11 @@ export function EstimateEditorTable({
   supplyTypes,
   laborRoles,
   suggestionRules,
+  detectedOutlierFlagsByItemId,
+  dismissedOutlierFlagsByItemId,
+  outlierActionPendingByItemId,
+  outlierDetectionMethod,
+  outlierThreshold,
   qualityFlagsByItemId,
   qualityCounts,
   qualityFilter,
@@ -1355,6 +1449,9 @@ export function EstimateEditorTable({
   isLaborSplitEnabled = false,
   isReadOnly,
   onQualityFilterChange,
+  onOutlierDetectionMethodChange,
+  onOutlierThresholdChange,
+  onToggleOutlierDismiss,
   onAddSection,
   onAddLine,
   onDeleteItem,
@@ -2147,6 +2244,8 @@ export function EstimateEditorTable({
           unitValue={unitValue}
           supplyTypeValue={supplyTypeValue}
           qualityFlags={qualityFlags}
+          detectedOutlierFlags={detectedOutlierFlagsByItemId[item.id] ?? []}
+          dismissedOutlierFlags={dismissedOutlierFlagsByItemId[item.id] ?? []}
           supplyTypeById={supplyTypeById}
           laborRoles={laborRoles}
           navigation={spreadsheetNavigation}
@@ -2159,9 +2258,11 @@ export function EstimateEditorTable({
           onUnitCommit={handleUnitCommit}
           onSupplyTypeChange={handleSupplyTypeDraftChange}
           onSupplyTypeCommit={handleSupplyTypeCommit}
+          onToggleOutlierDismiss={onToggleOutlierDismiss}
           onToggleLineSelection={handleToggleLineSelection}
           sectionTotals={sectionTotals}
           isDragDisabled={!canReorder}
+          isOutlierActionPending={Boolean(outlierActionPendingByItemId[item.id])}
           isReadOnly={isReadOnly}
           isLaborSplitEnabled={isLaborSplitEnabled}
         />
@@ -2169,6 +2270,8 @@ export function EstimateEditorTable({
     },
     [
       canReorder,
+      detectedOutlierFlagsByItemId,
+      dismissedOutlierFlagsByItemId,
       handleSupplyTypeCommit,
       handleSupplyTypeDraftChange,
       handleToggleLineSelection,
@@ -2181,6 +2284,8 @@ export function EstimateEditorTable({
       onAddSection,
       onDeleteItem,
       onPatchItem,
+      onToggleOutlierDismiss,
+      outlierActionPendingByItemId,
       selectedLineIds,
       spreadsheetNavigation,
       supplyTypeById,
@@ -2293,6 +2398,40 @@ export function EstimateEditorTable({
               </option>
             ))}
           </select>
+          <div className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1">
+            <label
+              className="text-xs font-semibold uppercase tracking-[0.08em] text-orange-700"
+              htmlFor="estimate-outlier-method"
+            >
+              Outliers
+            </label>
+            <select
+              id="estimate-outlier-method"
+              className="estimate-input estimate-select"
+              style={{ width: "auto", minWidth: "104px" }}
+              value={outlierDetectionMethod}
+              disabled={isReadOnly}
+              onChange={(event) =>
+                onOutlierDetectionMethodChange(parseOutlierMethod(event.target.value))
+              }
+            >
+              <option value="iqr">IQR</option>
+              <option value="zscore">Z-score</option>
+            </select>
+            <input
+              className="estimate-input"
+              style={{ width: "92px" }}
+              type="number"
+              step="0.1"
+              min={0.1}
+              value={outlierThreshold}
+              disabled={isReadOnly}
+              onChange={(event) =>
+                onOutlierThresholdChange(parseNumberInput(event.target.value))
+              }
+              aria-label="Seuil de detection des outliers"
+            />
+          </div>
           <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
             <span className="text-xs text-[var(--slate-600)]">
               {selectedLineIdList.length} selection(s)
