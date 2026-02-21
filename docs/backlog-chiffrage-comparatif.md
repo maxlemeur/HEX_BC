@@ -114,7 +114,7 @@ Converger `HEX_BC` vers un niveau fonctionnel et technique comparable au projet 
 - Priorite: `P1`
 - Effort: `M`
 - Type: Technique
-- Statut: `TODO`
+- Statut: `DONE` (2026-02-20)
 - Description:
   - Remplacer les `Promise.all` ligne par ligne par des RPC transactionnelles.
 - Fichiers cibles:
@@ -134,13 +134,14 @@ Converger `HEX_BC` vers un niveau fonctionnel et technique comparable au projet 
 - Priorite: `P1`
 - Effort: `M`
 - Type: Technique
-- Statut: `TODO`
+- Statut: `DONE` (2026-02-20)
 - Description:
   - Tracer les operations sensibles (devis, lignes, parametres, statuts).
 - Fichiers cibles:
-  - `supabase/migrations/006_estimate_audit.sql` (nouveau)
+  - `supabase/migrations/010_estimate_audit_trail_s4.sql` (nouveau)
+  - `src/app/api/audit/route.ts` (nouveau)
   - `src/app/api/estimates/[versionId]/status/route.ts`
-  - `src/app/dashboard/estimates/[versionId]/edit/page.tsx` (affichage erreurs)
+  - `src/app/dashboard/estimates/[versionId]/edit/page.tsx` (affichage admin)
 - Taches:
   - Creer table `audit_logs` si absente.
   - Creer trigger `log_audit()` sur tables estimate.
@@ -152,12 +153,14 @@ Converger `HEX_BC` vers un niveau fonctionnel et technique comparable au projet 
 - Priorite: `P1`
 - Effort: `L`
 - Type: Fonctionnel
-- Statut: `TODO`
+- Statut: `DONE` (2026-02-20)
 - Description:
   - Ajouter upload, parsing (worker + fallback serveur), suivi statut import.
 - Fichiers cibles:
-  - `supabase/migrations/007_dpgf_import_tables.sql` (nouveau)
-  - `supabase/functions/parse-dpgf/index.ts` (nouveau)
+  - `supabase/migrations/011_dpgf_import_tables_s3.sql` (nouveau)
+  - `src/app/api/imports/route.ts` (nouveau)
+  - `src/lib/imports/server.ts` (nouveau)
+  - `src/lib/imports/parser.ts` (nouveau)
   - `src/app/dashboard/imports/page.tsx` (nouveau)
   - `src/components/imports/ImportWizard.tsx` (nouveau)
   - `src/hooks/useImportFlow.ts` (nouveau)
@@ -176,11 +179,13 @@ Converger `HEX_BC` vers un niveau fonctionnel et technique comparable au projet 
 - Priorite: `P1`
 - Effort: `L`
 - Type: Fonctionnel
-- Statut: `TODO`
+- Statut: `DONE` (2026-02-20)
 - Description:
   - Permettre mapping guide, suggestion memoire et sauvegarde templates fournisseur.
 - Fichiers cibles:
-  - `supabase/migrations/008_mapping_tables.sql` (nouveau)
+  - `supabase/migrations/012_mapping_tables_s4.sql` (nouveau)
+  - `src/lib/mappings/schemas.ts` (nouveau)
+  - `src/lib/mappings/server.ts` (nouveau)
   - `src/app/dashboard/mappings/page.tsx` (nouveau)
   - `src/components/mappings/MappingWizard.tsx` (nouveau)
   - `src/components/mappings/ColumnMapper.tsx` (nouveau)
@@ -198,18 +203,23 @@ Converger `HEX_BC` vers un niveau fonctionnel et technique comparable au projet 
 - Priorite: `P1`
 - Effort: `L`
 - Type: Fonctionnel
-- Statut: `TODO`
+- Statut: `DONE` (2026-02-21)
 - Description:
   - Integrer une base prix exploitable pour enrichir le chiffrage.
 - Fichiers cibles:
-  - `supabase/migrations/009_catalogue_pricebook.sql` (nouveau)
-  - `supabase/migrations/010_catalogue_helpers.sql` (nouveau)
+  - `supabase/migrations/014_catalogue_pricebook_indices_s4.sql` (nouveau)
+  - `supabase/migrations/015_catalogue_helpers_s4.sql` (nouveau)
   - `src/app/dashboard/catalogue/page.tsx` (nouveau)
   - `src/app/dashboard/prices/page.tsx` (nouveau)
   - `src/app/dashboard/indices/page.tsx` (nouveau)
   - `src/app/api/catalogue/route.ts` (nouveau)
   - `src/app/api/prices/route.ts` (nouveau)
   - `src/app/api/indices/route.ts` (nouveau)
+  - `src/lib/catalogue/schemas.ts` (nouveau)
+  - `src/lib/catalogue/server.ts` (nouveau)
+  - `src/components/catalogue/CatalogueManager.tsx` (nouveau)
+  - `src/components/catalogue/PricesManager.tsx` (nouveau)
+  - `src/components/catalogue/IndicesManager.tsx` (nouveau)
 - Taches:
   - CRUD catalogue, prix fournisseur et indices.
   - RPC bulk create prices / bulk upsert indices.
@@ -222,7 +232,7 @@ Converger `HEX_BC` vers un niveau fonctionnel et technique comparable au projet 
 - Priorite: `P2`
 - Effort: `M`
 - Type: Fonctionnel
-- Statut: `TODO`
+- Statut: `DONE` (2026-02-20)
 - Description:
   - Exposer les alertes de qualite sur les lignes (prix manquant/obsolete, temps manquant, etc.).
 - Fichiers cibles:
@@ -239,18 +249,19 @@ Converger `HEX_BC` vers un niveau fonctionnel et technique comparable au projet 
 - Priorite: `P2`
 - Effort: `XL`
 - Type: Fonctionnel + Technique
-- Statut: `TODO`
+- Statut: `IN_PROGRESS` (2026-02-21)
 - Description:
   - Introduire isolation par tenant et roles (`admin/engineer/viewer`) sur l'ensemble du domaine.
 - Fichiers cibles:
-  - `supabase/migrations/011_multitenant_core.sql` (nouveau)
+  - `supabase/migrations/013_multitenant_core_s5.sql` (nouveau)
   - `middleware.ts`
   - `src/components/UserContext.tsx`
   - `src/app/api/**` (ajout tenant context)
 - Taches:
-  - Tables `tenants`, `tenant_memberships` et adaptation des FK.
-  - Propagation `tenant_id` dans toutes les requetes serveur.
-  - Ecrans admin membership.
+  - Tables `tenants`, `tenant_memberships` et adaptation des FK. (`DONE`)
+  - Propagation `tenant_id` dans les requetes serveur prioritaires S1-S4. (`DONE` partiel, via RLS + filtres API)
+  - Ecrans/admin API de gestion des memberships. (`TODO`)
+  - Harmoniser tous les controles API sur `tenant_role` (admin/engineer/viewer) et retirer les checks legacy `profiles.role`. (`TODO`)
 - Criteres d'acceptation:
   - Un utilisateur ne voit que les donnees de son tenant.
   - Les autorisations rolees sont appliquees en API + DB.
