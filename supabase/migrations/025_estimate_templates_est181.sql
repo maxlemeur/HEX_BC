@@ -21,6 +21,68 @@ create table if not exists public.estimate_templates (
   unique (tenant_id, created_by, name)
 );
 
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'estimate_templates'
+      and column_name = 'user_id'
+  ) and not exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'estimate_templates'
+      and column_name = 'created_by'
+  ) then
+    execute 'alter table public.estimate_templates rename column user_id to created_by';
+  end if;
+end;
+$$;
+
+alter table public.estimate_templates
+  add column if not exists created_by uuid references public.profiles(id) on delete restrict,
+  add column if not exists source_version_id uuid references public.estimate_versions(id) on delete set null,
+  add column if not exists margin_multiplier numeric not null default 1 check (margin_multiplier >= 0),
+  add column if not exists margin_mode public.estimate_margin_mode not null default 'fixed',
+  add column if not exists currency text not null default 'EUR',
+  add column if not exists margin_bp integer not null default 0 check (margin_bp >= 0),
+  add column if not exists discount_bp integer not null default 0 check (discount_bp >= 0),
+  add column if not exists tax_rate_bp integer not null default 2000 check (tax_rate_bp >= 0 and tax_rate_bp <= 10000),
+  add column if not exists rounding_mode public.estimate_rounding_mode not null default 'none',
+  add column if not exists rounding_step_cents integer not null default 1 check (rounding_step_cents >= 1),
+  add column if not exists validite_jours integer not null default 30 check (validite_jours >= 1);
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'estimate_templates'
+      and column_name = 'created_by'
+  ) and not exists (
+    select 1
+    from pg_index i
+    join pg_class t on t.oid = i.indrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public'
+      and t.relname = 'estimate_templates'
+      and i.indisunique
+      and (
+        select array_agg(att.attname order by key_cols.ordinality)
+        from unnest(i.indkey::int2[]) with ordinality as key_cols(attnum, ordinality)
+        join pg_attribute att
+          on att.attrelid = t.oid
+         and att.attnum = key_cols.attnum
+      ) = array['tenant_id', 'created_by', 'name']::text[]
+  ) then
+    execute 'create unique index if not exists estimate_templates_tenant_created_by_name_key on public.estimate_templates (tenant_id, created_by, name)';
+  end if;
+end;
+$$;
+
 create table if not exists public.estimate_template_items (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
@@ -665,7 +727,15 @@ begin
 end;
 $$;
 
-create or replace function public.instantiate_estimate_from_template(
+drop function if exists public.instantiate_estimate_from_template(
+  uuid,
+  text,
+  text,
+  date,
+  integer
+);
+
+create function public.instantiate_estimate_from_template(
   p_template_id uuid,
   p_project_name text,
   p_version_title text,
