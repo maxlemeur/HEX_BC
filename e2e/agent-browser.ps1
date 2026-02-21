@@ -74,20 +74,56 @@ function Invoke-AgentBrowser {
   }
   $cmd += $Args
 
-  $output = & agent-browser @cmd
-  $exitCode = $LASTEXITCODE
-  if ($exitCode -ne 0) {
-    if (Start-AgentBrowserDaemon) {
-      $output = & agent-browser @cmd
-      $exitCode = $LASTEXITCODE
+  $maxAttempts = 4
+  for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    $output = & agent-browser @cmd
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -eq 0) {
+      return $output
+    }
+
+    if ($attempt -lt $maxAttempts) {
+      Start-AgentBrowserDaemon | Out-Null
+      Start-Sleep -Milliseconds (300 * $attempt)
     }
   }
 
-  if ($exitCode -ne 0) {
-    throw "agent-browser failed: $($Args -join ' ')"
+  throw "agent-browser failed: $($Args -join ' ')"
+}
+
+function Wait-ForUrlContains {
+  param(
+    [Parameter(Mandatory = $true)][string]$Session,
+    [Parameter(Mandatory = $true)][string]$Needle,
+    [int]$TimeoutSeconds = 30
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  $lastError = $null
+  $lastUrl = ""
+
+  while ((Get-Date) -lt $deadline) {
+    try {
+      $lastUrl = [string](Invoke-AgentBrowser -Session $Session "eval" "window.location.href")
+      if ($lastUrl -like "*$Needle*") {
+        return $lastUrl
+      }
+    } catch {
+      $lastError = $_.Exception.Message
+    }
+
+    Start-Sleep -Milliseconds 500
   }
 
-  return $output
+  if ($lastUrl) {
+    throw "Timeout waiting URL containing '$Needle'. Current URL: $lastUrl"
+  }
+
+  if ($lastError) {
+    throw "Timeout waiting URL containing '$Needle'. Last error: $lastError"
+  }
+
+  throw "Timeout waiting URL containing '$Needle'."
 }
 
 function Close-AgentBrowser {

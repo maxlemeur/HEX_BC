@@ -45,6 +45,8 @@ The RLS test (`ti-141-db-rls.ps1`) needs a secondary account:
 - `E2E_LOGIN_EMAIL_2`
 - `E2E_LOGIN_PASSWORD_2`
 
+`npm run e2e`, `npm run e2e:auth` et `npm run e2e:hex` chargent automatiquement `.env` puis `.env.local`.
+
 Direct PowerShell usage is still possible if needed:
 
 ```bash

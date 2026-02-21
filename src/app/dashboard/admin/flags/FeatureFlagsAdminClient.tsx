@@ -112,7 +112,7 @@ function badgeClass(enabled: boolean) {
 export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: string }>) {
   const [search, setSearch] = useState("");
   const [updatingKey, setUpdatingKey] = useState<string | null>(null);
-  const [valueDraftByKey, setValueDraftByKey] = useState<Record<string, string>>({});
+  const [valueDrafts, setValueDrafts] = useState<Record<string, string>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -139,15 +139,14 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
     setActionError(null);
     setSuccessMessage(null);
 
+    const draftValue = valueDrafts[flag.flag_key] ?? flag.value ?? "";
+
     try {
       const updatedFlag = await patchFeatureFlag({
         tenantId,
         flagKey: flag.flag_key,
         enabled: !flag.enabled,
-        value:
-          valueDraftByKey[flag.flag_key] === undefined
-            ? flag.value
-            : (valueDraftByKey[flag.flag_key]?.trim() || null),
+        value: draftValue,
       });
 
       await mutate(
@@ -178,18 +177,8 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
     }
   }
 
-  function getFlagValue(flag: FeatureFlagRecord) {
-    const draftValue = valueDraftByKey[flag.flag_key];
-    if (draftValue !== undefined) {
-      return draftValue;
-    }
-    return flag.value ?? "";
-  }
-
   async function handleSaveValue(flag: FeatureFlagRecord) {
-    const nextValue = getFlagValue(flag).trim();
-    const actionKey = `${flag.flag_key}:value`;
-    setUpdatingKey(actionKey);
+    setUpdatingKey(flag.flag_key);
     setActionError(null);
     setSuccessMessage(null);
 
@@ -198,7 +187,7 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
         tenantId,
         flagKey: flag.flag_key,
         enabled: flag.enabled,
-        value: nextValue.length > 0 ? nextValue : null,
+        value: valueDrafts[flag.flag_key] ?? flag.value ?? "",
       });
 
       await mutate(
@@ -215,18 +204,11 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
         { revalidate: false }
       );
 
-      setValueDraftByKey((prev) => {
-        if (!(flag.flag_key in prev)) return prev;
-        const next = { ...prev };
-        delete next[flag.flag_key];
-        return next;
-      });
-
-      setSuccessMessage(`${updatedFlag.flag_key} valeur mise a jour.`);
-    } catch (saveError) {
+      setSuccessMessage(`Valeur de ${updatedFlag.flag_key} mise a jour.`);
+    } catch (updateError) {
       setActionError(
-        saveError instanceof Error
-          ? saveError.message
+        updateError instanceof Error
+          ? updateError.message
           : "Impossible de mettre a jour la valeur du feature flag."
       );
     } finally {
@@ -257,14 +239,26 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
         </button>
       </div>
 
-      {actionError ? <div className="alert alert-error mb-6">{actionError}</div> : null}
-      {successMessage ? <div className="alert alert-success mb-6">{successMessage}</div> : null}
+      {actionError ? (
+        <div className="alert alert-error mb-6" role="alert">
+          {actionError}
+        </div>
+      ) : null}
+      {successMessage ? (
+        <div className="alert alert-success mb-6" role="status" aria-live="polite">
+          {successMessage}
+        </div>
+      ) : null}
 
       <div className="dashboard-card p-5 mb-6">
-        <label className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+        <label
+          className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]"
+          htmlFor="feature-flag-search-input"
+        >
           Rechercher un flag
         </label>
         <input
+          id="feature-flag-search-input"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Ex: STALE_PRICE_DAYS"
@@ -289,8 +283,8 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
               <thead>
                 <tr>
                   <th>Flag</th>
-                  <th>Etat</th>
                   <th>Valeur</th>
+                  <th>Etat</th>
                   <th className="text-right">Action</th>
                 </tr>
               </thead>
@@ -304,46 +298,46 @@ export function FeatureFlagsAdminClient({ tenantId }: Readonly<{ tenantId: strin
                 ) : (
                   filteredFlags.map((flag) => {
                     const isUpdating = updatingKey === flag.flag_key;
-                    const isSavingValue = updatingKey === `${flag.flag_key}:value`;
-                    const flagValue = getFlagValue(flag);
+                    const valueDraft = valueDrafts[flag.flag_key] ?? flag.value ?? "";
 
                     return (
                       <tr key={flag.flag_key}>
                         <td className="font-mono text-sm text-[var(--slate-800)]">{flag.flag_key}</td>
                         <td>
-                          <span className={badgeClass(flag.enabled)}>
-                            {flag.enabled ? "Actif" : "Inactif"}
-                          </span>
-                        </td>
-                        <td>
                           <div className="flex items-center gap-2">
                             <input
                               type="text"
-                              className="form-input h-9 min-w-[170px] max-w-[220px]"
-                              placeholder="Valeur optionnelle"
-                              value={flagValue}
+                              className="form-input h-9 min-w-[220px] text-sm"
+                              value={valueDraft}
                               onChange={(event) =>
-                                setValueDraftByKey((prev) => ({
+                                setValueDrafts((prev) => ({
                                   ...prev,
                                   [flag.flag_key]: event.target.value,
                                 }))
                               }
+                              placeholder="Valeur optionnelle"
+                              disabled={isUpdating}
                             />
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm"
-                              disabled={isSavingValue}
+                              disabled={isUpdating}
                               onClick={() => void handleSaveValue(flag)}
                             >
-                              {isSavingValue ? "Enregistrement..." : "Sauver"}
+                              Enregistrer
                             </button>
                           </div>
+                        </td>
+                        <td>
+                          <span className={badgeClass(flag.enabled)}>
+                            {flag.enabled ? "Actif" : "Inactif"}
+                          </span>
                         </td>
                         <td className="text-right">
                           <button
                             type="button"
                             className={flag.enabled ? "btn btn-secondary" : "btn btn-primary"}
-                            disabled={isUpdating || isSavingValue}
+                            disabled={isUpdating}
                             onClick={() => void handleToggle(flag)}
                           >
                             {isUpdating

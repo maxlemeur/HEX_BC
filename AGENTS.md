@@ -29,8 +29,10 @@
 - If you add tests, align on a framework and add scripts to `package.json`.
 
 ## Commit & Pull Request Guidelines
-- This directory does not appear to be a git repo, so no commit history is available.
-- If git is initialized, follow the team standard (Conventional Commits if undecided).
+- Work only on the `main` branch.
+- Multiple developers may work on `main` at the same time.
+- Never delete, overwrite, or revert work from other developers unless explicitly asked.
+- Follow the team standard for commit messages (Conventional Commits if undecided).
 - Include the ticket number in commit messages when one exists.
 - PRs should include a concise summary, linked issue (if any), and UI screenshots
   for visual changes. Note any Supabase schema or RLS updates.

@@ -37,10 +37,23 @@ try {
   Invoke-AgentBrowser -Session $Session "wait" "--load" "networkidle"
 
   Invoke-AgentBrowser -Session $Session "find" "label" "Email" "fill" $Email
-  Invoke-AgentBrowser -Session $Session "find" "role" "textbox" "fill" "--name" "Mot de passe" $Password
+  $passwordJson = ConvertTo-Json $Password -Compress
+  $js = @"
+(() => {
+  const input = document.querySelector('input#password, input[name="password"], input[type="password"]');
+  if (!input) {
+    throw new Error('Password input not found');
+  }
+  input.focus();
+  input.value = $passwordJson;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+})();
+"@
+  Invoke-AgentBrowser -Session $Session "eval" $js | Out-Null
   Invoke-AgentBrowser -Session $Session "find" "role" "button" "click" "--name" "Se connecter"
 
-  Invoke-AgentBrowser -Session $Session "wait" "--url" "**/dashboard**"
+  Wait-ForUrlContains -Session $Session -Needle "/dashboard" | Out-Null
   Invoke-AgentBrowser -Session $Session "state" "save" $AuthStatePath
 
   Write-Host "Auth state saved."

@@ -13,7 +13,8 @@ Require-AgentBrowser
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $project = "E2E-HEX-TI151-$stamp"
-$printPath = "$env:USERPROFILE\.agent-browser\tmp\ti-151-$stamp.pdf"
+$tempDir = Get-E2ETempDir
+$printPath = Join-Path $tempDir "ti-151-$stamp.pdf"
 
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session

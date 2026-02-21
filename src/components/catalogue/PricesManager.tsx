@@ -6,7 +6,11 @@ import { fetchApi } from "@/components/catalogue/api";
 import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
 import type { SupplierPrice } from "@/components/catalogue/types";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import { isPriceStale, parseStalePriceDays } from "@/lib/catalogue/stale-prices";
+import {
+  DEFAULT_STALE_PRICE_DAYS,
+  isPriceStale,
+  parseStalePriceDays,
+} from "@/lib/catalogue/stale-prices";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 
 type PricesListResponse = {
@@ -46,6 +50,11 @@ function toEuroInput(unitPriceCents: number | undefined) {
 }
 
 export function PricesManager() {
+  const { value: stalePriceDaysValue } = useFeatureFlag("STALE_PRICE_DAYS");
+  const stalePriceDays = useMemo(
+    () => parseStalePriceDays(stalePriceDaysValue, DEFAULT_STALE_PRICE_DAYS),
+    [stalePriceDaysValue]
+  );
   const [items, setItems] = useState<SupplierPrice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -53,7 +62,7 @@ export function PricesManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchSupplierId, setSearchSupplierId] = useState("");
   const [searchProductId, setSearchProductId] = useState("");
-  const [showStaleOnly, setShowStaleOnly] = useState(false);
+  const [staleOnly, setStaleOnly] = useState(false);
   const [formState, setFormState] = useState<SupplierPriceFormState>(EMPTY_FORM);
   const [bulkPayload, setBulkPayload] = useState(() =>
     JSON.stringify(
@@ -75,24 +84,22 @@ export function PricesManager() {
   );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const { value: staleDaysFlagValue } = useFeatureFlag("STALE_PRICE_DAYS");
 
-  const stalePriceDays = useMemo(
-    () => parseStalePriceDays(staleDaysFlagValue),
-    [staleDaysFlagValue]
-  );
-  const visibleItems = useMemo(() => {
-    if (!showStaleOnly) return items;
+  const displayedItems = useMemo(() => {
+    if (!staleOnly) return items;
+
+    const now = new Date();
     return items.filter((item) =>
       isPriceStale(
         {
           updatedAt: item.updated_at ?? null,
           createdAt: item.created_at ?? null,
         },
-        stalePriceDays
+        stalePriceDays,
+        now
       )
     );
-  }, [items, showStaleOnly, stalePriceDays]);
+  }, [items, staleOnly, stalePriceDays]);
 
   const loadItems = useCallback(async () => {
     setIsLoading(true);
@@ -343,19 +350,14 @@ export function PricesManager() {
             />
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
-            <input
-              type="checkbox"
-              checked={showStaleOnly}
-              onChange={(event) => setShowStaleOnly(event.target.checked)}
-            />
-            Prix anciens seulement
-          </label>
-          <span className="text-xs text-[var(--slate-500)]">
-            Seuil stale: {stalePriceDays} jours
-          </span>
-        </div>
+        <label className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
+          <input
+            type="checkbox"
+            checked={staleOnly}
+            onChange={(event) => setStaleOnly(event.target.checked)}
+          />
+          Prix anciens seulement ({stalePriceDays} jours)
+        </label>
 
         {error ? <div className="alert alert-error mt-4">{error}</div> : null}
         {success ? <div className="alert alert-success mt-4">{success}</div> : null}
@@ -380,16 +382,14 @@ export function PricesManager() {
                     Chargement...
                   </td>
                 </tr>
-              ) : visibleItems.length === 0 ? (
+              ) : displayedItems.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="text-center text-[var(--slate-500)]">
-                    {showStaleOnly
-                      ? "Aucun prix ancien."
-                      : "Aucun prix fournisseur."}
+                    Aucun prix fournisseur.
                   </td>
                 </tr>
               ) : (
-                visibleItems.map((item) => {
+                displayedItems.map((item) => {
                   const stale = isPriceStale(
                     {
                       updatedAt: item.updated_at ?? null,
@@ -411,16 +411,16 @@ export function PricesManager() {
                         {item.currency ? ` ${item.currency}` : ""}
                       </td>
                       <td>
-                        {formatDate(item.valid_from)} {'->'} {formatDate(item.valid_to)}
+                        {formatDate(item.valid_from)} {"->"} {formatDate(item.valid_to)}
                       </td>
                       <td>{item.updated_at ?? item.created_at ?? "-"}</td>
                       <td>
                         {stale ? (
-                          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          <span className="inline-flex rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
                             Prix ancien
                           </span>
                         ) : (
-                          <span className="text-xs text-[var(--slate-500)]">Recent</span>
+                          "-"
                         )}
                       </td>
                       <td>

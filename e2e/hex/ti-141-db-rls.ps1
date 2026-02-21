@@ -10,9 +10,9 @@ function Login-As {
   Invoke-AB $Session "open" "$BaseUrl/login"
   Invoke-AB $Session "wait" "--load" "networkidle"
   Invoke-AB $Session "find" "label" "Email" "fill" $Email
-  Invoke-AB $Session "find" "label" "Mot de passe" "fill" $Password
+  Fill-PasswordInput -Session $Session -Password $Password
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Se connecter"
-  Invoke-AB $Session "wait" "--url" "**/dashboard/**" | Out-Null
+  Wait-ForUrlContains -Session $Session -Needle "/dashboard" | Out-Null
 }
 
 $config = Get-HexConfig -BaseUrl $BaseUrl -Session $Session

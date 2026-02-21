@@ -1,11 +1,26 @@
 -- EST-032: add h_mo_majoration and extend estimate item SQL functions.
 
 alter table public.estimate_items
-  add column if not exists h_mo_majoration numeric(12,4) default 1.0;
+  add column if not exists h_mo_majoration numeric(12,4) default 1.0,
+  add column if not exists h_mo_atelier numeric(12,3),
+  add column if not exists k_mo_atelier numeric(12,3) default 1.0,
+  add column if not exists labor_role_atelier_id uuid,
+  add column if not exists h_mo_chantier numeric(12,3),
+  add column if not exists k_mo_chantier numeric(12,3) default 1.0,
+  add column if not exists labor_role_chantier_id uuid;
 
 update public.estimate_items
-set h_mo_majoration = 1.0
+set
+  h_mo_majoration = case when item_type = 'section' then 1.0 else coalesce(h_mo_majoration, 1.0) end,
+  k_mo_atelier = case when item_type = 'section' then 1.0 else coalesce(k_mo_atelier, 1.0) end,
+  k_mo_chantier = case when item_type = 'section' then 1.0 else coalesce(k_mo_chantier, 1.0) end,
+  h_mo_atelier = case when item_type = 'section' then null else h_mo_atelier end,
+  h_mo_chantier = case when item_type = 'section' then null else h_mo_chantier end,
+  labor_role_atelier_id = case when item_type = 'section' then null else labor_role_atelier_id end,
+  labor_role_chantier_id = case when item_type = 'section' then null else labor_role_chantier_id end
 where h_mo_majoration is null
+   or k_mo_atelier is null
+   or k_mo_chantier is null
    or item_type = 'section';
 
 alter table public.estimate_items
@@ -61,6 +76,12 @@ alter table public.estimate_items
       and h_mo is null
       and h_mo_majoration = 1.0
       and k_mo is null
+      and h_mo_atelier is null
+      and k_mo_atelier = 1.0
+      and labor_role_atelier_id is null
+      and h_mo_chantier is null
+      and k_mo_chantier = 1.0
+      and labor_role_chantier_id is null
       and pu_ht_cents is null
       and labor_role_id is null
       and category_id is null
@@ -105,6 +126,12 @@ returns table (
   h_mo numeric(12,3),
   h_mo_majoration numeric(12,4),
   k_mo numeric(12,3),
+  h_mo_atelier numeric(12,3),
+  k_mo_atelier numeric(12,3),
+  labor_role_atelier_id uuid,
+  h_mo_chantier numeric(12,3),
+  k_mo_chantier numeric(12,3),
+  labor_role_chantier_id uuid,
   pu_ht_cents integer,
   labor_role_id uuid,
   category_id uuid,
@@ -179,6 +206,36 @@ as $$
       else item.k_mo
     end as k_mo,
     case
+      when requested.payload ? 'h_mo_atelier'
+        then (requested.payload->>'h_mo_atelier')::numeric(12,3)
+      else item.h_mo_atelier
+    end as h_mo_atelier,
+    case
+      when requested.payload ? 'k_mo_atelier'
+        then (requested.payload->>'k_mo_atelier')::numeric(12,3)
+      else item.k_mo_atelier
+    end as k_mo_atelier,
+    case
+      when requested.payload ? 'labor_role_atelier_id'
+        then nullif(requested.payload->>'labor_role_atelier_id', '')::uuid
+      else item.labor_role_atelier_id
+    end as labor_role_atelier_id,
+    case
+      when requested.payload ? 'h_mo_chantier'
+        then (requested.payload->>'h_mo_chantier')::numeric(12,3)
+      else item.h_mo_chantier
+    end as h_mo_chantier,
+    case
+      when requested.payload ? 'k_mo_chantier'
+        then (requested.payload->>'k_mo_chantier')::numeric(12,3)
+      else item.k_mo_chantier
+    end as k_mo_chantier,
+    case
+      when requested.payload ? 'labor_role_chantier_id'
+        then nullif(requested.payload->>'labor_role_chantier_id', '')::uuid
+      else item.labor_role_chantier_id
+    end as labor_role_chantier_id,
+    case
       when requested.payload ? 'pu_ht_cents'
         then (requested.payload->>'pu_ht_cents')::integer
       else item.pu_ht_cents
@@ -220,11 +277,14 @@ as $$
 $$;
 
 drop function if exists public.bulk_update_estimate_items(uuid, jsonb);
+drop function if exists public.bulk_update_estimate_items(uuid, jsonb, jsonb);
+drop function if exists public.bulk_update_estimate_items(uuid, jsonb, jsonb, timestamptz);
 
 create or replace function public.bulk_update_estimate_items(
   target_version_id uuid,
   item_updates jsonb,
-  version_patch jsonb default null
+  version_patch jsonb default null,
+  expected_version_updated_at timestamptz default null
 )
 returns integer
 language plpgsql
@@ -242,6 +302,10 @@ begin
     raise exception 'item_updates must be a JSON array';
   end if;
 
+  if expected_version_updated_at is null then
+    raise exception 'expected_version_updated_at is required';
+  end if;
+
   if version_patch is not null and jsonb_typeof(version_patch) <> 'object' then
     raise exception 'version_patch must be a JSON object';
   end if;
@@ -251,6 +315,26 @@ begin
   end if;
 
   expected_count := coalesce(jsonb_array_length(item_updates), 0);
+
+  perform ev.id
+  from public.estimate_versions ev
+  where ev.id = target_version_id
+    and ev.updated_at = expected_version_updated_at
+  for update;
+
+  get diagnostics version_locked_count = row_count;
+
+  if version_locked_count <> 1 then
+    raise exception
+      using
+        errcode = 'P0001',
+        message = 'STALE_BULK_UPDATE_ITEMS',
+        detail = format(
+          'expected_count=%s,locked_count=%s',
+          1,
+          version_locked_count
+        );
+  end if;
 
   if expected_count > 0 then
     create temporary table _estimate_item_bulk_snapshot (
@@ -266,6 +350,12 @@ begin
       h_mo numeric(12,3),
       h_mo_majoration numeric(12,4),
       k_mo numeric(12,3),
+      h_mo_atelier numeric(12,3),
+      k_mo_atelier numeric(12,3),
+      labor_role_atelier_id uuid,
+      h_mo_chantier numeric(12,3),
+      k_mo_chantier numeric(12,3),
+      labor_role_chantier_id uuid,
       pu_ht_cents integer,
       labor_role_id uuid,
       category_id uuid,
@@ -288,6 +378,12 @@ begin
       h_mo,
       h_mo_majoration,
       k_mo,
+      h_mo_atelier,
+      k_mo_atelier,
+      labor_role_atelier_id,
+      h_mo_chantier,
+      k_mo_chantier,
+      labor_role_chantier_id,
       pu_ht_cents,
       labor_role_id,
       category_id,
@@ -309,6 +405,12 @@ begin
       snapshot.h_mo,
       snapshot.h_mo_majoration,
       snapshot.k_mo,
+      snapshot.h_mo_atelier,
+      snapshot.k_mo_atelier,
+      snapshot.labor_role_atelier_id,
+      snapshot.h_mo_chantier,
+      snapshot.k_mo_chantier,
+      snapshot.labor_role_chantier_id,
       snapshot.pu_ht_cents,
       snapshot.labor_role_id,
       snapshot.category_id,
@@ -374,6 +476,12 @@ begin
       h_mo = snapshot.h_mo,
       h_mo_majoration = snapshot.h_mo_majoration,
       k_mo = snapshot.k_mo,
+      h_mo_atelier = snapshot.h_mo_atelier,
+      k_mo_atelier = snapshot.k_mo_atelier,
+      labor_role_atelier_id = snapshot.labor_role_atelier_id,
+      h_mo_chantier = snapshot.h_mo_chantier,
+      k_mo_chantier = snapshot.k_mo_chantier,
+      labor_role_chantier_id = snapshot.labor_role_chantier_id,
       pu_ht_cents = snapshot.pu_ht_cents,
       labor_role_id = snapshot.labor_role_id,
       category_id = snapshot.category_id,
@@ -400,26 +508,7 @@ begin
     end if;
   end if;
 
-  if expected_count > 0 or effective_version_patch <> '{}'::jsonb then
-    perform ev.id
-    from public.estimate_versions ev
-    where ev.id = target_version_id
-    for update;
-
-    get diagnostics version_locked_count = row_count;
-
-    if version_locked_count <> 1 then
-      raise exception
-        using
-          errcode = 'P0001',
-          message = 'STALE_BULK_UPDATE_ITEMS',
-          detail = format(
-            'expected_count=%s,locked_count=%s',
-            1,
-            version_locked_count
-          );
-    end if;
-
+  if effective_version_patch <> '{}'::jsonb then
     update public.estimate_versions ev
     set
       total_ht_cents = case
@@ -541,6 +630,12 @@ begin
     h_mo,
     h_mo_majoration,
     k_mo,
+    h_mo_atelier,
+    k_mo_atelier,
+    labor_role_atelier_id,
+    h_mo_chantier,
+    k_mo_chantier,
+    labor_role_chantier_id,
     pu_ht_cents,
     labor_role_id,
     category_id,
@@ -565,6 +660,12 @@ begin
     src.h_mo,
     src.h_mo_majoration,
     src.k_mo,
+    src.h_mo_atelier,
+    src.k_mo_atelier,
+    src.labor_role_atelier_id,
+    src.h_mo_chantier,
+    src.k_mo_chantier,
+    src.labor_role_chantier_id,
     src.pu_ht_cents,
     src.labor_role_id,
     src.category_id,

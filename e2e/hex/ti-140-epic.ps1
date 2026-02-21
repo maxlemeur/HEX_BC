@@ -13,9 +13,10 @@ Require-AgentBrowser
 
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $project = "E2E-HEX-TI140-$stamp"
-$xlsxPath = "$env:USERPROFILE\.agent-browser\tmp\ti-140-$stamp.xlsx"
-$csvPath = "$env:USERPROFILE\.agent-browser\tmp\ti-140-$stamp.csv"
-$printPath = "$env:USERPROFILE\.agent-browser\tmp\ti-140-$stamp.pdf"
+$tempDir = Get-E2ETempDir
+$xlsxPath = Join-Path $tempDir "ti-140-$stamp.xlsx"
+$csvPath = Join-Path $tempDir "ti-140-$stamp.csv"
+$printPath = Join-Path $tempDir "ti-140-$stamp.pdf"
 
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session

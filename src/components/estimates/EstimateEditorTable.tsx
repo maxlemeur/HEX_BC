@@ -7,7 +7,9 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
+  type FocusEvent,
   type KeyboardEvent,
 } from "react";
 import {
@@ -34,7 +36,10 @@ import {
   type EstimateItemRecord,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
-import { sendEstimateSuggestionRuleFeedback } from "@/lib/estimates/client";
+import {
+  sendEstimateSuggestionRuleFeedback,
+  updateEstimateItem,
+} from "@/lib/estimates/client";
 import {
   useSpreadsheetNavigation,
   type SpreadsheetCell,
@@ -597,6 +602,17 @@ const SortableRow = memo(function SortableRow({
   >([]);
   const [isCatalogueLoading, setIsCatalogueLoading] = useState(false);
   const [catalogueError, setCatalogueError] = useState<string | null>(null);
+  const [activeCatalogueSuggestionIndex, setActiveCatalogueSuggestionIndex] =
+    useState(0);
+  const catalogueBlurTimeoutRef = useRef<number | null>(null);
+  const catalogueAbortRef = useRef<AbortController | null>(null);
+  const catalogueListboxId = `estimate-catalogue-suggestions-${item.id}`;
+
+  const clearCatalogueBlurTimeout = useCallback(() => {
+    if (catalogueBlurTimeoutRef.current === null) return;
+    window.clearTimeout(catalogueBlurTimeoutRef.current);
+    catalogueBlurTimeoutRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (item.item_type !== "line") {
@@ -609,6 +625,9 @@ const SortableRow = memo(function SortableRow({
     if (!versionId || !isTitleFocused || isReadOnly) {
       setIsCatalogueLoading(false);
       setCatalogueError(null);
+      if (!isTitleFocused) {
+        setCatalogueSuggestions([]);
+      }
       return;
     }
 
@@ -620,8 +639,13 @@ const SortableRow = memo(function SortableRow({
       return;
     }
 
-    const abortController = new AbortController();
     const timeoutId = window.setTimeout(() => {
+      if (catalogueAbortRef.current) {
+        catalogueAbortRef.current.abort();
+      }
+
+      const abortController = new AbortController();
+      catalogueAbortRef.current = abortController;
       setIsCatalogueLoading(true);
       setCatalogueError(null);
 
@@ -654,10 +678,12 @@ const SortableRow = memo(function SortableRow({
             ok?: boolean;
             data?: SuggestPricesResponse;
           };
-          const suggestions = Array.isArray(envelope.data?.suggestions)
-            ? envelope.data?.suggestions
-            : [];
-          setCatalogueSuggestions(suggestions ?? []);
+          const suggestions =
+            envelope.ok && Array.isArray(envelope.data?.suggestions)
+              ? envelope.data.suggestions
+              : [];
+          setCatalogueSuggestions(suggestions.slice(0, 10));
+          setActiveCatalogueSuggestionIndex(0);
         })
         .catch((error: unknown) => {
           if (abortController.signal.aborted) return;
@@ -676,10 +702,25 @@ const SortableRow = memo(function SortableRow({
     }, CATALOGUE_SUGGESTIONS_DEBOUNCE_MS);
 
     return () => {
-      abortController.abort();
       window.clearTimeout(timeoutId);
     };
   }, [isReadOnly, isTitleFocused, item.item_type, item.title, versionId]);
+
+  useEffect(() => {
+    setActiveCatalogueSuggestionIndex((previous) => {
+      if (catalogueSuggestions.length === 0) return 0;
+      return Math.min(previous, catalogueSuggestions.length - 1);
+    });
+  }, [catalogueSuggestions.length]);
+
+  useEffect(() => {
+    return () => {
+      clearCatalogueBlurTimeout();
+      if (catalogueAbortRef.current) {
+        catalogueAbortRef.current.abort();
+      }
+    };
+  }, [clearCatalogueBlurTimeout]);
 
   const showCatalogueSuggestions =
     item.item_type === "line" &&
@@ -687,20 +728,103 @@ const SortableRow = memo(function SortableRow({
     (catalogueSuggestions.length > 0 || isCatalogueLoading || Boolean(catalogueError));
 
   const applyCatalogueSuggestion = useCallback(
-    (suggestion: CataloguePriceSuggestion) => {
+    async (suggestion: CataloguePriceSuggestion, alternative?: SupplierAlternative) => {
       if (isReadOnly || item.item_type !== "line") return;
 
+      const selectedSupplierPriceId =
+        alternative?.supplier_price_id ?? suggestion.supplier_price_id;
+      const selectedUnit = (alternative?.unit ?? suggestion.unit)?.trim() ?? "";
+      const selectedAdjustedUnitPrice =
+        alternative?.adjusted_unit_price_cents ?? suggestion.adjusted_unit_price_cents;
+
       const patch: ItemPatch = {
-        description: suggestion.unit ?? null,
-        unit_price_ht_cents: suggestion.adjusted_unit_price_cents,
-        selected_supplier_price_id: suggestion.supplier_price_id,
+        description: selectedUnit.length > 0 ? selectedUnit : null,
+        unit_price_ht_cents: selectedAdjustedUnitPrice,
+        selected_supplier_price_id: selectedSupplierPriceId,
       };
 
       onPatchItem(item.id, patch, { persist: true });
-      onUnitChange(item.id, suggestion.unit ?? "");
+      onUnitChange(item.id, selectedUnit);
       setIsTitleFocused(false);
+
+      try {
+        await updateEstimateItem(versionId, item.id, {
+          description: selectedUnit.length > 0 ? selectedUnit : null,
+          unit_price_ht_cents: selectedAdjustedUnitPrice,
+          selected_supplier_price_id: selectedSupplierPriceId,
+        });
+      } catch (error) {
+        console.error("Impossible d'enregistrer le fournisseur selectionne.", error);
+      }
     },
-    [isReadOnly, item.id, item.item_type, onPatchItem, onUnitChange]
+    [isReadOnly, item.id, item.item_type, onPatchItem, onUnitChange, versionId]
+  );
+
+  const handleLineTitleFocus = useCallback(
+    (event: FocusEvent<HTMLInputElement>) => {
+      clearCatalogueBlurTimeout();
+      setIsTitleFocused(true);
+      titleEditorProps.onFocus(event);
+    },
+    [clearCatalogueBlurTimeout, titleEditorProps]
+  );
+
+  const handleLineTitleBlur = useCallback(
+    (event: FocusEvent<HTMLInputElement>) => {
+      titleEditorProps.onBlur(event);
+      clearCatalogueBlurTimeout();
+      catalogueBlurTimeoutRef.current = window.setTimeout(() => {
+        setIsTitleFocused(false);
+      }, 120);
+
+      const nextTitle = event.target.value.trim() || "Nouvelle ligne";
+      onPatchItem(item.id, { title: nextTitle }, { persist: true });
+    },
+    [clearCatalogueBlurTimeout, item.id, onPatchItem, titleEditorProps]
+  );
+
+  const handleLineTitleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (showCatalogueSuggestions && catalogueSuggestions.length > 0) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setActiveCatalogueSuggestionIndex((previous) =>
+            Math.min(previous + 1, catalogueSuggestions.length - 1)
+          );
+          return;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setActiveCatalogueSuggestionIndex((previous) => Math.max(previous - 1, 0));
+          return;
+        }
+
+        if (event.key === "Enter") {
+          const activeSuggestion = catalogueSuggestions[activeCatalogueSuggestionIndex];
+          if (activeSuggestion) {
+            event.preventDefault();
+            void applyCatalogueSuggestion(activeSuggestion);
+            return;
+          }
+        }
+      }
+
+      if (event.key === "Escape" && showCatalogueSuggestions) {
+        event.preventDefault();
+        setIsTitleFocused(false);
+        return;
+      }
+
+      titleEditorProps.onKeyDown(event);
+    },
+    [
+      activeCatalogueSuggestionIndex,
+      applyCatalogueSuggestion,
+      catalogueSuggestions,
+      showCatalogueSuggestions,
+      titleEditorProps,
+    ]
   );
 
   if (item.item_type === "section") {
@@ -988,25 +1112,29 @@ const SortableRow = memo(function SortableRow({
             tabIndex={titleEditorProps.tabIndex}
             value={item.title}
             disabled={isReadOnly}
-            onFocus={(event) => {
-              setIsTitleFocused(true);
-              titleEditorProps.onFocus(event);
-            }}
-            onKeyDown={titleEditorProps.onKeyDown}
+            onFocus={handleLineTitleFocus}
+            onKeyDown={handleLineTitleKeyDown}
             onChange={(event) =>
               onPatchItem(item.id, { title: event.target.value }, { persist: false })
             }
-            onBlur={(event) => {
-              titleEditorProps.onBlur(event);
-              window.setTimeout(() => {
-                setIsTitleFocused(false);
-              }, 120);
-              const nextTitle = event.target.value.trim() || "Nouvelle ligne";
-              onPatchItem(item.id, { title: nextTitle }, { persist: true });
-            }}
+            onBlur={handleLineTitleBlur}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={showCatalogueSuggestions}
+            aria-controls={showCatalogueSuggestions ? catalogueListboxId : undefined}
+            aria-activedescendant={
+              showCatalogueSuggestions && catalogueSuggestions[activeCatalogueSuggestionIndex]
+                ? `${catalogueListboxId}-option-${activeCatalogueSuggestionIndex}`
+                : undefined
+            }
           />
           {showCatalogueSuggestions ? (
-            <div className="estimate-catalogue-suggestions" role="listbox">
+            <div
+              id={catalogueListboxId}
+              className="estimate-catalogue-suggestions"
+              role="listbox"
+              onMouseDown={(event) => event.preventDefault()}
+            >
               {isCatalogueLoading ? (
                 <div className="estimate-catalogue-suggestions__status">Recherche catalogue...</div>
               ) : null}
@@ -1015,40 +1143,58 @@ const SortableRow = memo(function SortableRow({
                   {catalogueError}
                 </div>
               ) : null}
-              {catalogueSuggestions.map((suggestion) => (
-                <button
+              {catalogueSuggestions.map((suggestion, suggestionIndex) => (
+                <div
                   key={`${item.id}:${suggestion.supplier_price_id}`}
-                  type="button"
-                  className="estimate-catalogue-suggestion"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => applyCatalogueSuggestion(suggestion)}
-                  disabled={isReadOnly}
+                  id={`${catalogueListboxId}-option-${suggestionIndex}`}
+                  role="option"
+                  aria-selected={suggestionIndex === activeCatalogueSuggestionIndex}
+                  className={`estimate-catalogue-suggestion${
+                    suggestionIndex === activeCatalogueSuggestionIndex
+                      ? " estimate-catalogue-suggestion--active"
+                      : ""
+                  }`}
                 >
-                  <div className="estimate-catalogue-suggestion__head">
-                    <span className="estimate-catalogue-suggestion__supplier">
-                      {suggestion.supplier_name}
-                    </span>
-                    <span className="estimate-catalogue-suggestion__price">
-                      {formatEUR(suggestion.adjusted_unit_price_cents)}
-                      {suggestion.currency ? ` ${suggestion.currency}` : ""}
-                    </span>
-                  </div>
-                  <div className="estimate-catalogue-suggestion__meta">
-                    <span>{suggestion.product_designation}</span>
-                    <span>{formatCompactDate(suggestion.updated_at)}</span>
-                    <span>{suggestion.supplier_reference ?? "-"}</span>
-                    {suggestion.is_stale ? (
-                      <span className="estimate-catalogue-suggestion__stale">
-                        Prix ancien
+                  <button
+                    type="button"
+                    className="estimate-catalogue-suggestion__primary"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => void applyCatalogueSuggestion(suggestion)}
+                    disabled={isReadOnly}
+                  >
+                    <div className="estimate-catalogue-suggestion__head">
+                      <span className="estimate-catalogue-suggestion__supplier">
+                        {suggestion.supplier_name}
                       </span>
-                    ) : null}
-                  </div>
+                      <span className="estimate-catalogue-suggestion__price">
+                        {formatEUR(suggestion.adjusted_unit_price_cents)}
+                        {suggestion.currency ? ` ${suggestion.currency}` : ""}
+                      </span>
+                    </div>
+                    <div className="estimate-catalogue-suggestion__meta">
+                      <span>{suggestion.product_designation}</span>
+                      <span>{formatCompactDate(suggestion.updated_at)}</span>
+                      <span>{suggestion.supplier_reference ?? "-"}</span>
+                      {suggestion.is_stale ? (
+                        <span className="estimate-catalogue-suggestion__stale">
+                          Prix ancien
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
                   {suggestion.alternatives.length > 0 ? (
                     <div className="estimate-catalogue-suggestion__alternatives">
                       {suggestion.alternatives.map((alternative) => (
-                        <span
+                        <button
                           key={`${suggestion.supplier_price_id}:alt:${alternative.kind}:${alternative.supplier_price_id}`}
+                          type="button"
                           className="estimate-catalogue-suggestion__alternative"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void applyCatalogueSuggestion(suggestion, alternative);
+                          }}
+                          disabled={isReadOnly}
                         >
                           {toAlternativeKindLabel(alternative.kind)}: {alternative.supplier_name} |
                           {" "}
@@ -1057,11 +1203,11 @@ const SortableRow = memo(function SortableRow({
                           {formatCompactDate(alternative.updated_at)} |
                           {" "}
                           {alternative.supplier_reference ?? "-"}
-                        </span>
+                        </button>
                       ))}
                     </div>
                   ) : null}
-                </button>
+                </div>
               ))}
             </div>
           ) : null}

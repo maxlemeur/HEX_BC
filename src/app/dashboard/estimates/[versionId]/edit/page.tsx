@@ -421,6 +421,32 @@ function appendLaborSplitFields(
   });
 }
 
+function mergeBufferedUpdatesIntoItems(
+  sourceItems: EstimateItem[],
+  bufferedUpdates: EstimateAutoSaveDraft["buffered_updates"]
+) {
+  if (sourceItems.length === 0 || bufferedUpdates.length === 0) {
+    return sourceItems;
+  }
+
+  const updatesById = new Map(
+    bufferedUpdates.map((entry) => [entry.id, entry.updates] as const)
+  );
+
+  let changed = false;
+  const nextItems = sourceItems.map((item) => {
+    const updates = updatesById.get(item.id);
+    if (!updates) return item;
+    changed = true;
+    return {
+      ...item,
+      ...updates,
+    };
+  });
+
+  return changed ? nextItems : sourceItems;
+}
+
 function resolveLaborRoleHourlyRate(
   role: LaborRole | Record<string, unknown>,
   scope: "default" | "atelier" | "chantier"
@@ -758,6 +784,14 @@ export default function EditEstimatePage() {
   );
   const pendingBufferedUpdateCountRef = useRef(0);
   const isFlushingBufferedUpdatesRef = useRef(false);
+  const applyPendingBufferedUpdatesToItems = useCallback(
+    (sourceItems: EstimateItem[]) =>
+      mergeBufferedUpdatesIntoItems(
+        sourceItems,
+        serializeBufferedUpdates(pendingItemUpdatesRef.current)
+      ),
+    []
+  );
 
   const registerVersionConflict = useCallback((error: unknown) => {
     if (!isVersionConflictError(error) || !isEstimateApiError(error)) {
@@ -882,7 +916,7 @@ export default function EditEstimatePage() {
         };
 
         setVersion(versionRow);
-        setItems(normalizedItems);
+        setItems(applyPendingBufferedUpdatesToItems(normalizedItems));
         setCategories(data.categories ?? []);
         setSupplyTypes(data.supplyTypes ?? []);
         setLaborRoles(rolesData);
@@ -989,7 +1023,13 @@ export default function EditEstimatePage() {
     return () => {
       active = false;
     };
-  }, [isLaborSplitEnabled, registerVersionConflict, reloadNonce, resolvedVersionId]);
+  }, [
+    applyPendingBufferedUpdatesToItems,
+    isLaborSplitEnabled,
+    registerVersionConflict,
+    reloadNonce,
+    resolvedVersionId,
+  ]);
 
   useEffect(() => {
     if (!resolvedVersionId) {
@@ -1158,6 +1198,12 @@ export default function EditEstimatePage() {
     pendingBufferedUpdateCountRef.current = pendingItemUpdatesRef.current.size;
     const hasPendingUpdates = pendingItemUpdatesRef.current.size > 0;
     setHasPendingBufferedUpdates(hasPendingUpdates);
+    setItems((previous) =>
+      mergeBufferedUpdatesIntoItems(
+        previous,
+        serializeBufferedUpdates(pendingItemUpdatesRef.current)
+      )
+    );
 
     if (hasPendingUpdates) {
       setTotalsOutOfSync(true);
@@ -1733,9 +1779,7 @@ export default function EditEstimatePage() {
       if (nextVersionSnapshot) {
         versionRef.current = nextVersionSnapshot;
       }
-      if (resolvedVersionId) {
-        clearAutoSaveDraftFromLocal(resolvedVersionId);
-      }
+      persistBufferedItemUpdatesToLocal();
       setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
       return "saved" as const;
     } catch (error) {
@@ -1768,7 +1812,7 @@ export default function EditEstimatePage() {
     } finally {
       isFlushingBufferedUpdatesRef.current = false;
     }
-  }, [handleVersionConflict, persistBufferedItemUpdatesToLocal, resolvedVersionId]);
+  }, [handleVersionConflict, persistBufferedItemUpdatesToLocal]);
 
   const {
     status: autoSaveStatus,
@@ -1833,7 +1877,7 @@ export default function EditEstimatePage() {
     try {
       const itemsRows = await fetchEstimateItemsForVersion(resolvedVersionId);
       if (!version) {
-        setItems(itemsRows);
+        setItems(applyPendingBufferedUpdatesToItems(itemsRows));
         return;
       }
 
@@ -1846,7 +1890,7 @@ export default function EditEstimatePage() {
             })
           : itemsRows;
 
-      setItems(normalizedItems);
+      setItems(applyPendingBufferedUpdatesToItems(normalizedItems));
     } catch (error) {
       const message =
         error instanceof Error
@@ -1854,7 +1898,7 @@ export default function EditEstimatePage() {
           : "Impossible de charger les lignes.";
       setActionError(message);
     }
-  }, [laborRateById, resolvedVersionId, version]);
+  }, [applyPendingBufferedUpdatesToItems, laborRateById, resolvedVersionId, version]);
 
   async function handleSaveSettings() {
     if (!settings || !version || !totals) return;

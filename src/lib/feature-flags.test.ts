@@ -5,7 +5,6 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import {
-  getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
   isFeatureEnabled,
 } from "@/lib/feature-flags";
@@ -91,61 +90,14 @@ describe("isFeatureEnabled", () => {
   });
 });
 
-describe("feature flag values", () => {
+describe("getStalePriceDaysForTenant", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("returns the configured value only when the flag is enabled", async () => {
+  it("returns configured stale days when the flag value is valid", async () => {
     const supabase = createSupabaseMock({
       data: {
-        enabled: true,
-        value: "120",
-      },
-      error: null,
-    });
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      getFeatureFlagValueForTenant(TENANT_ID, "STALE_PRICE_DAYS")
-    ).resolves.toBe("120");
-  });
-
-  it("returns null when the flag is disabled", async () => {
-    const supabase = createSupabaseMock({
-      data: {
-        enabled: false,
-        value: "120",
-      },
-      error: null,
-    });
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      getFeatureFlagValueForTenant(TENANT_ID, "STALE_PRICE_DAYS")
-    ).resolves.toBeNull();
-  });
-
-  it("falls back to default stale days when value is invalid", async () => {
-    const supabase = createSupabaseMock({
-      data: {
-        enabled: true,
-        value: "invalid",
-      },
-      error: null,
-    });
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(90);
-  });
-
-  it("parses stale days from feature flag value", async () => {
-    const supabase = createSupabaseMock({
-      data: {
-        enabled: true,
         value: "120",
       },
       error: null,
@@ -154,5 +106,16 @@ describe("feature flag values", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(120);
+  });
+
+  it("falls back to default stale days when value is missing", async () => {
+    const supabase = createSupabaseMock({
+      data: null,
+      error: null,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(90);
   });
 });

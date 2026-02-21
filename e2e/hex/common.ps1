@@ -22,6 +22,30 @@ function Require-AuthEnv {
   }
 }
 
+function Get-E2ETempDir {
+  if ($env:E2E_TMP_DIR) {
+    if (-not (Test-Path $env:E2E_TMP_DIR)) {
+      New-Item -ItemType Directory -Force -Path $env:E2E_TMP_DIR | Out-Null
+    }
+    return $env:E2E_TMP_DIR
+  }
+
+  $homeDir = [Environment]::GetFolderPath("UserProfile")
+  if (-not $homeDir) {
+    $homeDir = $env:HOME
+  }
+  if (-not $homeDir) {
+    throw "Unable to resolve user home directory for E2E temp files."
+  }
+
+  $tempDir = Join-Path $homeDir ".agent-browser/tmp"
+  if (-not (Test-Path $tempDir)) {
+    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+  }
+
+  return $tempDir
+}
+
 function Invoke-AB {
   param(
     [string]$Session,
@@ -48,6 +72,28 @@ function Assert-Contains {
   }
 }
 
+function Fill-PasswordInput {
+  param(
+    [string]$Session,
+    [string]$Password
+  )
+
+  $passwordJson = ConvertTo-Json $Password -Compress
+  $js = @"
+(() => {
+  const input = document.querySelector('input#password, input[name="password"], input[type="password"]');
+  if (!input) {
+    throw new Error('Password input not found');
+  }
+  input.focus();
+  input.value = $passwordJson;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+})();
+"@
+  Invoke-AB $Session "eval" $js | Out-Null
+}
+
 function Login-E2E {
   param([string]$BaseUrl, [string]$Session)
   Require-AuthEnv
@@ -55,9 +101,9 @@ function Login-E2E {
   Invoke-AB $Session "open" "$BaseUrl/login"
   Invoke-AB $Session "wait" "--load" "networkidle"
   Invoke-AB $Session "find" "label" "Email" "fill" $env:E2E_LOGIN_EMAIL
-  Invoke-AB $Session "find" "role" "textbox" "fill" "--name" "Mot de passe" $env:E2E_LOGIN_PASSWORD
+  Fill-PasswordInput -Session $Session -Password $env:E2E_LOGIN_PASSWORD
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Se connecter"
-  Invoke-AB $Session "wait" "--url" "**/dashboard/**" | Out-Null
+  Wait-ForUrlContains -Session $Session -Needle "/dashboard" | Out-Null
 }
 
 function Get-VersionIdFromUrl {

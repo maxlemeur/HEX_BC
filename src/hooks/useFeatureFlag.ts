@@ -89,7 +89,10 @@ export function useFeatureFlag(key: string) {
     const flag = data.flags.find(
       (entry) => normalizeFeatureFlagKey(entry.flag_key) === normalizedKey
     );
-    return typeof flag?.value === "string" ? flag.value : null;
+
+    return typeof flag?.value === "string" && flag.value.trim().length > 0
+      ? flag.value
+      : null;
   }, [data, normalizedKey]);
 
   return {
