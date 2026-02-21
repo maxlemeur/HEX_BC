@@ -19,6 +19,13 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+import {
+  ESTIMATE_QUALITY_FLAG_KEYS,
+  ESTIMATE_QUALITY_FLAG_META,
+  type EstimateQualityFlagCounts,
+  type EstimateQualityFlagKey,
+  type EstimateQualityFlagsByItemId,
+} from "@/lib/estimate-quality";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 import type { Database } from "@/types/database";
 
@@ -45,13 +52,19 @@ type ItemPatch = Partial<
   >
 >;
 
+type EstimateQualityFilter = "all_lines" | "with_anomalies" | EstimateQualityFlagKey;
+
 type EstimateEditorTableProps = {
   items: EstimateItem[];
   categories: EstimateCategory[];
   laborRoles: LaborRole[];
   suggestionRules: SuggestionRule[];
+  qualityFlagsByItemId: EstimateQualityFlagsByItemId;
+  qualityCounts: EstimateQualityFlagCounts;
+  qualityFilter: EstimateQualityFilter;
   actionError: string | null;
   isReadOnly: boolean;
+  onQualityFilterChange: (value: EstimateQualityFilter) => void;
   onAddSection: (parentId: string | null) => void;
   onAddLine: (parentId: string | null) => void;
   onDeleteItem: (itemId: string) => void;
@@ -66,6 +79,31 @@ type EstimateEditorTableProps = {
 
 const ROOT_KEY = "root";
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
+const QUALITY_BADGE_CLASSNAMES: Record<EstimateQualityFlagKey, string> = {
+  missing_price: "border-rose-200 bg-rose-50 text-rose-700",
+  missing_quantity: "border-amber-200 bg-amber-50 text-amber-700",
+  missing_labor_time: "border-orange-200 bg-orange-50 text-orange-700",
+  missing_labor_role: "border-red-200 bg-red-50 text-red-700",
+};
+
+function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
+  if (value === "all_lines" || value === "with_anomalies") {
+    return value;
+  }
+  if (ESTIMATE_QUALITY_FLAG_KEYS.includes(value as EstimateQualityFlagKey)) {
+    return value as EstimateQualityFlagKey;
+  }
+  return "all_lines";
+}
+
+function matchesQualityFilter(
+  qualityFlags: EstimateQualityFlagKey[],
+  filter: EstimateQualityFilter
+) {
+  if (filter === "all_lines") return true;
+  if (filter === "with_anomalies") return qualityFlags.length > 0;
+  return qualityFlags.includes(filter);
+}
 
 function normalizeKeywords(value: string) {
   return value
@@ -140,6 +178,7 @@ function SortableRow({
   depth,
   unitValue,
   categoryValue,
+  qualityFlags,
   laborRoles,
   onAddSection,
   onAddLine,
@@ -155,6 +194,7 @@ function SortableRow({
   depth: number;
   unitValue: string;
   categoryValue: string;
+  qualityFlags: EstimateQualityFlagKey[];
   laborRoles: LaborRole[];
   onAddSection: (parentId: string | null) => void;
   onAddLine: (parentId: string | null) => void;
@@ -265,18 +305,33 @@ function SortableRow({
           attributes={attributes}
           disabled={isReadOnly}
         />
-        <input
-          className="estimate-input estimate-input--title"
-          value={item.title}
-          disabled={isReadOnly}
-          onChange={(event) =>
-            onPatchItem(item.id, { title: event.target.value }, { persist: false })
-          }
-          onBlur={(event) => {
-            const nextTitle = event.target.value.trim() || "Nouvelle ligne";
-            onPatchItem(item.id, { title: nextTitle }, { persist: true });
-          }}
-        />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <input
+            className="estimate-input estimate-input--title"
+            value={item.title}
+            disabled={isReadOnly}
+            onChange={(event) =>
+              onPatchItem(item.id, { title: event.target.value }, { persist: false })
+            }
+            onBlur={(event) => {
+              const nextTitle = event.target.value.trim() || "Nouvelle ligne";
+              onPatchItem(item.id, { title: nextTitle }, { persist: true });
+            }}
+          />
+          {qualityFlags.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1">
+              {qualityFlags.map((flag) => (
+                <span
+                  key={flag}
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${QUALITY_BADGE_CLASSNAMES[flag]}`}
+                  title={ESTIMATE_QUALITY_FLAG_META[flag].description}
+                >
+                  {ESTIMATE_QUALITY_FLAG_META[flag].label}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
       </div>
       <div className="estimate-cell">
         <input
@@ -479,8 +534,12 @@ export function EstimateEditorTable({
   categories,
   laborRoles,
   suggestionRules,
+  qualityFlagsByItemId,
+  qualityCounts,
+  qualityFilter,
   actionError,
   isReadOnly,
+  onQualityFilterChange,
   onAddSection,
   onAddLine,
   onDeleteItem,
@@ -544,6 +603,61 @@ export function EstimateEditorTable({
     laborRoles.forEach((role) => map.set(role.id, role));
     return map;
   }, [laborRoles]);
+
+  const visibleLineIds = useMemo(() => {
+    const visible = new Set<string>();
+    items.forEach((item) => {
+      if (item.item_type !== "line") return;
+      const qualityFlags = qualityFlagsByItemId[item.id] ?? [];
+      if (matchesQualityFilter(qualityFlags, qualityFilter)) {
+        visible.add(item.id);
+      }
+    });
+    return visible;
+  }, [items, qualityFilter, qualityFlagsByItemId]);
+
+  const visibleSectionIds = useMemo(() => {
+    const visible = new Set<string>();
+
+    function walk(parentId: string | null): boolean {
+      const list = itemsByParent.get(getParentKey(parentId)) ?? [];
+      let hasVisibleLine = false;
+
+      list.forEach((item) => {
+        if (item.item_type === "line") {
+          if (visibleLineIds.has(item.id)) {
+            hasVisibleLine = true;
+          }
+          return;
+        }
+
+        const hasVisibleChild = walk(item.id);
+        if (qualityFilter === "all_lines" || hasVisibleChild) {
+          visible.add(item.id);
+        }
+        if (hasVisibleChild) {
+          hasVisibleLine = true;
+        }
+      });
+
+      return hasVisibleLine;
+    }
+
+    walk(null);
+    return visible;
+  }, [itemsByParent, qualityFilter, visibleLineIds]);
+
+  function getVisibleItems(parentId: string | null) {
+    const list = itemsByParent.get(getParentKey(parentId)) ?? [];
+    return list.filter((item) => {
+      if (item.item_type === "line") {
+        return visibleLineIds.has(item.id);
+      }
+      return visibleSectionIds.has(item.id);
+    });
+  }
+
+  const hasVisibleRows = getVisibleItems(null).length > 0;
 
   const mergedUnitDrafts = useMemo(() => {
     const next = { ...unitDrafts };
@@ -700,7 +814,7 @@ export function EstimateEditorTable({
   }
 
   function renderList(parentId: string | null) {
-    const list = itemsByParent.get(getParentKey(parentId)) ?? [];
+    const list = getVisibleItems(parentId);
     if (list.length === 0) return null;
 
     return (
@@ -716,6 +830,7 @@ export function EstimateEditorTable({
                 depth={depthMap.get(item.id) ?? 0}
                 unitValue={mergedUnitDrafts[item.id] ?? ""}
                 categoryValue={mergedCategoryDrafts[item.id] ?? ""}
+                qualityFlags={qualityFlagsByItemId[item.id] ?? []}
                 laborRoles={laborRoles}
                 onAddSection={onAddSection}
                 onAddLine={onAddLine}
@@ -750,8 +865,39 @@ export function EstimateEditorTable({
           <p className="mt-1 text-sm text-[var(--slate-500)]">
             Organisez chapitres, sous-chapitres et lignes FO/MO.
           </p>
+          <p className="mt-2 text-xs text-[var(--slate-500)]">
+            {qualityCounts.linesWithAnomaliesCount} ligne(s) avec anomalies sur{" "}
+            {qualityCounts.linesCount} ligne(s) ({qualityCounts.totalFlagsCount} flag(s))
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <label
+            className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+            htmlFor="estimate-quality-filter"
+          >
+            Filtre qualite
+          </label>
+          <select
+            id="estimate-quality-filter"
+            className="estimate-input estimate-select"
+            style={{ width: "auto", minWidth: "260px" }}
+            value={qualityFilter}
+            onChange={(event) =>
+              onQualityFilterChange(parseEstimateQualityFilter(event.target.value))
+            }
+          >
+            <option value="all_lines">
+              Toutes les lignes ({qualityCounts.linesCount})
+            </option>
+            <option value="with_anomalies">
+              Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
+            </option>
+            {ESTIMATE_QUALITY_FLAG_KEYS.map((flag) => (
+              <option key={flag} value={flag}>
+                {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
+              </option>
+            ))}
+          </select>
           <button
             className="btn btn-secondary btn-sm"
             type="button"
@@ -813,6 +959,17 @@ export function EstimateEditorTable({
                   disabled={isReadOnly}
                 >
                   Creer un chapitre
+                </button>
+              </div>
+            ) : !hasVisibleRows ? (
+              <div className="estimate-empty">
+                <p>Aucune ligne ne correspond au filtre qualite actif.</p>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  type="button"
+                  onClick={() => onQualityFilterChange("all_lines")}
+                >
+                  Afficher toutes les lignes
                 </button>
               </div>
             ) : (

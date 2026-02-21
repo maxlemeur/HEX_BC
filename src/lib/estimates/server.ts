@@ -13,6 +13,7 @@ import {
   unauthorized,
 } from "./errors";
 import type {
+  BulkUpdateEstimateItemsInput,
   CreateEstimateInput,
   CreateEstimateCategoryInput,
   CreateEstimateItemInput,
@@ -324,13 +325,14 @@ async function getNextSuggestionRulePosition(supabase: Supabase, userId: string)
 }
 
 export async function listLatestEstimates() {
-  const { supabase } = await getAuthenticatedContext();
+  const { supabase, userId } = await getAuthenticatedContext();
 
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
       "id, project_id, version_number, status, title, updated_at, total_ht_cents, estimate_projects!inner(id, name, reference, client_name, is_archived)"
     )
+    .eq("estimate_projects.user_id", userId)
     .eq("estimate_projects.is_archived", false)
     .neq("status", "archived")
     .order("version_number", { ascending: false })
@@ -1218,6 +1220,46 @@ export async function updateEstimateItem(
   };
 }
 
+export async function bulkUpdateEstimateItems(
+  versionId: string,
+  input: BulkUpdateEstimateItemsInput
+) {
+  const { supabase, userId } = await getAuthenticatedContext();
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, userId);
+
+  assertDraftStatus(version.status);
+
+  const updatesPayload = input.map((item) => ({ ...item }));
+
+  const { data: updatedCount, error: bulkUpdateError } = await supabase.rpc(
+    "bulk_update_estimate_items",
+    {
+      target_version_id: versionId,
+      item_updates: updatesPayload,
+    }
+  );
+
+  if (bulkUpdateError) {
+    throw mapSupabaseError(
+      bulkUpdateError,
+      "Impossible de mettre a jour les lignes."
+    );
+  }
+
+  const normalizedUpdatedCount = updatedCount ?? 0;
+
+  if (normalizedUpdatedCount !== input.length) {
+    throw conflict("La liste de mise a jour est obsolete.", {
+      expected_count: input.length,
+      updated_count: normalizedUpdatedCount,
+    });
+  }
+
+  return {
+    updated_count: normalizedUpdatedCount,
+  };
+}
+
 export async function deleteEstimateItem(
   versionId: string,
   input: DeleteEstimateItemInput
@@ -1308,45 +1350,32 @@ export async function reorderEstimateItems(
     });
   }
 
-  for (const [index, itemId] of input.ordered_ids.entries()) {
-    let updateQuery = supabase
-      .from("estimate_items")
-      .update({ position: -(index + 1) })
-      .eq("id", itemId)
-      .eq("version_id", versionId);
-
-    updateQuery = parentId === null
-      ? updateQuery.is("parent_id", null)
-      : updateQuery.eq("parent_id", parentId);
-
-    const { error } = await updateQuery;
-
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de reordonner les lignes.");
+  const { data: updatedCount, error: reorderError } = await supabase.rpc(
+    "reorder_estimate_items",
+    {
+      target_version_id: versionId,
+      target_parent_id: parentId,
+      ordered_item_ids: input.ordered_ids,
     }
+  );
+
+  if (reorderError) {
+    throw mapSupabaseError(reorderError, "Impossible de reordonner les lignes.");
   }
 
-  for (const [index, itemId] of input.ordered_ids.entries()) {
-    let updateQuery = supabase
-      .from("estimate_items")
-      .update({ position: index + 1 })
-      .eq("id", itemId)
-      .eq("version_id", versionId);
+  const normalizedUpdatedCount = updatedCount ?? 0;
 
-    updateQuery = parentId === null
-      ? updateQuery.is("parent_id", null)
-      : updateQuery.eq("parent_id", parentId);
-
-    const { error } = await updateQuery;
-
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de finaliser le reordonnancement.");
-    }
+  if (normalizedUpdatedCount !== input.ordered_ids.length) {
+    throw conflict("La liste de reordonnancement est obsolete.", {
+      expected_ids: siblingIds,
+      received_ids: input.ordered_ids,
+      updated_count: normalizedUpdatedCount,
+    });
   }
 
   return {
     parent_id: parentId,
     ordered_ids: input.ordered_ids,
-    updated_count: input.ordered_ids.length,
+    updated_count: normalizedUpdatedCount,
   };
 }

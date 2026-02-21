@@ -526,23 +526,21 @@ export async function bulkUpdateEstimateItems(
     updates: Database["public"]["Tables"]["estimate_items"]["Update"];
   }>
 ): Promise<void> {
-  await Promise.all(
-    updates.map(async (entry) => {
-      await requestJson<unknown>(
-        `/api/estimates/${versionId}/items`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            id: entry.id,
-            ...entry.updates,
-          }),
-        },
-        "Impossible de mettre a jour les lignes."
-      );
-    })
+  await requestJson<unknown>(
+    `/api/estimates/${versionId}/items/bulk`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(
+        updates.map((entry) => ({
+          id: entry.id,
+          ...entry.updates,
+        }))
+      ),
+    },
+    "Impossible de mettre a jour les lignes."
   );
 }
 

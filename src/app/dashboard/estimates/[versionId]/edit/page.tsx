@@ -22,6 +22,12 @@ import {
   type EstimateTotals,
 } from "@/lib/estimate-calculations";
 import {
+  countEstimateQualityFlags,
+  computeEstimateQualityFlagsByItemId,
+  ESTIMATE_QUALITY_FLAG_META,
+  type EstimateQualityFlagKey,
+} from "@/lib/estimate-quality";
+import {
   exportToCSV,
   exportToExcelWithSheets,
   type ExportColumn,
@@ -53,6 +59,7 @@ type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
+type EstimateQualityFilter = "all_lines" | "with_anomalies" | EstimateQualityFlagKey;
 
 type EstimateVersionView = EstimateVersionRow & {
   estimate_projects: { name: string } | { name: string }[] | null;
@@ -92,11 +99,14 @@ type EstimateRecapExportRow = {
   sale_total_cents: number;
   tax_cents: number;
   ttc_cents: number;
+  quality_lines_count: number;
+  quality_flags_count: number;
 };
 
 type EstimateLineExportRow = {
   section_path: string;
   designation: string;
+  quality_flags: string;
   unit: string;
   quantity: number | "";
   unit_price_ht_cents: number | "";
@@ -110,6 +120,15 @@ type EstimateLineExportRow = {
   tax_rate_bp: number | "";
   line_total_ttc_cents: number | "";
 };
+
+type AuditLogEntry = Pick<
+  Database["public"]["Tables"]["audit_logs"]["Row"],
+  "id" | "created_at" | "action" | "table_name" | "record_id"
+>;
+
+type JsonRecord = Record<string, unknown>;
+
+const AUDIT_LOG_LIMIT = 25;
 
 function getProjectName(
   value: EstimateVersionView["estimate_projects"]
@@ -132,6 +151,68 @@ function sanitizeFilename(value: string): string {
 function resolveItemTitle(value: string | null | undefined, fallback: string) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : fallback;
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveAuditErrorMessage(payload: unknown, fallback: string) {
+  if (!isRecord(payload)) return fallback;
+  return (
+    toNonEmptyString(payload.error) ??
+    toNonEmptyString(payload.message) ??
+    fallback
+  );
+}
+
+function normalizeAuditLogs(payload: unknown): AuditLogEntry[] {
+  if (!isRecord(payload)) return [];
+  if (!Array.isArray(payload.data)) return [];
+
+  return payload.data
+    .map((entry) => {
+      if (!isRecord(entry)) return null;
+
+      const id = toNonEmptyString(entry.id);
+      const createdAt = toNonEmptyString(entry.created_at);
+      const action = toNonEmptyString(entry.action);
+      const tableName = toNonEmptyString(entry.table_name);
+      const recordId = toNonEmptyString(entry.record_id);
+
+      if (!id || !createdAt || !action || !tableName || !recordId) {
+        return null;
+      }
+
+      return {
+        id,
+        created_at: createdAt,
+        action,
+        table_name: tableName,
+        record_id: recordId,
+      };
+    })
+    .filter((entry): entry is AuditLogEntry => entry !== null);
+}
+
+function formatAuditTimestamp(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return parsed.toLocaleString("fr-FR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function buildSectionPathResolver(items: EstimateItem[]) {
@@ -209,11 +290,14 @@ const RECAP_EXPORT_COLUMNS: ExportColumn<EstimateRecapExportRow>[] = [
     header: "Total TTC (EUR)",
     formatter: (value) => (value as number) / 100,
   },
+  { key: "quality_lines_count", header: "Lignes avec anomalies" },
+  { key: "quality_flags_count", header: "Nombre total de flags" },
 ];
 
 const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   { key: "section_path", header: "Chemin chapitre" },
   { key: "designation", header: "Designation" },
+  { key: "quality_flags", header: "Flags qualite" },
   { key: "unit", header: "Unite" },
   { key: "quantity", header: "Quantite" },
   {
@@ -463,6 +547,8 @@ export default function EditEstimatePage() {
   const [categories, setCategories] = useState<EstimateCategory[]>([]);
   const [laborRoles, setLaborRoles] = useState<LaborRole[]>([]);
   const [suggestionRules, setSuggestionRules] = useState<SuggestionRule[]>([]);
+  const [qualityFilter, setQualityFilter] =
+    useState<EstimateQualityFilter>("all_lines");
   const [activeTab, setActiveTab] = useState<"settings" | "editor">("settings");
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -473,6 +559,9 @@ export default function EditEstimatePage() {
   const [rulesError, setRulesError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
 
   const itemsRef = useRef<EstimateItem[]>([]);
   const lastTotalsKey = useRef<string | null>(null);
@@ -602,10 +691,74 @@ export default function EditEstimatePage() {
   }, [resolvedVersionId]);
 
   const projectName = getProjectName(version?.estimate_projects ?? null);
+  const isAdmin = profile?.role === "admin";
   const isReadOnly = version ? version.status !== "draft" : false;
   const canSend = version?.status === "draft";
   const canAccept = version?.status === "sent";
   const canArchive = version?.status !== "archived";
+
+  const loadAuditLogs = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!resolvedVersionId || !isAdmin) return;
+
+      setIsAuditLoading(true);
+      setAuditError(null);
+
+      try {
+        const response = await fetch(
+          `/api/audit?estimate_version_id=${encodeURIComponent(
+            resolvedVersionId
+          )}&limit=${AUDIT_LOG_LIMIT}`,
+          {
+            credentials: "same-origin",
+            signal,
+          }
+        );
+
+        const payload = (await response.json().catch(() => null)) as unknown;
+
+        if (!response.ok) {
+          throw new Error(
+            resolveAuditErrorMessage(
+              payload,
+              "Impossible de charger les logs d'audit."
+            )
+          );
+        }
+
+        setAuditLogs(normalizeAuditLogs(payload));
+      } catch (error) {
+        if (signal?.aborted) return;
+        setAuditError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de charger les logs d'audit."
+        );
+        setAuditLogs([]);
+      } finally {
+        if (!signal?.aborted) {
+          setIsAuditLoading(false);
+        }
+      }
+    },
+    [isAdmin, resolvedVersionId]
+  );
+
+  useEffect(() => {
+    if (!isAdmin || !resolvedVersionId) {
+      setAuditLogs([]);
+      setAuditError(null);
+      setIsAuditLoading(false);
+      return;
+    }
+
+    const abortController = new AbortController();
+    void loadAuditLogs(abortController.signal);
+
+    return () => {
+      abortController.abort();
+    };
+  }, [isAdmin, loadAuditLogs, resolvedVersionId]);
 
   const laborRateById = useMemo(() => {
     const map = new Map<string, number>();
@@ -630,6 +783,16 @@ export default function EditEstimatePage() {
     });
     return map;
   }, [laborRoles]);
+
+  const qualityFlagsByItemId = useMemo(
+    () => computeEstimateQualityFlagsByItemId(items),
+    [items]
+  );
+
+  const qualityCounts = useMemo(
+    () => countEstimateQualityFlags(qualityFlagsByItemId),
+    [qualityFlagsByItemId]
+  );
 
   const totals: EstimateTotals | null = useMemo(() => {
     if (!settings) return null;
@@ -693,8 +856,10 @@ export default function EditEstimatePage() {
       sale_total_cents: totals.saleTotalCents,
       tax_cents: totals.adjustedTaxCents,
       ttc_cents: totals.roundedTtcCents,
+      quality_lines_count: qualityCounts.linesWithAnomaliesCount,
+      quality_flags_count: qualityCounts.totalFlagsCount,
     };
-  }, [projectName, settings, totals, version]);
+  }, [projectName, qualityCounts, settings, totals, version]);
 
   const buildLineRows = useCallback((): EstimateLineExportRow[] => {
     const resolveSectionPath = buildSectionPathResolver(items);
@@ -707,10 +872,14 @@ export default function EditEstimatePage() {
         const laborLabel = item.labor_role_id
           ? laborRoleById.get(item.labor_role_id)?.name ?? ""
           : "";
+        const qualityFlagsLabel = (qualityFlagsByItemId[item.id] ?? [])
+          .map((flag) => ESTIMATE_QUALITY_FLAG_META[flag].label)
+          .join(" | ");
 
         return {
           section_path: resolveSectionPath(item),
           designation: resolveItemTitle(item.title, "Sans titre"),
+          quality_flags: qualityFlagsLabel,
           unit: item.description?.trim() ?? "",
           quantity: item.quantity ?? "",
           unit_price_ht_cents: item.unit_price_ht_cents ?? "",
@@ -725,7 +894,7 @@ export default function EditEstimatePage() {
           line_total_ttc_cents: item.line_total_ttc_cents ?? "",
         };
       });
-  }, [categoryById, items, laborRoleById]);
+  }, [categoryById, items, laborRoleById, qualityFlagsByItemId]);
 
   const handleExportExcel = useCallback(() => {
     if (isExporting) return;
@@ -1772,6 +1941,96 @@ export default function EditEstimatePage() {
             onCreate={handleCreateSuggestionRule}
             onUpdate={handleUpdateSuggestionRule}
           />
+          {isAdmin ? (
+            <div className="dashboard-card p-8">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+                    Audit admin
+                  </h2>
+                  <p className="text-xs text-[var(--slate-500)]">
+                    Dernieres operations journalisees sur cette version.
+                  </p>
+                </div>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  type="button"
+                  onClick={() => void loadAuditLogs()}
+                  disabled={isAuditLoading}
+                >
+                  {isAuditLoading ? "Chargement..." : "Actualiser"}
+                </button>
+              </div>
+
+              {auditError ? (
+                <div className="alert alert-error mt-6">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="m15 9-6 6" />
+                    <path d="m9 9 6 6" />
+                  </svg>
+                  {auditError}
+                </div>
+              ) : null}
+
+              <div className="table-scroll mt-6">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Action</th>
+                      <th>Table</th>
+                      <th>Record ID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={4}>
+                          <div className="text-sm text-[var(--slate-500)]">
+                            {isAuditLoading
+                              ? "Chargement des logs d'audit..."
+                              : "Aucun log d'audit recent pour cette version."}
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      auditLogs.map((log) => (
+                        <tr key={log.id}>
+                          <td>{formatAuditTimestamp(log.created_at)}</td>
+                          <td className="font-medium uppercase">{log.action}</td>
+                          <td>
+                            <span className="font-mono text-xs text-[var(--slate-600)]">
+                              {log.table_name}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="font-mono text-xs text-[var(--slate-600)]">
+                              {log.record_id}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {isAuditLoading && auditLogs.length > 0 ? (
+                <p className="mt-3 text-sm text-[var(--slate-500)]">
+                  Actualisation des logs en cours...
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="mt-6">
@@ -1780,8 +2039,12 @@ export default function EditEstimatePage() {
             categories={categories}
             laborRoles={laborRoles}
             suggestionRules={suggestionRules}
+            qualityFlagsByItemId={qualityFlagsByItemId}
+            qualityCounts={qualityCounts}
+            qualityFilter={qualityFilter}
             actionError={actionError}
             isReadOnly={isReadOnly}
+            onQualityFilterChange={setQualityFilter}
             onAddSection={handleAddSection}
             onAddLine={handleAddLine}
             onDeleteItem={handleDeleteItem}

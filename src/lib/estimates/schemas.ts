@@ -3,8 +3,9 @@ import { z } from "zod";
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
 function isValidDateOnly(value: string) {
-  const parsed = Date.parse(`${value}T00:00:00Z`);
-  return Number.isFinite(parsed);
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return false;
+  return parsed.toISOString().slice(0, 10) === value;
 }
 
 const requiredTextSchema = z
@@ -176,6 +177,26 @@ export const updateEstimateItemSchema = z
     });
   });
 
+export const bulkUpdateEstimateItemsSchema = z
+  .array(updateEstimateItemSchema)
+  .min(1, "updates ne peut pas etre vide.")
+  .superRefine((payload, ctx) => {
+    const ids = new Set<string>();
+
+    payload.forEach((entry, index) => {
+      if (!ids.has(entry.id)) {
+        ids.add(entry.id);
+        return;
+      }
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "updates doit contenir des identifiants uniques.",
+        path: [index, "id"],
+      });
+    });
+  });
+
 export const deleteEstimateItemSchema = z.object({
   id: uuidSchema,
 });
@@ -267,6 +288,9 @@ export type PatchEstimateVersionInput = z.infer<typeof patchEstimateVersionSchem
 export type PatchEstimateStatusInput = z.infer<typeof patchEstimateStatusSchema>;
 export type CreateEstimateItemInput = z.infer<typeof createEstimateItemSchema>;
 export type UpdateEstimateItemInput = z.infer<typeof updateEstimateItemSchema>;
+export type BulkUpdateEstimateItemsInput = z.infer<
+  typeof bulkUpdateEstimateItemsSchema
+>;
 export type DeleteEstimateItemInput = z.infer<typeof deleteEstimateItemSchema>;
 export type ReorderEstimateItemsInput = z.infer<typeof reorderEstimateItemsSchema>;
 export type CreateEstimateCategoryInput = z.infer<
