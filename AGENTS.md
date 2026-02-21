@@ -31,6 +31,7 @@
 ## Commit & Pull Request Guidelines
 - This directory does not appear to be a git repo, so no commit history is available.
 - If git is initialized, follow the team standard (Conventional Commits if undecided).
+- Include the ticket number in commit messages when one exists.
 - PRs should include a concise summary, linked issue (if any), and UI screenshots
   for visual changes. Note any Supabase schema or RLS updates.
 

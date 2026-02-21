@@ -21,6 +21,15 @@ async function parseJsonBody(request: Request): Promise<unknown> {
   }
 }
 
+function resolveConcurrencyToken(request: Request) {
+  const ifMatch = request.headers.get("if-match")?.trim();
+  if (ifMatch && ifMatch.length > 0) {
+    return ifMatch;
+  }
+
+  return undefined;
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ versionId: string }> }
@@ -28,7 +37,11 @@ export async function PATCH(
   try {
     const versionId = await getVersionId(params);
     const body = patchEstimateStatusSchema.parse(await parseJsonBody(request));
-    const data = await patchEstimateStatus(versionId, body);
+    const token = resolveConcurrencyToken(request);
+    if (!token) {
+      throw badRequest("Jeton de concurrence manquant.");
+    }
+    const data = await patchEstimateStatus(versionId, body, token);
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);

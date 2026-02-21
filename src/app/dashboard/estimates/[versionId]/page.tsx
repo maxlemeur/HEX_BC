@@ -3,6 +3,13 @@ import { notFound } from "next/navigation";
 
 import { EstimateDocument } from "@/components/EstimateDocument";
 import { DuplicateEstimateButton } from "@/components/estimates/DuplicateEstimateButton";
+import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
+import {
+  SealIntegrityBadge,
+  type SealIntegrityState,
+} from "@/components/estimates/SealIntegrityBadge";
+import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { verifyEstimateSeal } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -39,7 +46,7 @@ export default async function EstimateDetailPage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "version_number, status, title, date_devis, validite_jours, margin_multiplier, discount_bp, tax_rate_bp, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
+      "version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -97,6 +104,42 @@ export default async function EstimateDetailPage({
   const discountCents = Math.round(
     (saleSubtotalCents * version.discount_bp) / 10000
   );
+  const lineItems = items
+    .filter((item) => item.item_type === "line")
+    .map((item) => ({
+      ...item,
+      labor_role_hourly_rate_cents: item.labor_role_id
+        ? (laborRateById[item.labor_role_id] ?? 0)
+        : 0,
+    }));
+  const appliedMarginMultiplier = computeEstimateTotals({
+    lineItems,
+    marginMultiplier: version.margin_multiplier,
+    marginMode: version.margin_mode,
+    discountCents,
+    taxRateBp: version.tax_rate_bp,
+    roundingMode: version.rounding_mode,
+    roundingStepCents: version.rounding_step_cents,
+  }).appliedMarginMultiplier;
+
+  let sealState: SealIntegrityState = "unsealed";
+  let sealHashPrefix = version.seal_hash?.slice(0, 8) ?? null;
+
+  if (version.status !== "draft" && version.seal_hash) {
+    try {
+      const verification = await verifyEstimateSeal(versionId);
+      sealState = verification.valid ? "valid" : "invalid";
+      if (verification.stored_hash) {
+        sealHashPrefix = verification.stored_hash.slice(0, 8);
+      }
+    } catch (error) {
+      console.error("Failed to verify estimate seal", {
+        versionId,
+        error,
+      });
+      sealState = "error";
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[var(--slate-100)] animate-fade-in">
@@ -108,6 +151,7 @@ export default async function EstimateDetailPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
           <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
             Retour
           </Link>
@@ -117,6 +161,7 @@ export default async function EstimateDetailPage({
           >
             Editer
           </Link>
+          <SaveAsTemplateButton versionId={versionId} />
           <DuplicateEstimateButton versionId={versionId} />
           <Link
             className="btn btn-primary btn-sm"
@@ -135,7 +180,7 @@ export default async function EstimateDetailPage({
           versionNumber={version.version_number}
           dateDevis={version.date_devis}
           validiteJours={version.validite_jours}
-          marginMultiplier={version.margin_multiplier}
+          marginMultiplier={appliedMarginMultiplier}
           discountCents={discountCents}
           taxRateBp={version.tax_rate_bp}
           laborRateById={laborRateById}

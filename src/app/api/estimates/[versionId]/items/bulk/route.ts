@@ -45,7 +45,12 @@ export async function POST(
       await parseJsonBody(request)
     );
     const token = resolveConcurrencyToken(request, body.updated_at);
-    const data = await bulkUpdateEstimateItems(versionId, body.updates, token);
+    const data = await bulkUpdateEstimateItems(
+      versionId,
+      body.updates,
+      token,
+      body.version_patch
+    );
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);

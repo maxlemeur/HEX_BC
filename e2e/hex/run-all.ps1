@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $tests = @(
   "ti-140-epic.ps1",
+  "est-101-keyboard.ps1",
   "ti-143-navigation.ps1",
   "ti-144-list.ps1",
   "ti-145-create.ps1",
