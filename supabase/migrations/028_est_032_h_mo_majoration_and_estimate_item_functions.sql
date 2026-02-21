@@ -400,7 +400,7 @@ begin
     end if;
   end if;
 
-  if effective_version_patch <> '{}'::jsonb then
+  if expected_count > 0 or effective_version_patch <> '{}'::jsonb then
     perform ev.id
     from public.estimate_versions ev
     where ev.id = target_version_id
