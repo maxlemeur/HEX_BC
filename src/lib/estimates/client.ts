@@ -5,8 +5,11 @@ type EstimateProjectRow =
 type EstimateVersionRow =
   Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+type EstimateTemplateItem =
+  Database["public"]["Tables"]["estimate_template_items"]["Row"];
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
+type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type MarginTier = Database["public"]["Tables"]["margin_tiers"]["Row"];
 type SuggestionRule =
@@ -46,6 +49,39 @@ export type EstimateListItem = {
   totalHtCents: number;
 };
 
+export type EstimateTemplateSummary = {
+  id: string;
+  name: string;
+  description: string | null;
+  sourceVersionId: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  itemCount: number;
+};
+
+export type EstimateTemplateDetail = EstimateTemplateSummary & {
+  items: EstimateTemplateItem[];
+};
+
+export type CreateEstimateTemplatePayload = {
+  sourceVersionId: string;
+  name: string;
+  description?: string | null;
+};
+
+export type UpdateEstimateTemplatePayload = {
+  name?: string;
+  description?: string | null;
+};
+
+export type InstantiateEstimateTemplatePayload = {
+  projectName: string;
+  versionTitle?: string | null;
+  dateDevis?: string;
+  validiteJours?: number;
+};
+
 export type EstimateVersionWithProject = EstimateVersionRow & {
   estimate_projects:
     | Pick<
@@ -65,6 +101,7 @@ export type EstimateEditorData = {
   version: EstimateVersionWithProject;
   items: EstimateItem[];
   categories: EstimateCategory[];
+  supplyTypes: SupplyType[];
   laborRoles: LaborRole[];
   marginTiers: MarginTier[];
   suggestionRules: SuggestionRule[];
@@ -83,6 +120,41 @@ export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at">
 export type BulkUpdateEstimateItemsResult = {
   updatedCount: number;
   versionToken: EstimateVersionToken;
+};
+
+export type BulkUpdateEstimateVersionPatch = Pick<
+  EstimateVersionRow,
+  "total_ht_cents" | "total_tax_cents" | "total_ttc_cents"
+>;
+
+export type SuggestionRuleFeedback = "accept" | "reject";
+
+export type EstimateDraftLock = {
+  versionId: string;
+  userId: string | null;
+  holderName: string | null;
+  lockedAt: string | null;
+  expiresAt: string | null;
+  isOwnedByCurrentUser: boolean | null;
+};
+
+export type AcquireEstimateDraftLockResult = {
+  acquired: boolean;
+  lock: EstimateDraftLock | null;
+};
+
+export type RenewEstimateDraftLockResult = {
+  renewed: boolean;
+  lock: EstimateDraftLock | null;
+};
+
+export type ReleaseEstimateDraftLockOptions = {
+  force?: boolean;
+  keepalive?: boolean;
+};
+
+export type ReleaseEstimateDraftLockResult = {
+  released: boolean;
 };
 
 export class EstimateApiError extends Error {
@@ -125,6 +197,16 @@ function toStringValue(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function toBooleanValue(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return null;
 }
 
 function isEstimateStatus(value: string): value is EstimateStatus {
@@ -172,6 +254,31 @@ function extractString(payload: unknown, keys: string[]): string | null {
     if (parsed) return parsed;
   }
 
+  return null;
+}
+
+function extractBoolean(payload: unknown, keys: string[]): boolean | null {
+  const root = getRootPayload(payload);
+
+  if (!isRecord(root)) return null;
+
+  for (const key of keys) {
+    const value = root[key];
+    const parsed = toBooleanValue(value);
+    if (parsed !== null) return parsed;
+  }
+
+  return null;
+}
+
+function pickRecord(root: JsonRecord, keys: string[]): JsonRecord | null {
+  for (const key of keys) {
+    const value = root[key];
+    if (isRecord(value)) return value;
+    if (Array.isArray(value) && value.length > 0 && isRecord(value[0])) {
+      return value[0] as JsonRecord;
+    }
+  }
   return null;
 }
 
@@ -415,6 +522,11 @@ function parseEstimateEditorData(payload: unknown): EstimateEditorData {
     "estimateCategories",
     "estimate_categories",
   ]);
+  const supplyTypes = pickArray(root, [
+    "supplyTypes",
+    "supply_types",
+    "supplyTypesList",
+  ]);
   const laborRoles = pickArray(root, ["laborRoles", "labor_roles", "roles"]);
   const marginTiers = pickArray(root, ["marginTiers", "margin_tiers"]);
   const suggestionRules = pickArray(root, [
@@ -427,6 +539,7 @@ function parseEstimateEditorData(payload: unknown): EstimateEditorData {
     version,
     items: items as EstimateItem[],
     categories: categories as EstimateCategory[],
+    supplyTypes: supplyTypes as SupplyType[],
     laborRoles: laborRoles as LaborRole[],
     marginTiers: marginTiers as MarginTier[],
     suggestionRules: suggestionRules as SuggestionRule[],
@@ -452,6 +565,200 @@ function parseVersionToken(payload: unknown): EstimateVersionToken | null {
     id,
     updated_at: updatedAt,
   };
+}
+
+function parseEstimateTemplateSummaryEntity(
+  value: unknown
+): EstimateTemplateSummary | null {
+  if (!isRecord(value)) return null;
+
+  const id = toStringValue(value.id);
+  const name = toStringValue(value.name);
+  const createdAt = toStringValue(value.created_at);
+  const updatedAt = toStringValue(value.updated_at);
+  if (!id || !name || !createdAt || !updatedAt) return null;
+
+  return {
+    id,
+    name,
+    description: toStringValue(value.description),
+    sourceVersionId:
+      toStringValue(value.source_version_id) ??
+      toStringValue(value.sourceVersionId) ??
+      null,
+    createdBy:
+      toStringValue(value.created_by) ?? toStringValue(value.createdBy) ?? null,
+    createdAt,
+    updatedAt,
+    itemCount:
+      toNumber(value.item_count) ??
+      toNumber(value.itemCount) ??
+      0,
+  };
+}
+
+function parseEstimateTemplateItems(value: unknown): EstimateTemplateItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry) => isRecord(entry)) as EstimateTemplateItem[];
+}
+
+function parseEstimateTemplateSummaryList(payload: unknown): EstimateTemplateSummary[] {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return [];
+  const rawItems = Array.isArray(root.templates)
+    ? root.templates
+    : Array.isArray(root.items)
+      ? root.items
+      : [];
+
+  return rawItems
+    .map((item) => parseEstimateTemplateSummaryEntity(item))
+    .filter((item): item is EstimateTemplateSummary => Boolean(item));
+}
+
+function parseEstimateTemplateDetail(payload: unknown): EstimateTemplateDetail {
+  const root = getRootPayload(payload);
+  const templateEntity = extractEntity(root, ["template"]);
+  const summary = parseEstimateTemplateSummaryEntity(templateEntity);
+  if (!summary) {
+    throw new Error("Impossible de recuperer le template.");
+  }
+
+  const items = parseEstimateTemplateItems(
+    (templateEntity as JsonRecord | null)?.items ?? (isRecord(root) ? root.items : null)
+  );
+
+  return {
+    ...summary,
+    items,
+  };
+}
+
+function parseInstantiateTemplateResult(payload: unknown) {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) {
+    throw new Error("Impossible d'instancier le template.");
+  }
+
+  const versionId =
+    toStringValue(root.version_id) ??
+    toStringValue(root.versionId);
+  const projectId =
+    toStringValue(root.project_id) ??
+    toStringValue(root.projectId);
+  const redirectTo =
+    toStringValue(root.redirect_to) ??
+    toStringValue(root.redirectTo) ??
+    (versionId ? `/dashboard/estimates/${versionId}/edit` : null);
+
+  if (!versionId || !projectId || !redirectTo) {
+    throw new Error("Impossible d'instancier le template.");
+  }
+
+  return {
+    projectId,
+    versionId,
+    redirectTo,
+  };
+}
+
+function parseEstimateDraftLock(
+  payload: unknown,
+  fallbackVersionId?: string
+): EstimateDraftLock | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const lockEntity =
+    pickRecord(root, ["lock", "draft_lock", "draftLock"]) ??
+    pickRecord(root, ["data"]) ??
+    root;
+
+  const holderEntity = pickRecord(lockEntity, [
+    "holder",
+    "owner",
+    "profile",
+    "profiles",
+    "locked_by",
+  ]);
+
+  const versionId =
+    toStringValue(lockEntity.version_id) ??
+    toStringValue(lockEntity.versionId) ??
+    toStringValue(root.version_id) ??
+    toStringValue(root.versionId) ??
+    fallbackVersionId ??
+    null;
+
+  if (!versionId) return null;
+
+  const userId =
+    toStringValue(lockEntity.user_id) ??
+    toStringValue(lockEntity.userId) ??
+    toStringValue(lockEntity.locked_by_user_id) ??
+    (holderEntity
+      ? toStringValue(holderEntity.user_id) ?? toStringValue(holderEntity.id)
+      : null) ??
+    null;
+
+  const holderName =
+    toStringValue(lockEntity.holder_name) ??
+    toStringValue(lockEntity.holderName) ??
+    toStringValue(lockEntity.locked_by_name) ??
+    toStringValue(lockEntity.lockedByName) ??
+    (holderEntity
+      ? toStringValue(holderEntity.full_name) ??
+        toStringValue(holderEntity.fullName) ??
+        toStringValue(holderEntity.name)
+      : null) ??
+    null;
+
+  const lockedAt =
+    toStringValue(lockEntity.locked_at) ??
+    toStringValue(lockEntity.lockedAt) ??
+    null;
+
+  const expiresAt =
+    toStringValue(lockEntity.expires_at) ??
+    toStringValue(lockEntity.expiresAt) ??
+    null;
+
+  const isOwnedByCurrentUser =
+    toBooleanValue(lockEntity.is_current_user) ??
+    toBooleanValue(lockEntity.isCurrentUser) ??
+    toBooleanValue(lockEntity.is_owner) ??
+    toBooleanValue(lockEntity.isOwnedByCurrentUser) ??
+    toBooleanValue(lockEntity.owned_by_current_user) ??
+    toBooleanValue(lockEntity.ownedByCurrentUser) ??
+    toBooleanValue(root.is_owner) ??
+    toBooleanValue(root.isOwnedByCurrentUser) ??
+    toBooleanValue(root.owned_by_current_user) ??
+    toBooleanValue(root.ownedByCurrentUser) ??
+    null;
+
+  return {
+    versionId,
+    userId,
+    holderName,
+    lockedAt,
+    expiresAt,
+    isOwnedByCurrentUser,
+  };
+}
+
+function buildEstimateDraftLockPath(
+  versionId: string,
+  options?: { force?: boolean }
+) {
+  const query = new URLSearchParams();
+  if (options?.force) {
+    query.set("force", "1");
+  }
+
+  const basePath = `/api/estimates/${versionId}/lock`;
+  const queryString = query.toString();
+  if (!queryString) return basePath;
+  return `${basePath}?${queryString}`;
 }
 
 export async function fetchEstimateList(): Promise<EstimateListItem[]> {
@@ -602,9 +909,10 @@ export async function bulkUpdateEstimateItems(
   updates: Array<{
     id: string;
     updates: Database["public"]["Tables"]["estimate_items"]["Update"];
-  }>
+  }>,
+  versionPatch?: BulkUpdateEstimateVersionPatch
 ): Promise<BulkUpdateEstimateItemsResult> {
-  if (updates.length === 0) {
+  if (updates.length === 0 && !versionPatch) {
     return {
       updatedCount: 0,
       versionToken: {
@@ -628,6 +936,7 @@ export async function bulkUpdateEstimateItems(
           id: entry.id,
           ...entry.updates,
         })),
+        ...(versionPatch ? { version_patch: versionPatch } : {}),
       }),
     },
     "Impossible de mettre a jour les lignes."
@@ -652,6 +961,10 @@ export async function createEstimateItem(
   versionId: string,
   item: Database["public"]["Tables"]["estimate_items"]["Insert"]
 ): Promise<EstimateItem> {
+  const lineItem = item as typeof item & {
+    h_mo_majoration?: number | null;
+    supply_type_id?: string | null;
+  };
   const body =
     item.item_type === "section"
       ? {
@@ -671,9 +984,11 @@ export async function createEstimateItem(
           tax_rate_bp: item.tax_rate_bp,
           k_fo: item.k_fo,
           h_mo: item.h_mo,
+          h_mo_majoration: lineItem.h_mo_majoration ?? null,
           k_mo: item.k_mo,
           labor_role_id: item.labor_role_id ?? null,
           category_id: item.category_id ?? null,
+          supply_type_id: lineItem.supply_type_id ?? null,
         };
 
   const payload = await requestJson<unknown>(
@@ -759,21 +1074,129 @@ export async function reorderEstimateItems(
 
 export async function updateEstimateStatus(
   versionId: string,
-  status: EstimateStatus
-): Promise<void> {
-  await requestJson<unknown>(
+  status: EstimateStatus,
+  updatedAtToken: string
+): Promise<EstimateVersionRow> {
+  const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/status`,
     {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
+        "If-Match": updatedAtToken,
       },
       body: JSON.stringify({
         status,
+        updated_at: updatedAtToken,
       }),
     },
     "Impossible de mettre a jour le statut."
   );
+
+  const entity = extractEntity(payload, ["version", "estimateVersion"]);
+  if (!entity || !toStringValue(entity.updated_at)) {
+    throw new Error("Impossible de recuperer la version mise a jour.");
+  }
+
+  return entity as EstimateVersionRow;
+}
+
+export async function acquireEstimateDraftLock(
+  versionId: string
+): Promise<AcquireEstimateDraftLockResult> {
+  try {
+    const payload = await requestJson<unknown>(
+      buildEstimateDraftLockPath(versionId),
+      {
+        method: "POST",
+      },
+      "Impossible d'acquerir le verrou de brouillon."
+    );
+
+    const lock = parseEstimateDraftLock(payload, versionId);
+    const acquired =
+      extractBoolean(payload, ["acquired", "is_acquired"]) ??
+      lock?.isOwnedByCurrentUser ??
+      true;
+
+    return {
+      acquired,
+      lock,
+    };
+  } catch (error) {
+    if (isEstimateApiError(error) && error.status === 409) {
+      return {
+        acquired: false,
+        lock: parseEstimateDraftLock(error.details, versionId),
+      };
+    }
+    throw error;
+  }
+}
+
+export async function renewEstimateDraftLock(
+  versionId: string
+): Promise<RenewEstimateDraftLockResult> {
+  try {
+    const payload = await requestJson<unknown>(
+      buildEstimateDraftLockPath(versionId),
+      {
+        method: "PATCH",
+      },
+      "Impossible de renouveler le verrou de brouillon."
+    );
+
+    const lock = parseEstimateDraftLock(payload, versionId);
+    const renewed =
+      extractBoolean(payload, ["renewed", "is_renewed"]) ??
+      lock?.isOwnedByCurrentUser ??
+      true;
+
+    return {
+      renewed,
+      lock,
+    };
+  } catch (error) {
+    if (isEstimateApiError(error) && error.status === 409) {
+      return {
+        renewed: false,
+        lock: parseEstimateDraftLock(error.details, versionId),
+      };
+    }
+    throw error;
+  }
+}
+
+export async function releaseEstimateDraftLock(
+  versionId: string,
+  options: ReleaseEstimateDraftLockOptions = {}
+): Promise<ReleaseEstimateDraftLockResult> {
+  try {
+    const payload = await requestJson<unknown>(
+      buildEstimateDraftLockPath(versionId, { force: options.force }),
+      {
+        method: "DELETE",
+        keepalive: options.keepalive,
+      },
+      options.force
+        ? "Impossible de forcer le deverrouillage."
+        : "Impossible de liberer le verrou de brouillon."
+    );
+
+    const released =
+      extractBoolean(payload, ["released", "ok", "success"]) ?? true;
+
+    return {
+      released,
+    };
+  } catch (error) {
+    if (isEstimateApiError(error) && error.status === 404) {
+      return {
+        released: true,
+      };
+    }
+    throw error;
+  }
 }
 
 export async function createEstimateCategory(
@@ -903,4 +1326,190 @@ export async function updateEstimateSuggestionRule(
 
   const entity = extractEntity(payload, ["suggestion_rule", "suggestionRule", "rule"]);
   return entity ? (entity as SuggestionRule) : null;
+}
+
+export async function sendEstimateSuggestionRuleFeedback(
+  versionId: string,
+  ruleId: string,
+  feedback: SuggestionRuleFeedback
+): Promise<SuggestionRule | null> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/suggestion-rules/${ruleId}/feedback`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        feedback,
+      }),
+    },
+    "Impossible d'enregistrer le feedback de la regle."
+  );
+
+  const entity = extractEntity(payload, ["suggestion_rule", "suggestionRule", "rule"]);
+  return entity ? (entity as SuggestionRule) : null;
+}
+
+export async function fetchEstimateTemplates(options?: {
+  search?: string;
+  limit?: number;
+  order?: "recent" | "oldest";
+}): Promise<EstimateTemplateSummary[]> {
+  const params = new URLSearchParams();
+  if (options?.search?.trim()) {
+    params.set("search", options.search.trim());
+  }
+  if (options?.limit && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set("limit", String(Math.floor(options.limit)));
+  }
+  if (options?.order) {
+    params.set("order", options.order);
+  }
+
+  const query = params.toString();
+  const path = query.length > 0
+    ? `/api/estimates/templates?${query}`
+    : "/api/estimates/templates";
+
+  const payload = await requestJson<unknown>(
+    path,
+    {
+      method: "GET",
+    },
+    "Impossible de charger les templates."
+  );
+
+  return parseEstimateTemplateSummaryList(payload);
+}
+
+export async function fetchEstimateTemplate(
+  templateId: string
+): Promise<EstimateTemplateDetail> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/templates/${templateId}`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger le template."
+  );
+
+  return parseEstimateTemplateDetail(payload);
+}
+
+export async function createEstimateTemplate(
+  input: CreateEstimateTemplatePayload
+): Promise<EstimateTemplateSummary> {
+  const payload = await requestJson<unknown>(
+    "/api/estimates/templates",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sourceVersionId: input.sourceVersionId,
+        name: input.name,
+        description: input.description ?? null,
+      }),
+    },
+    "Impossible de creer le template."
+  );
+
+  const entity = extractEntity(payload, ["template"]);
+  const parsed = parseEstimateTemplateSummaryEntity(entity);
+  if (!parsed) {
+    throw new Error("Impossible de creer le template.");
+  }
+
+  return parsed;
+}
+
+export async function updateEstimateTemplate(
+  templateId: string,
+  updates: UpdateEstimateTemplatePayload
+): Promise<EstimateTemplateSummary> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/templates/${templateId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(updates),
+    },
+    "Impossible de mettre a jour le template."
+  );
+
+  const entity = extractEntity(payload, ["template"]);
+  const parsed = parseEstimateTemplateSummaryEntity(entity);
+  if (!parsed) {
+    throw new Error("Impossible de mettre a jour le template.");
+  }
+
+  return parsed;
+}
+
+export async function deleteEstimateTemplate(templateId: string): Promise<void> {
+  await requestJson<unknown>(
+    `/api/estimates/templates/${templateId}`,
+    {
+      method: "DELETE",
+    },
+    "Impossible de supprimer le template."
+  );
+}
+
+export async function duplicateEstimateTemplate(
+  templateId: string,
+  options?: { name?: string | null }
+): Promise<EstimateTemplateSummary> {
+  const body: Record<string, unknown> = {};
+  if (options?.name && options.name.trim().length > 0) {
+    body.name = options.name.trim();
+  }
+
+  const payload = await requestJson<unknown>(
+    `/api/estimates/templates/${templateId}/duplicate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+    "Impossible de dupliquer le template."
+  );
+
+  const entity = extractEntity(payload, ["template"]);
+  const parsed = parseEstimateTemplateSummaryEntity(entity);
+  if (!parsed) {
+    throw new Error("Impossible de dupliquer le template.");
+  }
+
+  return parsed;
+}
+
+export async function instantiateEstimateFromTemplate(
+  templateId: string,
+  input: InstantiateEstimateTemplatePayload
+): Promise<{ projectId: string; versionId: string; redirectTo: string }> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/templates/${templateId}/instantiate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        projectName: input.projectName,
+        versionTitle: input.versionTitle ?? null,
+        dateDevis: input.dateDevis,
+        validiteJours: input.validiteJours,
+      }),
+    },
+    "Impossible d'instancier le template."
+  );
+
+  return parseInstantiateTemplateResult(payload);
 }

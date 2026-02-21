@@ -22,6 +22,7 @@ const CATEGORY_ID = "88888888-8888-4888-8888-888888888888";
 const LABOR_ROLE_ID = "99999999-9999-4999-8999-999999999999";
 const VERSION_UPDATED_AT = "2026-02-20T10:00:00.000Z";
 const NEXT_VERSION_UPDATED_AT = "2026-02-20T10:00:01.000Z";
+const LOCK_EXPIRES_AT = "2099-02-20T10:00:00.000Z";
 
 function createSupabaseMock(input: {
   rpcResult: {
@@ -60,6 +61,7 @@ function createSupabaseMock(input: {
         }
       | null;
   };
+  draftLockUserId?: string | null;
 }) {
   const tenantMembershipBuilder = {
     eq: vi.fn(),
@@ -162,6 +164,26 @@ function createSupabaseMock(input: {
     single: auditLogInsertSelectSingle,
   }));
 
+  const draftLocksBuilder = {
+    eq: vi.fn(),
+    gt: vi.fn(),
+    maybeSingle: vi.fn().mockResolvedValue({
+      data:
+        input.draftLockUserId === null
+          ? null
+          : {
+              id: "lock-1",
+              version_id: VERSION_ID,
+              user_id: input.draftLockUserId ?? USER_ID,
+              locked_at: VERSION_UPDATED_AT,
+              expires_at: LOCK_EXPIRES_AT,
+            },
+      error: null,
+    }),
+  };
+  draftLocksBuilder.eq.mockReturnValue(draftLocksBuilder);
+  draftLocksBuilder.gt.mockReturnValue(draftLocksBuilder);
+
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -202,6 +224,12 @@ function createSupabaseMock(input: {
       if (table === "audit_logs") {
         return {
           insert: auditLogInsert,
+        };
+      }
+
+      if (table === "draft_locks") {
+        return {
+          select: vi.fn(() => draftLocksBuilder),
         };
       }
 
@@ -256,6 +284,40 @@ describe("bulkUpdateEstimateItems regressions", () => {
         updated_count: 1,
       },
     });
+  });
+
+  it("requires an active draft lock owned by the current user", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: null,
+        error: null,
+      },
+      draftLockUserId: null,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      bulkUpdateEstimateItems(
+        VERSION_ID,
+        [
+          {
+            id: ITEM_ID_1,
+            title: "Ligne 1",
+          },
+        ],
+        VERSION_UPDATED_AT
+      )
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "LOCK_REQUIRED",
+      message: "Un verrou actif est requis pour modifier cette version brouillon.",
+      details: {
+        lock: null,
+      },
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("falls back to expected_count when stale error details are missing", async () => {
@@ -812,6 +874,23 @@ function createCreateItemSupabaseMock() {
     })),
   }));
 
+  const draftLocksBuilder = {
+    eq: vi.fn(),
+    gt: vi.fn(),
+    maybeSingle: vi.fn().mockResolvedValue({
+      data: {
+        id: "lock-2",
+        version_id: VERSION_ID,
+        user_id: USER_ID,
+        locked_at: VERSION_UPDATED_AT,
+        expires_at: LOCK_EXPIRES_AT,
+      },
+      error: null,
+    }),
+  };
+  draftLocksBuilder.eq.mockReturnValue(draftLocksBuilder);
+  draftLocksBuilder.gt.mockReturnValue(draftLocksBuilder);
+
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -851,6 +930,12 @@ function createCreateItemSupabaseMock() {
       if (table === "estimate_items") {
         return {
           insert: estimateItemsInsert,
+        };
+      }
+
+      if (table === "draft_locks") {
+        return {
+          select: vi.fn(() => draftLocksBuilder),
         };
       }
 
