@@ -161,6 +161,9 @@ Les sprints BC-001 et BC-002 ont mis en place les mecanismes de securite suivant
 
 ### Criteres d'acceptation
 
+- [ ] **Machine a etats** : `patchEstimateStatus()` valide les transitions via map : `{ draft: ['sent'], sent: ['accepted','archived'], accepted: ['archived'] }` — transitions invalides rejetees avec erreur explicite
+- [ ] **Validation DB en doublon** : ajout d'un trigger/fonction dedie `validate_estimate_status_transition()` pour rejeter les transitions non autorisees cote base (sans surcharger `guard_estimate_versions_readonly()` qui couvre l'immutabilite)
+- [ ] Tests unitaires couvrent chaque transition valide et chaque transition invalide
 - [ ] Nouvelle colonne `seal_hash` (text, nullable) sur `estimate_versions`
 - [ ] Au passage du statut `draft` -> `sent` (dans `patchEstimateStatus()`),
       calcul du hash SHA-256 sur un payload canonique comprenant :
@@ -181,6 +184,9 @@ Les sprints BC-001 et BC-002 ont mis en place les mecanismes de securite suivant
       `new_data` contient le hash
 - [ ] Tests unitaires : scellement au send, verification OK,
       detection de tampering (modification directe en DB)
+- [ ] Au scellement, ecrire un event dans `estimate_version_events` (EST-036) avec `event_type='sent'` et `metadata.seal_hash`
+- [ ] Le PDF genere (EST-201) inclut le hash dans le pied de page (8 premiers caracteres hex)
+- [ ] La table `estimate_documents` (EST-203) est mise a jour avec le `sha256_hash` du PDF
 
 ### Notes techniques
 
@@ -203,4 +209,36 @@ Les sprints BC-001 et BC-002 ont mis en place les mecanismes de securite suivant
   - Trigger existant `guard_estimate_versions_readonly()` protege
     naturellement le hash apres scellement
   - Trigger `log_estimate_audit()` pour la trace d'audit
+- Dependances : aucune
+
+---
+
+## EST-036 — Events append-only (estimate_version_events)
+
+**Priorite:** P2 | **Effort:** S | **Milestone:** M4
+
+### User Story
+
+> En tant qu'admin, je veux que chaque evenement de cycle de vie (sent, accepted, archived) soit enregistre dans une table append-only, afin d'avoir une piste d'audit infalsifiable.
+
+### Criteres d'acceptation
+
+- [ ] Nouvelle table `estimate_version_events` : `id` (uuid PK), `version_id` (FK `estimate_versions`), `tenant_id` (FK `tenants`), `event_type` enum (`sent|accepted|archived|rejected|seal_verified`), `actor_user_id` (FK `auth.users`), `metadata` (jsonb), `occurred_at` (timestamptz, defaut `now()`)
+- [ ] Semantique des events : `sent|accepted|archived` proviennent des transitions `estimate_status`, `rejected` provient du flux portail/negociation, `seal_verified` provient du endpoint de verification d'integrite
+- [ ] RLS append-only stricte : SELECT pour membres du tenant, **aucun INSERT/UPDATE/DELETE direct client** ; insertion via backend seulement (`SECURITY DEFINER` ou service role)
+- [ ] Ecriture events centralisee via fonction DB `log_estimate_version_event(...)`, appelee par `patchEstimateStatus()` et par le flux portail pour `rejected`
+- [ ] Endpoint GET `/api/estimates/[versionId]/events` retourne la timeline triee par `occurred_at` decroissant
+- [ ] UI timeline read-only sur la page detail version (liste chronologique des evenements avec type, acteur, date)
+
+### Notes techniques
+
+- Fichiers a creer :
+  - Migration `supabase/migrations/0xx_estimate_version_events.sql` — table `estimate_version_events` avec index sur `version_id`, fonction `log_estimate_version_event(...)`, RLS append-only (lecture seule cote client)
+  - `src/app/api/estimates/[versionId]/events/route.ts` — GET endpoint retournant la timeline
+- Fichiers a modifier :
+  - `src/lib/estimates/server.ts` — `patchEstimateStatus()` : apres chaque transition validee, appeler `log_estimate_version_event(...)` avec le type correspondant et les metadata pertinentes
+  - `src/app/dashboard/estimates/[versionId]/edit/page.tsx` — affichage de la timeline events
+- Reutiliser :
+  - `src/lib/supabase/server.ts` — `createSupabaseServerClient()` pour les requetes DB
+  - `src/lib/estimates/errors.ts` — gestion d'erreurs API
 - Dependances : aucune

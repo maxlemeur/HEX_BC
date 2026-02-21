@@ -28,11 +28,13 @@ la roadmap V1.
 
 | Milestone | Theme                        | Epics                                    | Objectif                                         |
 | --------- | ---------------------------- | ---------------------------------------- | ------------------------------------------------ |
-| **M0**    | Fondations                   | EST-E01, EST-E02, EST-E03, EST-E04       | Stabiliser le socle : DX, moteur, securite, API. Inclut marge par tranches (EST-028) et sous-totaux FO/MO (EST-121) |
-| **M1**    | Editeur + Performance        | EST-E05, EST-E06, EST-E07                | UI base, turbo editor, structure. Perf editeur 3000 lignes (EST-264 promu). Split MO atelier/chantier (EST-031) |
-| **M2**    | Qualite + Intelligence       | EST-E08, EST-E09, EST-E10                | Gating qualite, suggestions, multi-fournisseurs (EST-030), import OPTIMA (EST-034) |
-| **M3**    | Documents + Versioning       | EST-E11, EST-E12                         | Import/export PDF/DPGF/BDC 31 col, diff, changelog. Multi-devises reporte ici (EST-027) |
-| **M4**    | Lifecycle + Observabilite    | EST-E13, EST-E14                         | Portail client, envoi email, tests, import Batigest/Onaya (EST-204 reporte) |
+| **M0**    | Fondations                   | EST-E01, EST-E02, EST-E03, EST-E04       | Stabiliser le socle : DX, moteur, securite, API. Inclut marge par tranches (EST-028), sous-totaux FO/MO (EST-121), seal hash (EST-046) |
+| **M1**    | Turbo Editor + Templates + Suggestions v1 | EST-E05, EST-E06, EST-E07, EST-E09*, EST-E10* | UI base, turbo editor, structure. Perf editeur 3000 lignes (EST-264). **Templates (EST-181/182) et suggestions v1 (EST-161/162) promus de M2 a M1** |
+| **M2**    | Price Book + Send "lite" + Qualite | EST-E08, EST-E09, EST-E10, EST-E11*      | Gating qualite (EST-141), multi-fournisseurs (EST-030), import OPTIMA (EST-034). **PDF serveur (EST-201 promu de M3), CSV import price book (EST-035 new)** |
+| **M3**    | Documents + Versioning       | EST-E11, EST-E12                         | Export DPGF/BDC 31 col, diff, changelog. Multi-devises reporte ici (EST-027) |
+| **M4**    | Lifecycle + Rules + Observabilite | EST-E03*, EST-E08*, EST-E13, EST-E14 | Portail client, envoi email, tests. **Events append-only (EST-036 new), rules engine (EST-037 new)**, import Batigest/Onaya (EST-204) |
+
+> \* Epics marques avec `*` : seules certaines stories de l'epic sont dans ce milestone (promotions MVP). Voir le detail par epic.
 
 ---
 
@@ -120,13 +122,33 @@ a construire dans la roadmap V1.
 | **Schema & migrations**    | 21 migrations (001-021), tables estimate_*, tenants, audit_logs, dpgf_*, catalogue                          | Feature flags, draft_locks, discount cascade, seal_hash, margin_tiers, supply_types, labor split, AID column |
 | **Moteur de calcul**       | `computeEstimateLineValues()`, `computeEstimateTotals()`, overflow guards, banker's rounding                | Marge par tranches (EST-028), remise cascade + coeff global (EST-025), split MO atelier/chantier (EST-031), majoration temps (EST-032), invariants DB |
 | **API REST**               | 12 route handlers, Zod validation, erreurs normalisees, bulk update/reorder RPCs                            | Streaming export, batch operations, OpenAPI doc, concurrence optimiste                               |
-| **Securite & immutabilite**| RLS user+tenant, `guard_estimate_versions_readonly()`, transitions de statut, role checks                   | Concurrence optimiste (409), draft lock pessimiste, seal hash SHA-256                                |
+| **Securite & immutabilite**| RLS user+tenant, `guard_estimate_versions_readonly()`, transitions de statut, role checks                   | Concurrence optimiste (409), draft lock pessimiste, seal hash SHA-256, **events append-only (EST-036)** |
 | **Editeur**                | Table DnD (dnd-kit), sections/lignes, categories, roles MO, suggestion rules, quality flags                 | Editeur avance, AID (EST-033), Type FO (EST-029), multi-fournisseurs (EST-030), perf 3000 lignes (EST-264) |
 | **Import DPGF**            | Tables dpgf_imports/rows_raw/rows_mapped, mapping templates, mapping memory                                 | Import OPTIMA (EST-034), import Batigest/Onaya (EST-204), auto-detection formats, preview amelioree  |
-| **Qualite**                | `computeEstimateQualityFlagsForItem()`, `countEstimateQualityFlags()`, 4 flags de base                     | Gating financier (EST-141 enrichi), scoring global, notifications, seuils configurables              |
-| **Catalogue**              | Tables supplier_pricebook, material_indices, dpgf_catalogue_links, bulk RPC                                 | Comparaison 3 fournisseurs (EST-030), recherche full-text, historique prix, alerte variation          |
+| **Qualite**                | `computeEstimateQualityFlagsForItem()`, `countEstimateQualityFlags()`, 4 flags de base                     | Gating financier (EST-141 enrichi), scoring global, notifications, seuils configurables, **rules engine marge/remise (EST-037)** |
+| **Catalogue**              | Tables supplier_pricebook, material_indices, dpgf_catalogue_links, bulk RPC                                 | Comparaison 3 fournisseurs (EST-030), recherche full-text, historique prix, alerte variation, **CSV import price book (EST-035)** |
 | **Export**                 | Print view (`print/page.tsx`)                                                                                | PDF serveur, Export DPGF + BDC 31 col (EST-202), streaming 3000+ lignes, templates personnalisables  |
 | **Versioning**             | `duplicateEstimateVersion()`, DuplicateEstimateButton, version_number                                       | Comparaison diff entre versions, timeline, restauration                                              |
 | **Multi-tenant**           | tenants, tenant_memberships, `current_tenant_id()`, `has_tenant_role()`, role checks                        | Feature flags par tenant, onboarding tenant, quotas                                                  |
 | **Audit**                  | `audit_logs` table, `log_estimate_audit()` trigger, `snapshot_estimate_item_bulk_updates()`                 | Dashboard audit, recherche/filtrage, retention policy, export audit                                  |
 | **DX & outillage**         | Vitest, ESLint, TypeScript strict, Tailwind CSS 4                                                           | Feature flags runtime, design system tokens, Storybook (optionnel), CI/CD enrichi                    |
+
+---
+
+## Nouvelles stories (integration MVP "Game Changer")
+
+| Code    | Nom                                    | Epic   | Milestone | Priorite | Effort |
+| ------- | -------------------------------------- | ------ | --------- | -------- | ------ |
+| EST-035 | Import CSV Price Book                  | EST-E11| M2        | P1       | M      |
+| EST-036 | Events append-only                     | EST-E03| M4        | P2       | S      |
+| EST-037 | Rules engine marge/remise + approbations| EST-E08| M4        | P2       | L      |
+
+### Stories promues (changement de milestone)
+
+| Code    | Nom                    | Avant      | Apres      | Raison                           |
+| ------- | ---------------------- | ---------- | ---------- | -------------------------------- |
+| EST-181 | Templates de devis     | M2 P1      | **M1 P1**  | Sprint 2 MVP = anti page blanche |
+| EST-182 | Assemblages            | M2 P1      | **M1 P1**  | Sprint 2 MVP = assemblages reutilisables |
+| EST-161 | Scoring suggestions    | M2 P1      | **M1 P1**  | Sprint 2 MVP = suggestions v1    |
+| EST-162 | Bulk apply suggestions | M2 P1      | **M1 P1**  | Sprint 2 MVP = apply en masse    |
+| EST-201 | PDF serveur            | M3 P0      | **M2 P0**  | Sprint 4 MVP = send "lite"       |

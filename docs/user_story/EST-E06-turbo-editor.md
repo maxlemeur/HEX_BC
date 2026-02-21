@@ -35,12 +35,17 @@ Transformer l'editeur de devis en une experience de type tableur avec navigation
 - [ ] Le focus ring est visible et respecte les regles d'accessibilite (contraste suffisant)
 - [ ] La gestion du focus est au niveau cellule, pas au niveau champ HTML
 - [ ] Les sections (item_type='section') sont navigables mais seul le champ titre est editable
+- [ ] **Benchmark index** : `EXPLAIN ANALYZE` sur fetch tree / bulk update / reorder avec 3000 lignes. Index composite cree uniquement si seq scan detecte (ne PAS creer d'index en aveugle — 4 index pertinents existent deja)
+- [ ] **Schema bulk** : `updateEstimateItemSchema` etendu pour accepter `pu_ht_cents`, `line_total_ht_cents`, `line_tax_cents`, `line_total_ttc_cents` en optionnel (resout le Bloquant 2 : Zod filtre actuellement ces champs)
+- [ ] **Endpoint atomique** : bulk items + totaux version persistes dans une seule transaction serveur (remplace le `setTimeout` deferred actuel dans `page.tsx:834`)
+- [ ] Bulk edit sur 100 lignes : 1 seule requete API, recalcul coherent
 
 ### Notes techniques
 
 - Fichiers a modifier : `src/components/estimates/EstimateEditorTable.tsx`
 - Fichiers a creer : `src/hooks/useSpreadsheetNavigation.ts`
 - Reutiliser : la structure arborescente existante de `EstimateEditorTable` (sections/lignes avec `parent_id` et `position`)
+- **Pattern recalc cible** : client JS pre-compute (`computeEstimateLineValues` + `computeEstimateTotals`) → endpoint serveur atomique → `bulk_update_estimate_items()` avec totaux pre-calcules + `patchEstimateVersion()` totaux globaux dans une meme RPC ou appel sequentiel serveur. Le `setTimeout` dans `page.tsx:834` est un contournement temporaire resolu par cette story
 - Dependances : aucune
 
 ---

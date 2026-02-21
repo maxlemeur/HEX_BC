@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import LoginPipeNetwork from "@/components/LoginPipeNetwork";
 
 /* ─── Animation variants ─── */
 
@@ -163,16 +164,8 @@ export default function LoginPage() {
         animate="visible"
         className="relative flex w-full flex-col justify-center overflow-hidden bg-gradient-to-br from-[#1E3A5F] via-[#1a3355] to-[#152a45] px-8 py-12 text-white sm:px-12 lg:w-[45%] lg:min-h-screen lg:px-16 lg:py-20"
       >
-        {/* Grid overlay */}
-        <div className="login-grid-overlay pointer-events-none absolute inset-0 z-0" />
-
-        {/* Blobs */}
-        <div className="login-blob-a pointer-events-none absolute -left-20 -top-20 h-72 w-72 rounded-full bg-gradient-to-br from-[#E8732F]/30 to-[#E8732F]/5 blur-3xl sm:h-96 sm:w-96 lg:h-[28rem] lg:w-[28rem]" />
-        <div className="login-blob-b pointer-events-none absolute -bottom-16 right-0 hidden h-64 w-64 rounded-full bg-gradient-to-tr from-[#3b82f6]/20 to-[#1E3A5F]/10 blur-3xl md:block lg:h-80 lg:w-80" />
-        <div className="login-blob-c pointer-events-none absolute right-1/4 top-1/3 hidden h-48 w-48 rounded-full bg-gradient-to-bl from-[#E8732F]/15 to-transparent blur-3xl lg:block" />
-
-        {/* Pulse ring */}
-        <div className="login-pulse-ring pointer-events-none absolute left-1/2 top-1/2 hidden h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10 lg:block" />
+        {/* Animated pipe network background */}
+        <LoginPipeNetwork />
 
         {/* Brand content */}
         <motion.div

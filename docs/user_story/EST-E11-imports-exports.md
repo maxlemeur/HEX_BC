@@ -34,7 +34,7 @@ Les sprints BC-007, BC-008 et BC-009 ont mis en place le flux d'import et le cat
 
 ## EST-201 — Generation PDF serveur
 
-**Priorite:** P0 | **Effort:** L
+**Priorite:** P0 | **Effort:** L | **Milestone:** M2
 
 ### User Story
 
@@ -44,29 +44,28 @@ Les sprints BC-007, BC-008 et BC-009 ont mis en place le flux d'import et le cat
 ### Criteres d'acceptation
 
 - [ ] Un endpoint API genere le PDF a partir de la version de devis specifiee
-- [ ] Le PDF reutilise la mise en page de la page d'impression existante (template HTML
-      rendu cote serveur) pour garantir la coherence visuelle
+- [ ] Template PDF dedie en `@react-pdf/renderer` (primitives `<Document>/<Page>/<View>/<Text>`), aligne visuellement sur la page print mais code distinct (le HTML/Tailwind de `print/page.tsx` n'est PAS reutilisable par `@react-pdf/renderer`)
 - [ ] Le document inclut : logo du tenant, en-tete avec references projet/client,
       pied de page avec mentions legales, pagination automatique
 - [ ] La generation s'effectue en arriere-plan pour ne pas bloquer l'interface utilisateur
 - [ ] Le PDF genere est stocke dans Supabase Storage (bucket `estimate-documents`)
       avec un chemin structure `{tenant_id}/{estimate_id}/{version_id}.pdf`
 - [ ] Un lien de telechargement est retourne a l'utilisateur une fois la generation terminee
-- [ ] Le PDF est genere via puppeteer (headless Chrome) ou react-pdf selon les contraintes
-      d'infrastructure
+- [ ] Le PDF est genere via `@react-pdf/renderer` (fonctionne en Node/Edge sans Chrome binary)
 - [ ] Les montants sont formates en EUR avec les regles de `formatEUR()` existantes
 - [ ] Le PDF est accessible uniquement aux membres du tenant (verification RLS)
+- [ ] RLS Storage policy : lecture membres du tenant uniquement
+- [ ] Au passage `draft→sent`, PDF genere automatiquement si aucun n'existe
+- [ ] Endpoint GET `/api/estimates/[versionId]/pdf` retourne redirect vers URL signee (duree 1h)
+- [ ] Alternative documentee : migration vers `puppeteer` + `@sparticuz/chromium` post-MVP si fidelite pixel-perfect requise
 
 ### Notes techniques
 
 - Fichiers a creer :
   - `src/app/api/estimates/[versionId]/pdf/route.ts` — endpoint POST declenchant
     la generation, GET pour recuperer le statut/lien
-  - `src/lib/estimates/pdf-generator.ts` — logique de generation : rendu HTML,
-    conversion PDF, upload Supabase Storage, retour URL signee
-- Fichiers a modifier :
-  - `src/app/dashboard/estimates/[versionId]/print/page.tsx` — extraction du template
-    HTML en composant reutilisable cote serveur pour le rendu PDF
+  - `src/lib/estimates/pdf-generator.ts` — logique de generation : composition `@react-pdf/renderer`, rendu binaire PDF, upload Supabase Storage, retour URL signee
+- Fichiers a modifier : aucun (template PDF dedie, pas de reutilisation du HTML print)
 - Reutiliser :
   - `src/lib/money.ts` — `formatEUR()` pour le formatage des montants
   - `src/lib/estimate-calculations.ts` — `computeEstimateTotals()` pour les totaux
@@ -163,6 +162,39 @@ Les sprints BC-007, BC-008 et BC-009 ont mis en place le flux d'import et le cat
   - `src/lib/supabase/server.ts` — `createSupabaseServerClient()` pour les requetes DB
   - API Web Crypto (`crypto.subtle.digest('SHA-256', ...)`) pour le calcul du hash
 - Dependances : EST-201
+
+---
+
+## EST-035 — Import CSV Price Book
+
+**Priorite:** P1 | **Effort:** M | **Milestone:** M2
+
+### User Story
+
+> En tant qu'admin, je veux importer des prix fournisseurs depuis un fichier CSV, afin de mettre a jour massivement le price book sans manipulation technique.
+
+### Criteres d'acceptation
+
+- [ ] File input CSV sur la page `/dashboard/prices` avec preview Zod (10 premieres lignes)
+- [ ] Etape de mapping colonnes si headers non standards (dialog multi-etapes)
+- [ ] Appel `bulkCreateSupplierPrices()` RPC existant pour la persistence
+- [ ] Lignes rejetees affichees en resume avec numero de ligne et raison du rejet
+- [ ] Indicateur de progression pour fichiers > 500 lignes
+- [ ] Validation Zod sur chaque ligne : `supplier_id`, `product_id` (ou `catalogue_item_id`) et prix (numerique positif) requis ; devise optionnelle (defaut `EUR`)
+- [ ] Support des formats de prix francais (virgule decimale) et internationaux (point decimal)
+
+### Notes techniques
+
+- Fichiers a creer :
+  - `src/components/catalogue/PriceBookCsvImport.tsx` — composant d'import avec preview, mapping, progression
+  - `src/lib/catalogue/csv-import.ts` — parsing CSV, validation Zod, transformation en format bulk
+- Fichiers a modifier :
+  - `src/app/dashboard/prices/page.tsx` — ajout du bouton "Importer CSV" et integration du composant
+- Reutiliser :
+  - `bulkCreateSupplierPrices()` de `src/lib/catalogue/server.ts` pour la persistence en masse
+  - `parseEuroToCents()` de `src/lib/money.ts` pour la conversion des montants
+  - Helpers d'erreur de `src/lib/catalogue/server.ts` (`badRequest()`, `toErrorResponse()`)
+- Dependances : aucune
 
 ---
 

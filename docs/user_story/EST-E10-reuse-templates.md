@@ -1,6 +1,6 @@
 # EST-E10 — Reutilisation — templates et assemblages
 
-> Milestone: M2 | Priorite: P1 | Statut: A faire
+> Milestone: M1 | Priorite: P1 | Statut: A faire
 
 ## Objectif
 
@@ -19,7 +19,7 @@ realise par l'equipe.
 - **Fonction DB `duplicate_estimate_version()`** : copie atomique (version + items) avec
   increment du numero de version
 - **Structure sections/lignes** : les items de devis supportent une hierarchie
-  section > ligne via `parent_id` et `sort_order` dans `estimate_items`
+  section > ligne via `parent_id` et `position` dans `estimate_items`
 - **`src/lib/estimates/server.ts`** : fonctions `createEstimate()`, `createEstimateItem()`,
   `bulkUpdateEstimateItems()` reutilisables pour la creation depuis template/assemblage
 
@@ -27,7 +27,7 @@ realise par l'equipe.
 
 ## EST-181 — Templates de devis
 
-**Priorite:** P1 | **Effort:** L
+**Priorite:** P1 | **Effort:** L | **Milestone:** M1
 
 ### User Story
 
@@ -50,6 +50,10 @@ realise par l'equipe.
       et le statut `draft`
 - [ ] Les modeles sont independants de la version source : modifier le devis original
       n'affecte pas le modele
+- [ ] Selecteur "Depuis un template" visible a la creation d'un nouveau devis (wizard EST-082 ou page `new/`)
+- [ ] Picker affiche les 10 templates les plus recents du tenant avec nom, nb lignes, date
+- [ ] Creation depuis template < 3 secondes pour 100 lignes (via `duplicate_estimate_version()` backend)
+- [ ] Route POST `/api/estimates/templates/[templateId]/instantiate` — clone atomique version + items
 
 ### Notes techniques
 
@@ -79,7 +83,7 @@ realise par l'equipe.
 
 ## EST-182 — Assemblages reutilisables
 
-**Priorite:** P1 | **Effort:** L
+**Priorite:** P1 | **Effort:** L | **Milestone:** M1
 
 ### User Story
 
@@ -98,9 +102,14 @@ realise par l'equipe.
       depuis l'editeur de devis
 - [ ] Les assemblages sont scopes au tenant courant (RLS policy)
 - [ ] Un assemblage peut contenir entre 1 et 50 lignes
-- [ ] L'insertion preserve le `sort_order` des lignes tel que defini dans l'assemblage
+- [ ] L'insertion preserve la `position` des lignes tel que defini dans l'assemblage
 - [ ] Les valeurs inserees sont modifiables apres insertion (pas de lien dynamique
       avec l'assemblage source)
+- [ ] Drawer lateral "Assemblages" accessible depuis la toolbar editeur (bouton persistant)
+- [ ] Recherche debounced (300ms) dans le drawer, filtre sur nom assemblage et designations lignes
+- [ ] Insertion respecte la position courante (insert after focused row)
+- [ ] Apres insertion, recalcul version declenche immediatement
+- [ ] Route POST `/api/estimates/assemblies/[assemblyId]/insert?versionId=...` — insertion atomique, retourne items[] inseres
 
 ### Notes techniques
 
@@ -109,7 +118,7 @@ realise par l'equipe.
     `estimate_assemblies` (`id`, `tenant_id`, `name`, `description`, `created_by`,
     `created_at`, `updated_at`) et `estimate_assembly_items` (`id`, `assembly_id`,
     `title`, `unit`, `k_fo`, `k_mo`, `labor_role_id`, `default_quantity`,
-    `sort_order`) avec RLS policies scope tenant
+    `position`) avec RLS policies scope tenant
   - `src/app/dashboard/estimates/assemblies/page.tsx` — page bibliotheque assemblages
   - `src/app/api/estimates/assemblies/route.ts` — GET (liste), POST (creer)
   - `src/app/api/estimates/assemblies/[assemblyId]/route.ts` — GET, PATCH, DELETE
@@ -147,7 +156,7 @@ realise par l'equipe.
       prix, roles MO)
 - [ ] L'option "Dupliquer vers un autre devis" ouvre un selecteur de version cible
       parmi les devis du meme tenant au statut `draft`
-- [ ] La section dupliquee est inseree en fin de devis (dernier `sort_order`)
+- [ ] La section dupliquee est inseree en fin de devis (derniere `position`)
 - [ ] Les identifiants des items copies sont nouveaux (pas de collision avec l'existant)
 - [ ] Les totaux de la version cible sont recalcules apres insertion
 

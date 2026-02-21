@@ -29,7 +29,7 @@ et prix des les premieres lignes du devis.
 
 ## EST-161 — Scoring et classement des suggestions
 
-**Priorite:** P1 | **Effort:** M
+**Priorite:** P1 | **Effort:** M | **Milestone:** M1
 
 ### User Story
 
@@ -71,7 +71,7 @@ et prix des les premieres lignes du devis.
 
 ## EST-162 — Application en masse des suggestions
 
-**Priorite:** P1 | **Effort:** M
+**Priorite:** P1 | **Effort:** M | **Milestone:** M1
 
 ### User Story
 
@@ -174,7 +174,7 @@ et prix des les premieres lignes du devis.
 - [ ] Les resultats affichent : nom du fournisseur, designation, prix unitaire HT,
       unite, date de derniere mise a jour
 - [ ] Un clic sur un resultat applique le prix unitaire et l'unite a la ligne en cours
-- [ ] Les prix dont la date de mise a jour depasse 6 mois sont signales visuellement
+- [ ] Les prix dont la date de mise a jour depasse 90 jours sont signales visuellement
       (badge "prix ancien") pour alerter le chiffreur
 - [ ] La recherche est scope au tenant courant et supporte la correspondance partielle
       sur la designation
@@ -184,6 +184,9 @@ et prix des les premieres lignes du devis.
 - [ ] Retourner jusqu'a 3 alternatives fournisseur par article : meilleur prix, prix le plus recent, fournisseur prefere du tenant
 - [ ] Le dropdown de suggestions affiche les fournisseurs en format comparatif compact : nom fournisseur | prix | date | ref
 - [ ] L'utilisateur peut selectionner une alternative specifique, qui est alors liee a la ligne via `selected_supplier_price_id`
+- [ ] Seuil "prix stale" uniformise a 90 jours (remplace "6 mois"), configurable par feature flag `STALE_PRICE_DAYS` (defaut 90)
+- [ ] Badge "stale" affiche sur la page catalogue `/dashboard/prices` (colonne "Anciennete")
+- [ ] Filtre "Prix anciens seulement" sur la page catalogue pour identifier les articles a mettre a jour
 
 ### Notes techniques
 
@@ -221,7 +224,7 @@ et prix des les premieres lignes du devis.
 - [ ] Le panneau affiche les 3 alternatives en colonnes avec mise en evidence du meilleur prix
 - [ ] Lien cliquable vers l'URL catalogue du fournisseur (ouverture dans un nouvel onglet)
 - [ ] Badge visuel sur la ligne si le fournisseur le moins cher n'est pas celui selectionne
-- [ ] Les prix fournisseurs dont la date depasse 6 mois sont signales visuellement (badge "prix ancien")
+- [ ] Les prix fournisseurs dont la date depasse 90 jours sont signales visuellement (badge "prix ancien"), seuil configurable via feature flag `STALE_PRICE_DAYS`
 - [ ] L'export BDC (EST-202) inclut les 3 colonnes fournisseur pour chaque article
 
 ### Notes techniques
