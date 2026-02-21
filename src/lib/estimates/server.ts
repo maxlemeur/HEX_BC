@@ -1,31 +1,41 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createHash, randomUUID } from "node:crypto";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 
 import {
+  ApiError,
   badRequest,
   conflict,
   forbidden,
+  internalError,
   mapSupabaseError,
   notFound,
   unauthorized,
 } from "./errors";
 import type {
   BulkUpdateEstimateItemsInput,
+  BulkUpdateEstimateVersionPatchInput,
   CreateEstimateInput,
   CreateEstimateCategoryInput,
+  CreateEstimateTemplateFromVersionInput,
   CreateEstimateItemInput,
   CreateLaborRoleInput,
+  DuplicateEstimateTemplateInput,
+  InstantiateEstimateFromTemplateInput,
+  ListEstimateTemplatesQueryInput,
   CreateSuggestionRuleInput,
   DeleteEstimateItemInput,
   PatchEstimateStatusInput,
   PatchEstimateVersionInput,
   ReorderEstimateItemsInput,
+  SuggestionRuleFeedbackInput,
+  UpdateEstimateTemplateInput,
   UpdateLaborRoleInput,
-  UpdateSuggestionRuleInput,
   UpdateEstimateItemInput,
+  UpdateSuggestionRuleInput,
 } from "./schemas";
 
 type Supabase = SupabaseClient<Database>;
@@ -34,12 +44,42 @@ type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionInsert = Database["public"]["Tables"]["estimate_versions"]["Insert"];
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
+type EstimateVersionEventInsert =
+  Database["public"]["Tables"]["estimate_version_events"]["Insert"];
 type AuditLogInsert = Database["public"]["Tables"]["audit_logs"]["Insert"];
 type EstimateCategoryInsert = Database["public"]["Tables"]["estimate_categories"]["Insert"];
 type EstimateCategoryRow = Database["public"]["Tables"]["estimate_categories"]["Row"];
-type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
-type EstimateItemInsert = Database["public"]["Tables"]["estimate_items"]["Insert"];
-type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update"];
+type SupplyTypeRow = Database["public"]["Tables"]["supply_types"]["Row"];
+type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
+  h_mo_majoration?: number | null;
+  h_mo_atelier?: number | null;
+  k_mo_atelier?: number | null;
+  labor_role_atelier_id?: string | null;
+  h_mo_chantier?: number | null;
+  k_mo_chantier?: number | null;
+  labor_role_chantier_id?: string | null;
+  supply_type_id?: string | null;
+};
+type EstimateItemInsert = Database["public"]["Tables"]["estimate_items"]["Insert"] & {
+  h_mo_majoration?: number | null;
+  h_mo_atelier?: number | null;
+  k_mo_atelier?: number | null;
+  labor_role_atelier_id?: string | null;
+  h_mo_chantier?: number | null;
+  k_mo_chantier?: number | null;
+  labor_role_chantier_id?: string | null;
+  supply_type_id?: string | null;
+};
+type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update"] & {
+  h_mo_majoration?: number | null;
+  h_mo_atelier?: number | null;
+  k_mo_atelier?: number | null;
+  labor_role_atelier_id?: string | null;
+  h_mo_chantier?: number | null;
+  k_mo_chantier?: number | null;
+  labor_role_chantier_id?: string | null;
+  supply_type_id?: string | null;
+};
 type LaborRoleInsert = Database["public"]["Tables"]["labor_roles"]["Insert"];
 type LaborRoleUpdate = Database["public"]["Tables"]["labor_roles"]["Update"];
 type LaborRoleRow = Database["public"]["Tables"]["labor_roles"]["Row"];
@@ -106,6 +146,50 @@ type EstimateVersionDetailsRow = EstimateVersionRow & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
 
+type UntypedSupabase = SupabaseClient<any>;
+
+type EstimateTemplateRow = {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  source_version_id: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type EstimateTemplateItemRow = {
+  id: string;
+  tenant_id: string;
+  template_id: string;
+  parent_id: string | null;
+  item_type: Database["public"]["Enums"]["estimate_item_type"];
+  position: number;
+  title: string;
+  description: string | null;
+  quantity: number;
+  unit_price_ht_cents: number;
+  tax_rate_bp: number;
+  k_fo: number;
+  h_mo: number;
+  h_mo_majoration: number | null;
+  k_mo: number;
+  h_mo_atelier: number | null;
+  k_mo_atelier: number | null;
+  labor_role_atelier_id: string | null;
+  h_mo_chantier: number | null;
+  k_mo_chantier: number | null;
+  labor_role_chantier_id: string | null;
+  pu_ht_cents: number;
+  labor_role_id: string | null;
+  category_id: string | null;
+  supply_type_id: string | null;
+  line_total_ht_cents: number | null;
+  line_tax_cents: number | null;
+  line_total_ttc_cents: number | null;
+};
+
 const DEFAULT_VALIDITE_JOURS = 30;
 const DEFAULT_MARGIN_MULTIPLIER = 1;
 const DEFAULT_TAX_RATE_BP = 2000;
@@ -116,6 +200,81 @@ const DEFAULT_CURRENCY = "EUR";
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const STALE_BULK_UPDATE_ERROR_MESSAGE = "STALE_BULK_UPDATE_ITEMS";
 const VERSION_CONFLICT_ERROR_MESSAGE = "Version modifiee par un autre utilisateur";
+const ESTIMATE_SEAL_PAYLOAD_VERSION = 1;
+const ESTIMATE_STATUS_TRANSITIONS: Readonly<
+  Record<EstimateStatus, readonly EstimateStatus[]>
+> = {
+  draft: ["sent"],
+  sent: ["accepted", "archived"],
+  accepted: ["archived"],
+  archived: [],
+};
+
+type EstimateSealVersionFields = Pick<
+  EstimateVersionRow,
+  | "id"
+  | "tenant_id"
+  | "project_id"
+  | "version_number"
+  | "date_devis"
+  | "total_ht_cents"
+  | "total_tax_cents"
+  | "total_ttc_cents"
+  | "margin_multiplier"
+  | "discount_bp"
+  | "tax_rate_bp"
+  | "rounding_mode"
+  | "rounding_step_cents"
+  | "seal_hash"
+>;
+
+type EstimateSealCanonicalItem = Pick<
+  EstimateItemRow,
+  | "id"
+  | "position"
+  | "item_type"
+  | "title"
+  | "quantity"
+  | "unit_price_ht_cents"
+  | "tax_rate_bp"
+  | "k_fo"
+  | "h_mo"
+  | "h_mo_majoration"
+  | "k_mo"
+  | "h_mo_atelier"
+  | "k_mo_atelier"
+  | "labor_role_atelier_id"
+  | "h_mo_chantier"
+  | "k_mo_chantier"
+  | "labor_role_chantier_id"
+  | "supply_type_id"
+  | "pu_ht_cents"
+  | "line_total_ht_cents"
+  | "line_tax_cents"
+  | "line_total_ttc_cents"
+>;
+
+type EstimateSealPayload = {
+  meta: {
+    payload_version: number;
+    version_id: string;
+    tenant_id: string;
+    project_id: string;
+  };
+  version: {
+    version_number: number;
+    date_devis: string;
+    total_ht_cents: number;
+    total_tax_cents: number;
+    total_ttc_cents: number;
+    margin_multiplier: number;
+    discount_bp: number;
+    tax_rate_bp: number;
+    rounding_mode: EstimateVersionRow["rounding_mode"];
+    rounding_step_cents: number;
+  };
+  items: EstimateSealCanonicalItem[];
+};
 
 type AuthenticatedContext = {
   supabase: Supabase;
@@ -208,6 +367,158 @@ function assertVersionConcurrencyToken(
     throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
       updated_at: versionUpdatedAt,
     });
+  }
+}
+
+function assertEstimateStatusTransition(
+  currentStatus: EstimateStatus,
+  nextStatus: EstimateStatus
+) {
+  const allowedTransitions = ESTIMATE_STATUS_TRANSITIONS[currentStatus] ?? [];
+
+  if (allowedTransitions.includes(nextStatus)) return;
+
+  throw badRequest(
+    `Transition de statut invalide: ${currentStatus} -> ${nextStatus}.`
+  );
+}
+
+function buildCanonicalEstimateSealPayload(input: {
+  version: EstimateSealVersionFields;
+  items: EstimateItemRow[];
+}): EstimateSealPayload {
+  const canonicalItems = [...input.items]
+    .sort((left, right) => {
+      if (left.position !== right.position) {
+        return left.position - right.position;
+      }
+
+      return left.id.localeCompare(right.id);
+    })
+    .map(
+      (item): EstimateSealCanonicalItem => ({
+        id: item.id,
+        position: item.position,
+        item_type: item.item_type,
+        title: item.title,
+        quantity: item.quantity,
+        unit_price_ht_cents: item.unit_price_ht_cents,
+        tax_rate_bp: item.tax_rate_bp,
+        k_fo: item.k_fo,
+        h_mo: item.h_mo,
+        h_mo_majoration: item.h_mo_majoration,
+        k_mo: item.k_mo,
+        h_mo_atelier: item.h_mo_atelier,
+        k_mo_atelier: item.k_mo_atelier,
+        labor_role_atelier_id: item.labor_role_atelier_id,
+        h_mo_chantier: item.h_mo_chantier,
+        k_mo_chantier: item.k_mo_chantier,
+        labor_role_chantier_id: item.labor_role_chantier_id,
+        supply_type_id: item.supply_type_id,
+        pu_ht_cents: item.pu_ht_cents,
+        line_total_ht_cents: item.line_total_ht_cents,
+        line_tax_cents: item.line_tax_cents,
+        line_total_ttc_cents: item.line_total_ttc_cents,
+      })
+    );
+
+  return {
+    meta: {
+      payload_version: ESTIMATE_SEAL_PAYLOAD_VERSION,
+      version_id: input.version.id,
+      tenant_id: input.version.tenant_id,
+      project_id: input.version.project_id,
+    },
+    version: {
+      version_number: input.version.version_number,
+      date_devis: input.version.date_devis,
+      total_ht_cents: input.version.total_ht_cents,
+      total_tax_cents: input.version.total_tax_cents,
+      total_ttc_cents: input.version.total_ttc_cents,
+      margin_multiplier: input.version.margin_multiplier,
+      discount_bp: input.version.discount_bp,
+      tax_rate_bp: input.version.tax_rate_bp,
+      rounding_mode: input.version.rounding_mode,
+      rounding_step_cents: input.version.rounding_step_cents,
+    },
+    items: canonicalItems,
+  };
+}
+
+function computeEstimateSealHash(payload: EstimateSealPayload) {
+  return createHash("sha256")
+    .update(JSON.stringify(payload))
+    .digest("hex")
+    .toLowerCase();
+}
+
+async function loadEstimateSealSource(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+}): Promise<{ version: EstimateSealVersionFields; items: EstimateItemRow[] }> {
+  const { data: versionData, error: versionError } = await input.supabase
+    .from("estimate_versions")
+    .select(
+      "id, tenant_id, project_id, version_number, date_devis, total_ht_cents, total_tax_cents, total_ttc_cents, margin_multiplier, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, seal_hash"
+    )
+    .eq("tenant_id", input.tenantId)
+    .eq("id", input.versionId)
+    .single();
+
+  if (versionError || !versionData) {
+    if (versionError) {
+      throw mapSupabaseError(versionError, "Impossible de charger la version.");
+    }
+
+    throw notFound("Version de chiffrage introuvable.");
+  }
+
+  const { data: itemsData, error: itemsError } = await input.supabase
+    .from("estimate_items")
+    .select(
+      "id, position, item_type, title, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, supply_type_id, pu_ht_cents, line_total_ht_cents, line_tax_cents, line_total_ttc_cents"
+    )
+    .eq("tenant_id", input.tenantId)
+    .eq("version_id", input.versionId)
+    .order("position", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (itemsError) {
+    throw mapSupabaseError(itemsError, "Impossible de charger les lignes.");
+  }
+
+  return {
+    version: versionData as EstimateSealVersionFields,
+    items: (itemsData ?? []) as EstimateItemRow[],
+  };
+}
+
+async function insertEstimateVersionEvent(input: {
+  supabase: Supabase;
+  versionId: string;
+  tenantId: string;
+  eventType: "sent";
+  actorUserId: string;
+  metadata: Json;
+}) {
+  const payload: EstimateVersionEventInsert = {
+    estimate_version_id: input.versionId,
+    tenant_id: input.tenantId,
+    event_type: input.eventType,
+    created_by: input.actorUserId,
+    metadata: input.metadata,
+  };
+
+  const { error } = await input.supabase
+    .from("estimate_version_events")
+    .insert(payload);
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible d'enregistrer l'evenement de statut."
+    );
   }
 }
 
@@ -357,30 +668,27 @@ async function assertEstimateTotalsInvariantForPatch(input: {
   throw badRequest(violation.message);
 }
 
-async function touchEstimateVersionToken(input: {
+async function fetchEstimateVersionToken(input: {
   supabase: Supabase;
   tenantId: string;
   versionId: string;
 }) {
   const { data, error } = await input.supabase
     .from("estimate_versions")
-    .update({
-      updated_at: new Date().toISOString(),
-    })
+    .select("id, updated_at")
     .eq("id", input.versionId)
     .eq("tenant_id", input.tenantId)
-    .select("id, updated_at")
     .single();
 
   if (error || !data) {
     if (error) {
       throw mapSupabaseError(
         error,
-        "Impossible de mettre a jour le jeton de version."
+        "Impossible de recuperer le jeton de version."
       );
     }
 
-    throw badRequest("Impossible de mettre a jour le jeton de version.");
+    throw badRequest("Impossible de recuperer le jeton de version.");
   }
 
   return data;
@@ -450,6 +758,280 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
     tenantId: membership.tenant_id,
     tenantRole: membership.role,
   };
+}
+
+function getUntypedSupabase(supabase: Supabase): UntypedSupabase {
+  return supabase as unknown as UntypedSupabase;
+}
+
+function throwTemplateNameConflictIfNeeded(error: PostgrestError): never | void {
+  if (error.code !== "23505") return;
+  throw conflict(
+    "Un template avec ce nom existe deja.",
+    error,
+    "TEMPLATE_NAME_CONFLICT"
+  );
+}
+
+function toTemplateSummary(row: EstimateTemplateRow, itemCount: number) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    source_version_id: row.source_version_id,
+    created_by: row.created_by,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    item_count: itemCount,
+  };
+}
+
+function buildTemplateItemsInsertPayload(input: {
+  tenantId: string;
+  templateId: string;
+  sourceItems: EstimateItemRow[];
+}) {
+  const idMap = new Map<string, string>();
+
+  for (const item of input.sourceItems) {
+    idMap.set(item.id, randomUUID());
+  }
+
+  return input.sourceItems.map((item) => ({
+    id: idMap.get(item.id),
+    tenant_id: input.tenantId,
+    template_id: input.templateId,
+    parent_id: item.parent_id ? (idMap.get(item.parent_id) ?? null) : null,
+    item_type: item.item_type,
+    position: item.position,
+    title: item.title,
+    description: item.description ?? null,
+    quantity: item.quantity ?? 0,
+    unit_price_ht_cents: item.unit_price_ht_cents ?? 0,
+    tax_rate_bp: item.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
+    k_fo: item.k_fo ?? 1,
+    h_mo: item.h_mo ?? 0,
+    h_mo_majoration: item.h_mo_majoration ?? null,
+    k_mo: item.k_mo ?? 1,
+    h_mo_atelier: item.h_mo_atelier ?? null,
+    k_mo_atelier: item.k_mo_atelier ?? null,
+    labor_role_atelier_id: item.labor_role_atelier_id ?? null,
+    h_mo_chantier: item.h_mo_chantier ?? null,
+    k_mo_chantier: item.k_mo_chantier ?? null,
+    labor_role_chantier_id: item.labor_role_chantier_id ?? null,
+    pu_ht_cents: item.pu_ht_cents ?? 0,
+    labor_role_id: item.labor_role_id ?? null,
+    category_id: item.category_id ?? null,
+    supply_type_id: item.supply_type_id ?? null,
+    line_total_ht_cents: item.line_total_ht_cents ?? null,
+    line_tax_cents: item.line_tax_cents ?? null,
+    line_total_ttc_cents: item.line_total_ttc_cents ?? null,
+  }));
+}
+
+function buildEstimateItemsInsertPayload(input: {
+  tenantId: string;
+  versionId: string;
+  templateItems: EstimateTemplateItemRow[];
+}) {
+  const idMap = new Map<string, string>();
+
+  for (const item of input.templateItems) {
+    idMap.set(item.id, randomUUID());
+  }
+
+  return input.templateItems.map((item) => ({
+    id: idMap.get(item.id),
+    tenant_id: input.tenantId,
+    version_id: input.versionId,
+    parent_id: item.parent_id ? (idMap.get(item.parent_id) ?? null) : null,
+    item_type: item.item_type,
+    position: item.position,
+    title: item.title,
+    description: item.description ?? null,
+    quantity: item.quantity ?? 0,
+    unit_price_ht_cents: item.unit_price_ht_cents ?? 0,
+    tax_rate_bp: item.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
+    k_fo: item.k_fo ?? 1,
+    h_mo: item.h_mo ?? 0,
+    h_mo_majoration: item.h_mo_majoration ?? null,
+    k_mo: item.k_mo ?? 1,
+    h_mo_atelier: item.h_mo_atelier ?? null,
+    k_mo_atelier: item.k_mo_atelier ?? null,
+    labor_role_atelier_id: item.labor_role_atelier_id ?? null,
+    h_mo_chantier: item.h_mo_chantier ?? null,
+    k_mo_chantier: item.k_mo_chantier ?? null,
+    labor_role_chantier_id: item.labor_role_chantier_id ?? null,
+    pu_ht_cents: item.pu_ht_cents ?? 0,
+    labor_role_id: item.labor_role_id ?? null,
+    category_id: item.category_id ?? null,
+    supply_type_id: item.supply_type_id ?? null,
+    line_total_ht_cents: item.line_total_ht_cents ?? null,
+    line_tax_cents: item.line_tax_cents ?? null,
+    line_total_ttc_cents: item.line_total_ttc_cents ?? null,
+  }));
+}
+
+function buildDuplicatedTemplateItemsInsertPayload(input: {
+  tenantId: string;
+  targetTemplateId: string;
+  sourceItems: EstimateTemplateItemRow[];
+}) {
+  const idMap = new Map<string, string>();
+
+  for (const item of input.sourceItems) {
+    idMap.set(item.id, randomUUID());
+  }
+
+  return input.sourceItems.map((item) => ({
+    id: idMap.get(item.id),
+    tenant_id: input.tenantId,
+    template_id: input.targetTemplateId,
+    parent_id: item.parent_id ? (idMap.get(item.parent_id) ?? null) : null,
+    item_type: item.item_type,
+    position: item.position,
+    title: item.title,
+    description: item.description ?? null,
+    quantity: item.quantity ?? 0,
+    unit_price_ht_cents: item.unit_price_ht_cents ?? 0,
+    tax_rate_bp: item.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
+    k_fo: item.k_fo ?? 1,
+    h_mo: item.h_mo ?? 0,
+    h_mo_majoration: item.h_mo_majoration ?? null,
+    k_mo: item.k_mo ?? 1,
+    h_mo_atelier: item.h_mo_atelier ?? null,
+    k_mo_atelier: item.k_mo_atelier ?? null,
+    labor_role_atelier_id: item.labor_role_atelier_id ?? null,
+    h_mo_chantier: item.h_mo_chantier ?? null,
+    k_mo_chantier: item.k_mo_chantier ?? null,
+    labor_role_chantier_id: item.labor_role_chantier_id ?? null,
+    pu_ht_cents: item.pu_ht_cents ?? 0,
+    labor_role_id: item.labor_role_id ?? null,
+    category_id: item.category_id ?? null,
+    supply_type_id: item.supply_type_id ?? null,
+    line_total_ht_cents: item.line_total_ht_cents ?? null,
+    line_tax_cents: item.line_tax_cents ?? null,
+    line_total_ttc_cents: item.line_total_ttc_cents ?? null,
+  }));
+}
+
+async function loadEstimateTemplateOrThrow(input: {
+  supabase: Supabase;
+  tenantId: string;
+  templateId: string;
+}): Promise<EstimateTemplateRow> {
+  const db = getUntypedSupabase(input.supabase);
+
+  const { data, error } = await db
+    .from("estimate_templates")
+    .select("*")
+    .eq("tenant_id", input.tenantId)
+    .eq("id", input.templateId)
+    .single();
+
+  if (error || !data) {
+    if (error && error.code !== "PGRST116") {
+      throw mapSupabaseError(error, "Impossible de charger le template.");
+    }
+
+    throw notFound("Template introuvable.", undefined, "TEMPLATE_NOT_FOUND");
+  }
+
+  return data as EstimateTemplateRow;
+}
+
+async function loadEstimateTemplateItems(input: {
+  supabase: Supabase;
+  tenantId: string;
+  templateId: string;
+}) {
+  const db = getUntypedSupabase(input.supabase);
+
+  const { data, error } = await db
+    .from("estimate_template_items")
+    .select("*")
+    .eq("tenant_id", input.tenantId)
+    .eq("template_id", input.templateId)
+    .order("position", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les lignes du template.");
+  }
+
+  return (data ?? []) as EstimateTemplateItemRow[];
+}
+
+async function loadTemplateItemCountByTemplateId(input: {
+  supabase: Supabase;
+  tenantId: string;
+  templateIds: string[];
+}) {
+  const counts = new Map<string, number>();
+
+  if (input.templateIds.length === 0) {
+    return counts;
+  }
+
+  const db = getUntypedSupabase(input.supabase);
+
+  const { data, error } = await db
+    .from("estimate_template_items")
+    .select("template_id")
+    .eq("tenant_id", input.tenantId)
+    .in("template_id", input.templateIds);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger le comptage des templates.");
+  }
+
+  for (const row of (data ?? []) as Array<{ template_id: string }>) {
+    counts.set(row.template_id, (counts.get(row.template_id) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+async function cleanupTemplateOnFailure(input: {
+  supabase: Supabase;
+  tenantId: string;
+  templateId: string;
+}) {
+  const db = getUntypedSupabase(input.supabase);
+
+  const { error } = await db
+    .from("estimate_templates")
+    .delete()
+    .eq("tenant_id", input.tenantId)
+    .eq("id", input.templateId);
+
+  if (error) {
+    console.error("Failed to cleanup estimate template after error", {
+      tenantId: input.tenantId,
+      templateId: input.templateId,
+      error,
+    });
+  }
+}
+
+async function cleanupInstantiatedEstimateOnFailure(input: {
+  supabase: Supabase;
+  tenantId: string;
+  projectId: string;
+}) {
+  const { error } = await input.supabase
+    .from("estimate_projects")
+    .delete()
+    .eq("tenant_id", input.tenantId)
+    .eq("id", input.projectId);
+
+  if (error) {
+    console.error("Failed to cleanup instantiated estimate after template error", {
+      tenantId: input.tenantId,
+      projectId: input.projectId,
+      error,
+    });
+  }
 }
 
 async function getVersionAccessOrThrow(
@@ -588,6 +1170,50 @@ async function ensureCategoryIsValid(
   ) {
     throw badRequest("category_id invalide.");
   }
+}
+
+async function ensureSupplyTypeIsValid(
+  supabase: Supabase,
+  supplyTypeId: string | null,
+  context: Pick<AuthenticatedContext, "tenantId">
+) {
+  if (supplyTypeId === null) return;
+
+  const { data, error } = await supabase
+    .from("supply_types")
+    .select("id, tenant_id")
+    .eq("id", supplyTypeId)
+    .eq("tenant_id", context.tenantId)
+    .single();
+
+  if (error || !data) {
+    throw badRequest("supply_type_id invalide.");
+  }
+}
+
+function isLaborSplitEnabledForItem(
+  item: Partial<
+    Pick<
+      EstimateItemRow,
+      | "h_mo_atelier"
+      | "k_mo_atelier"
+      | "labor_role_atelier_id"
+      | "h_mo_chantier"
+      | "k_mo_chantier"
+      | "labor_role_chantier_id"
+    >
+  >
+) {
+  return (
+    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
+    (item.k_mo_atelier !== null && item.k_mo_atelier !== undefined) ||
+    (item.labor_role_atelier_id !== null &&
+      item.labor_role_atelier_id !== undefined) ||
+    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
+    (item.k_mo_chantier !== null && item.k_mo_chantier !== undefined) ||
+    (item.labor_role_chantier_id !== null &&
+      item.labor_role_chantier_id !== undefined)
+  );
 }
 
 async function resolveLaborRateCents(
@@ -821,6 +1447,398 @@ export async function listLatestEstimates() {
   };
 }
 
+export async function listEstimateTemplates(query: ListEstimateTemplatesQueryInput) {
+  const { supabase, tenantId } = await getAuthenticatedContext();
+  const db = getUntypedSupabase(supabase);
+
+  let templatesQuery = db
+    .from("estimate_templates")
+    .select("*")
+    .eq("tenant_id", tenantId);
+
+  const search = toNullableText(query.search);
+  if (search) {
+    templatesQuery = templatesQuery.or(
+      `name.ilike.%${search}%,description.ilike.%${search}%`
+    );
+  }
+
+  const { data, error } = await templatesQuery
+    .order("updated_at", { ascending: false })
+    .limit(query.limit);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les templates.");
+  }
+
+  const templates = (data ?? []) as EstimateTemplateRow[];
+  const itemCountByTemplateId = await loadTemplateItemCountByTemplateId({
+    supabase,
+    tenantId,
+    templateIds: templates.map((template) => template.id),
+  });
+
+  return {
+    items: templates.map((template) =>
+      toTemplateSummary(template, itemCountByTemplateId.get(template.id) ?? 0)
+    ),
+  };
+}
+
+export async function getEstimateTemplate(templateId: string) {
+  const { supabase, tenantId } = await getAuthenticatedContext();
+
+  const template = await loadEstimateTemplateOrThrow({
+    supabase,
+    tenantId,
+    templateId,
+  });
+  const items = await loadEstimateTemplateItems({
+    supabase,
+    tenantId,
+    templateId,
+  });
+
+  return {
+    template: {
+      ...toTemplateSummary(template, items.length),
+      items,
+    },
+  };
+}
+
+export async function createEstimateTemplateFromVersion(
+  input: CreateEstimateTemplateFromVersionInput
+) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+  const db = getUntypedSupabase(supabase);
+
+  try {
+    await getVersionAccessOrThrow(supabase, input.source_version_id, context);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "NOT_FOUND") {
+      throw notFound(
+        "Version source introuvable.",
+        undefined,
+        "TEMPLATE_SOURCE_VERSION_NOT_FOUND"
+      );
+    }
+    throw error;
+  }
+
+  const { data: templateData, error: templateError } = await db
+    .from("estimate_templates")
+    .insert({
+      tenant_id: tenantId,
+      name: input.name.trim(),
+      description: toNullableText(input.description),
+      source_version_id: input.source_version_id,
+      created_by: userId,
+    })
+    .select("*")
+    .single();
+
+  if (templateError || !templateData) {
+    if (templateError) {
+      throwTemplateNameConflictIfNeeded(templateError);
+      throw mapSupabaseError(templateError, "Impossible de creer le template.");
+    }
+    throw badRequest("Impossible de creer le template.");
+  }
+
+  const template = templateData as EstimateTemplateRow;
+
+  const { data: sourceItemsData, error: sourceItemsError } = await supabase
+    .from("estimate_items")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .eq("version_id", input.source_version_id)
+    .order("position", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (sourceItemsError) {
+    await cleanupTemplateOnFailure({
+      supabase,
+      tenantId,
+      templateId: template.id,
+    });
+    throw mapSupabaseError(
+      sourceItemsError,
+      "Impossible de charger les lignes de la version source."
+    );
+  }
+
+  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
+  const templateItemsPayload = buildTemplateItemsInsertPayload({
+    tenantId,
+    templateId: template.id,
+    sourceItems,
+  });
+
+  if (templateItemsPayload.length > 0) {
+    const { error: insertItemsError } = await db
+      .from("estimate_template_items")
+      .insert(templateItemsPayload);
+
+    if (insertItemsError) {
+      await cleanupTemplateOnFailure({
+        supabase,
+        tenantId,
+        templateId: template.id,
+      });
+      throw mapSupabaseError(
+        insertItemsError,
+        "Impossible de copier les lignes dans le template."
+      );
+    }
+  }
+
+  const items = await loadEstimateTemplateItems({
+    supabase,
+    tenantId,
+    templateId: template.id,
+  });
+
+  return {
+    template: {
+      ...toTemplateSummary(template, items.length),
+      items,
+    },
+  };
+}
+
+export async function updateEstimateTemplate(
+  templateId: string,
+  input: UpdateEstimateTemplateInput
+) {
+  const { supabase, tenantId } = await getAuthenticatedContext();
+  const db = getUntypedSupabase(supabase);
+
+  await loadEstimateTemplateOrThrow({
+    supabase,
+    tenantId,
+    templateId,
+  });
+
+  const payload: Record<string, unknown> = {};
+
+  if ("name" in input) {
+    payload.name = input.name.trim();
+  }
+  if ("description" in input) {
+    payload.description = toNullableText(input.description);
+  }
+
+  const { data, error } = await db
+    .from("estimate_templates")
+    .update(payload)
+    .eq("tenant_id", tenantId)
+    .eq("id", templateId)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    if (error) {
+      throwTemplateNameConflictIfNeeded(error);
+      throw mapSupabaseError(error, "Impossible de mettre a jour le template.");
+    }
+    throw badRequest("Impossible de mettre a jour le template.");
+  }
+
+  const updatedTemplate = data as EstimateTemplateRow;
+  const itemCountByTemplateId = await loadTemplateItemCountByTemplateId({
+    supabase,
+    tenantId,
+    templateIds: [updatedTemplate.id],
+  });
+
+  return {
+    template: toTemplateSummary(
+      updatedTemplate,
+      itemCountByTemplateId.get(updatedTemplate.id) ?? 0
+    ),
+  };
+}
+
+export async function deleteEstimateTemplate(templateId: string) {
+  const { supabase, tenantId } = await getAuthenticatedContext();
+  const db = getUntypedSupabase(supabase);
+
+  await loadEstimateTemplateOrThrow({
+    supabase,
+    tenantId,
+    templateId,
+  });
+
+  const { error: deleteItemsError } = await db
+    .from("estimate_template_items")
+    .delete()
+    .eq("tenant_id", tenantId)
+    .eq("template_id", templateId);
+
+  if (deleteItemsError) {
+    throw mapSupabaseError(deleteItemsError, "Impossible de supprimer le template.");
+  }
+
+  const { error: deleteTemplateError } = await db
+    .from("estimate_templates")
+    .delete()
+    .eq("tenant_id", tenantId)
+    .eq("id", templateId);
+
+  if (deleteTemplateError) {
+    throw mapSupabaseError(deleteTemplateError, "Impossible de supprimer le template.");
+  }
+
+  return {
+    deleted_id: templateId,
+  };
+}
+
+export async function duplicateEstimateTemplate(
+  templateId: string,
+  input: DuplicateEstimateTemplateInput
+) {
+  const { supabase, tenantId, userId } = await getAuthenticatedContext();
+  const db = getUntypedSupabase(supabase);
+
+  const sourceTemplate = await loadEstimateTemplateOrThrow({
+    supabase,
+    tenantId,
+    templateId,
+  });
+  const sourceItems = await loadEstimateTemplateItems({
+    supabase,
+    tenantId,
+    templateId,
+  });
+
+  const duplicateName = toNullableText(input.name) ?? `${sourceTemplate.name} (copie)`;
+  const duplicateDescription =
+    "description" in input
+      ? toNullableText(input.description)
+      : sourceTemplate.description;
+
+  const { data: duplicatedTemplateData, error: duplicateTemplateError } = await db
+    .from("estimate_templates")
+    .insert({
+      tenant_id: tenantId,
+      name: duplicateName,
+      description: duplicateDescription,
+      source_version_id: sourceTemplate.source_version_id,
+      created_by: userId,
+    })
+    .select("*")
+    .single();
+
+  if (duplicateTemplateError || !duplicatedTemplateData) {
+    if (duplicateTemplateError) {
+      throwTemplateNameConflictIfNeeded(duplicateTemplateError);
+      throw mapSupabaseError(
+        duplicateTemplateError,
+        "Impossible de dupliquer le template."
+      );
+    }
+
+    throw badRequest("Impossible de dupliquer le template.");
+  }
+
+  const duplicatedTemplate = duplicatedTemplateData as EstimateTemplateRow;
+
+  if (sourceItems.length > 0) {
+    const duplicatedItemsPayload = buildDuplicatedTemplateItemsInsertPayload({
+      tenantId,
+      targetTemplateId: duplicatedTemplate.id,
+      sourceItems,
+    });
+
+    const { error: duplicateItemsError } = await db
+      .from("estimate_template_items")
+      .insert(duplicatedItemsPayload);
+
+    if (duplicateItemsError) {
+      await cleanupTemplateOnFailure({
+        supabase,
+        tenantId,
+        templateId: duplicatedTemplate.id,
+      });
+      throw mapSupabaseError(
+        duplicateItemsError,
+        "Impossible de dupliquer les lignes du template."
+      );
+    }
+  }
+
+  const duplicatedItems = await loadEstimateTemplateItems({
+    supabase,
+    tenantId,
+    templateId: duplicatedTemplate.id,
+  });
+
+  return {
+    template: {
+      ...toTemplateSummary(duplicatedTemplate, duplicatedItems.length),
+      items: duplicatedItems,
+    },
+  };
+}
+
+export async function instantiateEstimateFromTemplate(
+  templateId: string,
+  input: InstantiateEstimateFromTemplateInput
+) {
+  const { supabase, tenantId } = await getAuthenticatedContext();
+
+  await loadEstimateTemplateOrThrow({
+    supabase,
+    tenantId,
+    templateId,
+  });
+  const templateItems = await loadEstimateTemplateItems({
+    supabase,
+    tenantId,
+    templateId,
+  });
+
+  const created = await createEstimate({
+    project: input.project,
+    version: input.version,
+  });
+
+  const estimateItemsPayload = buildEstimateItemsInsertPayload({
+    tenantId,
+    versionId: created.version.id,
+    templateItems,
+  });
+
+  if (estimateItemsPayload.length > 0) {
+    const { error: insertItemsError } = await supabase
+      .from("estimate_items")
+      .insert(estimateItemsPayload as EstimateItemInsert[]);
+
+    if (insertItemsError) {
+      await cleanupInstantiatedEstimateOnFailure({
+        supabase,
+        tenantId,
+        projectId: created.project.id,
+      });
+      throw internalError(
+        "Impossible d'instancier le template.",
+        insertItemsError,
+        "TEMPLATE_INSTANTIATE_FAILED"
+      );
+    }
+  }
+
+  return {
+    project: created.project,
+    version: created.version,
+    template_id: templateId,
+    inserted_count: estimateItemsPayload.length,
+  };
+}
+
 export async function duplicateEstimateVersion(versionId: string) {
   const context = await getAuthenticatedContext();
   const { supabase } = context;
@@ -969,6 +1987,11 @@ export async function getEstimateVersionDetails(versionId: string) {
     .eq("tenant_id", tenantId)
     .eq("user_id", project.user_id)
     .order("position", { ascending: true });
+  const supplyTypesQuery = supabase
+    .from("supply_types")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("name", { ascending: true });
   const laborRolesQuery = supabase
     .from("labor_roles")
     .select("*")
@@ -991,6 +2014,7 @@ export async function getEstimateVersionDetails(versionId: string) {
   const [
     itemsResult,
     categoriesResult,
+    supplyTypesResult,
     laborRolesResult,
     rulesResult,
     marginTiersResult,
@@ -1003,6 +2027,7 @@ export async function getEstimateVersionDetails(versionId: string) {
         .eq("version_id", versionId)
         .order("position", { ascending: true }),
       categoriesQuery,
+      supplyTypesQuery,
       laborRolesQuery,
       rulesQuery,
       marginTiersQuery,
@@ -1016,6 +2041,13 @@ export async function getEstimateVersionDetails(versionId: string) {
     throw mapSupabaseError(
       categoriesResult.error,
       "Impossible de charger les categories."
+    );
+  }
+
+  if (supplyTypesResult.error) {
+    throw mapSupabaseError(
+      supplyTypesResult.error,
+      "Impossible de charger les types de fourniture."
     );
   }
 
@@ -1047,6 +2079,7 @@ export async function getEstimateVersionDetails(versionId: string) {
     },
     items: (itemsResult.data ?? []) as EstimateItemRow[],
     categories: (categoriesResult.data ?? []) as EstimateCategoryRow[],
+    supply_types: (supplyTypesResult.data ?? []) as SupplyTypeRow[],
     labor_roles: (laborRolesResult.data ?? []) as LaborRoleRow[],
     suggestion_rules: (rulesResult.data ?? []) as SuggestionRuleRow[],
     margin_tiers: (marginTiersResult.data ?? []) as MarginTierRow[],
@@ -1151,14 +2184,23 @@ export async function patchEstimateVersion(
     .update(payload)
     .eq("id", versionId)
     .eq("tenant_id", tenantId)
+    .eq("updated_at", version.updated_at)
     .select("*")
     .single();
 
   if (error || !data) {
+    if (error?.code === "PGRST116") {
+      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+        updated_at: version.updated_at,
+      });
+    }
+
     if (error) {
       throw mapSupabaseError(error, "Impossible de mettre a jour la version.");
     }
-    throw badRequest("Impossible de mettre a jour la version.");
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: version.updated_at,
+    });
   }
 
   return {
@@ -1168,11 +2210,13 @@ export async function patchEstimateVersion(
 
 export async function patchEstimateStatus(
   versionId: string,
-  input: PatchEstimateStatusInput
+  input: PatchEstimateStatusInput,
+  concurrencyToken: string | undefined
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
+  const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
 
   if (version.status === input.status) {
     const { data, error } = await supabase
@@ -1194,9 +2238,32 @@ export async function patchEstimateStatus(
     };
   }
 
+  assertEstimateStatusTransition(version.status, input.status);
+
+  let sealHash: string | null = null;
+
+  if (version.status === "draft" && input.status === "sent") {
+    const sealSource = await loadEstimateSealSource({
+      supabase,
+      tenantId,
+      versionId,
+    });
+    const sealPayload = buildCanonicalEstimateSealPayload(sealSource);
+    sealHash = computeEstimateSealHash(sealPayload);
+  }
+
+  const updatePayload: EstimateVersionUpdate = {
+    status: input.status,
+  };
+
+  if (sealHash !== null) {
+    (updatePayload as EstimateVersionUpdate & { seal_hash: string | null }).seal_hash =
+      sealHash;
+  }
+
   const { data, error } = await supabase
     .from("estimate_versions")
-    .update({ status: input.status })
+    .update(updatePayload)
     .eq("id", versionId)
     .eq("tenant_id", tenantId)
     .select("*")
@@ -1209,8 +2276,43 @@ export async function patchEstimateStatus(
     throw badRequest("Impossible de changer le statut.");
   }
 
+  if (sealHash !== null) {
+    await insertEstimateVersionEvent({
+      supabase,
+      versionId,
+      tenantId,
+      eventType: "sent",
+      actorUserId: userId,
+      metadata: {
+        seal_hash: sealHash,
+      },
+    });
+  }
+
   return {
     version: data,
+  };
+}
+
+export async function verifyEstimateSeal(versionId: string) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+
+  await getVersionAccessOrThrow(supabase, versionId, context);
+
+  const sealSource = await loadEstimateSealSource({
+    supabase,
+    tenantId,
+    versionId,
+  });
+  const sealPayload = buildCanonicalEstimateSealPayload(sealSource);
+  const computedHash = computeEstimateSealHash(sealPayload);
+  const storedHash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
+
+  return {
+    valid: storedHash !== null && computedHash === storedHash,
+    computed_hash: computedHash,
+    stored_hash: storedHash,
   };
 }
 
@@ -1455,6 +2557,94 @@ export async function updateSuggestionRule(
   };
 }
 
+function toSuggestionUsageCount(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
+export async function saveSuggestionRuleFeedback(
+  versionId: string,
+  ruleId: string,
+  input: SuggestionRuleFeedbackInput
+) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { project } = await getVersionAccessOrThrow(supabase, versionId, context);
+
+  const existingRuleQuery = supabase
+    .from("estimate_suggestion_rules")
+    .select("*")
+    .eq("id", ruleId)
+    .eq("tenant_id", tenantId)
+    .eq("user_id", project.user_id);
+
+  const { data: existingRule, error: existingRuleError } =
+    await existingRuleQuery.single();
+
+  if (existingRuleError || !existingRule) {
+    throw notFound("Regle introuvable.");
+  }
+
+  if (input.feedback === "reject") {
+    return {
+      suggestion_rule: existingRule,
+      feedback: input.feedback,
+    };
+  }
+
+  const existingRuleRecord = existingRule as unknown as Record<string, unknown>;
+  const nowIso = new Date().toISOString();
+  const payload: SuggestionRuleUpdate & Record<string, unknown> = {};
+
+  if ("usage_count" in existingRuleRecord) {
+    payload.usage_count = toSuggestionUsageCount(existingRuleRecord.usage_count) + 1;
+  }
+  if ("last_used_at" in existingRuleRecord) {
+    payload.last_used_at = nowIso;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    return {
+      suggestion_rule: existingRule,
+      feedback: input.feedback,
+    };
+  }
+
+  const updateRuleQuery = supabase
+    .from("estimate_suggestion_rules")
+    .update(payload as SuggestionRuleUpdate)
+    .eq("id", ruleId)
+    .eq("tenant_id", tenantId)
+    .eq("user_id", project.user_id);
+
+  const { data, error } = await updateRuleQuery.select("*").single();
+
+  if (error || !data) {
+    if (error) {
+      throw mapSupabaseError(
+        error,
+        "Impossible d'enregistrer le feedback de la regle."
+      );
+    }
+    throw badRequest("Impossible d'enregistrer le feedback de la regle.");
+  }
+
+  return {
+    suggestion_rule: data,
+    feedback: input.feedback,
+  };
+}
+
 export async function createEstimateItem(
   versionId: string,
   input: CreateEstimateItemInput
@@ -1513,14 +2703,43 @@ export async function createEstimateItem(
   const taxRateBp = input.tax_rate_bp ?? version.tax_rate_bp ?? DEFAULT_TAX_RATE_BP;
   const kFo = input.k_fo ?? 1;
   const hMo = input.h_mo ?? 0;
+  const hMoMajoration = input.h_mo_majoration ?? 1;
   const kMo = input.k_mo ?? 1;
+  const hMoAtelier = input.h_mo_atelier ?? null;
+  const kMoAtelier = input.k_mo_atelier ?? null;
+  const laborRoleAtelierId = input.labor_role_atelier_id ?? null;
+  const hMoChantier = input.h_mo_chantier ?? null;
+  const kMoChantier = input.k_mo_chantier ?? null;
+  const laborRoleChantierId = input.labor_role_chantier_id ?? null;
   const laborRoleId = input.labor_role_id ?? null;
   const categoryId = input.category_id ?? null;
+  const supplyTypeId = input.supply_type_id ?? null;
+  const isLaborSplitEnabled = isLaborSplitEnabledForItem({
+    h_mo_atelier: hMoAtelier,
+    k_mo_atelier: kMoAtelier,
+    labor_role_atelier_id: laborRoleAtelierId,
+    h_mo_chantier: hMoChantier,
+    k_mo_chantier: kMoChantier,
+    labor_role_chantier_id: laborRoleChantierId,
+  });
 
   await ensureCategoryIsValid(supabase, categoryId, context, project.user_id);
-  const laborRateCents = await resolveLaborRateCents(
+  await ensureSupplyTypeIsValid(supabase, supplyTypeId, context);
+  const laborRateLegacyCents = await resolveLaborRateCents(
     supabase,
     laborRoleId,
+    context,
+    project.user_id
+  );
+  const laborRateAtelierCents = await resolveLaborRateCents(
+    supabase,
+    laborRoleAtelierId,
+    context,
+    project.user_id
+  );
+  const laborRateChantierCents = await resolveLaborRateCents(
+    supabase,
+    laborRoleChantierId,
     context,
     project.user_id
   );
@@ -1532,13 +2751,23 @@ export async function createEstimateItem(
       tax_rate_bp: taxRateBp,
       k_fo: kFo,
       h_mo: hMo,
+      h_mo_majoration: hMoMajoration,
       k_mo: kMo,
+      h_mo_atelier: hMoAtelier,
+      k_mo_atelier: kMoAtelier,
+      labor_role_atelier_id: laborRoleAtelierId,
+      h_mo_chantier: hMoChantier,
+      k_mo_chantier: kMoChantier,
+      labor_role_chantier_id: laborRoleChantierId,
       pu_ht_cents: 0,
-      labor_role_hourly_rate_cents: laborRateCents,
+      labor_role_hourly_rate_cents: laborRateLegacyCents,
     },
     {
       marginMultiplier: version.margin_multiplier,
       taxRateBp,
+      isLaborSplitEnabled,
+      laborRateAtelierCents,
+      laborRateChantierCents,
     }
   );
 
@@ -1557,10 +2786,18 @@ export async function createEstimateItem(
       tax_rate_bp: taxRateBp,
       k_fo: kFo,
       h_mo: hMo,
+      h_mo_majoration: hMoMajoration,
       k_mo: kMo,
+      h_mo_atelier: hMoAtelier,
+      k_mo_atelier: kMoAtelier,
+      labor_role_atelier_id: laborRoleAtelierId,
+      h_mo_chantier: hMoChantier,
+      k_mo_chantier: kMoChantier,
+      labor_role_chantier_id: laborRoleChantierId,
       pu_ht_cents: lineValues.puHtCents,
       labor_role_id: laborRoleId,
       category_id: categoryId,
+      supply_type_id: supplyTypeId,
       line_total_ht_cents: lineValues.saleLineCents,
       line_tax_cents: lineValues.taxLineCents,
       line_total_ttc_cents: lineValues.ttcLineCents,
@@ -1587,9 +2824,21 @@ const SECTION_ONLY_FORBIDDEN_FIELDS: (keyof UpdateEstimateItemInput)[] = [
   "tax_rate_bp",
   "k_fo",
   "h_mo",
+  "h_mo_majoration",
   "k_mo",
+  "h_mo_atelier",
+  "k_mo_atelier",
+  "labor_role_atelier_id",
+  "h_mo_chantier",
+  "k_mo_chantier",
+  "labor_role_chantier_id",
+  "pu_ht_cents",
+  "line_total_ht_cents",
+  "line_tax_cents",
+  "line_total_ttc_cents",
   "labor_role_id",
   "category_id",
+  "supply_type_id",
 ];
 
 export async function updateEstimateItem(
@@ -1692,19 +2941,72 @@ export async function updateEstimateItem(
     DEFAULT_TAX_RATE_BP;
   const nextKFo = ("k_fo" in input ? input.k_fo : currentItem.k_fo) ?? 1;
   const nextHMo = ("h_mo" in input ? input.h_mo : currentItem.h_mo) ?? 0;
+  const nextHMoMajoration =
+    ("h_mo_majoration" in input
+      ? input.h_mo_majoration
+      : (currentItem as EstimateItemRow).h_mo_majoration) ?? 1;
   const nextKMo = ("k_mo" in input ? input.k_mo : currentItem.k_mo) ?? 1;
+  const nextHMoAtelier =
+    "h_mo_atelier" in input
+      ? input.h_mo_atelier ?? null
+      : ((currentItem as EstimateItemRow).h_mo_atelier ?? null);
+  const nextKMoAtelier =
+    "k_mo_atelier" in input
+      ? input.k_mo_atelier ?? null
+      : ((currentItem as EstimateItemRow).k_mo_atelier ?? null);
+  const nextLaborRoleAtelierId =
+    "labor_role_atelier_id" in input
+      ? input.labor_role_atelier_id ?? null
+      : ((currentItem as EstimateItemRow).labor_role_atelier_id ?? null);
+  const nextHMoChantier =
+    "h_mo_chantier" in input
+      ? input.h_mo_chantier ?? null
+      : ((currentItem as EstimateItemRow).h_mo_chantier ?? null);
+  const nextKMoChantier =
+    "k_mo_chantier" in input
+      ? input.k_mo_chantier ?? null
+      : ((currentItem as EstimateItemRow).k_mo_chantier ?? null);
+  const nextLaborRoleChantierId =
+    "labor_role_chantier_id" in input
+      ? input.labor_role_chantier_id ?? null
+      : ((currentItem as EstimateItemRow).labor_role_chantier_id ?? null);
   const nextLaborRoleId =
     "labor_role_id" in input ? (input.labor_role_id ?? null) : currentItem.labor_role_id;
   const nextCategoryId =
     "category_id" in input ? (input.category_id ?? null) : currentItem.category_id;
+  const nextSupplyTypeId =
+    "supply_type_id" in input
+      ? (input.supply_type_id ?? null)
+      : ((currentItem as EstimateItemRow).supply_type_id ?? null);
   const nextPosition =
     ("position" in input ? input.position : currentItem.position) ??
     currentItem.position;
+  const isLaborSplitEnabled = isLaborSplitEnabledForItem({
+    h_mo_atelier: nextHMoAtelier,
+    k_mo_atelier: nextKMoAtelier,
+    labor_role_atelier_id: nextLaborRoleAtelierId,
+    h_mo_chantier: nextHMoChantier,
+    k_mo_chantier: nextKMoChantier,
+    labor_role_chantier_id: nextLaborRoleChantierId,
+  });
 
   await ensureCategoryIsValid(supabase, nextCategoryId, context, project.user_id);
-  const laborRateCents = await resolveLaborRateCents(
+  await ensureSupplyTypeIsValid(supabase, nextSupplyTypeId, context);
+  const laborRateLegacyCents = await resolveLaborRateCents(
     supabase,
     nextLaborRoleId,
+    context,
+    project.user_id
+  );
+  const laborRateAtelierCents = await resolveLaborRateCents(
+    supabase,
+    nextLaborRoleAtelierId,
+    context,
+    project.user_id
+  );
+  const laborRateChantierCents = await resolveLaborRateCents(
+    supabase,
+    nextLaborRoleChantierId,
     context,
     project.user_id
   );
@@ -1716,13 +3018,23 @@ export async function updateEstimateItem(
       tax_rate_bp: nextTaxRateBp,
       k_fo: nextKFo,
       h_mo: nextHMo,
+      h_mo_majoration: nextHMoMajoration,
       k_mo: nextKMo,
+      h_mo_atelier: nextHMoAtelier,
+      k_mo_atelier: nextKMoAtelier,
+      labor_role_atelier_id: nextLaborRoleAtelierId,
+      h_mo_chantier: nextHMoChantier,
+      k_mo_chantier: nextKMoChantier,
+      labor_role_chantier_id: nextLaborRoleChantierId,
       pu_ht_cents: currentItem.pu_ht_cents,
-      labor_role_hourly_rate_cents: laborRateCents,
+      labor_role_hourly_rate_cents: laborRateLegacyCents,
     },
     {
       marginMultiplier: version.margin_multiplier,
       taxRateBp: nextTaxRateBp,
+      isLaborSplitEnabled,
+      laborRateAtelierCents,
+      laborRateChantierCents,
     }
   );
 
@@ -1736,10 +3048,18 @@ export async function updateEstimateItem(
     tax_rate_bp: nextTaxRateBp,
     k_fo: nextKFo,
     h_mo: nextHMo,
+    h_mo_majoration: nextHMoMajoration,
     k_mo: nextKMo,
+    h_mo_atelier: nextHMoAtelier,
+    k_mo_atelier: nextKMoAtelier,
+    labor_role_atelier_id: nextLaborRoleAtelierId,
+    h_mo_chantier: nextHMoChantier,
+    k_mo_chantier: nextKMoChantier,
+    labor_role_chantier_id: nextLaborRoleChantierId,
     pu_ht_cents: lineValues.puHtCents,
     labor_role_id: nextLaborRoleId,
     category_id: nextCategoryId,
+    supply_type_id: nextSupplyTypeId,
     line_total_ht_cents: lineValues.saleLineCents,
     line_tax_cents: lineValues.taxLineCents,
     line_total_ttc_cents: lineValues.ttcLineCents,
@@ -1769,22 +3089,51 @@ export async function updateEstimateItem(
 export async function bulkUpdateEstimateItems(
   versionId: string,
   input: BulkUpdateEstimateItemsInput,
-  concurrencyToken?: string
+  concurrencyToken?: string,
+  versionPatch?: BulkUpdateEstimateVersionPatchInput
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
+  const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
 
-  const updatesPayload = input.map((item) => ({ ...item }));
+  if (versionPatch) {
+    const persistedTotals: EstimateTotals = {
+      total_ht_cents: version.total_ht_cents ?? null,
+      total_tax_cents: version.total_tax_cents ?? null,
+      total_ttc_cents: version.total_ttc_cents ?? null,
+    };
 
-  const { data: updatedCount, error: bulkUpdateError } = await supabase.rpc(
+    await assertEstimateTotalsInvariantForPatch({
+      supabase,
+      tenantId,
+      versionId,
+      userId,
+      persistedTotals,
+      patch: versionPatch,
+    });
+  }
+
+  const updatesPayload = input.map((item) => ({ ...item }));
+  if (updatesPayload.length === 0 && !versionPatch) {
+    return {
+      updated_count: 0,
+      version: {
+        id: version.id,
+        updated_at: version.updated_at,
+      },
+    };
+  }
+
+  const { data: rpcUpdatedCount, error: bulkUpdateError } = await supabase.rpc(
     "bulk_update_estimate_items",
     {
       target_version_id: versionId,
       item_updates: updatesPayload,
+      version_patch: versionPatch ?? null,
+      expected_version_updated_at: version.updated_at,
     }
   );
 
@@ -1808,14 +3157,14 @@ export async function bulkUpdateEstimateItems(
     );
   }
 
-  const updatedVersion = await touchEstimateVersionToken({
+  const updatedVersion = await fetchEstimateVersionToken({
     supabase,
     tenantId,
     versionId,
   });
 
   return {
-    updated_count: updatedCount ?? 0,
+    updated_count: rpcUpdatedCount ?? 0,
     version: updatedVersion,
   };
 }

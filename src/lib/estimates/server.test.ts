@@ -81,13 +81,13 @@ function createSupabaseMock(input: {
     error: null,
   });
 
-  const estimateVersionBuilder = {
+  const estimateVersionAccessBuilder = {
     eq: vi.fn(),
     single: vi.fn(),
   };
 
-  estimateVersionBuilder.eq.mockReturnValue(estimateVersionBuilder);
-  estimateVersionBuilder.single.mockResolvedValue({
+  estimateVersionAccessBuilder.eq.mockReturnValue(estimateVersionAccessBuilder);
+  estimateVersionAccessBuilder.single.mockResolvedValue({
     data: {
       id: VERSION_ID,
       project_id: PROJECT_ID,
@@ -108,6 +108,20 @@ function createSupabaseMock(input: {
     },
     error: null,
   });
+
+  const estimateVersionTokenBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue(
+      input.touchResult ?? {
+        data: {
+          id: VERSION_ID,
+          updated_at: NEXT_VERSION_UPDATED_AT,
+        },
+        error: null,
+      }
+    ),
+  };
+  estimateVersionTokenBuilder.eq.mockReturnValue(estimateVersionTokenBuilder);
 
   const estimateVersionUpdateSingle = vi.fn().mockResolvedValue(
     input.touchResult ?? {
@@ -167,8 +181,20 @@ function createSupabaseMock(input: {
       }
 
       if (table === "estimate_versions") {
+        const selectEstimateVersions = vi.fn((columns?: string) => {
+          if (columns?.includes("estimate_projects")) {
+            return estimateVersionAccessBuilder;
+          }
+
+          if (columns === "id, updated_at") {
+            return estimateVersionTokenBuilder;
+          }
+
+          return estimateVersionAccessBuilder;
+        });
+
         return {
-          select: vi.fn(() => estimateVersionBuilder),
+          select: selectEstimateVersions,
           update: vi.fn(() => estimateVersionUpdateBuilder),
         };
       }
@@ -388,6 +414,14 @@ describe("bulkUpdateEstimateItems regressions", () => {
         updated_at: NEXT_VERSION_UPDATED_AT,
       },
     });
+
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "bulk_update_estimate_items",
+      expect.objectContaining({
+        target_version_id: VERSION_ID,
+        expected_version_updated_at: VERSION_UPDATED_AT,
+      })
+    );
   });
 });
 
@@ -478,6 +512,38 @@ describe("patchEstimateVersion optimistic concurrency", () => {
       version: {
         id: VERSION_ID,
         updated_at: NEXT_VERSION_UPDATED_AT,
+      },
+    });
+  });
+
+  it("returns 409 when a concurrent write invalidates the token before update", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+      touchResult: {
+        data: null,
+        error: noRowsError(),
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          title: "Maj",
+        },
+        VERSION_UPDATED_AT
+      )
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      message: "Version modifiee par un autre utilisateur",
+      details: {
+        updated_at: VERSION_UPDATED_AT,
       },
     });
   });

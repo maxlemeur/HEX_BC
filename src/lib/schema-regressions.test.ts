@@ -21,6 +21,8 @@ describe("schema regressions", () => {
   it("guards bulk estimate updates with a stale lock-count check before writes", () => {
     expect(schemaSql).toMatch(/create or replace function public\.bulk_update_estimate_items\(/);
     expect(schemaSql).toMatch(/locked_count integer := 0;/);
+    expect(schemaSql).toMatch(/expected_version_updated_at timestamptz/);
+    expect(schemaSql).toMatch(/and ev\.updated_at = expected_version_updated_at[\s\S]*for update;/);
     expect(schemaSql).toMatch(/perform item\.id[\s\S]*for update;/);
     expect(schemaSql).toMatch(/if locked_count <> expected_count then[\s\S]*STALE_BULK_UPDATE_ITEMS/);
   });

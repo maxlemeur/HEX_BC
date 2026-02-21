@@ -80,7 +80,7 @@ function parseBooleanQueryParam(value: string | null) {
 function parseFeatureFlagQuery(request: Request) {
   const searchParams = new URL(request.url).searchParams;
   const parsed = tenantQuerySchema.safeParse({
-    tenant_id: searchParams.get("tenant_id"),
+    tenant_id: searchParams.get("tenant_id") ?? undefined,
     include_inactive: parseBooleanQueryParam(searchParams.get("include_inactive")),
   });
 

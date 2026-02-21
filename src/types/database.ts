@@ -878,6 +878,7 @@ export type Database = {
           total_ht_cents: number;
           total_tax_cents: number;
           total_ttc_cents: number;
+          seal_hash: string | null;
         };
         Insert: {
           id?: string;
@@ -901,6 +902,7 @@ export type Database = {
           total_ht_cents?: number;
           total_tax_cents?: number;
           total_ttc_cents?: number;
+          seal_hash?: string | null;
         };
         Update: {
           id?: string;
@@ -924,6 +926,7 @@ export type Database = {
           total_ht_cents?: number;
           total_tax_cents?: number;
           total_ttc_cents?: number;
+          seal_hash?: string | null;
         };
         Relationships: [
           {
@@ -934,6 +937,66 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      draft_locks: {
+        Row: {
+          id: string;
+          version_id: string;
+          user_id: string;
+          tenant_id: string;
+          locked_at: string;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          version_id: string;
+          user_id: string;
+          tenant_id?: string;
+          locked_at?: string;
+          expires_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          version_id?: string;
+          user_id?: string;
+          tenant_id?: string;
+          locked_at?: string;
+          expires_at?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      estimate_version_events: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          estimate_version_id: string;
+          event_type: string;
+          metadata: Json;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          estimate_version_id: string;
+          event_type: string;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          estimate_version_id?: string;
+          event_type?: string;
+          metadata?: Json;
+          created_by?: string | null;
+        };
+        Relationships: [];
       };
       feature_flags: {
         Row: {
@@ -1025,6 +1088,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      supply_types: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          code: string;
+          name: string;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          code: string;
+          name: string;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          code?: string;
+          name?: string;
+        };
+        Relationships: [];
+      };
       estimate_suggestion_rules: {
         Row: {
           id: string;
@@ -1040,6 +1130,8 @@ export type Database = {
           k_fo: number | null;
           k_mo: number | null;
           labor_role_id: string | null;
+          usage_count: number;
+          last_used_at: string | null;
           position: number;
           is_active: boolean;
         };
@@ -1057,6 +1149,8 @@ export type Database = {
           k_fo?: number | null;
           k_mo?: number | null;
           labor_role_id?: string | null;
+          usage_count?: number;
+          last_used_at?: string | null;
           position?: number;
           is_active?: boolean;
         };
@@ -1074,6 +1168,8 @@ export type Database = {
           k_fo?: number | null;
           k_mo?: number | null;
           labor_role_id?: string | null;
+          usage_count?: number;
+          last_used_at?: string | null;
           position?: number;
           is_active?: boolean;
         };
@@ -1132,10 +1228,18 @@ export type Database = {
           tax_rate_bp: number | null;
           k_fo: number | null;
           h_mo: number | null;
+          h_mo_majoration: number;
           k_mo: number | null;
+          h_mo_atelier: number | null;
+          k_mo_atelier: number | null;
+          labor_role_atelier_id: string | null;
+          h_mo_chantier: number | null;
+          k_mo_chantier: number | null;
+          labor_role_chantier_id: string | null;
           pu_ht_cents: number | null;
           labor_role_id: string | null;
           category_id: string | null;
+          supply_type_id: string | null;
           line_total_ht_cents: number | null;
           line_tax_cents: number | null;
           line_total_ttc_cents: number | null;
@@ -1156,10 +1260,18 @@ export type Database = {
           tax_rate_bp?: number | null;
           k_fo?: number | null;
           h_mo?: number | null;
+          h_mo_majoration?: number;
           k_mo?: number | null;
+          h_mo_atelier?: number | null;
+          k_mo_atelier?: number | null;
+          labor_role_atelier_id?: string | null;
+          h_mo_chantier?: number | null;
+          k_mo_chantier?: number | null;
+          labor_role_chantier_id?: string | null;
           pu_ht_cents?: number | null;
           labor_role_id?: string | null;
           category_id?: string | null;
+          supply_type_id?: string | null;
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
@@ -1180,10 +1292,147 @@ export type Database = {
           tax_rate_bp?: number | null;
           k_fo?: number | null;
           h_mo?: number | null;
+          h_mo_majoration?: number;
           k_mo?: number | null;
+          h_mo_atelier?: number | null;
+          k_mo_atelier?: number | null;
+          labor_role_atelier_id?: string | null;
+          h_mo_chantier?: number | null;
+          k_mo_chantier?: number | null;
+          labor_role_chantier_id?: string | null;
           pu_ht_cents?: number | null;
           labor_role_id?: string | null;
           category_id?: string | null;
+          supply_type_id?: string | null;
+          line_total_ht_cents?: number | null;
+          line_tax_cents?: number | null;
+          line_total_ttc_cents?: number | null;
+        };
+        Relationships: [];
+      };
+      estimate_templates: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          user_id: string;
+          name: string;
+          description: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id: string;
+          name: string;
+          description?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id?: string;
+          name?: string;
+          description?: string | null;
+        };
+        Relationships: [];
+      };
+      estimate_template_items: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          template_id: string;
+          parent_id: string | null;
+          item_type: "section" | "line";
+          position: number;
+          title: string;
+          description: string | null;
+          quantity: number | null;
+          unit_price_ht_cents: number | null;
+          tax_rate_bp: number | null;
+          k_fo: number | null;
+          h_mo: number | null;
+          h_mo_majoration: number;
+          k_mo: number | null;
+          h_mo_atelier: number | null;
+          k_mo_atelier: number | null;
+          labor_role_atelier_id: string | null;
+          h_mo_chantier: number | null;
+          k_mo_chantier: number | null;
+          labor_role_chantier_id: string | null;
+          pu_ht_cents: number | null;
+          labor_role_id: string | null;
+          category_id: string | null;
+          supply_type_id: string | null;
+          line_total_ht_cents: number | null;
+          line_tax_cents: number | null;
+          line_total_ttc_cents: number | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          template_id: string;
+          parent_id?: string | null;
+          item_type: "section" | "line";
+          position?: number;
+          title: string;
+          description?: string | null;
+          quantity?: number | null;
+          unit_price_ht_cents?: number | null;
+          tax_rate_bp?: number | null;
+          k_fo?: number | null;
+          h_mo?: number | null;
+          h_mo_majoration?: number;
+          k_mo?: number | null;
+          h_mo_atelier?: number | null;
+          k_mo_atelier?: number | null;
+          labor_role_atelier_id?: string | null;
+          h_mo_chantier?: number | null;
+          k_mo_chantier?: number | null;
+          labor_role_chantier_id?: string | null;
+          pu_ht_cents?: number | null;
+          labor_role_id?: string | null;
+          category_id?: string | null;
+          supply_type_id?: string | null;
+          line_total_ht_cents?: number | null;
+          line_tax_cents?: number | null;
+          line_total_ttc_cents?: number | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          template_id?: string;
+          parent_id?: string | null;
+          item_type?: "section" | "line";
+          position?: number;
+          title?: string;
+          description?: string | null;
+          quantity?: number | null;
+          unit_price_ht_cents?: number | null;
+          tax_rate_bp?: number | null;
+          k_fo?: number | null;
+          h_mo?: number | null;
+          h_mo_majoration?: number;
+          k_mo?: number | null;
+          h_mo_atelier?: number | null;
+          k_mo_atelier?: number | null;
+          labor_role_atelier_id?: string | null;
+          h_mo_chantier?: number | null;
+          k_mo_chantier?: number | null;
+          labor_role_chantier_id?: string | null;
+          pu_ht_cents?: number | null;
+          labor_role_id?: string | null;
+          category_id?: string | null;
+          supply_type_id?: string | null;
           line_total_ht_cents?: number | null;
           line_tax_cents?: number | null;
           line_total_ttc_cents?: number | null;
@@ -1206,6 +1455,8 @@ export type Database = {
         Args: {
           target_version_id: string;
           item_updates: Json;
+          version_patch?: Json;
+          expected_version_updated_at: string;
         };
         Returns: number;
       };
@@ -1216,13 +1467,44 @@ export type Database = {
         };
         Returns: number;
       };
+      cleanup_expired_draft_locks: {
+        Args: {
+          target_tenant_id?: string;
+        };
+        Returns: number;
+      };
       current_tenant_id: {
         Args: Record<PropertyKey, never>;
         Returns: string | null;
       };
+      create_estimate_template_from_version: {
+        Args: {
+          p_source_version_id: string;
+          p_name: string;
+          p_description: string | null;
+        };
+        Returns: string;
+      };
+      duplicate_estimate_template: {
+        Args: {
+          p_template_id: string;
+          p_name: string;
+        };
+        Returns: string;
+      };
       duplicate_estimate_version: {
         Args: {
           source_version_id: string;
+        };
+        Returns: string;
+      };
+      instantiate_estimate_from_template: {
+        Args: {
+          p_template_id: string;
+          p_project_name: string;
+          p_version_title: string | null;
+          p_date_devis: string | null;
+          p_validite_jours: number | null;
         };
         Returns: string;
       };
