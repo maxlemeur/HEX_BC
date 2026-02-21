@@ -55,6 +55,7 @@ export type SpreadsheetNavigationRow = {
 export type SpreadsheetNavigationOptions = {
   rows: SpreadsheetNavigationRow[];
   disabled?: boolean;
+  onActiveCellNotMounted?: (cell: SpreadsheetCell) => void;
 };
 
 export type SpreadsheetCellProps = {
@@ -217,6 +218,7 @@ export function resolveSpreadsheetNextCellId(
 export function useSpreadsheetNavigation({
   rows,
   disabled = false,
+  onActiveCellNotMounted,
 }: SpreadsheetNavigationOptions): SpreadsheetNavigationResult {
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
   const [editingCellId, setEditingCellId] = useState<string | null>(null);
@@ -224,6 +226,8 @@ export function useSpreadsheetNavigation({
   const cellElementsRef = useRef<Map<string, SpreadsheetCellElement>>(new Map());
   const editorElementsRef = useRef<Map<string, SpreadsheetEditorElement>>(new Map());
   const editInitialValuesRef = useRef<Map<string, string>>(new Map());
+  const lastFocusedCellIdRef = useRef<string | null>(null);
+  const lastMissingCellNotifiedRef = useRef<string | null>(null);
 
   const navigationModel = useMemo(() => createSpreadsheetNavigationModel(rows), [rows]);
 
@@ -233,6 +237,8 @@ export function useSpreadsheetNavigation({
       setActiveCellId(null);
       setEditingCellId(null);
       editInitialValuesRef.current.clear();
+      lastFocusedCellIdRef.current = null;
+      lastMissingCellNotifiedRef.current = null;
       return;
     }
 
@@ -258,12 +264,47 @@ export function useSpreadsheetNavigation({
     if (editingCellId === activeCellId) return;
 
     const cellElement = cellElementsRef.current.get(activeCellId);
-    if (!cellElement) return;
+    if (!cellElement) {
+      if (lastMissingCellNotifiedRef.current !== activeCellId) {
+        const modelCell = navigationModel.byId.get(activeCellId);
+        if (modelCell) {
+          onActiveCellNotMounted?.({
+            rowId: modelCell.rowId,
+            columnKey: modelCell.columnKey,
+          });
+        }
+        lastMissingCellNotifiedRef.current = activeCellId;
+      }
+
+      if (onActiveCellNotMounted) {
+        return;
+      }
+
+      const fallbackCellId = lastFocusedCellIdRef.current;
+      if (
+        fallbackCellId &&
+        fallbackCellId !== activeCellId &&
+        navigationModel.flatIdSet.has(fallbackCellId)
+      ) {
+        setActiveCellId(fallbackCellId);
+      }
+      return;
+    }
+
+    lastMissingCellNotifiedRef.current = null;
+    lastFocusedCellIdRef.current = activeCellId;
 
     if (document.activeElement !== cellElement) {
       cellElement.focus();
     }
-  }, [activeCellId, disabled, editingCellId]);
+  }, [
+    activeCellId,
+    disabled,
+    editingCellId,
+    navigationModel.byId,
+    navigationModel.flatIdSet,
+    onActiveCellNotMounted,
+  ]);
 
   const resolveCellById = useCallback(
     (cellId: string | null): SpreadsheetCell | null => {

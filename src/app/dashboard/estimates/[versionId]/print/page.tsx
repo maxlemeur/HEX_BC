@@ -8,7 +8,6 @@ import {
   SealIntegrityBadge,
   type SealIntegrityState,
 } from "@/components/estimates/SealIntegrityBadge";
-import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { verifyEstimateSeal } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -159,29 +158,7 @@ export default async function PrintEstimatePage({
   const discountCents = Math.round(
     (saleSubtotalCents * version.discount_bp) / 10000
   );
-  const lineItems = items
-    .filter((item) => item.item_type === "line")
-      .map((item) => ({
-        ...item,
-        labor_role_hourly_rate_cents: item.labor_role_id
-          ? (laborRateById[item.labor_role_id] ?? 0)
-          : 0,
-        labor_role_atelier_hourly_rate_cents: item.labor_role_atelier_id
-          ? (laborRateById[item.labor_role_atelier_id] ?? 0)
-          : 0,
-        labor_role_chantier_hourly_rate_cents: item.labor_role_chantier_id
-          ? (laborRateById[item.labor_role_chantier_id] ?? 0)
-          : 0,
-      }));
-  const appliedMarginMultiplier = computeEstimateTotals({
-    lineItems,
-    marginMultiplier: version.margin_multiplier,
-    marginMode: version.margin_mode,
-    discountCents,
-    taxRateBp: version.tax_rate_bp,
-    roundingMode: version.rounding_mode,
-    roundingStepCents: version.rounding_step_cents,
-  }).appliedMarginMultiplier;
+  const appliedMarginMultiplier = version.margin_multiplier;
 
   let sealState: SealIntegrityState = "unsealed";
   let sealHashPrefix = version.seal_hash?.slice(0, 8) ?? null;
