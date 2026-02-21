@@ -4,7 +4,11 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-import { bulkUpdateEstimateItems, createEstimateItem } from "@/lib/estimates/server";
+import {
+  bulkUpdateEstimateItems,
+  createEstimateItem,
+  patchEstimateVersion,
+} from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -16,10 +20,37 @@ const ITEM_ID_2 = "66666666-6666-4666-8666-666666666666";
 const OWNER_USER_ID = "77777777-7777-4777-8777-777777777777";
 const CATEGORY_ID = "88888888-8888-4888-8888-888888888888";
 const LABOR_ROLE_ID = "99999999-9999-4999-8999-999999999999";
+const VERSION_UPDATED_AT = "2026-02-20T10:00:00.000Z";
+const NEXT_VERSION_UPDATED_AT = "2026-02-20T10:00:01.000Z";
 
 function createSupabaseMock(input: {
   rpcResult: {
     data: number | null;
+    error:
+      | {
+          code: string;
+          message: string;
+          details: string | null;
+          hint: string | null;
+        }
+      | null;
+  };
+  touchResult?: {
+    data: {
+      id: string;
+      updated_at: string;
+    } | null;
+    error:
+      | {
+          code: string;
+          message: string;
+          details: string | null;
+          hint: string | null;
+        }
+      | null;
+  };
+  auditLogInsertResult?: {
+    data: unknown;
     error:
       | {
           code: string;
@@ -63,6 +94,7 @@ function createSupabaseMock(input: {
       status: "draft",
       margin_multiplier: 1,
       tax_rate_bp: 2000,
+      updated_at: VERSION_UPDATED_AT,
       estimate_projects: {
         id: PROJECT_ID,
         tenant_id: TENANT_ID,
@@ -76,6 +108,45 @@ function createSupabaseMock(input: {
     },
     error: null,
   });
+
+  const estimateVersionUpdateSingle = vi.fn().mockResolvedValue(
+    input.touchResult ?? {
+      data: {
+        id: VERSION_ID,
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
+      error: null,
+    }
+  );
+
+  const estimateVersionUpdateSelect = {
+    single: estimateVersionUpdateSingle,
+  };
+
+  const estimateVersionUpdateBuilder = {
+    eq: vi.fn(),
+    select: vi.fn(() => estimateVersionUpdateSelect),
+  };
+
+  estimateVersionUpdateBuilder.eq.mockReturnValue(estimateVersionUpdateBuilder);
+
+  const auditLogInsertSelectSingle = vi.fn().mockResolvedValue(
+    input.auditLogInsertResult ?? {
+      data: null,
+      error: null,
+    }
+  );
+
+  const auditLogInsertSelect = {
+    single: auditLogInsertSelectSingle,
+  };
+
+  const auditLogInsert = vi.fn(() => ({
+    data: null,
+    error: null,
+    select: vi.fn(() => auditLogInsertSelect),
+    single: auditLogInsertSelectSingle,
+  }));
 
   const supabase = {
     auth: {
@@ -98,12 +169,22 @@ function createSupabaseMock(input: {
       if (table === "estimate_versions") {
         return {
           select: vi.fn(() => estimateVersionBuilder),
+          update: vi.fn(() => estimateVersionUpdateBuilder),
+        };
+      }
+
+      if (table === "audit_logs") {
+        return {
+          insert: auditLogInsert,
         };
       }
 
       throw new Error(`Unexpected table: ${table}`);
     }),
     rpc: vi.fn().mockResolvedValue(input.rpcResult),
+    __mocks: {
+      auditLogInsert,
+    },
   };
 
   return supabase;
@@ -139,7 +220,7 @@ describe("bulkUpdateEstimateItems regressions", () => {
           id: ITEM_ID_2,
           title: "Ligne 2",
         },
-      ])
+      ], VERSION_UPDATED_AT)
     ).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
@@ -172,7 +253,7 @@ describe("bulkUpdateEstimateItems regressions", () => {
           id: ITEM_ID_1,
           title: "Ligne 1",
         },
-      ])
+      ], VERSION_UPDATED_AT)
     ).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
@@ -208,7 +289,7 @@ describe("bulkUpdateEstimateItems regressions", () => {
           id: ITEM_ID_2,
           title: "Ligne 2",
         },
-      ])
+      ], VERSION_UPDATED_AT)
     ).rejects.toMatchObject({
       status: 409,
       code: "CONFLICT",
@@ -218,6 +299,325 @@ describe("bulkUpdateEstimateItems regressions", () => {
         updated_count: 1,
       },
     });
+  });
+
+  it("returns 400 when the concurrency token is missing", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 1,
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      bulkUpdateEstimateItems(
+        VERSION_ID,
+        [
+          {
+            id: ITEM_ID_1,
+            title: "Ligne 1",
+          },
+        ],
+        undefined
+      )
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "Jeton de concurrence manquant.",
+    });
+  });
+
+  it("returns 409 when the concurrency token does not match the version timestamp", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 1,
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      bulkUpdateEstimateItems(
+        VERSION_ID,
+        [
+          {
+            id: ITEM_ID_1,
+            title: "Ligne 1",
+          },
+        ],
+        "2026-02-20T09:59:59.000Z"
+      )
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      message: "Version modifiee par un autre utilisateur",
+      details: {
+        updated_at: VERSION_UPDATED_AT,
+      },
+    });
+  });
+
+  it("returns updated_count and refreshed version token when no conflict occurs", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 1,
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      bulkUpdateEstimateItems(
+        VERSION_ID,
+        [
+          {
+            id: ITEM_ID_1,
+            title: "Ligne 1",
+          },
+        ],
+        VERSION_UPDATED_AT
+      )
+    ).resolves.toEqual({
+      updated_count: 1,
+      version: {
+        id: VERSION_ID,
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
+    });
+  });
+});
+
+describe("patchEstimateVersion optimistic concurrency", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 400 when the concurrency token is missing", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          title: "Maj",
+        },
+        undefined
+      )
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "Jeton de concurrence manquant.",
+    });
+  });
+
+  it("returns 409 when the concurrency token does not match", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          title: "Maj",
+        },
+        "2026-02-20T09:59:59.000Z"
+      )
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      message: "Version modifiee par un autre utilisateur",
+      details: {
+        updated_at: VERSION_UPDATED_AT,
+      },
+    });
+  });
+
+  it("returns the updated version when token matches", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+      touchResult: {
+        data: {
+          id: VERSION_ID,
+          updated_at: NEXT_VERSION_UPDATED_AT,
+        },
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          title: "Maj",
+        },
+        VERSION_UPDATED_AT
+      )
+    ).resolves.toEqual({
+      version: {
+        id: VERSION_ID,
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
+    });
+  });
+
+  it("accepts coherent totals updates", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+      touchResult: {
+        data: {
+          id: VERSION_ID,
+          updated_at: NEXT_VERSION_UPDATED_AT,
+        },
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          total_ht_cents: 100_00,
+          total_tax_cents: 20_00,
+          total_ttc_cents: 120_00,
+        },
+        VERSION_UPDATED_AT
+      )
+    ).resolves.toEqual({
+      version: {
+        id: VERSION_ID,
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
+    });
+  });
+
+  it("rejects incoherent totals with an explicit bad request message", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          total_ht_cents: 100_00,
+          total_tax_cents: 20_00,
+          total_ttc_cents: 119_99,
+        },
+        VERSION_UPDATED_AT
+      )
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: expect.stringMatching(
+        /total_ttc_cents.*total_ht_cents.*total_tax_cents/i
+      ),
+    });
+  });
+
+  it("accepts null totals without raising invariant errors", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+      touchResult: {
+        data: {
+          id: VERSION_ID,
+          updated_at: NEXT_VERSION_UPDATED_AT,
+        },
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          total_ht_cents: null,
+          total_tax_cents: null,
+          total_ttc_cents: null,
+        } as unknown as Parameters<typeof patchEstimateVersion>[1],
+        VERSION_UPDATED_AT
+      )
+    ).resolves.toEqual({
+      version: {
+        id: VERSION_ID,
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
+    });
+  });
+
+  it("logs invariant violations to audit_logs with action invariant_violation", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          total_ht_cents: 100_00,
+          total_tax_cents: 20_00,
+          total_ttc_cents: 119_99,
+        },
+        VERSION_UPDATED_AT
+      )
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+    });
+
+    expect(supabase.__mocks.auditLogInsert).toHaveBeenCalledTimes(1);
+    const auditCalls = supabase.__mocks.auditLogInsert.mock.calls as unknown[][];
+    const auditPayload = auditCalls[0] ? auditCalls[0][0] : null;
+    const firstEntry = Array.isArray(auditPayload)
+      ? auditPayload[0]
+      : auditPayload;
+
+    expect(firstEntry).toEqual(
+      expect.objectContaining({
+        action: "invariant_violation",
+      })
+    );
   });
 });
 
@@ -267,6 +667,7 @@ function createCreateItemSupabaseMock() {
       status: "draft",
       margin_multiplier: 1,
       tax_rate_bp: 2000,
+      updated_at: VERSION_UPDATED_AT,
       estimate_projects: {
         id: PROJECT_ID,
         tenant_id: TENANT_ID,

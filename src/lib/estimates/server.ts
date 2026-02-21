@@ -34,6 +34,7 @@ type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionInsert = Database["public"]["Tables"]["estimate_versions"]["Insert"];
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
+type AuditLogInsert = Database["public"]["Tables"]["audit_logs"]["Insert"];
 type EstimateCategoryInsert = Database["public"]["Tables"]["estimate_categories"]["Insert"];
 type EstimateCategoryRow = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -42,6 +43,7 @@ type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update
 type LaborRoleInsert = Database["public"]["Tables"]["labor_roles"]["Insert"];
 type LaborRoleUpdate = Database["public"]["Tables"]["labor_roles"]["Update"];
 type LaborRoleRow = Database["public"]["Tables"]["labor_roles"]["Row"];
+type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
 type SuggestionRuleInsert =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Insert"];
 type SuggestionRuleUpdate =
@@ -69,7 +71,15 @@ type EmbeddedProjectAccess = Pick<
 
 type VersionAccessRow = Pick<
   EstimateVersionRow,
-  "id" | "project_id" | "status" | "margin_multiplier" | "tax_rate_bp"
+  | "id"
+  | "project_id"
+  | "status"
+  | "margin_multiplier"
+  | "tax_rate_bp"
+  | "updated_at"
+  | "total_ht_cents"
+  | "total_tax_cents"
+  | "total_ttc_cents"
 > & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
@@ -101,15 +111,33 @@ const DEFAULT_MARGIN_MULTIPLIER = 1;
 const DEFAULT_TAX_RATE_BP = 2000;
 const DEFAULT_ROUNDING_MODE: EstimateVersionRow["rounding_mode"] = "none";
 const DEFAULT_ROUNDING_STEP_CENTS = 1;
+const DEFAULT_MARGIN_MODE: EstimateVersionRow["margin_mode"] = "fixed";
 const DEFAULT_CURRENCY = "EUR";
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const STALE_BULK_UPDATE_ERROR_MESSAGE = "STALE_BULK_UPDATE_ITEMS";
+const VERSION_CONFLICT_ERROR_MESSAGE = "Version modifiee par un autre utilisateur";
 
 type AuthenticatedContext = {
   supabase: Supabase;
   userId: string;
   tenantId: string;
   tenantRole: TenantRole;
+};
+
+type EstimateTotals = {
+  total_ht_cents: number | null;
+  total_tax_cents: number | null;
+  total_ttc_cents: number | null;
+};
+
+type EstimateTotalsInvariantRule =
+  | "total_ttc_gte_total_ht"
+  | "total_tax_non_negative"
+  | "total_ttc_equals_total_ht_plus_total_tax";
+
+type EstimateTotalsInvariantViolation = {
+  rule: EstimateTotalsInvariantRule;
+  message: string;
 };
 
 const DEFAULT_ESTIMATE_CATEGORIES = [
@@ -135,6 +163,227 @@ function parseBulkUpdateCountDetails(details: string | null | undefined) {
     expected_count: expectedCount,
     updated_count: countValue,
   };
+}
+
+function normalizeConcurrencyToken(token: string | null | undefined) {
+  const trimmed = token?.trim();
+  if (!trimmed) return null;
+
+  const [firstToken] = trimmed.split(",");
+  const candidate = firstToken?.trim() ?? "";
+  if (!candidate) return null;
+
+  const weakMatch = candidate.match(/^W\/"(.*)"$/i);
+  if (weakMatch?.[1]) {
+    const weakValue = weakMatch[1].trim();
+    return weakValue.length > 0 ? weakValue : null;
+  }
+
+  if (candidate.startsWith("\"") && candidate.endsWith("\"")) {
+    const value = candidate.slice(1, -1).trim();
+    return value.length > 0 ? value : null;
+  }
+
+  return candidate;
+}
+
+function assertVersionConcurrencyToken(
+  versionUpdatedAt: string,
+  concurrencyToken: string | undefined
+) {
+  const normalizedToken = normalizeConcurrencyToken(concurrencyToken);
+
+  if (!normalizedToken) {
+    throw badRequest("Jeton de concurrence manquant.");
+  }
+
+  const tokenTimestamp = new Date(normalizedToken).getTime();
+  const versionTimestamp = new Date(versionUpdatedAt).getTime();
+
+  if (!Number.isFinite(tokenTimestamp)) {
+    throw badRequest("Jeton de concurrence invalide.");
+  }
+
+  if (!Number.isFinite(versionTimestamp) || tokenTimestamp !== versionTimestamp) {
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: versionUpdatedAt,
+    });
+  }
+}
+
+function extractPatchedEstimateTotals(input: PatchEstimateVersionInput) {
+  const patchedTotals: Partial<EstimateTotals> = {};
+
+  if ("total_ht_cents" in input) {
+    patchedTotals.total_ht_cents = input.total_ht_cents ?? null;
+  }
+  if ("total_tax_cents" in input) {
+    patchedTotals.total_tax_cents = input.total_tax_cents ?? null;
+  }
+  if ("total_ttc_cents" in input) {
+    patchedTotals.total_ttc_cents = input.total_ttc_cents ?? null;
+  }
+
+  return patchedTotals;
+}
+
+function mergeEstimateTotalsForPatch(input: {
+  persistedTotals: EstimateTotals;
+  patch: PatchEstimateVersionInput;
+}): EstimateTotals {
+  const mergedTotals: EstimateTotals = {
+    ...input.persistedTotals,
+  };
+
+  if ("total_ht_cents" in input.patch) {
+    mergedTotals.total_ht_cents = input.patch.total_ht_cents ?? null;
+  }
+  if ("total_tax_cents" in input.patch) {
+    mergedTotals.total_tax_cents = input.patch.total_tax_cents ?? null;
+  }
+  if ("total_ttc_cents" in input.patch) {
+    mergedTotals.total_ttc_cents = input.patch.total_ttc_cents ?? null;
+  }
+
+  return mergedTotals;
+}
+
+function getEstimateTotalsInvariantViolation(
+  totals: EstimateTotals
+): EstimateTotalsInvariantViolation | null {
+  if (
+    totals.total_ttc_cents !== null &&
+    totals.total_ht_cents !== null &&
+    totals.total_ttc_cents < totals.total_ht_cents
+  ) {
+    return {
+      rule: "total_ttc_gte_total_ht",
+      message:
+        "Incoherence des totaux: total_ttc_cents doit etre superieur ou egal a total_ht_cents.",
+    };
+  }
+
+  if (totals.total_tax_cents !== null && totals.total_tax_cents < 0) {
+    return {
+      rule: "total_tax_non_negative",
+      message:
+        "Incoherence des totaux: total_tax_cents doit etre superieur ou egal a 0.",
+    };
+  }
+
+  if (
+    totals.total_ttc_cents !== null &&
+    totals.total_ht_cents !== null &&
+    totals.total_tax_cents !== null &&
+    totals.total_ttc_cents !== totals.total_ht_cents + totals.total_tax_cents
+  ) {
+    return {
+      rule: "total_ttc_equals_total_ht_plus_total_tax",
+      message:
+        "Incoherence des totaux: total_ttc_cents doit etre egal a total_ht_cents + total_tax_cents.",
+    };
+  }
+
+  return null;
+}
+
+async function logEstimateInvariantViolation(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+  userId: string;
+  persistedTotals: EstimateTotals;
+  patch: PatchEstimateVersionInput;
+  attemptedTotals: EstimateTotals;
+  violation: EstimateTotalsInvariantViolation;
+}) {
+  const auditPayload: AuditLogInsert = {
+    tenant_id: input.tenantId,
+    user_id: input.userId,
+    table_name: "estimate_versions",
+    record_id: input.versionId,
+    estimate_version_id: input.versionId,
+    action: "invariant_violation",
+    before_data: {
+      persisted_totals: input.persistedTotals,
+    },
+    after_data: {
+      attempted_totals: input.attemptedTotals,
+      patched_totals: extractPatchedEstimateTotals(input.patch),
+      violated_rule: input.violation.rule,
+      message: input.violation.message,
+    },
+  };
+
+  const { error } = await input.supabase.from("audit_logs").insert(auditPayload);
+
+  if (error) {
+    console.error("Failed to log estimate invariant violation", {
+      versionId: input.versionId,
+      tenantId: input.tenantId,
+      rule: input.violation.rule,
+      error,
+    });
+  }
+}
+
+async function assertEstimateTotalsInvariantForPatch(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+  userId: string;
+  persistedTotals: EstimateTotals;
+  patch: PatchEstimateVersionInput;
+}) {
+  const attemptedTotals = mergeEstimateTotalsForPatch({
+    persistedTotals: input.persistedTotals,
+    patch: input.patch,
+  });
+  const violation = getEstimateTotalsInvariantViolation(attemptedTotals);
+
+  if (!violation) return;
+
+  await logEstimateInvariantViolation({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+    userId: input.userId,
+    persistedTotals: input.persistedTotals,
+    patch: input.patch,
+    attemptedTotals,
+    violation,
+  });
+
+  throw badRequest(violation.message);
+}
+
+async function touchEstimateVersionToken(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_versions")
+    .update({
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.versionId)
+    .eq("tenant_id", input.tenantId)
+    .select("id, updated_at")
+    .single();
+
+  if (error || !data) {
+    if (error) {
+      throw mapSupabaseError(
+        error,
+        "Impossible de mettre a jour le jeton de version."
+      );
+    }
+
+    throw badRequest("Impossible de mettre a jour le jeton de version.");
+  }
+
+  return data;
 }
 
 function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
@@ -211,7 +460,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_multiplier, tax_rate_bp, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -626,6 +875,7 @@ export async function createEstimate(input: CreateEstimateInput) {
     date_devis: input.version?.date_devis ?? todayDateOnly(),
     validite_jours: input.version?.validite_jours ?? DEFAULT_VALIDITE_JOURS,
     margin_multiplier: input.version?.margin_multiplier ?? DEFAULT_MARGIN_MULTIPLIER,
+    margin_mode: input.version?.margin_mode ?? DEFAULT_MARGIN_MODE,
     currency: input.version?.currency?.trim() || DEFAULT_CURRENCY,
     margin_bp: input.version?.margin_bp ?? 0,
     discount_bp: input.version?.discount_bp ?? 0,
@@ -731,8 +981,20 @@ export async function getEstimateVersionDetails(versionId: string) {
     .eq("tenant_id", tenantId)
     .eq("user_id", project.user_id)
     .order("position", { ascending: true });
+  const marginTiersQuery = supabase
+    .from("margin_tiers")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .order("threshold_cents", { ascending: true })
+    .order("position", { ascending: true });
 
-  const [itemsResult, categoriesResult, laborRolesResult, rulesResult] =
+  const [
+    itemsResult,
+    categoriesResult,
+    laborRolesResult,
+    rulesResult,
+    marginTiersResult,
+  ] =
     await Promise.all([
       supabase
         .from("estimate_items")
@@ -743,6 +1005,7 @@ export async function getEstimateVersionDetails(versionId: string) {
       categoriesQuery,
       laborRolesQuery,
       rulesQuery,
+      marginTiersQuery,
     ]);
 
   if (itemsResult.error) {
@@ -770,6 +1033,13 @@ export async function getEstimateVersionDetails(versionId: string) {
     );
   }
 
+  if (marginTiersResult.error) {
+    throw mapSupabaseError(
+      marginTiersResult.error,
+      "Impossible de charger les tranches de marge."
+    );
+  }
+
   return {
     version: {
       ...version,
@@ -779,6 +1049,7 @@ export async function getEstimateVersionDetails(versionId: string) {
     categories: (categoriesResult.data ?? []) as EstimateCategoryRow[],
     labor_roles: (laborRolesResult.data ?? []) as LaborRoleRow[],
     suggestion_rules: (rulesResult.data ?? []) as SuggestionRuleRow[],
+    margin_tiers: (marginTiersResult.data ?? []) as MarginTierRow[],
   };
 }
 
@@ -805,13 +1076,15 @@ export async function listEstimateItems(versionId: string) {
 
 export async function patchEstimateVersion(
   versionId: string,
-  input: PatchEstimateVersionInput
+  input: PatchEstimateVersionInput,
+  concurrencyToken?: string
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
+  const { supabase, tenantId, userId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
+  assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
 
   const payload: EstimateVersionUpdate = {};
 
@@ -826,6 +1099,9 @@ export async function patchEstimateVersion(
   }
   if ("margin_multiplier" in input) {
     payload.margin_multiplier = input.margin_multiplier;
+  }
+  if ("margin_mode" in input) {
+    payload.margin_mode = input.margin_mode;
   }
   if ("currency" in input && typeof input.currency === "string") {
     payload.currency = input.currency.trim();
@@ -854,6 +1130,21 @@ export async function patchEstimateVersion(
   if ("total_ttc_cents" in input) {
     payload.total_ttc_cents = input.total_ttc_cents;
   }
+
+  const persistedTotals: EstimateTotals = {
+    total_ht_cents: version.total_ht_cents ?? null,
+    total_tax_cents: version.total_tax_cents ?? null,
+    total_ttc_cents: version.total_ttc_cents ?? null,
+  };
+
+  await assertEstimateTotalsInvariantForPatch({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+    persistedTotals,
+    patch: input,
+  });
 
   const { data, error } = await supabase
     .from("estimate_versions")
@@ -1477,13 +1768,15 @@ export async function updateEstimateItem(
 
 export async function bulkUpdateEstimateItems(
   versionId: string,
-  input: BulkUpdateEstimateItemsInput
+  input: BulkUpdateEstimateItemsInput,
+  concurrencyToken?: string
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase } = context;
+  const { supabase, tenantId } = context;
   const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
 
   assertDraftStatus(version.status);
+  assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
 
   const updatesPayload = input.map((item) => ({ ...item }));
 
@@ -1515,8 +1808,15 @@ export async function bulkUpdateEstimateItems(
     );
   }
 
+  const updatedVersion = await touchEstimateVersionToken({
+    supabase,
+    tenantId,
+    versionId,
+  });
+
   return {
     updated_count: updatedCount ?? 0,
+    version: updatedVersion,
   };
 }
 

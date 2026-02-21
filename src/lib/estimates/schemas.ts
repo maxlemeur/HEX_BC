@@ -56,6 +56,11 @@ const basisPointsSchema = z
   .int("Entier attendu.")
   .min(0, "Doit etre >= 0.");
 
+const updatedAtTokenSchema = z
+  .string()
+  .trim()
+  .min(1, "updated_at invalide.");
+
 export const estimateStatusSchema = z.enum([
   "draft",
   "sent",
@@ -69,6 +74,8 @@ export const estimateRoundingModeSchema = z.enum([
   "up",
   "down",
 ]);
+
+export const estimateMarginModeSchema = z.enum(["fixed", "tiered"]);
 
 export const estimateItemTypeSchema = z.enum(["section", "line"]);
 
@@ -85,6 +92,7 @@ export const createEstimateSchema = z.object({
       date_devis: dateOnlySchema.optional(),
       validite_jours: positiveIntegerSchema.optional(),
       margin_multiplier: nonNegativeNumberSchema.optional(),
+      margin_mode: estimateMarginModeSchema.optional(),
       currency: z.string().trim().min(1, "Champ obligatoire.").max(16).optional(),
       margin_bp: basisPointsSchema.optional(),
       discount_bp: basisPointsSchema.optional(),
@@ -101,6 +109,7 @@ export const patchEstimateVersionSchema = z
     date_devis: dateOnlySchema.optional(),
     validite_jours: positiveIntegerSchema.optional(),
     margin_multiplier: nonNegativeNumberSchema.optional(),
+    margin_mode: estimateMarginModeSchema.optional(),
     currency: z.string().trim().min(1, "Champ obligatoire.").max(16).optional(),
     margin_bp: basisPointsSchema.optional(),
     discount_bp: basisPointsSchema.optional(),
@@ -110,9 +119,13 @@ export const patchEstimateVersionSchema = z
     total_ht_cents: nonNegativeIntegerSchema.optional(),
     total_tax_cents: nonNegativeIntegerSchema.optional(),
     total_ttc_cents: nonNegativeIntegerSchema.optional(),
+    updated_at: updatedAtTokenSchema.optional(),
   })
   .superRefine((payload, ctx) => {
-    if (Object.keys(payload).length > 0) return;
+    const hasUpdatableField = Object.keys(payload).some(
+      (key) => key !== "updated_at"
+    );
+    if (hasUpdatableField) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Aucun champ a mettre a jour.",
@@ -196,6 +209,22 @@ export const bulkUpdateEstimateItemsSchema = z
       });
     });
   });
+
+export const bulkUpdateEstimateItemsRequestSchema = z.preprocess(
+  (value) => {
+    if (Array.isArray(value)) {
+      return {
+        updates: value,
+      };
+    }
+
+    return value;
+  },
+  z.object({
+    updated_at: updatedAtTokenSchema.optional(),
+    updates: bulkUpdateEstimateItemsSchema,
+  })
+);
 
 export const deleteEstimateItemSchema = z.object({
   id: uuidSchema,
@@ -290,6 +319,9 @@ export type CreateEstimateItemInput = z.infer<typeof createEstimateItemSchema>;
 export type UpdateEstimateItemInput = z.infer<typeof updateEstimateItemSchema>;
 export type BulkUpdateEstimateItemsInput = z.infer<
   typeof bulkUpdateEstimateItemsSchema
+>;
+export type BulkUpdateEstimateItemsRequestInput = z.infer<
+  typeof bulkUpdateEstimateItemsRequestSchema
 >;
 export type DeleteEstimateItemInput = z.infer<typeof deleteEstimateItemSchema>;
 export type ReorderEstimateItemsInput = z.infer<typeof reorderEstimateItemsSchema>;

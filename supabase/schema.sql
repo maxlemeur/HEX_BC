@@ -7,6 +7,8 @@ create extension if not exists "pgcrypto";
 drop table if exists public.dpgf_catalogue_links cascade;
 drop table if exists public.material_indices cascade;
 drop table if exists public.supplier_pricebook cascade;
+drop table if exists public.margin_tiers cascade;
+drop table if exists public.feature_flags cascade;
 drop table if exists public.tenant_memberships cascade;
 drop table if exists public.tenants cascade;
 drop table if exists public.purchase_order_devis cascade;
@@ -39,6 +41,7 @@ drop type if exists order_status;
 drop type if exists estimate_status;
 drop type if exists estimate_item_type;
 drop type if exists estimate_rounding_mode;
+drop type if exists estimate_margin_mode;
 drop type if exists estimate_rule_match_type;
 
 do $$
@@ -4012,3 +4015,255 @@ $$;
 grant execute on function public.bulk_create_supplier_prices(jsonb, uuid) to authenticated;
 grant execute on function public.bulk_upsert_material_indices(jsonb, uuid) to authenticated;
 grant execute on function public.link_mapped_rows_to_catalogue(jsonb, uuid) to authenticated;
+
+-- EST-006: tenant-scoped feature flags runtime.
+
+create table if not exists public.feature_flags (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  tenant_id uuid not null references public.tenants(id) on delete restrict,
+  flag_key text not null,
+  enabled boolean not null default false,
+  check (length(trim(flag_key)) > 0),
+  unique (tenant_id, flag_key)
+);
+
+create index if not exists feature_flags_tenant_enabled_idx
+  on public.feature_flags (tenant_id, enabled);
+
+drop trigger if exists set_feature_flags_updated_at on public.feature_flags;
+create trigger set_feature_flags_updated_at
+  before update on public.feature_flags
+  for each row execute procedure public.set_updated_at();
+
+alter table public.feature_flags enable row level security;
+
+drop policy if exists "Tenant members can view feature flags" on public.feature_flags;
+drop policy if exists "Tenant admins can manage feature flags" on public.feature_flags;
+
+create policy "Tenant members can view feature flags"
+  on public.feature_flags
+  for select
+  to authenticated
+  using ((select public.is_tenant_member(tenant_id)));
+
+create policy "Tenant admins can manage feature flags"
+  on public.feature_flags
+  for all
+  to authenticated
+  using ((select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role])))
+  with check ((select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role])));
+
+-- EST-028: margin mode + tenant margin tiers.
+
+do $$
+begin
+  create type public.estimate_margin_mode as enum ('fixed', 'tiered');
+exception
+  when duplicate_object then null;
+end
+$$;
+
+alter table public.estimate_versions
+  add column if not exists margin_mode public.estimate_margin_mode;
+
+alter table public.estimate_versions
+  disable trigger guard_estimate_versions_readonly;
+
+update public.estimate_versions
+set margin_mode = 'fixed'::public.estimate_margin_mode
+where margin_mode is null;
+
+alter table public.estimate_versions
+  enable trigger guard_estimate_versions_readonly;
+
+alter table public.estimate_versions
+  alter column margin_mode set default 'fixed'::public.estimate_margin_mode;
+
+alter table public.estimate_versions
+  alter column margin_mode set not null;
+
+create or replace function public.guard_estimate_versions_readonly()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.status <> 'draft' then
+    if new.status = old.status then
+      raise exception 'Estimate version is read-only';
+    end if;
+
+    if new.created_at is distinct from old.created_at
+      or new.project_id is distinct from old.project_id
+      or new.version_number is distinct from old.version_number
+      or new.title is distinct from old.title
+      or new.date_devis is distinct from old.date_devis
+      or new.validite_jours is distinct from old.validite_jours
+      or new.margin_multiplier is distinct from old.margin_multiplier
+      or new.margin_mode is distinct from old.margin_mode
+      or new.currency is distinct from old.currency
+      or new.margin_bp is distinct from old.margin_bp
+      or new.discount_bp is distinct from old.discount_bp
+      or new.tax_rate_bp is distinct from old.tax_rate_bp
+      or new.rounding_mode is distinct from old.rounding_mode
+      or new.rounding_step_cents is distinct from old.rounding_step_cents
+      or new.total_ht_cents is distinct from old.total_ht_cents
+      or new.total_tax_cents is distinct from old.total_tax_cents
+      or new.total_ttc_cents is distinct from old.total_ttc_cents
+    then
+      raise exception 'Estimate version is read-only';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create table if not exists public.margin_tiers (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete restrict,
+  threshold_cents bigint not null check (threshold_cents >= 0),
+  multiplier numeric not null check (multiplier >= 0 and multiplier <= 100),
+  position integer not null check (position >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists margin_tiers_tenant_threshold_unique_idx
+  on public.margin_tiers (tenant_id, threshold_cents);
+create unique index if not exists margin_tiers_tenant_position_unique_idx
+  on public.margin_tiers (tenant_id, position);
+
+drop trigger if exists set_margin_tiers_updated_at on public.margin_tiers;
+create trigger set_margin_tiers_updated_at
+  before update on public.margin_tiers
+  for each row execute procedure public.set_updated_at();
+
+alter table public.margin_tiers enable row level security;
+
+drop policy if exists "Tenant members can view margin tiers" on public.margin_tiers;
+drop policy if exists "Tenant admins can manage margin tiers" on public.margin_tiers;
+
+create policy "Tenant members can view margin tiers"
+  on public.margin_tiers
+  for select
+  to authenticated
+  using ((select public.is_tenant_member(tenant_id)));
+
+create policy "Tenant admins can manage margin tiers"
+  on public.margin_tiers
+  for all
+  to authenticated
+  using ((select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role])))
+  with check ((select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role])));
+
+with default_tiers(threshold_cents, multiplier, position) as (
+  values
+    (0::bigint, 1.6::numeric, 0),
+    (10000000::bigint, 1.45::numeric, 1),
+    (100000000::bigint, 1.4::numeric, 2)
+)
+insert into public.margin_tiers (tenant_id, threshold_cents, multiplier, position)
+select
+  t.id,
+  dt.threshold_cents,
+  dt.multiplier,
+  dt.position
+from public.tenants t
+cross join default_tiers dt
+on conflict (tenant_id, threshold_cents) do nothing;
+
+-- EST-026: enforce rounding invariants and scoped invariant-violation audit writes.
+
+alter table public.estimate_versions
+  drop constraint if exists estimate_versions_total_ttc_gte_total_ht_check;
+
+alter table public.estimate_versions
+  add constraint estimate_versions_total_ttc_gte_total_ht_check
+  check (
+    total_ht_cents is null
+    or total_ttc_cents is null
+    or total_ttc_cents >= total_ht_cents
+  );
+
+alter table public.estimate_versions
+  drop constraint if exists estimate_versions_total_tax_nonnegative_check;
+
+alter table public.estimate_versions
+  add constraint estimate_versions_total_tax_nonnegative_check
+  check (
+    total_tax_cents is null
+    or total_tax_cents >= 0
+  );
+
+alter table public.estimate_versions
+  drop constraint if exists estimate_versions_totals_consistent_check;
+
+alter table public.estimate_versions
+  add constraint estimate_versions_totals_consistent_check
+  check (
+    total_ht_cents is null
+    or total_tax_cents is null
+    or total_ttc_cents is null
+    or total_ttc_cents = total_ht_cents + total_tax_cents
+  );
+
+alter table public.estimate_items
+  drop constraint if exists estimate_items_line_total_ttc_gte_ht_check;
+
+alter table public.estimate_items
+  add constraint estimate_items_line_total_ttc_gte_ht_check
+  check (
+    line_total_ht_cents is null
+    or line_total_ttc_cents is null
+    or line_total_ttc_cents >= line_total_ht_cents
+  );
+
+alter table public.audit_logs
+  drop constraint if exists audit_logs_action_check;
+
+alter table public.audit_logs
+  add constraint audit_logs_action_check
+  check (action in ('INSERT', 'UPDATE', 'DELETE', 'invariant_violation'));
+
+drop policy if exists "Server can insert invariant violation audit logs" on public.audit_logs;
+
+create policy "Server can insert invariant violation audit logs"
+  on public.audit_logs
+  for insert
+  to authenticated
+  with check (
+    action = 'invariant_violation'
+    and user_id = (select auth.uid())
+    and table_name in ('estimate_versions', 'estimate_items')
+    and estimate_version_id is not null
+    and exists (
+      select 1
+      from public.estimate_versions ev
+      join public.estimate_projects ep
+        on ep.id = ev.project_id
+       and ep.tenant_id = ev.tenant_id
+      where ev.id = audit_logs.estimate_version_id
+        and ev.tenant_id = audit_logs.tenant_id
+        and (select public.is_tenant_member(ev.tenant_id))
+        and (
+          ep.user_id = (select auth.uid())
+          or (select public.has_tenant_role(ev.tenant_id, array['admin'::public.tenant_role]))
+        )
+    )
+    and (
+      (table_name = 'estimate_versions' and record_id = estimate_version_id)
+      or (
+        table_name = 'estimate_items'
+        and exists (
+          select 1
+          from public.estimate_items ei
+          where ei.id = audit_logs.record_id
+            and ei.version_id = audit_logs.estimate_version_id
+            and ei.tenant_id = audit_logs.tenant_id
+        )
+      )
+    )
+  );

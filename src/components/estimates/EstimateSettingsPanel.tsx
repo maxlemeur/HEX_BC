@@ -1,13 +1,20 @@
 "use client";
 
 import { formatEUR } from "@/lib/money";
-import type { EstimateTotals, RoundingMode } from "@/lib/estimate-calculations";
+import type {
+  EstimateTotals,
+  MarginMode,
+  RoundingMode,
+} from "@/lib/estimate-calculations";
+import type { MarginTier } from "@/lib/estimates/margin-tiers";
 
 export type EstimateSettingsState = {
   title: string;
   date_devis: string;
   validite_jours: number;
   margin_multiplier: number;
+  margin_mode?: MarginMode;
+  margin_tiers?: MarginTier[];
   discount_cents: number;
   tax_rate_bp: number;
   rounding_mode: RoundingMode;
@@ -45,6 +52,19 @@ function getRoundingValue(mode: RoundingMode, step: number) {
   return match ? `${match.step}` : "none";
 }
 
+function formatMarginMultiplier(multiplier: number) {
+  return multiplier.toFixed(2);
+}
+
+function sortMarginTiers(tiers: MarginTier[]) {
+  return [...tiers].sort((left, right) => {
+    if (left.threshold_cents !== right.threshold_cents) {
+      return left.threshold_cents - right.threshold_cents;
+    }
+    return (left.position ?? 0) - (right.position ?? 0);
+  });
+}
+
 export function EstimateSettingsPanel({
   projectName,
   versionNumber,
@@ -62,6 +82,8 @@ export function EstimateSettingsPanel({
     settings.rounding_mode,
     settings.rounding_step_cents
   );
+  const marginMode: MarginMode = settings.margin_mode ?? "fixed";
+  const marginTiers = sortMarginTiers(settings.margin_tiers ?? []);
 
   return (
     <div className="dashboard-card p-8">
@@ -159,58 +181,107 @@ export function EstimateSettingsPanel({
       <div className="estimate-settings-grid mt-8 grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <div>
-            <label className="form-label" htmlFor="estimate-margin">
-              Marge (multiplicateur)
-            </label>
-          <input
-            id="estimate-margin"
-            className="form-input"
-            type="number"
-            step="0.01"
-            min={0}
-            value={settings.margin_multiplier}
-            disabled={isReadOnly}
-            onChange={(event) =>
-              onChange({
-                margin_multiplier: Number(event.target.value || 0),
-              })
-            }
-          />
-          <div className="estimate-chip-row mt-3 flex flex-wrap gap-2">
-            {MARGIN_SUGGESTIONS.map((value) => (
+            <p className="form-label">Mode de marge</p>
+            <div className="estimate-chip-row mt-3 flex flex-wrap gap-2">
               <button
-                key={value}
                 type="button"
                 className={`estimate-chip ${
-                  settings.margin_multiplier === value
-                    ? "estimate-chip--active"
-                    : ""
+                  marginMode === "fixed" ? "estimate-chip--active" : ""
                 }`}
-                onClick={() => onChange({ margin_multiplier: value })}
                 disabled={isReadOnly}
+                onClick={() => onChange({ margin_mode: "fixed" })}
               >
-                {value.toFixed(2)}
+                Marge fixe
               </button>
-            ))}
+              <button
+                type="button"
+                className={`estimate-chip ${
+                  marginMode === "tiered" ? "estimate-chip--active" : ""
+                }`}
+                disabled={isReadOnly}
+                onClick={() => onChange({ margin_mode: "tiered" })}
+              >
+                Marge par tranche
+              </button>
+            </div>
           </div>
-        </div>
+
+          {marginMode === "fixed" ? (
+            <div>
+              <label className="form-label" htmlFor="estimate-margin">
+                Marge (multiplicateur)
+              </label>
+              <input
+                id="estimate-margin"
+                className="form-input"
+                type="number"
+                step="0.01"
+                min={0}
+                value={settings.margin_multiplier}
+                disabled={isReadOnly}
+                onChange={(event) =>
+                  onChange({
+                    margin_multiplier: Number(event.target.value || 0),
+                  })
+                }
+              />
+              <div className="estimate-chip-row mt-3 flex flex-wrap gap-2">
+                {MARGIN_SUGGESTIONS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`estimate-chip ${
+                      settings.margin_multiplier === value
+                        ? "estimate-chip--active"
+                        : ""
+                    }`}
+                    onClick={() => onChange({ margin_multiplier: value })}
+                    disabled={isReadOnly}
+                  >
+                    {formatMarginMultiplier(value)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <p className="form-label">Tranches configurees</p>
+              {marginTiers.length > 0 ? (
+                <div className="space-y-2">
+                  {marginTiers.map((tier) => (
+                    <div
+                      key={`${tier.id ?? "tier"}-${tier.position ?? tier.threshold_cents}-${tier.threshold_cents}-${tier.multiplier}`}
+                      className="estimate-summary__row"
+                    >
+                      <span>A partir de {formatEUR(tier.threshold_cents)}</span>
+                      <strong>x{formatMarginMultiplier(tier.multiplier)}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--slate-500)]">
+                  Aucune tranche de marge configuree.
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="form-label" htmlFor="estimate-discount">
               Remise (EUR HT)
             </label>
-          <input
-            id="estimate-discount"
-            className="form-input"
-            type="number"
-            step="0.01"
-            min={0}
-            value={settings.discount_cents / 100}
-            disabled={isReadOnly}
-            onChange={(event) =>
-              onChange({
-                discount_cents: Math.round(
-                  Number(event.target.value || 0) * 100
+            <input
+              id="estimate-discount"
+              className="form-input"
+              type="number"
+              step="0.01"
+              min={0}
+              value={settings.discount_cents / 100}
+              disabled={isReadOnly}
+              onChange={(event) =>
+                onChange({
+                  discount_cents: Math.round(
+                    Number(event.target.value || 0) * 100
                   ),
                 })
               }
@@ -310,6 +381,12 @@ export function EstimateSettingsPanel({
               <div className="estimate-summary__row">
                 <span>Vente HT</span>
                 <strong>{formatEUR(totals.saleSubtotalCents)}</strong>
+              </div>
+              <div className="estimate-summary__row">
+                <span>Marge appliquee</span>
+                <strong>
+                  x{formatMarginMultiplier(totals.appliedMarginMultiplier)}
+                </strong>
               </div>
               <div className="estimate-summary__row">
                 <span>Remise</span>

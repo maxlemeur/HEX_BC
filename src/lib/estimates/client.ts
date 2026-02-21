@@ -8,6 +8,7 @@ type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
+type MarginTier = Database["public"]["Tables"]["margin_tiers"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 
@@ -65,6 +66,7 @@ export type EstimateEditorData = {
   items: EstimateItem[];
   categories: EstimateCategory[];
   laborRoles: LaborRole[];
+  marginTiers: MarginTier[];
   suggestionRules: SuggestionRule[];
 };
 
@@ -76,16 +78,34 @@ export type CreateEstimatePayload = {
   marginMultiplier?: number;
 };
 
-class EstimateApiError extends Error {
+export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at">;
+
+export type BulkUpdateEstimateItemsResult = {
+  updatedCount: number;
+  versionToken: EstimateVersionToken;
+};
+
+export class EstimateApiError extends Error {
   readonly status: number;
   readonly details: unknown;
+  readonly code: string | null;
 
-  constructor(message: string, status: number, details: unknown) {
+  constructor(
+    message: string,
+    status: number,
+    details: unknown,
+    code: string | null
+  ) {
     super(message);
     this.name = "EstimateApiError";
     this.status = status;
     this.details = details;
+    this.code = code;
   }
+}
+
+export function isEstimateApiError(error: unknown): error is EstimateApiError {
+  return error instanceof EstimateApiError;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -180,6 +200,33 @@ function toErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+function extractErrorDetails(payload: unknown): unknown {
+  if (!isRecord(payload)) return payload;
+
+  const envelope = payload as ApiEnvelope<unknown>;
+
+  if (envelope.error?.details !== undefined) {
+    return envelope.error.details;
+  }
+
+  if (payload.details !== undefined) {
+    return payload.details;
+  }
+
+  return payload;
+}
+
+function extractErrorCode(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+
+  const envelope = payload as ApiEnvelope<unknown>;
+  return (
+    toStringValue(envelope.error?.code) ??
+    toStringValue(payload.code) ??
+    null
+  );
+}
+
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -203,7 +250,8 @@ async function requestJson<T>(
     throw new EstimateApiError(
       toErrorMessage(payload, fallbackMessage),
       response.status,
-      payload
+      extractErrorDetails(payload),
+      extractErrorCode(payload)
     );
   }
 
@@ -368,6 +416,7 @@ function parseEstimateEditorData(payload: unknown): EstimateEditorData {
     "estimate_categories",
   ]);
   const laborRoles = pickArray(root, ["laborRoles", "labor_roles", "roles"]);
+  const marginTiers = pickArray(root, ["marginTiers", "margin_tiers"]);
   const suggestionRules = pickArray(root, [
     "suggestionRules",
     "suggestion_rules",
@@ -379,6 +428,7 @@ function parseEstimateEditorData(payload: unknown): EstimateEditorData {
     items: items as EstimateItem[],
     categories: categories as EstimateCategory[],
     laborRoles: laborRoles as LaborRole[],
+    marginTiers: marginTiers as MarginTier[],
     suggestionRules: suggestionRules as SuggestionRule[],
   };
 }
@@ -387,6 +437,21 @@ function parseEstimateItems(payload: unknown): EstimateItem[] {
   const root = getRootPayload(payload);
   const rows = pickArray(root, ["items", "estimateItems", "estimate_items"]);
   return rows as EstimateItem[];
+}
+
+function parseVersionToken(payload: unknown): EstimateVersionToken | null {
+  const entity = extractEntity(payload, ["version", "estimateVersion"]);
+  if (!entity) return null;
+
+  const id = toStringValue(entity.id);
+  const updatedAt = toStringValue(entity.updated_at);
+
+  if (!id || !updatedAt) return null;
+
+  return {
+    id,
+    updated_at: updatedAt,
+  };
 }
 
 export async function fetchEstimateList(): Promise<EstimateListItem[]> {
@@ -504,48 +569,83 @@ export async function fetchEstimateItemsForVersion(
 
 export async function saveEstimateVersion(
   versionId: string,
-  updates: Database["public"]["Tables"]["estimate_versions"]["Update"]
-): Promise<void> {
-  await requestJson<unknown>(
+  updates: Database["public"]["Tables"]["estimate_versions"]["Update"],
+  updatedAtToken: string
+): Promise<EstimateVersionRow> {
+  const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}`,
     {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
+        "If-Match": updatedAtToken,
       },
-      body: JSON.stringify(updates),
+      body: JSON.stringify({
+        ...updates,
+        updated_at: updatedAtToken,
+      }),
     },
     "Impossible de sauvegarder le chiffrage."
   );
+
+  const entity = extractEntity(payload, ["version", "estimateVersion"]);
+  if (!entity || !toStringValue(entity.updated_at)) {
+    throw new Error("Impossible de recuperer la version mise a jour.");
+  }
+
+  return entity as EstimateVersionRow;
 }
 
 export async function bulkUpdateEstimateItems(
   versionId: string,
+  updatedAtToken: string,
   updates: Array<{
     id: string;
     updates: Database["public"]["Tables"]["estimate_items"]["Update"];
   }>
-): Promise<void> {
+): Promise<BulkUpdateEstimateItemsResult> {
   if (updates.length === 0) {
-    return;
+    return {
+      updatedCount: 0,
+      versionToken: {
+        id: versionId,
+        updated_at: updatedAtToken,
+      },
+    };
   }
 
-  await requestJson<unknown>(
+  const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/items/bulk`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "If-Match": updatedAtToken,
       },
-      body: JSON.stringify(
-        updates.map((entry) => ({
+      body: JSON.stringify({
+        updated_at: updatedAtToken,
+        updates: updates.map((entry) => ({
           id: entry.id,
           ...entry.updates,
-        }))
-      ),
+        })),
+      }),
     },
     "Impossible de mettre a jour les lignes."
   );
+
+  const versionToken = parseVersionToken(payload);
+  if (!versionToken) {
+    throw new Error("Impossible de recuperer le jeton de version.");
+  }
+
+  const root = getRootPayload(payload);
+  const updatedCount =
+    (isRecord(root) ? toNumber(root.updated_count) : null) ?? updates.length;
+
+  return {
+    updatedCount,
+    versionToken,
+  };
 }
 
 export async function createEstimateItem(

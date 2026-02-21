@@ -868,6 +868,7 @@ export type Database = {
           date_devis: string;
           validite_jours: number;
           margin_multiplier: number;
+          margin_mode: "fixed" | "tiered";
           currency: string;
           margin_bp: number;
           discount_bp: number;
@@ -890,6 +891,7 @@ export type Database = {
           date_devis?: string;
           validite_jours?: number;
           margin_multiplier?: number;
+          margin_mode?: "fixed" | "tiered";
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
@@ -912,6 +914,7 @@ export type Database = {
           date_devis?: string;
           validite_jours?: number;
           margin_multiplier?: number;
+          margin_mode?: "fixed" | "tiered";
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
@@ -931,6 +934,63 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      feature_flags: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          flag_key: string;
+          enabled: boolean;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          flag_key: string;
+          enabled?: boolean;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          flag_key?: string;
+          enabled?: boolean;
+        };
+        Relationships: [];
+      };
+      margin_tiers: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          threshold_cents: number;
+          multiplier: number;
+          position: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id?: string;
+          threshold_cents: number;
+          multiplier: number;
+          position: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          tenant_id?: string;
+          threshold_cents?: number;
+          multiplier?: number;
+          position?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
       };
       estimate_categories: {
         Row: {
@@ -1194,6 +1254,7 @@ export type Database = {
       employee_role: "buyer" | "site_manager" | "admin";
       estimate_status: "draft" | "sent" | "accepted" | "archived";
       estimate_item_type: "section" | "line";
+      estimate_margin_mode: "fixed" | "tiered";
       estimate_rounding_mode: "none" | "nearest" | "up" | "down";
       estimate_rule_match_type: "keyword";
       tenant_role: "admin" | "engineer" | "viewer";

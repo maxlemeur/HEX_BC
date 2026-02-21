@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { SignOutButton } from "@/components/SignOutButton";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
 const NAV_ITEMS = [
   {
@@ -265,6 +266,9 @@ export function DashboardShell({
 }>) {
   const pathname = usePathname();
   const userInitials = buildInitials(displayName);
+  const { enabled: isSidebarFlagIndicatorEnabled } = useFeatureFlag(
+    "FEATURE_FLAGS_SIDEBAR_INDICATOR"
+  );
 
   function isActive(href: string) {
     if (href === "/dashboard/orders") {
@@ -292,6 +296,11 @@ export function DashboardShell({
               <span className="block text-[11px] font-medium text-white/50">
                 Gestion des commandes
               </span>
+              {isSidebarFlagIndicatorEnabled ? (
+                <span className="mt-1 inline-flex items-center rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/90">
+                  Flags actifs
+                </span>
+              ) : null}
             </div>
           </Link>
         </div>

@@ -24,6 +24,20 @@ async function parseJsonBody(request: Request): Promise<unknown> {
   }
 }
 
+function resolveConcurrencyToken(request: Request, fallback?: string) {
+  const ifMatch = request.headers.get("if-match")?.trim();
+  if (ifMatch && ifMatch.length > 0) {
+    return ifMatch;
+  }
+
+  const normalizedFallback = fallback?.trim();
+  if (normalizedFallback && normalizedFallback.length > 0) {
+    return normalizedFallback;
+  }
+
+  return undefined;
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ versionId: string }> }
@@ -44,7 +58,8 @@ export async function PATCH(
   try {
     const versionId = await getVersionId(params);
     const body = patchEstimateVersionSchema.parse(await parseJsonBody(request));
-    const data = await patchEstimateVersion(versionId, body);
+    const token = resolveConcurrencyToken(request, body.updated_at);
+    const data = await patchEstimateVersion(versionId, body, token);
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);
