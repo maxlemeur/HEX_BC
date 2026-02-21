@@ -97,19 +97,21 @@ export function DataPreview({
               <th>quantity</th>
               <th>unit</th>
               <th>unit_price_ht</th>
+              <th>supply_type</th>
+              <th>h_mo_majoration</th>
               <th>Etat</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-sm text-[var(--slate-500)]">
+                <td colSpan={9} className="py-8 text-center text-sm text-[var(--slate-500)]">
                   Chargement de l&apos;apercu...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-sm text-[var(--slate-500)]">
+                <td colSpan={9} className="py-8 text-center text-sm text-[var(--slate-500)]">
                   Aucun apercu disponible.
                 </td>
               </tr>
@@ -125,6 +127,8 @@ export function DataPreview({
                     <td>{normalizeCell(row.mapped_row.quantity)}</td>
                     <td>{normalizeCell(row.mapped_row.unit)}</td>
                     <td>{normalizeCell(row.mapped_row.unit_price_ht)}</td>
+                    <td>{normalizeCell(row.mapped_row.supply_type)}</td>
+                    <td>{normalizeCell(row.mapped_row.h_mo_majoration)}</td>
                     <td>
                       <span
                         className={

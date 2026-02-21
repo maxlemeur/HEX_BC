@@ -50,8 +50,10 @@ const TARGET_FIELDS = [
   { value: "unit_price_ht", label: "Prix unitaire HT" },
   { value: "total_ht", label: "Montant HT" },
   { value: "category", label: "Categorie" },
+  { value: "supply_type", label: "Type FO" },
   { value: "supplier_ref", label: "Reference fournisseur" },
   { value: "labor_hours", label: "Heures MO" },
+  { value: "h_mo_majoration", label: "Majoration MO" },
   { value: "notes", label: "Notes" },
 ] as const;
 

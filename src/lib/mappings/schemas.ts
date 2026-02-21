@@ -10,8 +10,10 @@ const MAPPING_TARGET_FIELDS = [
   "unit_price_ht",
   "total_ht",
   "category",
+  "supply_type",
   "supplier_ref",
   "labor_hours",
+  "h_mo_majoration",
   "notes",
 ] as const;
 

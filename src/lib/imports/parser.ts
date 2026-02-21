@@ -15,6 +15,33 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Object.prototype.toString.call(value) === "[object Object]";
 }
 
+function stripAccents(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeOptimaHeader(raw: string): string | null {
+  const normalized = stripAccents(raw.toLowerCase()).replace(/[^a-z0-9]+/g, " ");
+  const words = normalized.split(" ").filter(Boolean);
+  const wordSet = new Set(words);
+  const hasWordPrefix = (prefix: string) => words.some((word) => word.startsWith(prefix));
+
+  if (
+    (wordSet.has("type") && wordSet.has("fo")) ||
+    (wordSet.has("famille") && wordSet.has("fo"))
+  ) {
+    return "Type_FO";
+  }
+
+  if (
+    (wordSet.has("majoration") && wordSet.has("mo")) ||
+    (wordSet.has("temps") && hasWordPrefix("major"))
+  ) {
+    return "Majoration_MO";
+  }
+
+  return null;
+}
+
 function normalizeHeaderValue(value: unknown, index: number) {
   const raw =
     typeof value === "string"
@@ -25,6 +52,11 @@ function normalizeHeaderValue(value: unknown, index: number) {
 
   if (raw.length === 0) {
     return `column_${index + 1}`;
+  }
+
+  const optimaHeader = normalizeOptimaHeader(raw);
+  if (optimaHeader) {
+    return optimaHeader;
   }
 
   const sanitized = raw
