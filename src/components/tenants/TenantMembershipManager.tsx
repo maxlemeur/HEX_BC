@@ -194,6 +194,11 @@ export function TenantMembershipManager() {
   }
 
   async function handleSetDefault() {
+    if (!ownMembership) {
+      setActionError("Votre membership dans ce tenant est introuvable.");
+      return;
+    }
+
     setActionError(null);
     setSuccess(null);
     setIsSettingDefault(true);
@@ -206,6 +211,7 @@ export function TenantMembershipManager() {
         },
         body: JSON.stringify({
           action: "set-default",
+          membership_id: ownMembership.id,
         }),
       });
 
@@ -288,7 +294,7 @@ export function TenantMembershipManager() {
             type="button"
             className="btn btn-primary"
             onClick={() => void handleSetDefault()}
-            disabled={isSettingDefault || isCurrentTenantDefault}
+            disabled={isSettingDefault || isCurrentTenantDefault || !ownMembership}
             title={isCurrentTenantDefault ? "Ce tenant est deja votre tenant par defaut." : undefined}
           >
             {isSettingDefault

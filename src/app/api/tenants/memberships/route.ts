@@ -44,6 +44,7 @@ const membershipActionSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("set-default"),
+    membership_id: z.string().uuid("membership_id invalide."),
   }),
 ]);
 
@@ -262,10 +263,10 @@ async function setMembershipRole(input: {
   };
 }
 
-async function setCurrentTenantAsDefault(input: {
+async function setMembershipAsDefault(input: {
   supabase: Supabase;
   userId: string;
-  actorMembership: TenantMembershipRow;
+  membershipId: string;
 }) {
   const { data: ownMemberships, error: ownMembershipsError } = await input.supabase
     .from("tenant_memberships")
@@ -277,18 +278,22 @@ async function setCurrentTenantAsDefault(input: {
     throw mapSupabaseError(ownMembershipsError, "Impossible de charger vos memberships.");
   }
 
-  const currentTenantMembership = (ownMemberships ?? []).find(
-    (membership) => membership.tenant_id === input.actorMembership.tenant_id
+  const targetMembership = (ownMemberships ?? []).find(
+    (membership) => membership.id === input.membershipId
   ) as TenantMembershipRow | undefined;
 
-  if (!currentTenantMembership) {
-    throw notFound("Votre membership pour le tenant courant est introuvable.");
+  if (!targetMembership) {
+    throw notFound("Membership cible introuvable.");
+  }
+
+  if (targetMembership.role !== "admin") {
+    throw forbidden("Acces reserve aux administrateurs du tenant.");
   }
 
   const blockedDefaultInOtherTenant = (ownMemberships ?? []).find(
     (membership) =>
       membership.is_default &&
-      membership.tenant_id !== input.actorMembership.tenant_id &&
+      membership.id !== targetMembership.id &&
       membership.role !== "admin"
   );
 
@@ -303,7 +308,7 @@ async function setCurrentTenantAsDefault(input: {
     .update({ is_default: false })
     .eq("user_id", input.userId)
     .eq("is_default", true)
-    .neq("tenant_id", input.actorMembership.tenant_id);
+    .neq("id", targetMembership.id);
 
   if (unsetError) {
     throw mapSupabaseError(unsetError, "Impossible de mettre a jour le tenant par defaut.");
@@ -312,9 +317,9 @@ async function setCurrentTenantAsDefault(input: {
   const { data, error } = await input.supabase
     .from("tenant_memberships")
     .update({ is_default: true })
-    .eq("id", currentTenantMembership.id)
+    .eq("id", targetMembership.id)
     .eq("user_id", input.userId)
-    .eq("tenant_id", input.actorMembership.tenant_id)
+    .eq("tenant_id", targetMembership.tenant_id)
     .select(membershipSelect)
     .maybeSingle();
 
@@ -323,7 +328,7 @@ async function setCurrentTenantAsDefault(input: {
   }
 
   if (!data) {
-    throw notFound("Votre membership pour le tenant courant est introuvable.");
+    throw notFound("Membership cible introuvable.");
   }
 
   const membership = await loadSingleMembershipRecord(input.supabase, data as TenantMembershipRow);
@@ -374,10 +379,10 @@ export async function POST(request: Request) {
         return ok(data);
       }
       case "set-default": {
-        const data = await setCurrentTenantAsDefault({
+        const data = await setMembershipAsDefault({
           supabase,
           userId,
-          actorMembership,
+          membershipId: payload.membership_id,
         });
         return ok(data);
       }
