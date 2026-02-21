@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { computeTotalsFromInputs } from "@/lib/order-calculations";
+import { isValidDateOnly } from "@/lib/date-only";
 import { buildPurchaseOrderReference } from "@/lib/reference";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -23,6 +24,22 @@ function toNullableString(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseExpectedDeliveryDate(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") {
+    throw new Error("Date de livraison invalide.");
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toUpperCase() === "TBD") return null;
+
+  if (!isValidDateOnly(trimmed)) {
+    throw new Error("Date de livraison invalide (YYYY-MM-DD attendu).");
+  }
+
+  return trimmed;
 }
 
 export async function POST(request: Request) {
@@ -49,6 +66,16 @@ export async function POST(request: Request) {
   if (!parsedPayload?.supplierId || !parsedPayload?.deliverySiteId) {
     return NextResponse.json(
       { error: "Supplier and delivery site are required." },
+      { status: 400 }
+    );
+  }
+
+  let expectedDeliveryDate: string | null;
+  try {
+    expectedDeliveryDate = parseExpectedDeliveryDate(parsedPayload.expectedDeliveryDate);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Date de livraison invalide." },
       { status: 400 }
     );
   }
@@ -100,7 +127,7 @@ export async function POST(request: Request) {
       supplier_id: parsedPayload.supplierId,
       delivery_site_id: parsedPayload.deliverySiteId,
       status: "draft",
-      expected_delivery_date: toNullableString(parsedPayload.expectedDeliveryDate),
+      expected_delivery_date: expectedDeliveryDate,
       notes: toNullableString(parsedPayload.notes),
       total_ht_cents: orderTotals.totalHtCents,
       total_tax_cents: orderTotals.totalTaxCents,

@@ -7,6 +7,7 @@ import type { UserProfile } from "@/lib/auth/server";
 
 type UserContextValue = {
   userEmail: string;
+  tenantId: string | null;
   profile: UserProfile | null;
   setProfile: Dispatch<SetStateAction<UserProfile | null>>;
 };
@@ -27,6 +28,7 @@ export function UserProvider({
   const value = useMemo(
     () => ({
       userEmail: initialUserEmail,
+      tenantId: profile?.tenant_id ?? null,
       profile,
       setProfile,
     }),

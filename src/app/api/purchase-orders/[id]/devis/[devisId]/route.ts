@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getOwnedPurchaseOrderOrNull } from "../../route";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 
@@ -69,13 +70,12 @@ export async function PATCH(
     );
   }
 
-  const { data: order, error: orderError } = await supabase
-    .from("purchase_orders")
-    .select("id, status")
-    .eq("id", id)
-    .single();
+  const order = await getOwnedPurchaseOrderOrNull<{
+    id: string;
+    status: "draft" | "sent" | "confirmed" | "received" | "canceled";
+  }>(supabase, id, user.id, "id, status");
 
-  if (orderError || !order) {
+  if (!order) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
@@ -94,6 +94,7 @@ export async function PATCH(
     .update({ name })
     .eq("id", devisId)
     .eq("purchase_order_id", id)
+    .eq("user_id", user.id)
     .select(
       "id, created_at, name, original_filename, storage_path, file_size_bytes, mime_type, position"
     )
@@ -130,13 +131,12 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: order, error: orderError } = await supabase
-    .from("purchase_orders")
-    .select("id, status")
-    .eq("id", id)
-    .single();
+  const order = await getOwnedPurchaseOrderOrNull<{
+    id: string;
+    status: "draft" | "sent" | "confirmed" | "received" | "canceled";
+  }>(supabase, id, user.id, "id, status");
 
-  if (orderError || !order) {
+  if (!order) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
@@ -155,6 +155,7 @@ export async function DELETE(
     .select("id, storage_path")
     .eq("id", devisId)
     .eq("purchase_order_id", id)
+    .eq("user_id", user.id)
     .single();
 
   if (devisError || !devis) {
@@ -173,7 +174,8 @@ export async function DELETE(
     .from("purchase_order_devis")
     .delete()
     .eq("id", devisId)
-    .eq("purchase_order_id", id);
+    .eq("purchase_order_id", id)
+    .eq("user_id", user.id);
 
   if (deleteError) {
     return NextResponse.json({ error: deleteError.message }, { status: 400 });

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { Readable } from "stream";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getOwnedPurchaseOrderOrNull } from "../route";
 
 export const runtime = "nodejs";
 
@@ -274,42 +275,37 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const orderPromise = supabase
-    .from("purchase_orders")
-    .select(
-      "id, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name ), delivery_sites ( name )"
-    )
-    .eq("id", id)
-    .single();
+  const order = await getOwnedPurchaseOrderOrNull<OrderRow>(
+    supabase,
+    id,
+    user.id,
+    "id, reference, order_number, status, order_date, expected_delivery_date, notes, total_ht_cents, total_tax_cents, total_ttc_cents, currency, suppliers ( name ), delivery_sites ( name )"
+  );
 
-  const itemsPromise = supabase
-    .from("purchase_order_items")
-    .select("designation, reference, quantity, unit_price_ht_cents, line_total_ht_cents")
-    .eq("purchase_order_id", id)
-    .order("position", { ascending: true });
-
-  const devisPromise = supabase
-    .from("purchase_order_devis")
-    .select("id, name, original_filename, storage_path, file_size_bytes, mime_type, position")
-    .eq("purchase_order_id", id)
-    .order("position", { ascending: true });
-
-  const [{ data: order, error: orderError }, itemsResult, devisResult] = await Promise.all([
-    orderPromise,
-    itemsPromise,
-    devisPromise,
-  ]);
-
-  if (orderError || !order) {
+  if (!order) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
     );
   }
 
+  const [itemsResult, devisResult] = await Promise.all([
+    supabase
+      .from("purchase_order_items")
+      .select("designation, reference, quantity, unit_price_ht_cents, line_total_ht_cents")
+      .eq("purchase_order_id", id)
+      .order("position", { ascending: true }),
+    supabase
+      .from("purchase_order_devis")
+      .select("id, name, original_filename, storage_path, file_size_bytes, mime_type, position")
+      .eq("purchase_order_id", id)
+      .eq("user_id", user.id)
+      .order("position", { ascending: true }),
+  ]);
+
   const items = (itemsResult.data ?? []) as OrderItemRow[];
   const devis = (devisResult.data ?? []) as DevisRow[];
-  const orderHtml = buildOrderHtml(order as unknown as OrderRow, items);
+  const orderHtml = buildOrderHtml(order, items);
 
   const archive = archiver("zip", { zlib: { level: 9 } });
   archive.append(orderHtml, { name: "bon-de-commande.html" });

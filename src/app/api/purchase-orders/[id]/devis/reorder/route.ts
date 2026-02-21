@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getOwnedPurchaseOrderOrNull } from "../../route";
 
 type ReorderRequestBody = {
   orderedIds: string[];
@@ -45,13 +46,12 @@ export async function PATCH(
     );
   }
 
-  const { data: order, error: orderError } = await supabase
-    .from("purchase_orders")
-    .select("id, status")
-    .eq("id", id)
-    .single();
+  const order = await getOwnedPurchaseOrderOrNull<{
+    id: string;
+    status: "draft" | "sent" | "confirmed" | "received" | "canceled";
+  }>(supabase, id, user.id, "id, status");
 
-  if (orderError || !order) {
+  if (!order) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
@@ -68,7 +68,8 @@ export async function PATCH(
   const { data: existingDevis, error: fetchError } = await supabase
     .from("purchase_order_devis")
     .select("id")
-    .eq("purchase_order_id", id);
+    .eq("purchase_order_id", id)
+    .eq("user_id", user.id);
 
   if (fetchError) {
     return NextResponse.json({ error: fetchError.message }, { status: 400 });
@@ -100,41 +101,23 @@ export async function PATCH(
     }
   }
 
-  const now = new Date().toISOString();
-  const temporaryUpdates = orderedIds.map((devisId, index) => ({
-    id: devisId,
-    position: -(index + 1),
-    updated_at: now,
-  }));
-
-  for (const update of temporaryUpdates) {
-    const { error: updateError } = await supabase
-      .from("purchase_order_devis")
-      .update({ position: update.position, updated_at: update.updated_at })
-      .eq("id", update.id)
-      .eq("purchase_order_id", id);
-
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 400 });
+  const { data: updatedCount, error: reorderError } = await supabase.rpc(
+    "reorder_purchase_order_devis",
+    {
+      target_purchase_order_id: id,
+      ordered_devis_ids: orderedIds,
     }
+  );
+
+  if (reorderError) {
+    return NextResponse.json({ error: reorderError.message }, { status: 400 });
   }
 
-  const finalUpdates = orderedIds.map((devisId, index) => ({
-    id: devisId,
-    position: index + 1,
-    updated_at: now,
-  }));
-
-  for (const update of finalUpdates) {
-    const { error: updateError } = await supabase
-      .from("purchase_order_devis")
-      .update({ position: update.position, updated_at: update.updated_at })
-      .eq("id", update.id)
-      .eq("purchase_order_id", id);
-
-    if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 400 });
-    }
+  if ((updatedCount ?? 0) !== orderedIds.length) {
+    return NextResponse.json(
+      { error: "La liste de reordonnancement est desynchronisee." },
+      { status: 409 }
+    );
   }
 
   return NextResponse.json({ success: true });

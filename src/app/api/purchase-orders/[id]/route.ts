@@ -1,7 +1,13 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
+import { isValidDateOnly } from "@/lib/date-only";
 import { computeTotalsFromInputs } from "@/lib/order-calculations";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { Database } from "@/types/database";
+
+type Supabase = SupabaseClient<Database>;
+type PurchaseOrderStatus = Database["public"]["Tables"]["purchase_orders"]["Row"]["status"];
 
 type LinePayload = {
   productId: string | null;
@@ -20,10 +26,46 @@ type UpdatePurchaseOrderPayload = {
   items?: LinePayload[];
 };
 
+export async function getOwnedPurchaseOrderOrNull<T extends Record<string, unknown>>(
+  supabase: Supabase,
+  orderId: string,
+  userId: string,
+  selectColumns: string
+): Promise<T | null> {
+  const { data, error } = await supabase
+    .from("purchase_orders")
+    .select(selectColumns)
+    .eq("id", orderId)
+    .eq("user_id", userId)
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return data as unknown as T;
+}
+
 function toNullableString(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseExpectedDeliveryDate(value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") {
+    throw new Error("Date de livraison invalide.");
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toUpperCase() === "TBD") return null;
+
+  if (!isValidDateOnly(trimmed)) {
+    throw new Error("Date de livraison invalide (YYYY-MM-DD attendu).");
+  }
+
+  return trimmed;
 }
 
 export async function PUT(
@@ -48,13 +90,12 @@ export async function PUT(
   }
 
   // Fetch existing order
-  const { data: existingOrder, error: fetchError } = await supabase
-    .from("purchase_orders")
-    .select("id, status")
-    .eq("id", id)
-    .single();
+  const existingOrder = await getOwnedPurchaseOrderOrNull<{
+    id: string;
+    status: PurchaseOrderStatus;
+  }>(supabase, id, user.id, "id, status");
 
-  if (fetchError || !existingOrder) {
+  if (!existingOrder) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
@@ -84,7 +125,16 @@ export async function PUT(
     headerUpdate.delivery_site_id = parsedPayload.deliverySiteId;
   }
   if (parsedPayload.expectedDeliveryDate !== undefined) {
-    headerUpdate.expected_delivery_date = toNullableString(parsedPayload.expectedDeliveryDate);
+    try {
+      headerUpdate.expected_delivery_date = parseExpectedDeliveryDate(
+        parsedPayload.expectedDeliveryDate
+      );
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Date de livraison invalide." },
+        { status: 400 }
+      );
+    }
   }
   if (parsedPayload.notes !== undefined) {
     headerUpdate.notes = toNullableString(parsedPayload.notes);
@@ -95,7 +145,8 @@ export async function PUT(
     const { error: updateError } = await supabase
       .from("purchase_orders")
       .update(headerUpdate)
-      .eq("id", id);
+      .eq("id", id)
+      .eq("user_id", user.id);
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 400 });
@@ -186,7 +237,8 @@ export async function PUT(
         total_tax_cents: orderTotals.totalTaxCents,
         total_ttc_cents: orderTotals.totalTtcCents,
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("user_id", user.id);
 
     if (totalsError) {
       return NextResponse.json({ error: totalsError.message }, { status: 400 });
@@ -212,13 +264,12 @@ export async function DELETE(
   }
 
   // Fetch existing order
-  const { data: existingOrder, error: fetchError } = await supabase
-    .from("purchase_orders")
-    .select("id, status")
-    .eq("id", id)
-    .single();
+  const existingOrder = await getOwnedPurchaseOrderOrNull<{
+    id: string;
+    status: PurchaseOrderStatus;
+  }>(supabase, id, user.id, "id, status");
 
-  if (fetchError || !existingOrder) {
+  if (!existingOrder) {
     return NextResponse.json(
       { error: "Bon de commande introuvable." },
       { status: 404 }
@@ -237,7 +288,8 @@ export async function DELETE(
   const { error: deleteError } = await supabase
     .from("purchase_orders")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .eq("user_id", user.id);
 
   if (deleteError) {
     return NextResponse.json({ error: deleteError.message }, { status: 400 });
