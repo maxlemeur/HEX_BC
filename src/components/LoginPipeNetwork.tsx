@@ -133,7 +133,7 @@ export default function LoginPipeNetwork() {
             key={`pipe-${i}`}
             d={d}
             fill="none"
-            stroke="rgba(255,255,255,0.08)"
+            stroke="rgba(255,255,255,0.05)"
             strokeWidth={5}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -147,7 +147,7 @@ export default function LoginPipeNetwork() {
             cx={cx}
             cy={cy}
             r={4}
-            fill="rgba(255,255,255,0.15)"
+            fill="rgba(255,255,255,0.08)"
           />
         ))}
 

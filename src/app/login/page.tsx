@@ -167,12 +167,16 @@ export default function LoginPage() {
         {/* Animated pipe network background */}
         <LoginPipeNetwork />
 
+        {/* Dark scrim — improves text legibility over pipes */}
+        <div className="absolute inset-0 z-[1] bg-gradient-to-r from-[rgba(21,42,69,0.85)] via-[rgba(21,42,69,0.6)] to-[rgba(21,42,69,0.3)]" />
+
         {/* Brand content */}
         <motion.div
           variants={brandContentVariants}
           initial="hidden"
           animate="visible"
           className="relative z-10"
+          style={{ textShadow: "0 1px 6px rgba(0,0,0,0.4)" }}
         >
           {/* Logo */}
           <motion.div custom={reduced} variants={brandItemVariants} className="mb-6 lg:mb-8">
@@ -201,7 +205,7 @@ export default function LoginPage() {
           <motion.p
             custom={reduced}
             variants={brandItemVariants}
-            className="mt-2 text-sm font-medium text-white/70 sm:text-base lg:mt-3 lg:text-lg"
+            className="mt-2 text-sm font-medium text-white/80 sm:text-base lg:mt-3 lg:text-lg"
           >
             Chiffrage et gestion des commandes
           </motion.p>
@@ -220,7 +224,7 @@ export default function LoginPage() {
                 key={i}
                 custom={reduced}
                 variants={brandItemVariants}
-                className="flex items-center gap-3 text-sm text-white/80"
+                className="flex items-center gap-3 text-sm text-white/90"
               >
                 <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-white/10">
                   {feature.icon}
