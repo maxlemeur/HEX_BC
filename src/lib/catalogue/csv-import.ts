@@ -54,6 +54,7 @@ export type PriceBookValidationResult = {
 export type ValidatePriceBookRowsOptions = {
   previewLimit?: number;
   chunkSize?: number;
+  rowLineNumbers?: number[];
   onProgress?: (progress: PriceBookValidationProgress) => void;
 };
 
@@ -177,6 +178,14 @@ function waitForNextTick() {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, 0);
   });
+}
+
+function resolveRowLineNumber(index: number, rowLineNumbers?: number[]): number {
+  const candidate = rowLineNumbers?.[index];
+  if (typeof candidate === "number" && Number.isInteger(candidate) && candidate > 0) {
+    return candidate;
+  }
+  return index + 2;
 }
 
 function formatZodIssueMessages(
@@ -307,7 +316,7 @@ export async function validatePriceBookRows(
 
     for (let index = start; index < end; index += 1) {
       const row = rows[index];
-      const lineNumber = index + 2;
+      const lineNumber = resolveRowLineNumber(index, options.rowLineNumbers);
       const mappedValues = mapRowToPriceBookValues(row, mapping);
       const reasons: string[] = [];
 

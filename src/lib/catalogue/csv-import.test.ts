@@ -134,6 +134,33 @@ describe("price book csv import validation", () => {
     expect(result.rejectedRows[3]?.reason).toContain("Prix non numerique.");
   });
 
+  it("uses provided source line numbers when available", async () => {
+    const rows: CsvImportRow[] = [
+      { supplier: "", product: PRODUCT_ID_1, prix: "10,00" },
+      { supplier: SUPPLIER_ID_2, product: "", prix: "11,00" },
+      { supplier: SUPPLIER_ID_1, product: PRODUCT_ID_1, prix: "-1,20" },
+    ];
+
+    const mapping: PriceBookColumnMapping = {
+      supplier: "supplier_id",
+      product: "product_id",
+      prix: "unit_price",
+    };
+
+    const result = await validatePriceBookRows(rows, mapping, {
+      rowLineNumbers: [2, 5, 9],
+    });
+
+    expect(result.acceptedRows).toBe(0);
+    expect(result.rejectedRowsCount).toBe(3);
+    expect(result.rejectedRows[0]?.lineNumber).toBe(2);
+    expect(result.rejectedRows[1]?.lineNumber).toBe(5);
+    expect(result.rejectedRows[2]?.lineNumber).toBe(9);
+    expect(result.previewRows[0]?.lineNumber).toBe(2);
+    expect(result.previewRows[1]?.lineNumber).toBe(5);
+    expect(result.previewRows[2]?.lineNumber).toBe(9);
+  });
+
   it("limits preview to 10 rows and emits chunked progress", async () => {
     const rows: CsvImportRow[] = Array.from({ length: 501 }, () => ({
       supplier: SUPPLIER_ID_1,

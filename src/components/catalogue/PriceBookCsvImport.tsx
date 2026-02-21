@@ -21,6 +21,7 @@ type BulkCreatePricesResponse = {
 };
 
 const ACCEPTED_FILE_TYPES = ".csv,text/csv,application/csv,text/plain";
+const MAX_BULK_CREATE_ITEMS = 5000;
 
 const TARGET_FIELDS = [
   { value: "supplier_id", label: "Supplier ID", required: true },
@@ -45,6 +46,18 @@ function isCsvFile(file: File): boolean {
   return file.name.toLowerCase().endsWith(".csv");
 }
 
+function chunkItems<T>(items: T[], size: number): T[][] {
+  if (items.length === 0) return [];
+  const safeSize = Math.max(1, size);
+  const chunks: T[][] = [];
+
+  for (let start = 0; start < items.length; start += safeSize) {
+    chunks.push(items.slice(start, start + safeSize));
+  }
+
+  return chunks;
+}
+
 export function PriceBookCsvImport({
   onImported,
 }: {
@@ -55,6 +68,7 @@ export function PriceBookCsvImport({
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [rows, setRows] = useState<ParsedImportRow[]>([]);
+  const [rowLineNumbers, setRowLineNumbers] = useState<number[]>([]);
   const [sourceColumns, setSourceColumns] = useState<string[]>([]);
   const [mapping, setMapping] = useState<PriceBookColumnMapping>({});
   const [validation, setValidation] = useState<PriceBookValidationResult | null>(null);
@@ -85,6 +99,7 @@ export function PriceBookCsvImport({
 
   function resetWorkflowState() {
     setRows([]);
+    setRowLineNumbers([]);
     setSourceColumns([]);
     setMapping({});
     setValidation(null);
@@ -94,7 +109,8 @@ export function PriceBookCsvImport({
 
   async function runValidation(
     nextRows: ParsedImportRow[],
-    nextMapping: PriceBookColumnMapping
+    nextMapping: PriceBookColumnMapping,
+    nextRowLineNumbers?: number[]
   ) {
     if (nextRows.length === 0) {
       setValidation(null);
@@ -108,6 +124,7 @@ export function PriceBookCsvImport({
       const result = await validatePriceBookRows(nextRows, nextMapping, {
         previewLimit: 10,
         chunkSize: 200,
+        rowLineNumbers: nextRowLineNumbers,
         onProgress: (nextProgress) => {
           setProgress(nextProgress);
         },
@@ -146,6 +163,7 @@ export function PriceBookCsvImport({
       if (nextRows.length === 0) {
         throw new Error("Le fichier CSV ne contient aucune ligne de donnees.");
       }
+      const nextRowLineNumbers = parsed.rowLineNumbers;
 
       const nextSourceColumns = extractPriceBookSourceColumns(nextRows);
       if (nextSourceColumns.length === 0) {
@@ -155,10 +173,11 @@ export function PriceBookCsvImport({
       const nextMapping = suggestPriceBookColumnMapping(nextSourceColumns);
 
       setRows(nextRows);
+      setRowLineNumbers(nextRowLineNumbers ?? []);
       setSourceColumns(nextSourceColumns);
       setMapping(nextMapping);
 
-      await runValidation(nextRows, nextMapping);
+      await runValidation(nextRows, nextMapping, nextRowLineNumbers);
     } catch (parseError) {
       setError(
         parseError instanceof Error
@@ -179,7 +198,7 @@ export function PriceBookCsvImport({
     }
 
     setError(null);
-    await runValidation(rows, mapping);
+    await runValidation(rows, mapping, rowLineNumbers);
   }
 
   async function onSubmitImport() {
@@ -193,21 +212,47 @@ export function PriceBookCsvImport({
     setSuccess(null);
 
     try {
-      const result = await fetchApi<BulkCreatePricesResponse>("/api/prices", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "bulk-create",
-          items: validation.acceptedItems,
-        }),
-      });
+      const batches = chunkItems(validation.acceptedItems, MAX_BULK_CREATE_ITEMS);
+      let totalCreated = 0;
+      const responseModes = new Set<string>();
+
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+        const batch = batches[batchIndex];
+
+        try {
+          const result = await fetchApi<BulkCreatePricesResponse>("/api/prices", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              action: "bulk-create",
+              items: batch,
+            }),
+          });
+
+          totalCreated += result.created_count;
+          responseModes.add(result.mode);
+        } catch (batchError) {
+          const details =
+            batchError instanceof Error
+              ? batchError.message
+              : "Erreur inconnue pendant le bulk-create.";
+          throw new Error(
+            `Echec du lot ${batchIndex + 1}/${batches.length} apres ${totalCreated} ligne(s) creee(s): ${details}`
+          );
+        }
+      }
 
       await onImported();
 
+      const modeSummary =
+        responseModes.size === 1
+          ? Array.from(responseModes)[0]
+          : Array.from(responseModes).join(", ");
+
       setSuccess(
-        `Import termine: ${result.created_count} ligne(s) creee(s) (${result.mode}).`
+        `Import termine: ${totalCreated} ligne(s) creee(s) (${modeSummary}).`
       );
     } catch (submitError) {
       setError(

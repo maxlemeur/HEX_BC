@@ -15,6 +15,7 @@ type ParseWorkerSuccessResponse = {
   requestId: string;
   ok: true;
   rows: ParsedImportRow[];
+  rowLineNumbers?: number[];
 };
 
 type ParseWorkerErrorResponse = {
@@ -29,6 +30,7 @@ export type FileParseResult = {
   mode: "worker";
   parser: ParserKind;
   rows: ParsedImportRow[];
+  rowLineNumbers?: number[];
 };
 
 const CSV_EXTENSIONS = new Set(["csv"]);
@@ -80,7 +82,7 @@ function createParserWorker(parser: ParserKind): Worker {
 function runWorkerParser(
   parser: ParserKind,
   buffer: ArrayBuffer
-): Promise<ParsedImportRow[]> {
+): Promise<{ rows: ParsedImportRow[]; rowLineNumbers?: number[] }> {
   return new Promise((resolve, reject) => {
     const worker = createParserWorker(parser);
     const requestId = buildRequestId();
@@ -102,7 +104,10 @@ function runWorkerParser(
       cleanup();
 
       if (response.ok) {
-        resolve(response.rows);
+        resolve({
+          rows: response.rows,
+          rowLineNumbers: response.rowLineNumbers,
+        });
         return;
       }
 
@@ -134,12 +139,13 @@ export function useFileParser() {
     }
 
     const buffer = await file.arrayBuffer();
-    const rows = await runWorkerParser(parser, buffer);
+    const { rows, rowLineNumbers } = await runWorkerParser(parser, buffer);
 
     return {
       mode: "worker",
       parser,
       rows,
+      rowLineNumbers,
     };
   }, []);
 

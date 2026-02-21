@@ -10,6 +10,7 @@ type ParseWorkerSuccessResponse = {
   requestId: string;
   ok: true;
   rows: ParsedImportRow[];
+  rowLineNumbers?: number[];
 };
 
 type ParseWorkerErrorResponse = {
@@ -146,28 +147,46 @@ function parseCsvMatrix(rawText: string, delimiter: string): string[][] {
   return rows;
 }
 
-function toImportRows(matrix: string[][]): ParsedImportRow[] {
-  const filteredRows = matrix.filter((row) => !isEmptyRow(row));
-  if (filteredRows.length === 0) return [];
+function toImportRows(
+  matrix: string[][]
+): { rows: ParsedImportRow[]; rowLineNumbers: number[] } {
+  const headerIndex = matrix.findIndex((row) => !isEmptyRow(row));
+  if (headerIndex < 0) {
+    return {
+      rows: [],
+      rowLineNumbers: [],
+    };
+  }
 
-  const headers = buildHeaders(filteredRows[0]);
+  const headers = buildHeaders(matrix[headerIndex] ?? []);
+  const rows: ParsedImportRow[] = [];
+  const rowLineNumbers: number[] = [];
 
-  return filteredRows
-    .slice(1)
-    .map((sourceRow) => {
-      const row: ParsedImportRow = {};
-      const maxLength = Math.max(headers.length, sourceRow.length);
+  for (let rowIndex = headerIndex + 1; rowIndex < matrix.length; rowIndex += 1) {
+    const sourceRow = matrix[rowIndex] ?? [];
+    if (isEmptyRow(sourceRow)) continue;
 
-      for (let index = 0; index < maxLength; index += 1) {
-        const key = headers[index] ?? `col_${index + 1}`;
-        row[key] = (sourceRow[index] ?? "").trim();
-      }
+    const row: ParsedImportRow = {};
+    const maxLength = Math.max(headers.length, sourceRow.length);
 
-      return row;
-    })
-    .filter((row) =>
-      Object.values(row).some((value) => String(value ?? "").trim().length > 0)
+    for (let cellIndex = 0; cellIndex < maxLength; cellIndex += 1) {
+      const key = headers[cellIndex] ?? `col_${cellIndex + 1}`;
+      row[key] = (sourceRow[cellIndex] ?? "").trim();
+    }
+
+    const hasValues = Object.values(row).some(
+      (value) => String(value ?? "").trim().length > 0
     );
+    if (!hasValues) continue;
+
+    rows.push(row);
+    rowLineNumbers.push(rowIndex + 1);
+  }
+
+  return {
+    rows,
+    rowLineNumbers,
+  };
 }
 
 function postResponse(response: ParseWorkerResponse) {
@@ -191,12 +210,13 @@ self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
     const text = new TextDecoder("utf-8").decode(payload.buffer);
     const delimiter = detectDelimiter(text);
     const matrix = parseCsvMatrix(text, delimiter);
-    const rows = toImportRows(matrix);
+    const parsed = toImportRows(matrix);
 
     postResponse({
       requestId,
       ok: true,
-      rows,
+      rows: parsed.rows,
+      rowLineNumbers: parsed.rowLineNumbers,
     });
   } catch (error) {
     postResponse({
