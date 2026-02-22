@@ -183,6 +183,54 @@ export type BulkUpdateEstimateVersionPatch = Pick<
   "total_ht_cents" | "total_tax_cents" | "total_ttc_cents"
 >;
 
+export type EstimateBatchOperation =
+  | {
+      op: "create";
+      data: Database["public"]["Tables"]["estimate_items"]["Insert"];
+    }
+  | {
+      op: "update";
+      id: string;
+      data: Database["public"]["Tables"]["estimate_items"]["Update"];
+    }
+  | {
+      op: "delete";
+      id: string;
+    }
+  | {
+      op: "reorder";
+      data: {
+        parent_id?: string | null;
+        ordered_ids: string[];
+      };
+    };
+
+export type EstimateBatchOperationResult =
+  | {
+      index: number;
+      op: EstimateBatchOperation["op"];
+      status: "ok";
+      data?: unknown;
+    }
+  | {
+      index: number;
+      op: EstimateBatchOperation["op"];
+      status: "error";
+      code: string;
+      message: string;
+      details?: unknown;
+    };
+
+export type EstimateBatchResult = {
+  committed: boolean;
+  results: EstimateBatchOperationResult[];
+};
+
+export type EstimateExportResult = {
+  filename: string;
+  size: number;
+};
+
 export type SuggestionRuleFeedback = "accept" | "reject";
 
 export type EstimatePdfStatus = "missing" | "processing" | "failed" | "ready";
@@ -619,6 +667,42 @@ async function requestJson<T>(
 
   const root = getRootPayload(payload);
   return root as T;
+}
+
+function extractFilenameFromContentDisposition(
+  contentDisposition: string | null
+): string | null {
+  if (!contentDisposition) return null;
+
+  const utf8Match = contentDisposition.match(/filename\\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      const decoded = decodeURIComponent(utf8Match[1]);
+      return toStringValue(decoded);
+    } catch {
+      return toStringValue(utf8Match[1]);
+    }
+  }
+
+  const asciiMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+  if (!asciiMatch?.[1]) return null;
+  return toStringValue(asciiMatch[1]);
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(downloadUrl);
 }
 
 function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
@@ -1431,41 +1515,47 @@ export async function bulkUpdateEstimateItems(
   };
 }
 
-export async function createEstimateItem(
-  versionId: string,
+function toCreateEstimateItemBody(
   item: Database["public"]["Tables"]["estimate_items"]["Insert"]
-): Promise<EstimateItem> {
+) {
   const lineItem = item as typeof item & {
     h_mo_majoration?: number | null;
     supply_type_id?: string | null;
     selected_supplier_price_id?: string | null;
   };
-  const body =
-    item.item_type === "section"
-      ? {
-          item_type: "section" as const,
-          parent_id: item.parent_id ?? null,
-          position: item.position,
-          title: item.title,
-        }
-      : {
-          item_type: "line" as const,
-          parent_id: item.parent_id ?? null,
-          position: item.position,
-          title: item.title,
-          description: item.description ?? null,
-          quantity: item.quantity,
-          unit_price_ht_cents: item.unit_price_ht_cents,
-          tax_rate_bp: item.tax_rate_bp,
-          k_fo: item.k_fo,
-          h_mo: item.h_mo,
-          h_mo_majoration: lineItem.h_mo_majoration ?? null,
-          k_mo: item.k_mo,
-          labor_role_id: item.labor_role_id ?? null,
-          category_id: item.category_id ?? null,
-          supply_type_id: lineItem.supply_type_id ?? null,
-          selected_supplier_price_id: lineItem.selected_supplier_price_id ?? null,
-        };
+
+  return item.item_type === "section"
+    ? {
+        item_type: "section" as const,
+        parent_id: item.parent_id ?? null,
+        position: item.position,
+        title: item.title,
+      }
+    : {
+        item_type: "line" as const,
+        parent_id: item.parent_id ?? null,
+        position: item.position,
+        title: item.title,
+        description: item.description ?? null,
+        quantity: item.quantity,
+        unit_price_ht_cents: item.unit_price_ht_cents,
+        tax_rate_bp: item.tax_rate_bp,
+        k_fo: item.k_fo,
+        h_mo: item.h_mo,
+        h_mo_majoration: lineItem.h_mo_majoration ?? null,
+        k_mo: item.k_mo,
+        labor_role_id: item.labor_role_id ?? null,
+        category_id: item.category_id ?? null,
+        supply_type_id: lineItem.supply_type_id ?? null,
+        selected_supplier_price_id: lineItem.selected_supplier_price_id ?? null,
+      };
+}
+
+export async function createEstimateItem(
+  versionId: string,
+  item: Database["public"]["Tables"]["estimate_items"]["Insert"]
+): Promise<EstimateItem> {
+  const body = toCreateEstimateItemBody(item);
 
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/items`,
@@ -1546,6 +1636,175 @@ export async function reorderEstimateItems(
     },
     "Impossible de reordonner les lignes."
   );
+}
+
+function isEstimateBatchOp(value: string): value is EstimateBatchOperation["op"] {
+  return (
+    value === "create" ||
+    value === "update" ||
+    value === "delete" ||
+    value === "reorder"
+  );
+}
+
+function parseEstimateBatchOperationResult(
+  value: unknown
+): EstimateBatchOperationResult | null {
+  if (!isRecord(value)) return null;
+
+  const index = toNumber(value.index);
+  const opValue = toStringValue(value.op);
+  const statusValue = toStringValue(value.status);
+
+  if (
+    index === null ||
+    !opValue ||
+    !statusValue ||
+    !isEstimateBatchOp(opValue) ||
+    (statusValue !== "ok" && statusValue !== "error")
+  ) {
+    return null;
+  }
+
+  if (statusValue === "ok") {
+    return {
+      index,
+      op: opValue,
+      status: "ok",
+      data: value.data,
+    };
+  }
+
+  return {
+    index,
+    op: opValue,
+    status: "error",
+    code: toStringValue(value.code) ?? "INTERNAL_ERROR",
+    message: toStringValue(value.message) ?? "Une operation batch a echoue.",
+    details: value.details,
+  };
+}
+
+function parseEstimateBatchResult(payload: unknown): EstimateBatchResult | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const committed = toBooleanValue(root.committed);
+  if (committed === null) return null;
+
+  const results = pickArray(root, ["results"])
+    .map((entry) => parseEstimateBatchOperationResult(entry))
+    .filter(
+      (entry): entry is EstimateBatchOperationResult => entry !== null
+    );
+
+  return {
+    committed,
+    results,
+  };
+}
+
+export async function batchEstimateOperations(
+  versionId: string,
+  updatedAtToken: string,
+  operations: EstimateBatchOperation[],
+  options: {
+    dryRun?: boolean;
+  } = {}
+): Promise<EstimateBatchResult> {
+  const queryParams = new URLSearchParams();
+  if (typeof options.dryRun === "boolean") {
+    queryParams.set("dry_run", options.dryRun ? "true" : "false");
+  }
+  const query = queryParams.toString();
+  const path = `/api/estimates/${versionId}/batch${query.length > 0 ? `?${query}` : ""}`;
+
+  const payload = await requestJson<unknown>(
+    path,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "If-Match": updatedAtToken,
+      },
+      body: JSON.stringify({
+        concurrency_token: updatedAtToken,
+        dry_run: options.dryRun,
+        operations: operations.map((operation) => {
+          if (operation.op === "create") {
+            return {
+              op: "create",
+              data: toCreateEstimateItemBody(operation.data),
+            };
+          }
+
+          if (operation.op === "update") {
+            return {
+              op: "update",
+              id: operation.id,
+              data: operation.data,
+            };
+          }
+
+          if (operation.op === "delete") {
+            return {
+              op: "delete",
+              id: operation.id,
+            };
+          }
+
+          return {
+            op: "reorder",
+            data: {
+              parent_id: operation.data.parent_id ?? null,
+              ordered_ids: operation.data.ordered_ids,
+            },
+          };
+        }),
+      }),
+    },
+    "Impossible d'executer les operations groupees."
+  );
+
+  const parsed = parseEstimateBatchResult(payload);
+  if (!parsed) {
+    throw new Error("Impossible de recuperer le resultat des operations groupees.");
+  }
+
+  return parsed;
+}
+
+export async function exportEstimate(
+  versionId: string,
+  format: "xlsx" = "xlsx"
+): Promise<EstimateExportResult> {
+  const response = await fetch(`/api/estimates/${versionId}/export?format=${format}`, {
+    method: "GET",
+    credentials: "same-origin",
+  });
+
+  if (!response.ok) {
+    const payload = await readJson(response);
+    throw new EstimateApiError(
+      toErrorMessage(payload, "Impossible d'exporter le devis."),
+      response.status,
+      extractErrorDetails(payload),
+      extractErrorCode(payload)
+    );
+  }
+
+  const blob = await response.blob();
+  const filename =
+    extractFilenameFromContentDisposition(
+      response.headers.get("content-disposition")
+    ) ?? `devis-${versionId}.${format}`;
+
+  triggerDownload(blob, filename);
+
+  return {
+    filename,
+    size: blob.size,
+  };
 }
 
 export async function updateEstimateStatus(
@@ -1842,6 +2101,66 @@ export async function updateEstimateLaborRole(
       body: JSON.stringify(updates),
     },
     "Impossible de mettre a jour le role."
+  );
+}
+
+export async function createMarginTier(
+  tier: Pick<
+    Database["public"]["Tables"]["margin_tiers"]["Insert"],
+    "threshold_cents" | "multiplier"
+  >
+): Promise<MarginTier> {
+  const payload = await requestJson<unknown>(
+    `/api/margin-tiers`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(tier),
+    },
+    "Impossible de creer la tranche de marge."
+  );
+
+  const entity = extractEntity(payload, ["margin_tier", "marginTier"]);
+  if (!entity) {
+    throw new Error("Impossible de creer la tranche de marge.");
+  }
+
+  return entity as MarginTier;
+}
+
+export async function updateMarginTier(
+  tierId: string,
+  updates: Database["public"]["Tables"]["margin_tiers"]["Update"]
+): Promise<MarginTier> {
+  const payload = await requestJson<unknown>(
+    `/api/margin-tiers/${tierId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(updates),
+    },
+    "Impossible de mettre a jour la tranche de marge."
+  );
+
+  const entity = extractEntity(payload, ["margin_tier", "marginTier"]);
+  if (!entity) {
+    throw new Error("Impossible de mettre a jour la tranche de marge.");
+  }
+
+  return entity as MarginTier;
+}
+
+export async function deleteMarginTier(tierId: string): Promise<void> {
+  await requestJson<unknown>(
+    `/api/margin-tiers/${tierId}`,
+    {
+      method: "DELETE",
+    },
+    "Impossible de supprimer la tranche de marge."
   );
 }
 

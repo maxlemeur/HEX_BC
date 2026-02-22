@@ -5,12 +5,14 @@ import {
   bulkUpdateEstimateItemsRequestSchema,
   createEstimateVariantSchema,
   createEstimateAssemblySchema,
+  createMarginTierSchema,
   insertAssemblyIntoVersionSchema,
   listEstimateAssembliesQuerySchema,
   patchEstimateVersionSchema,
   promoteEstimateVariantSchema,
   suggestionRuleFeedbackSchema,
   updateEstimateAssemblySchema,
+  updateMarginTierSchema,
 } from "@/lib/estimates/schemas";
 
 const ITEM_ID_1 = "11111111-1111-4111-8111-111111111111";
@@ -464,5 +466,117 @@ describe("estimate variant schemas", () => {
     expect(
       promoteEstimateVariantSchema.safeParse({ foo: "bar" }).success
     ).toBe(false);
+  });
+});
+
+describe("createMarginTierSchema", () => {
+  it("accepts valid input", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: 10_000_00,
+      multiplier: 1.5,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts optional position", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: 0,
+      multiplier: 1.6,
+      position: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects negative threshold", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: -1,
+      multiplier: 1.5,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-integer threshold", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: 1000.5,
+      multiplier: 1.5,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects multiplier > 100", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: 0,
+      multiplier: 101,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects multiplier < 0", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: 0,
+      multiplier: -0.1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects NaN multiplier", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: 0,
+      multiplier: NaN,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects Infinity multiplier", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: 0,
+      multiplier: Infinity,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts boundary 0 for multiplier", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: 0,
+      multiplier: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts boundary 100 for multiplier", () => {
+    const result = createMarginTierSchema.safeParse({
+      threshold_cents: 0,
+      multiplier: 100,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("updateMarginTierSchema", () => {
+  it("rejects empty payload", () => {
+    const result = updateMarginTierSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts partial with multiplier only", () => {
+    const result = updateMarginTierSchema.safeParse({ multiplier: 1.4 });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts partial with threshold only", () => {
+    const result = updateMarginTierSchema.safeParse({
+      threshold_cents: 5000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts partial with position only", () => {
+    const result = updateMarginTierSchema.safeParse({ position: 2 });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects multiplier > 100", () => {
+    const result = updateMarginTierSchema.safeParse({ multiplier: 100.1 });
+    expect(result.success).toBe(false);
   });
 });

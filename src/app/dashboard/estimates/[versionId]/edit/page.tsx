@@ -23,6 +23,7 @@ import {
   type EstimateSettingsState,
 } from "@/components/estimates/EstimateSettingsPanel";
 import { LaborRolesManager } from "@/components/estimates/LaborRolesManager";
+import { MarginTiersManager } from "@/components/estimates/MarginTiersManager";
 import {
   EstimateSuggestionRulesManager,
   type SuggestionRuleCreatePayload,
@@ -76,20 +77,24 @@ import {
 } from "@/lib/estimate-editor-virtualization";
 import {
   exportToCSV,
-  exportToExcelWithSheets,
   type ExportColumn,
 } from "@/lib/export";
 import {
+  batchEstimateOperations,
   bulkUpdateEstimateItems,
   createEstimateItem,
   createEstimateLaborRole,
   createEstimateSuggestionRule,
+  createMarginTier as createMarginTierClient,
+  updateMarginTier as updateMarginTierClient,
+  deleteMarginTier as deleteMarginTierClient,
   deleteEstimateItem,
   fetchEstimateSendGating,
   fetchEstimateEditorData,
   fetchEstimateItemsForVersion,
   fetchEstimateOutlierDismissedFlags,
   fetchEstimateVersionEvents,
+  exportEstimate,
   insertAssemblyIntoVersion,
   isEstimateApiError,
   reorderEstimateItems,
@@ -113,6 +118,7 @@ type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
+type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
 type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
@@ -710,55 +716,6 @@ function buildSectionPathResolver(items: EstimateItem[]) {
   };
 }
 
-const RECAP_EXPORT_COLUMNS: ExportColumn<EstimateRecapExportRow>[] = [
-  { key: "project_name", header: "Projet" },
-  { key: "version_id", header: "Version ID" },
-  { key: "version_number", header: "Version" },
-  { key: "status", header: "Statut" },
-  { key: "date_devis", header: "Date devis" },
-  { key: "validite_jours", header: "Validite (jours)" },
-  { key: "margin_multiplier", header: "Marge (x)" },
-  {
-    key: "discount_cents",
-    header: "Remise (EUR)",
-    formatter: (value) => (value as number) / 100,
-  },
-  { key: "discount_bp", header: "Remise (bp)" },
-  {
-    key: "tax_rate_bp",
-    header: "TVA (%)",
-    formatter: (value) => (value as number) / 100,
-  },
-  { key: "rounding_mode", header: "Mode arrondi" },
-  {
-    key: "rounding_step_cents",
-    header: "Pas arrondi (EUR)",
-    formatter: (value) => (value as number) / 100,
-  },
-  {
-    key: "sale_subtotal_cents",
-    header: "Sous-total HT (EUR)",
-    formatter: (value) => (value as number) / 100,
-  },
-  {
-    key: "sale_total_cents",
-    header: "Total HT (EUR)",
-    formatter: (value) => (value as number) / 100,
-  },
-  {
-    key: "tax_cents",
-    header: "TVA (EUR)",
-    formatter: (value) => (value as number) / 100,
-  },
-  {
-    key: "ttc_cents",
-    header: "Total TTC (EUR)",
-    formatter: (value) => (value as number) / 100,
-  },
-  { key: "quality_lines_count", header: "Lignes avec anomalies" },
-  { key: "quality_flags_count", header: "Nombre total de flags" },
-];
-
 const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
   { key: "section_path", header: "Chemin chapitre" },
   { key: "designation", header: "Designation" },
@@ -1085,6 +1042,8 @@ export default function EditEstimatePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [rulesError, setRulesError] = useState<string | null>(null);
+  const [isSavingMarginTiers, setIsSavingMarginTiers] = useState(false);
+  const [marginTiersError, setMarginTiersError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [sendGating, setSendGating] =
@@ -2215,43 +2174,26 @@ export default function EditEstimatePage() {
   );
 
   const handleExportExcel = useCallback(async () => {
-    if (isExporting) return;
-    const recapRow = buildRecapRow();
-    if (!recapRow) return;
+    if (isExporting || !resolvedVersionId) return;
 
     setIsExporting(true);
     try {
-      const supplierComparisonsByItemId =
-        await fetchSupplierComparisonsByItemId();
-      const lines = buildLineRows(supplierComparisonsByItemId);
-      const filename = buildExportFilename();
-      exportToExcelWithSheets(
-        [
-          {
-            name: "Recap",
-            data: [recapRow],
-            columns: RECAP_EXPORT_COLUMNS,
-          },
-          {
-            name: "Lignes",
-            data: lines,
-            columns: lineExportColumns,
-          },
-        ],
-        { filename }
-      );
+      await exportEstimate(resolvedVersionId, "xlsx");
     } catch (error) {
-      console.error("Erreur lors de l'export Excel.", error);
+      console.error("Erreur lors de l'export Excel streaming.", error);
+      setActionError(
+        resolveEstimateActionError(
+          error instanceof Error
+            ? error.message
+            : "Impossible d'exporter le devis en Excel."
+        )
+      );
     } finally {
       setIsExporting(false);
     }
   }, [
-    buildExportFilename,
-    buildLineRows,
-    buildRecapRow,
-    fetchSupplierComparisonsByItemId,
     isExporting,
-    lineExportColumns,
+    resolvedVersionId,
   ]);
 
   const handleExportCSV = useCallback(async () => {
@@ -2744,14 +2686,39 @@ export default function EditEstimatePage() {
     isFlushingBufferedUpdatesRef.current = true;
 
     const versionTotalsPatch = buildVersionTotalsPatch(persistedTotalsRef.current);
+    const batchOperations = bufferedEntries.map((entry) => ({
+      op: "update" as const,
+      id: entry.id,
+      data: entry.updates,
+    }));
 
     try {
-      const bulkResult = await bulkUpdateEstimateItems(
+      const batchResult = await batchEstimateOperations(
         versionSnapshot.id,
         versionSnapshot.updated_at,
-        bufferedEntries,
-        versionTotalsPatch
+        batchOperations
       );
+
+      if (!batchResult.committed) {
+        const failedResult = batchResult.results.find(
+          (result) => result.status === "error"
+        );
+        throw new Error(
+          failedResult?.message ??
+            "Une operation de sauvegarde groupee a echoue."
+        );
+      }
+
+      let nextVersionToken = versionSnapshot.updated_at;
+      if (versionTotalsPatch) {
+        const bulkResult = await bulkUpdateEstimateItems(
+          versionSnapshot.id,
+          versionSnapshot.updated_at,
+          [],
+          versionTotalsPatch
+        );
+        nextVersionToken = bulkResult.versionToken.updated_at;
+      }
 
       setTotalsOutOfSync(false);
       setVersion((prev) =>
@@ -2759,7 +2726,7 @@ export default function EditEstimatePage() {
           ? {
               ...prev,
               ...(versionTotalsPatch ?? {}),
-              updated_at: bulkResult.versionToken.updated_at,
+              updated_at: nextVersionToken,
             }
           : prev
       );
@@ -2767,7 +2734,7 @@ export default function EditEstimatePage() {
         ? {
             ...versionRef.current,
             ...(versionTotalsPatch ?? {}),
-            updated_at: bulkResult.versionToken.updated_at,
+            updated_at: nextVersionToken,
           }
         : null;
       if (nextVersionSnapshot) {
@@ -3225,6 +3192,99 @@ export default function EditEstimatePage() {
       isLaborSplitEnabled,
     ]
   );
+
+  const canEditMarginTiers = isAdmin && !isSaveBlocked;
+
+  const handleCreateTier = useCallback(
+    async (payload: { threshold_cents: number; multiplier: number }) => {
+      setMarginTiersError(null);
+      setIsSavingMarginTiers(true);
+      try {
+        const data = await createMarginTierClient(payload);
+        setSettings((prev) =>
+          prev
+            ? {
+                ...prev,
+                margin_tiers: [...(prev.margin_tiers ?? []), data].sort(
+                  (a, b) =>
+                    (a as MarginTierRow).threshold_cents -
+                    (b as MarginTierRow).threshold_cents
+                ),
+              }
+            : prev
+        );
+      } catch (error) {
+        setMarginTiersError(
+          error instanceof Error ? error.message : "Erreur creation tranche."
+        );
+      } finally {
+        setIsSavingMarginTiers(false);
+      }
+    },
+    []
+  );
+
+  const handleUpdateTier = useCallback(
+    async (
+      id: string,
+      updates: { threshold_cents?: number; multiplier?: number }
+    ) => {
+      setMarginTiersError(null);
+      setIsSavingMarginTiers(true);
+      try {
+        const data = await updateMarginTierClient(id, updates);
+        setSettings((prev) =>
+          prev
+            ? {
+                ...prev,
+                margin_tiers: (prev.margin_tiers ?? [])
+                  .map((t) => ((t as MarginTierRow).id === id ? data : t))
+                  .sort(
+                    (a, b) =>
+                      (a as MarginTierRow).threshold_cents -
+                      (b as MarginTierRow).threshold_cents
+                  ),
+              }
+            : prev
+        );
+      } catch (error) {
+        setMarginTiersError(
+          error instanceof Error
+            ? error.message
+            : "Erreur mise a jour tranche."
+        );
+      } finally {
+        setIsSavingMarginTiers(false);
+      }
+    },
+    []
+  );
+
+  const handleDeleteTier = useCallback(async (id: string) => {
+    setMarginTiersError(null);
+    setIsSavingMarginTiers(true);
+    try {
+      await deleteMarginTierClient(id);
+      setSettings((prev) =>
+        prev
+          ? {
+              ...prev,
+              margin_tiers: (prev.margin_tiers ?? []).filter(
+                (t) => (t as MarginTierRow).id !== id
+              ),
+            }
+          : prev
+      );
+    } catch (error) {
+      setMarginTiersError(
+        error instanceof Error
+          ? error.message
+          : "Erreur suppression tranche."
+      );
+    } finally {
+      setIsSavingMarginTiers(false);
+    }
+  }, []);
 
   const handleCreateSuggestionRule = useCallback(
     async (payload: SuggestionRuleCreatePayload) => {
@@ -5417,6 +5477,8 @@ export default function EditEstimatePage() {
             onExportExcel={handleExportExcel}
             onExportCSV={handleExportCSV}
             disabled={isExportDisabled}
+            loading={isExporting}
+            loadingLabel="Export XLSX..."
           />
           <EstimatePdfDownloadButton versionId={versionId} />
           <SaveAsTemplateButton versionId={versionId} />
@@ -5750,6 +5812,17 @@ export default function EditEstimatePage() {
             onCreate={handleCreateRole}
             onUpdate={handleUpdateRole}
           />
+          {settings?.margin_mode === "tiered" && (
+            <MarginTiersManager
+              tiers={(settings.margin_tiers ?? []) as MarginTierRow[]}
+              isSaving={isSavingMarginTiers}
+              error={marginTiersError}
+              canEdit={canEditMarginTiers}
+              onCreate={handleCreateTier}
+              onUpdate={handleUpdateTier}
+              onDelete={handleDeleteTier}
+            />
+          )}
           <EstimateSuggestionRulesManager
             rules={suggestionRules}
             categories={categories}

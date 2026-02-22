@@ -437,6 +437,33 @@ export const updateLaborRoleSchema = z
     });
   });
 
+const marginTierMultiplierSchema = z
+  .number()
+  .finite("Nombre invalide.")
+  .min(0, "Doit etre >= 0.")
+  .max(100, "Doit etre <= 100.");
+
+export const createMarginTierSchema = z.object({
+  threshold_cents: nonNegativeIntegerSchema,
+  multiplier: marginTierMultiplierSchema,
+  position: nonNegativeIntegerSchema.optional(),
+});
+
+export const updateMarginTierSchema = z
+  .object({
+    threshold_cents: nonNegativeIntegerSchema.optional(),
+    multiplier: marginTierMultiplierSchema.optional(),
+    position: nonNegativeIntegerSchema.optional(),
+  })
+  .superRefine((payload, ctx) => {
+    if (Object.keys(payload).length > 0) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Aucun champ de mise a jour fourni.",
+      path: [],
+    });
+  });
+
 export const createSuggestionRuleSchema = z.object({
   name: requiredTextSchema,
   match_type: z.literal("keyword").optional(),
@@ -723,6 +750,8 @@ export type CreateEstimateCategoryInput = z.infer<
 >;
 export type CreateLaborRoleInput = z.infer<typeof createLaborRoleSchema>;
 export type UpdateLaborRoleInput = z.infer<typeof updateLaborRoleSchema>;
+export type CreateMarginTierInput = z.infer<typeof createMarginTierSchema>;
+export type UpdateMarginTierInput = z.infer<typeof updateMarginTierSchema>;
 export type CreateSuggestionRuleInput = z.infer<
   typeof createSuggestionRuleSchema
 >;

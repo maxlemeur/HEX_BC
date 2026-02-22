@@ -34,6 +34,7 @@ import type {
   CreateEstimateTemplateFromVersionInput,
   CreateEstimateItemInput,
   CreateLaborRoleInput,
+  CreateMarginTierInput,
   DuplicateEstimateTemplateInput,
   InstantiateEstimateFromTemplateInput,
   ListEstimateAssembliesQueryInput,
@@ -47,6 +48,7 @@ import type {
   UpdateEstimateAssemblyInput,
   UpdateEstimateTemplateInput,
   UpdateLaborRoleInput,
+  UpdateMarginTierInput,
   UpdateEstimateItemInput,
   UpdateSuggestionRuleInput,
 } from "./schemas";
@@ -98,6 +100,8 @@ type LaborRoleInsert = Database["public"]["Tables"]["labor_roles"]["Insert"];
 type LaborRoleUpdate = Database["public"]["Tables"]["labor_roles"]["Update"];
 type LaborRoleRow = Database["public"]["Tables"]["labor_roles"]["Row"];
 type MarginTierRow = Database["public"]["Tables"]["margin_tiers"]["Row"];
+type MarginTierInsert = Database["public"]["Tables"]["margin_tiers"]["Insert"];
+type MarginTierUpdate = Database["public"]["Tables"]["margin_tiers"]["Update"];
 type SuggestionRuleInsert =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Insert"];
 type SuggestionRuleUpdate =
@@ -4181,6 +4185,150 @@ export async function updateLaborRole(
   return {
     labor_role: data,
   };
+}
+
+async function getNextMarginTierPosition(
+  supabase: Supabase,
+  tenantId: string
+) {
+  const { data, error } = await supabase
+    .from("margin_tiers")
+    .select("position")
+    .eq("tenant_id", tenantId)
+    .order("position", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de determiner la prochaine position.");
+  }
+
+  return (data?.[0]?.position ?? 0) + 1;
+}
+
+export async function createMarginTier(input: CreateMarginTierInput) {
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
+
+  if (!isTenantAdmin(tenantRole)) {
+    throw forbidden("Seul un administrateur peut gerer les tranches de marge.");
+  }
+
+  const position =
+    input.position ?? (await getNextMarginTierPosition(supabase, tenantId));
+
+  const { data, error } = await supabase
+    .from("margin_tiers")
+    .insert({
+      tenant_id: tenantId,
+      threshold_cents: input.threshold_cents,
+      multiplier: input.multiplier,
+      position,
+    } as MarginTierInsert)
+    .select("*")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      if (error.message?.includes("threshold_cents")) {
+        throw conflict("Une tranche avec ce seuil existe deja pour ce tenant.");
+      }
+      if (error.message?.includes("position")) {
+        throw conflict("Une tranche avec cette position existe deja pour ce tenant.");
+      }
+      throw conflict("Conflit de donnees.", error);
+    }
+    throw mapSupabaseError(error, "Impossible de creer la tranche de marge.");
+  }
+
+  if (!data) {
+    throw badRequest("Impossible de creer la tranche de marge.");
+  }
+
+  return { margin_tier: data };
+}
+
+export async function updateMarginTier(
+  tierId: string,
+  input: UpdateMarginTierInput
+) {
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
+
+  if (!isTenantAdmin(tenantRole)) {
+    throw forbidden("Seul un administrateur peut gerer les tranches de marge.");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("margin_tiers")
+    .select("id")
+    .eq("id", tierId)
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (existingError || !existing) {
+    throw notFound("Tranche de marge introuvable.");
+  }
+
+  const payload: MarginTierUpdate = {};
+  if ("threshold_cents" in input) payload.threshold_cents = input.threshold_cents;
+  if ("multiplier" in input) payload.multiplier = input.multiplier;
+  if ("position" in input) payload.position = input.position;
+
+  const { data, error } = await supabase
+    .from("margin_tiers")
+    .update(payload)
+    .eq("id", tierId)
+    .eq("tenant_id", tenantId)
+    .select("*")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      if (error.message?.includes("threshold_cents")) {
+        throw conflict("Une tranche avec ce seuil existe deja pour ce tenant.");
+      }
+      if (error.message?.includes("position")) {
+        throw conflict("Une tranche avec cette position existe deja pour ce tenant.");
+      }
+      throw conflict("Conflit de donnees.", error);
+    }
+    throw mapSupabaseError(error, "Impossible de mettre a jour la tranche de marge.");
+  }
+
+  if (!data) {
+    throw badRequest("Impossible de mettre a jour la tranche de marge.");
+  }
+
+  return { margin_tier: data };
+}
+
+export async function deleteMarginTier(tierId: string) {
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
+
+  if (!isTenantAdmin(tenantRole)) {
+    throw forbidden("Seul un administrateur peut gerer les tranches de marge.");
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("margin_tiers")
+    .select("id")
+    .eq("id", tierId)
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (existingError || !existing) {
+    throw notFound("Tranche de marge introuvable.");
+  }
+
+  const { error } = await supabase
+    .from("margin_tiers")
+    .delete()
+    .eq("id", tierId)
+    .eq("tenant_id", tenantId);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de supprimer la tranche de marge.");
+  }
+
+  return { deleted: true };
 }
 
 export async function createSuggestionRule(
