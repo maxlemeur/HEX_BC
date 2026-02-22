@@ -1039,6 +1039,7 @@ export type Database = {
         Row: {
           id: string;
           created_at: string;
+          occurred_at: string;
           tenant_id: string;
           estimate_version_id: string;
           event_type: string;
@@ -1048,6 +1049,7 @@ export type Database = {
         Insert: {
           id?: string;
           created_at?: string;
+          occurred_at?: string;
           tenant_id?: string;
           estimate_version_id: string;
           event_type: string;
@@ -1057,6 +1059,7 @@ export type Database = {
         Update: {
           id?: string;
           created_at?: string;
+          occurred_at?: string;
           tenant_id?: string;
           estimate_version_id?: string;
           event_type?: string;
@@ -1742,6 +1745,25 @@ export type Database = {
           target_tenant_id?: string;
         };
         Returns: number;
+      };
+      log_estimate_version_event: {
+        Args: {
+          p_estimate_version_id: string;
+          p_event_type: string;
+          p_created_by: string | null;
+          p_metadata?: Json;
+          p_occurred_at?: string;
+        };
+        Returns: {
+          id: string;
+          created_at: string;
+          occurred_at: string;
+          tenant_id: string;
+          estimate_version_id: string;
+          event_type: string;
+          metadata: Json;
+          created_by: string | null;
+        };
       };
       reorder_estimate_items: {
         Args: {

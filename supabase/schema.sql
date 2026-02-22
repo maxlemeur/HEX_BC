@@ -4777,9 +4777,12 @@ $$;
 create table if not exists public.estimate_version_events (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz not null default now(),
+  occurred_at timestamptz not null default now(),
   tenant_id uuid not null references public.tenants(id) on delete restrict,
   estimate_version_id uuid not null references public.estimate_versions(id) on delete cascade,
-  event_type text not null check (event_type in ('sent')),
+  event_type text not null check (
+    event_type in ('sent', 'accepted', 'archived', 'rejected', 'seal_verified')
+  ),
   metadata jsonb not null default '{}'::jsonb,
   created_by uuid references public.profiles(id) on delete set null
 );
@@ -4790,6 +4793,10 @@ create index if not exists estimate_version_events_tenant_id_idx
   on public.estimate_version_events (tenant_id);
 create index if not exists estimate_version_events_estimate_version_id_idx
   on public.estimate_version_events (estimate_version_id);
+create index if not exists estimate_version_events_occurred_at_idx
+  on public.estimate_version_events (occurred_at desc);
+create index if not exists estimate_version_events_version_occurred_at_idx
+  on public.estimate_version_events (estimate_version_id, occurred_at desc, created_at desc);
 
 create or replace function public.assign_estimate_version_events_tenant_id()
 returns trigger
@@ -4821,49 +4828,142 @@ create trigger set_estimate_version_events_tenant_id
   before insert on public.estimate_version_events
   for each row execute procedure public.assign_estimate_version_events_tenant_id();
 
+create or replace function public.guard_estimate_version_events_append_only()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception
+    using
+      errcode = '42501',
+      message = 'ESTIMATE_VERSION_EVENTS_APPEND_ONLY',
+      detail = 'estimate_version_events is append-only and does not allow update/delete.';
+end;
+$$;
+
+drop trigger if exists estimate_version_events_append_only_guard on public.estimate_version_events;
+create trigger estimate_version_events_append_only_guard
+  before update or delete on public.estimate_version_events
+  for each row execute procedure public.guard_estimate_version_events_append_only();
+
+create or replace function public.log_estimate_version_event(
+  p_estimate_version_id uuid,
+  p_event_type text,
+  p_created_by uuid,
+  p_metadata jsonb default '{}'::jsonb,
+  p_occurred_at timestamptz default now()
+)
+returns public.estimate_version_events
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_tenant_id uuid;
+  normalized_event_type text := lower(trim(coalesce(p_event_type, '')));
+  inserted_row public.estimate_version_events;
+begin
+  if normalized_event_type = '' then
+    raise exception
+      using
+        errcode = '22023',
+        message = 'INVALID_ESTIMATE_VERSION_EVENT_TYPE',
+        detail = 'event_type is required.';
+  end if;
+
+  if normalized_event_type not in ('sent', 'accepted', 'archived', 'rejected', 'seal_verified') then
+    raise exception
+      using
+        errcode = '22023',
+        message = 'INVALID_ESTIMATE_VERSION_EVENT_TYPE',
+        detail = format('Unsupported event_type: %s', normalized_event_type);
+  end if;
+
+  select ev.tenant_id
+    into target_tenant_id
+  from public.estimate_versions ev
+  where ev.id = p_estimate_version_id;
+
+  if target_tenant_id is null then
+    raise exception
+      using
+        errcode = 'P0001',
+        message = 'ESTIMATE_VERSION_NOT_FOUND',
+        detail = format('estimate_version_id=%s', p_estimate_version_id);
+  end if;
+
+  if p_created_by is not null
+    and not exists (
+      select 1
+      from public.tenant_memberships tm
+      where tm.tenant_id = target_tenant_id
+        and tm.user_id = p_created_by
+    )
+    and not exists (
+      select 1
+      from public.profiles profile
+      where profile.id = p_created_by
+        and profile.role = 'admin'
+    ) then
+    raise exception
+      using
+        errcode = '42501',
+        message = 'ESTIMATE_EVENT_ACTOR_NOT_ALLOWED',
+        detail = format('created_by=%s is not allowed for tenant_id=%s', p_created_by, target_tenant_id);
+  end if;
+
+  insert into public.estimate_version_events (
+    tenant_id,
+    estimate_version_id,
+    event_type,
+    metadata,
+    created_by,
+    occurred_at
+  )
+  values (
+    target_tenant_id,
+    p_estimate_version_id,
+    normalized_event_type,
+    coalesce(p_metadata, '{}'::jsonb),
+    p_created_by,
+    coalesce(p_occurred_at, now())
+  )
+  returning *
+  into inserted_row;
+
+  return inserted_row;
+end;
+$$;
+
+revoke all on function public.log_estimate_version_event(uuid, text, uuid, jsonb, timestamptz) from public;
+revoke all on function public.log_estimate_version_event(uuid, text, uuid, jsonb, timestamptz) from authenticated;
+grant execute on function public.log_estimate_version_event(uuid, text, uuid, jsonb, timestamptz) to service_role;
+
 alter table public.estimate_version_events enable row level security;
 
 drop policy if exists "Users can view estimate version events" on public.estimate_version_events;
 drop policy if exists "Users can insert estimate version events" on public.estimate_version_events;
+drop policy if exists "Tenant members can view estimate version events" on public.estimate_version_events;
+drop policy if exists "Service role can insert estimate version events" on public.estimate_version_events;
 
-create policy "Users can view estimate version events"
+create policy "Tenant members can view estimate version events"
   on public.estimate_version_events
   for select
   to authenticated
   using (
-    exists (
-      select 1
-      from public.estimate_versions v
-      join public.estimate_projects p on p.id = v.project_id
-      where v.id = estimate_version_events.estimate_version_id
-        and v.tenant_id = estimate_version_events.tenant_id
-        and (select public.is_tenant_member(v.tenant_id))
-        and (
-          p.user_id = (select auth.uid())
-          or (select public.has_tenant_role(v.tenant_id, array['admin'::public.tenant_role]))
-        )
+    tenant_id is not null
+    and (
+      (select public.is_tenant_member(tenant_id))
+      or (select public.is_admin_user())
     )
   );
 
-create policy "Users can insert estimate version events"
+create policy "Service role can insert estimate version events"
   on public.estimate_version_events
   for insert
-  to authenticated
-  with check (
-    (created_by is null or created_by = (select auth.uid()))
-    and exists (
-      select 1
-      from public.estimate_versions v
-      join public.estimate_projects p on p.id = v.project_id
-      where v.id = estimate_version_events.estimate_version_id
-        and v.tenant_id = estimate_version_events.tenant_id
-        and (select public.is_tenant_member(v.tenant_id))
-        and (
-          p.user_id = (select auth.uid())
-          or (select public.has_tenant_role(v.tenant_id, array['admin'::public.tenant_role]))
-        )
-    )
-  );
+  to service_role
+  with check (true);
 
 alter table public.audit_logs
   drop constraint if exists audit_logs_action_check;

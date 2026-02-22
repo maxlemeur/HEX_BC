@@ -739,12 +739,7 @@ async function logEstimateVersionEvent(input: {
   metadata?: Json;
   occurredAt?: string;
 }) {
-  const rpcClient = getServiceRoleSupabaseClient() as unknown as {
-    rpc: (
-      fn: string,
-      args: Record<string, unknown>
-    ) => Promise<{ error: PostgrestError | null }>;
-  };
+  const rpcClient = getServiceRoleSupabaseClient();
 
   const { error } = await rpcClient.rpc("log_estimate_version_event", {
     p_estimate_version_id: input.versionId,
