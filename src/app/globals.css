@@ -1,64 +1,6 @@
 @import "tailwindcss";
 @import "../styles/tokens.css";
 
-:root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-
-  /* Hydro Express brand colors - from official logo */
-  --brand-blue: #1E3A5F;
-  --brand-blue-light: #2d4a6f;
-  --brand-blue-dark: #152a45;
-  --brand-orange: #E8732F;
-  --brand-orange-light: #f5945a;
-  --brand-orange-dark: #c85d1f;
-
-  /* Neutral palette */
-  --slate-50: #f8fafc;
-  --slate-100: #f1f5f9;
-  --slate-200: #e2e8f0;
-  --slate-300: #cbd5e1;
-  --slate-400: #94a3b8;
-  --slate-500: #64748b;
-  --slate-600: #475569;
-  --slate-700: #334155;
-  --slate-800: #1e293b;
-  --slate-900: #0f172a;
-  --slate-950: #020617;
-
-  /* Semantic colors */
-  --success: #10b981;
-  --success-light: #d1fae5;
-  --warning: #f59e0b;
-  --warning-light: #fef3c7;
-  --error: #ef4444;
-  --error-light: #fee2e2;
-  --info: #3b82f6;
-  --info-light: #dbeafe;
-
-  /* Sidebar */
-  --sidebar-width: 280px;
-  --sidebar-collapsed-width: 72px;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-dm-sans);
-  --font-display: var(--font-outfit);
-
-  /* Brand colors for Tailwind */
-  --color-brand-blue: var(--brand-blue);
-  --color-brand-blue-light: var(--brand-blue-light);
-  --color-brand-blue-dark: var(--brand-blue-dark);
-  --color-brand-orange: var(--brand-orange);
-  --color-brand-orange-light: var(--brand-orange-light);
-  --color-brand-orange-dark: var(--brand-orange-dark);
-
-  /* Sidebar */
-  --sidebar-width: var(--sidebar-width);
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
