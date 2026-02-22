@@ -692,7 +692,9 @@ function getServiceRoleSupabaseClient() {
   }
 
   if (!supabaseUrl || !serviceRoleKey) {
-    return null;
+    throw internalError(
+      "Configuration Supabase service role manquante pour journaliser les evenements."
+    );
   }
 
   serviceRoleSupabaseClient = createClient<Database>(supabaseUrl, serviceRoleKey, {
@@ -733,15 +735,11 @@ function normalizeEstimateVersionEvent(
 async function logEstimateVersionEvent(input: {
   versionId: string;
   eventType: EstimateVersionEventType;
-  actorUserId: string;
+  actorUserId: string | null;
   metadata?: Json;
   occurredAt?: string;
 }) {
-  const serviceRoleClient = getServiceRoleSupabaseClient();
-  const fallbackClient = serviceRoleClient
-    ? null
-    : await createSupabaseServerClient();
-  const rpcClient = (serviceRoleClient ?? fallbackClient) as unknown as {
+  const rpcClient = getServiceRoleSupabaseClient() as unknown as {
     rpc: (
       fn: string,
       args: Record<string, unknown>
