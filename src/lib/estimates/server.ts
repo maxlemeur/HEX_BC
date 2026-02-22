@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
+import {
+  createClient,
+  type PostgrestError,
+  type SupabaseClient,
+} from "@supabase/supabase-js";
 
 import { computeEstimateLineValues } from "@/lib/estimate-calculations";
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
@@ -19,6 +23,7 @@ import {
   notFound,
   unauthorized,
 } from "./errors";
+import { evaluateEstimateSendGating } from "./gating";
 import { generateEstimatePdfNow } from "./pdf-generator";
 import type {
   BulkUpdateEstimateItemsInput,
@@ -52,8 +57,6 @@ type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionInsert = Database["public"]["Tables"]["estimate_versions"]["Insert"];
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
-type EstimateVersionEventInsert =
-  Database["public"]["Tables"]["estimate_version_events"]["Insert"];
 type AuditLogInsert = Database["public"]["Tables"]["audit_logs"]["Insert"];
 type EstimateCategoryInsert = Database["public"]["Tables"]["estimate_categories"]["Insert"];
 type EstimateCategoryRow = Database["public"]["Tables"]["estimate_categories"]["Row"];
@@ -102,6 +105,17 @@ type SuggestionRuleUpdate =
 type SuggestionRuleRow =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
+type EstimateVersionEventType =
+  | "sent"
+  | "accepted"
+  | "archived"
+  | "rejected"
+  | "seal_verified";
+type EstimateVersionStatusEventType = Extract<
+  EstimateVersionEventType,
+  "sent" | "accepted" | "archived"
+>;
+type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type TenantMembershipRow = Pick<
   Database["public"]["Tables"]["tenant_memberships"]["Row"],
@@ -124,6 +138,7 @@ type VersionAccessRow = Pick<
   | "id"
   | "project_id"
   | "status"
+  | "margin_mode"
   | "margin_multiplier"
   | "tax_rate_bp"
   | "updated_at"
@@ -152,8 +167,78 @@ type EstimateListRow = Pick<
   estimate_projects: EstimateListProject | EstimateListProject[] | null;
 };
 
+type EstimateProjectOwnerRow = Pick<
+  EstimateProjectRow,
+  "id" | "tenant_id" | "user_id"
+>;
+
+type EstimateProjectVersionTimelineRow = Pick<
+  EstimateVersionRow,
+  | "id"
+  | "project_id"
+  | "version_number"
+  | "status"
+  | "title"
+  | "updated_at"
+  | "created_at"
+  | "total_ttc_cents"
+>;
+
+type EstimateVersionAuditActorRow = Pick<
+  Database["public"]["Tables"]["audit_logs"]["Row"],
+  "record_id" | "user_id" | "created_at"
+>;
+
+type ProfileNameRow = Pick<ProfileRow, "id" | "full_name">;
+
+export type EstimateProjectVersionTimelineItem = {
+  id: string;
+  project_id: string;
+  version_number: number;
+  status: EstimateStatus;
+  title: string | null;
+  updated_at: string;
+  created_at: string;
+  total_ttc_cents: number;
+  author_name: string | null;
+};
+
+export type ListEstimateProjectVersionsResult = {
+  items: EstimateProjectVersionTimelineItem[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total_count: number;
+    total_pages: number;
+    has_prev: boolean;
+    has_next: boolean;
+  };
+};
+
 type EstimateVersionDetailsRow = EstimateVersionRow & {
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
+};
+type EstimateVersionEventAuthor = Pick<ProfileRow, "full_name">;
+type EstimateVersionEventRow = {
+  id: string;
+  estimate_version_id: string;
+  event_type: string;
+  metadata: Json;
+  created_by: string | null;
+  occurred_at: string;
+  created_at: string;
+  profiles: EstimateVersionEventAuthor | EstimateVersionEventAuthor[] | null;
+};
+
+export type EstimateVersionEvent = {
+  id: string;
+  estimate_version_id: string;
+  event_type: string;
+  metadata: Json;
+  created_by: string | null;
+  actor_name: string | null;
+  occurred_at: string;
+  created_at: string;
 };
 
 type EstimateTemplateRow = {
@@ -226,6 +311,8 @@ const DEFAULT_ROUNDING_STEP_CENTS = 1;
 const DEFAULT_MARGIN_MODE: EstimateVersionRow["margin_mode"] = "fixed";
 const DEFAULT_CURRENCY = "EUR";
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
+const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;
+const MAX_VERSION_TIMELINE_PAGE_SIZE = 100;
 const STALE_BULK_UPDATE_ERROR_MESSAGE = "STALE_BULK_UPDATE_ITEMS";
 const VERSION_CONFLICT_ERROR_MESSAGE = "Version modifiee par un autre utilisateur";
 const ESTIMATE_SEAL_PAYLOAD_VERSION = 1;
@@ -237,6 +324,16 @@ const ESTIMATE_STATUS_TRANSITIONS: Readonly<
   accepted: ["archived"],
   archived: [],
 };
+const ESTIMATE_VERSION_STATUS_EVENT_TYPES: Readonly<
+  Record<EstimateStatus, EstimateVersionStatusEventType | null>
+> = {
+  draft: null,
+  sent: "sent",
+  accepted: "accepted",
+  archived: "archived",
+};
+
+let serviceRoleSupabaseClient: Supabase | null = null;
 
 type EstimateSealVersionFields = Pick<
   EstimateVersionRow,
@@ -365,6 +462,24 @@ type SuggestedCataloguePrice = {
   material_index_value: number | null;
   catalogue_url: string | null;
   alternatives: SuggestedSupplierAlternative[];
+};
+
+type EstimateSupplierComparisonAlternative = {
+  supplier_price_id: string;
+  supplier_name: string;
+  adjusted_unit_price_cents: number;
+  supplier_reference: string | null;
+  catalogue_url: string | null;
+  updated_at: string | null;
+  is_stale: boolean;
+  product_designation: string;
+};
+
+type EstimateSupplierComparison = {
+  item_id: string;
+  selected_supplier_price_id: string | null;
+  best_supplier_price_id: string | null;
+  alternatives: EstimateSupplierComparisonAlternative[];
 };
 
 const DEFAULT_ESTIMATE_CATEGORIES = [
@@ -562,25 +677,84 @@ async function loadEstimateSealSource(input: {
   };
 }
 
-async function insertEstimateVersionEvent(input: {
-  supabase: Supabase;
+function getServiceRoleSupabaseClient() {
+  if (serviceRoleSupabaseClient) {
+    return serviceRoleSupabaseClient;
+  }
+
+  let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  let serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  // Allow mocked service-role logging in test runs even without env vars.
+  if ((!supabaseUrl || !serviceRoleKey) && process.env.NODE_ENV === "test") {
+    supabaseUrl = supabaseUrl ?? "http://localhost:54321";
+    serviceRoleKey = serviceRoleKey ?? "test-service-role";
+  }
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return null;
+  }
+
+  serviceRoleSupabaseClient = createClient<Database>(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  return serviceRoleSupabaseClient;
+}
+
+function resolveStatusEventType(
+  status: EstimateStatus
+): EstimateVersionStatusEventType | null {
+  return ESTIMATE_VERSION_STATUS_EVENT_TYPES[status] ?? null;
+}
+
+function normalizeEstimateVersionEvent(
+  row: EstimateVersionEventRow
+): EstimateVersionEvent {
+  const profile = resolveEmbeddedOne(row.profiles);
+  const actorName = toNullableText(profile?.full_name) ?? null;
+  const occurredAt = toNullableText(row.occurred_at) ?? row.created_at;
+
+  return {
+    id: row.id,
+    estimate_version_id: row.estimate_version_id,
+    event_type: row.event_type,
+    metadata: row.metadata,
+    created_by: row.created_by,
+    actor_name: actorName,
+    occurred_at: occurredAt,
+    created_at: row.created_at,
+  };
+}
+
+async function logEstimateVersionEvent(input: {
   versionId: string;
-  tenantId: string;
-  eventType: "sent";
+  eventType: EstimateVersionEventType;
   actorUserId: string;
-  metadata: Json;
+  metadata?: Json;
+  occurredAt?: string;
 }) {
-  const payload: EstimateVersionEventInsert = {
-    estimate_version_id: input.versionId,
-    tenant_id: input.tenantId,
-    event_type: input.eventType,
-    created_by: input.actorUserId,
-    metadata: input.metadata,
+  const serviceRoleClient = getServiceRoleSupabaseClient();
+  const fallbackClient = serviceRoleClient
+    ? null
+    : await createSupabaseServerClient();
+  const rpcClient = (serviceRoleClient ?? fallbackClient) as unknown as {
+    rpc: (
+      fn: string,
+      args: Record<string, unknown>
+    ) => Promise<{ error: PostgrestError | null }>;
   };
 
-  const { error } = await input.supabase
-    .from("estimate_version_events")
-    .insert(payload);
+  const { error } = await rpcClient.rpc("log_estimate_version_event", {
+    p_estimate_version_id: input.versionId,
+    p_event_type: input.eventType,
+    p_created_by: input.actorUserId,
+    p_metadata: input.metadata ?? {},
+    p_occurred_at: input.occurredAt ?? new Date().toISOString(),
+  });
 
   if (error) {
     throw mapSupabaseError(
@@ -778,6 +952,11 @@ function escapeIlikeToken(value: string) {
   return value.replace(/[%_,()']/g, "");
 }
 
+function normalizeSupplierComparisonQuery(value: string | null | undefined) {
+  if (!value) return "";
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 function toTimestamp(value: string | null | undefined) {
   if (!value) return 0;
   const parsed = new Date(value).getTime();
@@ -844,6 +1023,25 @@ function computeSearchRelevance(input: {
 
 function todayDateOnly() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function normalizePositiveInteger(input: {
+  value: number | undefined;
+  fallback: number;
+  min?: number;
+  max?: number;
+}) {
+  const min = input.min ?? 1;
+  const max = input.max ?? Number.MAX_SAFE_INTEGER;
+
+  if (input.value === undefined || !Number.isFinite(input.value)) {
+    return input.fallback;
+  }
+
+  const normalized = Math.trunc(input.value);
+  if (normalized < min) return min;
+  if (normalized > max) return max;
+  return normalized;
 }
 
 function isTenantAdmin(tenantRole: TenantRole) {
@@ -1152,7 +1350,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_multiplier, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -1591,6 +1789,198 @@ async function getNextSuggestionRulePosition(
   }
 
   return (data?.[0]?.position ?? 0) + 1;
+}
+
+export async function listEstimateProjectVersions(input: {
+  projectId: string;
+  page?: number;
+  pageSize?: number;
+  anchorVersionId?: string;
+}): Promise<ListEstimateProjectVersionsResult> {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const pageSize = normalizePositiveInteger({
+    value: input.pageSize,
+    fallback: DEFAULT_VERSION_TIMELINE_PAGE_SIZE,
+    min: 1,
+    max: MAX_VERSION_TIMELINE_PAGE_SIZE,
+  });
+
+  const { data: projectData, error: projectError } = await supabase
+    .from("estimate_projects")
+    .select("id, tenant_id, user_id")
+    .eq("id", input.projectId)
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (projectError || !projectData) {
+    throw notFound("Projet de chiffrage introuvable.");
+  }
+
+  const project = projectData as EstimateProjectOwnerRow;
+  if (
+    project.tenant_id !== tenantId ||
+    !canAccessOwnerResource({
+      context,
+      resourceUserId: project.user_id,
+    })
+  ) {
+    throw notFound("Projet de chiffrage introuvable.");
+  }
+
+  let page = normalizePositiveInteger({
+    value: input.page,
+    fallback: 1,
+    min: 1,
+  });
+
+  if (input.page === undefined && input.anchorVersionId) {
+    const { data: anchorData, error: anchorError } = await supabase
+      .from("estimate_versions")
+      .select("version_number")
+      .eq("tenant_id", tenantId)
+      .eq("project_id", input.projectId)
+      .eq("id", input.anchorVersionId)
+      .maybeSingle();
+
+    if (anchorError) {
+      throw mapSupabaseError(
+        anchorError,
+        "Impossible de determiner la position de la version courante."
+      );
+    }
+
+    if (anchorData?.version_number !== undefined) {
+      const { count: newerCount, error: newerCountError } = await supabase
+        .from("estimate_versions")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .eq("project_id", input.projectId)
+        .gt("version_number", anchorData.version_number);
+
+      if (newerCountError) {
+        throw mapSupabaseError(
+          newerCountError,
+          "Impossible de determiner la pagination des versions."
+        );
+      }
+
+      page = Math.floor((newerCount ?? 0) / pageSize) + 1;
+    }
+  }
+
+  const { count: totalCountRaw, error: totalCountError } = await supabase
+    .from("estimate_versions")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("project_id", input.projectId);
+
+  if (totalCountError) {
+    throw mapSupabaseError(
+      totalCountError,
+      "Impossible de charger le total des versions."
+    );
+  }
+
+  const totalCount = totalCountRaw ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const rangeStart = (safePage - 1) * pageSize;
+  const rangeEnd = rangeStart + pageSize - 1;
+
+  const { data: versionsData, error: versionsError } = await supabase
+    .from("estimate_versions")
+    .select(
+      "id, project_id, version_number, status, title, updated_at, created_at, total_ttc_cents"
+    )
+    .eq("tenant_id", tenantId)
+    .eq("project_id", input.projectId)
+    .order("version_number", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .range(rangeStart, rangeEnd);
+
+  if (versionsError) {
+    throw mapSupabaseError(versionsError, "Impossible de charger les versions.");
+  }
+
+  const rows = (versionsData ?? []) as EstimateProjectVersionTimelineRow[];
+  const versionIds = rows.map((row) => row.id);
+  const latestAuditUserByVersionId = new Map<string, string>();
+
+  if (versionIds.length > 0) {
+    const { data: auditData, error: auditError } = await supabase
+      .from("audit_logs")
+      .select("record_id, user_id, created_at")
+      .eq("tenant_id", tenantId)
+      .eq("table_name", "estimate_versions")
+      .in("record_id", versionIds)
+      .order("created_at", { ascending: false });
+
+    if (auditError) {
+      throw mapSupabaseError(auditError, "Impossible de charger les auteurs.");
+    }
+
+    for (const row of (auditData ?? []) as EstimateVersionAuditActorRow[]) {
+      if (!row.user_id) continue;
+      if (latestAuditUserByVersionId.has(row.record_id)) continue;
+      latestAuditUserByVersionId.set(row.record_id, row.user_id);
+    }
+  }
+
+  const authorIds = new Set<string>();
+  authorIds.add(project.user_id);
+  latestAuditUserByVersionId.forEach((authorId) => {
+    authorIds.add(authorId);
+  });
+
+  const authorNameById = new Map<string, string>();
+  const uniqueAuthorIds = Array.from(authorIds);
+
+  if (uniqueAuthorIds.length > 0) {
+    const { data: profileData, error: profileError } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", uniqueAuthorIds);
+
+    if (profileError) {
+      throw mapSupabaseError(profileError, "Impossible de charger les profils.");
+    }
+
+    for (const row of (profileData ?? []) as ProfileNameRow[]) {
+      const fullName = row.full_name.trim();
+      if (fullName.length > 0) {
+        authorNameById.set(row.id, fullName);
+      }
+    }
+  }
+
+  const items: EstimateProjectVersionTimelineItem[] = rows.map((row) => {
+    const authorId = latestAuditUserByVersionId.get(row.id) ?? project.user_id;
+
+    return {
+      id: row.id,
+      project_id: row.project_id,
+      version_number: row.version_number,
+      status: row.status,
+      title: row.title,
+      updated_at: row.updated_at,
+      created_at: row.created_at,
+      total_ttc_cents: row.total_ttc_cents,
+      author_name: authorNameById.get(authorId) ?? null,
+    };
+  });
+
+  return {
+    items,
+    pagination: {
+      page: safePage,
+      page_size: pageSize,
+      total_count: totalCount,
+      total_pages: totalPages,
+      has_prev: safePage > 1,
+      has_next: safePage < totalPages,
+    },
+  };
 }
 
 export async function listLatestEstimates() {
@@ -2580,6 +2970,33 @@ export async function listEstimateItems(versionId: string) {
   };
 }
 
+export async function listEstimateVersionEvents(versionId: string) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+
+  await getVersionAccessOrThrow(supabase, versionId, context);
+
+  const { data, error } = await supabase
+    .from("estimate_version_events")
+    .select(
+      "id, estimate_version_id, event_type, metadata, created_by, occurred_at, created_at, profiles:created_by(full_name)"
+    )
+    .eq("tenant_id", tenantId)
+    .eq("estimate_version_id", versionId)
+    .order("occurred_at", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les evenements.");
+  }
+
+  return {
+    events: ((data ?? []) as unknown as EstimateVersionEventRow[]).map((row) =>
+      normalizeEstimateVersionEvent(row)
+    ),
+  };
+}
+
 export async function suggestEstimateCataloguePrices(
   versionId: string,
   query: string
@@ -2961,6 +3378,153 @@ export async function suggestEstimateCataloguePrices(
   };
 }
 
+export async function getEstimateSupplierComparisons(
+  versionId: string,
+  itemIds: string[]
+) {
+  const normalizedItemIds = Array.from(
+    new Set(itemIds.map((itemId) => itemId.trim()).filter((itemId) => itemId.length > 0))
+  );
+
+  if (normalizedItemIds.length === 0) {
+    throw badRequest("item_ids ne peut pas etre vide.");
+  }
+  if (normalizedItemIds.length > 200) {
+    throw badRequest("item_ids ne peut pas contenir plus de 200 identifiants.");
+  }
+
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  await getVersionAccessOrThrow(supabase, versionId, context);
+
+  const { data: rows, error } = await supabase
+    .from("estimate_items")
+    .select("id, item_type, title, selected_supplier_price_id")
+    .eq("tenant_id", tenantId)
+    .eq("version_id", versionId)
+    .in("id", normalizedItemIds);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les lignes.");
+  }
+
+  const items = (rows ?? []) as Array<{
+    id: string;
+    item_type: Database["public"]["Enums"]["estimate_item_type"];
+    title: string;
+    selected_supplier_price_id: string | null;
+  }>;
+  const itemById = new Map(items.map((item) => [item.id, item]));
+
+  normalizedItemIds.forEach((itemId) => {
+    const item = itemById.get(itemId);
+    if (!item || item.item_type !== "line") {
+      throw badRequest("item_id doit correspondre a une ligne de devis.", {
+        item_id: itemId,
+      });
+    }
+  });
+
+  const queryByNormalizedKey = new Map<string, string>();
+  const normalizedKeyByItemId = new Map<string, string>();
+
+  normalizedItemIds.forEach((itemId) => {
+    const item = itemById.get(itemId);
+    if (!item) return;
+
+    const normalizedQuery = normalizeSupplierComparisonQuery(item.title);
+    normalizedKeyByItemId.set(itemId, normalizedQuery);
+
+    if (normalizedQuery.length < 2) return;
+    if (escapeIlikeToken(normalizedQuery).length < 2) return;
+    if (!queryByNormalizedKey.has(normalizedQuery)) {
+      queryByNormalizedKey.set(normalizedQuery, normalizedQuery);
+    }
+  });
+
+  const suggestionsEntries = await Promise.all(
+    Array.from(queryByNormalizedKey.entries()).map(async ([normalizedQuery, query]) => {
+      const suggestion = await suggestEstimateCataloguePrices(versionId, query);
+      return [normalizedQuery, suggestion] as const;
+    })
+  );
+  const suggestionsByNormalizedQuery = new Map(suggestionsEntries);
+
+  const stalePriceDays =
+    suggestionsEntries[0]?.[1]?.stale_price_days ??
+    (await getStalePriceDaysForTenant(tenantId, { supabase }));
+
+  const alternativeKindOrder: SupplierAlternativeKind[] = [
+    "best_price",
+    "most_recent",
+    "preferred_supplier",
+  ];
+
+  const comparisons = normalizedItemIds.map((itemId) => {
+    const item = itemById.get(itemId);
+    if (!item) {
+      return {
+        item_id: itemId,
+        selected_supplier_price_id: null,
+        best_supplier_price_id: null,
+        alternatives: [],
+      } satisfies EstimateSupplierComparison;
+    }
+
+    const normalizedKey = normalizedKeyByItemId.get(itemId) ?? "";
+    const suggestions = suggestionsByNormalizedQuery.get(normalizedKey)?.suggestions ?? [];
+
+    const selectedSupplierPriceId = item.selected_supplier_price_id ?? null;
+    const selectedSuggestion = selectedSupplierPriceId
+      ? suggestions.find((suggestion) => {
+          if (suggestion.supplier_price_id === selectedSupplierPriceId) return true;
+          return suggestion.alternatives.some(
+            (alternative) => alternative.supplier_price_id === selectedSupplierPriceId
+          );
+        }) ?? null
+      : null;
+    const candidate = selectedSuggestion ?? suggestions[0] ?? null;
+
+    if (!candidate) {
+      return {
+        item_id: item.id,
+        selected_supplier_price_id: selectedSupplierPriceId,
+        best_supplier_price_id: null,
+        alternatives: [],
+      } satisfies EstimateSupplierComparison;
+    }
+
+    const bestAlternative =
+      candidate.alternatives.find((alternative) => alternative.kind === "best_price") ?? null;
+    const alternatives = alternativeKindOrder
+      .map((kind) => candidate.alternatives.find((alternative) => alternative.kind === kind))
+      .filter((alternative): alternative is SuggestedSupplierAlternative => Boolean(alternative))
+      .slice(0, 3)
+      .map((alternative) => ({
+        supplier_price_id: alternative.supplier_price_id,
+        supplier_name: alternative.supplier_name,
+        adjusted_unit_price_cents: alternative.adjusted_unit_price_cents,
+        supplier_reference: alternative.supplier_reference,
+        catalogue_url: alternative.catalogue_url,
+        updated_at: alternative.updated_at,
+        is_stale: alternative.is_stale,
+        product_designation: candidate.product_designation,
+      }));
+
+    return {
+      item_id: item.id,
+      selected_supplier_price_id: selectedSupplierPriceId,
+      best_supplier_price_id: bestAlternative?.supplier_price_id ?? null,
+      alternatives,
+    } satisfies EstimateSupplierComparison;
+  });
+
+  return {
+    stale_price_days: stalePriceDays,
+    comparisons,
+  };
+}
+
 export async function patchEstimateVersion(
   versionId: string,
   input: PatchEstimateVersionInput,
@@ -3068,6 +3632,27 @@ export async function patchEstimateVersion(
   };
 }
 
+export async function getEstimateSendGating(versionId: string) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version, project } = await getVersionAccessOrThrow(
+    supabase,
+    versionId,
+    context
+  );
+
+  const gating = await evaluateEstimateSendGating({
+    supabase,
+    tenantId,
+    version,
+    project,
+  });
+
+  return {
+    gating,
+  };
+}
+
 export async function patchEstimateStatus(
   versionId: string,
   input: PatchEstimateStatusInput,
@@ -3075,7 +3660,11 @@ export async function patchEstimateStatus(
 ) {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { version, project } = await getVersionAccessOrThrow(
+    supabase,
+    versionId,
+    context
+  );
   assertVersionConcurrencyToken(version.updated_at, concurrencyToken);
   if (version.status === "draft") {
     await assertDraftLockOwnedByCurrentUser({
@@ -3109,8 +3698,40 @@ export async function patchEstimateStatus(
   assertEstimateStatusTransition(version.status, input.status);
 
   let sealHash: string | null = null;
+  let forcedByAdmin = false;
+  let forcedBlockingFlags: string[] = [];
 
   if (version.status === "draft" && input.status === "sent") {
+    const gating = await evaluateEstimateSendGating({
+      supabase,
+      tenantId,
+      version,
+      project,
+    });
+
+    if (input.force === true && !isTenantAdmin(context.tenantRole)) {
+      throw forbidden(
+        "Le forcage d'envoi est reserve aux administrateurs.",
+        undefined,
+        "FORCE_SEND_FORBIDDEN"
+      );
+    }
+
+    if (gating.blockingFlags.length > 0 && input.force !== true) {
+      throw badRequest(
+        "Envoi bloque: des anomalies bloquantes doivent etre corrigees avant validation.",
+        {
+          gating,
+        },
+        "ESTIMATE_GATING_BLOCKED"
+      );
+    }
+
+    if (gating.blockingFlags.length > 0 && input.force === true) {
+      forcedByAdmin = true;
+      forcedBlockingFlags = gating.blockingFlags.map((flag) => flag.key);
+    }
+
     await generateEstimatePdfNow(versionId, {
       force: true,
       triggeredBy: "send",
@@ -3149,16 +3770,28 @@ export async function patchEstimateStatus(
     throw badRequest("Impossible de changer le statut.");
   }
 
-  if (sealHash !== null) {
-    await insertEstimateVersionEvent({
-      supabase,
+  const statusEventType = resolveStatusEventType(input.status);
+  if (statusEventType) {
+    const statusEventMetadata: Record<string, unknown> = {
+      previous_status: version.status,
+      next_status: input.status,
+    };
+
+    if (sealHash !== null) {
+      statusEventMetadata.seal_hash = sealHash;
+    }
+
+    if (forcedByAdmin) {
+      statusEventMetadata.forced_by_admin = true;
+      statusEventMetadata.forced_blocking_flags = forcedBlockingFlags;
+    }
+
+    await logEstimateVersionEvent({
       versionId,
-      tenantId,
-      eventType: "sent",
+      eventType: statusEventType,
       actorUserId: userId,
-      metadata: {
-        seal_hash: sealHash,
-      },
+      metadata: statusEventMetadata as Json,
+      occurredAt: new Date().toISOString(),
     });
   }
 
@@ -3169,7 +3802,7 @@ export async function patchEstimateStatus(
 
 export async function verifyEstimateSeal(versionId: string) {
   const context = await getAuthenticatedContext();
-  const { supabase, tenantId } = context;
+  const { supabase, tenantId, userId } = context;
 
   await getVersionAccessOrThrow(supabase, versionId, context);
 
@@ -3181,9 +3814,22 @@ export async function verifyEstimateSeal(versionId: string) {
   const sealPayload = buildCanonicalEstimateSealPayload(sealSource);
   const computedHash = computeEstimateSealHash(sealPayload);
   const storedHash = sealSource.version.seal_hash?.trim().toLowerCase() || null;
+  const isValid = storedHash !== null && computedHash === storedHash;
+
+  await logEstimateVersionEvent({
+    versionId,
+    eventType: "seal_verified",
+    actorUserId: userId,
+    metadata: {
+      valid: isValid,
+      computed_hash: computedHash,
+      stored_hash: storedHash,
+    },
+    occurredAt: new Date().toISOString(),
+  });
 
   return {
-    valid: storedHash !== null && computedHash === storedHash,
+    valid: isValid,
     computed_hash: computedHash,
     stored_hash: storedHash,
   };

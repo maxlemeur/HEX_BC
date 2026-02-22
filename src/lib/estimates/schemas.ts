@@ -147,6 +147,7 @@ export const patchEstimateVersionSchema = z
 export const patchEstimateStatusSchema = z.object({
   status: estimateStatusSchema,
   updated_at: updatedAtTokenSchema.optional(),
+  force: z.boolean().optional(),
 });
 
 const createSectionItemSchema = z.object({
@@ -301,6 +302,36 @@ export const reorderEstimateItemsSchema = z
       code: z.ZodIssueCode.custom,
       message: "ordered_ids doit contenir des identifiants uniques.",
       path: ["ordered_ids"],
+    });
+  });
+
+export const estimateSupplierComparisonsRequestSchema = z
+  .preprocess(
+    (value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return value;
+      }
+
+      const record = value as Record<string, unknown>;
+      return {
+        item_ids: record.item_ids ?? record.itemIds,
+      };
+    },
+    z.object({
+      item_ids: z
+        .array(uuidSchema)
+        .min(1, "item_ids ne peut pas etre vide."),
+    })
+  )
+  .transform((payload) => ({
+    item_ids: Array.from(new Set(payload.item_ids)),
+  }))
+  .superRefine((payload, ctx) => {
+    if (payload.item_ids.length <= 200) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "item_ids ne peut pas contenir plus de 200 identifiants.",
+      path: ["item_ids"],
     });
   });
 
@@ -593,6 +624,9 @@ export type BulkUpdateEstimateItemsRequestInput = z.infer<
 >;
 export type DeleteEstimateItemInput = z.infer<typeof deleteEstimateItemSchema>;
 export type ReorderEstimateItemsInput = z.infer<typeof reorderEstimateItemsSchema>;
+export type EstimateSupplierComparisonsRequestInput = z.infer<
+  typeof estimateSupplierComparisonsRequestSchema
+>;
 export type CreateEstimateCategoryInput = z.infer<
   typeof createEstimateCategorySchema
 >;

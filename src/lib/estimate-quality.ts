@@ -11,6 +11,8 @@ export const ESTIMATE_QUALITY_FLAG_KEYS = [
   "missing_quantity",
   "missing_labor_time",
   "missing_labor_role",
+  "supplier_price_outdated",
+  "labor_split_incomplete",
   "price_outlier",
   "quantity_outlier",
 ] as const;
@@ -43,6 +45,16 @@ export const ESTIMATE_QUALITY_FLAG_META: Record<
     description:
       "Un temps MO est saisi mais aucun role de main d'oeuvre n'est selectionne.",
   },
+  supplier_price_outdated: {
+    label: "Prix fournisseur obsolete",
+    description:
+      "Le prix fournisseur selectionne est obsolete selon le seuil de fraicheur configure.",
+  },
+  labor_split_incomplete: {
+    label: "Split MO incomplet",
+    description:
+      "Le split atelier/chantier est incomplet: une seule des deux composantes est renseignee.",
+  },
   price_outlier: {
     label: "Prix atypique",
     description:
@@ -72,6 +84,8 @@ function parsePositiveNumber(value: number | null) {
 type EstimateQualityComputationOptions = {
   outlierFlagsByItemId?: EstimateOutlierFlagsByItemId;
   dismissedOutlierFlagsByItemId?: EstimateOutlierFlagsByItemId;
+  staleSupplierPriceItemIds?: ReadonlySet<string>;
+  isLaborSplitEnabled?: boolean;
 };
 
 function isOutlierFlag(flag: EstimateQualityFlagKey): flag is EstimateOutlierFlagKey {
@@ -91,6 +105,23 @@ function resolveActiveOutlierFlags(input: {
   return detected.filter((flag) => !dismissed.has(flag));
 }
 
+function hasLaborSplitPayload(item: EstimateItem) {
+  return (
+    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
+    (item.labor_role_atelier_id !== null &&
+      item.labor_role_atelier_id !== undefined) ||
+    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
+    (item.labor_role_chantier_id !== null &&
+      item.labor_role_chantier_id !== undefined) ||
+    ((item.k_mo_atelier ?? 1) !== 1) ||
+    ((item.k_mo_chantier ?? 1) !== 1)
+  );
+}
+
+function hasLaborValue(hours: number, roleId: string | null) {
+  return hours > 0 || Boolean(roleId);
+}
+
 export function computeEstimateQualityFlagsForItem(
   item: EstimateItem,
   options?: EstimateQualityComputationOptions
@@ -102,6 +133,10 @@ export function computeEstimateQualityFlagsForItem(
   const unitPriceHtCents = parsePositiveNumber(item.unit_price_ht_cents);
   const laborHours = parsePositiveNumber(item.h_mo);
   const laborRoleId = item.labor_role_id ?? null;
+  const laborHoursAtelier = parsePositiveNumber(item.h_mo_atelier ?? null);
+  const laborHoursChantier = parsePositiveNumber(item.h_mo_chantier ?? null);
+  const laborRoleAtelierId = item.labor_role_atelier_id ?? null;
+  const laborRoleChantierId = item.labor_role_chantier_id ?? null;
 
   if (unitPriceHtCents <= 0) {
     flags.push("missing_price");
@@ -114,6 +149,23 @@ export function computeEstimateQualityFlagsForItem(
   }
   if (laborHours > 0 && !laborRoleId) {
     flags.push("missing_labor_role");
+  }
+
+  if (options?.staleSupplierPriceItemIds?.has(item.id)) {
+    flags.push("supplier_price_outdated");
+  }
+
+  const splitEnabled =
+    options?.isLaborSplitEnabled ?? hasLaborSplitPayload(item);
+  if (splitEnabled) {
+    const hasAtelierValues = hasLaborValue(laborHoursAtelier, laborRoleAtelierId);
+    const hasChantierValues = hasLaborValue(
+      laborHoursChantier,
+      laborRoleChantierId
+    );
+    if (hasAtelierValues !== hasChantierValues) {
+      flags.push("labor_split_incomplete");
+    }
   }
 
   const activeOutlierFlags = resolveActiveOutlierFlags({

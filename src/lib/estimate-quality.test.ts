@@ -15,6 +15,10 @@ function createLine(input: {
   unitPriceHtCents: number;
   laborHours?: number;
   laborRoleId?: string | null;
+  hMoAtelier?: number | null;
+  hMoChantier?: number | null;
+  laborRoleAtelierId?: string | null;
+  laborRoleChantierId?: string | null;
 }): EstimateItem {
   return {
     id: input.id,
@@ -23,6 +27,10 @@ function createLine(input: {
     unit_price_ht_cents: input.unitPriceHtCents,
     h_mo: input.laborHours ?? 1,
     labor_role_id: input.laborRoleId ?? "role-1",
+    h_mo_atelier: input.hMoAtelier ?? null,
+    h_mo_chantier: input.hMoChantier ?? null,
+    labor_role_atelier_id: input.laborRoleAtelierId ?? null,
+    labor_role_chantier_id: input.laborRoleChantierId ?? null,
   } as EstimateItem;
 }
 
@@ -79,5 +87,25 @@ describe("estimate quality flags", () => {
     expect(counts.byFlag.price_outlier).toBe(1);
     expect(counts.byFlag.quantity_outlier).toBe(0);
     expect(counts.totalFlagsCount).toBe(4);
+  });
+
+  it("flags stale supplier prices and incomplete labor split", () => {
+    const item = createLine({
+      id: "line-1",
+      quantity: 1,
+      unitPriceHtCents: 1000,
+      hMoAtelier: 2,
+      hMoChantier: 0,
+      laborRoleAtelierId: "role-atelier",
+      laborRoleChantierId: null,
+    });
+
+    const flags = computeEstimateQualityFlagsForItem(item, {
+      staleSupplierPriceItemIds: new Set(["line-1"]),
+      isLaborSplitEnabled: true,
+    });
+
+    expect(flags).toContain("supplier_price_outdated");
+    expect(flags).toContain("labor_split_incomplete");
   });
 });

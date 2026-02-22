@@ -13,7 +13,9 @@ import {
 
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
+import { EstimateEventsTimeline } from "@/components/estimates/EstimateEventsTimeline";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
+import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import {
   EstimateSettingsPanel,
@@ -28,6 +30,7 @@ import { ExportDropdown } from "@/components/ExportDropdown";
 import { useUserContext } from "@/components/UserContext";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { useUndoRedo, type UndoRedoCommand } from "@/hooks/useUndoRedo";
 import {
   computeEstimateLineValues,
   computeEstimateTotals,
@@ -77,9 +80,11 @@ import {
   createEstimateLaborRole,
   createEstimateSuggestionRule,
   deleteEstimateItem,
+  fetchEstimateSendGating,
   fetchEstimateEditorData,
   fetchEstimateItemsForVersion,
   fetchEstimateOutlierDismissedFlags,
+  fetchEstimateVersionEvents,
   insertAssemblyIntoVersion,
   isEstimateApiError,
   reorderEstimateItems,
@@ -87,6 +92,8 @@ import {
   sendEstimateSuggestionRuleFeedback,
   toggleEstimateOutlierDismissedFlag,
   updateEstimateLaborRole,
+  type EstimateVersionEvent,
+  type EstimateSendGatingResponse,
   updateEstimateStatus,
   updateEstimateSuggestionRule,
 } from "@/lib/estimates/client";
@@ -143,6 +150,9 @@ type ItemPatch = Partial<
 type EstimateItemUpdatePayload =
   Database["public"]["Tables"]["estimate_items"]["Update"] &
     LaborSplitItemFields;
+type EstimateItemInsertPayload =
+  Database["public"]["Tables"]["estimate_items"]["Insert"] &
+    LaborSplitItemFields;
 type EstimateVersionTotalsPatch = Pick<
   EstimateVersionRow,
   "total_ht_cents" | "total_tax_cents" | "total_ttc_cents"
@@ -177,6 +187,9 @@ type EstimateLineExportRow = {
   quantity: number | "";
   unit_price_ht_cents: number | "";
   supply_type: string;
+  supplier_1: string;
+  supplier_2: string;
+  supplier_3: string;
   k_fo: number | "";
   h_mo: number | "";
   h_mo_majoration_pct: number | "";
@@ -193,6 +206,18 @@ type EstimateLineExportRow = {
   tax_rate_bp: number | "";
   line_total_ttc_cents: number | "";
 };
+
+type SupplierComparisonAlternative = {
+  supplier_name: string;
+  adjusted_unit_price_cents: number | null;
+  unit_price_cents: number | null;
+  currency: string | null;
+  supplier_reference: string | null;
+  catalogue_url: string | null;
+  updated_at: string | null;
+};
+
+type SupplierComparisonsByItemId = Map<string, SupplierComparisonAlternative[]>;
 
 type AuditLogEntry = Pick<
   Database["public"]["Tables"]["audit_logs"]["Row"],
@@ -224,6 +249,9 @@ type BulkSuggestProgressState = {
 type BulkSuggestUndoState = {
   previousItems: EstimateItem[];
   appliedItemIds: string[];
+};
+type EstimateUndoRedoCommand = UndoRedoCommand & {
+  label?: string;
 };
 type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
 type EstimateEditorVirtualizationConfig = NonNullable<
@@ -408,6 +436,144 @@ function toNonEmptyString(value: unknown): string | null {
 
 function toFiniteNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function toNullableFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function formatSupplierComparisonDate(value: string | null) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 10);
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
+function normalizeSupplierComparisonAlternative(
+  value: unknown
+): SupplierComparisonAlternative | null {
+  if (!isRecord(value)) return null;
+
+  return {
+    supplier_name:
+      toNonEmptyString(value.supplier_name) ??
+      toNonEmptyString(value.name) ??
+      "Fournisseur",
+    adjusted_unit_price_cents: toNullableFiniteNumber(value.adjusted_unit_price_cents),
+    unit_price_cents: toNullableFiniteNumber(value.unit_price_cents),
+    currency: toNonEmptyString(value.currency),
+    supplier_reference:
+      toNonEmptyString(value.supplier_reference) ??
+      toNonEmptyString(value.reference),
+    catalogue_url: toNonEmptyString(value.catalogue_url) ?? toNonEmptyString(value.url),
+    updated_at: toNonEmptyString(value.updated_at) ?? toNonEmptyString(value.date),
+  };
+}
+
+function normalizeSupplierComparisonAlternatives(
+  value: unknown
+): SupplierComparisonAlternative[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => normalizeSupplierComparisonAlternative(entry))
+    .filter((entry): entry is SupplierComparisonAlternative => entry !== null)
+    .slice(0, 3);
+}
+
+function readSupplierComparisonEntry(
+  entry: unknown,
+  fallbackItemId?: string
+): { itemId: string; alternatives: SupplierComparisonAlternative[] } | null {
+  if (!isRecord(entry)) return null;
+
+  const itemId =
+    toNonEmptyString(entry.item_id) ??
+    toNonEmptyString(entry.itemId) ??
+    toNonEmptyString(entry.estimate_item_id) ??
+    fallbackItemId ??
+    null;
+
+  if (!itemId) return null;
+
+  const alternatives =
+    [
+      normalizeSupplierComparisonAlternatives(entry.alternatives),
+      normalizeSupplierComparisonAlternatives(entry.suppliers),
+      normalizeSupplierComparisonAlternatives(entry.options),
+    ].find((candidate) => candidate.length > 0) ?? [];
+
+  if (alternatives.length === 0) return null;
+
+  return { itemId, alternatives };
+}
+
+function normalizeSupplierComparisonsByItemId(
+  payload: unknown
+): SupplierComparisonsByItemId {
+  const map: SupplierComparisonsByItemId = new Map();
+
+  const pushEntry = (entry: unknown, fallbackItemId?: string) => {
+    const parsed = readSupplierComparisonEntry(entry, fallbackItemId);
+    if (!parsed) return;
+    map.set(parsed.itemId, parsed.alternatives);
+  };
+
+  const readContainer = (container: unknown) => {
+    if (Array.isArray(container)) {
+      container.forEach((entry) => pushEntry(entry));
+      return;
+    }
+
+    if (!isRecord(container)) return;
+
+    if (
+      toNonEmptyString(container.item_id) ||
+      toNonEmptyString(container.itemId) ||
+      toNonEmptyString(container.estimate_item_id)
+    ) {
+      pushEntry(container);
+    }
+
+    const arrayKeys = ["comparisons", "items", "lines", "results", "data"];
+    arrayKeys.forEach((key) => {
+      if (Array.isArray(container[key])) {
+        (container[key] as unknown[]).forEach((entry) => pushEntry(entry));
+      }
+    });
+
+    Object.entries(container).forEach(([itemId, value]) => {
+      pushEntry(value, itemId);
+    });
+  };
+
+  readContainer(payload);
+  if (isRecord(payload)) {
+    readContainer(payload.data);
+  }
+
+  return map;
+}
+
+function formatSupplierAlternativeCompact(alternative?: SupplierComparisonAlternative) {
+  if (!alternative) return "";
+
+  const unitPriceCents =
+    alternative.adjusted_unit_price_cents ?? alternative.unit_price_cents;
+  const currency = (toNonEmptyString(alternative.currency) ?? "EUR").toUpperCase();
+  const priceLabel =
+    unitPriceCents === null ? "-" : `${(unitPriceCents / 100).toFixed(2)} ${currency}`;
+  const supplierReference = toNonEmptyString(alternative.supplier_reference) ?? "-";
+  const catalogueUrl = toNonEmptyString(alternative.catalogue_url) ?? "-";
+  const updatedAt = formatSupplierComparisonDate(alternative.updated_at);
+
+  return `${alternative.supplier_name} | ${priceLabel} | ${supplierReference} | ${catalogueUrl} | ${updatedAt}`;
 }
 
 function readLaborSplitFields(
@@ -600,6 +766,9 @@ const LINE_EXPORT_COLUMNS: ExportColumn<EstimateLineExportRow>[] = [
     formatter: (value) => (typeof value === "number" ? value / 100 : ""),
   },
   { key: "supply_type", header: "Type FO" },
+  { key: "supplier_1", header: "Fournisseur 1" },
+  { key: "supplier_2", header: "Fournisseur 2" },
+  { key: "supplier_3", header: "Fournisseur 3" },
   { key: "k_fo", header: "K FO" },
   { key: "h_mo", header: "h MO" },
   { key: "h_mo_majoration_pct", header: "Majoration MO (%)" },
@@ -721,6 +890,159 @@ function buildEstimateItemUpdatePayload(item: EstimateItem): EstimateItemUpdateP
   };
 }
 
+function buildEstimateItemInsertPayload(
+  versionId: string,
+  item: EstimateItem,
+  overrides?: {
+    parentId?: string | null;
+    position?: number;
+    title?: string;
+  }
+): EstimateItemInsertPayload {
+  const parentId =
+    overrides?.parentId !== undefined
+      ? overrides.parentId
+      : (item.parent_id ?? null);
+  const position = overrides?.position ?? item.position;
+  const title = overrides?.title ?? item.title;
+
+  if (item.item_type === "section") {
+    return {
+      version_id: versionId,
+      parent_id: parentId,
+      item_type: "section",
+      position,
+      title,
+    };
+  }
+
+  const payload: EstimateItemInsertPayload = {
+    version_id: versionId,
+    parent_id: parentId,
+    item_type: "line",
+    position,
+    title,
+    description: item.description ?? null,
+    quantity: item.quantity,
+    unit_price_ht_cents: item.unit_price_ht_cents,
+    tax_rate_bp: item.tax_rate_bp,
+    k_fo: item.k_fo,
+    h_mo: item.h_mo,
+    h_mo_majoration: item.h_mo_majoration,
+    k_mo: item.k_mo,
+    pu_ht_cents: item.pu_ht_cents,
+    labor_role_id: item.labor_role_id,
+    category_id: item.category_id,
+    supply_type_id: item.supply_type_id,
+    selected_supplier_price_id: item.selected_supplier_price_id,
+    line_total_ht_cents: item.line_total_ht_cents,
+    line_tax_cents: item.line_tax_cents,
+    line_total_ttc_cents: item.line_total_ttc_cents,
+  };
+
+  appendLaborSplitFields(item, payload);
+  return payload;
+}
+
+function collectSubtreeItemIds(sourceItems: EstimateItem[], rootId: string): Set<string> {
+  const ids = new Set<string>();
+  const childrenByParentId = new Map<string, EstimateItem[]>();
+
+  sourceItems.forEach((item) => {
+    const parentId = item.parent_id;
+    if (!parentId) return;
+    const siblings = childrenByParentId.get(parentId);
+    if (siblings) {
+      siblings.push(item);
+      return;
+    }
+    childrenByParentId.set(parentId, [item]);
+  });
+
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const nextId = stack.pop();
+    if (!nextId || ids.has(nextId)) continue;
+    ids.add(nextId);
+    const children = childrenByParentId.get(nextId) ?? [];
+    children.forEach((child) => {
+      stack.push(child.id);
+    });
+  }
+
+  return ids;
+}
+
+function resolveTopLevelItemIds(sourceItems: EstimateItem[]): string[] {
+  const idSet = new Set(sourceItems.map((item) => item.id));
+  return sourceItems
+    .filter((item) => !item.parent_id || !idSet.has(item.parent_id))
+    .map((item) => item.id);
+}
+
+function buildSiblingOrderByParent(sourceItems: EstimateItem[]) {
+  const siblingsByParent = new Map<string | null, EstimateItem[]>();
+
+  sourceItems.forEach((item) => {
+    const parentId = item.parent_id ?? null;
+    const siblings = siblingsByParent.get(parentId);
+    if (siblings) {
+      siblings.push(item);
+      return;
+    }
+    siblingsByParent.set(parentId, [item]);
+  });
+
+  const orderedIdsByParent = new Map<string | null, string[]>();
+  siblingsByParent.forEach((siblings, parentId) => {
+    orderedIdsByParent.set(
+      parentId,
+      [...siblings]
+        .sort((left, right) => left.position - right.position)
+        .map((item) => item.id)
+    );
+  });
+
+  return orderedIdsByParent;
+}
+
+function sortItemsForTreeRecreation(sourceItems: EstimateItem[]) {
+  const itemById = new Map(sourceItems.map((item) => [item.id, item]));
+  const depthById = new Map<string, number>();
+
+  const resolveDepth = (item: EstimateItem): number => {
+    const cachedDepth = depthById.get(item.id);
+    if (cachedDepth !== undefined) return cachedDepth;
+
+    if (!item.parent_id) {
+      depthById.set(item.id, 0);
+      return 0;
+    }
+
+    const parent = itemById.get(item.parent_id);
+    if (!parent) {
+      depthById.set(item.id, 0);
+      return 0;
+    }
+
+    const depth = resolveDepth(parent) + 1;
+    depthById.set(item.id, depth);
+    return depth;
+  };
+
+  return [...sourceItems].sort((left, right) => {
+    const leftDepth = resolveDepth(left);
+    const rightDepth = resolveDepth(right);
+    if (leftDepth !== rightDepth) {
+      return leftDepth - rightDepth;
+    }
+    if (left.parent_id !== right.parent_id) {
+      return (left.parent_id ?? "").localeCompare(right.parent_id ?? "");
+    }
+    return left.position - right.position;
+  });
+}
+
 export default function EditEstimatePage() {
   const params = useParams();
   const rawVersionId = params?.["versionId"];
@@ -757,9 +1079,18 @@ export default function EditEstimatePage() {
   const [rulesError, setRulesError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [sendGating, setSendGating] =
+    useState<EstimateSendGatingResponse | null>(null);
+  const [isSendGatingDialogOpen, setIsSendGatingDialogOpen] = useState(false);
+  const [sendWorkflowPhase, setSendWorkflowPhase] = useState<
+    "verification" | "pdf" | "sealing" | null
+  >(null);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [isAuditLoading, setIsAuditLoading] = useState(false);
+  const [timelineEvents, setTimelineEvents] = useState<EstimateVersionEvent[]>([]);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
   const [totalsOutOfSync, setTotalsOutOfSync] = useState(false);
   const [hasPendingBufferedUpdates, setHasPendingBufferedUpdates] = useState(false);
   const [conflictState, setConflictState] = useState<EstimateConflictState | null>(
@@ -781,11 +1112,23 @@ export default function EditEstimatePage() {
   const [isUndoingBulkSuggest, setIsUndoingBulkSuggest] = useState(false);
   const [isReloadingVersion, setIsReloadingVersion] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const {
+    push: pushHistoryCommand,
+    undo: executeUndo,
+    redo: executeRedo,
+    clear: clearUndoRedoHistory,
+    canUndo,
+    canRedo,
+    isExecuting: isUndoRedoBusy,
+  } = useUndoRedo<EstimateUndoRedoCommand>({
+    maxStackSize: 50,
+  });
 
   const itemsRef = useRef<EstimateItem[]>([]);
   const versionRef = useRef<EstimateVersionView | null>(null);
   const persistedTotalsRef = useRef<EstimateTotals | null>(null);
   const isSaveBlockedRef = useRef(false);
+  const isUndoRedoBusyRef = useRef(false);
   const pendingItemUpdatesRef = useRef<Map<string, EstimateItemUpdatePayload>>(
     new Map()
   );
@@ -799,6 +1142,10 @@ export default function EditEstimatePage() {
       ),
     []
   );
+
+  useEffect(() => {
+    isUndoRedoBusyRef.current = isUndoRedoBusy;
+  }, [isUndoRedoBusy]);
 
   const registerVersionConflict = useCallback((error: unknown) => {
     if (!isVersionConflictError(error) || !isEstimateApiError(error)) {
@@ -1065,6 +1412,33 @@ export default function EditEstimatePage() {
     };
   }, [reloadNonce, resolvedVersionId]);
 
+  useEffect(() => {
+    if (!version || version.status !== "draft") {
+      setSendGating(null);
+      return;
+    }
+    const currentVersionId = version.id;
+
+    let active = true;
+
+    async function loadSendGating() {
+      try {
+        const gating = await fetchEstimateSendGating(currentVersionId);
+        if (!active) return;
+        setSendGating(gating);
+      } catch {
+        if (!active) return;
+        setSendGating(null);
+      }
+    }
+
+    void loadSendGating();
+
+    return () => {
+      active = false;
+    };
+  }, [reloadNonce, version]);
+
   const {
     holderName: draftLockHolderName,
     isOwnedByCurrentUser: isDraftLockOwnedByCurrentUser,
@@ -1098,6 +1472,16 @@ export default function EditEstimatePage() {
         ? `Verrouille par ${lockHolderLabel}.`
         : "Cette version est en lecture seule.";
   const canSend = version?.status === "draft";
+  const hasKnownBlockingSendFlags = (sendGating?.blockingFlags.length ?? 0) > 0;
+  const isSendBlockedForCurrentUser = hasKnownBlockingSendFlags && !isAdmin;
+  const sendWorkflowPhaseLabel =
+    sendWorkflowPhase === "verification"
+      ? "Verification..."
+      : sendWorkflowPhase === "pdf"
+        ? "Generation PDF..."
+        : sendWorkflowPhase === "sealing"
+          ? "Scellement..."
+          : null;
   const canAccept = version?.status === "sent";
   const canArchive = version?.status !== "archived";
 
@@ -1326,6 +1710,34 @@ export default function EditEstimatePage() {
     [isAdmin, resolvedVersionId]
   );
 
+  const loadTimelineEvents = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!resolvedVersionId || !isAdmin) return;
+
+      setIsTimelineLoading(true);
+      setTimelineError(null);
+
+      try {
+        const events = await fetchEstimateVersionEvents(resolvedVersionId);
+        if (signal?.aborted) return;
+        setTimelineEvents(events);
+      } catch (error) {
+        if (signal?.aborted) return;
+        setTimelineError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de charger la timeline des evenements."
+        );
+        setTimelineEvents([]);
+      } finally {
+        if (!signal?.aborted) {
+          setIsTimelineLoading(false);
+        }
+      }
+    },
+    [isAdmin, resolvedVersionId]
+  );
+
   useEffect(() => {
     if (!isAdmin || !resolvedVersionId) {
       setAuditLogs([]);
@@ -1341,6 +1753,22 @@ export default function EditEstimatePage() {
       abortController.abort();
     };
   }, [isAdmin, loadAuditLogs, resolvedVersionId]);
+
+  useEffect(() => {
+    if (!isAdmin || !resolvedVersionId) {
+      setTimelineEvents([]);
+      setTimelineError(null);
+      setIsTimelineLoading(false);
+      return;
+    }
+
+    const abortController = new AbortController();
+    void loadTimelineEvents(abortController.signal);
+
+    return () => {
+      abortController.abort();
+    };
+  }, [isAdmin, loadTimelineEvents, resolvedVersionId]);
 
   const laborRateById = useMemo(() => {
     const map = new Map<string, number>();
@@ -1370,6 +1798,18 @@ export default function EditEstimatePage() {
     const map = new Map<string, SupplyType>();
     supplyTypes.forEach((supplyType) => {
       map.set(supplyType.id, supplyType);
+    });
+    return map;
+  }, [supplyTypes]);
+
+  const supplyTypeIdByLowerName = useMemo(() => {
+    const map = new Map<string, string>();
+    supplyTypes.forEach((supplyType) => {
+      const normalizedName = supplyType.name.trim().toLowerCase();
+      if (!normalizedName) return;
+      if (!map.has(normalizedName)) {
+        map.set(normalizedName, supplyType.id);
+      }
     });
     return map;
   }, [supplyTypes]);
@@ -1593,57 +2033,144 @@ export default function EditEstimatePage() {
     };
   }, [projectName, qualityCounts, settings, totals, version]);
 
-  const buildLineRows = useCallback((): EstimateLineExportRow[] => {
-    const resolveSectionPath = buildSectionPathResolver(items);
-    return items
+  const fetchSupplierComparisonsByItemId = useCallback(async () => {
+    const lineItemIds = Array.from(
+      new Set(
+        items
       .filter((item) => item.item_type === "line")
-      .map((item) => {
-        const splitFields = readLaborSplitFields(item);
-        const supplyTypeLabel = item.supply_type_id
-          ? supplyTypeById.get(item.supply_type_id)?.name ?? ""
-          : "";
-        const laborLabel = item.labor_role_id
-          ? laborRoleById.get(item.labor_role_id)?.name ?? ""
-          : "";
-        const laborAtelierLabel = splitFields.labor_role_atelier_id
-          ? laborRoleById.get(splitFields.labor_role_atelier_id)?.name ?? ""
-          : "";
-        const laborChantierLabel = splitFields.labor_role_chantier_id
-          ? laborRoleById.get(splitFields.labor_role_chantier_id)?.name ?? ""
-          : "";
-        const qualityFlagsLabel = (qualityFlagsByItemId[item.id] ?? [])
-          .map((flag) => ESTIMATE_QUALITY_FLAG_META[flag].label)
-          .join(" | ");
+          .map((item) => item.id)
+      )
+    );
 
-        return {
-          section_path: resolveSectionPath(item),
-          designation: resolveItemTitle(item.title, "Sans titre"),
-          quality_flags: qualityFlagsLabel,
-          unit: item.description?.trim() ?? "",
-          quantity: item.quantity ?? "",
-          unit_price_ht_cents: item.unit_price_ht_cents ?? "",
-          supply_type: supplyTypeLabel,
-          k_fo: item.k_fo ?? "",
-          h_mo: item.h_mo ?? "",
-          h_mo_majoration_pct:
-            item.h_mo_majoration === null || item.h_mo_majoration === undefined
-              ? ""
-              : Math.round(item.h_mo_majoration * 10000) / 100,
-          labor_role: laborLabel,
-          k_mo: item.k_mo ?? "",
-          h_mo_atelier: splitFields.h_mo_atelier ?? "",
-          labor_role_atelier: laborAtelierLabel,
-          k_mo_atelier: splitFields.k_mo_atelier ?? "",
-          h_mo_chantier: splitFields.h_mo_chantier ?? "",
-          labor_role_chantier: laborChantierLabel,
-          k_mo_chantier: splitFields.k_mo_chantier ?? "",
-          pu_ht_cents: item.pu_ht_cents ?? "",
-          line_total_ht_cents: item.line_total_ht_cents ?? "",
-          tax_rate_bp: item.tax_rate_bp ?? "",
-          line_total_ttc_cents: item.line_total_ttc_cents ?? "",
-        };
-      });
-  }, [items, laborRoleById, qualityFlagsByItemId, supplyTypeById]);
+    if (!resolvedVersionId || lineItemIds.length === 0) {
+      return new Map<string, SupplierComparisonAlternative[]>();
+    }
+
+    const requestChunkSize = 200;
+    const resultMap: SupplierComparisonsByItemId = new Map();
+    let hadRequestError = false;
+
+    for (
+      let startIndex = 0;
+      startIndex < lineItemIds.length;
+      startIndex += requestChunkSize
+    ) {
+      const chunk = lineItemIds.slice(startIndex, startIndex + requestChunkSize);
+
+      try {
+        const response = await fetch(
+          `/api/estimates/${resolvedVersionId}/supplier-comparisons`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              item_ids: chunk,
+            }),
+          }
+        );
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          hadRequestError = true;
+          console.error(
+            "Erreur lors du chargement des comparaisons fournisseur pour l'export.",
+            {
+              status: response.status,
+              payload,
+              chunk_size: chunk.length,
+            }
+          );
+          continue;
+        }
+
+        const chunkMap = normalizeSupplierComparisonsByItemId(payload);
+        chunkMap.forEach((alternatives, itemId) => {
+          resultMap.set(itemId, alternatives);
+        });
+      } catch (error) {
+        hadRequestError = true;
+        console.error(
+          "Erreur lors du chargement des comparaisons fournisseur pour l'export.",
+          error
+        );
+      }
+    }
+
+    if (hadRequestError) {
+      setActionError(
+        "Certaines comparaisons fournisseurs n'ont pas pu etre chargees pour l'export."
+      );
+    }
+
+    return resultMap;
+  }, [items, resolvedVersionId]);
+
+  const buildLineRows = useCallback(
+    (
+      supplierComparisonsByItemId?: SupplierComparisonsByItemId
+    ): EstimateLineExportRow[] => {
+      const resolveSectionPath = buildSectionPathResolver(items);
+      const comparisonsByItemId =
+        supplierComparisonsByItemId ?? new Map<string, SupplierComparisonAlternative[]>();
+
+      return items
+        .filter((item) => item.item_type === "line")
+        .map((item) => {
+          const splitFields = readLaborSplitFields(item);
+          const supplyTypeLabel = item.supply_type_id
+            ? supplyTypeById.get(item.supply_type_id)?.name ?? ""
+            : "";
+          const laborLabel = item.labor_role_id
+            ? laborRoleById.get(item.labor_role_id)?.name ?? ""
+            : "";
+          const laborAtelierLabel = splitFields.labor_role_atelier_id
+            ? laborRoleById.get(splitFields.labor_role_atelier_id)?.name ?? ""
+            : "";
+          const laborChantierLabel = splitFields.labor_role_chantier_id
+            ? laborRoleById.get(splitFields.labor_role_chantier_id)?.name ?? ""
+            : "";
+          const qualityFlagsLabel = (qualityFlagsByItemId[item.id] ?? [])
+            .map((flag) => ESTIMATE_QUALITY_FLAG_META[flag].label)
+            .join(" | ");
+          const supplierAlternatives = comparisonsByItemId.get(item.id) ?? [];
+
+          return {
+            section_path: resolveSectionPath(item),
+            designation: resolveItemTitle(item.title, "Sans titre"),
+            quality_flags: qualityFlagsLabel,
+            unit: item.description?.trim() ?? "",
+            quantity: item.quantity ?? "",
+            unit_price_ht_cents: item.unit_price_ht_cents ?? "",
+            supply_type: supplyTypeLabel,
+            supplier_1: formatSupplierAlternativeCompact(supplierAlternatives[0]),
+            supplier_2: formatSupplierAlternativeCompact(supplierAlternatives[1]),
+            supplier_3: formatSupplierAlternativeCompact(supplierAlternatives[2]),
+            k_fo: item.k_fo ?? "",
+            h_mo: item.h_mo ?? "",
+            h_mo_majoration_pct:
+              item.h_mo_majoration === null || item.h_mo_majoration === undefined
+                ? ""
+                : Math.round(item.h_mo_majoration * 10000) / 100,
+            labor_role: laborLabel,
+            k_mo: item.k_mo ?? "",
+            h_mo_atelier: splitFields.h_mo_atelier ?? "",
+            labor_role_atelier: laborAtelierLabel,
+            k_mo_atelier: splitFields.k_mo_atelier ?? "",
+            h_mo_chantier: splitFields.h_mo_chantier ?? "",
+            labor_role_chantier: laborChantierLabel,
+            k_mo_chantier: splitFields.k_mo_chantier ?? "",
+            pu_ht_cents: item.pu_ht_cents ?? "",
+            line_total_ht_cents: item.line_total_ht_cents ?? "",
+            tax_rate_bp: item.tax_rate_bp ?? "",
+            line_total_ttc_cents: item.line_total_ttc_cents ?? "",
+          };
+        });
+    },
+    [items, laborRoleById, qualityFlagsByItemId, supplyTypeById]
+  );
 
   const lineExportColumns = useMemo(
     () =>
@@ -1653,14 +2180,16 @@ export default function EditEstimatePage() {
     [isLaborSplitEnabled]
   );
 
-  const handleExportExcel = useCallback(() => {
+  const handleExportExcel = useCallback(async () => {
     if (isExporting) return;
     const recapRow = buildRecapRow();
     if (!recapRow) return;
 
     setIsExporting(true);
     try {
-      const lines = buildLineRows();
+      const supplierComparisonsByItemId =
+        await fetchSupplierComparisonsByItemId();
+      const lines = buildLineRows(supplierComparisonsByItemId);
       const filename = buildExportFilename();
       exportToExcelWithSheets(
         [
@@ -1686,18 +2215,21 @@ export default function EditEstimatePage() {
     buildExportFilename,
     buildLineRows,
     buildRecapRow,
+    fetchSupplierComparisonsByItemId,
     isExporting,
     lineExportColumns,
   ]);
 
-  const handleExportCSV = useCallback(() => {
+  const handleExportCSV = useCallback(async () => {
     if (isExporting) return;
     const recapRow = buildRecapRow();
     if (!recapRow) return;
 
     setIsExporting(true);
     try {
-      const lines = buildLineRows();
+      const supplierComparisonsByItemId =
+        await fetchSupplierComparisonsByItemId();
+      const lines = buildLineRows(supplierComparisonsByItemId);
       const filename = buildExportFilename();
       exportToCSV(lines, lineExportColumns, { filename });
     } catch (error) {
@@ -1709,6 +2241,7 @@ export default function EditEstimatePage() {
     buildExportFilename,
     buildLineRows,
     buildRecapRow,
+    fetchSupplierComparisonsByItemId,
     isExporting,
     lineExportColumns,
   ]);
@@ -2208,6 +2741,7 @@ export default function EditEstimatePage() {
       }
       persistBufferedItemUpdatesToLocal();
       setHasPendingBufferedUpdates(pendingItemUpdatesRef.current.size > 0);
+      clearUndoRedoHistory();
       return "saved" as const;
     } catch (error) {
       bufferedEntries.forEach((entry) => {
@@ -2239,7 +2773,7 @@ export default function EditEstimatePage() {
     } finally {
       isFlushingBufferedUpdatesRef.current = false;
     }
-  }, [handleVersionConflict, persistBufferedItemUpdatesToLocal]);
+  }, [clearUndoRedoHistory, handleVersionConflict, persistBufferedItemUpdatesToLocal]);
 
   const ensureGroupedActionCanProceed = useCallback(
     async (actionLabel: string) => {
@@ -2784,6 +3318,131 @@ export default function EditEstimatePage() {
     return maxPosition + 1;
   }, []);
 
+  const applyVersionToken = useCallback((updatedAt: string) => {
+    setVersion((previous) =>
+      previous
+        ? {
+            ...previous,
+            updated_at: updatedAt,
+          }
+        : previous
+    );
+    if (versionRef.current) {
+      versionRef.current = {
+        ...versionRef.current,
+        updated_at: updatedAt,
+      };
+    }
+  }, []);
+
+  const applyBulkLineState = useCallback(
+    async (
+      targetLines: EstimateItem[],
+      failureMessage: string
+    ) => {
+      const snapshot = itemsRef.current;
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot) {
+        setActionError("Version introuvable.");
+        throw new Error("Version introuvable.");
+      }
+
+      const updatedById = new Map(targetLines.map((line) => [line.id, line]));
+      setItems((previous) =>
+        previous.map((item) => updatedById.get(item.id) ?? item)
+      );
+
+      const updatesPayload = targetLines.map((line) => ({
+        id: line.id,
+        updates: buildEstimateItemUpdatePayload(line),
+      }));
+
+      try {
+        const bulkResult = await bulkUpdateEstimateItems(
+          versionSnapshot.id,
+          versionSnapshot.updated_at,
+          updatesPayload
+        );
+        applyVersionToken(bulkResult.versionToken.updated_at);
+        setTotalsOutOfSync(false);
+      } catch (error) {
+        setItems(snapshot);
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error ? error.message : failureMessage
+            )
+          );
+        }
+        throw error;
+      }
+    },
+    [applyVersionToken, handleVersionConflict]
+  );
+
+  const recreateItemsFromSnapshots = useCallback(
+    async (versionId: string, snapshots: EstimateItem[]) => {
+      const idMap = new Map<string, string>();
+      const createdItems: EstimateItem[] = [];
+      const sortedSnapshots = sortItemsForTreeRecreation(snapshots);
+
+      for (const snapshotItem of sortedSnapshots) {
+        const mappedParentId = snapshotItem.parent_id
+          ? (idMap.get(snapshotItem.parent_id) ?? snapshotItem.parent_id)
+          : null;
+        const createPayload = buildEstimateItemInsertPayload(versionId, snapshotItem, {
+          parentId: mappedParentId,
+          position: snapshotItem.position,
+          title: snapshotItem.title,
+        });
+        const created = await createEstimateItem(versionId, createPayload);
+        idMap.set(snapshotItem.id, created.id);
+        createdItems.push(created);
+      }
+
+      return {
+        idMap,
+        createdItems,
+      };
+    },
+    []
+  );
+
+  const applySiblingOrder = useCallback(
+    async (
+      versionId: string,
+      siblingOrderByParent: Map<string | null, string[]>,
+      idMap: Map<string, string> = new Map()
+    ) => {
+      if (siblingOrderByParent.size === 0) return;
+
+      const currentItemIds = new Set(itemsRef.current.map((item) => item.id));
+      const nextPositionById = new Map<string, number>();
+
+      for (const [parentId, orderedIds] of siblingOrderByParent.entries()) {
+        const mappedOrderedIds = orderedIds
+          .map((itemId) => idMap.get(itemId) ?? itemId)
+          .filter((itemId) => currentItemIds.has(itemId));
+
+        if (mappedOrderedIds.length === 0) continue;
+        await reorderEstimateItems(versionId, parentId, mappedOrderedIds);
+        mappedOrderedIds.forEach((itemId, index) => {
+          nextPositionById.set(itemId, index + 1);
+        });
+      }
+
+      if (nextPositionById.size === 0) return;
+      setItems((previous) =>
+        previous.map((item) =>
+          nextPositionById.has(item.id)
+            ? { ...item, position: nextPositionById.get(item.id) ?? item.position }
+            : item
+        )
+      );
+    },
+    []
+  );
+
   const handleAddSection = useCallback(
     async (parentId: string | null) => {
       if (!version) return;
@@ -2813,8 +3472,54 @@ export default function EditEstimatePage() {
       }
 
       setItems((prev) => [...prev, data]);
+      let currentSectionId = data.id;
+      pushHistoryCommand({
+        label: "add-section",
+        undo: async () => {
+          const versionSnapshot = versionRef.current;
+          if (!versionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const snapshot = itemsRef.current;
+          const idsToRemove = collectSubtreeItemIds(snapshot, currentSectionId);
+          setItems((previous) =>
+            previous.filter((item) => !idsToRemove.has(item.id))
+          );
+
+          try {
+            await deleteEstimateItem(versionSnapshot.id, currentSectionId);
+            setTotalsOutOfSync(false);
+          } catch (error) {
+            setItems(snapshot);
+            throw error;
+          }
+        },
+        redo: async () => {
+          const versionSnapshot = versionRef.current;
+          if (!versionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const payload = buildEstimateItemInsertPayload(versionSnapshot.id, data, {
+            parentId,
+            position: data.position,
+            title: data.title,
+          });
+          const recreated = await createEstimateItem(versionSnapshot.id, payload);
+          currentSectionId = recreated.id;
+          setItems((previous) => [...previous, recreated]);
+          setTotalsOutOfSync(false);
+        },
+      });
     },
-    [getNextPosition, isReadOnly, readOnlyActionErrorMessage, version]
+    [
+      getNextPosition,
+      isReadOnly,
+      pushHistoryCommand,
+      readOnlyActionErrorMessage,
+      version,
+    ]
   );
 
   const handleAddLine = useCallback(
@@ -2900,11 +3605,50 @@ export default function EditEstimatePage() {
       }
 
       setItems((prev) => [...prev, data]);
+      let currentLineId = data.id;
+      pushHistoryCommand({
+        label: "add-line",
+        undo: async () => {
+          const versionSnapshot = versionRef.current;
+          if (!versionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const snapshot = itemsRef.current;
+          setItems((previous) =>
+            previous.filter((item) => item.id !== currentLineId)
+          );
+          try {
+            await deleteEstimateItem(versionSnapshot.id, currentLineId);
+            setTotalsOutOfSync(false);
+          } catch (error) {
+            setItems(snapshot);
+            throw error;
+          }
+        },
+        redo: async () => {
+          const versionSnapshot = versionRef.current;
+          if (!versionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const payload = buildEstimateItemInsertPayload(versionSnapshot.id, data, {
+            parentId,
+            position: data.position,
+            title: data.title,
+          });
+          const recreated = await createEstimateItem(versionSnapshot.id, payload);
+          currentLineId = recreated.id;
+          setItems((previous) => [...previous, recreated]);
+          setTotalsOutOfSync(false);
+        },
+      });
     },
     [
       getNextPosition,
       isLaborSplitEnabled,
       isReadOnly,
+      pushHistoryCommand,
       readOnlyActionErrorMessage,
       settings,
       version,
@@ -2930,9 +3674,10 @@ export default function EditEstimatePage() {
 
       setActionError(null);
       const snapshot = itemsRef.current;
+      let insertedItems: EstimateItem[] = [];
 
       try {
-        const insertedItems = await insertAssemblyIntoVersion(assemblyId, {
+        insertedItems = await insertAssemblyIntoVersion(assemblyId, {
           versionId: version.id,
           afterItemId,
         });
@@ -2977,20 +3722,7 @@ export default function EditEstimatePage() {
       await refreshVersionTokenAfterAssemblyInsert(version.id, {
         fetchEstimateEditorData,
         onVersionToken: (updatedAt) => {
-          setVersion((previous) =>
-            previous
-              ? {
-                  ...previous,
-                  updated_at: updatedAt,
-                }
-              : previous
-          );
-          if (versionRef.current) {
-            versionRef.current = {
-              ...versionRef.current,
-              updated_at: updatedAt,
-            };
-          }
+          applyVersionToken(updatedAt);
         },
         onError: (error) => {
           console.error(
@@ -2999,12 +3731,94 @@ export default function EditEstimatePage() {
           );
         },
       });
+
+      if (insertedItems.length === 0) return;
+
+      let latestInsertedRoots = resolveTopLevelItemIds(insertedItems);
+      pushHistoryCommand({
+        label: "insert-assembly",
+        undo: async () => {
+          const versionSnapshot = versionRef.current;
+          if (!versionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const undoSnapshot = itemsRef.current;
+          const idsToRemove = new Set<string>();
+          latestInsertedRoots.forEach((rootId) => {
+            collectSubtreeItemIds(undoSnapshot, rootId).forEach((id) => {
+              idsToRemove.add(id);
+            });
+          });
+          setItems((previous) =>
+            previous.filter((item) => !idsToRemove.has(item.id))
+          );
+
+          try {
+            for (const rootId of latestInsertedRoots) {
+              await deleteEstimateItem(versionSnapshot.id, rootId);
+            }
+            setTotalsOutOfSync(false);
+          } catch (error) {
+            setItems(undoSnapshot);
+            throw error;
+          }
+        },
+        redo: async () => {
+          const versionSnapshot = versionRef.current;
+          if (!versionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const redoSnapshot = itemsRef.current;
+          const recreated = await insertAssemblyIntoVersion(assemblyId, {
+            versionId: versionSnapshot.id,
+            afterItemId,
+          });
+          if (recreated.length === 0) return;
+
+          latestInsertedRoots = resolveTopLevelItemIds(recreated);
+          const recreatedIds = new Set(recreated.map((item) => item.id));
+          const insertedSection =
+            recreated.find((item) => item.item_type === "section") ?? recreated[0];
+          const targetParentId = insertedSection?.parent_id ?? null;
+          const targetPosition = insertedSection?.position ?? 1;
+
+          const shiftedExistingItems = redoSnapshot.map((item) => {
+            if (recreatedIds.has(item.id)) return item;
+            if ((item.parent_id ?? null) !== targetParentId) return item;
+            if (item.position < targetPosition) return item;
+            return {
+              ...item,
+              position: item.position + 1,
+            };
+          });
+
+          setItems([...shiftedExistingItems, ...recreated]);
+          setTotalsOutOfSync(false);
+
+          await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
+            fetchEstimateEditorData,
+            onVersionToken: (updatedAt) => {
+              applyVersionToken(updatedAt);
+            },
+            onError: (error) => {
+              console.error(
+                "Impossible de rafraichir le jeton de version apres reinsertion d'assemblage.",
+                error
+              );
+            },
+          });
+        },
+      });
     },
     [
+      applyVersionToken,
       conflictState?.message,
       handleVersionConflict,
       isConflictLocked,
       isReadOnly,
+      pushHistoryCommand,
       readOnlyActionErrorMessage,
       version?.id,
     ]
@@ -3020,16 +3834,9 @@ export default function EditEstimatePage() {
       setActionError(null);
 
       const snapshot = itemsRef.current;
-      const idsToRemove = new Set<string>();
-
-      function collect(id: string) {
-        idsToRemove.add(id);
-        snapshot
-          .filter((item) => item.parent_id === id)
-          .forEach((child) => collect(child.id));
-      }
-
-      collect(itemId);
+      const idsToRemove = collectSubtreeItemIds(snapshot, itemId);
+      const deletedSnapshots = snapshot.filter((item) => idsToRemove.has(item.id));
+      const siblingOrderByParent = buildSiblingOrderByParent(snapshot);
       setItems((prev) => prev.filter((item) => !idsToRemove.has(item.id)));
 
       if (!version?.id) {
@@ -3040,6 +3847,59 @@ export default function EditEstimatePage() {
 
       try {
         await deleteEstimateItem(version.id, itemId);
+        let currentDeletedRootId = itemId;
+        pushHistoryCommand({
+          label: "delete-item",
+          undo: async () => {
+            const versionSnapshot = versionRef.current;
+            if (!versionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const undoSnapshot = itemsRef.current;
+            try {
+              const recreated = await recreateItemsFromSnapshots(
+                versionSnapshot.id,
+                deletedSnapshots
+              );
+
+              setItems([...undoSnapshot, ...recreated.createdItems]);
+              await applySiblingOrder(
+                versionSnapshot.id,
+                siblingOrderByParent,
+                recreated.idMap
+              );
+              currentDeletedRootId =
+                recreated.idMap.get(itemId) ?? currentDeletedRootId;
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              await reloadItems();
+              throw error;
+            }
+          },
+          redo: async () => {
+            const versionSnapshot = versionRef.current;
+            if (!versionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const redoSnapshot = itemsRef.current;
+            const redoIdsToRemove = collectSubtreeItemIds(
+              redoSnapshot,
+              currentDeletedRootId
+            );
+            setItems((previous) =>
+              previous.filter((item) => !redoIdsToRemove.has(item.id))
+            );
+            try {
+              await deleteEstimateItem(versionSnapshot.id, currentDeletedRootId);
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              setItems(redoSnapshot);
+              throw error;
+            }
+          },
+        });
       } catch (error) {
         setActionError(
           resolveEstimateActionError(
@@ -3049,7 +3909,15 @@ export default function EditEstimatePage() {
         await reloadItems();
       }
     },
-    [isReadOnly, readOnlyActionErrorMessage, reloadItems, version?.id]
+    [
+      applySiblingOrder,
+      isReadOnly,
+      pushHistoryCommand,
+      readOnlyActionErrorMessage,
+      recreateItemsFromSnapshots,
+      reloadItems,
+      version?.id,
+    ]
   );
 
   const handlePatchItem = useCallback(
@@ -3066,6 +3934,7 @@ export default function EditEstimatePage() {
       const snapshot = itemsRef.current;
       const current = snapshot.find((item) => item.id === itemId);
       if (!current) return;
+      const previousItem = current;
 
       let updated: EstimateItem = { ...current, ...patch };
 
@@ -3110,12 +3979,36 @@ export default function EditEstimatePage() {
 
       enqueueBufferedItemUpdate(itemId, buildEstimateItemUpdatePayload(updated));
       setTotalsOutOfSync(false);
+      pushHistoryCommand({
+        label: "patch-item",
+        undo: async () => {
+          setItems((previous) =>
+            previous.map((item) => (item.id === itemId ? previousItem : item))
+          );
+          enqueueBufferedItemUpdate(
+            itemId,
+            buildEstimateItemUpdatePayload(previousItem)
+          );
+          setTotalsOutOfSync(false);
+        },
+        redo: async () => {
+          setItems((previous) =>
+            previous.map((item) => (item.id === itemId ? updated : item))
+          );
+          enqueueBufferedItemUpdate(
+            itemId,
+            buildEstimateItemUpdatePayload(updated)
+          );
+          setTotalsOutOfSync(false);
+        },
+      });
     },
     [
       enqueueBufferedItemUpdate,
       computeLineValuesWithLaborContext,
       isLaborSplitEnabled,
       isReadOnly,
+      pushHistoryCommand,
       readOnlyActionErrorMessage,
       settings?.margin_multiplier,
       settings?.tax_rate_bp,
@@ -3190,54 +4083,37 @@ export default function EditEstimatePage() {
         };
       });
 
-      const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
-      setItems((prev) => prev.map((item) => updatedById.get(item.id) ?? item));
-      const updatesPayload = updatedLines.map((item) => ({
-        id: item.id,
-        updates: buildEstimateItemUpdatePayload(item),
-      }));
-
       try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          versionSnapshot.id,
-          versionSnapshot.updated_at,
-          updatesPayload
+        await applyBulkLineState(
+          updatedLines,
+          "Impossible d'appliquer la majoration en lot."
         );
-
-        setVersion((prev) =>
-          prev
-            ? {
-                ...prev,
-                updated_at: bulkResult.versionToken.updated_at,
-              }
-            : prev
-        );
-        if (versionRef.current) {
-          versionRef.current = {
-            ...versionRef.current,
-            updated_at: bulkResult.versionToken.updated_at,
-          };
-        }
-        setTotalsOutOfSync(false);
+        pushHistoryCommand({
+          label: "bulk-majoration",
+          undo: async () => {
+            await applyBulkLineState(
+              selectedLines,
+              "Impossible d'annuler la majoration en lot."
+            );
+          },
+          redo: async () => {
+            await applyBulkLineState(
+              updatedLines,
+              "Impossible de reappliquer la majoration en lot."
+            );
+          },
+        });
       } catch (error) {
-        setItems(snapshot);
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible d'appliquer la majoration en lot."
-            )
-          );
-        }
+        void error;
       }
     },
     [
+      applyBulkLineState,
       computeLineValuesWithLaborContext,
       ensureGroupedActionCanProceed,
-      handleVersionConflict,
       isLaborSplitEnabled,
       isReadOnly,
+      pushHistoryCommand,
       readOnlyActionErrorMessage,
       settings?.margin_multiplier,
       settings?.tax_rate_bp,
@@ -3271,6 +4147,14 @@ export default function EditEstimatePage() {
       );
 
       if (selectedLines.length === 0) return;
+      const siblingOrderByParent = new Map<string | null, string[]>();
+      const allSiblingOrders = buildSiblingOrderByParent(snapshot);
+      selectedLines.forEach((line) => {
+        const parentId = line.parent_id ?? null;
+        const orderedIds = allSiblingOrders.get(parentId);
+        if (!orderedIds) return;
+        siblingOrderByParent.set(parentId, orderedIds);
+      });
 
       setActionError(null);
       setItems((previous) =>
@@ -3284,6 +4168,59 @@ export default function EditEstimatePage() {
           deletedCount += 1;
         }
         setTotalsOutOfSync(false);
+        let currentDeletedLineIds = selectedLines.map((line) => line.id);
+        pushHistoryCommand({
+          label: "bulk-delete-lines",
+          undo: async () => {
+            const currentVersionSnapshot = versionRef.current;
+            if (!currentVersionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const undoSnapshot = itemsRef.current;
+            try {
+              const recreated = await recreateItemsFromSnapshots(
+                currentVersionSnapshot.id,
+                selectedLines
+              );
+              setItems([...undoSnapshot, ...recreated.createdItems]);
+              await applySiblingOrder(
+                currentVersionSnapshot.id,
+                siblingOrderByParent,
+                recreated.idMap
+              );
+              currentDeletedLineIds = selectedLines.map(
+                (line) => recreated.idMap.get(line.id) ?? line.id
+              );
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              await reloadItems();
+              throw error;
+            }
+          },
+          redo: async () => {
+            const currentVersionSnapshot = versionRef.current;
+            if (!currentVersionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const redoSnapshot = itemsRef.current;
+            const toDelete = new Set(currentDeletedLineIds);
+            setItems((previous) =>
+              previous.filter((item) => !toDelete.has(item.id))
+            );
+
+            try {
+              for (const lineId of currentDeletedLineIds) {
+                await deleteEstimateItem(currentVersionSnapshot.id, lineId);
+              }
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              setItems(redoSnapshot);
+              throw error;
+            }
+          },
+        });
       } catch (error) {
         setItems(snapshot);
         if (deletedCount > 0) {
@@ -3318,7 +4255,11 @@ export default function EditEstimatePage() {
       ensureGroupedActionCanProceed,
       handleVersionConflict,
       isReadOnly,
+      pushHistoryCommand,
+      recreateItemsFromSnapshots,
+      applySiblingOrder,
       readOnlyActionErrorMessage,
+      reloadItems,
       triggerVersionReload,
     ]
   );
@@ -3375,57 +4316,35 @@ export default function EditEstimatePage() {
         return moved;
       });
 
-      const movedById = new Map(movedLines.map((line) => [line.id, line]));
-      setItems((previous) =>
-        previous.map((item) => movedById.get(item.id) ?? item)
-      );
-      const updatesPayload = movedLines.map((line) => ({
-        id: line.id,
-        updates: {
-          parent_id: line.parent_id,
-          position: line.position,
-        },
-      }));
-
       try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          versionSnapshot.id,
-          versionSnapshot.updated_at,
-          updatesPayload
+        await applyBulkLineState(
+          movedLines,
+          "Impossible de deplacer les lignes selectionnees."
         );
-
-        setVersion((previous) =>
-          previous
-            ? {
-                ...previous,
-                updated_at: bulkResult.versionToken.updated_at,
-              }
-            : previous
-        );
-        if (versionRef.current) {
-          versionRef.current = {
-            ...versionRef.current,
-            updated_at: bulkResult.versionToken.updated_at,
-          };
-        }
-        setTotalsOutOfSync(false);
+        pushHistoryCommand({
+          label: "bulk-move-lines",
+          undo: async () => {
+            await applyBulkLineState(
+              selectedLines,
+              "Impossible d'annuler le deplacement des lignes."
+            );
+          },
+          redo: async () => {
+            await applyBulkLineState(
+              movedLines,
+              "Impossible de reappliquer le deplacement des lignes."
+            );
+          },
+        });
       } catch (error) {
-        setItems(snapshot);
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible de deplacer les lignes selectionnees."
-            )
-          );
-        }
+        void error;
       }
     },
     [
+      applyBulkLineState,
       ensureGroupedActionCanProceed,
-      handleVersionConflict,
       isReadOnly,
+      pushHistoryCommand,
       readOnlyActionErrorMessage,
     ]
   );
@@ -3465,56 +4384,35 @@ export default function EditEstimatePage() {
       }));
 
       setActionError(null);
-      const updatedById = new Map(updatedLines.map((line) => [line.id, line]));
-      setItems((previous) =>
-        previous.map((item) => updatedById.get(item.id) ?? item)
-      );
-      const updatesPayload = updatedLines.map((line) => ({
-        id: line.id,
-        updates: {
-          category_id: line.category_id,
-        },
-      }));
-
       try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          versionSnapshot.id,
-          versionSnapshot.updated_at,
-          updatesPayload
+        await applyBulkLineState(
+          updatedLines,
+          "Impossible d'appliquer la categorie en lot."
         );
-
-        setVersion((previous) =>
-          previous
-            ? {
-                ...previous,
-                updated_at: bulkResult.versionToken.updated_at,
-              }
-            : previous
-        );
-        if (versionRef.current) {
-          versionRef.current = {
-            ...versionRef.current,
-            updated_at: bulkResult.versionToken.updated_at,
-          };
-        }
-        setTotalsOutOfSync(false);
+        pushHistoryCommand({
+          label: "bulk-set-category",
+          undo: async () => {
+            await applyBulkLineState(
+              selectedLines,
+              "Impossible d'annuler la categorie en lot."
+            );
+          },
+          redo: async () => {
+            await applyBulkLineState(
+              updatedLines,
+              "Impossible de reappliquer la categorie en lot."
+            );
+          },
+        });
       } catch (error) {
-        setItems(snapshot);
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible d'appliquer la categorie en lot."
-            )
-          );
-        }
+        void error;
       }
     },
     [
+      applyBulkLineState,
       ensureGroupedActionCanProceed,
-      handleVersionConflict,
       isReadOnly,
+      pushHistoryCommand,
       readOnlyActionErrorMessage,
     ]
   );
@@ -3586,56 +4484,37 @@ export default function EditEstimatePage() {
         };
       });
 
-      const updatedById = new Map(updatedLines.map((line) => [line.id, line]));
-      setItems((previous) =>
-        previous.map((item) => updatedById.get(item.id) ?? item)
-      );
-      const updatesPayload = updatedLines.map((line) => ({
-        id: line.id,
-        updates: buildEstimateItemUpdatePayload(line),
-      }));
-
       try {
-        const bulkResult = await bulkUpdateEstimateItems(
-          versionSnapshot.id,
-          versionSnapshot.updated_at,
-          updatesPayload
+        await applyBulkLineState(
+          updatedLines,
+          "Impossible d'appliquer le role MO en lot."
         );
-
-        setVersion((previous) =>
-          previous
-            ? {
-                ...previous,
-                updated_at: bulkResult.versionToken.updated_at,
-              }
-            : previous
-        );
-        if (versionRef.current) {
-          versionRef.current = {
-            ...versionRef.current,
-            updated_at: bulkResult.versionToken.updated_at,
-          };
-        }
-        setTotalsOutOfSync(false);
+        pushHistoryCommand({
+          label: "bulk-set-labor-role",
+          undo: async () => {
+            await applyBulkLineState(
+              selectedLines,
+              "Impossible d'annuler le role MO en lot."
+            );
+          },
+          redo: async () => {
+            await applyBulkLineState(
+              updatedLines,
+              "Impossible de reappliquer le role MO en lot."
+            );
+          },
+        });
       } catch (error) {
-        setItems(snapshot);
-        if (!handleVersionConflict(error, { persistDraft: true })) {
-          setActionError(
-            resolveEstimateActionError(
-              error instanceof Error
-                ? error.message
-                : "Impossible d'appliquer le role MO en lot."
-            )
-          );
-        }
+        void error;
       }
     },
     [
+      applyBulkLineState,
       computeLineValuesWithLaborContext,
       ensureGroupedActionCanProceed,
-      handleVersionConflict,
       isLaborSplitEnabled,
       isReadOnly,
+      pushHistoryCommand,
       readOnlyActionErrorMessage,
       settings?.margin_multiplier,
       settings?.tax_rate_bp,
@@ -3712,6 +4591,13 @@ export default function EditEstimatePage() {
         return;
       }
       const snapshot = itemsRef.current;
+      const previousOrderedIds = snapshot
+        .filter((item) => item.parent_id === parentId)
+        .sort((left, right) => left.position - right.position)
+        .map((item) => item.id);
+      if (previousOrderedIds.join("|") === orderedIds.join("|")) {
+        return;
+      }
       const updated = snapshot.map((item) => {
         if (item.parent_id !== parentId) return item;
         const index = orderedIds.indexOf(item.id);
@@ -3729,33 +4615,414 @@ export default function EditEstimatePage() {
 
       try {
         await reorderEstimateItems(version.id, parentId, orderedIds);
+        pushHistoryCommand({
+          label: "reorder",
+          undo: async () => {
+            const versionSnapshot = versionRef.current;
+            if (!versionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const undoSnapshot = itemsRef.current;
+            const undoItems = undoSnapshot.map((item) => {
+              if (item.parent_id !== parentId) return item;
+              const index = previousOrderedIds.indexOf(item.id);
+              if (index === -1) return item;
+              return { ...item, position: index + 1 };
+            });
+            setItems(undoItems);
+            try {
+              await reorderEstimateItems(
+                versionSnapshot.id,
+                parentId,
+                previousOrderedIds
+              );
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              setItems(undoSnapshot);
+              throw error;
+            }
+          },
+          redo: async () => {
+            const versionSnapshot = versionRef.current;
+            if (!versionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const redoSnapshot = itemsRef.current;
+            const redoItems = redoSnapshot.map((item) => {
+              if (item.parent_id !== parentId) return item;
+              const index = orderedIds.indexOf(item.id);
+              if (index === -1) return item;
+              return { ...item, position: index + 1 };
+            });
+            setItems(redoItems);
+            try {
+              await reorderEstimateItems(versionSnapshot.id, parentId, orderedIds);
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              setItems(redoSnapshot);
+              throw error;
+            }
+          },
+        });
       } catch {
         setActionError("Impossible de reordonner les lignes.");
         setItems(snapshot);
       }
     },
-    [isReadOnly, readOnlyActionErrorMessage, version?.id]
+    [isReadOnly, pushHistoryCommand, readOnlyActionErrorMessage, version?.id]
   );
 
-  async function handleStatusChange(nextStatus: EstimateStatus) {
-    if (!version || isUpdatingStatus) return;
+  const handlePasteRows = useCallback<EstimateEditorTableProps["onPasteRows"]>(
+    async ({ anchorRowId, rows }) => {
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot || !settings) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      const validRows = rows.filter(
+        (row) =>
+          typeof row.designation === "string" && row.designation.trim().length > 0
+      );
+      if (validRows.length === 0) {
+        setActionError("Aucune ligne valide a inserer.");
+        return;
+      }
+
+      setActionError(null);
+      const snapshot = itemsRef.current;
+      const anchorItem = anchorRowId
+        ? snapshot.find((item) => item.id === anchorRowId) ?? null
+        : null;
+      const targetParentId = anchorItem
+        ? anchorItem.item_type === "section"
+          ? anchorItem.id
+          : (anchorItem.parent_id ?? null)
+        : null;
+      const insertAfterId =
+        anchorItem && anchorItem.item_type === "line" ? anchorItem.id : null;
+      const beforeOrderedIds = snapshot
+        .filter((item) => item.parent_id === targetParentId)
+        .sort((left, right) => left.position - right.position)
+        .map((item) => item.id);
+
+      let nextPosition =
+        snapshot
+          .filter((item) => item.parent_id === targetParentId)
+          .reduce((max, item) => Math.max(max, item.position), 0) + 1;
+
+      const createdItems: EstimateItem[] = [];
+      try {
+        for (const row of validRows) {
+          const designation = row.designation?.trim() || "Nouvelle ligne";
+          const quantity = Math.max(toFiniteNumber(row.quantity, 1), 0);
+          const unitPriceHt = Math.max(toFiniteNumber(row.unit_price_ht, 0), 0);
+          const unitPriceHtCents = Math.round(unitPriceHt * 100);
+          const kFo = Math.max(toFiniteNumber(row.k_fo, 1), 0);
+          const hMo = Math.max(toFiniteNumber(row.h_mo, 0), 0);
+          const kMo = Math.max(toFiniteNumber(row.k_mo, 1), 0);
+          const hMoMajoration = Math.max(
+            toFiniteNumber(row.h_mo_majoration, 1),
+            0
+          );
+          const supplyTypeId =
+            row.supply_type && row.supply_type.trim().length > 0
+              ? (supplyTypeIdByLowerName.get(row.supply_type.trim().toLowerCase()) ??
+                null)
+              : null;
+
+          const lineInput = {
+            quantity,
+            unit_price_ht_cents: unitPriceHtCents,
+            tax_rate_bp: settings.tax_rate_bp,
+            k_fo: kFo,
+            h_mo: hMo,
+            h_mo_majoration: hMoMajoration,
+            k_mo: kMo,
+            pu_ht_cents: 0,
+            labor_role_hourly_rate_cents: 0,
+            h_mo_atelier: 0,
+            k_mo_atelier: 1,
+            labor_role_atelier_id: null,
+            labor_role_atelier_hourly_rate_cents: 0,
+            h_mo_chantier: 0,
+            k_mo_chantier: 1,
+            labor_role_chantier_id: null,
+            labor_role_chantier_hourly_rate_cents: 0,
+          };
+          const lineValues = computeEstimateLineValues(lineInput, {
+            marginMultiplier: settings.margin_multiplier,
+            taxRateBp: settings.tax_rate_bp,
+            isLaborSplitEnabled,
+          });
+
+          const createPayload: EstimateItemInsertPayload = {
+            version_id: versionSnapshot.id,
+            parent_id: targetParentId,
+            item_type: "line",
+            position: nextPosition,
+            title: designation,
+            description: row.unit?.trim() || null,
+            quantity,
+            unit_price_ht_cents: unitPriceHtCents,
+            tax_rate_bp: settings.tax_rate_bp,
+            k_fo: kFo,
+            h_mo: hMo,
+            h_mo_majoration: hMoMajoration,
+            k_mo: kMo,
+            pu_ht_cents: lineValues.puHtCents,
+            labor_role_id: null,
+            category_id: null,
+            supply_type_id: supplyTypeId,
+            selected_supplier_price_id: null,
+            line_total_ht_cents: lineValues.saleLineCents,
+            line_tax_cents: lineValues.taxLineCents,
+            line_total_ttc_cents: lineValues.ttcLineCents,
+          };
+
+          if (isLaborSplitEnabled) {
+            createPayload.h_mo_atelier = 0;
+            createPayload.k_mo_atelier = 1;
+            createPayload.labor_role_atelier_id = null;
+            createPayload.h_mo_chantier = 0;
+            createPayload.k_mo_chantier = 1;
+            createPayload.labor_role_chantier_id = null;
+          }
+
+          const created = await createEstimateItem(versionSnapshot.id, createPayload);
+          createdItems.push(created);
+          nextPosition += 1;
+        }
+      } catch (error) {
+        if (createdItems.length > 0) {
+          await Promise.allSettled(
+            createdItems.map((item) => deleteEstimateItem(versionSnapshot.id, item.id))
+          );
+        }
+        throw new Error(
+          resolveEstimateActionError(
+            error instanceof Error
+              ? error.message
+              : "Impossible d'inserer les lignes collees."
+          )
+        );
+      }
+
+      const insertedIds = createdItems.map((item) => item.id);
+      const mergedItems = [...snapshot, ...createdItems];
+      setItems(mergedItems);
+
+      const currentOrderedIds = mergedItems
+        .filter((item) => item.parent_id === targetParentId)
+        .sort((left, right) => left.position - right.position)
+        .map((item) => item.id);
+
+      let afterOrderedIds = currentOrderedIds;
+      if (insertAfterId) {
+        const withoutInserted = currentOrderedIds.filter(
+          (itemId) => !insertedIds.includes(itemId)
+        );
+        const anchorIndex = withoutInserted.indexOf(insertAfterId);
+        if (anchorIndex >= 0) {
+          afterOrderedIds = [
+            ...withoutInserted.slice(0, anchorIndex + 1),
+            ...insertedIds,
+            ...withoutInserted.slice(anchorIndex + 1),
+          ];
+        } else {
+          afterOrderedIds = [...withoutInserted, ...insertedIds];
+        }
+      }
+
+      if (afterOrderedIds.join("|") !== currentOrderedIds.join("|")) {
+        try {
+          await reorderEstimateItems(
+            versionSnapshot.id,
+            targetParentId,
+            afterOrderedIds
+          );
+          const nextPositionById = new Map<string, number>();
+          afterOrderedIds.forEach((itemId, index) => {
+            nextPositionById.set(itemId, index + 1);
+          });
+          setItems((previous) =>
+            previous.map((item) =>
+              nextPositionById.has(item.id)
+                ? {
+                    ...item,
+                    position: nextPositionById.get(item.id) ?? item.position,
+                  }
+                : item
+            )
+          );
+        } catch (error) {
+          await reloadItems();
+          throw new Error(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible de repositionner les lignes collees."
+            )
+          );
+        }
+      }
+      setTotalsOutOfSync(false);
+
+      let currentInsertedIds = [...insertedIds];
+      pushHistoryCommand({
+        label: "paste-insert",
+        undo: async () => {
+          const undoVersionSnapshot = versionRef.current;
+          if (!undoVersionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const undoSnapshot = itemsRef.current;
+          const idsToDelete = new Set(currentInsertedIds);
+          setItems((previous) =>
+            previous.filter((item) => !idsToDelete.has(item.id))
+          );
+
+          try {
+            for (const itemId of currentInsertedIds) {
+              await deleteEstimateItem(undoVersionSnapshot.id, itemId);
+            }
+
+            const survivingIds = new Set(
+              undoSnapshot
+                .filter((item) => !idsToDelete.has(item.id))
+                .map((item) => item.id)
+            );
+            const restoredBeforeOrder = beforeOrderedIds.filter((itemId) =>
+              survivingIds.has(itemId)
+            );
+            if (restoredBeforeOrder.length > 0) {
+              await reorderEstimateItems(
+                undoVersionSnapshot.id,
+                targetParentId,
+                restoredBeforeOrder
+              );
+              const nextPositionById = new Map<string, number>();
+              restoredBeforeOrder.forEach((itemId, index) => {
+                nextPositionById.set(itemId, index + 1);
+              });
+              setItems((previous) =>
+                previous.map((item) =>
+                  nextPositionById.has(item.id)
+                    ? {
+                        ...item,
+                        position: nextPositionById.get(item.id) ?? item.position,
+                      }
+                    : item
+                )
+              );
+            }
+            setTotalsOutOfSync(false);
+          } catch (error) {
+            setItems(undoSnapshot);
+            throw error;
+          }
+        },
+        redo: async () => {
+          const redoVersionSnapshot = versionRef.current;
+          if (!redoVersionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const redoSnapshot = itemsRef.current;
+          const recreated = await recreateItemsFromSnapshots(
+            redoVersionSnapshot.id,
+            createdItems
+          );
+          const remappedAfterOrder = afterOrderedIds.map(
+            (itemId) => recreated.idMap.get(itemId) ?? itemId
+          );
+
+          setItems([...redoSnapshot, ...recreated.createdItems]);
+          currentInsertedIds = createdItems.map(
+            (item) => recreated.idMap.get(item.id) ?? item.id
+          );
+
+          try {
+            await reorderEstimateItems(
+              redoVersionSnapshot.id,
+              targetParentId,
+              remappedAfterOrder
+            );
+            const nextPositionById = new Map<string, number>();
+            remappedAfterOrder.forEach((itemId, index) => {
+              nextPositionById.set(itemId, index + 1);
+            });
+            setItems((previous) =>
+              previous.map((item) =>
+                nextPositionById.has(item.id)
+                  ? {
+                      ...item,
+                      position: nextPositionById.get(item.id) ?? item.position,
+                    }
+                  : item
+              )
+            );
+            setTotalsOutOfSync(false);
+          } catch (error) {
+            setItems(redoSnapshot);
+            throw error;
+          }
+        },
+      });
+    },
+    [
+      isLaborSplitEnabled,
+      isReadOnly,
+      pushHistoryCommand,
+      readOnlyActionErrorMessage,
+      recreateItemsFromSnapshots,
+      reloadItems,
+      settings,
+      supplyTypeIdByLowerName,
+    ]
+  );
+
+  const handleUndo = useCallback<EstimateEditorTableProps["onUndo"]>(async () => {
+    if (isUndoRedoBusyRef.current || !canUndo) return;
+    const didUndo = await executeUndo();
+    if (!didUndo) {
+      setActionError("Impossible d'annuler la derniere action.");
+    }
+  }, [canUndo, executeUndo]);
+
+  const handleRedo = useCallback<EstimateEditorTableProps["onRedo"]>(async () => {
+    if (isUndoRedoBusyRef.current || !canRedo) return;
+    const didRedo = await executeRedo();
+    if (!didRedo) {
+      setActionError("Impossible de retablir la derniere action.");
+    }
+  }, [canRedo, executeRedo]);
+
+  async function prepareStatusTransition() {
+    if (!version || isUpdatingStatus) return null;
     if (isDraftLockPending) {
       setStatusError("Acquisition du verrou de brouillon en cours.");
-      return;
+      return null;
     }
     if (isDraftLockedByOther) {
       setStatusError(`Verrouille par ${lockHolderLabel}.`);
-      return;
+      return null;
     }
     setStatusError(null);
-    setIsUpdatingStatus(true);
 
     if (isFlushingBufferedUpdatesRef.current) {
       setStatusError(
         "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
       );
-      setIsUpdatingStatus(false);
-      return;
+      return null;
     }
 
     const flushResult = await flushBufferedItemUpdates();
@@ -3765,43 +5032,25 @@ export default function EditEstimatePage() {
           ? "Impossible de changer le statut tant que les modifications locales ne sont pas synchronisees."
           : "Impossible de synchroniser les modifications avant changement de statut."
       );
-      setIsUpdatingStatus(false);
-      return;
+      return null;
     }
     if (flushResult === "noop" && pendingItemUpdatesRef.current.size > 0) {
       setStatusError(
         "Synchronisation des modifications en cours. Reessayez dans quelques secondes."
       );
-      setIsUpdatingStatus(false);
-      return;
+      return null;
     }
 
     const versionSnapshot = versionRef.current;
     if (!versionSnapshot) {
       setStatusError("Version introuvable.");
-      setIsUpdatingStatus(false);
-      return;
+      return null;
     }
 
-    let updatedVersion: EstimateVersionRow;
+    return versionSnapshot;
+  }
 
-    try {
-      updatedVersion = await updateEstimateStatus(
-        versionSnapshot.id,
-        nextStatus,
-        versionSnapshot.updated_at
-      );
-    } catch (error) {
-      setStatusError(
-        resolveEstimateActionError(
-          error instanceof Error ? error.message : "Impossible de mettre a jour le statut."
-        )
-      );
-      setIsUpdatingStatus(false);
-      return;
-    }
-
-    setIsUpdatingStatus(false);
+  async function applyUpdatedVersion(updatedVersion: EstimateVersionRow) {
     setVersion((prev) =>
       prev
         ? {
@@ -3821,6 +5070,117 @@ export default function EditEstimatePage() {
       } catch {
         // Non bloquant: le lock expirera via timeout si la release echoue.
       }
+    }
+
+    if (isAdmin) {
+      void loadTimelineEvents();
+    }
+  }
+
+  async function handlePrepareSend() {
+    const versionSnapshot = await prepareStatusTransition();
+    if (!versionSnapshot) return;
+
+    setIsUpdatingStatus(true);
+    setSendWorkflowPhase("verification");
+
+    try {
+      const gatingResult = await fetchEstimateSendGating(versionSnapshot.id);
+      setSendGating(gatingResult);
+      setIsSendGatingDialogOpen(true);
+    } catch (error) {
+      setStatusError(
+        resolveEstimateActionError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de verifier les preconditions d'envoi."
+        )
+      );
+    } finally {
+      setSendWorkflowPhase(null);
+      setIsUpdatingStatus(false);
+    }
+  }
+
+  async function handleConfirmSend(force: boolean) {
+    const versionSnapshot = versionRef.current;
+    if (!versionSnapshot || versionSnapshot.status !== "draft") {
+      setStatusError("Version introuvable.");
+      return;
+    }
+
+    setStatusError(null);
+    setIsUpdatingStatus(true);
+    setSendWorkflowPhase("pdf");
+
+    let sealingTimer: ReturnType<typeof setTimeout> | null = null;
+
+    try {
+      const updatePromise = updateEstimateStatus(
+        versionSnapshot.id,
+        "sent",
+        versionSnapshot.updated_at,
+        { force }
+      );
+      sealingTimer = setTimeout(() => {
+        setSendWorkflowPhase("sealing");
+      }, 250);
+      const updatedVersion = await updatePromise;
+      setSendGating(null);
+      setIsSendGatingDialogOpen(false);
+      await applyUpdatedVersion(updatedVersion);
+    } catch (error) {
+      if (
+        isEstimateApiError(error) &&
+        error.code === "ESTIMATE_GATING_BLOCKED"
+      ) {
+        try {
+          const gatingResult = await fetchEstimateSendGating(versionSnapshot.id);
+          setSendGating(gatingResult);
+          setIsSendGatingDialogOpen(true);
+        } catch {
+          setSendGating(null);
+        }
+      }
+      setStatusError(
+        resolveEstimateActionError(
+          error instanceof Error ? error.message : "Impossible de mettre a jour le statut."
+        )
+      );
+    } finally {
+      if (sealingTimer !== null) {
+        clearTimeout(sealingTimer);
+      }
+      setSendWorkflowPhase(null);
+      setIsUpdatingStatus(false);
+    }
+  }
+
+  async function handleStatusChange(nextStatus: EstimateStatus) {
+    if (nextStatus === "sent") {
+      await handlePrepareSend();
+      return;
+    }
+
+    const versionSnapshot = await prepareStatusTransition();
+    if (!versionSnapshot) return;
+
+    setIsUpdatingStatus(true);
+    try {
+      const updatedVersion = await updateEstimateStatus(
+        versionSnapshot.id,
+        nextStatus,
+        versionSnapshot.updated_at
+      );
+      await applyUpdatedVersion(updatedVersion);
+    } catch (error) {
+      setStatusError(
+        resolveEstimateActionError(
+          error instanceof Error ? error.message : "Impossible de mettre a jour le statut."
+        )
+      );
+    } finally {
+      setIsUpdatingStatus(false);
     }
   }
 
@@ -3862,6 +5222,12 @@ export default function EditEstimatePage() {
       onBulkMoveLines: handleBulkMoveLines,
       onBulkSetCategory: handleBulkSetCategory,
       onBulkSetLaborRole: handleBulkSetLaborRole,
+      onPasteRows: handlePasteRows,
+      onUndo: handleUndo,
+      onRedo: handleRedo,
+      canUndo,
+      canRedo,
+      isUndoRedoBusy,
       bulkSuggestionEligibleCount,
       onOpenBulkSuggestDialog: handleOpenBulkSuggestDialog,
       onReorder: handleReorder,
@@ -3882,6 +5248,9 @@ export default function EditEstimatePage() {
       handleBulkMoveLines,
       handleBulkSetCategory,
       handleBulkSetLaborRole,
+      handlePasteRows,
+      handleUndo,
+      handleRedo,
       handleDeleteItem,
       handleOutlierMethodChange,
       handlePatchItem,
@@ -3890,6 +5259,9 @@ export default function EditEstimatePage() {
       handleReorder,
       handleOpenBulkSuggestDialog,
       handleToggleOutlierDismiss,
+      canUndo,
+      canRedo,
+      isUndoRedoBusy,
       items,
       isLaborSplitEnabled,
       laborRateById,
@@ -3996,7 +5368,7 @@ export default function EditEstimatePage() {
             <button
               className="btn btn-secondary btn-sm"
               type="button"
-              onClick={() => handleStatusChange("sent")}
+              onClick={() => void handleStatusChange("sent")}
               disabled={
                 isUpdatingStatus ||
                 isDraftLockedByOther ||
@@ -4064,6 +5436,12 @@ export default function EditEstimatePage() {
           {statusError}
         </div>
       )}
+
+      {canSend && isSendBlockedForCurrentUser ? (
+        <div className="alert alert-warning mb-6">
+          Des anomalies bloquantes sont detectees. Corrigez-les avant envoi ou demandez un administrateur pour forcer l&apos;envoi.
+        </div>
+      ) : null}
 
       {isDraftLockedByOther && (
         <div className="alert alert-warning mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -4326,94 +5704,104 @@ export default function EditEstimatePage() {
             onUpdate={handleUpdateSuggestionRule}
           />
           {isAdmin ? (
-            <div className="dashboard-card p-8">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-                    Audit admin
-                  </h2>
-                  <p className="text-xs text-[var(--slate-500)]">
-                    Dernieres operations journalisees sur cette version.
-                  </p>
-                </div>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  type="button"
-                  onClick={() => void loadAuditLogs()}
-                  disabled={isAuditLoading}
-                >
-                  {isAuditLoading ? "Chargement..." : "Actualiser"}
-                </button>
-              </div>
-
-              {auditError ? (
-                <div className="alert alert-error mt-6">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
+            <>
+              <EstimateEventsTimeline
+                events={timelineEvents}
+                isLoading={isTimelineLoading}
+                error={timelineError}
+                onRefresh={() => {
+                  void loadTimelineEvents();
+                }}
+              />
+              <div className="dashboard-card p-8">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+                      Audit admin
+                    </h2>
+                    <p className="text-xs text-[var(--slate-500)]">
+                      Dernieres operations journalisees sur cette version.
+                    </p>
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={() => void loadAuditLogs()}
+                    disabled={isAuditLoading}
                   >
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="m15 9-6 6" />
-                    <path d="m9 9 6 6" />
-                  </svg>
-                  {auditError}
+                    {isAuditLoading ? "Chargement..." : "Actualiser"}
+                  </button>
                 </div>
-              ) : null}
 
-              <div className="table-scroll mt-6">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Action</th>
-                      <th>Table</th>
-                      <th>Record ID</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditLogs.length === 0 ? (
+                {auditError ? (
+                  <div className="alert alert-error mt-6">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="m15 9-6 6" />
+                      <path d="m9 9 6 6" />
+                    </svg>
+                    {auditError}
+                  </div>
+                ) : null}
+
+                <div className="table-scroll mt-6">
+                  <table className="data-table">
+                    <thead>
                       <tr>
-                        <td colSpan={4}>
-                          <div className="text-sm text-[var(--slate-500)]">
-                            {isAuditLoading
-                              ? "Chargement des logs d'audit..."
-                              : "Aucun log d'audit recent pour cette version."}
-                          </div>
-                        </td>
+                        <th>Date</th>
+                        <th>Action</th>
+                        <th>Table</th>
+                        <th>Record ID</th>
                       </tr>
-                    ) : (
-                      auditLogs.map((log) => (
-                        <tr key={log.id}>
-                          <td>{formatAuditTimestamp(log.created_at)}</td>
-                          <td className="font-medium uppercase">{log.action}</td>
-                          <td>
-                            <span className="font-mono text-xs text-[var(--slate-600)]">
-                              {log.table_name}
-                            </span>
-                          </td>
-                          <td>
-                            <span className="font-mono text-xs text-[var(--slate-600)]">
-                              {log.record_id}
-                            </span>
+                    </thead>
+                    <tbody>
+                      {auditLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4}>
+                            <div className="text-sm text-[var(--slate-500)]">
+                              {isAuditLoading
+                                ? "Chargement des logs d'audit..."
+                                : "Aucun log d'audit recent pour cette version."}
+                            </div>
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                      ) : (
+                        auditLogs.map((log) => (
+                          <tr key={log.id}>
+                            <td>{formatAuditTimestamp(log.created_at)}</td>
+                            <td className="font-medium uppercase">{log.action}</td>
+                            <td>
+                              <span className="font-mono text-xs text-[var(--slate-600)]">
+                                {log.table_name}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="font-mono text-xs text-[var(--slate-600)]">
+                                {log.record_id}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
 
-              {isAuditLoading && auditLogs.length > 0 ? (
-                <p className="mt-3 text-sm text-[var(--slate-500)]">
-                  Actualisation des logs en cours...
-                </p>
-              ) : null}
-            </div>
+                {isAuditLoading && auditLogs.length > 0 ? (
+                  <p className="mt-3 text-sm text-[var(--slate-500)]">
+                    Actualisation des logs en cours...
+                  </p>
+                ) : null}
+              </div>
+            </>
           ) : null}
         </div>
       ) : (
@@ -4434,6 +5822,20 @@ export default function EditEstimatePage() {
         onConfirm={() => void handleApplyBulkSuggest()}
         onToggleItem={handleToggleBulkSuggestItem}
         onToggleAll={handleToggleAllBulkSuggestItems}
+      />
+      <EstimateSendGatingDialog
+        isOpen={isSendGatingDialogOpen}
+        isSubmitting={isUpdatingStatus}
+        phaseLabel={sendWorkflowPhaseLabel}
+        blockingFlags={sendGating?.blockingFlags ?? []}
+        warningFlags={sendGating?.warningFlags ?? []}
+        canForce={isAdmin}
+        onClose={() => {
+          if (isUpdatingStatus) return;
+          setIsSendGatingDialogOpen(false);
+        }}
+        onConfirm={() => void handleConfirmSend(false)}
+        onForceConfirm={() => void handleConfirmSend(true)}
       />
     </div>
   );

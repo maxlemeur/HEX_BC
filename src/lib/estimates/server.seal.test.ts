@@ -2,6 +2,18 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockServiceRoleRpc = vi.fn().mockResolvedValue({ error: null });
+
+vi.mock("@supabase/supabase-js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@supabase/supabase-js")>();
+  return {
+    ...actual,
+    createClient: vi.fn(() => ({
+      rpc: mockServiceRoleRpc,
+    })),
+  };
+});
+
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
@@ -10,10 +22,21 @@ vi.mock("./pdf-generator", () => ({
   generateEstimatePdfNow: vi.fn(),
 }));
 
+vi.mock("./gating", () => ({
+  evaluateEstimateSendGating: vi.fn().mockResolvedValue({
+    canSend: true,
+    blockingFlags: [],
+    warningFlags: [],
+    stalePriceDays: 90,
+    checkedAt: "2026-02-22T12:00:00.000Z",
+  }),
+}));
+
 import {
   patchEstimateStatus,
   verifyEstimateSeal,
 } from "@/lib/estimates/server";
+import { evaluateEstimateSendGating } from "./gating";
 import { generateEstimatePdfNow } from "./pdf-generator";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -281,6 +304,7 @@ function createVersionAccessRow(status: "draft" | "sent" | "accepted" | "archive
     id: VERSION_ID,
     project_id: PROJECT_ID,
     status,
+    margin_mode: "fixed",
     margin_multiplier: 1.2,
     tax_rate_bp: 2000,
     updated_at: UPDATED_AT,
@@ -303,6 +327,8 @@ function createVersionAccessRow(status: "draft" | "sent" | "accepted" | "archive
 describe("estimate status seal flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
   });
 
   it("rejects status update when concurrency token is missing", async () => {
@@ -393,6 +419,92 @@ describe("estimate status seal flow", () => {
     expect(supabase.__mocks.updatePayloads).toEqual([]);
   });
 
+  it("blocks draft -> sent when gating reports blocking anomalies", async () => {
+    vi.mocked(evaluateEstimateSendGating).mockResolvedValueOnce({
+      canSend: false,
+      blockingFlags: [
+        {
+          key: "missing_price",
+          severity: "blocking",
+          count: 1,
+          item_ids: ["line-1"],
+          label: "Prix manquant",
+          description: "Le prix unitaire FO est absent ou egal a 0.",
+        },
+      ],
+      warningFlags: [],
+      stalePriceDays: 90,
+      checkedAt: "2026-02-22T12:00:00.000Z",
+    });
+
+    const supabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        {
+          data: createVersionAccessRow("draft"),
+          error: null,
+        },
+      ],
+      estimateItemsResult: {
+        data: [],
+        error: null,
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT)
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "ESTIMATE_GATING_BLOCKED",
+    });
+
+    expect(vi.mocked(generateEstimatePdfNow)).not.toHaveBeenCalled();
+    expect(supabase.__mocks.updatePayloads).toEqual([]);
+  });
+
+  it("rejects force send for non-admin users", async () => {
+    vi.mocked(evaluateEstimateSendGating).mockResolvedValueOnce({
+      canSend: false,
+      blockingFlags: [
+        {
+          key: "missing_price",
+          severity: "blocking",
+          count: 1,
+          item_ids: ["line-1"],
+          label: "Prix manquant",
+          description: "Le prix unitaire FO est absent ou egal a 0.",
+        },
+      ],
+      warningFlags: [],
+      stalePriceDays: 90,
+      checkedAt: "2026-02-22T12:00:00.000Z",
+    });
+
+    const supabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        {
+          data: createVersionAccessRow("draft"),
+          error: null,
+        },
+      ],
+      estimateItemsResult: {
+        data: [],
+        error: null,
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateStatus(VERSION_ID, { status: "sent", force: true }, UPDATED_AT)
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "FORCE_SEND_FORBIDDEN",
+    });
+
+    expect(vi.mocked(generateEstimatePdfNow)).not.toHaveBeenCalled();
+    expect(supabase.__mocks.updatePayloads).toEqual([]);
+  });
+
   it("computes seal hash and inserts sent event on draft -> sent", async () => {
     const supabase = createSupabaseSealMock({
       versionSelectResponses: [
@@ -464,16 +576,19 @@ describe("estimate status seal flow", () => {
     expect(updatePayload.status).toBe("sent");
     expect(updatePayload.seal_hash).toMatch(/^[0-9a-f]{64}$/);
 
-    expect(supabase.__mocks.eventInsert).toHaveBeenCalledTimes(1);
-    expect(supabase.__mocks.eventInsert).toHaveBeenCalledWith(
+    expect(supabase.__mocks.eventInsert).not.toHaveBeenCalled();
+    expect(mockServiceRoleRpc).toHaveBeenCalledWith(
+      "log_estimate_version_event",
       expect.objectContaining({
-        estimate_version_id: VERSION_ID,
-        tenant_id: TENANT_ID,
-        event_type: "sent",
-        created_by: USER_ID,
-        metadata: expect.objectContaining({
+        p_estimate_version_id: VERSION_ID,
+        p_event_type: "sent",
+        p_created_by: USER_ID,
+        p_metadata: expect.objectContaining({
+          previous_status: "draft",
+          next_status: "sent",
           seal_hash: updatePayload.seal_hash,
         }),
+        p_occurred_at: expect.any(String),
       })
     );
 
@@ -514,6 +629,8 @@ describe("estimate status seal flow", () => {
 describe("verifyEstimateSeal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
   });
 
   it("returns valid=true when stored hash matches computed hash", async () => {

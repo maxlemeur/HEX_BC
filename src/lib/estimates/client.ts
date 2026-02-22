@@ -22,6 +22,12 @@ type SuggestionRule =
   Database["public"]["Tables"]["estimate_suggestion_rules"]["Row"];
 
 export type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
+export type EstimateVersionEventType =
+  | "sent"
+  | "accepted"
+  | "archived"
+  | "rejected"
+  | "seal_verified";
 
 const ESTIMATE_STATUS_VALUES: EstimateStatus[] = [
   "draft",
@@ -191,6 +197,24 @@ export type EstimatePdfStatusResponse = {
   lastError?: string;
 };
 
+export type EstimateSendGatingFlag = {
+  key: string;
+  severity: "blocking" | "warning";
+  count: number;
+  itemIds: string[];
+  label: string;
+  description: string;
+  details?: Record<string, unknown>;
+};
+
+export type EstimateSendGatingResponse = {
+  canSend: boolean;
+  blockingFlags: EstimateSendGatingFlag[];
+  warningFlags: EstimateSendGatingFlag[];
+  stalePriceDays: number;
+  checkedAt: string;
+};
+
 export type EstimateDraftLock = {
   versionId: string;
   userId: string | null;
@@ -198,6 +222,17 @@ export type EstimateDraftLock = {
   lockedAt: string | null;
   expiresAt: string | null;
   isOwnedByCurrentUser: boolean | null;
+};
+
+export type EstimateVersionEvent = {
+  id: string;
+  estimateVersionId: string;
+  eventType: EstimateVersionEventType | string;
+  metadata: Record<string, unknown>;
+  createdBy: string | null;
+  actorName: string | null;
+  occurredAt: string;
+  createdAt: string;
 };
 
 export type AcquireEstimateDraftLockResult = {
@@ -484,6 +519,76 @@ function parseEstimatePdfStatus(payload: unknown): EstimatePdfStatusResponse | n
   };
 }
 
+function parseEstimateSendGatingFlag(
+  value: unknown
+): EstimateSendGatingFlag | null {
+  if (!isRecord(value)) return null;
+
+  const key = toStringValue(value.key);
+  const severityRaw = toStringValue(value.severity);
+  const count = toNumber(value.count);
+  const label = toStringValue(value.label);
+  const description = toStringValue(value.description);
+  const itemIdsRaw = pickArray(value, ["item_ids", "itemIds"]);
+  const itemIds = itemIdsRaw
+    .map((itemId) => toStringValue(itemId))
+    .filter((itemId): itemId is string => Boolean(itemId));
+
+  if (
+    !key ||
+    !severityRaw ||
+    (severityRaw !== "blocking" && severityRaw !== "warning") ||
+    count === null ||
+    !label ||
+    !description
+  ) {
+    return null;
+  }
+
+  return {
+    key,
+    severity: severityRaw,
+    count,
+    itemIds,
+    label,
+    description,
+    details: isRecord(value.details)
+      ? (value.details as Record<string, unknown>)
+      : undefined,
+  };
+}
+
+function parseEstimateSendGatingResponse(
+  payload: unknown
+): EstimateSendGatingResponse | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const canSend = toBooleanValue(root.canSend) ?? toBooleanValue(root.can_send);
+  const stalePriceDays =
+    toNumber(root.stalePriceDays) ?? toNumber(root.stale_price_days);
+  const checkedAt =
+    toStringValue(root.checkedAt) ?? toStringValue(root.checked_at);
+  const blockingRaw = pickArray(root, ["blockingFlags", "blocking_flags"]);
+  const warningRaw = pickArray(root, ["warningFlags", "warning_flags"]);
+
+  if (canSend === null || stalePriceDays === null || !checkedAt) {
+    return null;
+  }
+
+  return {
+    canSend,
+    stalePriceDays,
+    checkedAt,
+    blockingFlags: blockingRaw
+      .map((entry) => parseEstimateSendGatingFlag(entry))
+      .filter((entry): entry is EstimateSendGatingFlag => entry !== null),
+    warningFlags: warningRaw
+      .map((entry) => parseEstimateSendGatingFlag(entry))
+      .filter((entry): entry is EstimateSendGatingFlag => entry !== null),
+  };
+}
+
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -700,6 +805,54 @@ function parseEstimateItems(payload: unknown): EstimateItem[] {
   const root = getRootPayload(payload);
   const rows = pickArray(root, ["items", "estimateItems", "estimate_items"]);
   return rows as EstimateItem[];
+}
+
+function normalizeEstimateVersionEvent(value: unknown): EstimateVersionEvent | null {
+  if (!isRecord(value)) return null;
+
+  const id = toStringValue(value.id);
+  const estimateVersionId =
+    toStringValue(value.estimateVersionId) ??
+    toStringValue(value.estimate_version_id);
+  const eventType =
+    toStringValue(value.eventType) ??
+    toStringValue(value.event_type);
+  const occurredAt =
+    toStringValue(value.occurredAt) ??
+    toStringValue(value.occurred_at);
+  const createdAt =
+    toStringValue(value.createdAt) ??
+    toStringValue(value.created_at);
+
+  if (!id || !estimateVersionId || !eventType || !occurredAt || !createdAt) {
+    return null;
+  }
+
+  return {
+    id,
+    estimateVersionId,
+    eventType,
+    metadata: isRecord(value.metadata) ? value.metadata : {},
+    createdBy:
+      toStringValue(value.createdBy) ??
+      toStringValue(value.created_by) ??
+      null,
+    actorName:
+      toStringValue(value.actorName) ??
+      toStringValue(value.actor_name) ??
+      null,
+    occurredAt,
+    createdAt,
+  };
+}
+
+function parseEstimateVersionEvents(payload: unknown): EstimateVersionEvent[] {
+  const root = getRootPayload(payload);
+  const rows = pickArray(root, ["events", "items", "data"]);
+
+  return rows
+    .map((entry) => normalizeEstimateVersionEvent(entry))
+    .filter((entry): entry is EstimateVersionEvent => entry !== null);
 }
 
 function parseVersionToken(payload: unknown): EstimateVersionToken | null {
@@ -1073,6 +1226,20 @@ export async function fetchEstimateEditorData(
   return parseEstimateEditorData(payload);
 }
 
+export async function fetchEstimateVersionEvents(
+  versionId: string
+): Promise<EstimateVersionEvent[]> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/events`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger les evenements."
+  );
+
+  return parseEstimateVersionEvents(payload);
+}
+
 export async function fetchEstimateItemsForVersion(
   versionId: string
 ): Promise<EstimateItem[]> {
@@ -1327,7 +1494,8 @@ export async function reorderEstimateItems(
 export async function updateEstimateStatus(
   versionId: string,
   status: EstimateStatus,
-  updatedAtToken: string
+  updatedAtToken: string,
+  options: { force?: boolean } = {}
 ): Promise<EstimateVersionRow> {
   const payload = await requestJson<unknown>(
     `/api/estimates/${versionId}/status`,
@@ -1340,6 +1508,7 @@ export async function updateEstimateStatus(
       body: JSON.stringify({
         status,
         updated_at: updatedAtToken,
+        force: options.force === true ? true : undefined,
       }),
     },
     "Impossible de mettre a jour le statut."
@@ -1351,6 +1520,29 @@ export async function updateEstimateStatus(
   }
 
   return entity as EstimateVersionRow;
+}
+
+export async function fetchEstimateSendGating(
+  versionId: string
+): Promise<EstimateSendGatingResponse> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/gating`,
+    {
+      method: "GET",
+    },
+    "Impossible de verifier les preconditions d'envoi."
+  );
+
+  const root = getRootPayload(payload);
+  const parsed = parseEstimateSendGatingResponse(
+    isRecord(root) && root.gating !== undefined ? root.gating : root
+  );
+
+  if (!parsed) {
+    throw new Error("Impossible de lire les preconditions d'envoi.");
+  }
+
+  return parsed;
 }
 
 export async function requestEstimatePdfGeneration(
