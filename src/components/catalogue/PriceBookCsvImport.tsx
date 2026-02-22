@@ -21,7 +21,7 @@ type BulkCreatePricesResponse = {
 };
 
 const ACCEPTED_FILE_TYPES = ".csv,text/csv,application/csv,text/plain";
-const MAX_BULK_CREATE_ITEMS = 5000;
+const ATOMIC_BULK_BATCH_SIZE = 5000;
 
 const TARGET_FIELDS = [
   { value: "supplier_id", label: "Supplier ID", required: true },
@@ -44,18 +44,6 @@ function getProgressLabel(
 
 function isCsvFile(file: File): boolean {
   return file.name.toLowerCase().endsWith(".csv");
-}
-
-function chunkItems<T>(items: T[], size: number): T[][] {
-  if (items.length === 0) return [];
-  const safeSize = Math.max(1, size);
-  const chunks: T[][] = [];
-
-  for (let start = 0; start < items.length; start += safeSize) {
-    chunks.push(items.slice(start, start + safeSize));
-  }
-
-  return chunks;
 }
 
 export function PriceBookCsvImport({
@@ -212,48 +200,21 @@ export function PriceBookCsvImport({
     setSuccess(null);
 
     try {
-      const batches = chunkItems(validation.acceptedItems, MAX_BULK_CREATE_ITEMS);
-      let totalCreated = 0;
-      const responseModes = new Set<string>();
-
-      for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-        const batch = batches[batchIndex];
-
-        try {
-          const result = await fetchApi<BulkCreatePricesResponse>("/api/prices", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              action: "bulk-create",
-              items: batch,
-            }),
-          });
-
-          totalCreated += result.created_count;
-          responseModes.add(result.mode);
-        } catch (batchError) {
-          const details =
-            batchError instanceof Error
-              ? batchError.message
-              : "Erreur inconnue pendant le bulk-create.";
-          throw new Error(
-            `Echec du lot ${batchIndex + 1}/${batches.length} apres ${totalCreated} ligne(s) creee(s): ${details}`
-          );
-        }
-      }
+      const result = await fetchApi<BulkCreatePricesResponse>("/api/prices", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "bulk-create-atomic",
+          items: validation.acceptedItems,
+          batch_size: ATOMIC_BULK_BATCH_SIZE,
+        }),
+      });
 
       await onImported();
 
-      const modeSummary =
-        responseModes.size === 1
-          ? Array.from(responseModes)[0]
-          : Array.from(responseModes).join(", ");
-
-      setSuccess(
-        `Import termine: ${totalCreated} ligne(s) creee(s) (${modeSummary}).`
-      );
+      setSuccess(`Import termine: ${result.created_count} ligne(s) creee(s) (${result.mode}).`);
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -525,7 +486,7 @@ export function PriceBookCsvImport({
             </h3>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
               Seules les lignes valides sont envoyees vers `POST /api/prices` action
-              `bulk-create`.
+              `bulk-create-atomic`.
             </p>
 
             <div className="mt-4">

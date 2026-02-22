@@ -266,9 +266,21 @@ const bulkCreatePriceItemSchema = supplierPriceCreateFieldsSchema
     ensureProductIdentifier(payload, ctx);
   });
 
+const MAX_BULK_CREATE_PRICES_BATCH_SIZE = 5000;
+const MAX_BULK_CREATE_PRICES_ATOMIC_ITEMS = 50000;
+
 export const bulkCreateSupplierPricesSchema = z.object({
   action: z.literal("bulk-create"),
-  items: z.array(bulkCreatePriceItemSchema).min(1).max(5000),
+  items: z.array(bulkCreatePriceItemSchema).min(1).max(MAX_BULK_CREATE_PRICES_BATCH_SIZE),
+});
+
+export const bulkCreateSupplierPricesAtomicSchema = z.object({
+  action: z.literal("bulk-create-atomic"),
+  items: z.array(bulkCreatePriceItemSchema).min(1).max(MAX_BULK_CREATE_PRICES_ATOMIC_ITEMS),
+  batch_size: positiveIntegerSchema
+    .max(MAX_BULK_CREATE_PRICES_BATCH_SIZE)
+    .optional()
+    .default(MAX_BULK_CREATE_PRICES_BATCH_SIZE),
 });
 
 export const pricesActionSchema = z.discriminatedUnion("action", [
@@ -276,6 +288,7 @@ export const pricesActionSchema = z.discriminatedUnion("action", [
   updateSupplierPriceSchema,
   deleteSupplierPriceSchema,
   bulkCreateSupplierPricesSchema,
+  bulkCreateSupplierPricesAtomicSchema,
 ]);
 
 export const indicesListQuerySchema = z.object({
@@ -424,6 +437,9 @@ export type UpdateCatalogueItemInput = z.infer<typeof updateCatalogueItemSchema>
 export type CreateSupplierPriceInput = z.infer<typeof createSupplierPriceSchema>["item"];
 export type UpdateSupplierPriceInput = z.infer<typeof updateSupplierPriceSchema>;
 export type BulkCreateSupplierPricesInput = z.infer<typeof bulkCreateSupplierPricesSchema>["items"];
+export type BulkCreateSupplierPricesAtomicInput = z.infer<
+  typeof bulkCreateSupplierPricesAtomicSchema
+>;
 
 export type CreateMaterialIndexInput = z.infer<typeof createMaterialIndexSchema>["item"];
 export type UpdateMaterialIndexInput = z.infer<typeof updateMaterialIndexSchema>;

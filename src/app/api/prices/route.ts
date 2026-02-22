@@ -1,5 +1,6 @@
 import {
   badRequest,
+  bulkCreateSupplierPricesAtomic,
   bulkCreateSupplierPrices,
   createSupplierPrice,
   deleteSupplierPrice,
@@ -68,6 +69,10 @@ export async function POST(request: Request) {
       }
       case "bulk-create": {
         const data = await bulkCreateSupplierPrices(payload.items);
+        return ok(data);
+      }
+      case "bulk-create-atomic": {
+        const data = await bulkCreateSupplierPricesAtomic(payload);
         return ok(data);
       }
       default:

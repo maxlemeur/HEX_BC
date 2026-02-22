@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
@@ -5,6 +6,7 @@ import { ZodError } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 import type {
+  BulkCreateSupplierPricesAtomicInput,
   BulkCreateSupplierPricesInput,
   BulkUpsertMaterialIndicesInput,
   CatalogueListQueryInput,
@@ -440,9 +442,23 @@ const MATERIAL_INDICES_TABLE = "material_indices";
 const BULK_CREATE_PRICES_RPC = "bulk_create_supplier_prices";
 const BULK_UPSERT_INDICES_RPC = "bulk_upsert_material_indices";
 const LINK_MAPPED_ROWS_RPC = "link_mapped_rows_to_catalogue";
+const BULK_CREATE_PRICES_ATOMIC_MARKER_PREFIX = "__hex_atomic_price_import__";
 
 function currentDateIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function chunkItems<T>(items: T[], size: number): T[][] {
+  if (items.length === 0) return [];
+
+  const safeSize = Math.max(1, size);
+  const chunks: T[][] = [];
+
+  for (let start = 0; start < items.length; start += safeSize) {
+    chunks.push(items.slice(start, start + safeSize));
+  }
+
+  return chunks;
 }
 
 function asNumber(value: unknown): number | null {
@@ -1070,10 +1086,10 @@ export async function deleteSupplierPrice(id: string) {
   };
 }
 
-export async function bulkCreateSupplierPrices(input: BulkCreateSupplierPricesInput) {
-  const { supabase } = await getAuthenticatedContext();
+type BulkCreateSupplierPricesMode = "rpc" | "fallback-insert";
 
-  const rpcPayload = input.map((item, index) => {
+function buildBulkCreateSupplierPricesPayload(input: BulkCreateSupplierPricesInput): JsonRecord[] {
+  return input.map((item, index) => {
     const productId = resolveProductId(item);
     if (!productId) {
       throw badRequest(`Le champ product_id est requis pour la ligne ${index + 1}.`);
@@ -1096,6 +1112,14 @@ export async function bulkCreateSupplierPrices(input: BulkCreateSupplierPricesIn
       external_ref: item.external_ref,
     };
   });
+}
+
+async function bulkCreateSupplierPricesWithSupabase(
+  supabase: RuntimeSupabase,
+  input: BulkCreateSupplierPricesInput
+): Promise<{ created_count: number; mode: BulkCreateSupplierPricesMode }> {
+  const rpcPayload = buildBulkCreateSupplierPricesPayload(input);
+  const fallbackMessage = "Impossible de creer les prix fournisseur en masse.";
 
   const { data, error } = await supabase.rpc(BULK_CREATE_PRICES_RPC, {
     price_rows: rpcPayload,
@@ -1105,24 +1129,106 @@ export async function bulkCreateSupplierPrices(input: BulkCreateSupplierPricesIn
     const createdCount = typeof data === "number" ? data : input.length;
     return {
       created_count: createdCount,
-      mode: "rpc" as const,
+      mode: "rpc",
     };
   }
 
   if (!isFunctionMissingError(error)) {
-    throw mapSupabaseError(error, "Impossible de creer les prix fournisseur en masse.");
+    throw mapSupabaseError(error, fallbackMessage);
   }
 
   const insertedRows = await insertManyWithFallback(
     supabase,
     SUPPLIER_PRICES_TABLE,
     rpcPayload,
-    "Impossible de creer les prix fournisseur en masse."
+    fallbackMessage
   );
 
   return {
     created_count: insertedRows.length,
-    mode: "fallback-insert" as const,
+    mode: "fallback-insert",
+  };
+}
+
+export async function bulkCreateSupplierPrices(input: BulkCreateSupplierPricesInput) {
+  const { supabase } = await getAuthenticatedContext();
+  return bulkCreateSupplierPricesWithSupabase(supabase, input);
+}
+
+export async function bulkCreateSupplierPricesAtomic(input: BulkCreateSupplierPricesAtomicInput) {
+  const { supabase } = await getAuthenticatedContext();
+
+  const hasManualNotes = input.items.some((item) => item.notes != null || item.source != null);
+  if (hasManualNotes) {
+    throw badRequest(
+      "L'action bulk-create-atomic ne supporte pas les champs notes/source.",
+      undefined,
+      "ATOMIC_IMPORT_UNSUPPORTED_FIELDS"
+    );
+  }
+
+  const marker = `${BULK_CREATE_PRICES_ATOMIC_MARKER_PREFIX}:${randomUUID()}`;
+  const itemsWithMarker: BulkCreateSupplierPricesInput = input.items.map((item) => ({
+    ...item,
+    source: null,
+    notes: marker,
+  }));
+  const batches = chunkItems(itemsWithMarker, input.batch_size);
+
+  let totalCreated = 0;
+  const responseModes = new Set<BulkCreateSupplierPricesMode>();
+
+  try {
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+      const batch = batches[batchIndex];
+
+      try {
+        const result = await bulkCreateSupplierPricesWithSupabase(supabase, batch);
+        totalCreated += result.created_count;
+        responseModes.add(result.mode);
+      } catch (batchError) {
+        const details =
+          batchError instanceof Error
+            ? batchError.message
+            : "Erreur inconnue pendant le bulk-create.";
+        throw new Error(`Echec du lot ${batchIndex + 1}/${batches.length}: ${details}`);
+      }
+    }
+  } catch (importError) {
+    const { error: rollbackError } = await supabase
+      .from(SUPPLIER_PRICES_TABLE)
+      .delete()
+      .eq("notes", marker);
+
+    if (rollbackError) {
+      throw internalError(
+        "Echec de l'import et du rollback automatique des lots precedents.",
+        {
+          import_error: importError instanceof Error ? importError.message : "Erreur inconnue.",
+          rollback_error: rollbackError,
+        },
+        "ATOMIC_IMPORT_ROLLBACK_FAILED"
+      );
+    }
+
+    const details = importError instanceof Error ? importError.message : "Erreur inconnue.";
+    throw badRequest(`Import annule: ${details}`, undefined, "ATOMIC_IMPORT_FAILED");
+  }
+
+  const { error: cleanupError } = await supabase
+    .from(SUPPLIER_PRICES_TABLE)
+    .update({ notes: null })
+    .eq("notes", marker);
+
+  if (cleanupError) {
+    console.error("Failed to clear atomic import marker", cleanupError);
+  }
+
+  const modeSummary = Array.from(responseModes).join("+");
+
+  return {
+    created_count: totalCreated,
+    mode: `atomic-${modeSummary || "rpc"}`,
   };
 }
 
