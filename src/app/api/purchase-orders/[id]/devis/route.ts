@@ -2,8 +2,8 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 import { validateFileForUpload } from "@/lib/file-validation";
+import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAccessiblePurchaseOrderOrNull } from "../route";
 
 const SIGNED_URL_TTL_SECONDS = 60 * 10;
 

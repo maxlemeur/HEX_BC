@@ -1,12 +1,11 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 import { isValidDateOnly } from "@/lib/date-only";
 import { computeTotalsFromInputs } from "@/lib/order-calculations";
+import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
-type Supabase = SupabaseClient<Database>;
 type PurchaseOrderStatus = Database["public"]["Tables"]["purchase_orders"]["Row"]["status"];
 
 type LinePayload = {
@@ -25,24 +24,6 @@ type UpdatePurchaseOrderPayload = {
   notes?: string | null;
   items?: LinePayload[];
 };
-
-export async function getAccessiblePurchaseOrderOrNull<T extends Record<string, unknown>>(
-  supabase: Supabase,
-  orderId: string,
-  selectColumns: string
-): Promise<T | null> {
-  const { data, error } = await supabase
-    .from("purchase_orders")
-    .select(selectColumns)
-    .eq("id", orderId)
-    .single();
-
-  if (error || !data) {
-    return null;
-  }
-
-  return data as unknown as T;
-}
 
 function toNullableString(value: unknown) {
   if (typeof value !== "string") return null;

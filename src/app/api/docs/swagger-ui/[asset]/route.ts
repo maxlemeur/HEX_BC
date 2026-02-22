@@ -8,9 +8,31 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const moduleRequire = createRequire(import.meta.url);
-const swaggerUiDistRoot = path.dirname(
-  moduleRequire.resolve("swagger-ui-dist/package.json")
-);
+
+type SwaggerUiDistModule = {
+  getAbsoluteFSPath?: () => string;
+  absolutePath?: string | (() => string);
+};
+
+function resolveSwaggerUiDistRoot(): string {
+  const swaggerUiDist = moduleRequire("swagger-ui-dist") as SwaggerUiDistModule;
+
+  if (typeof swaggerUiDist.getAbsoluteFSPath === "function") {
+    return swaggerUiDist.getAbsoluteFSPath();
+  }
+
+  if (typeof swaggerUiDist.absolutePath === "function") {
+    return swaggerUiDist.absolutePath();
+  }
+
+  if (typeof swaggerUiDist.absolutePath === "string") {
+    return swaggerUiDist.absolutePath;
+  }
+
+  throw new Error("Unable to resolve swagger-ui-dist absolute path.");
+}
+
+const swaggerUiDistRoot = resolveSwaggerUiDistRoot();
 
 const SWAGGER_UI_ASSETS = new Map<string, string>([
   ["swagger-ui.css", "text/css; charset=utf-8"],

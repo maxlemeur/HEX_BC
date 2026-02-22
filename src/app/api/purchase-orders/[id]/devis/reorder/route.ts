@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { getAccessiblePurchaseOrderOrNull } from "@/lib/purchase-orders";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAccessiblePurchaseOrderOrNull } from "../../route";
 
 type ReorderRequestBody = {
   orderedIds: string[];
