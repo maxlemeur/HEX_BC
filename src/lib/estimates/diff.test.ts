@@ -34,6 +34,9 @@ function createVersion(
     currency: overrides.currency ?? "EUR",
     margin_bp: overrides.margin_bp ?? 0,
     discount_bp: overrides.discount_bp ?? 0,
+    discount_mode: overrides.discount_mode ?? "simple",
+    discount_steps: overrides.discount_steps ?? [],
+    global_coefficient: overrides.global_coefficient ?? 1,
     tax_rate_bp: overrides.tax_rate_bp ?? 2000,
     rounding_mode: overrides.rounding_mode ?? "none",
     rounding_step_cents: overrides.rounding_step_cents ?? 1,
@@ -44,7 +47,7 @@ function createVersion(
     seal_hash: overrides.seal_hash ?? null,
     parent_version_id: overrides.parent_version_id ?? null,
     variant_label: overrides.variant_label ?? null,
-  };
+  } as EstimateVersionRow;
 }
 
 function createSection(

@@ -50,14 +50,14 @@ function resolveResponseFormat(request: Request): "json" | "html" {
   return "html";
 }
 
-function renderSwaggerHtml(specUrl: string): string {
+function renderSwaggerHtml(specUrl: string, assetsBaseUrl: string): string {
   return `<!doctype html>
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>HEX BC API Docs</title>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <link rel="stylesheet" href="${assetsBaseUrl}/swagger-ui.css" />
     <style>
       html, body {
         margin: 0;
@@ -73,7 +73,7 @@ function renderSwaggerHtml(specUrl: string): string {
   </head>
   <body>
     <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script src="${assetsBaseUrl}/swagger-ui-bundle.js"></script>
     <script>
       window.ui = SwaggerUIBundle({
         url: ${JSON.stringify(specUrl)},
@@ -119,8 +119,10 @@ export async function GET(request: Request) {
 
   const docsUrl = new URL(request.url);
   docsUrl.search = "";
-  const specUrl = `${docsUrl.pathname}?format=json`;
-  const html = renderSwaggerHtml(specUrl);
+  const docsPath = docsUrl.pathname.replace(/\/$/, "");
+  const specUrl = `${docsPath}?format=json`;
+  const assetsBaseUrl = `${docsPath}/swagger-ui`;
+  const html = renderSwaggerHtml(specUrl, assetsBaseUrl);
 
   return new NextResponse(html, {
     status: 200,

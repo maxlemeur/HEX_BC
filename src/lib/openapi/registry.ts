@@ -171,15 +171,29 @@ function jsonBody(input: {
   };
 }
 
+function successEnvelopeSchema(dataSchema: ZodTypeAny) {
+  return z.object({
+    ok: z.literal(true),
+    data: dataSchema,
+  });
+}
+
+function successResponseSchemaDefinition(
+  schemaName: string,
+  dataSchema: ZodTypeAny
+): OpenApiSchemaDefinition {
+  return schemaDefinition(
+    schemaName,
+    successEnvelopeSchema(dataSchema),
+    "output"
+  );
+}
+
 function jsonResponse(
   description: string,
-  schema: OpenApiSchemaDefinition = schemaDefinition(
+  schema: OpenApiSchemaDefinition = successResponseSchemaDefinition(
     "ApiSuccessUnknown",
-    z.object({
-      ok: z.literal(true),
-      data: z.unknown(),
-    }),
-    "output"
+    z.unknown()
   )
 ): OpenApiResponseDefinition {
   return {
@@ -216,10 +230,7 @@ export const apiFailureResponseSchema = z.object({
   error: apiErrorSchema,
 });
 
-export const apiSuccessUnknownSchema = z.object({
-  ok: z.literal(true),
-  data: z.unknown(),
-});
+export const apiSuccessUnknownSchema = successEnvelopeSchema(z.unknown());
 
 const outlierFlagSchema = z.enum(["price_outlier", "quantity_outlier"]);
 
@@ -268,6 +279,672 @@ export const apiPdfStatusResponseSchema = z.object({
 const insertAssemblyIntoVersionBodySchema = z.object({
   after_item_id: z.union([uuidSchema, z.null()]).optional(),
 });
+
+const estimateStatusSchema = z.enum(["draft", "sent", "accepted", "archived"]);
+const estimateItemTypeSchema = z.enum(["section", "line"]);
+const suggestionFeedbackSchema = z.enum(["accept", "reject"]);
+const supplierAlternativeKindSchema = z.enum([
+  "best_price",
+  "most_recent",
+  "preferred_supplier",
+]);
+const changelogCacheStatusSchema = z.enum(["hit", "miss", "stale"]);
+const batchOperationTypeSchema = z.enum(["create", "update", "delete", "reorder"]);
+
+const estimateProjectSchema = z
+  .object({
+    id: uuidSchema,
+    tenant_id: uuidSchema.optional(),
+    user_id: uuidSchema.optional(),
+    name: z.string(),
+    reference: z.string().nullable().optional(),
+    client_name: z.string().nullable().optional(),
+    notes: z.string().nullable().optional(),
+    is_archived: z.boolean().optional(),
+  })
+  .passthrough();
+
+const estimateVersionSchema = z
+  .object({
+    id: uuidSchema,
+    tenant_id: uuidSchema.optional(),
+    project_id: uuidSchema,
+    version_number: z.number().int(),
+    status: estimateStatusSchema,
+    title: z.string().nullable().optional(),
+    date_devis: z.string().optional(),
+    validite_jours: z.number().int().optional(),
+    margin_multiplier: z.number().optional(),
+    margin_mode: z.string().optional(),
+    currency: z.string().optional(),
+    margin_bp: z.number().int().optional(),
+    discount_bp: z.number().int().optional(),
+    discount_mode: z.string().optional(),
+    discount_steps: z.array(z.number()).optional(),
+    global_coefficient: z.number().optional(),
+    tax_rate_bp: z.number().int().optional(),
+    rounding_mode: z.string().optional(),
+    rounding_step_cents: z.number().int().optional(),
+    total_ht_cents: z.number().int().nullable().optional(),
+    total_tax_cents: z.number().int().nullable().optional(),
+    total_ttc_cents: z.number().int().nullable().optional(),
+    parent_version_id: uuidSchema.nullable().optional(),
+    variant_label: z.string().nullable().optional(),
+    seal_hash: z.string().nullable().optional(),
+    updated_at: z.string().optional(),
+    created_at: z.string().optional(),
+    estimate_projects: z
+      .union([estimateProjectSchema, z.array(estimateProjectSchema)])
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
+
+const estimateItemSchema = z
+  .object({
+    id: uuidSchema,
+    version_id: uuidSchema,
+    parent_id: uuidSchema.nullable().optional(),
+    item_type: estimateItemTypeSchema,
+    position: z.number().int(),
+    title: z.string(),
+    description: z.string().nullable().optional(),
+    quantity: z.number().nullable().optional(),
+    unit_price_ht_cents: z.number().nullable().optional(),
+    tax_rate_bp: z.number().int().nullable().optional(),
+    k_fo: z.number().nullable().optional(),
+    h_mo: z.number().nullable().optional(),
+    h_mo_majoration: z.number().nullable().optional(),
+    k_mo: z.number().nullable().optional(),
+    h_mo_atelier: z.number().nullable().optional(),
+    k_mo_atelier: z.number().nullable().optional(),
+    labor_role_atelier_id: uuidSchema.nullable().optional(),
+    h_mo_chantier: z.number().nullable().optional(),
+    k_mo_chantier: z.number().nullable().optional(),
+    labor_role_chantier_id: uuidSchema.nullable().optional(),
+    pu_ht_cents: z.number().nullable().optional(),
+    labor_role_id: uuidSchema.nullable().optional(),
+    category_id: uuidSchema.nullable().optional(),
+    supply_type_id: uuidSchema.nullable().optional(),
+    selected_supplier_price_id: uuidSchema.nullable().optional(),
+    line_total_ht_cents: z.number().nullable().optional(),
+    line_tax_cents: z.number().nullable().optional(),
+    line_total_ttc_cents: z.number().nullable().optional(),
+  })
+  .passthrough();
+
+const estimateCategorySchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    color: z.string().nullable().optional(),
+    position: z.number().int(),
+  })
+  .passthrough();
+
+const supplyTypeSchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+  })
+  .passthrough();
+
+const laborRoleSchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    hourly_rate_cents: z.number().int().optional(),
+    is_active: z.boolean().optional(),
+    position: z.number().int().optional(),
+  })
+  .passthrough();
+
+const suggestionRuleSchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    match_type: z.string(),
+    match_value: z.string(),
+    unit: z.string().nullable().optional(),
+    category_id: uuidSchema.nullable().optional(),
+    k_fo: z.number().nullable().optional(),
+    k_mo: z.number().nullable().optional(),
+    labor_role_id: uuidSchema.nullable().optional(),
+    position: z.number().int().optional(),
+    is_active: z.boolean().optional(),
+    usage_count: z.number().int().optional(),
+    last_used_at: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+const marginTierSchema = z
+  .object({
+    id: uuidSchema,
+    threshold_cents: z.number().int(),
+    multiplier: z.number(),
+    position: z.number().int(),
+  })
+  .passthrough();
+
+const estimateVersionEventSchema = z
+  .object({
+    id: uuidSchema,
+    estimate_version_id: uuidSchema,
+    event_type: z.string(),
+    metadata: z.unknown(),
+    created_by: uuidSchema.nullable(),
+    actor_name: z.string().nullable(),
+    occurred_at: z.string(),
+    created_at: z.string(),
+  })
+  .passthrough();
+
+const estimateListItemSchema = z.object({
+  project_id: uuidSchema,
+  project_name: z.string(),
+  project_reference: z.string().nullable(),
+  project_client_name: z.string().nullable(),
+  version_id: uuidSchema,
+  version_number: z.number().int(),
+  status: estimateStatusSchema,
+  title: z.string().nullable(),
+  updated_at: z.string(),
+  total_ht_cents: z.number().int(),
+});
+
+const estimateVersionTokenSchema = z.object({
+  id: uuidSchema,
+  updated_at: z.string(),
+});
+
+const suggestedSupplierAlternativeSchema = z.object({
+  kind: supplierAlternativeKindSchema,
+  supplier_price_id: uuidSchema,
+  supplier_id: uuidSchema,
+  supplier_name: z.string(),
+  unit_price_cents: z.number().int(),
+  adjusted_unit_price_cents: z.number().int(),
+  currency: z.string().nullable(),
+  supplier_reference: z.string().nullable(),
+  unit: z.string().nullable(),
+  updated_at: z.string().nullable(),
+  is_stale: z.boolean(),
+  catalogue_url: z.string().nullable(),
+});
+
+const suggestedCataloguePriceSchema = z.object({
+  supplier_price_id: uuidSchema,
+  product_id: uuidSchema,
+  product_designation: z.string(),
+  product_reference: z.string().nullable(),
+  supplier_id: uuidSchema,
+  supplier_name: z.string(),
+  supplier_reference: z.string().nullable(),
+  unit: z.string().nullable(),
+  unit_price_cents: z.number().int(),
+  adjusted_unit_price_cents: z.number().int(),
+  currency: z.string().nullable(),
+  updated_at: z.string().nullable(),
+  is_stale: z.boolean(),
+  stale_days: z.number().int(),
+  relevance_score: z.number(),
+  has_material_index_adjustment: z.boolean(),
+  material_index_code: z.string().nullable(),
+  material_index_value: z.number().nullable(),
+  catalogue_url: z.string().nullable(),
+  alternatives: z.array(suggestedSupplierAlternativeSchema),
+});
+
+const estimateSupplierComparisonAlternativeSchema = z.object({
+  supplier_price_id: uuidSchema,
+  supplier_name: z.string(),
+  adjusted_unit_price_cents: z.number().int(),
+  supplier_reference: z.string().nullable(),
+  catalogue_url: z.string().nullable(),
+  updated_at: z.string().nullable(),
+  is_stale: z.boolean(),
+  product_designation: z.string(),
+});
+
+const estimateSupplierComparisonSchema = z.object({
+  item_id: uuidSchema,
+  selected_supplier_price_id: uuidSchema.nullable(),
+  best_supplier_price_id: uuidSchema.nullable(),
+  alternatives: z.array(estimateSupplierComparisonAlternativeSchema),
+});
+
+const estimateBatchResultSchema = z.object({
+  committed: z.boolean(),
+  results: z.array(
+    z.union([
+      z.object({
+        index: z.number().int(),
+        op: batchOperationTypeSchema,
+        status: z.literal("ok"),
+        data: z.unknown(),
+      }),
+      z.object({
+        index: z.number().int(),
+        op: batchOperationTypeSchema,
+        status: z.literal("error"),
+        code: z.string(),
+        message: z.string(),
+        details: z.unknown().optional(),
+      }),
+    ])
+  ),
+});
+
+const estimateGatingFlagSchema = z.object({
+  key: z.string(),
+  severity: z.enum(["blocking", "warning"]),
+  count: z.number().int(),
+  item_ids: z.array(uuidSchema),
+  label: z.string(),
+  description: z.string(),
+  details: z.record(z.string(), z.unknown()).optional(),
+});
+
+const estimateGatingSchema = z.object({
+  canSend: z.boolean(),
+  blockingFlags: z.array(estimateGatingFlagSchema),
+  warningFlags: z.array(estimateGatingFlagSchema),
+  stalePriceDays: z.number().int(),
+  checkedAt: z.string(),
+});
+
+const estimateChangelogFieldSchema = z.object({
+  field: z.string(),
+  label: z.string(),
+  kind: z.string(),
+  beforeValue: z.union([z.string(), z.number(), z.null()]),
+  afterValue: z.union([z.string(), z.number(), z.null()]),
+});
+
+const estimateChangelogChangeSchema = z.object({
+  key: z.string(),
+  changeType: z.string(),
+  entityType: z.string(),
+  designation: z.string(),
+  fields: z.array(estimateChangelogFieldSchema),
+  deltaHtCents: z.number(),
+  deltaTtcCents: z.number(),
+});
+
+const estimateChangelogSchema = z.object({
+  sections: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      path: z.array(z.string()),
+      changes: z.array(estimateChangelogChangeSchema),
+      deltaHtCents: z.number(),
+      deltaTtcCents: z.number(),
+    })
+  ),
+  summary: z.object({
+    addedCount: z.number().int(),
+    removedCount: z.number().int(),
+    modifiedCount: z.number().int(),
+    totalChangeCount: z.number().int(),
+    deltaHtCents: z.number(),
+    deltaTtcCents: z.number(),
+  }),
+});
+
+const estimateDraftLockOwnerSchema = z.object({
+  id: uuidSchema,
+  full_name: z.string().nullable(),
+  work_email: z.string().nullable(),
+});
+
+const estimateDraftLockSchema = z.object({
+  id: uuidSchema,
+  version_id: uuidSchema,
+  tenant_id: uuidSchema,
+  user_id: uuidSchema,
+  locked_at: z.string(),
+  expires_at: z.string(),
+  is_current_user: z.boolean(),
+  is_expired: z.boolean(),
+  owner: estimateDraftLockOwnerSchema.nullable(),
+});
+
+const estimateTemplateSummarySchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    description: z.string().nullable(),
+    source_version_id: uuidSchema.nullable(),
+    created_by: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    item_count: z.number().int(),
+  })
+  .passthrough();
+
+const estimateTemplateItemSchema = z
+  .object({
+    id: uuidSchema,
+    template_id: uuidSchema,
+    parent_id: uuidSchema.nullable(),
+    item_type: estimateItemTypeSchema,
+    position: z.number().int(),
+    title: z.string(),
+    description: z.string().nullable(),
+    quantity: z.number().nullable(),
+    unit_price_ht_cents: z.number().nullable(),
+    tax_rate_bp: z.number().nullable(),
+    k_fo: z.number().nullable(),
+    h_mo: z.number().nullable(),
+    h_mo_majoration: z.number().nullable(),
+    k_mo: z.number().nullable(),
+    h_mo_atelier: z.number().nullable(),
+    k_mo_atelier: z.number().nullable(),
+    labor_role_atelier_id: uuidSchema.nullable(),
+    h_mo_chantier: z.number().nullable(),
+    k_mo_chantier: z.number().nullable(),
+    labor_role_chantier_id: uuidSchema.nullable(),
+    pu_ht_cents: z.number().nullable(),
+    labor_role_id: uuidSchema.nullable(),
+    category_id: uuidSchema.nullable(),
+    supply_type_id: uuidSchema.nullable(),
+    line_total_ht_cents: z.number().nullable(),
+    line_tax_cents: z.number().nullable(),
+    line_total_ttc_cents: z.number().nullable(),
+  })
+  .passthrough();
+
+const estimateTemplateDetailSchema = estimateTemplateSummarySchema.extend({
+  items: z.array(estimateTemplateItemSchema),
+});
+
+const estimateAssemblySummarySchema = z
+  .object({
+    id: uuidSchema,
+    name: z.string(),
+    description: z.string().nullable(),
+    created_by: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    item_count: z.number().int(),
+  })
+  .passthrough();
+
+const estimateAssemblyItemSchema = z
+  .object({
+    id: uuidSchema,
+    assembly_id: uuidSchema,
+    title: z.string(),
+    unit: z.string().nullable(),
+    k_fo: z.number().nullable(),
+    k_mo: z.number().nullable(),
+    labor_role_id: uuidSchema.nullable(),
+    default_quantity: z.number().nullable(),
+    position: z.number().int(),
+  })
+  .passthrough();
+
+const estimateAssemblyDetailSchema = estimateAssemblySummarySchema.extend({
+  items: z.array(estimateAssemblyItemSchema),
+});
+
+const estimateListDataSchema = z.object({
+  items: z.array(estimateListItemSchema),
+});
+
+const estimateCreatedDataSchema = z.object({
+  project: estimateProjectSchema,
+  version: estimateVersionSchema,
+});
+
+const estimateVersionDataSchema = z.object({
+  version: estimateVersionSchema,
+});
+
+const estimateVersionDetailsDataSchema = z.object({
+  version: estimateVersionSchema,
+  items: z.array(estimateItemSchema),
+  categories: z.array(estimateCategorySchema),
+  supply_types: z.array(supplyTypeSchema),
+  labor_roles: z.array(laborRoleSchema),
+  suggestion_rules: z.array(suggestionRuleSchema),
+  margin_tiers: z.array(marginTierSchema),
+});
+
+const estimateVersionIdDataSchema = z.object({
+  version_id: uuidSchema,
+});
+
+const deletedIdDataSchema = z.object({
+  deleted_id: uuidSchema,
+});
+
+const estimateVerifySealDataSchema = z.object({
+  valid: z.boolean(),
+  computed_hash: z.string(),
+  stored_hash: z.string().nullable(),
+});
+
+const estimateItemsDataSchema = z.object({
+  items: z.array(estimateItemSchema),
+});
+
+const estimateItemDataSchema = z.object({
+  item: estimateItemSchema,
+});
+
+const estimateItemsReorderDataSchema = z.object({
+  parent_id: uuidSchema.nullable(),
+  ordered_ids: z.array(uuidSchema),
+  updated_count: z.number().int(),
+});
+
+const estimateItemsBulkDataSchema = z.object({
+  updated_count: z.number().int(),
+  version: estimateVersionTokenSchema,
+});
+
+const estimateSupplierComparisonsDataSchema = z.object({
+  stale_price_days: z.number().int(),
+  comparisons: z.array(estimateSupplierComparisonSchema),
+});
+
+const estimateSuggestPricesDataSchema = z.object({
+  query: z.string(),
+  stale_price_days: z.number().int(),
+  suggestions: z.array(suggestedCataloguePriceSchema),
+});
+
+const estimateCategoryDataSchema = z.object({
+  category: estimateCategorySchema,
+});
+
+const estimateLaborRoleDataSchema = z.object({
+  labor_role: laborRoleSchema,
+});
+
+const estimateSuggestionRuleDataSchema = z.object({
+  suggestion_rule: suggestionRuleSchema,
+});
+
+const estimateSuggestionRuleFeedbackDataSchema = z.object({
+  suggestion_rule: suggestionRuleSchema,
+  feedback: suggestionFeedbackSchema,
+});
+
+const estimateEventsDataSchema = z.object({
+  events: z.array(estimateVersionEventSchema),
+});
+
+const estimateGatingDataSchema = z.object({
+  gating: estimateGatingSchema,
+});
+
+const estimateChangelogDataSchema = z.object({
+  previousVersionId: uuidSchema,
+  currentVersionId: uuidSchema,
+  previousVersionLabel: z.string(),
+  currentVersionLabel: z.string(),
+  cacheStatus: changelogCacheStatusSchema,
+  computedAt: z.string(),
+  changelog: estimateChangelogSchema,
+});
+
+const estimateDraftLockDataSchema = z.object({
+  lock: estimateDraftLockSchema,
+});
+
+const estimateDraftLockReleaseDataSchema = z.object({
+  released: z.boolean(),
+  lock: estimateDraftLockSchema.nullable(),
+});
+
+const estimateTemplatesDataSchema = z.object({
+  templates: z.array(estimateTemplateSummarySchema),
+});
+
+const estimateTemplateDataSchema = z.object({
+  template: estimateTemplateSummarySchema,
+});
+
+const estimateTemplateDetailDataSchema = z.object({
+  template: estimateTemplateDetailSchema,
+});
+
+const estimateInstantiateTemplateDataSchema = z.object({
+  projectId: uuidSchema,
+  versionId: uuidSchema,
+  redirectTo: z.string(),
+});
+
+const estimateAssembliesDataSchema = z.object({
+  assemblies: z.array(estimateAssemblySummarySchema),
+});
+
+const estimateAssemblyDataSchema = z.object({
+  assembly: estimateAssemblyDetailSchema,
+});
+
+const estimateBatchDataSchema = estimateBatchResultSchema;
+
+const apiEstimateListSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateListResponse",
+  estimateListDataSchema
+);
+const apiEstimateCreatedSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateCreatedResponse",
+  estimateCreatedDataSchema
+);
+const apiEstimateVersionSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateVersionResponse",
+  estimateVersionDataSchema
+);
+const apiEstimateVersionDetailsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateVersionDetailsResponse",
+  estimateVersionDetailsDataSchema
+);
+const apiEstimateVersionIdSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateVersionIdResponse",
+  estimateVersionIdDataSchema
+);
+const apiDeletedIdSchemaDefinition = successResponseSchemaDefinition(
+  "ApiDeletedIdResponse",
+  deletedIdDataSchema
+);
+const apiEstimateVerifySealSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateVerifySealResponse",
+  estimateVerifySealDataSchema
+);
+const apiEstimateItemsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateItemsResponse",
+  estimateItemsDataSchema
+);
+const apiEstimateItemSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateItemResponse",
+  estimateItemDataSchema
+);
+const apiEstimateItemsReorderSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateItemsReorderResponse",
+  estimateItemsReorderDataSchema
+);
+const apiEstimateItemsBulkSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateItemsBulkResponse",
+  estimateItemsBulkDataSchema
+);
+const apiEstimateBatchSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateBatchResponse",
+  estimateBatchDataSchema
+);
+const apiEstimateSupplierComparisonsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateSupplierComparisonsResponse",
+  estimateSupplierComparisonsDataSchema
+);
+const apiEstimateSuggestPricesSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateSuggestPricesResponse",
+  estimateSuggestPricesDataSchema
+);
+const apiEstimateCategorySchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateCategoryResponse",
+  estimateCategoryDataSchema
+);
+const apiEstimateLaborRoleSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateLaborRoleResponse",
+  estimateLaborRoleDataSchema
+);
+const apiEstimateSuggestionRuleSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateSuggestionRuleResponse",
+  estimateSuggestionRuleDataSchema
+);
+const apiEstimateSuggestionRuleFeedbackSchemaDefinition =
+  successResponseSchemaDefinition(
+    "ApiEstimateSuggestionRuleFeedbackResponse",
+    estimateSuggestionRuleFeedbackDataSchema
+  );
+const apiEstimateEventsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateEventsResponse",
+  estimateEventsDataSchema
+);
+const apiEstimateGatingSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateGatingResponse",
+  estimateGatingDataSchema
+);
+const apiEstimateChangelogSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateChangelogResponse",
+  estimateChangelogDataSchema
+);
+const apiEstimateDraftLockSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateDraftLockResponse",
+  estimateDraftLockDataSchema
+);
+const apiEstimateDraftLockReleaseSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateDraftLockReleaseResponse",
+  estimateDraftLockReleaseDataSchema
+);
+const apiEstimateTemplatesSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateTemplatesResponse",
+  estimateTemplatesDataSchema
+);
+const apiEstimateTemplateSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateTemplateResponse",
+  estimateTemplateDataSchema
+);
+const apiEstimateTemplateDetailSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateTemplateDetailResponse",
+  estimateTemplateDetailDataSchema
+);
+const apiEstimateInstantiateTemplateSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateInstantiateTemplateResponse",
+  estimateInstantiateTemplateDataSchema
+);
+const apiEstimateAssembliesSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateAssembliesResponse",
+  estimateAssembliesDataSchema
+);
+const apiEstimateAssemblySchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateAssemblyResponse",
+  estimateAssemblyDataSchema
+);
 
 export const openApiSharedSchemaDefinitions = {
   apiError: schemaDefinition("ApiError", apiErrorSchema, "output"),
@@ -650,7 +1327,6 @@ const insertAssemblyBody = jsonBody({
   required: false,
 });
 
-const apiSuccessUnknownSchemaDefinition = openApiSharedSchemaDefinitions.apiSuccessUnknown;
 const apiOutlierStateSchemaDefinition =
   openApiSharedSchemaDefinitions.apiOutlierStateResponse;
 const apiPdfStatusSchemaDefinition = openApiSharedSchemaDefinitions.apiPdfStatusResponse;
@@ -665,7 +1341,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Liste des chiffrages retournee.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateListSchemaDefinition
       ),
     },
   },
@@ -679,7 +1355,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Chiffrage cree avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateCreatedSchemaDefinition
       ),
     },
   },
@@ -693,7 +1369,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Version de chiffrage retournee.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateVersionDetailsSchemaDefinition
       ),
     },
   },
@@ -709,7 +1385,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Version de chiffrage mise a jour.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateVersionSchemaDefinition
       ),
     },
   },
@@ -724,7 +1400,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Statut de version mis a jour.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateVersionSchemaDefinition
       ),
     },
   },
@@ -738,7 +1414,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Version dupliquee avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateVersionIdSchemaDefinition
       ),
     },
   },
@@ -752,7 +1428,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Resultat de verification retourne.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateVerifySealSchemaDefinition
       ),
     },
   },
@@ -767,7 +1443,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Variante creee avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateVersionIdSchemaDefinition
       ),
     },
   },
@@ -782,7 +1458,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Variante promue avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateVersionSchemaDefinition
       ),
     },
   },
@@ -794,7 +1470,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     tags: ["Estimate Items"],
     parameters: [versionIdPathParameter],
     responses: {
-      "200": jsonResponse("Items retournes.", apiSuccessUnknownSchemaDefinition),
+      "200": jsonResponse("Items retournes.", apiEstimateItemsSchemaDefinition),
     },
   },
   {
@@ -808,7 +1484,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Item cree avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateItemSchemaDefinition
       ),
     },
   },
@@ -821,7 +1497,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     parameters: [versionIdPathParameter],
     requestBody: updateEstimateItemBody,
     responses: {
-      "200": jsonResponse("Item mis a jour.", apiSuccessUnknownSchemaDefinition),
+      "200": jsonResponse("Item mis a jour.", apiEstimateItemSchemaDefinition),
     },
   },
   {
@@ -833,7 +1509,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     parameters: [versionIdPathParameter],
     requestBody: deleteEstimateItemBody,
     responses: {
-      "200": jsonResponse("Item supprime.", apiSuccessUnknownSchemaDefinition),
+      "200": jsonResponse("Item supprime.", apiDeletedIdSchemaDefinition),
     },
   },
   {
@@ -847,7 +1523,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Ordre des items mis a jour.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateItemsReorderSchemaDefinition
       ),
     },
   },
@@ -862,7 +1538,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Mise a jour bulk appliquee.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateItemsBulkSchemaDefinition
       ),
     },
   },
@@ -882,7 +1558,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Batch execute avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateBatchSchemaDefinition
       ),
     },
   },
@@ -918,7 +1594,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Comparatifs fournisseurs retournes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateSupplierComparisonsSchemaDefinition
       ),
     },
   },
@@ -932,7 +1608,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Suggestions de prix retournees.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateSuggestPricesSchemaDefinition
       ),
     },
   },
@@ -947,7 +1623,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Categorie creee avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateCategorySchemaDefinition
       ),
     },
   },
@@ -962,7 +1638,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Role de main d'oeuvre cree.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateLaborRoleSchemaDefinition
       ),
     },
   },
@@ -977,7 +1653,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Role de main d'oeuvre mis a jour.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateLaborRoleSchemaDefinition
       ),
     },
   },
@@ -992,7 +1668,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Regle de suggestion creee.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateSuggestionRuleSchemaDefinition
       ),
     },
   },
@@ -1007,7 +1683,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Regle de suggestion mise a jour.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateSuggestionRuleSchemaDefinition
       ),
     },
   },
@@ -1022,7 +1698,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Feedback de suggestion enregistre.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateSuggestionRuleFeedbackSchemaDefinition
       ),
     },
   },
@@ -1036,7 +1712,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Evenements de version retournes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateEventsSchemaDefinition
       ),
     },
   },
@@ -1051,7 +1727,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Etat de gating retourne.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateGatingSchemaDefinition
       ),
     },
   },
@@ -1103,7 +1779,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         contents: [
           {
             contentType: "application/json",
-            schema: apiSuccessUnknownSchemaDefinition,
+            schema: apiEstimateChangelogSchemaDefinition,
           },
           {
             contentType: "application/pdf",
@@ -1120,7 +1796,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     tags: ["Estimate Locks"],
     parameters: [versionIdPathParameter],
     responses: {
-      "201": jsonResponse("Verrou acquis.", apiSuccessUnknownSchemaDefinition),
+      "201": jsonResponse("Verrou acquis.", apiEstimateDraftLockSchemaDefinition),
     },
   },
   {
@@ -1131,7 +1807,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     tags: ["Estimate Locks"],
     parameters: [versionIdPathParameter, lockForceQueryParameter],
     responses: {
-      "200": jsonResponse("Verrou renouvele.", apiSuccessUnknownSchemaDefinition),
+      "200": jsonResponse("Verrou renouvele.", apiEstimateDraftLockSchemaDefinition),
     },
   },
   {
@@ -1142,7 +1818,10 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     tags: ["Estimate Locks"],
     parameters: [versionIdPathParameter, lockForceQueryParameter],
     responses: {
-      "200": jsonResponse("Verrou relache.", apiSuccessUnknownSchemaDefinition),
+      "200": jsonResponse(
+        "Verrou relache.",
+        apiEstimateDraftLockReleaseSchemaDefinition
+      ),
     },
   },
   {
@@ -1199,7 +1878,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       templatesOrderQueryParameter,
     ],
     responses: {
-      "200": jsonResponse("Templates retournes.", apiSuccessUnknownSchemaDefinition),
+      "200": jsonResponse("Templates retournes.", apiEstimateTemplatesSchemaDefinition),
     },
   },
   {
@@ -1212,7 +1891,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Template cree avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateTemplateSchemaDefinition
       ),
     },
   },
@@ -1224,7 +1903,10 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     tags: ["Estimate Templates"],
     parameters: [templateIdPathParameter],
     responses: {
-      "200": jsonResponse("Template retourne.", apiSuccessUnknownSchemaDefinition),
+      "200": jsonResponse(
+        "Template retourne.",
+        apiEstimateTemplateDetailSchemaDefinition
+      ),
     },
   },
   {
@@ -1238,7 +1920,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Template mis a jour.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateTemplateSchemaDefinition
       ),
     },
   },
@@ -1252,7 +1934,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Template supprime.",
-        apiSuccessUnknownSchemaDefinition
+        apiDeletedIdSchemaDefinition
       ),
     },
   },
@@ -1267,7 +1949,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Chiffrage instancie depuis le template.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateInstantiateTemplateSchemaDefinition
       ),
     },
   },
@@ -1282,7 +1964,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Template duplique avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateTemplateSchemaDefinition
       ),
     },
   },
@@ -1300,7 +1982,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Assemblages retournes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateAssembliesSchemaDefinition
       ),
     },
   },
@@ -1314,7 +1996,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "201": jsonResponse(
         "Assemblage cree avec succes.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateAssemblySchemaDefinition
       ),
     },
   },
@@ -1328,7 +2010,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Assemblage retourne.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateAssemblySchemaDefinition
       ),
     },
   },
@@ -1343,7 +2025,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Assemblage mis a jour.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateAssemblySchemaDefinition
       ),
     },
   },
@@ -1357,7 +2039,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Assemblage supprime.",
-        apiSuccessUnknownSchemaDefinition
+        apiDeletedIdSchemaDefinition
       ),
     },
   },
@@ -1373,7 +2055,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     responses: {
       "200": jsonResponse(
         "Assemblage insere dans la version.",
-        apiSuccessUnknownSchemaDefinition
+        apiEstimateItemsSchemaDefinition
       ),
     },
   },

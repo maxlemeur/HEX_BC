@@ -19,7 +19,7 @@
     "e2e:run": "node ./e2e/run-ps1.mjs",
     "lint": "eslint . --max-warnings=0",
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",
-    "validate-openapi": "node --import tsx scripts/validate-openapi.ts",
+    "validate-openapi": "node scripts/validate-openapi-runner.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
@@ -39,6 +39,7 @@
     "postal-mime": "^2.7.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "swagger-ui-dist": "^5.31.2",
     "swr": "^2.3.8",
     "tailwind-merge": "^3.3.1",
     "xlsx": "^0.18.5",

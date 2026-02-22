@@ -18,10 +18,10 @@ async function loadServerModule() {
     cookies,
   }));
 
-  const module = await import("@/lib/supabase/server");
+  const serverModule = await import("@/lib/supabase/server");
 
   return {
-    module,
+    module: serverModule,
     createServerClient,
     cookies,
     getAll,

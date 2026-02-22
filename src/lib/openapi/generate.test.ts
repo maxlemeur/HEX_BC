@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { GET } from "@/app/api/docs/route";
+import { GET as GET_SWAGGER_UI_ASSET } from "@/app/api/docs/swagger-ui/[asset]/route";
 import { generateOpenApiDocument } from "@/lib/openapi/generate";
 
 type MutableEnv = Record<string, string | undefined>;
@@ -118,6 +119,62 @@ describe("GET /api/docs", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(html).toContain("SwaggerUIBundle");
+    expect(html).toContain("/api/docs/swagger-ui/swagger-ui.css");
+    expect(html).toContain("/api/docs/swagger-ui/swagger-ui-bundle.js");
     expect(html).toContain("/api/docs?format=json");
+  });
+
+  it("returns Swagger HTML in staging preview mode", async () => {
+    setEnvVariable("NODE_ENV", "production");
+    setEnvVariable("VERCEL_ENV", "preview");
+    setEnvVariable("ENABLE_OPENAPI_DOCS", undefined);
+
+    const request = new Request("http://localhost/api/docs", {
+      method: "GET",
+      headers: {
+        accept: "text/html",
+      },
+    });
+
+    const response = await GET(request);
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(html).toContain("/api/docs/swagger-ui/swagger-ui.css");
+    expect(html).toContain("/api/docs/swagger-ui/swagger-ui-bundle.js");
+  });
+});
+
+describe("GET /api/docs/swagger-ui/[asset]", () => {
+  it("serves whitelisted Swagger UI assets", async () => {
+    const request = new Request(
+      "http://localhost/api/docs/swagger-ui/swagger-ui.css",
+      {
+        method: "GET",
+      }
+    );
+
+    const response = await GET_SWAGGER_UI_ASSET(request, {
+      params: Promise.resolve({ asset: "swagger-ui.css" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/css");
+  });
+
+  it("blocks path traversal attempts", async () => {
+    const request = new Request(
+      "http://localhost/api/docs/swagger-ui/../../package.json",
+      {
+        method: "GET",
+      }
+    );
+
+    const response = await GET_SWAGGER_UI_ASSET(request, {
+      params: Promise.resolve({ asset: "../package.json" }),
+    });
+
+    expect(response.status).toBe(404);
   });
 });

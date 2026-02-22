@@ -20,6 +20,7 @@ import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGat
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import {
   EstimateSettingsPanel,
+  type DiscountMode,
   type EstimateSettingsState,
 } from "@/components/estimates/EstimateSettingsPanel";
 import { LaborRolesManager } from "@/components/estimates/LaborRolesManager";
@@ -276,6 +277,7 @@ const BULK_AUTOSAVE_DEBOUNCE_MS = 2000;
 const BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES = 100;
 const BULK_SUGGEST_PROGRESS_THRESHOLD = 50;
 const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
+const MAX_CASCADE_DISCOUNT_STEPS = 4;
 const LABOR_SPLIT_FIELD_KEYS = [
   "h_mo_atelier",
   "k_mo_atelier",
@@ -314,6 +316,17 @@ function sanitizeFilename(value: string): string {
 function resolveItemTitle(value: string | null | undefined, fallback: string) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : fallback;
+}
+
+function clampCascadeDiscountStepBp(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(Math.max(Math.round(value), 0), 10000);
+}
+
+function normalizeCascadeDiscountSteps(steps: number[] | undefined): number[] {
+  return (steps ?? [])
+    .map((step) => clampCascadeDiscountStepBp(step))
+    .slice(0, MAX_CASCADE_DISCOUNT_STEPS);
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -1209,11 +1222,6 @@ export default function EditEstimatePage() {
           rateById.set(role.id, role.hourly_rate_cents);
         });
 
-        const discountCents =
-          versionRow.status === "draft"
-            ? computeInitialDiscountCents(versionRow, itemsRows, rateById)
-            : computeStoredDiscountCents(versionRow, itemsRows);
-
         const normalizedItems =
           versionRow.status === "draft"
             ? normalizeDraftItems({
@@ -1223,6 +1231,22 @@ export default function EditEstimatePage() {
               })
             : itemsRows;
 
+        const discountMode: DiscountMode =
+          versionRow.discount_mode === "cascade" ? "cascade" : "simple";
+        const cascadeDiscountSteps =
+          discountMode === "cascade"
+            ? normalizeCascadeDiscountSteps(versionRow.discount_steps)
+            : [];
+        const globalCoefficient = Number.isFinite(
+          versionRow.global_coefficient ?? NaN
+        )
+          ? Math.max(versionRow.global_coefficient ?? 1, 0)
+          : 1;
+        const discountCents =
+          versionRow.status === "draft"
+            ? computeInitialDiscountCents(versionRow, itemsRows, rateById)
+            : computeStoredDiscountCents(versionRow, itemsRows);
+
         const initialSettings = {
           title: versionRow.title ?? "",
           date_devis: versionRow.date_devis,
@@ -1231,6 +1255,9 @@ export default function EditEstimatePage() {
           margin_mode: versionRow.margin_mode ?? "fixed",
           margin_tiers: data.marginTiers ?? [],
           discount_cents: discountCents,
+          discount_mode: discountMode,
+          discount_steps: cascadeDiscountSteps,
+          global_coefficient: globalCoefficient,
           tax_rate_bp: versionRow.tax_rate_bp,
           rounding_mode: versionRow.rounding_mode,
           rounding_step_cents: versionRow.rounding_step_cents,
@@ -1949,9 +1976,16 @@ export default function EditEstimatePage() {
   const totals: EstimateTotals | null = useMemo(() => {
     if (!settings) return null;
     if (isReadOnly && version) {
+      const readOnlyVersion = {
+        ...version,
+        discount_mode: settings.discount_mode ?? version.discount_mode,
+        discount_steps: settings.discount_steps ?? version.discount_steps,
+        global_coefficient:
+          settings.global_coefficient ?? version.global_coefficient,
+      };
       const readOnlyTotalsInput = {
         items,
-        version,
+        version: readOnlyVersion,
         discountCents: settings.discount_cents,
         laborRateById,
         isLaborSplitEnabled,
@@ -1969,6 +2003,9 @@ export default function EditEstimatePage() {
       marginMode: settings.margin_mode,
       marginTiers: settings.margin_tiers,
       discountCents: settings.discount_cents,
+      discountMode: settings.discount_mode,
+      discountStepsBp: settings.discount_steps,
+      globalCoefficient: settings.global_coefficient,
       taxRateBp: settings.tax_rate_bp,
       roundingMode: settings.rounding_mode,
       roundingStepCents: settings.rounding_step_cents,
@@ -2001,7 +2038,7 @@ export default function EditEstimatePage() {
     const discountBase = totals.saleSubtotalCents;
     const discountBp =
       discountBase > 0
-        ? Math.round((settings.discount_cents / discountBase) * 10000)
+        ? Math.round((totals.discountCents / discountBase) * 10000)
         : 0;
 
     return {
@@ -2012,7 +2049,7 @@ export default function EditEstimatePage() {
       date_devis: settings.date_devis,
       validite_jours: settings.validite_jours,
       margin_multiplier: totals.appliedMarginMultiplier,
-      discount_cents: settings.discount_cents,
+      discount_cents: totals.discountCents,
       discount_bp: discountBp,
       tax_rate_bp: settings.tax_rate_bp,
       rounding_mode: settings.rounding_mode,
@@ -2235,6 +2272,9 @@ export default function EditEstimatePage() {
       marginMode: savedSettings.margin_mode,
       marginTiers: savedSettings.margin_tiers,
       discountCents: savedSettings.discount_cents,
+      discountMode: savedSettings.discount_mode,
+      discountStepsBp: savedSettings.discount_steps,
+      globalCoefficient: savedSettings.global_coefficient,
       taxRateBp: savedSettings.tax_rate_bp,
       roundingMode: savedSettings.rounding_mode,
       roundingStepCents: savedSettings.rounding_step_cents,
@@ -2910,8 +2950,18 @@ export default function EditEstimatePage() {
     const discountBase = totals.saleSubtotalCents;
     const discountBp =
       discountBase > 0
-        ? Math.round((settings.discount_cents / discountBase) * 10000)
+        ? Math.round((totals.discountCents / discountBase) * 10000)
         : 0;
+    const discountMode: DiscountMode =
+      settings.discount_mode === "cascade" ? "cascade" : "simple";
+    const normalizedCascadeDiscountSteps = normalizeCascadeDiscountSteps(
+      settings.discount_steps
+    );
+    const cascadeDiscountSteps =
+      discountMode === "cascade"
+        ? normalizedCascadeDiscountSteps
+        : [];
+    const globalCoefficient = Math.max(settings.global_coefficient ?? 1, 0);
 
     const payload: Database["public"]["Tables"]["estimate_versions"]["Update"] = {
       title: settings.title.trim() || null,
@@ -2920,6 +2970,9 @@ export default function EditEstimatePage() {
       margin_multiplier: totals.appliedMarginMultiplier,
       margin_mode: settings.margin_mode ?? "fixed",
       discount_bp: discountBp,
+      discount_mode: discountMode,
+      discount_steps: cascadeDiscountSteps,
+      global_coefficient: discountMode === "cascade" ? globalCoefficient : 1,
       tax_rate_bp: settings.tax_rate_bp,
       rounding_mode: settings.rounding_mode,
       rounding_step_cents: settings.rounding_step_cents,
@@ -2963,7 +3016,11 @@ export default function EditEstimatePage() {
       ...settings,
       margin_multiplier: totals.appliedMarginMultiplier,
       margin_mode: settings.margin_mode ?? "fixed",
-    };
+      discount_cents: totals.discountCents,
+      discount_mode: discountMode as DiscountMode,
+      discount_steps: cascadeDiscountSteps,
+      global_coefficient: discountMode === "cascade" ? globalCoefficient : 1,
+    } as EstimateSettingsState;
     setSavedSettings(nextSavedSettings);
     setSettings(nextSavedSettings);
     let latestVersionToken = updatedVersion.updated_at;

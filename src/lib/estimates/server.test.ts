@@ -6,6 +6,7 @@ vi.mock("@/lib/supabase/server", () => ({
 
 import {
   bulkUpdateEstimateItems,
+  createEstimate,
   createEstimateItem,
   insertAssemblyIntoVersion,
   patchEstimateVersion,
@@ -149,6 +150,8 @@ function createSupabaseMock(input: {
     select: vi.fn(() => estimateVersionUpdateSelect),
   };
 
+  const estimateVersionUpdate = vi.fn(() => estimateVersionUpdateBuilder);
+
   estimateVersionUpdateBuilder.eq.mockReturnValue(estimateVersionUpdateBuilder);
 
   const auditLogInsertSelectSingle = vi.fn().mockResolvedValue(
@@ -222,7 +225,7 @@ function createSupabaseMock(input: {
 
         return {
           select: selectEstimateVersions,
-          update: vi.fn(() => estimateVersionUpdateBuilder),
+          update: estimateVersionUpdate,
         };
       }
 
@@ -243,6 +246,123 @@ function createSupabaseMock(input: {
     rpc: vi.fn().mockResolvedValue(input.rpcResult),
     __mocks: {
       auditLogInsert,
+      estimateVersionUpdate,
+    },
+  };
+
+  return supabase;
+}
+
+function createCreateEstimateSupabaseMock() {
+  const tenantMembershipBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+  };
+
+  tenantMembershipBuilder.eq.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.order.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.limit.mockResolvedValue({
+    data: [
+      {
+        tenant_id: TENANT_ID,
+        role: "engineer",
+        is_default: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    error: null,
+  });
+
+  const estimateProjectInsertSingle = vi.fn().mockResolvedValue({
+    data: {
+      id: PROJECT_ID,
+      tenant_id: TENANT_ID,
+      user_id: USER_ID,
+      name: "Projet test",
+      reference: null,
+      client_name: null,
+      notes: null,
+      is_archived: false,
+    },
+    error: null,
+  });
+
+  const estimateProjectInsert = vi.fn(() => ({
+    select: vi.fn(() => ({
+      single: estimateProjectInsertSingle,
+    })),
+  }));
+
+  const estimateVersionInsertSingle = vi.fn().mockResolvedValue({
+    data: {
+      id: VERSION_ID,
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_number: 1,
+      status: "draft",
+      updated_at: NEXT_VERSION_UPDATED_AT,
+    },
+    error: null,
+  });
+
+  const estimateVersionInsert = vi.fn(() => ({
+    select: vi.fn(() => ({
+      single: estimateVersionInsertSingle,
+    })),
+  }));
+
+  const estimateCategoriesUpsert = vi.fn().mockResolvedValue({
+    error: null,
+  });
+
+  const supabase = {
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user: {
+            id: USER_ID,
+          },
+        },
+        error: null,
+      }),
+    },
+    from: vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => tenantMembershipBuilder),
+        };
+      }
+
+      if (table === "estimate_projects") {
+        return {
+          insert: estimateProjectInsert,
+          delete: vi.fn(() => ({
+            eq: vi.fn().mockResolvedValue({
+              error: null,
+            }),
+          })),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          insert: estimateVersionInsert,
+        };
+      }
+
+      if (table === "estimate_categories") {
+        return {
+          upsert: estimateCategoriesUpsert,
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+    __mocks: {
+      estimateProjectInsert,
+      estimateVersionInsert,
+      estimateCategoriesUpsert,
     },
   };
 
@@ -583,6 +703,49 @@ describe("patchEstimateVersion optimistic concurrency", () => {
     });
   });
 
+  it("persists discount mode, steps and global coefficient in patch payload", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+      touchResult: {
+        data: {
+          id: VERSION_ID,
+          updated_at: NEXT_VERSION_UPDATED_AT,
+        },
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          discount_mode: "cascade",
+          discount_steps: [400, 200],
+          global_coefficient: 1.1,
+        },
+        VERSION_UPDATED_AT
+      )
+    ).resolves.toEqual({
+      version: {
+        id: VERSION_ID,
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
+    });
+
+    expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discount_mode: "cascade",
+        discount_steps: [400, 200],
+        global_coefficient: 1.1,
+      })
+    );
+  });
+
   it("returns 409 when a concurrent write invalidates the token before update", async () => {
     const supabase = createSupabaseMock({
       rpcResult: {
@@ -749,6 +912,64 @@ describe("patchEstimateVersion optimistic concurrency", () => {
     expect(firstEntry).toEqual(
       expect.objectContaining({
         action: "invariant_violation",
+      })
+    );
+  });
+});
+
+describe("createEstimate payload", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("persists discount_mode, discount_steps and global_coefficient on initial version", async () => {
+    const supabase = createCreateEstimateSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createEstimate({
+        project: {
+          name: "Nouveau projet",
+        },
+        version: {
+          discount_mode: "cascade",
+          discount_steps: [250, 100],
+          global_coefficient: 1.2,
+        },
+      })
+    ).resolves.toMatchObject({
+      project: {
+        id: PROJECT_ID,
+      },
+      version: {
+        id: VERSION_ID,
+      },
+    });
+
+    expect(supabase.__mocks.estimateVersionInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discount_mode: "cascade",
+        discount_steps: [250, 100],
+        global_coefficient: 1.2,
+      })
+    );
+  });
+
+  it("uses defaults for new discount fields when version payload omits them", async () => {
+    const supabase = createCreateEstimateSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await createEstimate({
+      project: {
+        name: "Projet par defaut",
+      },
+    });
+
+    expect(supabase.__mocks.estimateVersionInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discount_mode: "simple",
+        discount_steps: [],
+        global_coefficient: 1,
       })
     );
   });
