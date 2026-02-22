@@ -5,6 +5,7 @@ type SuggestionRuleForScoring = {
   match_value: string;
   is_active: boolean;
   position?: number | null;
+  learning_boost?: number | string | null;
 } & Record<string, unknown>;
 
 export type SuggestionMatchKind = "exact" | "partial" | "fuzzy";
@@ -17,6 +18,7 @@ export type SuggestionScore<TRule extends SuggestionRuleForScoring> = {
   matchedKeyword: string;
   similarity: number;
   usageCount: number;
+  learningBoost: number;
 };
 
 const EXACT_BASE_SCORE = 100;
@@ -108,6 +110,20 @@ function parseUsageCount(rule: Record<string, unknown>) {
     const parsed = Number.parseInt(value, 10);
     if (Number.isFinite(parsed) && parsed >= 0) {
       return parsed;
+    }
+  }
+  return 0;
+}
+
+function parseLearningBoost(rule: Record<string, unknown>) {
+  const value = rule.learning_boost ?? rule.learningBoost;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, parsed);
     }
   }
   return 0;
@@ -240,8 +256,12 @@ export function scoreSuggestion<TRule extends SuggestionRuleForScoring>(input: {
 
   const ruleRecord = rule as Record<string, unknown>;
   const usageCount = parseUsageCount(ruleRecord);
+  const learningBoost = parseLearningBoost(ruleRecord);
   const score =
-    bestMatch.score + getFrequencyBonus(ruleRecord) + getRecencyBonus(ruleRecord);
+    bestMatch.score +
+    getFrequencyBonus(ruleRecord) +
+    getRecencyBonus(ruleRecord) +
+    learningBoost;
 
   return {
     rule,
@@ -250,6 +270,7 @@ export function scoreSuggestion<TRule extends SuggestionRuleForScoring>(input: {
     matchedKeyword: bestMatch.keyword,
     similarity: bestMatch.similarity,
     usageCount,
+    learningBoost,
   };
 }
 

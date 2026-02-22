@@ -111,6 +111,54 @@ type ItemPatch = Partial<
 > &
   LaborSplitItemFields;
 
+const TRACKED_SUGGESTION_CORRECTION_FIELDS = [
+  "description",
+  "category_id",
+  "k_fo",
+  "k_mo",
+  "labor_role_id",
+  "supply_type_id",
+] as const;
+
+type SuggestionCorrectionFieldName =
+  (typeof TRACKED_SUGGESTION_CORRECTION_FIELDS)[number];
+type SuggestionCorrectionValue = string | number | null;
+type SuggestionAppliedValues = Partial<
+  Record<SuggestionCorrectionFieldName, SuggestionCorrectionValue>
+>;
+
+export type SuggestionLearningRuleBoost = {
+  rule_id: string;
+  learning_boost: number;
+  overrides: {
+    description?: string | null;
+    category_id?: string | null;
+    k_fo?: number | null;
+    k_mo?: number | null;
+    labor_role_id?: string | null;
+    supply_type_id?: string | null;
+  };
+};
+
+export type SuggestionLearningState = {
+  enabled: boolean;
+  by_rule_id: Record<string, SuggestionLearningRuleBoost>;
+};
+
+export type SuggestionCorrectionPayload = {
+  rule_id: string;
+  field_name: SuggestionCorrectionFieldName;
+  original_value: string | null;
+  corrected_value: string | null;
+  item_title: string;
+};
+
+type AppliedSuggestionContext = {
+  ruleId: string;
+  suggestedValues: SuggestionAppliedValues;
+  trackedFieldDivergences: Partial<Record<SuggestionCorrectionFieldName, true>>;
+};
+
 type EstimateQualityFilter = "all_lines" | "with_anomalies" | EstimateQualityFlagKey;
 type EstimateVirtualizationConfig = {
   enabled?: boolean;
@@ -127,6 +175,7 @@ type EstimateEditorTableProps = {
   supplyTypes: SupplyType[];
   laborRoles: LaborRole[];
   suggestionRules: SuggestionRule[];
+  learningState?: SuggestionLearningState;
   detectedOutlierFlagsByItemId: EstimateOutlierFlagsByItemId;
   dismissedOutlierFlagsByItemId: EstimateOutlierFlagsByItemId;
   outlierActionPendingByItemId: Record<string, boolean>;
@@ -158,6 +207,9 @@ type EstimateEditorTableProps = {
     patch: ItemPatch,
     options?: { persist?: boolean }
   ) => void;
+  onTrackSuggestionCorrections?: (
+    corrections: SuggestionCorrectionPayload[]
+  ) => Promise<void>;
   onApplyBulkMajoration: (itemIds: string[], coefficient: number) => Promise<void>;
   onBulkDeleteLines: (itemIds: string[]) => Promise<void>;
   onBulkMoveLines: (
@@ -395,6 +447,89 @@ function toNonEmptyString(value: unknown) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function toSuggestionLearningBoost(rule: SuggestionRule | Record<string, unknown>) {
+  const rawBoost = (rule as Record<string, unknown>).learning_boost;
+  if (typeof rawBoost === "number" && Number.isFinite(rawBoost)) {
+    return Math.max(rawBoost, 0);
+  }
+  if (typeof rawBoost === "string") {
+    const parsed = Number.parseFloat(rawBoost);
+    if (Number.isFinite(parsed)) {
+      return Math.max(parsed, 0);
+    }
+  }
+  return 0;
+}
+
+function toSuggestionSupplyTypeId(rule: SuggestionRule | Record<string, unknown>) {
+  const supplyTypeId = (rule as Record<string, unknown>).supply_type_id;
+  return toNonEmptyString(supplyTypeId);
+}
+
+function hasSuggestionLearningEnrichment(rule: SuggestionRule | Record<string, unknown>) {
+  if (toSuggestionLearningBoost(rule) > 0) return true;
+  return (rule as Record<string, unknown>).learning_overrides_applied === true;
+}
+
+function normalizeSuggestionCorrectionValue(
+  fieldName: SuggestionCorrectionFieldName,
+  value: unknown
+): SuggestionCorrectionValue {
+  if (fieldName === "k_fo" || fieldName === "k_mo") {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const parsed = Number.parseFloat(value.replace(",", "."));
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return null;
+  }
+
+  return toNonEmptyString(value);
+}
+
+function readTrackedFieldValueFromPatch(
+  patch: ItemPatch,
+  fieldName: SuggestionCorrectionFieldName
+): SuggestionCorrectionValue | undefined {
+  if (!(fieldName in patch)) return undefined;
+  const rawValue = patch[fieldName];
+  if (rawValue === undefined) return undefined;
+  return normalizeSuggestionCorrectionValue(fieldName, rawValue);
+}
+
+function toSuggestionCorrectionTextValue(value: SuggestionCorrectionValue) {
+  if (value === null) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function areSuggestionCorrectionValuesEqual(
+  left: SuggestionCorrectionValue,
+  right: SuggestionCorrectionValue
+) {
+  if (typeof left === "number" || typeof right === "number") {
+    return typeof left === "number" && typeof right === "number" && left === right;
+  }
+  return left === right;
+}
+
+function extractTrackedSuggestionValuesFromPatch(patch: ItemPatch) {
+  const trackedValues: SuggestionAppliedValues = {};
+  TRACKED_SUGGESTION_CORRECTION_FIELDS.forEach((fieldName) => {
+    const fieldValue = readTrackedFieldValueFromPatch(patch, fieldName);
+    if (fieldValue === undefined) return;
+    trackedValues[fieldName] = fieldValue;
+  });
+  return trackedValues;
+}
+
 export type EstimateTableShortcutScope = {
   withinTable: boolean;
   hasSelectedLines: boolean;
@@ -424,6 +559,7 @@ export function EstimateEditorTable({
   supplyTypes,
   laborRoles,
   suggestionRules,
+  learningState,
   detectedOutlierFlagsByItemId,
   dismissedOutlierFlagsByItemId,
   outlierActionPendingByItemId,
@@ -447,6 +583,7 @@ export function EstimateEditorTable({
   onAddLine,
   onDeleteItem,
   onPatchItem,
+  onTrackSuggestionCorrections,
   onApplyBulkMajoration,
   onBulkDeleteLines,
   onBulkMoveLines,
@@ -502,6 +639,9 @@ export function EstimateEditorTable({
   const tableCardRef = useRef<HTMLDivElement | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
   const supplierComparisonAbortRef = useRef<AbortController | null>(null);
+  const appliedSuggestionContextByItemIdRef = useRef<
+    Record<string, AppliedSuggestionContext>
+  >({});
 
   const {
     itemsByParent,
@@ -525,6 +665,32 @@ export function EstimateEditorTable({
     isLaborSplitEnabled,
   });
   const canReorder = !isReadOnly && qualityFilter === "all_lines";
+  const isSuggestionLearningEnabled = learningState?.enabled === true;
+  const learningByRuleId = useMemo(
+    () => (isSuggestionLearningEnabled ? learningState.by_rule_id : {}),
+    [isSuggestionLearningEnabled, learningState]
+  );
+
+  useEffect(() => {
+    const lineIds = new Set(
+      items.filter((item) => item.item_type === "line").map((item) => item.id)
+    );
+    const current = appliedSuggestionContextByItemIdRef.current;
+    let changed = false;
+    const next: Record<string, AppliedSuggestionContext> = {};
+
+    Object.entries(current).forEach(([itemId, context]) => {
+      if (!lineIds.has(itemId)) {
+        changed = true;
+        return;
+      }
+      next[itemId] = context;
+    });
+
+    if (changed) {
+      appliedSuggestionContextByItemIdRef.current = next;
+    }
+  }, [items]);
 
   const orderedRules = useMemo(
     () => [...suggestionRules].sort((a, b) => a.position - b.position),
@@ -534,8 +700,34 @@ export function EstimateEditorTable({
   const scoringRules = useMemo(() => {
     return orderedRules.map((rule) => {
       const enrichedRule: SuggestionRule & Record<string, unknown> = { ...rule };
+      const learningBoost = learningByRuleId[rule.id];
       const usageCountOverride = usageCountOverrideByRuleId[rule.id];
       const lastUsedAtOverride = lastUsedAtOverrideByRuleId[rule.id];
+
+      if (learningBoost) {
+        enrichedRule.learning_boost = Math.max(learningBoost.learning_boost, 0);
+        enrichedRule.learning_overrides_applied = true;
+
+        const overrides = learningBoost.overrides;
+        if (overrides.description !== undefined) {
+          enrichedRule.unit = overrides.description;
+        }
+        if (overrides.category_id !== undefined) {
+          enrichedRule.category_id = overrides.category_id;
+        }
+        if (overrides.k_fo !== undefined) {
+          enrichedRule.k_fo = overrides.k_fo;
+        }
+        if (overrides.k_mo !== undefined) {
+          enrichedRule.k_mo = overrides.k_mo;
+        }
+        if (overrides.labor_role_id !== undefined) {
+          enrichedRule.labor_role_id = overrides.labor_role_id;
+        }
+        if (overrides.supply_type_id !== undefined) {
+          enrichedRule.supply_type_id = overrides.supply_type_id;
+        }
+      }
 
       if (usageCountOverride !== undefined) {
         enrichedRule.usage_count = usageCountOverride;
@@ -546,7 +738,12 @@ export function EstimateEditorTable({
 
       return enrichedRule;
     });
-  }, [lastUsedAtOverrideByRuleId, orderedRules, usageCountOverrideByRuleId]);
+  }, [
+    lastUsedAtOverrideByRuleId,
+    learningByRuleId,
+    orderedRules,
+    usageCountOverrideByRuleId,
+  ]);
 
   const categoryById = useMemo(() => {
     const map = new Map<string, EstimateCategory>();
@@ -611,33 +808,109 @@ export function EstimateEditorTable({
     });
   }, []);
 
+  const patchItemWithSuggestionTracking = useCallback(
+    (itemId: string, patch: ItemPatch, options?: { persist?: boolean }) => {
+      onPatchItem(itemId, patch, options);
+
+      if (options?.persist !== true) return;
+      if (!isSuggestionLearningEnabled) return;
+      if (!onTrackSuggestionCorrections) return;
+
+      const appliedContext = appliedSuggestionContextByItemIdRef.current[itemId];
+      if (!appliedContext) return;
+
+      const item = itemById.get(itemId);
+      if (!item || item.item_type !== "line") return;
+
+      const corrections: SuggestionCorrectionPayload[] = [];
+
+      TRACKED_SUGGESTION_CORRECTION_FIELDS.forEach((fieldName) => {
+        if (appliedContext.trackedFieldDivergences[fieldName]) {
+          return;
+        }
+
+        const correctedValue = readTrackedFieldValueFromPatch(patch, fieldName);
+        if (correctedValue === undefined) return;
+
+        const suggestedValue = appliedContext.suggestedValues[fieldName];
+        if (suggestedValue === undefined) return;
+
+        if (areSuggestionCorrectionValuesEqual(suggestedValue, correctedValue)) {
+          return;
+        }
+
+        appliedContext.trackedFieldDivergences[fieldName] = true;
+        corrections.push({
+          rule_id: appliedContext.ruleId,
+          field_name: fieldName,
+          original_value: toSuggestionCorrectionTextValue(suggestedValue),
+          corrected_value: toSuggestionCorrectionTextValue(correctedValue),
+          item_title: item.title ?? "",
+        });
+      });
+
+      if (corrections.length === 0) return;
+
+      void onTrackSuggestionCorrections(corrections).catch((error) => {
+        console.error("Impossible d'envoyer les corrections de suggestion.", error);
+      });
+    },
+    [
+      isSuggestionLearningEnabled,
+      itemById,
+      onPatchItem,
+      onTrackSuggestionCorrections,
+    ]
+  );
+
   const handleSupplyTypeCommit = useCallback(
     (itemId: string) => {
       if (isReadOnly) return;
       const value = (mergedSupplyTypeDrafts[itemId] ?? "").trim();
       if (!value) {
-        onPatchItem(itemId, { supply_type_id: null }, { persist: true });
+        patchItemWithSuggestionTracking(
+          itemId,
+          { supply_type_id: null },
+          { persist: true }
+        );
         return;
       }
 
       const existing = supplyTypeByLowerName.get(value.toLowerCase());
       if (existing) {
-        onPatchItem(itemId, { supply_type_id: existing.id }, { persist: true });
+        patchItemWithSuggestionTracking(
+          itemId,
+          { supply_type_id: existing.id },
+          { persist: true }
+        );
         return;
       }
 
-      onPatchItem(itemId, { supply_type_id: null }, { persist: true });
+      patchItemWithSuggestionTracking(
+        itemId,
+        { supply_type_id: null },
+        { persist: true }
+      );
     },
-    [isReadOnly, mergedSupplyTypeDrafts, onPatchItem, supplyTypeByLowerName]
+    [
+      isReadOnly,
+      mergedSupplyTypeDrafts,
+      patchItemWithSuggestionTracking,
+      supplyTypeByLowerName,
+    ]
   );
 
   const handleUnitCommit = useCallback(
     (itemId: string) => {
       if (isReadOnly) return;
       const value = (mergedUnitDrafts[itemId] ?? "").trim();
-      onPatchItem(itemId, { description: value || null }, { persist: true });
+      patchItemWithSuggestionTracking(
+        itemId,
+        { description: value || null },
+        { persist: true }
+      );
     },
-    [isReadOnly, mergedUnitDrafts, onPatchItem]
+    [isReadOnly, mergedUnitDrafts, patchItemWithSuggestionTracking]
   );
 
   const {
@@ -824,10 +1097,14 @@ export function EstimateEditorTable({
         selected_supplier_price_id: alternative.supplier_price_id,
       };
 
-      onPatchItem(activeSupplierComparisonItem.id, patch, { persist: true });
+      patchItemWithSuggestionTracking(
+        activeSupplierComparisonItem.id,
+        patch,
+        { persist: true }
+      );
       setSupplierComparisonPanelItemId(null);
     },
-    [activeSupplierComparisonItem, isReadOnly, onPatchItem]
+    [activeSupplierComparisonItem, isReadOnly, patchItemWithSuggestionTracking]
   );
 
   useEffect(() => {
@@ -988,17 +1265,32 @@ export function EstimateEditorTable({
         patch.description = unitValue;
         setUnitDrafts((prev) => ({ ...prev, [item.id]: unitValue }));
       }
+      const explicitSupplyTypeId = toSuggestionSupplyTypeId(suggestion.rule);
+      if (explicitSupplyTypeId) {
+        patch.supply_type_id = explicitSupplyTypeId;
+        setSupplyTypeDrafts((prev) => ({
+          ...prev,
+          [item.id]: supplyTypeById.get(explicitSupplyTypeId)?.name ?? "",
+        }));
+      }
       if (suggestion.rule.category_id) {
         patch.category_id = suggestion.rule.category_id;
         const category = categoryById.get(suggestion.rule.category_id);
         if (category) {
-          const matchedSupplyType = supplyTypeByLowerName.get(category.name.toLowerCase());
-          if (matchedSupplyType) {
-            patch.supply_type_id = matchedSupplyType.id;
+          if (!explicitSupplyTypeId) {
+            const matchedSupplyType = supplyTypeByLowerName.get(
+              category.name.toLowerCase()
+            );
+            if (matchedSupplyType) {
+              patch.supply_type_id = matchedSupplyType.id;
+            }
           }
           setSupplyTypeDrafts((prev) => ({
             ...prev,
-            [item.id]: category.name,
+            [item.id]:
+              explicitSupplyTypeId
+                ? (supplyTypeById.get(explicitSupplyTypeId)?.name ?? category.name)
+                : category.name,
           }));
         }
       }
@@ -1010,13 +1302,27 @@ export function EstimateEditorTable({
 
       if (Object.keys(patch).length === 0) return;
 
-      onPatchItem(item.id, patch, { persist: true });
+      const trackedSuggestionValues = extractTrackedSuggestionValuesFromPatch(patch);
+      appliedSuggestionContextByItemIdRef.current[item.id] = {
+        ruleId: suggestion.rule.id,
+        suggestedValues: trackedSuggestionValues,
+        trackedFieldDivergences: {},
+      };
+
+      patchItemWithSuggestionTracking(item.id, patch, { persist: true });
       setDismissedSuggestionsByItemId((prev) =>
         addDismissedSuggestion(prev, item.id, suggestion.rule.id)
       );
       void sendSuggestionFeedback(item, suggestion, "accept");
     },
-    [categoryById, isReadOnly, onPatchItem, sendSuggestionFeedback, supplyTypeByLowerName]
+    [
+      categoryById,
+      isReadOnly,
+      patchItemWithSuggestionTracking,
+      sendSuggestionFeedback,
+      supplyTypeById,
+      supplyTypeByLowerName,
+    ]
   );
 
   const dismissSuggestion = useCallback(
@@ -1037,6 +1343,11 @@ export function EstimateEditorTable({
         const category = categoryById.get(rule.category_id);
         parts.push(`Type FO: ${category?.name ?? "Categorie inconnue"}`);
       }
+      const supplyTypeId = toSuggestionSupplyTypeId(rule);
+      if (supplyTypeId) {
+        const supplyType = supplyTypeById.get(supplyTypeId);
+        parts.push(`Materiau: ${supplyType?.name ?? "Type inconnu"}`);
+      }
       if (rule.unit) parts.push(`Unite: ${rule.unit}`);
       if (rule.k_fo !== null) parts.push(`K FO: ${rule.k_fo}`);
       if (rule.k_mo !== null) parts.push(`K MO: ${rule.k_mo}`);
@@ -1046,7 +1357,7 @@ export function EstimateEditorTable({
       }
       return parts;
     },
-    [categoryById, roleById]
+    [categoryById, roleById, supplyTypeById]
   );
 
   const suggestionsByItemId = useMemo(() => {
@@ -1067,7 +1378,8 @@ export function EstimateEditorTable({
       const visibleSuggestions = rankedSuggestions
         .filter((suggestion) => !dismissedRuleIds[suggestion.rule.id])
         .map((suggestion) => {
-          const rule = suggestion.rule as SuggestionRule;
+          const rule = suggestion.rule as SuggestionRule & Record<string, unknown>;
+          const learningBoost = toSuggestionLearningBoost(rule);
           const parts = buildSuggestionParts(rule);
           return {
             rule,
@@ -1075,6 +1387,8 @@ export function EstimateEditorTable({
             matchKind: suggestion.matchKind,
             matchedKeyword: suggestion.matchedKeyword,
             usageCount: suggestion.usageCount,
+            learningBoost,
+            isLearned: hasSuggestionLearningEnrichment(rule),
             parts,
           } satisfies SuggestionPreview;
         })
@@ -1213,7 +1527,7 @@ export function EstimateEditorTable({
           onOpenSupplierComparisonContextMenu={
             handleOpenSupplierComparisonContextMenu
           }
-          onPatchItem={onPatchItem}
+          onPatchItem={patchItemWithSuggestionTracking}
           onUnitChange={handleUnitDraftChange}
           onUnitCommit={handleUnitCommit}
           onSupplyTypeChange={handleSupplyTypeDraftChange}
@@ -1247,7 +1561,7 @@ export function EstimateEditorTable({
       onAddLine,
       onAddSection,
       onDeleteItem,
-      onPatchItem,
+      patchItemWithSuggestionTracking,
       onToggleOutlierDismiss,
       outlierActionPendingByItemId,
       spreadsheetNavigation,

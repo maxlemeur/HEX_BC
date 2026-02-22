@@ -108,6 +108,7 @@ import {
   sendEstimateSuggestionRuleFeedback,
   toggleEstimateOutlierDismissedFlag,
   updateEstimateLaborRole,
+  type EstimateExportMode,
   type EstimateVersionEvent,
   type EstimateSendGatingResponse,
   updateEstimateStatus,
@@ -1262,6 +1263,9 @@ export default function EditEstimatePage() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingRules, setIsSavingRules] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [activeExportMode, setActiveExportMode] = useState<
+    EstimateExportMode | "csv" | null
+  >(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [rulesError, setRulesError] = useState<string | null>(null);
@@ -1411,7 +1415,10 @@ export default function EditEstimatePage() {
   }, [resolvedVersionId]);
 
   useEffect(() => {
-    if (!resolvedVersionId) return;
+    if (!resolvedVersionId) {
+      setSuggestionLearningState(EMPTY_SUGGESTION_LEARNING_STATE);
+      return;
+    }
 
     let active = true;
 
@@ -2431,28 +2438,75 @@ export default function EditEstimatePage() {
     [isLaborSplitEnabled]
   );
 
-  const handleExportExcel = useCallback(async () => {
-    if (isExporting || !resolvedVersionId) return;
+  let exportLoadingLabel = "Export XLSX...";
+  if (activeExportMode === "dpgf") {
+    exportLoadingLabel = "Export DPGF...";
+  } else if (activeExportMode === "bdc") {
+    exportLoadingLabel = "Export BDC V1.1...";
+  } else if (activeExportMode === "csv") {
+    exportLoadingLabel = "Export CSV...";
+  }
 
-    setIsExporting(true);
-    try {
-      await exportEstimate(resolvedVersionId, "xlsx");
-    } catch (error) {
-      console.error("Erreur lors de l'export Excel streaming.", error);
-      setActionError(
-        resolveEstimateActionError(
-          error instanceof Error
-            ? error.message
-            : "Impossible d'exporter le devis en Excel."
-        )
-      );
-    } finally {
-      setIsExporting(false);
-    }
-  }, [
-    isExporting,
-    resolvedVersionId,
-  ]);
+  const runStreamingExport = useCallback(
+    async (options: {
+      mode: EstimateExportMode;
+      includeModeQueryParam: boolean;
+      logMessage: string;
+      fallbackMessage: string;
+    }) => {
+      if (isExporting || !resolvedVersionId) return;
+
+      setIsExporting(true);
+      setActiveExportMode(options.mode);
+      try {
+        if (options.includeModeQueryParam) {
+          await exportEstimate(resolvedVersionId, "xlsx", {
+            mode: options.mode,
+          });
+        } else {
+          await exportEstimate(resolvedVersionId, "xlsx");
+        }
+      } catch (error) {
+        console.error(options.logMessage, error);
+        setActionError(
+          resolveEstimateActionError(
+            error instanceof Error ? error.message : options.fallbackMessage
+          )
+        );
+      } finally {
+        setIsExporting(false);
+        setActiveExportMode(null);
+      }
+    },
+    [isExporting, resolvedVersionId]
+  );
+
+  const handleExportExcel = useCallback(async () => {
+    await runStreamingExport({
+      mode: "standard",
+      includeModeQueryParam: false,
+      logMessage: "Erreur lors de l'export Excel streaming.",
+      fallbackMessage: "Impossible d'exporter le devis en Excel.",
+    });
+  }, [runStreamingExport]);
+
+  const handleExportDpgf = useCallback(async () => {
+    await runStreamingExport({
+      mode: "dpgf",
+      includeModeQueryParam: true,
+      logMessage: "Erreur lors de l'export DPGF streaming.",
+      fallbackMessage: "Impossible d'exporter le DPGF.",
+    });
+  }, [runStreamingExport]);
+
+  const handleExportBdc = useCallback(async () => {
+    await runStreamingExport({
+      mode: "bdc",
+      includeModeQueryParam: true,
+      logMessage: "Erreur lors de l'export BDC V1.1 streaming.",
+      fallbackMessage: "Impossible d'exporter le BDC V1.1.",
+    });
+  }, [runStreamingExport]);
 
   const handleExportCSV = useCallback(async () => {
     if (isExporting) return;
@@ -2460,6 +2514,7 @@ export default function EditEstimatePage() {
     if (!recapRow) return;
 
     setIsExporting(true);
+    setActiveExportMode("csv");
     try {
       const supplierComparisonsByItemId =
         await fetchSupplierComparisonsByItemId();
@@ -2470,6 +2525,7 @@ export default function EditEstimatePage() {
       console.error("Erreur lors de l'export CSV.", error);
     } finally {
       setIsExporting(false);
+      setActiveExportMode(null);
     }
   }, [
     buildExportFilename,
@@ -5926,8 +5982,28 @@ export default function EditEstimatePage() {
             onExportCSV={handleExportCSV}
             disabled={isExportDisabled}
             loading={isExporting}
-            loadingLabel="Export XLSX..."
+            loadingLabel={exportLoadingLabel}
           />
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={() => void handleExportDpgf()}
+            disabled={isExportDisabled}
+          >
+            {isExporting && activeExportMode === "dpgf"
+              ? "Export DPGF..."
+              : "Exporter DPGF"}
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={() => void handleExportBdc()}
+            disabled={isExportDisabled}
+          >
+            {isExporting && activeExportMode === "bdc"
+              ? "Export BDC V1.1..."
+              : "Exporter BDC V1.1"}
+          </button>
           <EstimatePdfDownloadButton versionId={versionId} />
           <SaveAsTemplateButton versionId={versionId} />
           {canSend ? (

@@ -7,243 +7,300 @@ import { usePathname } from "next/navigation";
 import { SignOutButton } from "@/components/SignOutButton";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
-const NAV_ITEMS = [
+type NavGroup = {
+  key: string;
+  label: string;
+  items: { href: string; label: string; icon: React.ReactNode }[];
+};
+
+const NAV_GROUPS: NavGroup[] = [
   {
-    href: "/dashboard/orders",
-    label: "Bons de commande",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-        <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-        <path d="M10 9H8" />
-        <path d="M16 13H8" />
-        <path d="M16 17H8" />
-      </svg>
-    ),
+    key: "commercial",
+    label: "Commercial",
+    items: [
+      {
+        href: "/dashboard/orders",
+        label: "Bons de commande",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+            <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+            <path d="M10 9H8" />
+            <path d="M16 13H8" />
+            <path d="M16 17H8" />
+          </svg>
+        ),
+      },
+      {
+        href: "/dashboard/estimates",
+        label: "Chiffrages",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect width="16" height="20" x="4" y="2" rx="2" />
+            <path d="M8 7h8" />
+            <path d="M8 11h2" />
+            <path d="M14 11h2" />
+            <path d="M8 15h2" />
+            <path d="M14 15h2" />
+          </svg>
+        ),
+      },
+    ],
   },
   {
-    href: "/dashboard/estimates",
-    label: "Chiffrages",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <rect width="16" height="20" x="4" y="2" rx="2" />
-        <path d="M8 7h8" />
-        <path d="M8 11h2" />
-        <path d="M14 11h2" />
-        <path d="M8 15h2" />
-        <path d="M14 15h2" />
-      </svg>
-    ),
+    key: "referentiel",
+    label: "Référentiel",
+    items: [
+      {
+        href: "/dashboard/suppliers",
+        label: "Fournisseurs",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+            <rect width="20" height="14" x="2" y="6" rx="2" />
+          </svg>
+        ),
+      },
+      {
+        href: "/dashboard/sites",
+        label: "Chantiers",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+            <circle cx="12" cy="10" r="3" />
+          </svg>
+        ),
+      },
+      {
+        href: "/dashboard/products",
+        label: "Produits",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m7.5 4.27 9 5.15" />
+            <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+            <path d="m3.3 7 8.7 5 8.7-5" />
+            <path d="M12 22V12" />
+          </svg>
+        ),
+      },
+      {
+        href: "/dashboard/catalogue",
+        label: "Catalogue",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5z" />
+            <path d="M8 7h8" />
+            <path d="M8 11h8" />
+            <path d="M8 15h5" />
+          </svg>
+        ),
+      },
+    ],
   },
   {
-    href: "/dashboard/imports",
-    label: "Imports",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-        <path d="m7 10 5 5 5-5" />
-        <path d="M12 15V3" />
-      </svg>
-    ),
+    key: "tarifs",
+    label: "Tarifs",
+    items: [
+      {
+        href: "/dashboard/prices",
+        label: "Prix fournisseurs",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 1v22" />
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14.5a3.5 3.5 0 0 1 0 7H6" />
+          </svg>
+        ),
+      },
+      {
+        href: "/dashboard/indices",
+        label: "Indices",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 3v18h18" />
+            <path d="m7 14 4-4 3 3 5-6" />
+          </svg>
+        ),
+      },
+    ],
   },
   {
-    href: "/dashboard/mappings",
-    label: "Mappings",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M8 3 4 7l4 4" />
-        <path d="M16 3l4 4-4 4" />
-        <path d="M12 19v-4" />
-        <path d="M9 19h6" />
-        <path d="M12 15V7" />
-      </svg>
-    ),
+    key: "donnees",
+    label: "Données",
+    items: [
+      {
+        href: "/dashboard/imports",
+        label: "Imports",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M12 15V3" />
+          </svg>
+        ),
+      },
+      {
+        href: "/dashboard/mappings",
+        label: "Mappings",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M8 3 4 7l4 4" />
+            <path d="M16 3l4 4-4 4" />
+            <path d="M12 19v-4" />
+            <path d="M9 19h6" />
+            <path d="M12 15V7" />
+          </svg>
+        ),
+      },
+    ],
   },
   {
-    href: "/dashboard/suppliers",
-    label: "Fournisseurs",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-        <rect width="20" height="14" x="2" y="6" rx="2" />
-      </svg>
-    ),
-  },
-  {
-    href: "/dashboard/sites",
-    label: "Chantiers",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
-        <circle cx="12" cy="10" r="3" />
-      </svg>
-    ),
-  },
-  {
-    href: "/dashboard/products",
-    label: "Produits",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="m7.5 4.27 9 5.15" />
-        <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-        <path d="m3.3 7 8.7 5 8.7-5" />
-        <path d="M12 22V12" />
-      </svg>
-    ),
-  },
-  {
-    href: "/dashboard/catalogue",
-    label: "Catalogue",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5z" />
-        <path d="M8 7h8" />
-        <path d="M8 11h8" />
-        <path d="M8 15h5" />
-      </svg>
-    ),
-  },
-  {
-    href: "/dashboard/prices",
-    label: "Prix fournisseurs",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M12 1v22" />
-        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14.5a3.5 3.5 0 0 1 0 7H6" />
-      </svg>
-    ),
-  },
-  {
-    href: "/dashboard/indices",
-    label: "Indices",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M3 3v18h18" />
-        <path d="m7 14 4-4 3 3 5-6" />
-      </svg>
-    ),
-  },
-  {
-    href: "/dashboard/tenants",
-    label: "Tenant",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="20"
-        height="20"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <rect width="18" height="14" x="3" y="4" rx="2" />
-        <path d="M8 20h8" />
-        <path d="M12 16v4" />
-        <path d="M8 10h8" />
-      </svg>
-    ),
+    key: "administration",
+    label: "Administration",
+    items: [
+      {
+        href: "/dashboard/tenants",
+        label: "Tenant",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect width="18" height="14" x="3" y="4" rx="2" />
+            <path d="M8 20h8" />
+            <path d="M12 16v4" />
+            <path d="M8 10h8" />
+          </svg>
+        ),
+      },
+      {
+        href: "/dashboard/admin/suggestion-learning",
+        label: "Suggestion learning",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 8v4l3 3" />
+            <path d="M8 12h.01" />
+          </svg>
+        ),
+      },
+    ],
   },
 ];
 
@@ -305,23 +362,31 @@ export function DashboardShell({
           </Link>
         </div>
 
-        <nav className="mt-4 flex-1 px-4">
-          <div className="space-y-1" role="navigation" aria-label="Menu principal">
-            {NAV_ITEMS.map((item) => {
-              const active = isActive(item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`sidebar-nav-item ${active ? "active" : ""}`}
-                  aria-current={active ? "page" : undefined}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </div>
+        <nav className="mt-4 flex-1 px-4" role="navigation" aria-label="Menu principal">
+          {NAV_GROUPS.map((group, i) => (
+            <div
+              key={group.key}
+              className={`sidebar-nav-group${i === 0 ? " sidebar-nav-group--first" : ""}`}
+            >
+              <div className="sidebar-nav-group__label">{group.label}</div>
+              <div className="space-y-1">
+                {group.items.map((item) => {
+                  const active = isActive(item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`sidebar-nav-item ${active ? "active" : ""}`}
+                      aria-current={active ? "page" : undefined}
+                    >
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
         <div className="border-t border-white/10 p-4">

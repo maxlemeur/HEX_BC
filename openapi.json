@@ -14,6 +14,9 @@
   ],
   "tags": [
     {
+      "name": "Administration"
+    },
+    {
       "name": "Estimates"
     },
     {
@@ -45,6 +48,269 @@
     }
   ],
   "paths": {
+    "/api/admin/suggestion-learning": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Lister suggestion learning tenant",
+        "description": "Retourne les suggestions apprises du tenant (incluant inactives) pour l'administration.",
+        "responses": {
+          "200": {
+            "description": "Etat admin suggestion learning retourne.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAdminSuggestionLearningStateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Revoir une suggestion apprise",
+        "description": "Valide, rejette ou reset une suggestion apprise sur une combinaison regle/champ/valeur.",
+        "requestBody": {
+          "description": "Action admin de validation, rejet ou reset d'une correction apprise.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewSuggestionLearningRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Etat admin suggestion learning mis a jour.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAdminSuggestionLearningStateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/suggestion-learning/purge": {
+      "post": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Purger l'historique learning",
+        "description": "Supprime les corrections historiques selon la retention puis retourne l'etat rafraichi.",
+        "requestBody": {
+          "description": "Purge de l'historique de corrections selon la retention cible.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeSuggestionLearningRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Historique learning purge avec succes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAdminSuggestionLearningPurgeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/estimates": {
       "get": {
         "tags": [
@@ -3008,6 +3274,199 @@
         }
       }
     },
+    "/api/estimates/{versionId}/suggestion-learning": {
+      "get": {
+        "tags": [
+          "Estimate Rules"
+        ],
+        "summary": "Lire l'etat du suggestion learning",
+        "description": "Retourne la configuration learning et les propositions apprises pour la version.",
+        "parameters": [
+          {
+            "name": "versionId",
+            "in": "path",
+            "description": "Identifiant UUID de la version de chiffrage.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Etat du suggestion learning retourne.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEstimateSuggestionLearningStateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Estimate Rules"
+        ],
+        "summary": "Enregistrer des corrections learning",
+        "description": "Enregistre les corrections appliquees sur les suggestions d'une version brouillon.",
+        "parameters": [
+          {
+            "name": "versionId",
+            "in": "path",
+            "description": "Identifiant UUID de la version de chiffrage.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/VersionIdPathParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Corrections appliquees pour alimenter le learning de suggestion.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackSuggestionCorrectionsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Corrections learning enregistrees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEstimateSuggestionLearningTrackResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/estimates/{versionId}/suggestion-rules": {
       "post": {
         "tags": [
@@ -5211,6 +5670,842 @@
                 "additionalProperties": false
               }
             ]
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiAdminSuggestionLearningStateResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "config": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "threshold": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "retention_months": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "threshold",
+                  "retention_months"
+                ],
+                "additionalProperties": false
+              },
+              "proposals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "field_name": {
+                      "type": "string",
+                      "enum": [
+                        "description",
+                        "category_id",
+                        "k_fo",
+                        "k_mo",
+                        "labor_role_id",
+                        "supply_type_id"
+                      ]
+                    },
+                    "corrected_value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "correction_count": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "first_seen_at": {
+                      "type": "string"
+                    },
+                    "last_seen_at": {
+                      "type": "string"
+                    },
+                    "review_status": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "approved",
+                            "rejected"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decided_by": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decided_at": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    },
+                    "sample_original_value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "sample_item_title": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "rule_id",
+                    "field_name",
+                    "corrected_value",
+                    "correction_count",
+                    "first_seen_at",
+                    "last_seen_at",
+                    "review_status",
+                    "decided_by",
+                    "decided_at",
+                    "is_active",
+                    "sample_original_value",
+                    "sample_item_title"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "by_rule_id": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "rule_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "learning_boost": {
+                      "type": "number"
+                    },
+                    "overrides": {
+                      "type": "object",
+                      "properties": {
+                        "description": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "category_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "k_fo": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "k_mo": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "labor_role_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "supply_type_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "rule_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "field_name": {
+                            "type": "string",
+                            "enum": [
+                              "description",
+                              "category_id",
+                              "k_fo",
+                              "k_mo",
+                              "labor_role_id",
+                              "supply_type_id"
+                            ]
+                          },
+                          "corrected_value": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "correction_count": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "first_seen_at": {
+                            "type": "string"
+                          },
+                          "last_seen_at": {
+                            "type": "string"
+                          },
+                          "review_status": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "approved",
+                                  "rejected"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "decided_by": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "decided_at": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "is_active": {
+                            "type": "boolean"
+                          },
+                          "sample_original_value": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "sample_item_title": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "rule_id",
+                          "field_name",
+                          "corrected_value",
+                          "correction_count",
+                          "first_seen_at",
+                          "last_seen_at",
+                          "review_status",
+                          "decided_by",
+                          "decided_at",
+                          "is_active",
+                          "sample_original_value",
+                          "sample_item_title"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "rule_id",
+                    "learning_boost",
+                    "overrides",
+                    "fields"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "config",
+              "proposals",
+              "by_rule_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ReviewSuggestionLearningRequest": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "field_name": {
+            "type": "string",
+            "enum": [
+              "description",
+              "category_id",
+              "k_fo",
+              "k_mo",
+              "labor_role_id",
+              "supply_type_id"
+            ]
+          },
+          "corrected_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject",
+              "reset"
+            ]
+          }
+        },
+        "required": [
+          "rule_id",
+          "field_name",
+          "action"
+        ]
+      },
+      "PurgeSuggestionLearningRequest": {
+        "type": "object",
+        "properties": {
+          "retention_months": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120
+          }
+        }
+      },
+      "ApiAdminSuggestionLearningPurgeResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "config": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "threshold": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "retention_months": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "threshold",
+                  "retention_months"
+                ],
+                "additionalProperties": false
+              },
+              "proposals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "field_name": {
+                      "type": "string",
+                      "enum": [
+                        "description",
+                        "category_id",
+                        "k_fo",
+                        "k_mo",
+                        "labor_role_id",
+                        "supply_type_id"
+                      ]
+                    },
+                    "corrected_value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "correction_count": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "first_seen_at": {
+                      "type": "string"
+                    },
+                    "last_seen_at": {
+                      "type": "string"
+                    },
+                    "review_status": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "approved",
+                            "rejected"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decided_by": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decided_at": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    },
+                    "sample_original_value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "sample_item_title": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "rule_id",
+                    "field_name",
+                    "corrected_value",
+                    "correction_count",
+                    "first_seen_at",
+                    "last_seen_at",
+                    "review_status",
+                    "decided_by",
+                    "decided_at",
+                    "is_active",
+                    "sample_original_value",
+                    "sample_item_title"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "by_rule_id": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "rule_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "learning_boost": {
+                      "type": "number"
+                    },
+                    "overrides": {
+                      "type": "object",
+                      "properties": {
+                        "description": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "category_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "k_fo": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "k_mo": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "labor_role_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "supply_type_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "rule_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "field_name": {
+                            "type": "string",
+                            "enum": [
+                              "description",
+                              "category_id",
+                              "k_fo",
+                              "k_mo",
+                              "labor_role_id",
+                              "supply_type_id"
+                            ]
+                          },
+                          "corrected_value": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "correction_count": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "first_seen_at": {
+                            "type": "string"
+                          },
+                          "last_seen_at": {
+                            "type": "string"
+                          },
+                          "review_status": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "approved",
+                                  "rejected"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "decided_by": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "decided_at": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "is_active": {
+                            "type": "boolean"
+                          },
+                          "sample_original_value": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "sample_item_title": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "rule_id",
+                          "field_name",
+                          "corrected_value",
+                          "correction_count",
+                          "first_seen_at",
+                          "last_seen_at",
+                          "review_status",
+                          "decided_by",
+                          "decided_at",
+                          "is_active",
+                          "sample_original_value",
+                          "sample_item_title"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "rule_id",
+                    "learning_boost",
+                    "overrides",
+                    "fields"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "deleted_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "retention_months": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "config",
+              "proposals",
+              "by_rule_id",
+              "deleted_count",
+              "retention_months"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -10624,6 +11919,850 @@
               "query",
               "stale_price_days",
               "suggestions"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiEstimateSuggestionLearningStateResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "config": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "threshold": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "retention_months": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "threshold",
+                  "retention_months"
+                ],
+                "additionalProperties": false
+              },
+              "proposals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "field_name": {
+                      "type": "string",
+                      "enum": [
+                        "description",
+                        "category_id",
+                        "k_fo",
+                        "k_mo",
+                        "labor_role_id",
+                        "supply_type_id"
+                      ]
+                    },
+                    "corrected_value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "correction_count": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "first_seen_at": {
+                      "type": "string"
+                    },
+                    "last_seen_at": {
+                      "type": "string"
+                    },
+                    "review_status": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "approved",
+                            "rejected"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decided_by": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decided_at": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    },
+                    "sample_original_value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "sample_item_title": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "rule_id",
+                    "field_name",
+                    "corrected_value",
+                    "correction_count",
+                    "first_seen_at",
+                    "last_seen_at",
+                    "review_status",
+                    "decided_by",
+                    "decided_at",
+                    "is_active",
+                    "sample_original_value",
+                    "sample_item_title"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "by_rule_id": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "rule_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "learning_boost": {
+                      "type": "number"
+                    },
+                    "overrides": {
+                      "type": "object",
+                      "properties": {
+                        "description": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "category_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "k_fo": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "k_mo": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "labor_role_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "supply_type_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "rule_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "field_name": {
+                            "type": "string",
+                            "enum": [
+                              "description",
+                              "category_id",
+                              "k_fo",
+                              "k_mo",
+                              "labor_role_id",
+                              "supply_type_id"
+                            ]
+                          },
+                          "corrected_value": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "correction_count": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "first_seen_at": {
+                            "type": "string"
+                          },
+                          "last_seen_at": {
+                            "type": "string"
+                          },
+                          "review_status": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "approved",
+                                  "rejected"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "decided_by": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "decided_at": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "is_active": {
+                            "type": "boolean"
+                          },
+                          "sample_original_value": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "sample_item_title": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "rule_id",
+                          "field_name",
+                          "corrected_value",
+                          "correction_count",
+                          "first_seen_at",
+                          "last_seen_at",
+                          "review_status",
+                          "decided_by",
+                          "decided_at",
+                          "is_active",
+                          "sample_original_value",
+                          "sample_item_title"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "rule_id",
+                    "learning_boost",
+                    "overrides",
+                    "fields"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "config",
+              "proposals",
+              "by_rule_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "TrackSuggestionCorrectionsRequest": {
+        "type": "object",
+        "properties": {
+          "corrections": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "field_name": {
+                  "type": "string",
+                  "enum": [
+                    "description",
+                    "category_id",
+                    "k_fo",
+                    "k_mo",
+                    "labor_role_id",
+                    "supply_type_id"
+                  ]
+                },
+                "original_value": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "corrected_value": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "item_title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "rule_id",
+                "field_name"
+              ]
+            }
+          }
+        },
+        "required": [
+          "corrections"
+        ]
+      },
+      "ApiEstimateSuggestionLearningTrackResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "config": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "threshold": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "retention_months": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "threshold",
+                  "retention_months"
+                ],
+                "additionalProperties": false
+              },
+              "proposals": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "rule_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "field_name": {
+                      "type": "string",
+                      "enum": [
+                        "description",
+                        "category_id",
+                        "k_fo",
+                        "k_mo",
+                        "labor_role_id",
+                        "supply_type_id"
+                      ]
+                    },
+                    "corrected_value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "correction_count": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "first_seen_at": {
+                      "type": "string"
+                    },
+                    "last_seen_at": {
+                      "type": "string"
+                    },
+                    "review_status": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "approved",
+                            "rejected"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decided_by": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decided_at": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "is_active": {
+                      "type": "boolean"
+                    },
+                    "sample_original_value": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "sample_item_title": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "rule_id",
+                    "field_name",
+                    "corrected_value",
+                    "correction_count",
+                    "first_seen_at",
+                    "last_seen_at",
+                    "review_status",
+                    "decided_by",
+                    "decided_at",
+                    "is_active",
+                    "sample_original_value",
+                    "sample_item_title"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "by_rule_id": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "rule_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "learning_boost": {
+                      "type": "number"
+                    },
+                    "overrides": {
+                      "type": "object",
+                      "properties": {
+                        "description": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "category_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "k_fo": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "k_mo": {
+                          "anyOf": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "labor_role_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "supply_type_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "rule_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "field_name": {
+                            "type": "string",
+                            "enum": [
+                              "description",
+                              "category_id",
+                              "k_fo",
+                              "k_mo",
+                              "labor_role_id",
+                              "supply_type_id"
+                            ]
+                          },
+                          "corrected_value": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "correction_count": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "first_seen_at": {
+                            "type": "string"
+                          },
+                          "last_seen_at": {
+                            "type": "string"
+                          },
+                          "review_status": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "approved",
+                                  "rejected"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "decided_by": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "decided_at": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "is_active": {
+                            "type": "boolean"
+                          },
+                          "sample_original_value": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "sample_item_title": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "rule_id",
+                          "field_name",
+                          "corrected_value",
+                          "correction_count",
+                          "first_seen_at",
+                          "last_seen_at",
+                          "review_status",
+                          "decided_by",
+                          "decided_at",
+                          "is_active",
+                          "sample_original_value",
+                          "sample_item_title"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "rule_id",
+                    "learning_boost",
+                    "overrides",
+                    "fields"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "tracked_count": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "config",
+              "proposals",
+              "by_rule_id",
+              "tracked_count"
             ],
             "additionalProperties": false
           }

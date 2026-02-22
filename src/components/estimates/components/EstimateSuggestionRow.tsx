@@ -21,6 +21,8 @@ export type SuggestionPreview = {
   matchKind: SuggestionMatchKind;
   matchedKeyword: string;
   usageCount: number;
+  learningBoost?: number;
+  isLearned?: boolean;
   parts: string[];
 };
 
@@ -68,10 +70,16 @@ export const EstimateSuggestionRow = memo(function EstimateSuggestionRow({
             {suggestions.map((suggestion) => (
               <option key={suggestion.rule.id} value={suggestion.rule.id}>
                 {suggestion.rule.name} (score {suggestion.score.toFixed(2)})
+                {suggestion.isLearned ? " - Appris" : ""}
               </option>
             ))}
           </select>
-          <div className="estimate-suggestion__rule">{selectedSuggestion.rule.name}</div>
+          <div className="estimate-suggestion__rule">
+            {selectedSuggestion.rule.name}
+            {selectedSuggestion.isLearned ? (
+              <span className="status-badge status-confirmed ml-2">Appris</span>
+            ) : null}
+          </div>
           <div className="estimate-suggestion__list">
             <span className="estimate-suggestion__item">
               Score: {selectedSuggestion.score.toFixed(2)}

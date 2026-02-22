@@ -10,6 +10,7 @@ type RuleInput = {
   id: string;
   match_value: string;
   usage_count?: number | null;
+  learning_boost?: number | string | null;
   is_active?: boolean | null;
   position?: number | null;
 };
@@ -19,6 +20,7 @@ function createRule(input: RuleInput): SuggestionScoringRule {
     id: input.id,
     match_value: input.match_value,
     usage_count: input.usage_count ?? 0,
+    learning_boost: input.learning_boost ?? 0,
     is_active: input.is_active ?? true,
     position: input.position ?? 0,
   };
@@ -129,6 +131,62 @@ describe("suggestion scoring", () => {
       "non-zero",
       "zero-first",
       "zero-second",
+    ]);
+  });
+
+  it("applies learning_boost before ranking", () => {
+    const ranked = rankSuggestionRules(
+      "Isolation thermique",
+      [
+        createRule({
+          id: "frequent-no-boost",
+          match_value: "isolation thermique",
+          usage_count: 20,
+          learning_boost: 0,
+        }),
+        createRule({
+          id: "less-frequent-boosted",
+          match_value: "isolation thermique",
+          usage_count: 1,
+          learning_boost: 12,
+        }),
+      ],
+      { limit: 10 }
+    );
+
+    expect(ranked.map((entry) => entry.rule.id)).toEqual([
+      "less-frequent-boosted",
+      "frequent-no-boost",
+    ]);
+    expect(ranked[0]?.learningBoost).toBe(12);
+  });
+
+  it("keeps usage tie-breakers when final scores are equal after learning_boost", () => {
+    const ranked = rankSuggestionRules(
+      "Menuiserie",
+      [
+        createRule({
+          id: "high-usage-no-boost",
+          match_value: "menuiserie",
+          usage_count: 9,
+          learning_boost: 0,
+          position: 2,
+        }),
+        createRule({
+          id: "low-usage-boosted-to-tie",
+          match_value: "menuiserie",
+          usage_count: 1,
+          learning_boost: "5.592",
+          position: 1,
+        }),
+      ],
+      { limit: 10 }
+    );
+
+    expect(ranked[0]?.score).toBe(ranked[1]?.score);
+    expect(ranked.map((entry) => entry.rule.id)).toEqual([
+      "high-usage-no-boost",
+      "low-usage-boosted-to-tie",
     ]);
   });
 
