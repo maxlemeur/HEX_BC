@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { EstimateDocument } from "@/components/EstimateDocument";
+import { EstimateTimeline } from "@/components/estimates/EstimateTimeline";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { DuplicateEstimateButton } from "@/components/estimates/DuplicateEstimateButton";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
@@ -10,7 +11,10 @@ import {
   type SealIntegrityState,
 } from "@/components/estimates/SealIntegrityBadge";
 import { isFeatureEnabled } from "@/lib/feature-flags";
-import { verifyEstimateSeal } from "@/lib/estimates/server";
+import {
+  listEstimateProjectVersions,
+  verifyEstimateSeal,
+} from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -33,6 +37,12 @@ type SupplyTypeLabel = Pick<
   Database["public"]["Tables"]["supply_types"]["Row"],
   "id" | "name"
 >;
+type EstimateDetailPageSearchParams = Record<
+  string,
+  string | string[] | undefined
+>;
+
+const VERSION_TIMELINE_PAGE_SIZE = 20;
 
 function resolveProject(
   value: EstimateVersion["estimate_projects"]
@@ -42,16 +52,35 @@ function resolveProject(
   return value;
 }
 
+function parseHistoryPage(
+  value: string | string[] | undefined
+): number | undefined {
+  if (value === undefined) return undefined;
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (!candidate) return undefined;
+  const parsed = Number.parseInt(candidate, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return parsed;
+}
+
 export default async function EstimateDetailPage({
   params,
-}: Readonly<{ params: Promise<{ versionId: string }> }>) {
+  searchParams,
+}: Readonly<{
+  params: Promise<{ versionId: string }>;
+  searchParams?: Promise<EstimateDetailPageSearchParams>;
+}>) {
   const { versionId } = await params;
+  const resolvedSearchParams = searchParams
+    ? await searchParams
+    : ({} as EstimateDetailPageSearchParams);
+  const timelinePage = parseHistoryPage(resolvedSearchParams.historyPage);
   const supabase = await createSupabaseServerClient();
 
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
+      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -78,11 +107,19 @@ export default async function EstimateDetailPage({
   const version = versionResult.data as EstimateVersion;
   const items = (itemsResult.data ?? []) as EstimateItem[];
   const project = resolveProject(version.estimate_projects);
-  const isLaborSplitEnabled = await isFeatureEnabled(
-    version.tenant_id,
-    "EST_031_LABOR_SPLIT",
-    { supabase }
-  );
+  const [versionTimeline, isLaborSplitEnabled] = await Promise.all([
+    listEstimateProjectVersions({
+      projectId: version.project_id,
+      page: timelinePage,
+      pageSize: VERSION_TIMELINE_PAGE_SIZE,
+      anchorVersionId: versionId,
+    }),
+    isFeatureEnabled(
+      version.tenant_id,
+      "EST_031_LABOR_SPLIT",
+      { supabase }
+    ),
+  ]);
   const laborRoleIds = Array.from(
     new Set(
       items
@@ -174,6 +211,12 @@ export default async function EstimateDetailPage({
           >
             Editer
           </Link>
+          <Link
+            className="btn btn-secondary btn-sm"
+            href={`/dashboard/estimates/${versionId}/diff`}
+          >
+            Comparer
+          </Link>
           <SaveAsTemplateButton versionId={versionId} />
           <DuplicateEstimateButton versionId={versionId} />
           <Link
@@ -187,24 +230,31 @@ export default async function EstimateDetailPage({
       </div>
 
       <div className="py-8">
-        <EstimateDocument
-          projectName={project?.name ?? "Projet"}
-          projectClient={project?.client_name}
-          projectReference={project?.reference}
-          versionNumber={version.version_number}
-          dateDevis={version.date_devis}
-          validiteJours={version.validite_jours}
-          marginMultiplier={appliedMarginMultiplier}
-          discountCents={discountCents}
-          taxRateBp={version.tax_rate_bp}
-          isLaborSplitEnabled={isLaborSplitEnabled}
-          laborRateById={laborRateById}
-          totalHtCents={version.total_ht_cents}
-          totalTaxCents={version.total_tax_cents}
-          totalTtcCents={version.total_ttc_cents}
-          supplyTypeLabelsById={supplyTypeLabelsById}
-          items={items}
-        />
+        <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <EstimateTimeline
+            currentVersionId={versionId}
+            versions={versionTimeline.items}
+            pagination={versionTimeline.pagination}
+          />
+          <EstimateDocument
+            projectName={project?.name ?? "Projet"}
+            projectClient={project?.client_name}
+            projectReference={project?.reference}
+            versionNumber={version.version_number}
+            dateDevis={version.date_devis}
+            validiteJours={version.validite_jours}
+            marginMultiplier={appliedMarginMultiplier}
+            discountCents={discountCents}
+            taxRateBp={version.tax_rate_bp}
+            isLaborSplitEnabled={isLaborSplitEnabled}
+            laborRateById={laborRateById}
+            totalHtCents={version.total_ht_cents}
+            totalTaxCents={version.total_tax_cents}
+            totalTtcCents={version.total_ttc_cents}
+            supplyTypeLabelsById={supplyTypeLabelsById}
+            items={items}
+          />
+        </div>
       </div>
     </div>
   );
