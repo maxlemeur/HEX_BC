@@ -199,6 +199,8 @@ type EstimateEditorTableProps = {
   bulkSuggestionEligibleCount: number;
   onOpenBulkSuggestDialog: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
+  scrollToItemId?: string | null;
+  onScrollToItemHandled?: () => void;
   virtualization?: EstimateVirtualizationConfig;
 };
 
@@ -1115,6 +1117,7 @@ const SortableRow = memo(function SortableRow({
         ref={setNodeRef}
         style={style}
         className="estimate-row estimate-row--section"
+        data-estimate-item-id={item.id}
         role="row"
       >
         <div className="estimate-cell estimate-cell--selection" />
@@ -1416,6 +1419,7 @@ const SortableRow = memo(function SortableRow({
       ref={setNodeRef}
       style={style}
       className={`estimate-row${isLineSelected ? " estimate-row--selected" : ""}`}
+      data-estimate-item-id={item.id}
       role="row"
       onMouseDown={handleRowModifierSelection}
       onContextMenu={handleLineContextMenu}
@@ -2281,6 +2285,8 @@ export function EstimateEditorTable({
   bulkSuggestionEligibleCount,
   onOpenBulkSuggestDialog,
   onReorder,
+  scrollToItemId,
+  onScrollToItemHandled,
   virtualization,
 }: EstimateEditorTableProps) {
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
@@ -2328,9 +2334,11 @@ export function EstimateEditorTable({
   const [pasteErrors, setPasteErrors] = useState<string[]>([]);
   const [isPastePreviewOpen, setIsPastePreviewOpen] = useState(false);
   const [isPastingRows, setIsPastingRows] = useState(false);
+  const [pasteAnchorRowId, setPasteAnchorRowId] = useState<string | null>(null);
   const [detectedClipboardFormat, setDetectedClipboardFormat] =
     useState<ClipboardFormat>("generic");
   const tableCardRef = useRef<HTMLDivElement | null>(null);
+  const insertionAnchorItemIdRef = useRef<string | null>(null);
   const supplierComparisonAbortRef = useRef<AbortController | null>(null);
 
   const sensors = useSensors(
@@ -2693,6 +2701,7 @@ export function EstimateEditorTable({
     setPasteMapping(suggestedMapping);
     setPastePreviewRows(preview.rows);
     setPasteErrors(errors);
+    setPasteAnchorRowId(insertionAnchorItemIdRef.current);
     setPasteIncludedByLineNumber(() => {
       const initial: Record<number, boolean> = {};
       preview.rows.forEach((row) => {
@@ -2746,6 +2755,7 @@ export function EstimateEditorTable({
     setIsPastePreviewOpen(false);
     setIsPastingRows(false);
     setPasteErrors([]);
+    setPasteAnchorRowId(null);
   }, []);
 
   const handleConfirmPastePreview = useCallback(async () => {
@@ -2765,17 +2775,8 @@ export function EstimateEditorTable({
     setPasteErrors([]);
 
     try {
-      const activeCellDataId =
-        tableCardRef.current
-          ?.querySelector<HTMLElement>("[data-cell-id].estimate-cell--active")
-          ?.getAttribute("data-cell-id") ?? "";
-      const anchorRowId =
-        activeCellDataId.includes("::")
-          ? (activeCellDataId.split("::")[0] ?? null)
-          : null;
-
       await onPasteRows({
-        anchorRowId,
+        anchorRowId: pasteAnchorRowId,
         rows: selectedRows.map((row) => row.values),
       });
       closePastePreview();
@@ -2793,6 +2794,7 @@ export function EstimateEditorTable({
     isPastingRows,
     isReadOnly,
     onPasteRows,
+    pasteAnchorRowId,
     pasteIncludedByLineNumber,
     pastePreviewRows,
   ]);
@@ -2824,9 +2826,7 @@ export function EstimateEditorTable({
         h_mo: item.h_mo,
         k_mo: item.k_mo,
         h_mo_majoration:
-          typeof item.h_mo_majoration === "number"
-            ? Number((item.h_mo_majoration * 100).toFixed(2))
-            : null,
+          typeof item.h_mo_majoration === "number" ? item.h_mo_majoration : null,
       }));
 
     const tsv = serializeSelectedRowsToTsv(rows, {
@@ -2835,8 +2835,12 @@ export function EstimateEditorTable({
     });
 
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(tsv);
-      return;
+      try {
+        await navigator.clipboard.writeText(tsv);
+        return;
+      } catch {
+        // Fall back to the legacy copy path when async clipboard access is blocked.
+      }
     }
 
     const textarea = document.createElement("textarea");
@@ -3158,7 +3162,8 @@ export function EstimateEditorTable({
       if (event.key === "Escape") {
         if (
           isTextEditingTarget(target) ||
-          !shortcutScope.canHandleBulkSelectionShortcut
+          !shortcutScope.canHandleBulkSelectionShortcut ||
+          supplierComparisonMenu !== null
         ) {
           return;
         }
@@ -3251,6 +3256,7 @@ export function EstimateEditorTable({
     onRedo,
     onUndo,
     selectAllVisibleLines,
+    supplierComparisonMenu,
     visibleLineIdList,
   ]);
 
@@ -3725,6 +3731,52 @@ export function EstimateEditorTable({
       : undefined,
   });
   const insertionAnchorItemId = spreadsheetNavigation.activeCell?.rowId ?? null;
+
+  useEffect(() => {
+    insertionAnchorItemIdRef.current = insertionAnchorItemId;
+  }, [insertionAnchorItemId]);
+
+  useEffect(() => {
+    if (!scrollToItemId) return;
+
+    let frameId: number | null = null;
+    const scrollToRow = () => {
+      const rowElement = tableCardRef.current?.querySelector<HTMLElement>(
+        `[data-estimate-item-id="${scrollToItemId}"]`
+      );
+      if (rowElement) {
+        rowElement.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }
+      onScrollToItemHandled?.();
+    };
+
+    if (isVirtualized) {
+      const rowIndex = virtualRowIndexByItemId.get(scrollToItemId);
+      if (rowIndex === undefined) {
+        onScrollToItemHandled?.();
+        return;
+      }
+      scrollToIndex(rowIndex);
+      frameId = window.requestAnimationFrame(scrollToRow);
+    } else {
+      scrollToRow();
+    }
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [
+    isVirtualized,
+    onScrollToItemHandled,
+    scrollToIndex,
+    scrollToItemId,
+    virtualRowIndexByItemId,
+  ]);
 
   const renderSortableRow = useCallback(
     (

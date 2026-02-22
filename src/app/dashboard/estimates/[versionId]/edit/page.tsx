@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
+import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
 import { EstimateEventsTimeline } from "@/components/estimates/EstimateEventsTimeline";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
@@ -51,6 +52,10 @@ import {
   buildBulkSuggestPreview,
   type BulkSuggestPreviewItem,
 } from "@/lib/estimates/bulk-suggest";
+import {
+  computeEstimateChecklist,
+  type EstimateChecklistCriterion,
+} from "@/lib/estimates/checklist";
 import {
   countEstimateQualityFlags,
   computeEstimateQualityFlagsByItemId,
@@ -1070,6 +1075,9 @@ export default function EditEstimatePage() {
   const [qualityFilter, setQualityFilter] =
     useState<EstimateQualityFilter>("all_lines");
   const [activeTab, setActiveTab] = useState<"settings" | "editor">("settings");
+  const [isChecklistCollapsed, setIsChecklistCollapsed] = useState(false);
+  const [checklistScrollTargetItemId, setChecklistScrollTargetItemId] =
+    useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingRules, setIsSavingRules] = useState(false);
@@ -1541,6 +1549,22 @@ export default function EditEstimatePage() {
       threshold: nextThreshold,
     }));
   }, []);
+  const handleChecklistCriterionClick = useCallback(
+    (criterion: EstimateChecklistCriterion) => {
+      if (!criterion.targetItemId) {
+        setActiveTab("settings");
+        return;
+      }
+      if (criterion.qualityFlag) {
+        setQualityFilter(criterion.qualityFlag);
+      }
+      setChecklistScrollTargetItemId(criterion.targetItemId);
+    },
+    []
+  );
+  const handleChecklistScrollHandled = useCallback(() => {
+    setChecklistScrollTargetItemId(null);
+  }, []);
   const persistConflictDraft = useCallback(() => {
     if (!resolvedVersionId) return;
 
@@ -1856,6 +1880,16 @@ export default function EditEstimatePage() {
   const qualityCounts = useMemo(
     () => countEstimateQualityFlags(qualityFlagsByItemId),
     [qualityFlagsByItemId]
+  );
+
+  const checklist = useMemo(
+    () =>
+      computeEstimateChecklist({
+        items,
+        qualityFlagsByItemId,
+        settings,
+      }),
+    [items, qualityFlagsByItemId, settings]
   );
 
   const buildLineCalculationInput = useCallback(
@@ -3836,7 +3870,18 @@ export default function EditEstimatePage() {
       const snapshot = itemsRef.current;
       const idsToRemove = collectSubtreeItemIds(snapshot, itemId);
       const deletedSnapshots = snapshot.filter((item) => idsToRemove.has(item.id));
-      const siblingOrderByParent = buildSiblingOrderByParent(snapshot);
+      const allSiblingOrders = buildSiblingOrderByParent(snapshot);
+      const siblingOrderByParent = new Map<string | null, string[]>();
+      const affectedParentIds = new Set<string | null>();
+      deletedSnapshots.forEach((item) => {
+        affectedParentIds.add(item.parent_id ?? null);
+      });
+      affectedParentIds.forEach((parentId) => {
+        const order = allSiblingOrders.get(parentId);
+        if (order) {
+          siblingOrderByParent.set(parentId, order);
+        }
+      });
       setItems((prev) => prev.filter((item) => !idsToRemove.has(item.id)));
 
       if (!version?.id) {
@@ -3864,11 +3909,18 @@ export default function EditEstimatePage() {
               );
 
               setItems([...undoSnapshot, ...recreated.createdItems]);
-              await applySiblingOrder(
-                versionSnapshot.id,
-                siblingOrderByParent,
-                recreated.idMap
-              );
+              try {
+                await applySiblingOrder(
+                  versionSnapshot.id,
+                  siblingOrderByParent,
+                  recreated.idMap
+                );
+              } catch (error) {
+                console.error(
+                  "Impossible de restaurer l'ordre exact apres annulation de suppression.",
+                  error
+                );
+              }
               currentDeletedRootId =
                 recreated.idMap.get(itemId) ?? currentDeletedRootId;
               setTotalsOutOfSync(false);
@@ -5231,6 +5283,8 @@ export default function EditEstimatePage() {
       bulkSuggestionEligibleCount,
       onOpenBulkSuggestDialog: handleOpenBulkSuggestDialog,
       onReorder: handleReorder,
+      scrollToItemId: checklistScrollTargetItemId,
+      onScrollToItemHandled: handleChecklistScrollHandled,
       virtualization: editorTableVirtualization,
     }),
     [
@@ -5256,6 +5310,7 @@ export default function EditEstimatePage() {
       handlePatchItem,
       handleOutlierThresholdChange,
       handleQualityFilterChange,
+      handleChecklistScrollHandled,
       handleReorder,
       handleOpenBulkSuggestDialog,
       handleToggleOutlierDismiss,
@@ -5275,6 +5330,7 @@ export default function EditEstimatePage() {
       supplyTypes,
       suggestionRules,
       bulkSuggestionEligibleCount,
+      checklistScrollTargetItemId,
       totals?.appliedMarginMultiplier,
       version?.id,
       resolvedVersionId,
@@ -5805,8 +5861,24 @@ export default function EditEstimatePage() {
           ) : null}
         </div>
       ) : (
-        <div className="mt-6">
-          <EstimateEditorTable {...editorTableProps} />
+        <div className="mt-6 flex flex-col gap-4 xl:flex-row">
+          <div
+            className={`shrink-0 ${isChecklistCollapsed ? "xl:w-64" : "xl:w-80"}`}
+          >
+            <div className="xl:sticky xl:top-4">
+              <EstimateChecklist
+                checklist={checklist}
+                isCollapsed={isChecklistCollapsed}
+                onToggleCollapsed={() =>
+                  setIsChecklistCollapsed((previous) => !previous)
+                }
+                onCriterionClick={handleChecklistCriterionClick}
+              />
+            </div>
+          </div>
+          <div className="min-w-0 flex-1">
+            <EstimateEditorTable {...editorTableProps} />
+          </div>
         </div>
       )}
 

@@ -7,6 +7,8 @@ function Get-HexSuites {
     "est-101-keyboard.ps1",
     "est-102-inline-edit.ps1",
     "est-103-multiselect.ps1",
+    "est-104-clipboard.ps1",
+    "est-106-undo-redo.ps1",
     "est-030-supplier-comparison.ps1",
     "est-164-catalogue-suggestions.ps1",
     "ti-143-navigation.ps1",
@@ -36,6 +38,8 @@ function Get-HexSuites {
       "est-101-keyboard.ps1",
       "est-102-inline-edit.ps1",
       "est-103-multiselect.ps1",
+      "est-104-clipboard.ps1",
+      "est-106-undo-redo.ps1",
       "est-030-supplier-comparison.ps1",
       "ti-147-editor.ps1",
       "est-164-catalogue-suggestions.ps1"
