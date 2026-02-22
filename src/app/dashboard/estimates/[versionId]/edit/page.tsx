@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -15,6 +15,7 @@ import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
 import {
   EstimateEditorTable,
+  type EstimateSectionDuplicateTarget,
   type SuggestionCorrectionPayload,
   type SuggestionLearningState,
 } from "@/components/estimates/EstimateEditorTable";
@@ -87,6 +88,7 @@ import {
 import {
   batchEstimateOperations,
   bulkUpdateEstimateItems,
+  acquireEstimateDraftLock,
   createEstimateItem,
   createEstimateLaborRole,
   createEstimateSuggestionRule,
@@ -96,6 +98,7 @@ import {
   deleteEstimateItem,
   fetchEstimateSendGating,
   fetchEstimateEditorData,
+  fetchEstimateList,
   fetchEstimateItemsForVersion,
   fetchEstimateOutlierDismissedFlags,
   fetchEstimateVersionEvents,
@@ -104,6 +107,7 @@ import {
   isEstimateApiError,
   moveEstimateItem,
   reorderEstimateItems,
+  releaseEstimateDraftLock,
   saveEstimateVersion,
   sendEstimateSuggestionRuleFeedback,
   toggleEstimateOutlierDismissedFlag,
@@ -1229,6 +1233,7 @@ function sortItemsForTreeRecreation(sourceItems: EstimateItem[]) {
 
 export default function EditEstimatePage() {
   const params = useParams();
+  const router = useRouter();
   const rawVersionId = params?.["versionId"];
   const versionId = Array.isArray(rawVersionId) ? rawVersionId[0] : rawVersionId;
   const resolvedVersionId = typeof versionId === "string" ? versionId : "";
@@ -1306,6 +1311,9 @@ export default function EditEstimatePage() {
   const [isUndoingBulkSuggest, setIsUndoingBulkSuggest] = useState(false);
   const [isReloadingVersion, setIsReloadingVersion] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [sectionDuplicateTargets, setSectionDuplicateTargets] = useState<
+    EstimateSectionDuplicateTarget[]
+  >([]);
   const {
     push: pushHistoryCommand,
     undo: executeUndo,
@@ -5174,8 +5182,27 @@ export default function EditEstimatePage() {
         itemId,
         fromParentId,
         toParentId,
-        orderedSourceIds,
-        orderedTargetIds,
+        orderedSourceIds: [...orderedSourceIds],
+        orderedTargetIds: [...orderedTargetIds],
+      };
+      const undoSourceOrderedIds = movePayload.orderedTargetIds.filter(
+        (targetItemId) => targetItemId !== itemId
+      );
+      const undoTargetOrderedIds = movePayload.orderedSourceIds.filter(
+        (sourceItemId) => sourceItemId !== itemId
+      );
+      const previousSourceIndex = previousSourceOrderedIds.indexOf(itemId);
+      const undoTargetInsertIndex =
+        previousSourceIndex === -1
+          ? undoTargetOrderedIds.length
+          : Math.min(previousSourceIndex, undoTargetOrderedIds.length);
+      undoTargetOrderedIds.splice(undoTargetInsertIndex, 0, itemId);
+      const undoMovePayload: EstimateItemMovePayload = {
+        itemId,
+        fromParentId: toParentId,
+        toParentId: fromParentId,
+        orderedSourceIds: undoSourceOrderedIds,
+        orderedTargetIds: undoTargetOrderedIds,
       };
       const parentUnchanged = (movedItem.parent_id ?? null) === toParentId;
       const sourceOrderUnchanged =
@@ -5208,18 +5235,11 @@ export default function EditEstimatePage() {
               throw new Error("Version introuvable.");
             }
 
-            const undoPayload: EstimateItemMovePayload = {
-              itemId,
-              fromParentId: toParentId,
-              toParentId: fromParentId,
-              orderedSourceIds: previousTargetOrderedIds,
-              orderedTargetIds: previousSourceOrderedIds,
-            };
             const undoSnapshot = itemsRef.current;
-            setItems(applyInterParentMoveOptimistically(undoSnapshot, undoPayload));
+            setItems(applyInterParentMoveOptimistically(undoSnapshot, undoMovePayload));
 
             try {
-              await persistMoveItem(undoVersionSnapshot.id, undoPayload);
+              await persistMoveItem(undoVersionSnapshot.id, undoMovePayload);
               setTotalsOutOfSync(false);
             } catch (error) {
               setItems(undoSnapshot);
