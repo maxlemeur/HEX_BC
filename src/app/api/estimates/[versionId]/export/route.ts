@@ -7,6 +7,8 @@ import {
   toErrorResponse,
   unauthorized,
 } from "@/lib/estimates/errors";
+import { streamEstimateVersionBdcV11Xlsx } from "@/lib/estimates/bdc-export";
+import { streamEstimateVersionDpgfXlsx } from "@/lib/estimates/dpgf-export";
 import { streamEstimateVersionXlsx } from "@/lib/estimates/export-stream";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -32,6 +34,8 @@ async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
   return paramsSchema.parse(params).versionId;
 }
 
+type ExportMode = "standard" | "dpgf" | "bdc";
+
 function parseFormat(request: Request) {
   const rawFormat = new URL(request.url).searchParams.get("format");
   if (!rawFormat) return "xlsx";
@@ -40,6 +44,18 @@ function parseFormat(request: Request) {
   if (normalized.length === 0 || normalized === "xlsx") return "xlsx";
 
   throw badRequest("Seul le format xlsx est supporte.");
+}
+
+function parseMode(request: Request): ExportMode {
+  const rawMode = new URL(request.url).searchParams.get("mode");
+  if (!rawMode) return "standard";
+
+  const normalized = rawMode.trim().toLowerCase();
+  if (normalized.length === 0 || normalized === "standard") return "standard";
+  if (normalized === "dpgf") return "dpgf";
+  if (normalized === "bdc") return "bdc";
+
+  throw badRequest("Mode d'export invalide. Valeurs supportees: standard, dpgf, bdc.");
 }
 
 async function assertExportAccess() {
@@ -82,9 +98,15 @@ export async function GET(
   try {
     const versionId = await getVersionId(params);
     parseFormat(request);
+    const mode = parseMode(request);
     await assertExportAccess();
 
-    const exported = await streamEstimateVersionXlsx(versionId);
+    const exported =
+      mode === "dpgf"
+        ? await streamEstimateVersionDpgfXlsx(versionId)
+        : mode === "bdc"
+          ? await streamEstimateVersionBdcV11Xlsx(versionId)
+          : await streamEstimateVersionXlsx(versionId);
 
     return new Response(exported.stream, {
       status: 200,

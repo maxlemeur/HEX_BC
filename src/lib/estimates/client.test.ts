@@ -236,6 +236,33 @@ describe("estimate client optimistic concurrency", () => {
     expect(result.size).toBeGreaterThan(0);
   });
 
+  it("includes export mode in query params when requested", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("xlsx-binary", {
+        status: 200,
+        headers: {
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await exportEstimate(VERSION_ID, "xlsx", {
+      mode: "dpgf",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/export?format=xlsx&mode=dpgf`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(result.filename).toBe(`devis-${VERSION_ID}.xlsx`);
+    expect(result.size).toBeGreaterThan(0);
+  });
+
   it("includes h_mo_majoration and supply_type_id when creating line items", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

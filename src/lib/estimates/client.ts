@@ -240,6 +240,8 @@ export type EstimateExportResult = {
   size: number;
 };
 
+export type EstimateExportMode = "standard" | "dpgf" | "bdc";
+
 export type SuggestionRuleFeedback = "accept" | "reject";
 
 export type SuggestionLearningFieldName =
@@ -2204,9 +2206,19 @@ export async function batchEstimateOperations(
 
 export async function exportEstimate(
   versionId: string,
-  format: "xlsx" = "xlsx"
+  format: "xlsx" = "xlsx",
+  options: {
+    mode?: EstimateExportMode;
+  } = {}
 ): Promise<EstimateExportResult> {
-  const response = await fetch(`/api/estimates/${versionId}/export?format=${format}`, {
+  const queryParams = new URLSearchParams({
+    format,
+  });
+  if (typeof options.mode === "string") {
+    queryParams.set("mode", options.mode);
+  }
+
+  const response = await fetch(`/api/estimates/${versionId}/export?${queryParams.toString()}`, {
     method: "GET",
     credentials: "same-origin",
   });
