@@ -6,6 +6,7 @@ vi.mock("@/lib/estimates/server", () => ({
   updateEstimateItem: vi.fn(),
   deleteEstimateItem: vi.fn(),
   reorderEstimateItems: vi.fn(),
+  listEstimateItems: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -21,15 +22,21 @@ import {
   bulkUpdateEstimateItems,
   createEstimateItem,
   deleteEstimateItem,
+  listEstimateItems,
   reorderEstimateItems,
   updateEstimateItem,
 } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { Database } from "@/types/database";
 
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const ITEM_ID = "22222222-2222-4222-8222-222222222222";
 const CREATED_ITEM_ID = "33333333-3333-4333-8333-333333333333";
+const SECTION_ID = "44444444-4444-4444-8444-444444444444";
+const CHILD_ITEM_ID = "55555555-5555-4555-8555-555555555555";
+const TENANT_ID = "66666666-6666-4666-8666-666666666666";
 const UPDATED_AT = "2026-02-21T10:00:00.000Z";
+type EstimateItemSnapshot = Database["public"]["Tables"]["estimate_items"]["Row"];
 
 function createSupabaseRpcStub() {
   return {
@@ -39,15 +46,96 @@ function createSupabaseRpcStub() {
   };
 }
 
+function createLineItemSnapshot(
+  overrides: Partial<EstimateItemSnapshot> = {}
+): EstimateItemSnapshot {
+  return {
+    id: ITEM_ID,
+    created_at: "2026-02-21T09:30:00.000Z",
+    updated_at: "2026-02-21T09:30:00.000Z",
+    tenant_id: TENANT_ID,
+    version_id: VERSION_ID,
+    parent_id: null,
+    item_type: "line",
+    position: 1,
+    title: "Ligne",
+    description: "Description",
+    quantity: 1,
+    unit_price_ht_cents: 1000,
+    tax_rate_bp: 2000,
+    k_fo: 1,
+    h_mo: 0,
+    h_mo_majoration: 1,
+    k_mo: 1,
+    h_mo_atelier: null,
+    k_mo_atelier: null,
+    labor_role_atelier_id: null,
+    h_mo_chantier: null,
+    k_mo_chantier: null,
+    labor_role_chantier_id: null,
+    pu_ht_cents: 1000,
+    labor_role_id: null,
+    category_id: null,
+    supply_type_id: null,
+    selected_supplier_price_id: null,
+    line_total_ht_cents: 1000,
+    line_tax_cents: 200,
+    line_total_ttc_cents: 1200,
+    ...overrides,
+  };
+}
+
+function createSectionItemSnapshot(
+  overrides: Partial<EstimateItemSnapshot> = {}
+): EstimateItemSnapshot {
+  return {
+    id: SECTION_ID,
+    created_at: "2026-02-21T09:00:00.000Z",
+    updated_at: "2026-02-21T09:00:00.000Z",
+    tenant_id: TENANT_ID,
+    version_id: VERSION_ID,
+    parent_id: null,
+    item_type: "section",
+    position: 1,
+    title: "Section",
+    description: null,
+    quantity: null,
+    unit_price_ht_cents: null,
+    tax_rate_bp: null,
+    k_fo: null,
+    h_mo: null,
+    h_mo_majoration: 1,
+    k_mo: null,
+    h_mo_atelier: null,
+    k_mo_atelier: null,
+    labor_role_atelier_id: null,
+    h_mo_chantier: null,
+    k_mo_chantier: null,
+    labor_role_chantier_id: null,
+    pu_ht_cents: null,
+    labor_role_id: null,
+    category_id: null,
+    supply_type_id: null,
+    selected_supplier_price_id: null,
+    line_total_ht_cents: null,
+    line_tax_cents: null,
+    line_total_ttc_cents: null,
+    ...overrides,
+  };
+}
+
 describe("executeEstimateBatch", () => {
   const originalBatchLimit = process.env.ESTIMATE_BATCH_MAX_OPERATIONS;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     delete process.env.ESTIMATE_BATCH_MAX_OPERATIONS;
     vi.mocked(createSupabaseServerClient).mockResolvedValue(
       createSupabaseRpcStub() as never
     );
+    vi.mocked(listEstimateItems).mockResolvedValue({
+      items: [],
+    } as never);
   });
 
   afterEach(() => {
@@ -253,6 +341,283 @@ describe("executeEstimateBatch", () => {
     });
   });
 
+  it("rolls back updated rows when a later operation fails", async () => {
+    const originalItem = createLineItemSnapshot({
+      id: ITEM_ID,
+      title: "Titre initial",
+      position: 2,
+      quantity: 2,
+      unit_price_ht_cents: 2500,
+      pu_ht_cents: 3100,
+      line_total_ht_cents: 6200,
+      line_tax_cents: 1240,
+      line_total_ttc_cents: 7440,
+    });
+    const upsertSpy = vi.fn().mockResolvedValue({
+      error: null,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      rpc: vi.fn().mockResolvedValue({
+        error: null,
+      }),
+      from: vi.fn().mockReturnValue({
+        upsert: upsertSpy,
+      }),
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: UPDATED_AT,
+      },
+    } as never);
+    vi.mocked(listEstimateItems)
+      .mockResolvedValueOnce({
+        items: [originalItem],
+      } as never)
+      .mockResolvedValueOnce({
+        items: [{ ...originalItem, title: "Titre modifie" }],
+      } as never);
+    vi.mocked(updateEstimateItem)
+      .mockResolvedValueOnce({
+        item: {
+          ...originalItem,
+          title: "Titre modifie",
+        },
+      } as never);
+    vi.mocked(deleteEstimateItem).mockRejectedValue(
+      badRequest("Suppression refusee.", undefined, "BAD_REQUEST")
+    );
+
+    const result = await executeEstimateBatch(
+      VERSION_ID,
+      [
+        {
+          op: "update",
+          id: ITEM_ID,
+          data: {
+            title: "Titre modifie",
+          },
+        },
+        {
+          op: "delete",
+          id: CREATED_ITEM_ID,
+        },
+      ],
+      {
+        concurrencyToken: UPDATED_AT,
+      }
+    );
+
+    expect(result.committed).toBe(false);
+    expect(vi.mocked(updateEstimateItem)).toHaveBeenNthCalledWith(1, VERSION_ID, {
+      id: ITEM_ID,
+      title: "Titre modifie",
+    });
+    expect(upsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: ITEM_ID,
+        title: "Titre initial",
+        position: 2,
+        quantity: 2,
+        unit_price_ht_cents: 2500,
+      }),
+      expect.objectContaining({
+        onConflict: "id",
+      })
+    );
+  });
+
+  it("rolls back deleted rows (including descendants) when a later operation fails", async () => {
+    const sectionItem = createSectionItemSnapshot({
+      id: SECTION_ID,
+      position: 1,
+    });
+    const nestedLineItem = createLineItemSnapshot({
+      id: CHILD_ITEM_ID,
+      parent_id: SECTION_ID,
+      position: 1,
+      title: "Ligne enfant",
+    });
+    const survivingLine = createLineItemSnapshot({
+      id: ITEM_ID,
+      parent_id: null,
+      position: 2,
+      title: "Ligne conservee",
+    });
+
+    const upsertSpy = vi.fn().mockResolvedValue({
+      error: null,
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      rpc: vi.fn().mockResolvedValue({
+        error: null,
+      }),
+      from: vi.fn().mockReturnValue({
+        upsert: upsertSpy,
+      }),
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: UPDATED_AT,
+      },
+    } as never);
+    vi.mocked(listEstimateItems)
+      .mockResolvedValueOnce({
+        items: [sectionItem, nestedLineItem, survivingLine],
+      } as never)
+      .mockResolvedValueOnce({
+        items: [survivingLine],
+      } as never);
+    vi.mocked(deleteEstimateItem).mockResolvedValue({
+      deleted_id: SECTION_ID,
+    } as never);
+    vi.mocked(updateEstimateItem).mockRejectedValue(
+      badRequest("Mise a jour invalide.", undefined, "BAD_REQUEST")
+    );
+
+    const result = await executeEstimateBatch(
+      VERSION_ID,
+      [
+        {
+          op: "delete",
+          id: SECTION_ID,
+        },
+        {
+          op: "update",
+          id: ITEM_ID,
+          data: {
+            title: "Doit echouer",
+          },
+        },
+      ],
+      {
+        concurrencyToken: UPDATED_AT,
+      }
+    );
+
+    expect(result.committed).toBe(false);
+    expect(upsertSpy).toHaveBeenCalledTimes(2);
+    expect(upsertSpy).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        id: SECTION_ID,
+        parent_id: null,
+      }),
+      expect.objectContaining({
+        onConflict: "id",
+      })
+    );
+    expect(upsertSpy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        id: CHILD_ITEM_ID,
+        parent_id: SECTION_ID,
+      }),
+      expect.objectContaining({
+        onConflict: "id",
+      })
+    );
+  });
+
+  it("rolls back reorder operations when a later operation fails", async () => {
+    const firstId = ITEM_ID;
+    const secondId = CREATED_ITEM_ID;
+    const thirdId = CHILD_ITEM_ID;
+    const originalOrder = [firstId, secondId, thirdId];
+    const reordered = [thirdId, firstId, secondId];
+    const originalSiblings = [
+      createLineItemSnapshot({
+        id: firstId,
+        position: 1,
+        title: "A",
+      }),
+      createLineItemSnapshot({
+        id: secondId,
+        position: 2,
+        title: "B",
+      }),
+      createLineItemSnapshot({
+        id: thirdId,
+        position: 3,
+        title: "C",
+      }),
+    ];
+
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: UPDATED_AT,
+      },
+    } as never);
+    vi.mocked(listEstimateItems)
+      .mockResolvedValueOnce({
+        items: originalSiblings,
+      } as never)
+      .mockResolvedValueOnce({
+        items: originalSiblings,
+      } as never);
+    vi.mocked(reorderEstimateItems)
+      .mockResolvedValueOnce({
+        parent_id: null,
+        ordered_ids: reordered,
+        updated_count: 3,
+      } as never)
+      .mockResolvedValueOnce({
+        parent_id: null,
+        ordered_ids: originalOrder,
+        updated_count: 3,
+      } as never);
+    vi.mocked(updateEstimateItem).mockRejectedValue(
+      badRequest("Erreur metier.", undefined, "BAD_REQUEST")
+    );
+
+    const result = await executeEstimateBatch(
+      VERSION_ID,
+      [
+        {
+          op: "reorder",
+          data: {
+            ordered_ids: reordered,
+          },
+        },
+        {
+          op: "update",
+          id: ITEM_ID,
+          data: {
+            title: "Doit echouer",
+          },
+        },
+      ],
+      {
+        concurrencyToken: UPDATED_AT,
+      }
+    );
+
+    expect(result.committed).toBe(false);
+    expect(vi.mocked(reorderEstimateItems)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(reorderEstimateItems)).toHaveBeenNthCalledWith(
+      1,
+      VERSION_ID,
+      {
+        ordered_ids: reordered,
+      }
+    );
+    expect(vi.mocked(reorderEstimateItems)).toHaveBeenNthCalledWith(
+      2,
+      VERSION_ID,
+      {
+        parent_id: null,
+        ordered_ids: originalOrder,
+      }
+    );
+  });
+
   it("keeps committed=false when rollback itself fails (best effort)", async () => {
     const consoleErrorSpy = vi
       .spyOn(console, "error")
@@ -361,6 +726,62 @@ describe("executeEstimateBatch", () => {
       ],
     });
     expect(supabaseStub.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps committed=true when audit logging fails after writes", async () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const supabaseStub = {
+      rpc: vi.fn().mockResolvedValue({
+        error: {
+          code: "PGRST202",
+          message: "RPC not found",
+          details: null,
+          hint: null,
+        },
+      }),
+    };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabaseStub as never);
+
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: UPDATED_AT,
+      },
+    } as never);
+    vi.mocked(listEstimateItems).mockResolvedValueOnce({
+      items: [createLineItemSnapshot()],
+    } as never);
+    vi.mocked(deleteEstimateItem).mockResolvedValue({
+      deleted_id: ITEM_ID,
+    } as never);
+
+    const result = await executeEstimateBatch(
+      VERSION_ID,
+      [
+        {
+          op: "delete",
+          id: ITEM_ID,
+        },
+      ],
+      {
+        concurrencyToken: UPDATED_AT,
+      }
+    );
+
+    expect(result.committed).toBe(true);
+    expect(result.results[0]).toEqual(
+      expect.objectContaining({
+        status: "ok",
+      })
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Estimate batch audit failed",
+      expect.anything()
+    );
+    consoleErrorSpy.mockRestore();
   });
 });
 

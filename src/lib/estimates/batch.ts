@@ -1,13 +1,18 @@
 import { ApiError, badRequest, mapSupabaseError } from "@/lib/estimates/errors";
-import type { BatchOperationInput } from "@/lib/estimates/schemas";
+import type {
+  BatchOperationInput,
+  ReorderEstimateItemsInput,
+} from "@/lib/estimates/schemas";
 import {
   bulkUpdateEstimateItems,
   createEstimateItem,
   deleteEstimateItem,
+  listEstimateItems,
   reorderEstimateItems,
   updateEstimateItem,
 } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { Database } from "@/types/database";
 
 const DEFAULT_MAX_BATCH_OPERATIONS = 100;
 const MAX_BATCH_OPERATIONS_ENV_KEY = "ESTIMATE_BATCH_MAX_OPERATIONS";
@@ -43,6 +48,8 @@ type RollbackAction = () => Promise<void>;
 type BatchCreateOperation = Extract<BatchOperationInput, { op: "create" }>;
 type BatchUpdateOperation = Extract<BatchOperationInput, { op: "update" }>;
 type BatchReorderOperation = Extract<BatchOperationInput, { op: "reorder" }>;
+type EstimateItemSnapshot = Database["public"]["Tables"]["estimate_items"]["Row"];
+type EstimateItemInsertPayload = Database["public"]["Tables"]["estimate_items"]["Insert"];
 
 type BatchAuditOperationPayload =
   | {
@@ -131,21 +138,196 @@ function resolveCreatedItemId(result: unknown) {
   return id;
 }
 
+function toEstimateItemInsertPayload(
+  item: EstimateItemSnapshot
+): EstimateItemInsertPayload {
+  return {
+    id: item.id,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    tenant_id: item.tenant_id,
+    version_id: item.version_id,
+    parent_id: item.parent_id,
+    item_type: item.item_type,
+    position: item.position,
+    title: item.title,
+    description: item.description,
+    quantity: item.quantity,
+    unit_price_ht_cents: item.unit_price_ht_cents,
+    tax_rate_bp: item.tax_rate_bp,
+    k_fo: item.k_fo,
+    h_mo: item.h_mo,
+    h_mo_majoration: item.h_mo_majoration,
+    k_mo: item.k_mo,
+    h_mo_atelier: item.h_mo_atelier,
+    k_mo_atelier: item.k_mo_atelier,
+    labor_role_atelier_id: item.labor_role_atelier_id,
+    h_mo_chantier: item.h_mo_chantier,
+    k_mo_chantier: item.k_mo_chantier,
+    labor_role_chantier_id: item.labor_role_chantier_id,
+    pu_ht_cents: item.pu_ht_cents,
+    labor_role_id: item.labor_role_id,
+    category_id: item.category_id,
+    supply_type_id: item.supply_type_id,
+    selected_supplier_price_id: item.selected_supplier_price_id,
+    line_total_ht_cents: item.line_total_ht_cents,
+    line_tax_cents: item.line_tax_cents,
+    line_total_ttc_cents: item.line_total_ttc_cents,
+  };
+}
+
+function listSiblingIds(items: EstimateItemSnapshot[], parentId: string | null) {
+  return items
+    .filter((item) => (item.parent_id ?? null) === parentId)
+    .sort((left, right) => left.position - right.position)
+    .map((item) => item.id);
+}
+
+function collectDeletedItemsForRollback(
+  items: EstimateItemSnapshot[],
+  deletedId: string
+) {
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const childrenByParent = new Map<string, EstimateItemSnapshot[]>();
+
+  items.forEach((item) => {
+    const parentId = item.parent_id;
+    if (!parentId) return;
+
+    const children = childrenByParent.get(parentId);
+    if (children) {
+      children.push(item);
+      return;
+    }
+    childrenByParent.set(parentId, [item]);
+  });
+
+  const deletedRoot = itemById.get(deletedId);
+  if (!deletedRoot) {
+    return [];
+  }
+
+  const deletedItems: EstimateItemSnapshot[] = [];
+  const stack: EstimateItemSnapshot[] = [deletedRoot];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+
+    deletedItems.push(current);
+
+    const children = childrenByParent
+      .get(current.id)
+      ?.slice()
+      .sort((left, right) => left.position - right.position) ?? [];
+
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const child = children[index];
+      if (!child) continue;
+      stack.push(child);
+    }
+  }
+
+  return deletedItems;
+}
+
+async function restoreDeletedItems(items: EstimateItemSnapshot[]) {
+  if (items.length === 0) return;
+
+  const supabase = await createSupabaseServerClient();
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    if (!item) continue;
+
+    const { error } = await supabase
+      .from("estimate_items")
+      .upsert(toEstimateItemInsertPayload(item), {
+        onConflict: "id",
+      });
+
+    if (!error) continue;
+    throw mapSupabaseError(
+      error,
+      "Impossible de restaurer les lignes supprimees pendant le rollback."
+    );
+  }
+}
+
+async function loadPreOperationSnapshot(
+  versionId: string,
+  operation: BatchOperationInput
+) {
+  if (operation.op === "create") {
+    return null;
+  }
+
+  const { items } = await listEstimateItems(versionId);
+  return items as EstimateItemSnapshot[];
+}
+
 function buildRollbackAction(
   versionId: string,
   operation: BatchOperationInput,
-  operationResult: unknown
+  operationResult: unknown,
+  itemsBeforeOperation: EstimateItemSnapshot[] | null
 ): RollbackAction | null {
-  if (operation.op !== "create") return null;
+  switch (operation.op) {
+    case "create": {
+      const createdId = resolveCreatedItemId(operationResult);
+      if (!createdId) return null;
 
-  const createdId = resolveCreatedItemId(operationResult);
-  if (!createdId) return null;
+      return async () => {
+        await deleteEstimateItem(versionId, {
+          id: createdId,
+        });
+      };
+    }
+    case "update": {
+      const previousItem = itemsBeforeOperation?.find(
+        (item) => item.id === operation.id
+      );
+      if (!previousItem) return null;
 
-  return async () => {
-    await deleteEstimateItem(versionId, {
-      id: createdId,
-    });
-  };
+      return async () => {
+        await restoreDeletedItems([previousItem]);
+      };
+    }
+    case "delete": {
+      if (!itemsBeforeOperation) return null;
+
+      const deletedItems = collectDeletedItemsForRollback(
+        itemsBeforeOperation,
+        operation.id
+      );
+      if (deletedItems.length === 0) return null;
+
+      return async () => {
+        await restoreDeletedItems(deletedItems);
+      };
+    }
+    case "reorder": {
+      if (!itemsBeforeOperation) return null;
+
+      const parentId = operation.data.parent_id ?? null;
+      const previousOrderedIds = listSiblingIds(itemsBeforeOperation, parentId);
+
+      if (previousOrderedIds.length === 0) return null;
+
+      const rollbackInput: ReorderEstimateItemsInput = {
+        parent_id: parentId,
+        ordered_ids: previousOrderedIds,
+      };
+
+      return async () => {
+        await reorderEstimateItems(versionId, rollbackInput);
+      };
+    }
+    default: {
+      const exhaustiveCheck: never = operation;
+      return exhaustiveCheck;
+    }
+  }
 }
 
 async function rollbackBatchActions(actions: RollbackAction[]) {
@@ -282,6 +464,10 @@ export async function executeEstimateBatch(
     if (!operation) continue;
 
     try {
+      const itemsBeforeOperation = await loadPreOperationSnapshot(
+        versionId,
+        operation
+      );
       const data = await executeOperation(versionId, operation);
       results.push({
         index,
@@ -290,7 +476,12 @@ export async function executeEstimateBatch(
         data,
       });
 
-      const rollbackAction = buildRollbackAction(versionId, operation, data);
+      const rollbackAction = buildRollbackAction(
+        versionId,
+        operation,
+        data,
+        itemsBeforeOperation
+      );
       if (rollbackAction) {
         rollbackActions.push(rollbackAction);
       }
@@ -304,7 +495,11 @@ export async function executeEstimateBatch(
     }
   }
 
-  await logEstimateBatchAudit(versionId, operations);
+  try {
+    await logEstimateBatchAudit(versionId, operations);
+  } catch (error) {
+    console.error("Estimate batch audit failed", error);
+  }
 
   return {
     committed: true,

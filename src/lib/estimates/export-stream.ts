@@ -46,6 +46,7 @@ type WorksheetRowLike = {
 type WorksheetLike = {
   columns?: Array<{ header: string; key: string; width?: number }>;
   addRow: (value: WorksheetRowValue) => WorksheetRowLike;
+  getRow?: (index: number) => WorksheetRowLike;
   commit: () => void;
 };
 
@@ -287,6 +288,13 @@ function setCurrencyColumns(row: WorksheetRowLike, columns: number[]) {
   });
 }
 
+function styleWorksheetHeader(worksheet: WorksheetLike) {
+  const headerRow = worksheet.getRow?.(1);
+  if (!headerRow) return;
+  styleHeaderRow(headerRow);
+  headerRow.commit();
+}
+
 async function writeWorkbook(input: {
   payload: EstimateExportPayload;
   stream: NodeJS.WritableStream;
@@ -305,19 +313,7 @@ async function writeWorkbook(input: {
     { header: "TVA", key: "tva", width: 14 },
     { header: "Total TTC", key: "total_ttc", width: 14 },
   ];
-
-  const estimateHeader = estimateSheet.addRow([
-    "Poste",
-    "Designation",
-    "Unite",
-    "Quantite",
-    "PU HT",
-    "Total HT",
-    "TVA",
-    "Total TTC",
-  ]);
-  styleHeaderRow(estimateHeader);
-  estimateHeader.commit();
+  styleWorksheetHeader(estimateSheet);
 
   input.payload.rows.forEach((row) => {
     const estimateRow = estimateSheet.addRow([
@@ -348,10 +344,7 @@ async function writeWorkbook(input: {
     { header: "Champ", key: "field", width: 34 },
     { header: "Valeur", key: "value", width: 32 },
   ];
-
-  const summaryHeader = summarySheet.addRow(["Champ", "Valeur"]);
-  styleHeaderRow(summaryHeader);
-  summaryHeader.commit();
+  styleWorksheetHeader(summarySheet);
 
   const summaryRows: Array<[string, string | number]> = [
     ["Version ID", input.payload.versionId],

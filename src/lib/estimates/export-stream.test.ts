@@ -52,11 +52,40 @@ function createWorkbookHarness() {
           },
           set columns(value) {
             sheet.columns = value;
+            if (!value || sheet.rows.length > 0) return;
+            sheet.rows.push(value.map((column) => column.header));
           },
           addRow(value) {
             return {
               commit() {
                 sheet.rows.push(value);
+              },
+            };
+          },
+          getRow(index) {
+            const rowValues = sheet.rows[index - 1];
+            const cells =
+              Array.isArray(rowValues) && rowValues.length > 0
+                ? rowValues.map(() => ({}))
+                : [];
+
+            return {
+              commit() {},
+              getCell(cellIndex: number) {
+                const resolvedIndex = Math.max(cellIndex - 1, 0);
+                const existingCell = cells[resolvedIndex];
+                if (existingCell) {
+                  return existingCell;
+                }
+
+                const createdCell = {};
+                cells[resolvedIndex] = createdCell;
+                return createdCell;
+              },
+              eachCell(callback: (cell: Record<string, unknown>) => void) {
+                cells.forEach((cell) => {
+                  callback(cell);
+                });
               },
             };
           },
