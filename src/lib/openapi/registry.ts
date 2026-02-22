@@ -847,6 +847,40 @@ const adminSuggestionLearningStateDataSchema = suggestionLearningStateSchema;
 
 const adminSuggestionLearningPurgeDataSchema = suggestionLearningPurgeResultSchema;
 
+const anomalyHistoryCurrentRowSchema = z.object({
+  versionId: uuidSchema,
+  versionLabel: z.string(),
+  projectName: z.string(),
+  ownerUserId: uuidSchema,
+  ownerName: z.string(),
+  flagKey: z.string(),
+  flagLabel: z.string(),
+  severity: z.enum(["blocking", "warning"]),
+  itemCount: z.number(),
+});
+const anomalyHistoryTrendSchema = z.object({
+  period: z.string(),
+  opened: z.number(),
+  resolved: z.number(),
+});
+const anomalyHistoryAvgResolutionSchema = z.object({
+  flagKey: z.string(),
+  flagLabel: z.string(),
+  avgDays: z.number(),
+});
+const anomalyHistoryDataSchema = z.object({
+  summary: z.object({
+    totalAnomalies: z.number(),
+    blockingCount: z.number(),
+    warningCount: z.number(),
+    estimatesAffected: z.number(),
+    estimatesTotal: z.number(),
+  }),
+  currentAnomalies: z.array(anomalyHistoryCurrentRowSchema),
+  trend: z.array(anomalyHistoryTrendSchema),
+  avgResolution: z.array(anomalyHistoryAvgResolutionSchema),
+});
+
 const estimateEventsDataSchema = z.object({
   events: z.array(estimateVersionEventSchema),
 });
@@ -998,6 +1032,11 @@ const apiAdminSuggestionLearningPurgeSchemaDefinition =
   successResponseSchemaDefinition(
     "ApiAdminSuggestionLearningPurgeResponse",
     adminSuggestionLearningPurgeDataSchema
+  );
+const apiAdminAnomalyHistorySchemaDefinition =
+  successResponseSchemaDefinition(
+    "ApiAdminAnomalyHistoryResponse",
+    anomalyHistoryDataSchema
   );
 const apiEstimateEventsSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateEventsResponse",
@@ -2270,6 +2309,20 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Historique learning purge avec succes.",
         apiAdminSuggestionLearningPurgeSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/admin/anomaly-history",
+    summary: "Historique des anomalies qualite",
+    description:
+      "Retourne l'etat courant et les tendances d'anomalies qualite pour le tenant.",
+    tags: ["Administration"],
+    responses: {
+      "200": jsonResponse(
+        "Historique anomalies retourne.",
+        apiAdminAnomalyHistorySchemaDefinition
       ),
     },
   },
