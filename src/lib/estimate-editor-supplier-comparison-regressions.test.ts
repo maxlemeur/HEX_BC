@@ -11,21 +11,24 @@ describe("EstimateEditorTable supplier comparison regressions", () => {
   const tableSource = readSource(
     "src/components/estimates/EstimateEditorTable.tsx"
   );
+  const rowSource = readSource(
+    "src/components/estimates/components/EstimateEditorRow.tsx"
+  );
   const panelSource = readSource(
     "src/components/estimates/SupplierComparisonPanel.tsx"
   );
 
   it("keeps row context action and fallback button for supplier comparison", () => {
     expect(tableSource).toContain("Comparer fournisseurs");
-    expect(tableSource).toContain("onContextMenu={handleLineContextMenu}");
-    expect(tableSource).toContain("onOpenSupplierComparisonPanel(item.id)");
+    expect(rowSource).toContain("onContextMenu={handleLineContextMenu}");
+    expect(rowSource).toContain("onOpenSupplierComparisonPanel(item.id)");
   });
 
   it("keeps mismatch badge logic tied to selected and best supplier price ids", () => {
-    expect(tableSource).toContain(
-      "bestSupplierPriceId !== null &&\n        (item.selected_supplier_price_id ?? null) !== bestSupplierPriceId"
+    expect(tableSource).toMatch(
+      /bestSupplierPriceId !== null[\s\S]*\(item\.selected_supplier_price_id \?\? null\) !== bestSupplierPriceId/
     );
-    expect(tableSource).toContain("Meilleur prix fournisseur disponible");
+    expect(rowSource).toContain("Meilleur prix fournisseur disponible");
   });
 
   it("renders SupplierComparisonPanel states and secure external links", () => {

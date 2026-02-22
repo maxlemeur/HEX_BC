@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 function readEstimateEditorTableSource() {
   return fs.readFileSync(
-    path.resolve(process.cwd(), "src/components/estimates/EstimateEditorTable.tsx"),
+    path.resolve(process.cwd(), "src/components/estimates/components/EstimateEditorRow.tsx"),
     "utf8"
   );
 }
