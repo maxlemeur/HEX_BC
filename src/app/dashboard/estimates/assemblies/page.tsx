@@ -251,6 +251,7 @@ export default function EstimateAssembliesPage() {
 
       {isModalOpen ? (
         <AssemblyEditorModal
+          key={editingAssembly?.id ?? "new-assembly"}
           isSubmitting={isModalSubmitting}
           initialValue={editingAssembly}
           onClose={closeModal}
