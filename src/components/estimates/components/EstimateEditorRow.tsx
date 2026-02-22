@@ -421,6 +421,10 @@ export type EstimateEditorRowProps = {
     itemId: string,
     position: { x: number; y: number }
   ) => void;
+  onOpenSectionContextMenu: (
+    sectionId: string,
+    position: { x: number; y: number }
+  ) => void;
   onPatchItem: (
     itemId: string,
     patch: ItemPatch,
@@ -462,6 +466,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   onDeleteItem,
   onOpenSupplierComparisonPanel,
   onOpenSupplierComparisonContextMenu,
+  onOpenSectionContextMenu,
   onPatchItem,
   onUnitChange,
   onUnitCommit,
@@ -713,6 +718,22 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         className="estimate-row estimate-row--section"
         data-estimate-item-id={item.id}
         role="row"
+        onContextMenu={(event) => {
+          const target = event.target as HTMLElement;
+          if (
+            target.closest(
+              "input,select,textarea,button,a,[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']"
+            )
+          ) {
+            return;
+          }
+
+          event.preventDefault();
+          onOpenSectionContextMenu(item.id, {
+            x: event.clientX,
+            y: event.clientY,
+          });
+        }}
       >
         <div className="estimate-cell estimate-cell--selection" />
         <div
@@ -809,6 +830,20 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 + Sous-chapitre
               </button>
             ) : null}
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                onOpenSectionContextMenu(item.id, {
+                  x: rect.left,
+                  y: rect.bottom + 4,
+                });
+              }}
+              disabled={isReadOnly}
+            >
+              Actions
+            </button>
             <button
               className="btn btn-danger btn-sm"
               type="button"

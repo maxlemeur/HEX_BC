@@ -48,6 +48,87 @@
     }
   ],
   "paths": {
+    "/api/admin/anomaly-history": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Historique des anomalies qualite",
+        "description": "Retourne l'etat courant et les tendances d'anomalies qualite pour le tenant.",
+        "responses": {
+          "200": {
+            "description": "Historique anomalies retourne.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiAdminAnomalyHistoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/suggestion-learning": {
       "get": {
         "tags": [
@@ -5670,6 +5751,161 @@
                 "additionalProperties": false
               }
             ]
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiAdminAnomalyHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "summary": {
+                "type": "object",
+                "properties": {
+                  "totalAnomalies": {
+                    "type": "number"
+                  },
+                  "blockingCount": {
+                    "type": "number"
+                  },
+                  "warningCount": {
+                    "type": "number"
+                  },
+                  "estimatesAffected": {
+                    "type": "number"
+                  },
+                  "estimatesTotal": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "totalAnomalies",
+                  "blockingCount",
+                  "warningCount",
+                  "estimatesAffected",
+                  "estimatesTotal"
+                ],
+                "additionalProperties": false
+              },
+              "currentAnomalies": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "versionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "versionLabel": {
+                      "type": "string"
+                    },
+                    "projectName": {
+                      "type": "string"
+                    },
+                    "ownerUserId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "ownerName": {
+                      "type": "string"
+                    },
+                    "flagKey": {
+                      "type": "string"
+                    },
+                    "flagLabel": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string",
+                      "enum": [
+                        "blocking",
+                        "warning"
+                      ]
+                    },
+                    "itemCount": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "versionId",
+                    "versionLabel",
+                    "projectName",
+                    "ownerUserId",
+                    "ownerName",
+                    "flagKey",
+                    "flagLabel",
+                    "severity",
+                    "itemCount"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "trend": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "period": {
+                      "type": "string"
+                    },
+                    "opened": {
+                      "type": "number"
+                    },
+                    "resolved": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "period",
+                    "opened",
+                    "resolved"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "avgResolution": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "flagKey": {
+                      "type": "string"
+                    },
+                    "flagLabel": {
+                      "type": "string"
+                    },
+                    "avgDays": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "flagKey",
+                    "flagLabel",
+                    "avgDays"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "summary",
+              "currentAnomalies",
+              "trend",
+              "avgResolution"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

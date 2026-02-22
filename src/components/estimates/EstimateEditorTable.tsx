@@ -168,6 +168,11 @@ type EstimateVirtualizationConfig = {
   containerHeight?: number;
 };
 
+export type EstimateSectionDuplicateTarget = {
+  versionId: string;
+  label: string;
+};
+
 type EstimateEditorTableProps = {
   versionId: string;
   items: EstimateItem[];
@@ -202,6 +207,12 @@ type EstimateEditorTableProps = {
   onAddSection: (parentId: string | null) => void;
   onAddLine: (parentId: string | null) => void;
   onDeleteItem: (itemId: string) => void;
+  sectionDuplicateTargets?: EstimateSectionDuplicateTarget[];
+  onDuplicateSection?: (sectionId: string) => Promise<void>;
+  onDuplicateSectionToVersion?: (input: {
+    sectionId: string;
+    targetVersionId: string;
+  }) => Promise<void>;
   onPatchItem: (
     itemId: string,
     patch: ItemPatch,
@@ -248,6 +259,7 @@ type EstimateEditorTableProps = {
 
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
+const EMPTY_SECTION_DUPLICATE_TARGETS: EstimateSectionDuplicateTarget[] = [];
 const SUGGESTION_SCORE_MAX = 5;
 
 type SupplierComparisonResult = {
@@ -552,6 +564,12 @@ type SupplierComparisonContextMenuState = {
   y: number;
 };
 
+type SectionContextMenuState = {
+  sectionId: string;
+  x: number;
+  y: number;
+};
+
 export function EstimateEditorTable({
   versionId,
   items,
@@ -582,6 +600,9 @@ export function EstimateEditorTable({
   onAddSection,
   onAddLine,
   onDeleteItem,
+  sectionDuplicateTargets = EMPTY_SECTION_DUPLICATE_TARGETS,
+  onDuplicateSection,
+  onDuplicateSectionToVersion,
   onPatchItem,
   onTrackSuggestionCorrections,
   onApplyBulkMajoration,
@@ -624,6 +645,13 @@ export function EstimateEditorTable({
   >({});
   const [supplierComparisonMenu, setSupplierComparisonMenu] =
     useState<SupplierComparisonContextMenuState | null>(null);
+  const [sectionContextMenu, setSectionContextMenu] =
+    useState<SectionContextMenuState | null>(null);
+  const [duplicateSectionDialogSectionId, setDuplicateSectionDialogSectionId] =
+    useState<string | null>(null);
+  const [duplicateSectionTargetVersionId, setDuplicateSectionTargetVersionId] =
+    useState("");
+  const [isDuplicateSectionPending, setIsDuplicateSectionPending] = useState(false);
   const [supplierComparisonPanelItemId, setSupplierComparisonPanelItemId] =
     useState<string | null>(null);
   const [supplierComparisonByItemId, setSupplierComparisonByItemId] = useState<
@@ -665,6 +693,11 @@ export function EstimateEditorTable({
     isLaborSplitEnabled,
   });
   const canReorder = !isReadOnly && qualityFilter === "all_lines";
+  const availableSectionDuplicateTargets = useMemo(
+    () =>
+      sectionDuplicateTargets.filter((target) => target.versionId !== versionId),
+    [sectionDuplicateTargets, versionId]
+  );
   const isSuggestionLearningEnabled = learningState?.enabled === true;
   const learningByRuleId = useMemo(
     () => (isSuggestionLearningEnabled ? learningState.by_rule_id : {}),
@@ -983,6 +1016,77 @@ export function EstimateEditorTable({
     setSupplierComparisonMenu(null);
   }, []);
 
+  const closeSectionContextMenu = useCallback(() => {
+    setSectionContextMenu(null);
+  }, []);
+
+  const handleOpenSectionContextMenu = useCallback(
+    (sectionId: string, position: { x: number; y: number }) => {
+      if (isReadOnly) return;
+
+      const item = itemById.get(sectionId);
+      if (!item || item.item_type !== "section") return;
+
+      const menuWidth = 300;
+      const menuHeight = 88;
+      const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
+      const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
+
+      setSectionContextMenu({
+        sectionId,
+        x,
+        y,
+      });
+    },
+    [isReadOnly, itemById]
+  );
+
+  const handleDuplicateSectionInPlace = useCallback(async () => {
+    if (!sectionContextMenu || !onDuplicateSection) return;
+
+    const targetSectionId = sectionContextMenu.sectionId;
+    closeSectionContextMenu();
+    await onDuplicateSection(targetSectionId);
+  }, [closeSectionContextMenu, onDuplicateSection, sectionContextMenu]);
+
+  const handleOpenDuplicateSectionDialog = useCallback(() => {
+    if (!sectionContextMenu) return;
+
+    const firstTargetVersionId = availableSectionDuplicateTargets[0]?.versionId ?? "";
+    setDuplicateSectionDialogSectionId(sectionContextMenu.sectionId);
+    setDuplicateSectionTargetVersionId(firstTargetVersionId);
+    closeSectionContextMenu();
+  }, [availableSectionDuplicateTargets, closeSectionContextMenu, sectionContextMenu]);
+
+  const closeDuplicateSectionDialog = useCallback(() => {
+    if (isDuplicateSectionPending) return;
+
+    setDuplicateSectionDialogSectionId(null);
+    setDuplicateSectionTargetVersionId("");
+  }, [isDuplicateSectionPending]);
+
+  const handleConfirmDuplicateSectionToVersion = useCallback(async () => {
+    if (!duplicateSectionDialogSectionId) return;
+    if (!duplicateSectionTargetVersionId) return;
+    if (!onDuplicateSectionToVersion) return;
+
+    setIsDuplicateSectionPending(true);
+    try {
+      await onDuplicateSectionToVersion({
+        sectionId: duplicateSectionDialogSectionId,
+        targetVersionId: duplicateSectionTargetVersionId,
+      });
+      setDuplicateSectionDialogSectionId(null);
+      setDuplicateSectionTargetVersionId("");
+    } finally {
+      setIsDuplicateSectionPending(false);
+    }
+  }, [
+    duplicateSectionDialogSectionId,
+    duplicateSectionTargetVersionId,
+    onDuplicateSectionToVersion,
+  ]);
+
   const loadSupplierComparison = useCallback(
     async (itemId: string) => {
       if (!versionId) {
@@ -1148,12 +1252,61 @@ export function EstimateEditorTable({
   }, [supplierComparisonMenu]);
 
   useEffect(() => {
+    if (!sectionContextMenu) return;
+
+    const closeMenu = () => setSectionContextMenu(null);
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest(".estimate-section-context-menu")
+      ) {
+        return;
+      }
+      closeMenu();
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      closeMenu();
+    };
+
+    window.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [sectionContextMenu]);
+
+  useEffect(() => {
     if (!supplierComparisonPanelItemId) return;
     const item = itemById.get(supplierComparisonPanelItemId);
     if (!item || item.item_type !== "line") {
       setSupplierComparisonPanelItemId(null);
     }
   }, [itemById, supplierComparisonPanelItemId]);
+
+  useEffect(() => {
+    if (!sectionContextMenu) return;
+    const item = itemById.get(sectionContextMenu.sectionId);
+    if (!item || item.item_type !== "section") {
+      setSectionContextMenu(null);
+    }
+  }, [itemById, sectionContextMenu]);
+
+  useEffect(() => {
+    if (!duplicateSectionDialogSectionId) return;
+    const item = itemById.get(duplicateSectionDialogSectionId);
+    if (!item || item.item_type !== "section") {
+      setDuplicateSectionDialogSectionId(null);
+      setDuplicateSectionTargetVersionId("");
+    }
+  }, [duplicateSectionDialogSectionId, itemById]);
 
   useEstimateKeyboardShortcuts({
     tableCardRef,
@@ -1163,7 +1316,10 @@ export function EstimateEditorTable({
     isUndoRedoBusy,
     canUndo,
     canRedo,
-    isSupplierComparisonMenuOpen: supplierComparisonMenu !== null,
+    isSupplierComparisonMenuOpen:
+      supplierComparisonMenu !== null ||
+      sectionContextMenu !== null ||
+      duplicateSectionDialogSectionId !== null,
     onResolveShortcutScope: resolveEstimateTableShortcutScope,
     selectAllVisibleLines,
     clearLineSelection,
@@ -1527,6 +1683,7 @@ export function EstimateEditorTable({
           onOpenSupplierComparisonContextMenu={
             handleOpenSupplierComparisonContextMenu
           }
+          onOpenSectionContextMenu={handleOpenSectionContextMenu}
           onPatchItem={patchItemWithSuggestionTracking}
           onUnitChange={handleUnitDraftChange}
           onUnitCommit={handleUnitCommit}
@@ -1547,6 +1704,7 @@ export function EstimateEditorTable({
       canReorder,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
+      handleOpenSectionContextMenu,
       handleOpenSupplierComparisonContextMenu,
       handleSupplyTypeCommit,
       handleSupplyTypeDraftChange,
@@ -1781,6 +1939,120 @@ export function EstimateEditorTable({
           renderList={() => renderList(null)}
         />
       </div>
+
+      {sectionContextMenu ? (
+        <div
+          className="estimate-supplier-comparison-context-menu estimate-section-context-menu"
+          role="menu"
+          aria-label="Actions de section"
+          style={{
+            left: `${sectionContextMenu.x}px`,
+            top: `${sectionContextMenu.y}px`,
+          }}
+        >
+          <button
+            type="button"
+            className="estimate-supplier-comparison-context-menu__action"
+            role="menuitem"
+            onClick={() => void handleDuplicateSectionInPlace()}
+            disabled={!onDuplicateSection}
+          >
+            Dupliquer la section
+          </button>
+          <button
+            type="button"
+            className="estimate-supplier-comparison-context-menu__action"
+            role="menuitem"
+            onClick={handleOpenDuplicateSectionDialog}
+            disabled={
+              !onDuplicateSectionToVersion ||
+              availableSectionDuplicateTargets.length === 0
+            }
+          >
+            Dupliquer vers un autre devis
+          </button>
+        </div>
+      ) : null}
+
+      {duplicateSectionDialogSectionId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
+          <div
+            className="dashboard-card w-full max-w-xl p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="duplicate-section-dialog-title"
+          >
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2
+                  id="duplicate-section-dialog-title"
+                  className="text-lg font-semibold text-[var(--slate-800)]"
+                >
+                  Dupliquer vers un autre devis
+                </h2>
+                <p className="mt-1 text-sm text-[var(--slate-500)]">
+                  Choisissez une version en brouillon.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={closeDuplicateSectionDialog}
+                disabled={isDuplicateSectionPending}
+              >
+                Fermer
+              </button>
+            </div>
+
+            {availableSectionDuplicateTargets.length === 0 ? (
+              <div className="alert alert-info">
+                Aucun devis brouillon disponible en cible.
+              </div>
+            ) : (
+              <label className="form-label block">
+                Devis cible
+                <select
+                  className="input mt-2 w-full"
+                  value={duplicateSectionTargetVersionId}
+                  onChange={(event) =>
+                    setDuplicateSectionTargetVersionId(event.target.value)
+                  }
+                  disabled={isDuplicateSectionPending}
+                >
+                  {availableSectionDuplicateTargets.map((target) => (
+                    <option key={target.versionId} value={target.versionId}>
+                      {target.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={closeDuplicateSectionDialog}
+                disabled={isDuplicateSectionPending}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void handleConfirmDuplicateSectionToVersion()}
+                disabled={
+                  isDuplicateSectionPending ||
+                  !duplicateSectionTargetVersionId ||
+                  availableSectionDuplicateTargets.length === 0
+                }
+              >
+                {isDuplicateSectionPending ? "Duplication..." : "Dupliquer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {supplierComparisonMenu ? (
         <div

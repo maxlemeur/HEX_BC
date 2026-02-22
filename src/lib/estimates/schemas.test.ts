@@ -6,6 +6,7 @@ import {
   createEstimateSchema,
   createEstimateVariantSchema,
   createEstimateAssemblySchema,
+  duplicateEstimateSectionSchema,
   createMarginTierSchema,
   insertAssemblyIntoVersionSchema,
   listEstimateAssembliesQuerySchema,
@@ -650,6 +651,20 @@ describe("estimate assembly schemas", () => {
       version_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       after_item_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     });
+  });
+
+  it("parses duplicate section payload with camelCase alias", () => {
+    const parsed = duplicateEstimateSectionSchema.parse({
+      targetVersionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    });
+
+    expect(parsed).toEqual({
+      target_version_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    });
+  });
+
+  it("accepts an empty duplicate section payload", () => {
+    expect(duplicateEstimateSectionSchema.parse(undefined)).toEqual({});
   });
 });
 

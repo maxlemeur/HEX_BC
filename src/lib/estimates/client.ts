@@ -62,6 +62,23 @@ export type EstimateListItem = {
   totalHtCents: number;
 };
 
+export type EstimateDraftVersionTarget = {
+  id: string;
+  projectId: string;
+  versionNumber: number;
+  status: EstimateStatus;
+  title: string | null;
+  updatedAt: string;
+};
+
+export type DuplicateEstimateSectionResult = {
+  duplicatedSectionId: string;
+  sourceVersionId: string;
+  targetVersionId: string;
+  copiedItemCount: number;
+  versionToken: EstimateVersionToken | null;
+};
+
 export type EstimateTemplateSummary = {
   id: string;
   name: string;
@@ -1232,6 +1249,101 @@ function parseEstimateList(payload: unknown): EstimateListItem[] {
   });
 }
 
+function parseEstimateDraftVersionTarget(
+  value: unknown
+): EstimateDraftVersionTarget | null {
+  if (!isRecord(value)) return null;
+
+  const id = toStringValue(value.id);
+  const projectId =
+    toStringValue(value.projectId) ?? toStringValue(value.project_id);
+  const versionNumber =
+    toNumber(value.versionNumber) ?? toNumber(value.version_number);
+  const statusValue = toStringValue(value.status);
+  const updatedAt =
+    toStringValue(value.updatedAt) ?? toStringValue(value.updated_at);
+
+  if (
+    !id ||
+    !projectId ||
+    versionNumber === null ||
+    !statusValue ||
+    !isEstimateStatus(statusValue) ||
+    !updatedAt
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    projectId,
+    versionNumber,
+    status: statusValue,
+    title: toStringValue(value.title) ?? null,
+    updatedAt,
+  };
+}
+
+function parseEstimateDraftVersionTargets(
+  payload: unknown
+): EstimateDraftVersionTarget[] {
+  const root = getRootPayload(payload);
+  const rows = pickArray(root, ["items", "versions", "rows"]);
+
+  return rows
+    .map((row) => parseEstimateDraftVersionTarget(row))
+    .filter((row): row is EstimateDraftVersionTarget => row !== null)
+    .sort((left, right) => {
+      if (left.versionNumber !== right.versionNumber) {
+        return right.versionNumber - left.versionNumber;
+      }
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    });
+}
+
+function parseDuplicateEstimateSectionResult(
+  payload: unknown
+): DuplicateEstimateSectionResult | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const duplicatedSectionId =
+    toStringValue(root.duplicated_section_id) ??
+    toStringValue(root.duplicatedSectionId);
+  const sourceVersionId =
+    toStringValue(root.source_version_id) ?? toStringValue(root.sourceVersionId);
+  const targetVersionId =
+    toStringValue(root.target_version_id) ?? toStringValue(root.targetVersionId);
+  const copiedItemCount =
+    toNumber(root.copied_item_count) ?? toNumber(root.copiedItemCount);
+
+  if (
+    !duplicatedSectionId ||
+    !sourceVersionId ||
+    !targetVersionId ||
+    copiedItemCount === null
+  ) {
+    return null;
+  }
+
+  const versionRecord = extractEntity(root, ["version", "version_token"]);
+  const versionToken =
+    versionRecord && toStringValue(versionRecord.id) && toStringValue(versionRecord.updated_at)
+      ? {
+          id: String(versionRecord.id),
+          updated_at: String(versionRecord.updated_at),
+        }
+      : null;
+
+  return {
+    duplicatedSectionId,
+    sourceVersionId,
+    targetVersionId,
+    copiedItemCount,
+    versionToken,
+  };
+}
+
 function parseEstimateEditorData(payload: unknown): EstimateEditorData {
   const root = getRootPayload(payload);
   if (!isRecord(root)) {
@@ -1630,6 +1742,20 @@ export async function fetchEstimateList(): Promise<EstimateListItem[]> {
   return parseEstimateList(payload);
 }
 
+export async function fetchEstimateDraftVersions(
+  versionId: string
+): Promise<EstimateDraftVersionTarget[]> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/draft-versions`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger les versions brouillon."
+  );
+
+  return parseEstimateDraftVersionTargets(payload);
+}
+
 export async function createEstimate(
   input: CreateEstimatePayload
 ): Promise<string> {
@@ -1707,6 +1833,33 @@ export async function duplicateEstimateVersion(
   }
 
   return duplicatedVersionId;
+}
+
+export async function duplicateEstimateSection(
+  versionId: string,
+  sectionId: string,
+  options?: { targetVersionId?: string | null }
+): Promise<DuplicateEstimateSectionResult> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/sections/${sectionId}/duplicate`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        targetVersionId: options?.targetVersionId ?? null,
+      }),
+    },
+    "Impossible de dupliquer la section."
+  );
+
+  const parsed = parseDuplicateEstimateSectionResult(payload);
+  if (!parsed) {
+    throw new Error("Impossible de dupliquer la section.");
+  }
+
+  return parsed;
 }
 
 export async function createEstimateVariant(

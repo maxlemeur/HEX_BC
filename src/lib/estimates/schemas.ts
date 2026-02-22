@@ -717,6 +717,27 @@ export const duplicateEstimateTemplateSchema = z.object({
   name: templateNameSchema.optional(),
 });
 
+export const duplicateEstimateSectionSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null || value === "") {
+      return {};
+    }
+
+    if (typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      target_version_id:
+        record.target_version_id ?? record.targetVersionId ?? null,
+    };
+  },
+  z.object({
+    target_version_id: nullableUuidSchema.optional(),
+  })
+);
+
 const estimateAssemblyItemSchema = z.preprocess(
   (value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -938,6 +959,9 @@ export type InstantiateEstimateTemplateInput = z.infer<
 >;
 export type DuplicateEstimateTemplateInput = z.infer<
   typeof duplicateEstimateTemplateSchema
+>;
+export type DuplicateEstimateSectionInput = z.infer<
+  typeof duplicateEstimateSectionSchema
 >;
 export type EstimateAssemblyItemInput = z.infer<typeof estimateAssemblyItemSchema>;
 export type CreateEstimateAssemblyInput = z.infer<

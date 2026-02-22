@@ -7,8 +7,10 @@ import {
   createEstimateAssembly,
   createEstimateItem,
   deleteEstimateAssembly,
+  duplicateEstimateSection,
   duplicateEstimateAssembly,
   fetchEstimateAssemblies,
+  fetchEstimateDraftVersions,
   fetchEstimateEditorData,
   fetchEstimatePdfStatus,
   insertAssemblyIntoVersion,
@@ -782,6 +784,117 @@ describe("estimate client draft lock wrappers", () => {
     );
     expect(result).toEqual({
       released: true,
+    });
+  });
+});
+
+describe("estimate client section duplication wrappers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("loads draft versions for the current estimate project", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: VERSION_ID,
+                project_id: PROJECT_ID,
+                version_number: 4,
+                status: "draft",
+                title: "Option B",
+                updated_at: "2026-02-22T10:00:00.000Z",
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const targets = await fetchEstimateDraftVersions(VERSION_ID);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/draft-versions`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(targets).toEqual([
+      {
+        id: VERSION_ID,
+        projectId: PROJECT_ID,
+        versionNumber: 4,
+        status: "draft",
+        title: "Option B",
+        updatedAt: "2026-02-22T10:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("duplicates a section with a target version payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            duplicated_section_id: ITEM_ID,
+            source_version_id: VERSION_ID,
+            target_version_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            copied_item_count: 3,
+            version: {
+              id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+              updated_at: NEXT_UPDATED_AT,
+            },
+          },
+        }),
+        {
+          status: 201,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await duplicateEstimateSection(VERSION_ID, ITEM_ID, {
+      targetVersionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/sections/${ITEM_ID}/duplicate`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+      })
+    );
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      targetVersionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+
+    expect(result).toEqual({
+      duplicatedSectionId: ITEM_ID,
+      sourceVersionId: VERSION_ID,
+      targetVersionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      copiedItemCount: 3,
+      versionToken: {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        updated_at: NEXT_UPDATED_AT,
+      },
     });
   });
 });

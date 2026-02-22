@@ -87,8 +87,8 @@ import {
 } from "@/lib/export";
 import {
   batchEstimateOperations,
-  bulkUpdateEstimateItems,
   acquireEstimateDraftLock,
+  bulkUpdateEstimateItems,
   createEstimateItem,
   createEstimateLaborRole,
   createEstimateSuggestionRule,
@@ -96,9 +96,10 @@ import {
   updateMarginTier as updateMarginTierClient,
   deleteMarginTier as deleteMarginTierClient,
   deleteEstimateItem,
+  duplicateEstimateSection,
   fetchEstimateSendGating,
+  fetchEstimateDraftVersions,
   fetchEstimateEditorData,
-  fetchEstimateList,
   fetchEstimateItemsForVersion,
   fetchEstimateOutlierDismissedFlags,
   fetchEstimateVersionEvents,
@@ -978,6 +979,17 @@ function estimateStatusClass(status: EstimateStatus) {
   }
 }
 
+function formatSectionDuplicateTargetLabel(input: {
+  versionNumber: number;
+  title: string | null;
+}) {
+  const title = input.title?.trim();
+  if (title && title.length > 0) {
+    return `V${input.versionNumber} - ${title}`;
+  }
+  return `V${input.versionNumber} - Sans titre`;
+}
+
 function resolveEstimateActionError(message: string) {
   const normalized = message.toLowerCase();
   if (normalized.includes("row-level security") || normalized.includes("read-only")) {
@@ -1668,6 +1680,41 @@ export default function EditEstimatePage() {
       active = false;
     };
   }, [reloadNonce, version]);
+
+  useEffect(() => {
+    if (!resolvedVersionId) {
+      setSectionDuplicateTargets([]);
+      return;
+    }
+
+    let active = true;
+
+    async function loadSectionDuplicateTargets() {
+      try {
+        const targets = await fetchEstimateDraftVersions(resolvedVersionId);
+        if (!active) return;
+
+        setSectionDuplicateTargets(
+          targets.map((target) => ({
+            versionId: target.id,
+            label: formatSectionDuplicateTargetLabel({
+              versionNumber: target.versionNumber,
+              title: target.title,
+            }),
+          }))
+        );
+      } catch {
+        if (!active) return;
+        setSectionDuplicateTargets([]);
+      }
+    }
+
+    void loadSectionDuplicateTargets();
+
+    return () => {
+      active = false;
+    };
+  }, [reloadNonce, resolvedVersionId]);
 
   const {
     holderName: draftLockHolderName,
@@ -4273,6 +4320,151 @@ export default function EditEstimatePage() {
     ]
   );
 
+  const handleDuplicateSection = useCallback<
+    NonNullable<EstimateEditorTableProps["onDuplicateSection"]>
+  >(
+    async (sectionId) => {
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+      if (isConflictLocked) {
+        setActionError(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+        return;
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      setActionError(null);
+
+      try {
+        const result = await duplicateEstimateSection(versionSnapshot.id, sectionId);
+        await reloadItems();
+        setTotalsOutOfSync(false);
+
+        if (result.versionToken?.updated_at) {
+          applyVersionToken(result.versionToken.updated_at);
+          return;
+        }
+
+        await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
+          fetchEstimateEditorData,
+          onVersionToken: (updatedAt) => {
+            applyVersionToken(updatedAt);
+          },
+          onError: (error) => {
+            console.error(
+              "Impossible de rafraichir le jeton de version apres duplication de section.",
+              error
+            );
+          },
+        });
+      } catch (error) {
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible de dupliquer la section."
+            )
+          );
+        }
+      }
+    },
+    [
+      applyVersionToken,
+      conflictState?.message,
+      handleVersionConflict,
+      isConflictLocked,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      reloadItems,
+    ]
+  );
+
+  const handleDuplicateSectionToVersion = useCallback<
+    NonNullable<EstimateEditorTableProps["onDuplicateSectionToVersion"]>
+  >(
+    async ({ sectionId, targetVersionId }) => {
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+      if (isConflictLocked) {
+        setActionError(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+        return;
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot) {
+        setActionError("Version introuvable.");
+        return;
+      }
+
+      if (targetVersionId === versionSnapshot.id) {
+        await handleDuplicateSection(sectionId);
+        return;
+      }
+
+      setActionError(null);
+      let targetLockAcquired = false;
+      let redirected = false;
+
+      try {
+        const lockResult = await acquireEstimateDraftLock(targetVersionId);
+        const isOwnedByCurrentUser =
+          lockResult.lock?.isOwnedByCurrentUser !== false;
+
+        if (!lockResult.acquired || !isOwnedByCurrentUser) {
+          const holderName = lockResult.lock?.holderName?.trim() ?? "";
+          const holder = holderName.length > 0 ? holderName : "un autre utilisateur";
+          setActionError(`La version cible est verrouillee par ${holder}.`);
+          return;
+        }
+
+        targetLockAcquired = true;
+        await duplicateEstimateSection(versionSnapshot.id, sectionId, {
+          targetVersionId,
+        });
+
+        redirected = true;
+        router.push(`/dashboard/estimates/${targetVersionId}/edit`);
+      } catch (error) {
+        setActionError(
+          resolveEstimateActionError(
+            error instanceof Error
+              ? error.message
+              : "Impossible de dupliquer la section vers cette version."
+          )
+        );
+      } finally {
+        if (targetLockAcquired && !redirected) {
+          try {
+            await releaseEstimateDraftLock(targetVersionId);
+          } catch {
+            // Best-effort cleanup of a lock acquired for a failed cross-version duplication.
+          }
+        }
+      }
+    },
+    [
+      conflictState?.message,
+      handleDuplicateSection,
+      isConflictLocked,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      router,
+    ]
+  );
+
   const handleDeleteItem = useCallback(
     async (itemId: string) => {
       if (isReadOnly) {
@@ -5846,6 +6038,9 @@ export default function EditEstimatePage() {
       onAddSection: handleAddSection,
       onAddLine: handleAddLine,
       onInsertAssembly: handleInsertAssembly,
+      sectionDuplicateTargets,
+      onDuplicateSection: handleDuplicateSection,
+      onDuplicateSectionToVersion: handleDuplicateSectionToVersion,
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,
       onTrackSuggestionCorrections: handleTrackSuggestionCorrections,
@@ -5878,6 +6073,8 @@ export default function EditEstimatePage() {
       handleAddLine,
       handleAddSection,
       handleInsertAssembly,
+      handleDuplicateSection,
+      handleDuplicateSectionToVersion,
       handleApplyBulkMajoration,
       handleBulkDeleteLines,
       handleBulkMoveLines,
@@ -5904,6 +6101,7 @@ export default function EditEstimatePage() {
       laborRateById,
       laborRoles,
       outlierActionPendingByItemId,
+      sectionDuplicateTargets,
       outlierConfig.method,
       outlierConfig.threshold,
       qualityCounts,
