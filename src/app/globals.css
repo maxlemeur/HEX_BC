@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../styles/tokens.css";
 
 :root {
   --background: #f8fafc;
@@ -108,6 +109,24 @@ body {
   height: 24px;
   background: var(--brand-orange);
   border-radius: 0 4px 4px 0;
+}
+
+/* Sidebar navigation groups */
+.sidebar-nav-group {
+  margin-top: 24px;
+}
+
+.sidebar-nav-group--first {
+  margin-top: 0;
+}
+
+.sidebar-nav-group__label {
+  padding: 0 20px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
 }
 
 /* Card styles */

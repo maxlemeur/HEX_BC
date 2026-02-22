@@ -1,0 +1,144 @@
+:root {
+  /* Core semantic colors */
+  --background: oklch(98% 0.005 95);
+  --foreground: oklch(20% 0.03 250);
+
+  --primary: oklch(37% 0.07 250);
+  --primary-foreground: oklch(98% 0.01 95);
+
+  --secondary: oklch(95% 0.01 245);
+  --secondary-foreground: oklch(26% 0.03 250);
+
+  --muted: oklch(95% 0.01 245);
+  --muted-foreground: oklch(52% 0.03 250);
+
+  --info: oklch(62% 0.16 250);
+  --info-foreground: oklch(98% 0.01 95);
+  --success: oklch(70% 0.17 155);
+  --success-foreground: oklch(20% 0.03 155);
+  --warning: oklch(78% 0.15 80);
+  --warning-foreground: oklch(25% 0.05 80);
+  --danger: oklch(60% 0.2 25);
+  --danger-foreground: oklch(98% 0.01 95);
+
+  --border: oklch(89% 0.015 250);
+  --ring: oklch(42% 0.08 250);
+
+  --surface: oklch(100% 0 0);
+  --surface-subtle: oklch(97% 0.008 250);
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* Typography */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+
+  /* Radius */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.08);
+  --shadow-md: 0 6px 18px rgb(15 23 42 / 0.1);
+
+  /* Compatibility aliases for existing screens */
+  --brand-blue: var(--primary);
+  --brand-blue-light: color-mix(in oklab, var(--primary) 90%, white);
+  --brand-blue-dark: color-mix(in oklab, var(--primary) 78%, black);
+  --brand-orange: oklch(69% 0.17 50);
+  --brand-orange-light: color-mix(in oklab, var(--brand-orange) 85%, white);
+  --brand-orange-dark: color-mix(in oklab, var(--brand-orange) 80%, black);
+
+  --slate-50: oklch(98% 0.005 250);
+  --slate-100: oklch(95% 0.008 250);
+  --slate-200: oklch(89% 0.015 250);
+  --slate-300: oklch(82% 0.02 250);
+  --slate-400: oklch(68% 0.03 250);
+  --slate-500: oklch(56% 0.03 250);
+  --slate-600: oklch(45% 0.03 250);
+  --slate-700: oklch(35% 0.03 250);
+  --slate-800: oklch(27% 0.03 250);
+  --slate-900: oklch(20% 0.03 250);
+  --slate-950: oklch(14% 0.025 250);
+
+  --success-light: color-mix(in oklab, var(--success) 16%, white);
+  --warning-light: color-mix(in oklab, var(--warning) 22%, white);
+  --error: var(--danger);
+  --error-light: color-mix(in oklab, var(--danger) 18%, white);
+  --info-light: color-mix(in oklab, var(--info) 18%, white);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+
+  --spacing-1: var(--space-1);
+  --spacing-2: var(--space-2);
+  --spacing-3: var(--space-3);
+  --spacing-4: var(--space-4);
+  --spacing-6: var(--space-6);
+  --spacing-8: var(--space-8);
+  --spacing-12: var(--space-12);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.08);
+  --shadow-md: 0 6px 18px rgb(15 23 42 / 0.1);
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Optional semantic spacing helpers without overriding Tailwind scale names */
+.space-y-md > :not([hidden]) ~ :not([hidden]) {
+  margin-top: var(--space-3);
+}
+
+.space-y-lg > :not([hidden]) ~ :not([hidden]) {
+  margin-top: var(--space-4);
+}

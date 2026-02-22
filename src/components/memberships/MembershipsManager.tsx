@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useUserContext } from "@/components/UserContext";
+import { Badge } from "@/components/ui/Badge";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import type { Database } from "@/types/database";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -53,16 +55,10 @@ const ROLE_LABELS: Record<TenantRole, string> = {
   viewer: "Lecteur",
 };
 
-function roleBadgeClass(role: TenantRole) {
-  if (role === "admin") {
-    return "inline-flex items-center rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-0.5 text-xs font-medium text-[var(--brand-blue)]";
-  }
-
-  if (role === "engineer") {
-    return "inline-flex items-center rounded-full bg-[var(--warning-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--warning)]";
-  }
-
-  return "inline-flex items-center rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]";
+function roleBadgeVariant(role: TenantRole): "info" | "warning" | "neutral" {
+  if (role === "admin") return "info";
+  if (role === "engineer") return "warning";
+  return "neutral";
 }
 
 function formatDate(value: string) {
@@ -131,6 +127,17 @@ export function MembershipsManager() {
   const selectedCandidate = useMemo(() => {
     return candidates.find((candidate) => candidate.id === selectedUserId) ?? null;
   }, [candidates, selectedUserId]);
+  const candidateOptions = useMemo(
+    () =>
+      candidates.map((candidate) => ({
+        value: candidate.id,
+        label: candidate.work_email
+          ? `${candidate.full_name} - ${candidate.work_email}`
+          : candidate.full_name,
+        keywords: [candidate.full_name, candidate.work_email ?? ""],
+      })),
+    [candidates]
+  );
 
   const loadMemberships = useCallback(
     async (searchValue: string, options?: { initial?: boolean }) => {
@@ -371,24 +378,16 @@ export function MembershipsManager() {
           </div>
 
           <div>
-            <label className="form-label" htmlFor="membership-user">
-              Utilisateur
-            </label>
-            <select
+            <SearchableSelect
               id="membership-user"
-              className="form-input"
+              name="membership-user"
+              label="Utilisateur"
+              placeholder="Selectionner..."
+              options={candidateOptions}
               value={selectedUserId}
-              onChange={(event) => setSelectedUserId(event.target.value)}
+              onValueChange={setSelectedUserId}
               required
-            >
-              <option value="">Selectionner...</option>
-              {candidates.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.full_name}
-                  {candidate.work_email ? ` - ${candidate.work_email}` : ""}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           <div>
@@ -472,9 +471,9 @@ export function MembershipsManager() {
                       </td>
                       <td>
                         <div className="flex items-center gap-2">
-                          <span className={roleBadgeClass(membership.role)}>
+                          <Badge variant={roleBadgeVariant(membership.role)} size="sm">
                             {ROLE_LABELS[membership.role]}
-                          </span>
+                          </Badge>
                           <select
                             className="form-input form-input--sm max-w-[170px]"
                             value={membership.role}
@@ -494,9 +493,9 @@ export function MembershipsManager() {
                       </td>
                       <td>
                         {membership.is_default ? (
-                          <span className="inline-flex items-center rounded-full bg-[var(--success-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--success)]">
+                          <Badge variant="success" size="sm">
                             Oui
-                          </span>
+                          </Badge>
                         ) : (
                           <span className="text-xs text-[var(--slate-500)]">Non</span>
                         )}
