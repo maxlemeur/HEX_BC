@@ -1003,6 +1003,24 @@ function toTimestamp(value: string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function variantLabelToSequenceIndex(label: string | null | undefined) {
+  const normalized = toNullableText(label)?.toUpperCase();
+  if (!normalized) return null;
+
+  let index = 0;
+
+  for (const character of normalized) {
+    const code = character.charCodeAt(0);
+    if (code < 65 || code > 90) {
+      return null;
+    }
+
+    index = index * 26 + (code - 64);
+  }
+
+  return index > 0 ? index : null;
+}
+
 function extractCatalogueUrl(value: string | null | undefined) {
   if (!value) return null;
   const match = value.match(/https?:\/\/[^\s]+/i);
@@ -2039,8 +2057,7 @@ export async function listEstimateVersionVariants(
       "id, project_id, version_number, status, title, total_ht_cents, total_tax_cents, total_ttc_cents, updated_at, parent_version_id, variant_label"
     )
     .eq("tenant_id", tenantId)
-    .eq("project_id", version.project_id)
-    .or(`id.eq.${baseVersionId},parent_version_id.eq.${baseVersionId}`);
+    .eq("project_id", version.project_id);
 
   if (versionsError) {
     throw mapSupabaseError(
@@ -2049,15 +2066,51 @@ export async function listEstimateVersionVariants(
     );
   }
 
-  const rows = (versionsData ?? []) as EstimateVariantComparisonRow[];
-  if (rows.length === 0) {
+  const allRows = (versionsData ?? []) as EstimateVariantComparisonRow[];
+  if (allRows.length === 0) {
     throw notFound("Version de chiffrage introuvable.");
   }
 
-  const rowById = new Map(rows.map((row) => [row.id, row]));
-  if (!rowById.has(baseVersionId)) {
+  const allRowsById = new Map(allRows.map((row) => [row.id, row]));
+  const baseRow = allRowsById.get(baseVersionId);
+
+  if (!baseRow) {
     throw notFound("Version de chiffrage introuvable.");
   }
+
+  const childrenByParentId = new Map<string, EstimateVariantComparisonRow[]>();
+  for (const row of allRows) {
+    const parentVersionId = row.parent_version_id ?? null;
+    if (!parentVersionId) continue;
+
+    const existingChildren = childrenByParentId.get(parentVersionId);
+    if (existingChildren) {
+      existingChildren.push(row);
+      continue;
+    }
+
+    childrenByParentId.set(parentVersionId, [row]);
+  }
+
+  const descendantRows: EstimateVariantComparisonRow[] = [];
+  const visitedVersionIds = new Set<string>([baseVersionId]);
+  const pendingParentIds: string[] = [baseVersionId];
+
+  while (pendingParentIds.length > 0) {
+    const currentParentId = pendingParentIds.pop();
+    if (!currentParentId) continue;
+
+    const directChildren = childrenByParentId.get(currentParentId) ?? [];
+    for (const child of directChildren) {
+      if (visitedVersionIds.has(child.id)) continue;
+
+      visitedVersionIds.add(child.id);
+      descendantRows.push(child);
+      pendingParentIds.push(child.id);
+    }
+  }
+
+  const rows = [baseRow, ...descendantRows];
 
   const lineCountByVersionId = new Map<string, number>();
   const versionIds = rows.map((row) => row.id);
@@ -2108,9 +2161,25 @@ export async function listEstimateVersionVariants(
       const rightLabel = right.variant_label ?? "";
 
       if (leftLabel && rightLabel) {
-        return leftLabel.localeCompare(rightLabel, "fr", {
+        const leftLabelIndex = variantLabelToSequenceIndex(leftLabel);
+        const rightLabelIndex = variantLabelToSequenceIndex(rightLabel);
+
+        if (leftLabelIndex !== null && rightLabelIndex !== null) {
+          if (leftLabelIndex !== rightLabelIndex) {
+            return leftLabelIndex - rightLabelIndex;
+          }
+        } else if (leftLabelIndex !== null) {
+          return -1;
+        } else if (rightLabelIndex !== null) {
+          return 1;
+        }
+
+        const labelCompare = leftLabel.localeCompare(rightLabel, "fr", {
           sensitivity: "base",
         });
+        if (labelCompare !== 0) {
+          return labelCompare;
+        }
       }
 
       if (leftLabel) return -1;
@@ -2120,7 +2189,13 @@ export async function listEstimateVersionVariants(
         return left.version_number - right.version_number;
       }
 
-      return new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime();
+      const updatedAtDelta =
+        new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime();
+      if (updatedAtDelta !== 0) {
+        return updatedAtDelta;
+      }
+
+      return left.id.localeCompare(right.id);
     });
 
   return {
@@ -2139,8 +2214,7 @@ export async function listLatestEstimates() {
     )
     .eq("tenant_id", tenantId)
     .eq("estimate_projects.tenant_id", tenantId)
-    .eq("estimate_projects.is_archived", false)
-    .neq("status", "archived");
+    .eq("estimate_projects.is_archived", false);
 
   if (!isTenantAdmin(tenantRole)) {
     query = query.eq("estimate_projects.user_id", userId);

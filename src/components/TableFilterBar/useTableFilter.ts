@@ -52,6 +52,8 @@ type UseTableFilterOptions<T> = {
   sortOptions?: SortOption[];
   defaultSort?: SortState;
   onDataChange?: (filteredData: T[]) => void;
+  initialSearchValue?: string;
+  initialFilterState?: FilterState;
 };
 
 function areArraysShallowEqual<T>(left: T[], right: T[]): boolean {
@@ -66,10 +68,10 @@ function areArraysShallowEqual<T>(left: T[], right: T[]): boolean {
 export function useTableFilter<T extends Record<string, unknown>>(
   options: UseTableFilterOptions<T>
 ): UseTableFilterReturn<T> {
-  const { data, searchConfig, filters, sortOptions, defaultSort, onDataChange } = options;
+  const { data, searchConfig, filters, sortOptions, defaultSort, onDataChange, initialSearchValue, initialFilterState } = options;
 
   // Search state with deferred value for performance
-  const [searchInput, setSearchInput] = useState("");
+  const [searchInput, setSearchInput] = useState(initialSearchValue ?? "");
   const deferredSearch = useDeferredValue(searchInput);
   const isSearchPending = searchInput !== deferredSearch;
 
@@ -85,6 +87,9 @@ export function useTableFilter<T extends Record<string, unknown>>(
         initial[f.key] = "";
       }
     });
+    if (initialFilterState) {
+      return { ...initial, ...initialFilterState };
+    }
     return initial;
   });
 
