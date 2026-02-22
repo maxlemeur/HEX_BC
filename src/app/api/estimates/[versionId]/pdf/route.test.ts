@@ -111,6 +111,35 @@ describe("estimate pdf route", () => {
     expect(vi.mocked(markEstimatePdfFailed)).not.toHaveBeenCalled();
   });
 
+  it("POST returns 202 processing without scheduling a duplicate job", async () => {
+    vi.mocked(getEstimatePdfStatus).mockResolvedValue({
+      status: "processing",
+    } as never);
+
+    const request = new Request(`http://localhost/api/estimates/${VERSION_ID}/pdf`, {
+      method: "POST",
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ versionId: VERSION_ID }),
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(202);
+    expect(payload).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: expect.objectContaining({
+          status: "processing",
+        }),
+      })
+    );
+    expect(vi.mocked(markEstimatePdfProcessing)).not.toHaveBeenCalled();
+    expect(vi.mocked(after)).not.toHaveBeenCalled();
+    expect(vi.mocked(generateEstimatePdfNow)).not.toHaveBeenCalled();
+    expect(vi.mocked(markEstimatePdfFailed)).not.toHaveBeenCalled();
+  });
+
   it("GET format=json returns 200 with ready status", async () => {
     vi.mocked(getEstimatePdfStatus).mockResolvedValue({
       status: "ready",

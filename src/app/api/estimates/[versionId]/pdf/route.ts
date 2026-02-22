@@ -95,8 +95,20 @@ export async function POST(
 
     const currentStatus = await getEstimatePdfStatus(versionId);
 
-    if (!force && currentStatus.status === "ready") {
-      return ok(currentStatus);
+    if (!force) {
+      if (currentStatus.status === "ready") {
+        return ok(currentStatus);
+      }
+
+      if (currentStatus.status === "processing") {
+        return NextResponse.json(
+          {
+            ok: true,
+            data: currentStatus,
+          },
+          { status: 202 }
+        );
+      }
     }
 
     await markEstimatePdfProcessing(versionId);
