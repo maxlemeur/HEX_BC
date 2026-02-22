@@ -25,6 +25,11 @@ import {
   notFound,
   unauthorized,
 } from "./errors";
+import type {
+  EstimateVersionChangelog,
+  EstimateVersionChangelogChange,
+  EstimateVersionChangelogField,
+} from "./changelog";
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
@@ -282,6 +287,169 @@ const styles = StyleSheet.create({
     fontSize: 8,
     color: "#94a3b8",
   },
+});
+
+const changelogStyles = StyleSheet.create({
+  page: {
+    paddingTop: 24,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    fontSize: 9,
+    color: "#0f172a",
+    fontFamily: "Helvetica",
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 700,
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 10,
+    color: "#475569",
+    marginBottom: 12,
+  },
+  summaryGrid: {
+    display: "flex",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    columnGap: 8,
+    rowGap: 8,
+    marginBottom: 12,
+  },
+  summaryCard: {
+    width: "31%",
+    minHeight: 44,
+    border: "1px solid #cbd5e1",
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: "#f8fafc",
+  },
+  summaryLabel: {
+    fontSize: 8,
+    color: "#64748b",
+    marginBottom: 2,
+  },
+  summaryValue: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#0f172a",
+  },
+  sectionCard: {
+    border: "1px solid #cbd5e1",
+    borderRadius: 6,
+    marginBottom: 10,
+    overflow: "hidden",
+  },
+  sectionHeader: {
+    backgroundColor: "#eef2ff",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottom: "1px solid #cbd5e1",
+  },
+  sectionTitle: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#1e3a8a",
+  },
+  sectionDelta: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: "#334155",
+  },
+  sectionBody: {
+    padding: 8,
+    display: "flex",
+    flexDirection: "column",
+    rowGap: 8,
+  },
+  changeCard: {
+    border: "1px solid #e2e8f0",
+    borderRadius: 6,
+    padding: 6,
+    backgroundColor: "#ffffff",
+  },
+  changeHeader: {
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 4,
+    columnGap: 8,
+  },
+  changeType: {
+    fontSize: 8,
+    color: "#475569",
+    marginBottom: 2,
+  },
+  changeDesignation: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#0f172a",
+  },
+  changeDelta: {
+    fontSize: 9,
+    fontWeight: 700,
+    color: "#0f172a",
+    textAlign: "right",
+  },
+  fieldTable: {
+    border: "1px solid #e2e8f0",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  fieldRow: {
+    display: "flex",
+    flexDirection: "row",
+    borderTop: "1px solid #e2e8f0",
+  },
+  fieldHeadRow: {
+    borderTop: "none",
+    backgroundColor: "#f8fafc",
+    fontWeight: 700,
+  },
+  fieldColLabel: {
+    width: "32%",
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRight: "1px solid #e2e8f0",
+  },
+  fieldColBefore: {
+    width: "34%",
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRight: "1px solid #e2e8f0",
+  },
+  fieldColAfter: {
+    width: "34%",
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  fieldHeadText: {
+    fontSize: 8,
+    color: "#475569",
+    fontWeight: 700,
+  },
+  fieldBodyText: {
+    fontSize: 8.5,
+    color: "#0f172a",
+  },
+  emptyState: {
+    fontSize: 8.5,
+    color: "#64748b",
+  },
+});
+
+const CHANGELOG_NUMBER_FORMATTER = new Intl.NumberFormat("fr-FR", {
+  maximumFractionDigits: 3,
+});
+
+const CHANGELOG_PERCENT_FORMATTER = new Intl.NumberFormat("fr-FR", {
+  maximumFractionDigits: 2,
 });
 
 function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
@@ -893,4 +1061,197 @@ export async function getEstimatePdfStatus(versionId: string): Promise<PdfStatus
     generated_at: row.generated_at ?? undefined,
     file_size_bytes: row.file_size_bytes === null ? undefined : Number(row.file_size_bytes),
   };
+}
+
+function formatChangelogDelta(cents: number) {
+  const prefix = cents > 0 ? "+" : "";
+  return `${prefix}${formatEUR(cents)}`;
+}
+
+function formatChangelogFieldValue(
+  field: EstimateVersionChangelogField,
+  value: string | number | null
+) {
+  if (value === null) return "-";
+
+  if (field.kind === "money") {
+    if (typeof value !== "number") return value;
+    return formatEUR(value);
+  }
+
+  if (field.kind === "percent") {
+    if (typeof value !== "number") return value;
+    return `${CHANGELOG_PERCENT_FORMATTER.format(value / 100)}%`;
+  }
+
+  if (field.kind === "number") {
+    if (typeof value !== "number") return value;
+    return CHANGELOG_NUMBER_FORMATTER.format(value);
+  }
+
+  return String(value);
+}
+
+function changelogChangeLabel(
+  changeType: EstimateVersionChangelogChange["changeType"]
+) {
+  if (changeType === "added") return "Ajout";
+  if (changeType === "removed") return "Suppression";
+  return "Modification";
+}
+
+function changelogEntityLabel(
+  entityType: EstimateVersionChangelogChange["entityType"]
+) {
+  if (entityType === "section") return "Section";
+  return "Ligne";
+}
+
+function buildEstimateChangelogPdfDocument(input: {
+  changelog: EstimateVersionChangelog;
+  previousVersionLabel: string;
+  currentVersionLabel: string;
+}) {
+  return (
+    <Document>
+      <Page size="A4" style={changelogStyles.page}>
+        <Text style={changelogStyles.title}>Annexe - Changelog</Text>
+        <Text style={changelogStyles.subtitle}>
+          {input.previousVersionLabel} -&gt; {input.currentVersionLabel}
+        </Text>
+
+        <View style={changelogStyles.summaryGrid}>
+          <View style={changelogStyles.summaryCard}>
+            <Text style={changelogStyles.summaryLabel}>Ajouts</Text>
+            <Text style={changelogStyles.summaryValue}>
+              {input.changelog.summary.addedCount}
+            </Text>
+          </View>
+          <View style={changelogStyles.summaryCard}>
+            <Text style={changelogStyles.summaryLabel}>Suppressions</Text>
+            <Text style={changelogStyles.summaryValue}>
+              {input.changelog.summary.removedCount}
+            </Text>
+          </View>
+          <View style={changelogStyles.summaryCard}>
+            <Text style={changelogStyles.summaryLabel}>Modifications</Text>
+            <Text style={changelogStyles.summaryValue}>
+              {input.changelog.summary.modifiedCount}
+            </Text>
+          </View>
+          <View style={changelogStyles.summaryCard}>
+            <Text style={changelogStyles.summaryLabel}>Delta HT total</Text>
+            <Text style={changelogStyles.summaryValue}>
+              {formatChangelogDelta(input.changelog.summary.deltaHtCents)}
+            </Text>
+          </View>
+          <View style={changelogStyles.summaryCard}>
+            <Text style={changelogStyles.summaryLabel}>Delta TTC total</Text>
+            <Text style={changelogStyles.summaryValue}>
+              {formatChangelogDelta(input.changelog.summary.deltaTtcCents)}
+            </Text>
+          </View>
+          <View style={changelogStyles.summaryCard}>
+            <Text style={changelogStyles.summaryLabel}>Lignes changelog</Text>
+            <Text style={changelogStyles.summaryValue}>
+              {input.changelog.summary.totalChangeCount}
+            </Text>
+          </View>
+        </View>
+
+        {input.changelog.sections.map((section) => (
+          <View key={section.key} style={changelogStyles.sectionCard}>
+            <View style={changelogStyles.sectionHeader}>
+              <Text style={changelogStyles.sectionTitle}>{section.label}</Text>
+              <Text style={changelogStyles.sectionDelta}>
+                HT {formatChangelogDelta(section.deltaHtCents)} | TTC{" "}
+                {formatChangelogDelta(section.deltaTtcCents)}
+              </Text>
+            </View>
+
+            <View style={changelogStyles.sectionBody}>
+              {section.changes.map((change) => (
+                <View key={change.key} style={changelogStyles.changeCard}>
+                  <View style={changelogStyles.changeHeader}>
+                    <View>
+                      <Text style={changelogStyles.changeType}>
+                        {changelogChangeLabel(change.changeType)} -{" "}
+                        {changelogEntityLabel(change.entityType)}
+                      </Text>
+                      <Text style={changelogStyles.changeDesignation}>
+                        {change.designation}
+                      </Text>
+                    </View>
+                    <Text style={changelogStyles.changeDelta}>
+                      HT {formatChangelogDelta(change.deltaHtCents)}{"\n"}
+                      TTC {formatChangelogDelta(change.deltaTtcCents)}
+                    </Text>
+                  </View>
+
+                  {change.fields.length > 0 ? (
+                    <View style={changelogStyles.fieldTable}>
+                      <View style={[changelogStyles.fieldRow, changelogStyles.fieldHeadRow]}>
+                        <View style={changelogStyles.fieldColLabel}>
+                          <Text style={changelogStyles.fieldHeadText}>Champ</Text>
+                        </View>
+                        <View style={changelogStyles.fieldColBefore}>
+                          <Text style={changelogStyles.fieldHeadText}>
+                            {input.previousVersionLabel}
+                          </Text>
+                        </View>
+                        <View style={changelogStyles.fieldColAfter}>
+                          <Text style={changelogStyles.fieldHeadText}>
+                            {input.currentVersionLabel}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {change.fields.map((field) => (
+                        <View
+                          key={`${change.key}:${field.field}:${String(field.beforeValue)}:${String(field.afterValue)}`}
+                          style={changelogStyles.fieldRow}
+                        >
+                          <View style={changelogStyles.fieldColLabel}>
+                            <Text style={changelogStyles.fieldBodyText}>{field.label}</Text>
+                          </View>
+                          <View style={changelogStyles.fieldColBefore}>
+                            <Text style={changelogStyles.fieldBodyText}>
+                              {formatChangelogFieldValue(field, field.beforeValue)}
+                            </Text>
+                          </View>
+                          <View style={changelogStyles.fieldColAfter}>
+                            <Text style={changelogStyles.fieldBodyText}>
+                              {formatChangelogFieldValue(field, field.afterValue)}
+                            </Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={changelogStyles.emptyState}>
+                      Aucun detail champ disponible.
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+        ))}
+      </Page>
+    </Document>
+  );
+}
+
+export async function renderEstimateChangelogPdfBuffer(input: {
+  changelog: EstimateVersionChangelog;
+  previousVersionLabel: string;
+  currentVersionLabel: string;
+}): Promise<Buffer> {
+  const document = buildEstimateChangelogPdfDocument(input);
+
+  try {
+    return await renderToBuffer(document);
+  } catch (error) {
+    throw internalError("Impossible de generer le PDF du changelog.", error);
+  }
 }

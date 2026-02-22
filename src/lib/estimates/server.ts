@@ -146,6 +146,8 @@ type VersionAccessRow = Pick<
   | "total_tax_cents"
   | "total_ttc_cents"
 > & {
+  parent_version_id?: string | null;
+  variant_label?: string | null;
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
 
@@ -182,7 +184,10 @@ type EstimateProjectVersionTimelineRow = Pick<
   | "updated_at"
   | "created_at"
   | "total_ttc_cents"
->;
+> & {
+  parent_version_id?: string | null;
+  variant_label?: string | null;
+};
 
 type EstimateVersionAuditActorRow = Pick<
   Database["public"]["Tables"]["audit_logs"]["Row"],
@@ -200,7 +205,45 @@ export type EstimateProjectVersionTimelineItem = {
   updated_at: string;
   created_at: string;
   total_ttc_cents: number;
+  parent_version_id: string | null;
+  variant_label: string | null;
   author_name: string | null;
+};
+
+type EstimateVariantComparisonRow = Pick<
+  EstimateVersionRow,
+  | "id"
+  | "project_id"
+  | "version_number"
+  | "status"
+  | "title"
+  | "total_ht_cents"
+  | "total_tax_cents"
+  | "total_ttc_cents"
+  | "updated_at"
+> & {
+  parent_version_id?: string | null;
+  variant_label?: string | null;
+};
+
+export type EstimateVariantComparisonItem = {
+  id: string;
+  project_id: string;
+  version_number: number;
+  status: EstimateStatus;
+  title: string | null;
+  total_ht_cents: number;
+  total_tax_cents: number;
+  total_ttc_cents: number;
+  line_count: number;
+  updated_at: string;
+  parent_version_id: string | null;
+  variant_label: string | null;
+};
+
+export type ListEstimateVersionVariantsResult = {
+  base_version_id: string;
+  items: EstimateVariantComparisonItem[];
 };
 
 export type ListEstimateProjectVersionsResult = {
@@ -1343,7 +1386,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -1884,7 +1927,7 @@ export async function listEstimateProjectVersions(input: {
   const { data: versionsData, error: versionsError } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, title, updated_at, created_at, total_ttc_cents"
+      "id, project_id, version_number, status, title, updated_at, created_at, total_ttc_cents, parent_version_id, variant_label"
     )
     .eq("tenant_id", tenantId)
     .eq("project_id", input.projectId)
@@ -1959,6 +2002,8 @@ export async function listEstimateProjectVersions(input: {
       updated_at: row.updated_at,
       created_at: row.created_at,
       total_ttc_cents: row.total_ttc_cents,
+      parent_version_id: row.parent_version_id ?? null,
+      variant_label: toNullableText(row.variant_label) ?? null,
       author_name: authorNameById.get(authorId) ?? null,
     };
   });
@@ -1973,6 +2018,110 @@ export async function listEstimateProjectVersions(input: {
       has_prev: safePage > 1,
       has_next: safePage < totalPages,
     },
+  };
+}
+
+export async function listEstimateVersionVariants(
+  versionId: string
+): Promise<ListEstimateVersionVariantsResult> {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const baseVersionId = version.parent_version_id ?? version.id;
+
+  const { data: versionsData, error: versionsError } = await supabase
+    .from("estimate_versions")
+    .select(
+      "id, project_id, version_number, status, title, total_ht_cents, total_tax_cents, total_ttc_cents, updated_at, parent_version_id, variant_label"
+    )
+    .eq("tenant_id", tenantId)
+    .eq("project_id", version.project_id)
+    .or(`id.eq.${baseVersionId},parent_version_id.eq.${baseVersionId}`);
+
+  if (versionsError) {
+    throw mapSupabaseError(
+      versionsError,
+      "Impossible de charger les variantes de cette version."
+    );
+  }
+
+  const rows = (versionsData ?? []) as EstimateVariantComparisonRow[];
+  if (rows.length === 0) {
+    throw notFound("Version de chiffrage introuvable.");
+  }
+
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+  if (!rowById.has(baseVersionId)) {
+    throw notFound("Version de chiffrage introuvable.");
+  }
+
+  const lineCountByVersionId = new Map<string, number>();
+  const versionIds = rows.map((row) => row.id);
+
+  if (versionIds.length > 0) {
+    const { data: lineItemsData, error: lineItemsError } = await supabase
+      .from("estimate_items")
+      .select("version_id")
+      .eq("tenant_id", tenantId)
+      .eq("item_type", "line")
+      .in("version_id", versionIds);
+
+    if (lineItemsError) {
+      throw mapSupabaseError(
+        lineItemsError,
+        "Impossible de charger le nombre de lignes des variantes."
+      );
+    }
+
+    for (const row of (lineItemsData ?? []) as Array<{ version_id: string }>) {
+      lineCountByVersionId.set(
+        row.version_id,
+        (lineCountByVersionId.get(row.version_id) ?? 0) + 1
+      );
+    }
+  }
+
+  const items = rows
+    .map((row): EstimateVariantComparisonItem => ({
+      id: row.id,
+      project_id: row.project_id,
+      version_number: row.version_number,
+      status: row.status,
+      title: row.title,
+      total_ht_cents: row.total_ht_cents ?? 0,
+      total_tax_cents: row.total_tax_cents ?? 0,
+      total_ttc_cents: row.total_ttc_cents ?? 0,
+      line_count: lineCountByVersionId.get(row.id) ?? 0,
+      updated_at: row.updated_at,
+      parent_version_id: row.parent_version_id ?? null,
+      variant_label: toNullableText(row.variant_label) ?? null,
+    }))
+    .sort((left, right) => {
+      if (left.id === baseVersionId) return -1;
+      if (right.id === baseVersionId) return 1;
+
+      const leftLabel = left.variant_label ?? "";
+      const rightLabel = right.variant_label ?? "";
+
+      if (leftLabel && rightLabel) {
+        return leftLabel.localeCompare(rightLabel, "fr", {
+          sensitivity: "base",
+        });
+      }
+
+      if (leftLabel) return -1;
+      if (rightLabel) return 1;
+
+      if (left.version_number !== right.version_number) {
+        return left.version_number - right.version_number;
+      }
+
+      return new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime();
+    });
+
+  return {
+    base_version_id: baseVersionId,
+    items,
   };
 }
 
@@ -2695,24 +2844,76 @@ export async function insertAssemblyIntoVersion(input: {
   };
 }
 
-export async function duplicateEstimateVersion(versionId: string) {
+export async function duplicateEstimateVersion(
+  versionId: string,
+  options?: { as_variant?: boolean }
+) {
   const context = await getAuthenticatedContext();
   const { supabase } = context;
   await getVersionAccessOrThrow(supabase, versionId, context);
 
   const { data, error } = await supabase.rpc("duplicate_estimate_version", {
     source_version_id: versionId,
+    as_variant: options?.as_variant === true,
   });
 
-  if (error || !data) {
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de dupliquer le chiffrage.");
-    }
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de dupliquer le chiffrage.");
+  }
+
+  const duplicatedVersionId = toRpcUuid(data);
+  if (!duplicatedVersionId) {
     throw badRequest("Impossible de dupliquer le chiffrage.");
   }
 
   return {
-    version_id: data,
+    version_id: duplicatedVersionId,
+  };
+}
+
+export async function createEstimateVariant(versionId: string) {
+  return duplicateEstimateVersion(versionId, { as_variant: true });
+}
+
+export async function promoteEstimateVariant(versionId: string) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const variantLabel = toNullableText(version.variant_label);
+  const parentVersionId = version.parent_version_id ?? null;
+
+  if (!variantLabel || !parentVersionId) {
+    throw badRequest(
+      "Cette version n'est pas une variante.",
+      undefined,
+      "ESTIMATE_VARIANT_REQUIRED"
+    );
+  }
+
+  assertDraftStatus(version.status);
+
+  const promotionPayload = {
+    parent_version_id: null,
+    variant_label: null,
+  } as EstimateVersionUpdate;
+
+  const { data, error } = await supabase
+    .from("estimate_versions")
+    .update(promotionPayload)
+    .eq("id", versionId)
+    .eq("tenant_id", tenantId)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de promouvoir la variante.");
+    }
+    throw badRequest("Impossible de promouvoir la variante.");
+  }
+
+  return {
+    version: data,
   };
 }
 

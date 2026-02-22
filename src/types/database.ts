@@ -879,6 +879,8 @@ export type Database = {
           total_tax_cents: number;
           total_ttc_cents: number;
           seal_hash: string | null;
+          parent_version_id: string | null;
+          variant_label: string | null;
         };
         Insert: {
           id?: string;
@@ -903,6 +905,8 @@ export type Database = {
           total_tax_cents?: number;
           total_ttc_cents?: number;
           seal_hash?: string | null;
+          parent_version_id?: string | null;
+          variant_label?: string | null;
         };
         Update: {
           id?: string;
@@ -927,8 +931,17 @@ export type Database = {
           total_tax_cents?: number;
           total_ttc_cents?: number;
           seal_hash?: string | null;
+          parent_version_id?: string | null;
+          variant_label?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "estimate_versions_parent_version_id_fkey";
+            columns: ["parent_version_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_versions";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "estimate_versions_project_id_fkey";
             columns: ["project_id"];
@@ -1001,6 +1014,83 @@ export type Database = {
             columns: ["generated_by"];
             isOneToOne: false;
             referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      estimate_version_changelogs: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          project_id: string;
+          previous_version_id: string;
+          current_version_id: string;
+          previous_version_updated_at: string;
+          current_version_updated_at: string;
+          changelog_payload: Json;
+          delta_ht_cents: number;
+          delta_ttc_cents: number;
+          computed_at: string;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id: string;
+          project_id: string;
+          previous_version_id: string;
+          current_version_id: string;
+          previous_version_updated_at: string;
+          current_version_updated_at: string;
+          changelog_payload?: Json;
+          delta_ht_cents?: number;
+          delta_ttc_cents?: number;
+          computed_at?: string;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id?: string;
+          previous_version_id?: string;
+          current_version_id?: string;
+          previous_version_updated_at?: string;
+          current_version_updated_at?: string;
+          changelog_payload?: Json;
+          delta_ht_cents?: number;
+          delta_ttc_cents?: number;
+          computed_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "estimate_version_changelogs_current_version_id_fkey";
+            columns: ["current_version_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_versions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_version_changelogs_previous_version_id_fkey";
+            columns: ["previous_version_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_versions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_version_changelogs_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_version_changelogs_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
             referencedColumns: ["id"];
           },
         ];
@@ -1676,6 +1766,7 @@ export type Database = {
       duplicate_estimate_version: {
         Args: {
           source_version_id: string;
+          as_variant?: boolean;
         };
         Returns: string;
       };

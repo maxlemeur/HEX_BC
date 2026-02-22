@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { EstimateChangelogView } from "@/components/estimates/EstimateChangelogView";
 import { EstimateDiffView } from "@/components/estimates/EstimateDiffView";
+import { getOrBuildEstimateChangelog } from "@/lib/estimates/changelog";
 import {
   buildEstimateDiff,
   normalizeEstimateDiffMode,
@@ -25,7 +27,11 @@ type VersionSelectorOption = Pick<
   "id" | "version_number" | "title" | "status" | "updated_at"
 >;
 
+type DiffPageTab = "diff" | "changelog";
+
 const COMPARE_OPTIONS_PAGE_SIZE = 20;
+const UUID_LIKE_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function pickQueryValue(value: string | string[] | undefined): string | null {
   if (typeof value === "string") {
@@ -69,6 +75,10 @@ function parseVersionSearch(value: string | null): number | null {
   return parsed;
 }
 
+function isUuidLike(value: string) {
+  return UUID_LIKE_REGEX.test(value.trim());
+}
+
 function statusLabel(status: EstimateStatus) {
   if (status === "draft") return "Brouillon";
   if (status === "sent") return "Envoye";
@@ -96,10 +106,15 @@ function formatVersionLabel(input: {
   return `${baseLabel} - ${input.title.trim()}`;
 }
 
-function buildModeHref(input: {
+function normalizeDiffPageTab(value: string | null | undefined): DiffPageTab {
+  return value === "changelog" ? "changelog" : "diff";
+}
+
+function buildDiffPageHref(input: {
   versionId: string;
   compareId: string | null;
   mode: EstimateDiffMode;
+  tab: DiffPageTab;
   comparePage: number;
   compareSearch: string | null;
 }) {
@@ -113,6 +128,9 @@ function buildModeHref(input: {
   }
   if (input.compareSearch) {
     query.set("compareSearch", input.compareSearch);
+  }
+  if (input.tab === "changelog") {
+    query.set("tab", "changelog");
   }
   return `/dashboard/estimates/${input.versionId}/diff?${query.toString()}`;
 }
@@ -130,6 +148,7 @@ export default async function EstimateDiffPage({
 
   const compareParam = pickQueryValue(resolvedSearchParams?.compare);
   const mode = normalizeEstimateDiffMode(pickQueryValue(resolvedSearchParams?.mode));
+  const activeTab = normalizeDiffPageTab(pickQueryValue(resolvedSearchParams?.tab));
   const comparePageRequested = parsePositiveIntegerQuery(
     pickQueryValue(resolvedSearchParams?.comparePage),
     1
@@ -194,24 +213,31 @@ export default async function EstimateDiffPage({
 
   const compareOptionsPage = (versionsResult.data ?? []) as VersionSelectorOption[];
   let selectedCompareOption: VersionSelectorOption | null = null;
+  let compareParamIsInvalid = false;
   if (compareParam) {
-    const selectedCompareResult = await supabase
-      .from("estimate_versions")
-      .select("id, version_number, title, status, updated_at")
-      .eq("tenant_id", currentDetails.version.tenant_id)
-      .eq("project_id", currentDetails.version.project_id)
-      .eq("id", compareParam)
-      .maybeSingle();
+    if (!isUuidLike(compareParam)) {
+      compareParamIsInvalid = true;
+    } else {
+      const selectedCompareResult = await supabase
+        .from("estimate_versions")
+        .select("id, version_number, title, status, updated_at")
+        .eq("tenant_id", currentDetails.version.tenant_id)
+        .eq("project_id", currentDetails.version.project_id)
+        .eq("id", compareParam)
+        .maybeSingle();
 
-    if (selectedCompareResult.error) {
-      notFound();
-    }
+      if (selectedCompareResult.error) {
+        notFound();
+      }
 
-    if (
-      selectedCompareResult.data &&
-      selectedCompareResult.data.id !== versionId
-    ) {
-      selectedCompareOption = selectedCompareResult.data as VersionSelectorOption;
+      if (
+        selectedCompareResult.data &&
+        selectedCompareResult.data.id !== versionId
+      ) {
+        selectedCompareOption = selectedCompareResult.data as VersionSelectorOption;
+      } else {
+        compareParamIsInvalid = true;
+      }
     }
   }
 
@@ -224,8 +250,8 @@ export default async function EstimateDiffPage({
       ]
     : compareOptionsPage;
   const hasCompareOptions = compareOptions.length > 0;
-  const compareParamIsInvalid =
-    compareParam !== null && !selectedCompareOption;
+  compareParamIsInvalid =
+    compareParamIsInvalid || (compareParam !== null && !selectedCompareOption);
 
   const compareId = selectedCompareOption?.id ?? compareOptions[0]?.id ?? null;
   const compareVersionOption = compareOptions.find((version) => version.id === compareId);
@@ -239,12 +265,36 @@ export default async function EstimateDiffPage({
   const previousDetails = compareId
     ? await getEstimateVersionDetails(compareId)
     : null;
-  const diff = previousDetails
-    ? buildEstimateDiff({
-        previous: previousDetails,
-        current: currentDetails,
-      })
-    : null;
+
+  if (
+    previousDetails &&
+    (previousDetails.version.tenant_id !== currentDetails.version.tenant_id ||
+      previousDetails.version.project_id !== currentDetails.version.project_id)
+  ) {
+    notFound();
+  }
+
+  const diff =
+    previousDetails && activeTab === "diff"
+      ? buildEstimateDiff({
+          previous: previousDetails,
+          current: currentDetails,
+        })
+      : null;
+  const changelog =
+    previousDetails && activeTab === "changelog"
+      ? (
+          await getOrBuildEstimateChangelog({
+            supabase,
+            previous: previousDetails,
+            current: currentDetails,
+          })
+        ).changelog
+      : null;
+  const changelogPdfHref =
+    compareId === null
+      ? null
+      : `/api/estimates/${versionId}/changelog?compare=${compareId}&format=pdf`;
 
   const currentVersionLabel = formatVersionLabel(currentDetails.version);
   const previousVersionLabel = previousDetails
@@ -316,6 +366,7 @@ export default async function EstimateDiffPage({
             </div>
 
             <input type="hidden" name="mode" value={mode} />
+            <input type="hidden" name="tab" value={activeTab} />
             <input type="hidden" name="comparePage" value="1" />
             <button
               className="btn btn-secondary btn-sm"
@@ -326,38 +377,78 @@ export default async function EstimateDiffPage({
             </button>
           </form>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
-              Mode
-            </span>
-            <Link
-              className={mode === "inline" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
-              href={buildModeHref({
-                versionId,
-                compareId,
-                mode: "inline",
-                comparePage,
-                compareSearch,
-              })}
-            >
-              Inline
-            </Link>
-            <Link
-              className={
-                mode === "side-by-side"
-                  ? "btn btn-primary btn-sm"
-                  : "btn btn-secondary btn-sm"
-              }
-              href={buildModeHref({
-                versionId,
-                compareId,
-                mode: "side-by-side",
-                comparePage,
-                compareSearch,
-              })}
-            >
-              Side-by-side
-            </Link>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+                Mode
+              </span>
+              <Link
+                className={mode === "inline" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+                href={buildDiffPageHref({
+                  versionId,
+                  compareId,
+                  mode: "inline",
+                  tab: activeTab,
+                  comparePage,
+                  compareSearch,
+                })}
+              >
+                Inline
+              </Link>
+              <Link
+                className={
+                  mode === "side-by-side"
+                    ? "btn btn-primary btn-sm"
+                    : "btn btn-secondary btn-sm"
+                }
+                href={buildDiffPageHref({
+                  versionId,
+                  compareId,
+                  mode: "side-by-side",
+                  tab: activeTab,
+                  comparePage,
+                  compareSearch,
+                })}
+              >
+                Side-by-side
+              </Link>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+                Vue
+              </span>
+              <Link
+                className={activeTab === "diff" ? "btn btn-primary btn-sm" : "btn btn-secondary btn-sm"}
+                href={buildDiffPageHref({
+                  versionId,
+                  compareId,
+                  mode,
+                  tab: "diff",
+                  comparePage,
+                  compareSearch,
+                })}
+              >
+                Diff
+              </Link>
+              <Link
+                className={
+                  activeTab === "changelog"
+                    ? "btn btn-primary btn-sm"
+                    : "btn btn-secondary btn-sm"
+                }
+                href={buildDiffPageHref({
+                  versionId,
+                  compareId,
+                  mode,
+                  tab: "changelog",
+                  comparePage,
+                  compareSearch,
+                })}
+              >
+                Changelog
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -371,10 +462,11 @@ export default async function EstimateDiffPage({
               {comparePage > 1 ? (
                 <Link
                   className="btn btn-secondary btn-sm"
-                  href={buildModeHref({
+                  href={buildDiffPageHref({
                     versionId,
                     compareId,
                     mode,
+                    tab: activeTab,
                     comparePage: comparePage - 1,
                     compareSearch,
                   })}
@@ -387,10 +479,11 @@ export default async function EstimateDiffPage({
               {comparePage < compareTotalPages ? (
                 <Link
                   className="btn btn-secondary btn-sm"
-                  href={buildModeHref({
+                  href={buildDiffPageHref({
                     versionId,
                     compareId,
                     mode,
+                    tab: activeTab,
                     comparePage: comparePage + 1,
                     compareSearch,
                   })}
@@ -418,12 +511,21 @@ export default async function EstimateDiffPage({
         </div>
       ) : null}
 
-      {hasCompareOptions && diff ? (
+      {hasCompareOptions && activeTab === "diff" && diff ? (
         <EstimateDiffView
           diff={diff}
           mode={mode}
           previousVersionLabel={previousVersionLabel}
           currentVersionLabel={currentVersionLabel}
+        />
+      ) : null}
+
+      {hasCompareOptions && activeTab === "changelog" && changelog ? (
+        <EstimateChangelogView
+          changelog={changelog}
+          previousVersionLabel={previousVersionLabel}
+          currentVersionLabel={currentVersionLabel}
+          exportPdfHref={changelogPdfHref}
         />
       ) : null}
     </div>

@@ -75,6 +75,9 @@ export function EstimateTimeline({
   versions,
   pagination,
 }: Readonly<EstimateTimelineProps>) {
+  const versionNumberById = new Map(
+    versions.map((version) => [version.id, version.version_number])
+  );
   const visibleStart =
     pagination.total_count === 0 ? 0 : (pagination.page - 1) * pagination.page_size + 1;
   const visibleEnd = Math.min(
@@ -113,12 +116,27 @@ export function EstimateTimeline({
               const status = version.status as EstimateTimelineStatus;
               const isCurrent = version.id === currentVersionId;
               const isCanceled = isCanceledStatus(status);
+              const variantLabel = version.variant_label?.trim() ?? null;
+              const parentVersionId = version.parent_version_id;
+              const isVariant = Boolean(parentVersionId && variantLabel);
+              const parentVersionNumber = parentVersionId
+                ? (versionNumberById.get(parentVersionId) ?? null)
+                : null;
 
               return (
-                <li key={version.id} className="relative pl-8">
+                <li
+                  key={version.id}
+                  className={`relative ${isVariant ? "pl-14" : "pl-8"}`}
+                >
+                  {isVariant ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-[11px] top-6 h-px w-5 bg-[var(--slate-300)]"
+                    />
+                  ) : null}
                   <span
                     aria-hidden="true"
-                    className={`absolute left-0 top-5 h-3 w-3 rounded-full border-2 ${
+                    className={`absolute ${isVariant ? "left-5" : "left-0"} top-5 h-3 w-3 rounded-full border-2 ${
                       isCurrent
                         ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]"
                         : "border-[var(--slate-300)] bg-white"
@@ -137,8 +155,13 @@ export function EstimateTimeline({
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="text-sm font-semibold text-[var(--slate-800)]">
-                            Version {version.version_number}
+                            {isVariant
+                              ? `Variante ${variantLabel} · V${version.version_number}`
+                              : `Version ${version.version_number}`}
                           </p>
+                          {isVariant ? (
+                            <span className="status-badge status-draft">Branche</span>
+                          ) : null}
                           {isCurrent ? (
                             <span className="status-badge status-confirmed">
                               Courante
@@ -157,6 +180,13 @@ export function EstimateTimeline({
                           <span className={statusClass(status)}>
                             {statusLabel(status)}
                           </span>
+                          {isVariant ? (
+                            <span>
+                              {parentVersionNumber
+                                ? `Issue de V${parentVersionNumber}`
+                                : "Issue d'une version parente"}
+                            </span>
+                          ) : null}
                           <span>Cree le {formatDate(version.created_at)}</span>
                           <span>
                             {version.author_name

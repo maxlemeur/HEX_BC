@@ -1212,6 +1212,63 @@ export async function duplicateEstimateVersion(
   return duplicatedVersionId;
 }
 
+export async function createEstimateVariant(
+  versionId: string
+): Promise<string> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/variants`,
+    {
+      method: "POST",
+    },
+    "Impossible de creer la variante."
+  );
+
+  const variantVersionId = extractString(payload, [
+    "versionId",
+    "version_id",
+    "variantVersionId",
+    "variant_version_id",
+    "id",
+  ]);
+
+  if (!variantVersionId) {
+    throw new Error("Impossible de creer la variante.");
+  }
+
+  return variantVersionId;
+}
+
+export async function promoteEstimateVariant(
+  versionId: string
+): Promise<string> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/variants`,
+    {
+      method: "PATCH",
+    },
+    "Impossible de promouvoir la variante."
+  );
+
+  const promotedEntity = extractEntity(payload, ["version", "estimateVersion"]);
+  if (promotedEntity && typeof promotedEntity.id === "string") {
+    return promotedEntity.id;
+  }
+
+  const promotedVersionId = extractString(payload, [
+    "versionId",
+    "version_id",
+    "promotedVersionId",
+    "promoted_version_id",
+    "id",
+  ]);
+
+  if (!promotedVersionId) {
+    throw new Error("Impossible de promouvoir la variante.");
+  }
+
+  return promotedVersionId;
+}
+
 export async function fetchEstimateEditorData(
   versionId: string
 ): Promise<EstimateEditorData> {

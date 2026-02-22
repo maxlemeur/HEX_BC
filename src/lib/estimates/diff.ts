@@ -1,4 +1,3 @@
-import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import type { Database } from "@/types/database";
 
 type EstimateVersionRow =
@@ -14,12 +13,6 @@ type SupplyTypeRow =
 type MarginTierRow =
   Database["public"]["Tables"]["margin_tiers"]["Row"];
 
-type EstimateLineWithLaborRates = EstimateItemRow & {
-  labor_role_hourly_rate_cents?: number | null;
-  labor_role_atelier_hourly_rate_cents?: number | null;
-  labor_role_chantier_hourly_rate_cents?: number | null;
-};
-
 type DiffEntityType = "section" | "line";
 type DiffChangeType = "added" | "removed" | "modified";
 type DiffFieldKind = "text" | "number" | "money" | "percent" | "reference";
@@ -33,12 +26,20 @@ type DiffFieldDefinition = {
 };
 
 type IndexedDiffItem = {
-  matchKey: string;
   item: EstimateItemRow;
   entityType: DiffEntityType;
   title: string;
-  sectionPath: string[];
   order: number;
+};
+
+type DiffTree = {
+  childrenByParent: Map<string, IndexedDiffItem[]>;
+};
+
+type AlignedSiblingPair = {
+  previousNode: IndexedDiffItem | null;
+  currentNode: IndexedDiffItem | null;
+  fieldChanges: EstimateDiffFieldChange[];
 };
 
 type ReferenceLookups = {
@@ -48,8 +49,14 @@ type ReferenceLookups = {
 };
 
 const ROOT_PARENT_KEY = "__root__";
+const INSERT_OR_REMOVE_COST = 12;
 
 const SECTION_FIELD_DEFINITIONS: readonly DiffFieldDefinition[] = [
+  {
+    key: "title",
+    label: "Titre",
+    kind: "text",
+  },
   {
     key: "description",
     label: "Description",
@@ -58,6 +65,11 @@ const SECTION_FIELD_DEFINITIONS: readonly DiffFieldDefinition[] = [
 ];
 
 const LINE_FIELD_DEFINITIONS: readonly DiffFieldDefinition[] = [
+  {
+    key: "title",
+    label: "Designation",
+    kind: "text",
+  },
   {
     key: "description",
     label: "Description",
@@ -221,10 +233,6 @@ export type EstimateDiffResult = {
   summary: EstimateDiffSummary;
 };
 
-function normalizeText(value: string | null | undefined) {
-  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
-}
-
 function normalizeStringValue(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -382,16 +390,7 @@ function getParentKey(parentId: string | null) {
   return parentId ?? ROOT_PARENT_KEY;
 }
 
-function buildMatchBaseKey(
-  entityType: DiffEntityType,
-  sectionPath: string[],
-  title: string
-) {
-  const normalizedPath = sectionPath.map((segment) => normalizeText(segment)).join(">");
-  return `${entityType}|${normalizedPath}|${normalizeText(title)}`;
-}
-
-function buildIndexedItems(items: EstimateItemRow[]): IndexedDiffItem[] {
+function buildDiffTree(items: EstimateItemRow[]): DiffTree {
   const groupedByParent = new Map<string, EstimateItemRow[]>();
   items.forEach((item) => {
     const key = getParentKey(item.parent_id);
@@ -409,120 +408,203 @@ function buildIndexedItems(items: EstimateItemRow[]): IndexedDiffItem[] {
     });
   });
 
-  const indexed: IndexedDiffItem[] = [];
-  const occurrenceByBaseKey = new Map<string, number>();
+  const childrenByParent = new Map<string, IndexedDiffItem[]>();
   const visitedSections = new Set<string>();
   let order = 0;
 
-  const walk = (parentId: string | null, sectionPath: string[]) => {
+  const walk = (parentId: string | null) => {
     const siblings = groupedByParent.get(getParentKey(parentId)) ?? [];
+    const indexedSiblings: IndexedDiffItem[] = [];
 
     siblings.forEach((item) => {
       const title = item.title.trim();
+      const entityType: DiffEntityType =
+        item.item_type === "section" ? "section" : "line";
+
+      const indexedItem: IndexedDiffItem = {
+        item,
+        entityType,
+        title,
+        order,
+      };
+
+      indexedSiblings.push(indexedItem);
+      order += 1;
 
       if (item.item_type === "section") {
-        const baseKey = buildMatchBaseKey("section", sectionPath, title);
-        const occurrence = occurrenceByBaseKey.get(baseKey) ?? 0;
-        occurrenceByBaseKey.set(baseKey, occurrence + 1);
-
-        indexed.push({
-          matchKey: `${baseKey}#${occurrence}`,
-          item,
-          entityType: "section",
-          title,
-          sectionPath: [...sectionPath],
-          order,
-        });
-
-        order += 1;
-
         if (visitedSections.has(item.id)) {
           return;
         }
 
         visitedSections.add(item.id);
-        walk(item.id, [...sectionPath, title]);
-        return;
+        walk(item.id);
       }
-
-      const baseKey = buildMatchBaseKey("line", sectionPath, title);
-      const occurrence = occurrenceByBaseKey.get(baseKey) ?? 0;
-      occurrenceByBaseKey.set(baseKey, occurrence + 1);
-
-      indexed.push({
-        matchKey: `${baseKey}#${occurrence}`,
-        item,
-        entityType: "line",
-        title,
-        sectionPath: [...sectionPath],
-        order,
-      });
-
-      order += 1;
     });
+
+    childrenByParent.set(getParentKey(parentId), indexedSiblings);
   };
 
-  walk(null, []);
-  return indexed;
+  walk(null);
+  return {
+    childrenByParent,
+  };
 }
 
-function buildRateMap(roles: LaborRoleRow[]) {
-  const rateById = new Map<string, number>();
-  roles.forEach((role) => {
-    rateById.set(role.id, role.hourly_rate_cents ?? 0);
+function getChildrenByParent(
+  tree: DiffTree,
+  parentId: string | null
+): IndexedDiffItem[] {
+  return tree.childrenByParent.get(getParentKey(parentId)) ?? [];
+}
+
+function getFieldChangesForPair(input: {
+  previousNode: IndexedDiffItem;
+  currentNode: IndexedDiffItem;
+  lookups: ReferenceLookups;
+  fieldChangesByPair: Map<string, EstimateDiffFieldChange[]>;
+}): EstimateDiffFieldChange[] {
+  const cacheKey = `${input.previousNode.item.id}:${input.currentNode.item.id}`;
+  const cached = input.fieldChangesByPair.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const fieldChanges = buildFieldChanges({
+    beforeItem: input.previousNode.item,
+    afterItem: input.currentNode.item,
+    entityType: input.previousNode.entityType,
+    lookups: input.lookups,
   });
-  return rateById;
+  input.fieldChangesByPair.set(cacheKey, fieldChanges);
+  return fieldChanges;
 }
 
-function buildLineItemsWithRates(
-  details: EstimateVersionDetailsForDiff
-): EstimateLineWithLaborRates[] {
-  const rateById = buildRateMap(details.labor_roles);
+function alignSiblingPairs(input: {
+  previousSiblings: IndexedDiffItem[];
+  currentSiblings: IndexedDiffItem[];
+  lookups: ReferenceLookups;
+  fieldChangesByPair: Map<string, EstimateDiffFieldChange[]>;
+}): AlignedSiblingPair[] {
+  const { previousSiblings, currentSiblings, lookups, fieldChangesByPair } = input;
+  const previousLength = previousSiblings.length;
+  const currentLength = currentSiblings.length;
 
-  return details.items
-    .filter((item): item is EstimateItemRow => item.item_type === "line")
-    .map((item) => ({
-      ...item,
-      labor_role_hourly_rate_cents: item.labor_role_id
-        ? (rateById.get(item.labor_role_id) ?? 0)
-        : 0,
-      labor_role_atelier_hourly_rate_cents: item.labor_role_atelier_id
-        ? (rateById.get(item.labor_role_atelier_id) ?? 0)
-        : 0,
-      labor_role_chantier_hourly_rate_cents: item.labor_role_chantier_id
-        ? (rateById.get(item.labor_role_chantier_id) ?? 0)
-        : 0,
-    }));
+  const costs = Array.from({ length: previousLength + 1 }, () =>
+    Array<number>(currentLength + 1).fill(0)
+  );
+  const choices = Array.from({ length: previousLength + 1 }, () =>
+    Array<"match" | "remove" | "add">(currentLength + 1).fill("match")
+  );
+
+  for (let i = 1; i <= previousLength; i += 1) {
+    costs[i][0] = i * INSERT_OR_REMOVE_COST;
+    choices[i][0] = "remove";
+  }
+
+  for (let j = 1; j <= currentLength; j += 1) {
+    costs[0][j] = j * INSERT_OR_REMOVE_COST;
+    choices[0][j] = "add";
+  }
+
+  for (let i = 1; i <= previousLength; i += 1) {
+    for (let j = 1; j <= currentLength; j += 1) {
+      const previousNode = previousSiblings[i - 1];
+      const currentNode = currentSiblings[j - 1];
+
+      let matchCost = Number.POSITIVE_INFINITY;
+      if (previousNode.entityType === currentNode.entityType) {
+        const fieldChanges = getFieldChangesForPair({
+          previousNode,
+          currentNode,
+          lookups,
+          fieldChangesByPair,
+        });
+        matchCost = costs[i - 1][j - 1] + fieldChanges.length;
+      }
+
+      const removeCost = costs[i - 1][j] + INSERT_OR_REMOVE_COST;
+      const addCost = costs[i][j - 1] + INSERT_OR_REMOVE_COST;
+
+      let bestCost = matchCost;
+      let bestChoice: "match" | "remove" | "add" = "match";
+
+      if (removeCost < bestCost) {
+        bestCost = removeCost;
+        bestChoice = "remove";
+      }
+
+      if (addCost < bestCost) {
+        bestCost = addCost;
+        bestChoice = "add";
+      }
+
+      costs[i][j] = bestCost;
+      choices[i][j] = bestChoice;
+    }
+  }
+
+  const aligned: AlignedSiblingPair[] = [];
+  let i = previousLength;
+  let j = currentLength;
+
+  while (i > 0 || j > 0) {
+    const choice = choices[i][j];
+
+    if (choice === "match" && i > 0 && j > 0) {
+      const previousNode = previousSiblings[i - 1];
+      const currentNode = currentSiblings[j - 1];
+      aligned.push({
+        previousNode,
+        currentNode,
+        fieldChanges: getFieldChangesForPair({
+          previousNode,
+          currentNode,
+          lookups,
+          fieldChangesByPair,
+        }),
+      });
+      i -= 1;
+      j -= 1;
+      continue;
+    }
+
+    if (choice === "remove" && i > 0) {
+      aligned.push({
+        previousNode: previousSiblings[i - 1],
+        currentNode: null,
+        fieldChanges: [],
+      });
+      i -= 1;
+      continue;
+    }
+
+    if (j > 0) {
+      aligned.push({
+        previousNode: null,
+        currentNode: currentSiblings[j - 1],
+        fieldChanges: [],
+      });
+      j -= 1;
+      continue;
+    }
+
+    aligned.push({
+      previousNode: previousSiblings[i - 1],
+      currentNode: null,
+      fieldChanges: [],
+    });
+    i -= 1;
+  }
+
+  return aligned.reverse();
 }
 
 function computeVersionTotals(
   details: EstimateVersionDetailsForDiff
 ): EstimateDiffComputedTotals {
-  const lineItems = buildLineItemsWithRates(details);
-
-  const totalsInputBase = {
-    lineItems,
-    marginMultiplier: details.version.margin_multiplier,
-    marginMode: details.version.margin_mode,
-    marginTiers: details.margin_tiers,
-    discountCents: 0,
-    taxRateBp: details.version.tax_rate_bp,
-    roundingMode: details.version.rounding_mode,
-    roundingStepCents: details.version.rounding_step_cents,
-  } as const;
-
-  const subtotalTotals = computeEstimateTotals(totalsInputBase);
-  const discountCents = Math.round(
-    (subtotalTotals.saleSubtotalCents * details.version.discount_bp) / 10000
-  );
-  const totals = computeEstimateTotals({
-    ...totalsInputBase,
-    discountCents,
-  });
-
   return {
-    totalHtCents: totals.saleTotalCents,
-    totalTtcCents: totals.roundedTtcCents,
+    totalHtCents: details.version.total_ht_cents,
+    totalTtcCents: details.version.total_ttc_cents,
   };
 }
 
@@ -568,90 +650,145 @@ export function buildEstimateDiff(input: {
   previous: EstimateVersionDetailsForDiff;
   current: EstimateVersionDetailsForDiff;
 }): EstimateDiffResult {
-  const previousIndexedItems = buildIndexedItems(input.previous.items);
-  const currentIndexedItems = buildIndexedItems(input.current.items);
-
-  const previousByMatchKey = new Map<string, IndexedDiffItem>();
-  previousIndexedItems.forEach((indexedItem) => {
-    previousByMatchKey.set(indexedItem.matchKey, indexedItem);
-  });
-
-  const currentByMatchKey = new Map<string, IndexedDiffItem>();
-  currentIndexedItems.forEach((indexedItem) => {
-    currentByMatchKey.set(indexedItem.matchKey, indexedItem);
-  });
+  const previousTree = buildDiffTree(input.previous.items);
+  const currentTree = buildDiffTree(input.current.items);
 
   const lookups = buildReferenceLookups(input.previous, input.current);
-  const allMatchKeys = new Set([
-    ...previousByMatchKey.keys(),
-    ...currentByMatchKey.keys(),
-  ]);
-
+  const fieldChangesByPair = new Map<string, EstimateDiffFieldChange[]>();
   const entries: EstimateDiffEntry[] = [];
 
-  allMatchKeys.forEach((matchKey) => {
-    const previousNode = previousByMatchKey.get(matchKey) ?? null;
-    const currentNode = currentByMatchKey.get(matchKey) ?? null;
-    const sourceNode = currentNode ?? previousNode;
-
-    if (!sourceNode) return;
-
-    if (!previousNode && currentNode) {
-      entries.push({
-        key: matchKey,
-        entityType: currentNode.entityType,
-        changeType: "added",
-        sectionPath: currentNode.sectionPath,
-        title: currentNode.title,
-        beforeItem: null,
-        afterItem: currentNode.item,
-        fieldChanges: [],
-        sortOrder: toEntrySortOrder(previousNode, currentNode),
-      });
-      return;
-    }
-
-    if (previousNode && !currentNode) {
-      entries.push({
-        key: matchKey,
-        entityType: previousNode.entityType,
-        changeType: "removed",
-        sectionPath: previousNode.sectionPath,
-        title: previousNode.title,
-        beforeItem: previousNode.item,
-        afterItem: null,
-        fieldChanges: [],
-        sortOrder: toEntrySortOrder(previousNode, currentNode),
-      });
-      return;
-    }
-
-    if (!previousNode || !currentNode) {
-      return;
-    }
-
-    const fieldChanges = buildFieldChanges({
-      beforeItem: previousNode.item,
-      afterItem: currentNode.item,
-      entityType: sourceNode.entityType,
-      lookups,
-    });
-
-    if (fieldChanges.length === 0) {
-      return;
-    }
-
+  const appendAddedSubtree = (
+    currentNode: IndexedDiffItem,
+    currentSectionPath: string[]
+  ) => {
     entries.push({
-      key: matchKey,
-      entityType: sourceNode.entityType,
-      changeType: "modified",
-      sectionPath: sourceNode.sectionPath,
-      title: sourceNode.title,
-      beforeItem: previousNode.item,
+      key: `added:${currentNode.item.id}`,
+      entityType: currentNode.entityType,
+      changeType: "added",
+      sectionPath: [...currentSectionPath],
+      title: currentNode.title,
+      beforeItem: null,
       afterItem: currentNode.item,
-      fieldChanges,
-      sortOrder: toEntrySortOrder(previousNode, currentNode),
+      fieldChanges: [],
+      sortOrder: toEntrySortOrder(null, currentNode),
     });
+
+    if (currentNode.entityType !== "section") {
+      return;
+    }
+
+    const nextPath = [...currentSectionPath, currentNode.title];
+    const children = getChildrenByParent(currentTree, currentNode.item.id);
+    children.forEach((childNode) => {
+      appendAddedSubtree(childNode, nextPath);
+    });
+  };
+
+  const appendRemovedSubtree = (
+    previousNode: IndexedDiffItem,
+    previousSectionPath: string[]
+  ) => {
+    entries.push({
+      key: `removed:${previousNode.item.id}`,
+      entityType: previousNode.entityType,
+      changeType: "removed",
+      sectionPath: [...previousSectionPath],
+      title: previousNode.title,
+      beforeItem: previousNode.item,
+      afterItem: null,
+      fieldChanges: [],
+      sortOrder: toEntrySortOrder(previousNode, null),
+    });
+
+    if (previousNode.entityType !== "section") {
+      return;
+    }
+
+    const nextPath = [...previousSectionPath, previousNode.title];
+    const children = getChildrenByParent(previousTree, previousNode.item.id);
+    children.forEach((childNode) => {
+      appendRemovedSubtree(childNode, nextPath);
+    });
+  };
+
+  const diffSiblings = (inputSiblings: {
+    previousParentId: string | null;
+    currentParentId: string | null;
+    previousSectionPath: string[];
+    currentSectionPath: string[];
+  }) => {
+    const previousSiblings = getChildrenByParent(
+      previousTree,
+      inputSiblings.previousParentId
+    );
+    const currentSiblings = getChildrenByParent(
+      currentTree,
+      inputSiblings.currentParentId
+    );
+
+    const alignedPairs = alignSiblingPairs({
+      previousSiblings,
+      currentSiblings,
+      lookups,
+      fieldChangesByPair,
+    });
+
+    alignedPairs.forEach((alignedPair) => {
+      if (alignedPair.previousNode && alignedPair.currentNode) {
+        if (alignedPair.fieldChanges.length > 0) {
+          entries.push({
+            key: `modified:${alignedPair.previousNode.item.id}:${alignedPair.currentNode.item.id}`,
+            entityType: alignedPair.currentNode.entityType,
+            changeType: "modified",
+            sectionPath: [...inputSiblings.currentSectionPath],
+            title: alignedPair.currentNode.title,
+            beforeItem: alignedPair.previousNode.item,
+            afterItem: alignedPair.currentNode.item,
+            fieldChanges: alignedPair.fieldChanges,
+            sortOrder: toEntrySortOrder(
+              alignedPair.previousNode,
+              alignedPair.currentNode
+            ),
+          });
+        }
+
+        if (alignedPair.currentNode.entityType === "section") {
+          diffSiblings({
+            previousParentId: alignedPair.previousNode.item.id,
+            currentParentId: alignedPair.currentNode.item.id,
+            previousSectionPath: [
+              ...inputSiblings.previousSectionPath,
+              alignedPair.previousNode.title,
+            ],
+            currentSectionPath: [
+              ...inputSiblings.currentSectionPath,
+              alignedPair.currentNode.title,
+            ],
+          });
+        }
+
+        return;
+      }
+
+      if (alignedPair.previousNode) {
+        appendRemovedSubtree(
+          alignedPair.previousNode,
+          inputSiblings.previousSectionPath
+        );
+        return;
+      }
+
+      if (alignedPair.currentNode) {
+        appendAddedSubtree(alignedPair.currentNode, inputSiblings.currentSectionPath);
+      }
+    });
+  };
+
+  diffSiblings({
+    previousParentId: null,
+    currentParentId: null,
+    previousSectionPath: [],
+    currentSectionPath: [],
   });
 
   const sortedEntries = [...entries].sort(compareDiffEntries);

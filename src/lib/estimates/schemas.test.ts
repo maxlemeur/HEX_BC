@@ -1,17 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  batchOperationsSchema,
   bulkUpdateEstimateItemsRequestSchema,
+  createEstimateVariantSchema,
   createEstimateAssemblySchema,
   insertAssemblyIntoVersionSchema,
   listEstimateAssembliesQuerySchema,
   patchEstimateVersionSchema,
+  promoteEstimateVariantSchema,
   suggestionRuleFeedbackSchema,
   updateEstimateAssemblySchema,
 } from "@/lib/estimates/schemas";
 
 const ITEM_ID_1 = "11111111-1111-4111-8111-111111111111";
 const ITEM_ID_2 = "22222222-2222-4222-8222-222222222222";
+const ITEM_ID_3 = "33333333-3333-4333-8333-333333333333";
 const UPDATED_AT = "2026-02-21T10:00:00.000Z";
 
 describe("patchEstimateVersionSchema", () => {
@@ -175,6 +179,88 @@ describe("bulkUpdateEstimateItemsRequestSchema", () => {
       updates: [
         {
           id: ITEM_ID_2,
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("Aucun champ de mise a jour fourni")
+      )
+    ).toBe(true);
+  });
+});
+
+describe("batchOperationsSchema", () => {
+  it("accepts mixed create/update/delete/reorder operations", () => {
+    const parsed = batchOperationsSchema.parse({
+      concurrency_token: ` ${UPDATED_AT} `,
+      dry_run: true,
+      operations: [
+        {
+          op: "create",
+          data: {
+            item_type: "line",
+            title: "Nouvelle ligne",
+            quantity: 2,
+          },
+        },
+        {
+          op: "update",
+          id: ITEM_ID_1,
+          data: {
+            title: "Ligne mise a jour",
+          },
+        },
+        {
+          op: "delete",
+          id: ITEM_ID_2,
+        },
+        {
+          op: "reorder",
+          data: {
+            parent_id: null,
+            ordered_ids: [ITEM_ID_1, ITEM_ID_3],
+          },
+        },
+      ],
+    });
+
+    expect(parsed.concurrency_token).toBe(UPDATED_AT);
+    expect(parsed.dry_run).toBe(true);
+    expect(parsed.operations).toHaveLength(4);
+    expect(parsed.operations[1]).toEqual({
+      op: "update",
+      id: ITEM_ID_1,
+      data: {
+        title: "Ligne mise a jour",
+      },
+    });
+  });
+
+  it("rejects empty operations arrays", () => {
+    const parsed = batchOperationsSchema.safeParse({
+      operations: [],
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("operations ne peut pas etre vide")
+      )
+    ).toBe(true);
+  });
+
+  it("rejects update operations with empty data payload", () => {
+    const parsed = batchOperationsSchema.safeParse({
+      operations: [
+        {
+          op: "update",
+          id: ITEM_ID_1,
+          data: {},
         },
       ],
     });
@@ -357,5 +443,26 @@ describe("estimate assembly schemas", () => {
       version_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       after_item_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     });
+  });
+});
+
+describe("estimate variant schemas", () => {
+  it("accepts empty payloads for create/promote variant actions", () => {
+    expect(createEstimateVariantSchema.parse({})).toEqual({});
+    expect(promoteEstimateVariantSchema.parse({})).toEqual({});
+  });
+
+  it("normalizes nullish payloads to empty object", () => {
+    expect(createEstimateVariantSchema.parse(undefined)).toEqual({});
+    expect(promoteEstimateVariantSchema.parse(null)).toEqual({});
+  });
+
+  it("rejects unexpected fields", () => {
+    expect(
+      createEstimateVariantSchema.safeParse({ force: true }).success
+    ).toBe(false);
+    expect(
+      promoteEstimateVariantSchema.safeParse({ foo: "bar" }).success
+    ).toBe(false);
   });
 });

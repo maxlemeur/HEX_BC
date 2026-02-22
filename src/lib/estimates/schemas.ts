@@ -150,6 +150,26 @@ export const patchEstimateStatusSchema = z.object({
   force: z.boolean().optional(),
 });
 
+const emptyPayloadSchema = z.object({}).strict();
+
+function normalizeOptionalEmptyPayload(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return {};
+  }
+
+  return value;
+}
+
+export const createEstimateVariantSchema = z.preprocess(
+  normalizeOptionalEmptyPayload,
+  emptyPayloadSchema
+);
+
+export const promoteEstimateVariantSchema = z.preprocess(
+  normalizeOptionalEmptyPayload,
+  emptyPayloadSchema
+);
+
 const createSectionItemSchema = z.object({
   item_type: z.literal("section"),
   parent_id: nullableUuidSchema.optional(),
@@ -187,34 +207,49 @@ export const createEstimateItemSchema = z.discriminatedUnion("item_type", [
   createLineItemSchema,
 ]);
 
+const updateEstimateItemFields = {
+  parent_id: nullableUuidSchema.optional(),
+  position: positiveIntegerSchema.optional(),
+  title: requiredTextSchema.optional(),
+  description: optionalNullableTextSchema.optional(),
+  quantity: nonNegativeNumberSchema.optional(),
+  unit_price_ht_cents: nonNegativeIntegerSchema.optional(),
+  tax_rate_bp: taxRateBpSchema.optional(),
+  k_fo: nonNegativeNumberSchema.optional(),
+  h_mo: nonNegativeNumberSchema.optional(),
+  h_mo_majoration: nonNegativeNumberSchema.optional(),
+  k_mo: nonNegativeNumberSchema.optional(),
+  h_mo_atelier: nonNegativeNumberSchema.optional(),
+  k_mo_atelier: nonNegativeNumberSchema.optional(),
+  labor_role_atelier_id: nullableUuidSchema.optional(),
+  h_mo_chantier: nonNegativeNumberSchema.optional(),
+  k_mo_chantier: nonNegativeNumberSchema.optional(),
+  labor_role_chantier_id: nullableUuidSchema.optional(),
+  pu_ht_cents: nonNegativeIntegerSchema.optional(),
+  line_total_ht_cents: nonNegativeIntegerSchema.optional(),
+  line_tax_cents: nonNegativeIntegerSchema.optional(),
+  line_total_ttc_cents: nonNegativeIntegerSchema.optional(),
+  labor_role_id: nullableUuidSchema.optional(),
+  category_id: nullableUuidSchema.optional(),
+  supply_type_id: nullableUuidSchema.optional(),
+  selected_supplier_price_id: nullableUuidSchema.optional(),
+} as const;
+
+const updateEstimateItemDataSchema = z
+  .object(updateEstimateItemFields)
+  .superRefine((payload, ctx) => {
+    if (Object.keys(payload).length > 0) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Aucun champ de mise a jour fourni.",
+      path: [],
+    });
+  });
+
 export const updateEstimateItemSchema = z
   .object({
     id: uuidSchema,
-    parent_id: nullableUuidSchema.optional(),
-    position: positiveIntegerSchema.optional(),
-    title: requiredTextSchema.optional(),
-    description: optionalNullableTextSchema.optional(),
-    quantity: nonNegativeNumberSchema.optional(),
-    unit_price_ht_cents: nonNegativeIntegerSchema.optional(),
-    tax_rate_bp: taxRateBpSchema.optional(),
-    k_fo: nonNegativeNumberSchema.optional(),
-    h_mo: nonNegativeNumberSchema.optional(),
-    h_mo_majoration: nonNegativeNumberSchema.optional(),
-    k_mo: nonNegativeNumberSchema.optional(),
-    h_mo_atelier: nonNegativeNumberSchema.optional(),
-    k_mo_atelier: nonNegativeNumberSchema.optional(),
-    labor_role_atelier_id: nullableUuidSchema.optional(),
-    h_mo_chantier: nonNegativeNumberSchema.optional(),
-    k_mo_chantier: nonNegativeNumberSchema.optional(),
-    labor_role_chantier_id: nullableUuidSchema.optional(),
-    pu_ht_cents: nonNegativeIntegerSchema.optional(),
-    line_total_ht_cents: nonNegativeIntegerSchema.optional(),
-    line_tax_cents: nonNegativeIntegerSchema.optional(),
-    line_total_ttc_cents: nonNegativeIntegerSchema.optional(),
-    labor_role_id: nullableUuidSchema.optional(),
-    category_id: nullableUuidSchema.optional(),
-    supply_type_id: nullableUuidSchema.optional(),
-    selected_supplier_price_id: nullableUuidSchema.optional(),
+    ...updateEstimateItemFields,
   })
   .superRefine((payload, ctx) => {
     if (Object.keys(payload).length > 1) return;
@@ -304,6 +339,42 @@ export const reorderEstimateItemsSchema = z
       path: ["ordered_ids"],
     });
   });
+
+export const batchCreateEstimateOperationSchema = z.object({
+  op: z.literal("create"),
+  data: createEstimateItemSchema,
+});
+
+export const batchUpdateEstimateOperationSchema = z.object({
+  op: z.literal("update"),
+  id: uuidSchema,
+  data: updateEstimateItemDataSchema,
+});
+
+export const batchDeleteEstimateOperationSchema = z.object({
+  op: z.literal("delete"),
+  id: uuidSchema,
+});
+
+export const batchReorderEstimateOperationSchema = z.object({
+  op: z.literal("reorder"),
+  data: reorderEstimateItemsSchema,
+});
+
+export const batchOperationSchema = z.discriminatedUnion("op", [
+  batchCreateEstimateOperationSchema,
+  batchUpdateEstimateOperationSchema,
+  batchDeleteEstimateOperationSchema,
+  batchReorderEstimateOperationSchema,
+]);
+
+export const batchOperationsSchema = z.object({
+  concurrency_token: updatedAtTokenSchema.optional(),
+  dry_run: z.boolean().optional(),
+  operations: z
+    .array(batchOperationSchema)
+    .min(1, "operations ne peut pas etre vide."),
+});
 
 export const estimateSupplierComparisonsRequestSchema = z
   .preprocess(
@@ -611,6 +682,12 @@ export const insertAssemblyIntoVersionSchema = z.preprocess(
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;
 export type PatchEstimateVersionInput = z.infer<typeof patchEstimateVersionSchema>;
 export type PatchEstimateStatusInput = z.infer<typeof patchEstimateStatusSchema>;
+export type CreateEstimateVariantInput = z.infer<
+  typeof createEstimateVariantSchema
+>;
+export type PromoteEstimateVariantInput = z.infer<
+  typeof promoteEstimateVariantSchema
+>;
 export type CreateEstimateItemInput = z.infer<typeof createEstimateItemSchema>;
 export type UpdateEstimateItemInput = z.infer<typeof updateEstimateItemSchema>;
 export type BulkUpdateEstimateItemsInput = z.infer<
@@ -624,6 +701,20 @@ export type BulkUpdateEstimateItemsRequestInput = z.infer<
 >;
 export type DeleteEstimateItemInput = z.infer<typeof deleteEstimateItemSchema>;
 export type ReorderEstimateItemsInput = z.infer<typeof reorderEstimateItemsSchema>;
+export type BatchCreateEstimateOperationInput = z.infer<
+  typeof batchCreateEstimateOperationSchema
+>;
+export type BatchUpdateEstimateOperationInput = z.infer<
+  typeof batchUpdateEstimateOperationSchema
+>;
+export type BatchDeleteEstimateOperationInput = z.infer<
+  typeof batchDeleteEstimateOperationSchema
+>;
+export type BatchReorderEstimateOperationInput = z.infer<
+  typeof batchReorderEstimateOperationSchema
+>;
+export type BatchOperationInput = z.infer<typeof batchOperationSchema>;
+export type BatchOperationsInput = z.infer<typeof batchOperationsSchema>;
 export type EstimateSupplierComparisonsRequestInput = z.infer<
   typeof estimateSupplierComparisonsRequestSchema
 >;

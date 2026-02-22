@@ -5,6 +5,7 @@ import { EstimateDocument } from "@/components/EstimateDocument";
 import { EstimateTimeline } from "@/components/estimates/EstimateTimeline";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { DuplicateEstimateButton } from "@/components/estimates/DuplicateEstimateButton";
+import { VariantComparisonTable } from "@/components/estimates/VariantComparisonTable";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import {
   SealIntegrityBadge,
@@ -13,6 +14,7 @@ import {
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import {
   listEstimateProjectVersions,
+  listEstimateVersionVariants,
   verifyEstimateSeal,
 } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -107,13 +109,14 @@ export default async function EstimateDetailPage({
   const version = versionResult.data as EstimateVersion;
   const items = (itemsResult.data ?? []) as EstimateItem[];
   const project = resolveProject(version.estimate_projects);
-  const [versionTimeline, isLaborSplitEnabled] = await Promise.all([
+  const [versionTimeline, variantComparison, isLaborSplitEnabled] = await Promise.all([
     listEstimateProjectVersions({
       projectId: version.project_id,
       page: timelinePage,
       pageSize: VERSION_TIMELINE_PAGE_SIZE,
       anchorVersionId: versionId,
     }),
+    listEstimateVersionVariants(versionId),
     isFeatureEnabled(
       version.tenant_id,
       "EST_031_LABOR_SPLIT",
@@ -253,6 +256,13 @@ export default async function EstimateDetailPage({
             totalTtcCents={version.total_ttc_cents}
             supplyTypeLabelsById={supplyTypeLabelsById}
             items={items}
+          />
+        </div>
+        <div className="mt-6">
+          <VariantComparisonTable
+            currentVersionId={versionId}
+            baseVersionId={variantComparison.base_version_id}
+            items={variantComparison.items}
           />
         </div>
       </div>
