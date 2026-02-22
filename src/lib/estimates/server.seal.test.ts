@@ -187,10 +187,14 @@ function createSupabaseSealMock(input: {
   });
 
   const updatePayloads: unknown[] = [];
+  const updateEqCalls: Array<[string, unknown]> = [];
   const estimateVersionsUpdate = vi.fn((payload: unknown) => {
     updatePayloads.push(payload);
     const builder = {
-      eq: vi.fn(),
+      eq: vi.fn((column: string, value: unknown) => {
+        updateEqCalls.push([column, value]);
+        return builder;
+      }),
       select: vi.fn(() => ({
         single: vi.fn().mockResolvedValue(
           input.updateResult ?? {
@@ -206,7 +210,6 @@ function createSupabaseSealMock(input: {
         ),
       })),
     };
-    builder.eq.mockReturnValue(builder);
     return builder;
   });
 
@@ -292,6 +295,7 @@ function createSupabaseSealMock(input: {
     }),
     __mocks: {
       updatePayloads,
+      updateEqCalls,
       eventInsert,
     },
   };
@@ -379,6 +383,47 @@ describe("estimate status seal flow", () => {
       code: "BAD_REQUEST",
       message: "Transition de statut invalide: draft -> accepted.",
     });
+  });
+
+  it("returns conflict when status update token is stale at write time", async () => {
+    const supabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        {
+          data: createVersionAccessRow("sent"),
+          error: null,
+        },
+      ],
+      estimateItemsResult: {
+        data: [],
+        error: null,
+      },
+      updateResult: {
+        data: null,
+        error: {
+          code: "PGRST116",
+          message: "No rows found",
+          details: null,
+          hint: null,
+        },
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateStatus(VERSION_ID, { status: "accepted" }, UPDATED_AT)
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      message: "Version modifiee par un autre utilisateur",
+      details: {
+        updated_at: UPDATED_AT,
+      },
+    });
+
+    expect(supabase.__mocks.updateEqCalls).toEqual(
+      expect.arrayContaining([["updated_at", UPDATED_AT]])
+    );
   });
 
   it("requires an active draft lock before transitioning out of draft", async () => {

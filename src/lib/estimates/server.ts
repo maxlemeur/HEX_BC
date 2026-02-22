@@ -3753,14 +3753,23 @@ export async function patchEstimateStatus(
     .update(updatePayload)
     .eq("id", versionId)
     .eq("tenant_id", tenantId)
+    .eq("updated_at", version.updated_at)
     .select("*")
     .single();
 
   if (error || !data) {
+    if (error?.code === "PGRST116") {
+      throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+        updated_at: version.updated_at,
+      });
+    }
+
     if (error) {
       throw mapSupabaseError(error, "Impossible de changer le statut.");
     }
-    throw badRequest("Impossible de changer le statut.");
+    throw conflict(VERSION_CONFLICT_ERROR_MESSAGE, {
+      updated_at: version.updated_at,
+    });
   }
 
   const statusEventType = resolveStatusEventType(input.status);
