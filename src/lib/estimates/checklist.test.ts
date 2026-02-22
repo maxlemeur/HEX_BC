@@ -120,6 +120,7 @@ describe("estimate checklist", () => {
       },
       settings: {
         margin_multiplier: 0,
+        margin_mode: "fixed",
         date_devis: "",
         validite_jours: 0,
       },
@@ -141,6 +142,30 @@ describe("estimate checklist", () => {
       isComplete: false,
       missingCount: 1,
       targetItemId: null,
+    });
+  });
+
+  it("requires at least one tier when margin mode is tiered", () => {
+    const checklist = computeEstimateChecklist({
+      items: [createLine("line-1")],
+      qualityFlagsByItemId: {
+        "line-1": [],
+      },
+      settings: {
+        margin_multiplier: 1,
+        margin_mode: "tiered",
+        margin_tiers: [],
+        date_devis: "2026-02-21",
+        validite_jours: 30,
+      },
+    });
+
+    expect(
+      checklist.criteria.find((criterion) => criterion.key === "margin_defined")
+    ).toMatchObject({
+      status: "blocking",
+      isComplete: false,
+      missingCount: 1,
     });
   });
 });

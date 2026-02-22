@@ -44,6 +44,8 @@ export type EstimateChecklistResult = {
 
 export type EstimateChecklistSettingsInput = {
   margin_multiplier: number | null | undefined;
+  margin_mode?: "fixed" | "tiered" | null | undefined;
+  margin_tiers?: ReadonlyArray<unknown> | null | undefined;
   date_devis: string | null | undefined;
   validite_jours: number | null | undefined;
 };
@@ -116,6 +118,14 @@ function hasNonEmptyDate(value: string | null | undefined) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function hasDefinedMargin(settings: EstimateChecklistSettingsInput | null) {
+  if (!settings) return false;
+  if (settings.margin_mode === "tiered") {
+    return Array.isArray(settings.margin_tiers) && settings.margin_tiers.length > 0;
+  }
+  return isPositiveNumber(settings.margin_multiplier);
+}
+
 function countLines(items: EstimateItem[]) {
   return items.reduce((count, item) => {
     if (item.item_type !== "line") return count;
@@ -174,7 +184,7 @@ export function computeEstimateChecklist({
     }
 
     if (definition.key === "margin_defined") {
-      const isComplete = isPositiveNumber(settings?.margin_multiplier);
+      const isComplete = hasDefinedMargin(settings);
       return {
         ...definition,
         status: toCriterionStatus(isComplete, definition.severity),
