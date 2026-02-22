@@ -32,9 +32,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 import {
-  computeSectionTotals,
   UNASSIGNED_SUPPLY_TYPE_KEY,
-  type EstimateItemRecord,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
 import { PastePreviewDialog } from "@/components/estimates/PastePreviewDialog";
@@ -47,15 +45,19 @@ import {
   SupplierComparisonPanel,
   type SupplierComparisonAlternative,
 } from "@/components/estimates/SupplierComparisonPanel";
+import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
+import {
+  useEstimateSelection,
+} from "@/components/estimates/hooks/useEstimateSelection";
+import {
+  useEstimateVisibility,
+} from "@/components/estimates/hooks/useEstimateVisibility";
 import {
   useSpreadsheetNavigation,
   type SpreadsheetCell,
   type SpreadsheetNavigationRow,
 } from "@/hooks/useSpreadsheetNavigation";
-import {
-  useMultiSelect,
-  type MultiSelectItemInteraction,
-} from "@/hooks/useMultiSelect";
+import { type MultiSelectItemInteraction } from "@/hooks/useMultiSelect";
 import { useVirtualList } from "@/hooks/useVirtualList";
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
@@ -375,15 +377,6 @@ function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
 
 function parseOutlierMethod(value: string): EstimateOutlierMethod {
   return value === "zscore" ? "zscore" : "iqr";
-}
-
-function matchesQualityFilter(
-  qualityFlags: EstimateQualityFlagKey[],
-  filter: EstimateQualityFilter
-) {
-  if (filter === "all_lines") return true;
-  if (filter === "with_anomalies") return qualityFlags.length > 0;
-  return qualityFlags.includes(filter);
 }
 
 function toSuggestionUsageCount(rule: SuggestionRule | Record<string, unknown>) {
@@ -2221,11 +2214,6 @@ type VirtualizedSuggestionRow = {
 
 type VirtualizedRow = VirtualizedItemRow | VirtualizedSuggestionRow;
 
-type BulkMoveDestination = {
-  id: string | null;
-  label: string;
-};
-
 type PastePreviewDialogRow = {
   id: string;
   rowNumber: number;
@@ -2291,11 +2279,7 @@ export function EstimateEditorTable({
 }: EstimateEditorTableProps) {
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
   const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
-  const [bulkMajorationPercent, setBulkMajorationPercent] = useState("100");
   const [isAssemblyPickerOpen, setIsAssemblyPickerOpen] = useState(false);
-  const [bulkMoveParentId, setBulkMoveParentId] = useState("");
-  const [bulkCategoryId, setBulkCategoryId] = useState("");
-  const [bulkLaborRoleId, setBulkLaborRoleId] = useState("");
   const [dismissedSuggestionsByItemId, setDismissedSuggestionsByItemId] = useState<
     Record<string, Record<string, boolean>>
   >({});
@@ -2348,58 +2332,28 @@ export function EstimateEditorTable({
     })
   );
 
-  const itemsByParent = useMemo(() => {
-    const map = new Map<string, EstimateItem[]>();
-    items.forEach((item) => {
-      const key = getParentKey(item.parent_id);
-      const list = map.get(key) ?? [];
-      list.push(item);
-      map.set(key, list);
-    });
-    map.forEach((list) => list.sort((a, b) => a.position - b.position));
-    return map;
-  }, [items]);
-
-  const depthMap = useMemo(() => {
-    const depth = new Map<string, number>();
-    function walk(parentId: string | null, level: number) {
-      const list = itemsByParent.get(getParentKey(parentId)) ?? [];
-      list.forEach((item) => {
-        depth.set(item.id, level);
-        if (item.item_type === "section") {
-          walk(item.id, level + 1);
-        }
-      });
-    }
-    walk(null, 0);
-    return depth;
-  }, [itemsByParent]);
-
-  const itemById = useMemo(() => {
-    const map = new Map<string, EstimateItem>();
-    items.forEach((item) => map.set(item.id, item));
-    return map;
-  }, [items]);
-
-  const bulkMoveDestinations = useMemo(() => {
-    const destinations: BulkMoveDestination[] = [{ id: null, label: "Racine" }];
-
-    function walk(parentId: string | null, depth: number) {
-      const children = itemsByParent.get(getParentKey(parentId)) ?? [];
-      children.forEach((child) => {
-        if (child.item_type !== "section") return;
-        const prefix = depth > 0 ? `${"  ".repeat(depth)}- ` : "";
-        destinations.push({
-          id: child.id,
-          label: `${prefix}${child.title || "Sans titre"}`,
-        });
-        walk(child.id, depth + 1);
-      });
-    }
-
-    walk(null, 0);
-    return destinations;
-  }, [itemsByParent]);
+  const {
+    itemsByParent,
+    depthMap,
+    itemById,
+    bulkMoveDestinations,
+    visibleLineIds,
+    getSectionTotals,
+    getVisibleItems,
+    hasVisibleRows,
+    visibleLineIdList,
+    visibleItemsInOrder,
+  } = useEstimateVisibility({
+    items,
+    qualityFilter,
+    qualityFlagsByItemId,
+    marginMultiplier,
+    discountCents,
+    taxRateBp,
+    laborRateById,
+    isLaborSplitEnabled,
+  });
+  const canReorder = !isReadOnly && qualityFilter === "all_lines";
 
   const orderedRules = useMemo(
     () => [...suggestionRules].sort((a, b) => a.position - b.position),
@@ -2448,109 +2402,6 @@ export function EstimateEditorTable({
     laborRoles.forEach((role) => map.set(role.id, role));
     return map;
   }, [laborRoles]);
-
-  const visibleLineIds = useMemo(() => {
-    const visible = new Set<string>();
-    items.forEach((item) => {
-      if (item.item_type !== "line") return;
-      const qualityFlags = qualityFlagsByItemId[item.id] ?? [];
-      if (matchesQualityFilter(qualityFlags, qualityFilter)) {
-        visible.add(item.id);
-      }
-    });
-    return visible;
-  }, [items, qualityFilter, qualityFlagsByItemId]);
-
-  const visibleSectionIds = useMemo(() => {
-    const visible = new Set<string>();
-
-    function walk(parentId: string | null): boolean {
-      const list = itemsByParent.get(getParentKey(parentId)) ?? [];
-      let hasVisibleLine = false;
-
-      list.forEach((item) => {
-        if (item.item_type === "line") {
-          if (visibleLineIds.has(item.id)) {
-            hasVisibleLine = true;
-          }
-          return;
-        }
-
-        const hasVisibleChild = walk(item.id);
-        if (qualityFilter === "all_lines" || hasVisibleChild) {
-          visible.add(item.id);
-        }
-        if (hasVisibleChild) {
-          hasVisibleLine = true;
-        }
-      });
-
-      return hasVisibleLine;
-    }
-
-    walk(null);
-    return visible;
-  }, [itemsByParent, qualityFilter, visibleLineIds]);
-
-  const sectionTotalsById = useMemo(() => {
-    const map = new Map<string, SectionTotals>();
-    const calcItems = items as EstimateItemRecord[];
-    visibleSectionIds.forEach((sectionId) => {
-      const sectionTotalsInput = {
-        items: calcItems,
-        sectionId,
-        marginMultiplier,
-        discountCents,
-        taxRateBp,
-        laborRateById,
-        isLaborSplitEnabled,
-      };
-      map.set(
-        sectionId,
-        computeSectionTotals(sectionTotalsInput)
-      );
-    });
-    return map;
-  }, [
-    discountCents,
-    isLaborSplitEnabled,
-    items,
-    laborRateById,
-    marginMultiplier,
-    taxRateBp,
-    visibleSectionIds,
-  ]);
-
-  const getSectionTotals = useCallback(
-    (sectionId: string) => sectionTotalsById.get(sectionId) ?? null,
-    [sectionTotalsById]
-  );
-
-  const visibleItemsByParent = useMemo(() => {
-    const map = new Map<string, EstimateItem[]>();
-    itemsByParent.forEach((list, parentKey) => {
-      const visibleList = list.filter((item) => {
-        if (item.item_type === "line") {
-          return visibleLineIds.has(item.id);
-        }
-        return visibleSectionIds.has(item.id);
-      });
-      if (visibleList.length > 0) {
-        map.set(parentKey, visibleList);
-      }
-    });
-    return map;
-  }, [itemsByParent, visibleLineIds, visibleSectionIds]);
-
-  const getVisibleItems = useCallback(
-    (parentId: string | null) => {
-      return visibleItemsByParent.get(getParentKey(parentId)) ?? EMPTY_ITEMS;
-    },
-    [visibleItemsByParent]
-  );
-
-  const hasVisibleRows = getVisibleItems(null).length > 0;
-  const canReorder = !isReadOnly && qualityFilter === "all_lines";
 
   const mergedUnitDrafts = useMemo(() => {
     const next = { ...unitDrafts };
@@ -2618,27 +2469,38 @@ export function EstimateEditorTable({
     [isReadOnly, mergedUnitDrafts, onPatchItem]
   );
 
-  const visibleLineIdList = useMemo(() => {
-    return items
-      .filter((item) => item.item_type === "line" && visibleLineIds.has(item.id))
-      .map((item) => item.id);
-  }, [items, visibleLineIds]);
-
   const {
-    selectedIds: selectedLineIdList,
-    isSelected: isLineSelected,
-    handleItemSelection,
-    selectAll: selectAllVisibleLines,
-    clear: clearLineSelection,
-  } = useMultiSelect({
-    visibleIds: visibleLineIdList,
+    bulkMajorationPercent,
+    setBulkMajorationPercent,
+    bulkMoveParentId,
+    setBulkMoveParentId,
+    bulkCategoryId,
+    setBulkCategoryId,
+    bulkLaborRoleId,
+    setBulkLaborRoleId,
+    selectedLineIdList,
+    selectedLineCount,
+    hasSelectedLines,
+    allVisibleSelected,
+    isLineSelected,
+    selectAllVisibleLines,
+    clearLineSelection,
+    toggleAllVisibleLines,
+    handleLineSelectionInteraction,
+    handleApplyBulkMajoration,
+    handleBulkDeleteSelection,
+    handleApplyBulkMove,
+    handleApplyBulkCategory,
+    handleApplyBulkLaborRole,
+  } = useEstimateSelection({
+    visibleLineIdList,
+    isReadOnly,
+    onApplyBulkMajoration,
+    onBulkDeleteLines,
+    onBulkMoveLines,
+    onBulkSetCategory,
+    onBulkSetLaborRole,
   });
-
-  const selectedLineCount = selectedLineIdList.length;
-  const hasSelectedLines = selectedLineCount > 0;
-
-  const allVisibleSelected =
-    visibleLineIdList.length > 0 && selectedLineCount === visibleLineIdList.length;
 
   const clipboardTargetOptions = useMemo(() => {
     return CLIPBOARD_TARGET_FIELDS.map((field) => ({
@@ -2853,91 +2715,6 @@ export function EstimateEditorTable({
     document.execCommand("copy");
     document.body.removeChild(textarea);
   }, [hasSelectedLines, items, mergedUnitDrafts, selectedLineIdList, supplyTypeById]);
-
-  const toggleAllVisibleLines = useCallback(
-    (checked: boolean) => {
-      if (checked) {
-        selectAllVisibleLines(visibleLineIdList);
-        return;
-      }
-      clearLineSelection();
-    },
-    [clearLineSelection, selectAllVisibleLines, visibleLineIdList]
-  );
-
-  const handleLineSelectionInteraction = useCallback(
-    (interaction: MultiSelectItemInteraction) => {
-      if (isReadOnly) return;
-      handleItemSelection(interaction);
-    },
-    [handleItemSelection, isReadOnly]
-  );
-
-  const handleApplyBulkMajoration = useCallback(async () => {
-    if (isReadOnly || !hasSelectedLines) return;
-    const coefficient = parseMajorationPercentToCoefficient(bulkMajorationPercent);
-    await onApplyBulkMajoration(selectedLineIdList, coefficient);
-  }, [
-    bulkMajorationPercent,
-    hasSelectedLines,
-    isReadOnly,
-    onApplyBulkMajoration,
-    selectedLineIdList,
-  ]);
-
-  const handleBulkDeleteSelection = useCallback(async () => {
-    if (isReadOnly || !hasSelectedLines) return;
-
-    const lineLabel =
-      selectedLineCount > 1 ? "lignes selectionnees" : "ligne selectionnee";
-    const confirmed = window.confirm(
-      `Supprimer ${selectedLineCount} ${lineLabel} ?`
-    );
-    if (!confirmed) return;
-
-    await onBulkDeleteLines(selectedLineIdList);
-    clearLineSelection();
-  }, [
-    clearLineSelection,
-    hasSelectedLines,
-    isReadOnly,
-    onBulkDeleteLines,
-    selectedLineCount,
-    selectedLineIdList,
-  ]);
-
-  const handleApplyBulkMove = useCallback(async () => {
-    if (isReadOnly || !hasSelectedLines) return;
-    await onBulkMoveLines(selectedLineIdList, bulkMoveParentId || null);
-  }, [
-    bulkMoveParentId,
-    hasSelectedLines,
-    isReadOnly,
-    onBulkMoveLines,
-    selectedLineIdList,
-  ]);
-
-  const handleApplyBulkCategory = useCallback(async () => {
-    if (isReadOnly || !hasSelectedLines) return;
-    await onBulkSetCategory(selectedLineIdList, bulkCategoryId || null);
-  }, [
-    bulkCategoryId,
-    hasSelectedLines,
-    isReadOnly,
-    onBulkSetCategory,
-    selectedLineIdList,
-  ]);
-
-  const handleApplyBulkLaborRole = useCallback(async () => {
-    if (isReadOnly || !hasSelectedLines) return;
-    await onBulkSetLaborRole(selectedLineIdList, bulkLaborRoleId || null);
-  }, [
-    bulkLaborRoleId,
-    hasSelectedLines,
-    isReadOnly,
-    onBulkSetLaborRole,
-    selectedLineIdList,
-  ]);
 
   const handleTableBodyMouseDown = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -3689,21 +3466,6 @@ export function EstimateEditorTable({
     return map;
   }, [flattenedRows, isVirtualized]);
 
-  const visibleItemsInOrder = useMemo(() => {
-    const ordered: EstimateItem[] = [];
-    const walk = (parentId: string | null) => {
-      const list = getVisibleItems(parentId);
-      list.forEach((item) => {
-        ordered.push(item);
-        if (item.item_type === "section") {
-          walk(item.id);
-        }
-      });
-    };
-    walk(null);
-    return ordered;
-  }, [getVisibleItems]);
-
   const spreadsheetNavigationRows = useMemo(() => {
     if (!hasVisibleRows) return [] as SpreadsheetNavigationRow[];
 
@@ -3920,8 +3682,56 @@ export function EstimateEditorTable({
     };
   }, [isVirtualized, virtualization?.containerHeight, virtualization?.maxHeight]);
 
+  const estimateEditorContextValue = useMemo(
+    () => ({
+      state: {
+        visibleLineIdList,
+        selectedLineIdList,
+        selectedLineCount,
+        hasSelectedLines,
+        allVisibleSelected,
+        bulkMajorationPercent,
+        bulkMoveParentId,
+        bulkCategoryId,
+        bulkLaborRoleId,
+      },
+      actions: {
+        setBulkMajorationPercent,
+        setBulkMoveParentId,
+        setBulkCategoryId,
+        setBulkLaborRoleId,
+        toggleAllVisibleLines,
+        clearLineSelection,
+      },
+      meta: {
+        hasVisibleRows,
+        isReadOnly,
+      },
+    }),
+    [
+      allVisibleSelected,
+      bulkCategoryId,
+      bulkLaborRoleId,
+      bulkMajorationPercent,
+      bulkMoveParentId,
+      clearLineSelection,
+      hasSelectedLines,
+      hasVisibleRows,
+      isReadOnly,
+      selectedLineCount,
+      selectedLineIdList,
+      setBulkCategoryId,
+      setBulkLaborRoleId,
+      setBulkMajorationPercent,
+      setBulkMoveParentId,
+      toggleAllVisibleLines,
+      visibleLineIdList,
+    ]
+  );
+
   return (
-    <div ref={tableCardRef} className="dashboard-card p-6">
+    <EstimateEditorProvider value={estimateEditorContextValue}>
+      <div ref={tableCardRef} className="dashboard-card p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold text-[var(--slate-800)]">
@@ -4384,6 +4194,7 @@ export function EstimateEditorTable({
         onConfirm={() => void handleConfirmPastePreview()}
         onClose={closePastePreview}
       />
-    </div>
+      </div>
+    </EstimateEditorProvider>
   );
 }
