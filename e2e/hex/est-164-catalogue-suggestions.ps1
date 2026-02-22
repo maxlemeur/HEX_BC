@@ -11,116 +11,62 @@ $Session = $config.Session
 
 Require-AgentBrowser
 
+function Invoke-EvalWithRetry {
+  param(
+    [string]$Session,
+    [string]$Script,
+    [int]$MaxAttempts = 3
+  )
+
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      return Invoke-AB $Session "eval" $Script
+    } catch {
+      $isTransient = $_.Exception.Message -match "Invalid response:\s*EOF|Resource temporarily unavailable \(os error 11\)|transport error|socket hang up|ECONNRESET|EPIPE|broken pipe|connection reset"
+      if ($attempt -lt $MaxAttempts -and $isTransient) {
+        Start-Sleep -Milliseconds (400 * $attempt)
+        continue
+      }
+      throw
+    }
+  }
+}
+
 function Parse-JsonPayload {
   param([object]$RawPayload)
 
-  $parsed = ([string]$RawPayload) | ConvertFrom-Json
+  $parsed = ConvertFrom-AgentBrowserJson -RawOutput $RawPayload
   if ($parsed -is [string]) {
-    $parsed = ([string]$parsed) | ConvertFrom-Json
+    $parsed = ConvertFrom-AgentBrowserJson -RawOutput $parsed
   }
 
   return $parsed
 }
 
-function Login-Smoke {
+function Get-CandidateVersionIds {
   param(
     [string]$BaseUrl,
     [string]$Session
   )
 
-  if (-not $env:E2E_LOGIN_EMAIL -or -not $env:E2E_LOGIN_PASSWORD) {
-    throw "E2E_LOGIN_EMAIL and E2E_LOGIN_PASSWORD must be set."
-  }
-
-  Invoke-AB $Session "open" "$BaseUrl/login"
-  Invoke-AB $Session "wait" "--load" "networkidle" | Out-Null
-  Invoke-AB $Session "find" "label" "Email" "fill" $env:E2E_LOGIN_EMAIL | Out-Null
-  Invoke-AB $Session "fill" "#password" $env:E2E_LOGIN_PASSWORD | Out-Null
-  Invoke-AB $Session "eval" @"
-(() => {
-  const form = document.querySelector('form');
-  if (!form) throw new Error('Missing login form');
-  form.requestSubmit();
-})();
-"@ | Out-Null
-  Wait-ForUrlContains -Session $Session -Needle "/dashboard" | Out-Null
-}
-
-function Get-DraftVersionIds {
-  param([string]$Session)
-
   if ($env:E2E_EST164_VERSION_ID) {
     return @([string]$env:E2E_EST164_VERSION_ID)
   }
 
-  $payloadJson = Invoke-AB $Session "eval" @"
-(async () => {
-  const response = await fetch('/api/estimates', {
-    method: 'GET',
-    cache: 'no-store'
-  });
+  $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $project = "E2E-HEX-EST164-$stamp"
+  $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E EST-164" -Date "2026-02-02" -Validite "30"
+  Go-EditorTab -Session $Session
+  Add-Chapter -Session $Session -Title "Chapitre EST-164"
+  Add-Line -Session $Session -Designation "Tube Inox 316L"
 
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    return JSON.stringify({
-      versionIds: [],
-      error: payload?.error?.message ?? ('HTTP ' + response.status)
-    });
-  }
-
-  const versions = payload?.ok && Array.isArray(payload?.data?.items)
-    ? payload.data.items
-    : [];
-  const draftCandidates = versions.filter(
-    (item) => item?.status === 'draft' && typeof item?.version_id === 'string'
-  );
-  const eligibleVersionIds = [];
-
-  for (const candidate of draftCandidates) {
-    const versionId = candidate.version_id;
-    const responseItems = await fetch('/api/estimates/' + versionId + '/items', {
-      method: 'GET',
-      cache: 'no-store'
-    });
-    const payloadItems = await responseItems.json().catch(() => null);
-    if (!responseItems.ok) continue;
-
-    const estimateItems = payloadItems?.ok && Array.isArray(payloadItems?.data?.items)
-      ? payloadItems.data.items
-      : [];
-
-    if (estimateItems.some((entry) => entry?.item_type === 'line')) {
-      eligibleVersionIds.push(versionId);
-    }
-  }
-
-  return JSON.stringify({ versionIds: eligibleVersionIds, error: null });
-})()
-"@
-
-  $payload = Parse-JsonPayload -RawPayload $payloadJson
-  $hasError = $payload -and ($payload.PSObject.Properties.Name -contains "error")
-  if ($hasError -and $payload.error) {
-    throw "Unable to list estimates: $($payload.error)"
-  }
-
-  $hasVersionIds = $payload -and ($payload.PSObject.Properties.Name -contains "versionIds")
-  $versionIds = @()
-  if ($hasVersionIds -and $payload.versionIds) {
-    $versionIds = @($payload.versionIds)
-  }
-
-  if ($versionIds.Count -eq 0) {
-    throw "No draft estimate with line items available for EST-164 smoke."
-  }
-
-  return $versionIds
+  return @($versionId)
 }
 
 try {
-  Login-Smoke -BaseUrl $BaseUrl -Session $Session
+  Login-E2E -BaseUrl $BaseUrl -Session $Session
 
-  $candidateVersionIds = Get-DraftVersionIds -Session $Session
+  $candidateVersionIds = Get-CandidateVersionIds -BaseUrl $BaseUrl -Session $Session
   $result = $null
   $lastError = $null
 
@@ -129,7 +75,7 @@ try {
     Invoke-AB $Session "wait" "--load" "networkidle" | Out-Null
 
     $versionIdJson = ConvertTo-Json $versionId -Compress
-    $resultJson = Invoke-AB $Session "eval" @"
+    $resultJson = Invoke-EvalWithRetry -Session $Session -Script @"
 (async () => {
   const versionId = $versionIdJson;
 

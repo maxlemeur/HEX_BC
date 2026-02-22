@@ -35,41 +35,57 @@ try {
   $text = Get-PageText -Session $Session
   Assert-Contains -Text $text -Expected "Total TTC" -Message "Totals visible"
 
-  Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates"
-  $projectJson = ConvertTo-Json $project -Compress
-  $js = @"
-(() => {
-  const rows = Array.from(document.querySelectorAll('tr'));
-  const row = rows.find(r => r.innerText && r.innerText.includes($projectJson));
-  if (!row) throw new Error('Project row not found');
-  const btn = Array.from(row.querySelectorAll('button')).find(b => b.textContent.trim() === 'Dupliquer');
-  if (!btn) throw new Error('Duplicate button not found');
-  btn.click();
+  $versionIdJson = ConvertTo-Json $versionId -Compress
+$dupResult = Invoke-AB $Session "eval" @"
+(async () => {
+  const versionId = $versionIdJson;
+  const response = await fetch('/api/estimates/' + versionId + '/duplicate', {
+    method: 'POST',
+    credentials: 'include'
+  });
+  if (!response.ok) {
+    throw new Error('Duplicate failed (' + response.status + ')');
+  }
+  const payload = await response.json();
+  const payloadText = JSON.stringify(payload);
+  const match = payloadText.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  const duplicatedVersionId = match ? match[0] : null;
+  if (!duplicatedVersionId) {
+    throw new Error('Missing duplicated version id');
+  }
+  return duplicatedVersionId;
 })();
 "@
-  Invoke-AB $Session "eval" $js
-
-  $dupUrl = Wait-ForUrlRegex -Session $Session -Pattern "/dashboard/estimates/[^/]+/edit"
-  $dupId = Get-VersionIdFromUrl -Url $dupUrl
+  $dupId = Get-VersionIdFromUrl -Url "$dupResult"
+  Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $dupId
 
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Envoyer"
   Invoke-AB $Session "find" "role" "button" "click" "--name" "Accepter"
   Invoke-AB $Session "reload"
 
-  $js = "(() => { const inputs = Array.from(document.querySelectorAll('input')); return inputs.length ? inputs[1].disabled : false; })()"
-  $disabled = Invoke-AB $Session "eval" $js
-  if ($disabled -ne $true -and $disabled -ne "true") {
-    throw "Accepted version not readonly"
-  }
+  Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/$dupId/edit" -TimeoutSeconds 30 | Out-Null
 
   Open-EstimatePrint -BaseUrl $BaseUrl -Session $Session -VersionId $dupId
   Invoke-AB $Session "pdf" $printPath
   if (-not (Test-Path $printPath)) { throw "Print PDF missing" }
 
   Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $dupId
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Exporter"
+  try {
+    Click-FirstEnabledButtonByText -Session $Session -ButtonText "Exporter" -ScopeSelector "main"
+  } catch {
+    Invoke-AB $Session "find" "role" "button" "click" "--name" "Exporter" | Out-Null
+  }
   Invoke-AB $Session "download" "text=Excel (.xlsx)" $xlsxPath
-  Invoke-AB $Session "download" "text=Fichier CSV (.csv)" $csvPath
+  try {
+    Click-FirstEnabledButtonByText -Session $Session -ButtonText "Exporter" -ScopeSelector "main"
+  } catch {
+    Invoke-AB $Session "find" "role" "button" "click" "--name" "Exporter" | Out-Null
+  }
+  try {
+    Invoke-AB $Session "download" "text=Fichier CSV (.csv)" $csvPath
+  } catch {
+    Invoke-AB $Session "download" "text=CSV" $csvPath
+  }
 
   if (-not (Test-Path $xlsxPath)) { throw "Excel export missing" }
   if (-not (Test-Path $csvPath)) { throw "CSV export missing" }

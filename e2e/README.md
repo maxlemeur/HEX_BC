@@ -5,6 +5,7 @@ This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
 ## Requirements
 
 - `agent-browser` installed and available in PATH.
+- Playwright browser binaries installed (`npx playwright install chromium`).
 - PowerShell runtime available in PATH (`pwsh` on Linux/macOS, `pwsh` or `powershell` on Windows).
 - App running locally (default base URL is `http://localhost:3000`).
 
@@ -19,42 +20,68 @@ This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
 
 ## HEX ticket scripts
 
-Scripts live in `e2e/hex/` and are named after Linear tickets. Run them cross-platform via npm:
+Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands are cross-platform and routed through `e2e/run-ps1.mjs`.
+
+### Recommended commands
+
+- Fast local run (default quick suite): `npm run e2e:hex`
+- Full validation run: `npm run e2e:hex:all`
+- Feature suites:
+  - `npm run e2e:hex:editor`
+  - `npm run e2e:hex:lifecycle`
+  - `npm run e2e:hex:output`
+  - `npm run e2e:hex:settings`
+  - `npm run e2e:hex:security`
+  - `npm run e2e:hex:assemblies`
+
+### Suite matrix
+
+- `quick` (default via `e2e:hex`):
+  - `ti-145-create.ps1`
+  - `ti-147-editor.ps1`
+  - `ti-148-calculations.ps1`
+  - `ti-150-status.ps1`
+- `editor`:
+  - `est-101-keyboard.ps1`
+  - `est-102-inline-edit.ps1`
+  - `est-103-multiselect.ps1`
+  - `ti-147-editor.ps1`
+  - `est-164-catalogue-suggestions.ps1`
+- `lifecycle`:
+  - `ti-143-navigation.ps1`
+  - `ti-144-list.ps1`
+  - `ti-145-create.ps1`
+  - `ti-149-duplicate.ps1`
+  - `ti-150-status.ps1`
+- `output`:
+  - `ti-151-print.ps1`
+  - `ti-152-export.ps1`
+- `settings`:
+  - `ti-146-parameters.ps1`
+  - `ti-153-suggestions.ps1`
+  - `ti-142-types.ps1`
+- `security`:
+  - `ti-141-db-rls.ps1`
+- `assemblies`:
+  - `ti-182-assemblies.ps1`
+- `all`:
+  - full HEX coverage (including `ti-140-epic.ps1`)
+
+### Runner options
+
+List available suites:
 
 ```bash
-npm run e2e:hex
-npm run e2e:run -- e2e/hex/ti-140-epic.ps1
-npm run e2e:run -- e2e/hex/est-101-keyboard.ps1
-npm run e2e:run -- e2e/hex/est-102-inline-edit.ps1
-npm run e2e:run -- e2e/hex/est-103-multiselect.ps1
-npm run e2e:run -- e2e/hex/ti-143-navigation.ps1
-npm run e2e:run -- e2e/hex/ti-144-list.ps1
-npm run e2e:run -- e2e/hex/ti-145-create.ps1
-npm run e2e:run -- e2e/hex/ti-146-parameters.ps1
-npm run e2e:run -- e2e/hex/ti-147-editor.ps1
-npm run e2e:run -- e2e/hex/ti-148-calculations.ps1
-npm run e2e:run -- e2e/hex/ti-149-duplicate.ps1
-npm run e2e:run -- e2e/hex/ti-182-assemblies.ps1
-npm run e2e:run -- e2e/hex/ti-150-status.ps1
-npm run e2e:run -- e2e/hex/ti-151-print.ps1
-npm run e2e:run -- e2e/hex/ti-152-export.ps1
-npm run e2e:run -- e2e/hex/ti-153-suggestions.ps1
-npm run e2e:run -- e2e/hex/ti-141-db-rls.ps1
-npm run e2e:run -- e2e/hex/ti-142-types.ps1
+npm run e2e:run -- e2e/hex/run-all.ps1 -ListSuites
 ```
 
-The RLS test (`ti-141-db-rls.ps1`) needs a secondary account:
-
-- `E2E_LOGIN_EMAIL_2`
-- `E2E_LOGIN_PASSWORD_2`
-
-`npm run e2e`, `npm run e2e:auth` et `npm run e2e:hex` chargent automatiquement `.env` puis `.env.local`.
-
-Direct PowerShell usage is still possible if needed:
+Run one suite manually and stop on first failure:
 
 ```bash
-pwsh -NoProfile -File e2e/hex/run-all.ps1
+npm run e2e:run -- e2e/hex/run-all.ps1 -Suite editor -ContinueOnFailure false
 ```
+
+`npm run e2e`, `npm run e2e:auth`, and all `npm run e2e:hex*` commands auto-load `.env` then `.env.local`.
 
 ## Environment variables
 
@@ -63,8 +90,12 @@ pwsh -NoProfile -File e2e/hex/run-all.ps1
 - `E2E_SESSION` to control the agent-browser session name
 - `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD` for auth state
 - `E2E_AUTH_STATE` path for saved auth state (default: `e2e/.auth.json`)
+- `E2E_AUTH_CACHE` (default: `1` for HEX flows). Set `0`/`false`/`off`/`no` to disable cache and force UI login.
+- `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2` for `ti-141-db-rls.ps1` secondary account checks
 
-By default, session names are isolated per process (`e2e-$PID`, `e2e-auth-$PID`, `e2e-hex-$PID`) and `e2e:hex` isolates each test with its own session. This avoids collisions when multiple devs run E2E in parallel.
+If `E2E_LOGIN_EMAIL_2` or `E2E_LOGIN_PASSWORD_2` is missing, `ti-141-db-rls.ps1` is reported as `SKIP` and does not fail the suite.
+
+By default, session names are isolated per process (`e2e-$PID`, `e2e-auth-$PID`, `e2e-hex-$PID`) and HEX suite runs isolate each test with its own session. This avoids collisions when multiple devs run E2E in parallel.
 
 ## Environment examples
 
@@ -85,13 +116,17 @@ E2E_BASE_URL="http://localhost:3000" E2E_HEADED="1" npm run e2e
 E2E_LOGIN_EMAIL="user@example.com" E2E_LOGIN_PASSWORD="password" npm run e2e:auth
 ```
 
-## Using the saved auth state
+## Auth state cache
 
-In new scripts, dot-source the helper and load the auth state with:
+When scripts use `e2e/hex/common.ps1`, `Login-E2E` automatically:
 
-```powershell
-. "$PSScriptRoot/agent-browser.ps1"
-Invoke-AgentBrowser -Session $Session "state" "load" "e2e/.auth.json"
+- tries to load `E2E_AUTH_STATE` (`e2e/.auth.json` by default),
+- validates access via `/dashboard`,
+- falls back to UI login only when cache is missing/invalid,
+- and saves the refreshed state after a successful login.
+
+Refresh cache manually with:
+
+```bash
+npm run e2e:auth
 ```
-
-Then navigate to authenticated routes.

@@ -18,7 +18,7 @@ function Get-E2EConfig {
     $Session = $env:E2E_SESSION
   }
   if (-not $Session) {
-    $Session = "e2e"
+    $Session = "e2e-$PID"
   }
 
   return @{
@@ -59,6 +59,102 @@ function Start-AgentBrowserDaemon {
   return $true
 }
 
+function ConvertTo-AgentBrowserText {
+  param([object]$RawOutput)
+
+  if ($null -eq $RawOutput) {
+    return ""
+  }
+
+  if ($RawOutput -is [System.Array]) {
+    $text = ($RawOutput | ForEach-Object { [string]$_ }) -join "`n"
+  } else {
+    $text = [string]$RawOutput
+  }
+
+  $text = $text -replace "`e\[[0-9;?]*[ -/]*[@-~]", ""
+  $text = $text -replace "[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", ""
+  return $text.Trim()
+}
+
+function Select-AgentBrowserStablePayload {
+  param([string]$RawText)
+
+  $text = ConvertTo-AgentBrowserText -RawOutput $RawText
+  if (-not $text) {
+    return ""
+  }
+
+  if ($text -notmatch "`n") {
+    return $text
+  }
+
+  $lines = @(
+    $text -split "`r?`n" |
+      ForEach-Object { $_.Trim() } |
+      Where-Object { $_ -ne "" }
+  )
+  if ($lines.Count -eq 0) {
+    return $text
+  }
+
+  for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+    $candidate = $lines[$i]
+    if ($candidate -match "^\{.*\}$" -or
+      $candidate -match "^\[.*\]$" -or
+      $candidate -match '^".*"$' -or
+      $candidate -match "^(true|false|null)$" -or
+      $candidate -match "^-?\d+(\.\d+)?$"
+    ) {
+      return $candidate
+    }
+  }
+
+  return $text
+}
+
+function ConvertFrom-AgentBrowserJson {
+  param([object]$RawOutput)
+
+  $text = Select-AgentBrowserStablePayload -RawText (ConvertTo-AgentBrowserText -RawOutput $RawOutput)
+  if (-not $text) {
+    throw "agent-browser JSON payload is empty."
+  }
+
+  try {
+    return $text | ConvertFrom-Json
+  } catch {
+    throw "Failed to parse agent-browser JSON payload: $text"
+  }
+}
+
+function Test-IsTransientAgentBrowserError {
+  param([string]$ErrorText)
+
+  if (-not $ErrorText) {
+    return $false
+  }
+
+  $patterns = @(
+    "Invalid response:\s*EOF",
+    "Resource temporarily unavailable \(os error 11\)",
+    "transport error",
+    "socket hang up",
+    "ECONNRESET",
+    "EPIPE",
+    "broken pipe",
+    "connection reset"
+  )
+
+  foreach ($pattern in $patterns) {
+    if ($ErrorText -match $pattern) {
+      return $true
+    }
+  }
+
+  return $false
+}
+
 function Invoke-AgentBrowser {
   param(
     [Parameter(Mandatory = $true)][string]$Session,
@@ -74,30 +170,83 @@ function Invoke-AgentBrowser {
   }
   $cmd = @($baseCmd + $Args)
 
+  $action = ""
+  if ($Args.Count -gt 0) {
+    $action = $Args[0].ToLowerInvariant()
+  }
+
+  $isDownload = $action -eq "download"
+  $isClose = $action -eq "close"
+  $isEval = $action -eq "eval"
   $maxAttempts = 4
+  $baseDelayMs = 300
+
+  if ($isEval) {
+    $maxAttempts = 6
+    $baseDelayMs = 350
+  }
+
+  if ($isDownload) {
+    $maxAttempts = 4
+    $baseDelayMs = 200
+  } elseif ($isClose) {
+    $maxAttempts = 3
+    $baseDelayMs = 120
+  }
+
   for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-    $output = & agent-browser @cmd
+    $output = & agent-browser @cmd 2>&1
     $exitCode = $LASTEXITCODE
+    $outputText = ConvertTo-AgentBrowserText -RawOutput $output
     if ($exitCode -eq 0) {
-      return $output
+      return (Select-AgentBrowserStablePayload -RawText $outputText)
     }
 
-    if ($attempt -lt $maxAttempts) {
-      $outputText = [string]($output | Out-String)
-      if ($Args.Count -gt 0 -and $Args[0] -ne "launch" -and $outputText -like "*Browser not launched*") {
+    $retryReason = $null
+    if ($Args.Count -gt 0 -and $Args[0] -ne "launch" -and $outputText -like "*Browser not launched*") {
+      $retryReason = "browser-not-launched"
+      if ($attempt -lt $maxAttempts) {
         & agent-browser @baseCmd "launch" | Out-Null
         if ($LASTEXITCODE -eq 0) {
-          Start-Sleep -Milliseconds (250 * $attempt)
-          continue
+          Start-Sleep -Milliseconds (200 * $attempt)
         }
       }
-
-      Start-AgentBrowserDaemon | Out-Null
-      Start-Sleep -Milliseconds (300 * $attempt)
+    } elseif (Test-IsTransientAgentBrowserError -ErrorText $outputText) {
+      $retryReason = "transient-transport"
+    } elseif ($isDownload) {
+      $retryReason = "download-retry"
+    } elseif ($isClose) {
+      $retryReason = "close-retry"
     }
+
+    if ($attempt -lt $maxAttempts -and $retryReason) {
+      Start-AgentBrowserDaemon | Out-Null
+      Start-Sleep -Milliseconds ($baseDelayMs * $attempt)
+      continue
+    }
+
+    $detail = if ($outputText) { $outputText } else { "exit code $exitCode" }
+    throw "agent-browser failed ($retryReason) for '$($Args -join ' ')': $detail"
   }
 
   throw "agent-browser failed: $($Args -join ' ')"
+}
+
+function Normalize-AgentBrowserUrlOutput {
+  param([string]$RawOutput)
+
+  if (-not $RawOutput) {
+    return ""
+  }
+
+  $text = ConvertTo-AgentBrowserText -RawOutput $RawOutput
+  $text = $text.Trim().Trim('"')
+  $urlMatches = [regex]::Matches($text, "https?://[^\s`"]+")
+  if ($urlMatches.Count -gt 0) {
+    return $urlMatches[$urlMatches.Count - 1].Value
+  }
+
+  return $text
 }
 
 function Wait-ForUrlContains {
@@ -113,7 +262,7 @@ function Wait-ForUrlContains {
 
   while ((Get-Date) -lt $deadline) {
     try {
-      $lastUrl = [string](Invoke-AgentBrowser -Session $Session "eval" "window.location.href")
+      $lastUrl = Normalize-AgentBrowserUrlOutput ([string](Invoke-AgentBrowser -Session $Session "eval" "window.location.href"))
       if ($lastUrl -like "*$Needle*") {
         return $lastUrl
       }
@@ -148,7 +297,7 @@ function Wait-ForUrlRegex {
 
   while ((Get-Date) -lt $deadline) {
     try {
-      $lastUrl = [string](Invoke-AgentBrowser -Session $Session "eval" "window.location.href")
+      $lastUrl = Normalize-AgentBrowserUrlOutput ([string](Invoke-AgentBrowser -Session $Session "eval" "window.location.href"))
       if ($lastUrl -match $Pattern) {
         return $lastUrl
       }
