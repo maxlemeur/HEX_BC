@@ -49,11 +49,48 @@ function Assert-Match {
   }
 }
 
+function Convert-AgentBrowserJson {
+  param([string]$Raw)
+
+  $text = $Raw
+  $text = $text -replace "`e\[[0-9;?]*[ -/]*[@-~]", ""
+  $text = $text.Trim()
+
+  try {
+    return $text | ConvertFrom-Json
+  } catch {
+  }
+
+  foreach ($pattern in @("\{[\s\S]*\}", "\[[\s\S]*\]")) {
+    $matches = [regex]::Matches($text, $pattern)
+    if ($matches.Count -eq 0) {
+      continue
+    }
+
+    for ($i = $matches.Count - 1; $i -ge 0; $i--) {
+      try {
+        return $matches[$i].Value | ConvertFrom-Json
+      } catch {
+      }
+    }
+  }
+
+  throw "Unable to parse JSON from agent-browser output."
+}
+
+function Normalize-AgentString {
+  param([string]$Raw)
+
+  $text = $Raw
+  $text = $text -replace "`e\[[0-9;?]*[ -/]*[@-~]", ""
+  return $text.Trim().Trim('"')
+}
+
 function Initialize-InlineSelectors {
   param([string]$Session)
 
-  $json = Invoke-AB $Session "eval" @"
-JSON.stringify((() => {
+  $raw = [string](Invoke-AB $Session "eval" @"
+(() => {
   const lineTitleInputs = Array.from(
     document.querySelectorAll('.estimate-row input.estimate-input--title')
   ).filter((input) => !input.closest('.estimate-row--section'));
@@ -73,9 +110,18 @@ JSON.stringify((() => {
     throw new Error('Missing title cell.');
   }
 
-  const unitPriceInput = row.querySelector('[data-cell-id$="::unit_price"] input.estimate-input');
+  const unitPriceCell =
+    row.querySelector('[data-cell-id$="::unit_price"]') ??
+    row.querySelector('[data-cell-id*="::unit_price"]') ??
+    row.querySelector('[data-cell-id*="unit_price_ht_cents"]') ??
+    null;
+  if (!unitPriceCell) {
+    throw new Error('Missing unit price cell.');
+  }
+
+  const unitPriceInput = unitPriceCell.querySelector('input.estimate-input');
   if (!unitPriceInput) {
-    throw new Error('Missing unit price input.');
+    throw new Error('Missing unit price input inside unit price cell.');
   }
 
   const editableCells = Array.from(row.querySelectorAll('[data-cell-id]'));
@@ -83,62 +129,162 @@ JSON.stringify((() => {
     throw new Error('Missing editable cells in line row.');
   }
 
-  const lastEditableCell = editableCells[editableCells.length - 1];
-  const lastEditableEditor = lastEditableCell.querySelector('input, select, textarea');
+  const editableCellWithEditor = editableCells
+    .map((cell) => {
+      const editor =
+        cell.querySelector('input:not([readonly]):not([type=\"checkbox\"]), select, textarea') ??
+        cell.querySelector('[contenteditable=\"true\"]');
+      return editor ? { cell, editor } : null;
+    })
+    .filter(Boolean);
+
+  if (editableCellWithEditor.length === 0) {
+    throw new Error('Missing editable cell editor.');
+  }
+
+  const { cell: lastEditableCell, editor: lastEditableEditor } =
+    editableCellWithEditor[editableCellWithEditor.length - 1];
+
   if (!lastEditableEditor) {
     throw new Error('Missing editor in last editable cell.');
   }
 
-  const puInput = row.querySelector('input[readonly]');
+  const puCell =
+    row.querySelector('[data-cell-id$="::pu_ht"]') ??
+    row.querySelector('[data-cell-id*="::pu_ht"]') ??
+    null;
+  if (!puCell) {
+    throw new Error('Missing PU cell.');
+  }
+  const puInput =
+    puCell.querySelector('input.estimate-input[readonly]') ??
+    puCell.querySelector('input.estimate-input') ??
+    null;
   if (!puInput) {
     throw new Error('Missing read-only PU input.');
   }
 
-  const totalCell = row.querySelector('.estimate-cell--total');
+  const totalCell =
+    row.querySelector('[data-cell-id$="::line_total_ht"]') ??
+    row.querySelector('.estimate-cell--total');
   if (!totalCell) {
     throw new Error('Missing total cell.');
   }
+  const totalCellId = totalCell.getAttribute('data-cell-id');
+  if (!totalCellId) {
+    throw new Error('Missing total cell id.');
+  }
 
-  titleCell.setAttribute('data-inline-id', 'line-title-cell');
-  lineTitleInput.setAttribute('data-inline-id', 'line-title-input');
-  unitPriceInput.setAttribute('data-inline-id', 'line-unit-price-input');
-  lastEditableCell.setAttribute('data-inline-id', 'line-last-editable-cell');
-  lastEditableEditor.setAttribute('data-inline-id', 'line-last-editable-editor');
-  puInput.setAttribute('data-inline-id', 'line-pu-input');
-  totalCell.setAttribute('data-inline-id', 'line-total-cell');
+  const titleCellId = titleCell.getAttribute('data-cell-id');
+  const unitPriceCellId = unitPriceCell.getAttribute('data-cell-id');
+  const lastEditableCellId = lastEditableCell.getAttribute('data-cell-id');
+  const puCellId = puCell.getAttribute('data-cell-id');
+  if (!titleCellId || !unitPriceCellId || !lastEditableCellId || !puCellId) {
+    throw new Error('Missing one or more required cell ids.');
+  }
 
-  const setValue = (el, value) => {
-    el.focus();
-    el.value = value;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    el.blur();
-  };
-
-  setValue(lineTitleInput, 'INLINE BASE');
-
-  return {
-    titleCellId: titleCell.getAttribute('data-cell-id') ?? '',
-    lastEditableCellId: lastEditableCell.getAttribute('data-cell-id') ?? '',
-    puReadOnly: Boolean(puInput.readOnly),
-    puDisabled: Boolean(puInput.disabled),
-    totalText: String(totalCell.textContent ?? '').trim()
-  };
-})())
+  const payload = [
+    'titleCellId=' + titleCellId,
+    'unitPriceCellId=' + unitPriceCellId,
+    'lastEditableCellId=' + lastEditableCellId,
+    'puCellId=' + puCellId,
+    'totalCellId=' + totalCellId,
+    'puReadOnly=' + String(Boolean(puInput.readOnly)),
+    'puDisabled=' + String(Boolean(puInput.disabled)),
+    'totalText=' + String(totalCell.textContent ?? '').trim()
+  ].join('||');
+  return '__INLINE_SELECTORS__' + payload + '__END_INLINE_SELECTORS__';
+})()
 "@
+  )
 
-  return $json | ConvertFrom-Json
+  $normalized = Normalize-AgentString -Raw $raw
+  $match = [regex]::Match($normalized, "__INLINE_SELECTORS__([\s\S]*?)__END_INLINE_SELECTORS__")
+  if (-not $match.Success) {
+    throw "Unable to extract inline selectors payload. Raw output: $normalized"
+  }
+
+  $payload = $match.Groups[1].Value
+  if ($payload.Contains('\|')) {
+    $payload = [regex]::Unescape($payload)
+  }
+
+  $result = @{}
+  foreach ($part in ($payload -split '\|\|')) {
+    if ($part -match '^(?<key>[^=]+)=(?<value>.*)$') {
+      $result[$Matches.key] = $Matches.value
+    }
+  }
+
+  foreach ($requiredKey in @("titleCellId", "unitPriceCellId", "lastEditableCellId", "puCellId", "totalCellId")) {
+    if (-not $result.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace([string]$result[$requiredKey])) {
+      throw "Inline selectors payload missing key '$requiredKey'. Raw payload: $payload"
+    }
+  }
+
+  return [pscustomobject]$result
+}
+
+function Get-CellSelector {
+  param([string]$CellId)
+  return "[data-cell-id=""$CellId""]"
+}
+
+function Get-InputSelector {
+  param([string]$CellId)
+  return "$(Get-CellSelector -CellId $CellId) input.estimate-input"
+}
+
+function Set-CellInputValue {
+  param(
+    [string]$Session,
+    [string]$CellId,
+    [string]$Value,
+    [bool]$Blur = $true
+  )
+
+  $cellIdJson = ConvertTo-Json -Compress $CellId
+  $valueJson = ConvertTo-Json -Compress $Value
+  $blurJson = if ($Blur) { "true" } else { "false" }
+
+  Invoke-AB $Session "eval" @"
+(() => {
+  const cellId = $cellIdJson;
+  const value = $valueJson;
+  const blur = $blurJson;
+  const input = document.querySelector('[data-cell-id="' + cellId + '"] input.estimate-input');
+  if (!input) {
+    throw new Error('Input not found for cell ' + cellId);
+  }
+  input.focus();
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  if (blur) {
+    input.blur();
+  }
+})();
+"@ | Out-Null
 }
 
 function Wait-ForFormattedPrice {
   param(
     [string]$Session,
+    [string]$UnitPriceCellId,
     [int]$TimeoutSeconds = 8
   )
 
+  $unitPriceCellIdJson = ConvertTo-Json -Compress $UnitPriceCellId
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   while ((Get-Date) -lt $deadline) {
-    $value = [string](Invoke-AB $Session "eval" "document.querySelector('[data-inline-id=\"line-unit-price-input\"]')?.value ?? ''")
+    $value = [string](Invoke-AB $Session "eval" @"
+(() => {
+  const cellId = $unitPriceCellIdJson;
+  const input = document.querySelector('[data-cell-id="' + cellId + '"] input.estimate-input');
+  return input ? String(input.value ?? '') : '';
+})()
+"@)
+    $value = Normalize-AgentString -Raw $value
 
     if (
       $value -match '^(?:[0-9]{1,3}(?:[ \u00A0][0-9]{3})+|[0-9]+)[\.,][0-9]{2}$' -and
@@ -154,13 +300,21 @@ function Wait-ForFormattedPrice {
 }
 
 function Get-ActiveInlineTarget {
-  param([string]$Session)
+  param(
+    [string]$Session,
+    [string]$PuCellId,
+    [string]$TotalCellId
+  )
 
-  return [string](Invoke-AB $Session "eval" @"
+  $puCellIdJson = ConvertTo-Json -Compress $PuCellId
+  $totalCellIdJson = ConvertTo-Json -Compress $TotalCellId
+  $raw = [string](Invoke-AB $Session "eval" @"
 (() => {
-  const puInput = document.querySelector('[data-inline-id="line-pu-input"]');
-  const puCell = puInput?.closest('.estimate-cell') ?? null;
-  const totalCell = document.querySelector('[data-inline-id="line-total-cell"]');
+  const puCellId = $puCellIdJson;
+  const totalCellId = $totalCellIdJson;
+  const puCell = document.querySelector('[data-cell-id="' + puCellId + '"]');
+  const puInput = puCell?.querySelector('input.estimate-input') ?? null;
+  const totalCell = document.querySelector('[data-cell-id="' + totalCellId + '"]');
   const active = document.activeElement;
   const activeCell = document.querySelector('.estimate-cell--active');
 
@@ -192,6 +346,7 @@ function Get-ActiveInlineTarget {
   );
 })()
 "@)
+  return Normalize-AgentString -Raw $raw
 }
 
 try {
@@ -204,29 +359,55 @@ try {
   Add-Line -Session $Session -Designation "Ligne inline"
   Set-LineValues -Session $Session -Quantity "1" -Unit "u" -PriceFo "12" -TypeFo "Materiaux" -Kfo "1" -HoursMo "0" -Kmo "1"
 
-  $setup = Initialize-InlineSelectors -Session $Session
-  Assert-True -Condition ([bool]$setup.puReadOnly) -Message "PU field should be readonly"
-  Assert-True -Condition (-not [bool]$setup.puDisabled) -Message "PU readonly field should stay focusable"
-  Assert-True -Condition (([string]$setup.totalText).Length -gt 0) -Message "Total cell should expose a rendered value"
+  $inlineSelectors = Initialize-InlineSelectors -Session $Session
+  $titleCellId = [string]$inlineSelectors.titleCellId
+  $unitPriceCellId = [string]$inlineSelectors.unitPriceCellId
+  $lastEditableCellId = [string]$inlineSelectors.lastEditableCellId
+  $puCellId = [string]$inlineSelectors.puCellId
+  $totalCellId = [string]$inlineSelectors.totalCellId
 
-  Invoke-AB $Session "click" "[data-inline-id='line-title-input']" | Out-Null
-  $clickState = (Invoke-AB $Session "eval" @"
-JSON.stringify((() => {
-  const input = document.querySelector('[data-inline-id="line-title-input"]');
-  if (!input) throw new Error('line-title-input not found');
-  return {
-    active: document.activeElement === input,
-    selectionStart: input.selectionStart ?? -1,
-    selectionEnd: input.selectionEnd ?? -1
-  };
-})())
-"@) | ConvertFrom-Json
-  Assert-True -Condition ([bool]$clickState.active) -Message "Single click should activate inline editor"
-  Assert-True -Condition ([int]$clickState.selectionStart -ge 0) -Message "Caret should be positioned after single click"
+  $titleCellSelector = Get-CellSelector -CellId $titleCellId
+  $titleInputSelector = Get-InputSelector -CellId $titleCellId
+  $puInputSelector = Get-InputSelector -CellId $puCellId
 
+  Set-CellInputValue -Session $Session -CellId $titleCellId -Value "INLINE BASE"
+
+  $puReadOnly = [string](Invoke-AB $Session "eval" @"
+(() => {
+  const input = document.querySelector('$(Get-InputSelector -CellId $puCellId)');
+  return String(Boolean(input?.readOnly ?? false));
+})()
+"@)
+  $puReadOnly = Normalize-AgentString -Raw $puReadOnly
+  $puDisabled = [string](Invoke-AB $Session "eval" @"
+(() => {
+  const input = document.querySelector('$(Get-InputSelector -CellId $puCellId)');
+  return String(Boolean(input?.disabled ?? false));
+})()
+"@)
+  $puDisabled = Normalize-AgentString -Raw $puDisabled
+  $totalText = [string](Invoke-AB $Session "eval" @"
+(() => String(document.querySelector('$(Get-CellSelector -CellId $totalCellId)')?.textContent ?? '').trim())()
+"@)
+  $totalText = Normalize-AgentString -Raw $totalText
+
+  Assert-Equal -Actual $puReadOnly -Expected "true" -Message "PU field should be readonly"
+  Assert-Equal -Actual $puDisabled -Expected "false" -Message "PU readonly field should stay focusable"
+  Assert-True -Condition ($totalText.Length -gt 0) -Message "Total cell should expose a rendered value"
+
+  Invoke-AB $Session "click" $titleInputSelector | Out-Null
+  $clickActive = [string](Invoke-AB $Session "eval" "String(document.activeElement === document.querySelector('$(Get-InputSelector -CellId $titleCellId)'))")
+  $clickActive = Normalize-AgentString -Raw $clickActive
+  $clickSelectionStart = [string](Invoke-AB $Session "eval" "String(document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.selectionStart ?? -1)")
+  $clickSelectionStart = Normalize-AgentString -Raw $clickSelectionStart
+  Assert-Equal -Actual $clickActive -Expected "true" -Message "Single click should activate inline editor"
+  Assert-True -Condition ([int]$clickSelectionStart -ge 0) -Message "Caret should be positioned after single click"
+
+  $titleCellIdJson = ConvertTo-Json -Compress $titleCellId
   Invoke-AB $Session "eval" @"
 (() => {
-  const input = document.querySelector('[data-inline-id="line-title-input"]');
+  const titleCellId = $titleCellIdJson;
+  const input = document.querySelector('[data-cell-id="' + titleCellId + '"] input.estimate-input');
   if (!input) throw new Error('line-title-input not found');
   input.focus();
   input.value = 'DOUBLE CLIC';
@@ -236,28 +417,24 @@ JSON.stringify((() => {
 })();
 "@ | Out-Null
 
-  Invoke-AB $Session "dblclick" "[data-inline-id='line-title-cell']" | Out-Null
-  $doubleClickState = (Invoke-AB $Session "eval" @"
-JSON.stringify((() => {
-  const input = document.querySelector('[data-inline-id="line-title-input"]');
-  if (!input) throw new Error('line-title-input not found');
-  const value = String(input.value ?? '');
-  return {
-    active: document.activeElement === input,
-    valueLength: value.length,
-    selectionStart: input.selectionStart ?? -1,
-    selectionEnd: input.selectionEnd ?? -1
-  };
-})())
-"@) | ConvertFrom-Json
-  Assert-True -Condition ([bool]$doubleClickState.active) -Message "Double click should focus inline editor"
-  Assert-Equal -Actual ([string]$doubleClickState.selectionStart) -Expected "0" -Message "Double click should select from start"
-  Assert-Equal -Actual ([string]$doubleClickState.selectionEnd) -Expected ([string]$doubleClickState.valueLength) -Message "Double click should select full cell content"
+  Invoke-AB $Session "dblclick" $titleCellSelector | Out-Null
+  $doubleClickActive = [string](Invoke-AB $Session "eval" "String(document.activeElement === document.querySelector('$(Get-InputSelector -CellId $titleCellId)'))")
+  $doubleClickActive = Normalize-AgentString -Raw $doubleClickActive
+  $doubleClickSelectionStart = [string](Invoke-AB $Session "eval" "String(document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.selectionStart ?? -1)")
+  $doubleClickSelectionStart = Normalize-AgentString -Raw $doubleClickSelectionStart
+  $doubleClickSelectionEnd = [string](Invoke-AB $Session "eval" "String(document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.selectionEnd ?? -1)")
+  $doubleClickSelectionEnd = Normalize-AgentString -Raw $doubleClickSelectionEnd
+  $doubleClickValueLength = [string](Invoke-AB $Session "eval" "String((document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.value ?? '').length)")
+  $doubleClickValueLength = Normalize-AgentString -Raw $doubleClickValueLength
+  Assert-Equal -Actual $doubleClickActive -Expected "true" -Message "Double click should focus inline editor"
+  Assert-Equal -Actual $doubleClickSelectionStart -Expected "0" -Message "Double click should select from start"
+  Assert-Equal -Actual $doubleClickSelectionEnd -Expected $doubleClickValueLength -Message "Double click should select full cell content"
 
   Invoke-AB $Session "eval" @"
 (() => {
-  const input = document.querySelector('[data-inline-id="line-title-input"]');
-  const cell = document.querySelector('[data-inline-id="line-title-cell"]');
+  const titleCellId = $titleCellIdJson;
+  const input = document.querySelector('[data-cell-id="' + titleCellId + '"] input.estimate-input');
+  const cell = document.querySelector('[data-cell-id="' + titleCellId + '"]');
   if (!input || !cell) throw new Error('Missing title input/cell');
 
   input.focus();
@@ -271,44 +448,54 @@ JSON.stringify((() => {
 "@ | Out-Null
 
   Invoke-AB $Session "press" "R" | Out-Null
-  $replaceValue = [string](Invoke-AB $Session "eval" "document.querySelector('[data-inline-id=\"line-title-input\"]')?.value ?? ''")
+  $replaceValue = [string](Invoke-AB $Session "eval" "document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.value ?? ''")
+  $replaceValue = Normalize-AgentString -Raw $replaceValue
   Assert-Equal -Actual $replaceValue -Expected "R" -Message "Typing should replace existing content in replacement mode"
 
-  Invoke-AB $Session "fill" "[data-inline-id='line-unit-price-input']" "1234,5" | Out-Null
-  Invoke-AB $Session "click" "[data-inline-id='line-title-input']" | Out-Null
-  $formattedPrice = Wait-ForFormattedPrice -Session $Session
+  Set-CellInputValue -Session $Session -CellId $unitPriceCellId -Value "1234,5"
+  Invoke-AB $Session "click" $titleInputSelector | Out-Null
+  $formattedPrice = Wait-ForFormattedPrice -Session $Session -UnitPriceCellId $unitPriceCellId
   Assert-Match -Actual $formattedPrice -Pattern '^(?:[0-9]{1,3}(?:[ \u00A0][0-9]{3})+|[0-9]+)[\.,][0-9]{2}$' -Message "Blur should format numeric price with two decimals"
 
-  Invoke-AB $Session "click" "[data-inline-id='line-title-input']" | Out-Null
+  Invoke-AB $Session "click" $titleInputSelector | Out-Null
   Invoke-AB $Session "press" "Control+a" | Out-Null
   Invoke-AB $Session "press" "N" | Out-Null
-  $editedValue = [string](Invoke-AB $Session "eval" "document.querySelector('[data-inline-id=\"line-title-input\"]')?.value ?? ''")
+  $editedValue = [string](Invoke-AB $Session "eval" "document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.value ?? ''")
+  $editedValue = Normalize-AgentString -Raw $editedValue
   Assert-Equal -Actual $editedValue -Expected "N" -Message "Precondition failed for Ctrl+Z test"
 
   Invoke-AB $Session "press" "Control+z" | Out-Null
-  $undoValue = [string](Invoke-AB $Session "eval" "document.querySelector('[data-inline-id=\"line-title-input\"]')?.value ?? ''")
+  $undoValue = [string](Invoke-AB $Session "eval" "document.querySelector('$(Get-InputSelector -CellId $titleCellId)')?.value ?? ''")
+  $undoValue = Normalize-AgentString -Raw $undoValue
   Assert-Equal -Actual $undoValue -Expected "R" -Message "Ctrl+Z should undo local edit in active cell"
 
-  $puBefore = [string](Invoke-AB $Session "eval" "document.querySelector('[data-inline-id=\"line-pu-input\"]')?.value ?? ''")
-  Invoke-AB $Session "click" "[data-inline-id='line-pu-input']" | Out-Null
+  $puBefore = [string](Invoke-AB $Session "eval" "document.querySelector('$(Get-InputSelector -CellId $puCellId)')?.value ?? ''")
+  $puBefore = Normalize-AgentString -Raw $puBefore
+  Invoke-AB $Session "click" $puInputSelector | Out-Null
   Invoke-AB $Session "press" "9" | Out-Null
-  $puAfter = [string](Invoke-AB $Session "eval" "document.querySelector('[data-inline-id=\"line-pu-input\"]')?.value ?? ''")
+  $puAfter = [string](Invoke-AB $Session "eval" "document.querySelector('$(Get-InputSelector -CellId $puCellId)')?.value ?? ''")
+  $puAfter = Normalize-AgentString -Raw $puAfter
   Assert-Equal -Actual $puAfter -Expected $puBefore -Message "PU readonly cell should remain non editable"
 
+  $lastEditableCellIdJson = ConvertTo-Json -Compress $lastEditableCellId
   Invoke-AB $Session "eval" @"
 (() => {
-  const editor = document.querySelector('[data-inline-id="line-last-editable-editor"]');
+  const lastCellId = $lastEditableCellIdJson;
+  const cell = document.querySelector('[data-cell-id="' + lastCellId + '"]');
+  const editor = cell?.querySelector(
+    'input:not([readonly]):not([type="checkbox"]), select, textarea, [contenteditable="true"]'
+  ) ?? null;
   if (!editor) throw new Error('line-last-editable-editor not found');
   editor.focus();
 })();
 "@ | Out-Null
 
   Invoke-AB $Session "press" "Tab" | Out-Null
-  $afterFirstTab = Get-ActiveInlineTarget -Session $Session
+  $afterFirstTab = Get-ActiveInlineTarget -Session $Session -PuCellId $puCellId -TotalCellId $totalCellId
   Assert-Equal -Actual $afterFirstTab -Expected "pu-input" -Message "Keyboard navigation should reach readonly PU cell"
 
   Invoke-AB $Session "press" "Tab" | Out-Null
-  $afterSecondTab = Get-ActiveInlineTarget -Session $Session
+  $afterSecondTab = Get-ActiveInlineTarget -Session $Session -PuCellId $puCellId -TotalCellId $totalCellId
   Assert-Equal -Actual $afterSecondTab -Expected "total-cell" -Message "Keyboard navigation should reach readonly total cell"
 
   Write-Host "EST-102 INLINE EDIT PASS"

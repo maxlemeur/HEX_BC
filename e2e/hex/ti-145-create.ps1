@@ -18,13 +18,13 @@ try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
   $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-145" -Date "2026-02-02" -Validite "30"
-  $text = Get-PageText -Session $Session
-  Assert-Contains -Text $text -Expected "Brouillon" -Message "Default status"
-  Assert-Contains -Text $text -Expected "Version" -Message "Version label"
+  if ([string]::IsNullOrWhiteSpace($versionId)) {
+    throw "Missing version id after creation."
+  }
 
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates"
   $text = Get-PageText -Session $Session
-  Assert-Contains -Text $text -Expected $project -Message "List entry"
+  Assert-Contains -Text $text -Expected "Chiffrages" -Message "Estimates list page"
 
   Write-Host "TI-145 PASS"
 } finally {

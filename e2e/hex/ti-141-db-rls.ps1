@@ -28,16 +28,16 @@ $project = "E2E-HEX-TI141-$stamp"
 $secondaryEmail = $env:E2E_LOGIN_EMAIL_2
 $secondaryPassword = $env:E2E_LOGIN_PASSWORD_2
 
+if (-not $secondaryEmail -or -not $secondaryPassword) {
+  Write-Host "TI-141 SKIP (missing E2E_LOGIN_EMAIL_2 / E2E_LOGIN_PASSWORD_2)"
+  return
+}
+
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
   New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-141" -Date "2026-02-02" -Validite "30" | Out-Null
 
   Logout -Session $Session
-
-  if (-not $secondaryEmail -or -not $secondaryPassword) {
-    Write-Host "TI-141 SKIP (missing E2E_LOGIN_EMAIL_2 / E2E_LOGIN_PASSWORD_2)"
-    return
-  }
 
   Login-As -BaseUrl $BaseUrl -Session $Session -Email $secondaryEmail -Password $secondaryPassword
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates"

@@ -7,7 +7,7 @@ param(
 )
 
 if (-not $Session) {
-  $Session = "e2e-auth"
+  $Session = "e2e-auth-$PID"
 }
 
 . "$PSScriptRoot/agent-browser.ps1"

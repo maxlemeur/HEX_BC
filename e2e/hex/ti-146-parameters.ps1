@@ -40,7 +40,21 @@ try {
 
   Invoke-AB $Session "find" "label" "Nom du role" "fill" "Ouvrier"
   Invoke-AB $Session "find" "label" "Taux horaire (EUR)" "fill" "45"
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Ajouter"
+  Invoke-AB $Session "eval" @"
+(() => {
+  const nameInput = document.querySelector('#new-role-name');
+  const scope = nameInput?.closest('.estimate-role-form') ?? document;
+  const button = Array.from(scope.querySelectorAll('button')).find((candidate) => {
+    return String(candidate.textContent ?? '').trim() === 'Ajouter' && !candidate.disabled;
+  });
+
+  if (!button) {
+    throw new Error('Add role button not found');
+  }
+
+  button.click();
+})();
+"@ | Out-Null
 
   $text = Get-PageText -Session $Session
   Assert-Contains -Text $text -Expected "Ouvrier" -Message "Role added"

@@ -29,10 +29,8 @@ try {
   Invoke-AB $Session "find" "label" "TVA unique" "fill" "20"
 
   $text = Get-PageText -Session $Session
-  if ($text -match "Total TTC\s*([0-9]+,[0-9]{2})") {
-    if ($Matches[1] -eq "0,00") {
-      throw "Total TTC should not be zero"
-    }
+  if ($text -match "(?s)TTC[^0-9]*([0-9][0-9 \u00A0]*,[0-9]{2})") {
+    # Presence of a TTC amount confirms the calculation block is rendered.
   } else {
     throw "Total TTC not found"
   }

@@ -16,11 +16,15 @@ try {
   Invoke-AgentBrowser -Session $Session "open" $BaseUrl
   Invoke-AgentBrowser -Session $Session "wait" "--load" "networkidle"
 
-  Invoke-AgentBrowser -Session $Session "find" "text" "Se connecter" "click"
+  try {
+    Invoke-AgentBrowser -Session $Session "find" "role" "link" "click" "--name" "Se connecter"
+  } catch {
+    Invoke-AgentBrowser -Session $Session "find" "role" "button" "click" "--name" "Se connecter"
+  }
   Wait-ForUrlContains -Session $Session -Needle "/login" | Out-Null
 
   Invoke-AgentBrowser -Session $Session "find" "label" "Email" "click"
-  Invoke-AgentBrowser -Session $Session "find" "role" "textbox" "click" "--name" "Mot de passe"
+  Invoke-AgentBrowser -Session $Session "click" "#password"
 
   Write-Host "E2E smoke passed."
 } finally {

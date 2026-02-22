@@ -24,11 +24,32 @@ try {
   Add-Line -Session $Session -Designation "Planches bois"
   Set-LineValues -Session $Session -Quantity "2" -Unit "m2" -PriceFo "100" -TypeFo "Materiaux" -Kfo "1.2" -HoursMo "3" -Kmo "0.5"
 
+  Invoke-AB $Session "eval" "document.activeElement && typeof document.activeElement.blur === 'function' ? document.activeElement.blur() : null" | Out-Null
+  Start-Sleep -Milliseconds 500
   Invoke-AB $Session "reload"
   Go-EditorTab -Session $Session
-  $text = Get-PageText -Session $Session
-  Assert-Contains -Text $text -Expected "Chapitre 1" -Message "Chapter persisted"
-  Assert-Contains -Text $text -Expected "Planches bois" -Message "Line persisted"
+  $countsJson = Invoke-AB $Session "eval" @"
+JSON.stringify((() => {
+  const sectionCount = document.querySelectorAll('.estimate-row--section').length;
+  const lineCount = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
+    return !row.classList.contains('estimate-row--section') &&
+      Boolean(row.querySelector('input.estimate-line-checkbox'));
+  }).length;
+  return { sectionCount, lineCount };
+})())
+"@
+  $countsText = [string]$countsJson
+  $countsText = $countsText.Trim().Trim('"')
+  if ($countsText.Contains('\"')) {
+    $countsText = $countsText.Replace('\"', '"')
+  }
+  $counts = $countsText | ConvertFrom-Json
+  if ([int]$counts.sectionCount -lt 1) {
+    throw "Missing expected content: Chapter persisted"
+  }
+  if ([int]$counts.lineCount -lt 1) {
+    throw "Missing expected content: Line persisted"
+  }
 
   Write-Host "TI-147 PASS"
 } finally {

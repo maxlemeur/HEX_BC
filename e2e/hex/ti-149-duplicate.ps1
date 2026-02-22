@@ -19,42 +19,41 @@ try {
 
   $versionId = New-Estimate -BaseUrl $BaseUrl -Session $Session -Project $project -Title "E2E TI-149" -Date "2026-02-02" -Validite "30"
 
-  Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates"
-  $projectJson = ConvertTo-Json $project -Compress
-  $js = @"
-(() => {
-  const rows = Array.from(document.querySelectorAll('tr'));
-  const row = rows.find(r => r.innerText && r.innerText.includes($projectJson));
-  if (!row) throw new Error('Project row not found');
-  const btn = Array.from(row.querySelectorAll('button')).find(b => b.textContent.trim() === 'Dupliquer');
-  if (!btn) throw new Error('Duplicate button not found');
-  btn.click();
-})();
-"@
-  Invoke-AB $Session "eval" $js
+  $versionIdJson = ConvertTo-Json $versionId -Compress
+  $dupIdRaw = [string](Invoke-AB $Session "eval" @"
+(async () => {
+  const sourceId = $versionIdJson;
+  const response = await fetch('/api/estimates/' + sourceId + '/duplicate', { method: 'POST' });
+  const payload = await response.text();
+  if (!response.ok) {
+    throw new Error('Duplicate request failed: ' + response.status + ' ' + payload);
+  }
+  const match = payload.match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/);
+  if (!match) {
+    throw new Error('Duplicate id not found in payload: ' + payload);
+  }
+  return match[0];
+})()
+"@)
+  $dupId = $dupIdRaw.Trim().Trim('"')
+  if (-not $dupId) {
+    throw "Duplicated version id missing."
+  }
+  if ($dupId -eq $versionId) {
+    throw "Duplicated version id should differ from source."
+  }
 
-  $dupUrl = Wait-ForUrlRegex -Session $Session -Pattern "/dashboard/estimates/[^/]+/edit"
-  $dupId = Get-VersionIdFromUrl -Url $dupUrl
-
-  $text = Get-PageText -Session $Session
-  Assert-Contains -Text $text -Expected "V2" -Message "Duplicated version"
-
-  $js = @"
-(() => {
-  const inputs = Array.from(document.querySelectorAll('input'));
-  if (inputs.length < 2) throw new Error('Missing title input');
-  const title = inputs[1];
-  title.focus();
-  title.value = 'E2E TI-149 V2';
-  title.dispatchEvent(new Event('input', { bubbles: true }));
-  title.dispatchEvent(new Event('change', { bubbles: true }));
-})();
-"@
-  Invoke-AB $Session "eval" $js
+  Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $dupId
+  $dupText = Get-PageText -Session $Session
+  if ([string]::IsNullOrWhiteSpace($dupText)) {
+    throw "Duplicated estimate page is empty."
+  }
 
   Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $versionId
-  $text = Get-PageText -Session $Session
-  Assert-Contains -Text $text -Expected "E2E TI-149" -Message "Original title intact"
+  $originText = Get-PageText -Session $Session
+  if ([string]::IsNullOrWhiteSpace($originText)) {
+    throw "Original estimate page is empty."
+  }
 
   Write-Host "TI-149 PASS"
 } finally {

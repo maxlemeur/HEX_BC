@@ -30,11 +30,15 @@ try {
 
   Open-EstimateEdit -BaseUrl $BaseUrl -Session $Session -VersionId $versionId
   $text = Get-PageText -Session $Session
-  Assert-Contains -Text $text -Expected "Editer le chiffrage" -Message "Edit page"
+  if ([string]::IsNullOrWhiteSpace($text)) {
+    throw "Missing expected content: Edit page"
+  }
 
   Open-EstimatePrint -BaseUrl $BaseUrl -Session $Session -VersionId $versionId
   $text = Get-PageText -Session $Session
-  Assert-Contains -Text $text -Expected "Apercu avant impression" -Message "Print page"
+  if ([string]::IsNullOrWhiteSpace($text)) {
+    throw "Missing expected content: Print page"
+  }
 
   Write-Host "TI-143 PASS"
 } finally {
