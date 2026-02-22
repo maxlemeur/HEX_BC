@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     const query = listEstimateAssembliesQuerySchema.parse({
       search: searchParams.get("search"),
       limit: parsePositiveInt(searchParams.get("limit")) ?? 20,
-      order: searchParams.get("order"),
+      order: searchParams.get("order") ?? undefined,
     });
 
     const data = await listEstimateAssemblies(query);

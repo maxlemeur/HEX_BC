@@ -249,13 +249,14 @@ export default function EstimateAssembliesPage() {
         )}
       </div>
 
-      <AssemblyEditorModal
-        isOpen={isModalOpen}
-        isSubmitting={isModalSubmitting}
-        initialValue={editingAssembly}
-        onClose={closeModal}
-        onSubmit={handleSubmitModal}
-      />
+      {isModalOpen ? (
+        <AssemblyEditorModal
+          isSubmitting={isModalSubmitting}
+          initialValue={editingAssembly}
+          onClose={closeModal}
+          onSubmit={handleSubmitModal}
+        />
+      ) : null}
     </div>
   );
 }

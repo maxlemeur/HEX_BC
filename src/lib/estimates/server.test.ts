@@ -7,7 +7,9 @@ vi.mock("@/lib/supabase/server", () => ({
 import {
   bulkUpdateEstimateItems,
   createEstimateItem,
+  insertAssemblyIntoVersion,
   patchEstimateVersion,
+  updateEstimateAssembly,
 } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -20,6 +22,9 @@ const ITEM_ID_2 = "66666666-6666-4666-8666-666666666666";
 const OWNER_USER_ID = "77777777-7777-4777-8777-777777777777";
 const CATEGORY_ID = "88888888-8888-4888-8888-888888888888";
 const LABOR_ROLE_ID = "99999999-9999-4999-8999-999999999999";
+const ASSEMBLY_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const INSERTED_SECTION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const INSERTED_LINE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const VERSION_UPDATED_AT = "2026-02-20T10:00:00.000Z";
 const NEXT_VERSION_UPDATED_AT = "2026-02-20T10:00:01.000Z";
 const LOCK_EXPIRES_AT = "2099-02-20T10:00:00.000Z";
@@ -1000,5 +1005,498 @@ describe("estimate owner resource scoping regressions", () => {
 
     expect(laborRoleEqCalls).toContainEqual(["user_id", OWNER_USER_ID]);
     expect(estimateItemsInsert).not.toHaveBeenCalled();
+  });
+});
+
+function createAssemblyInsertSupabaseMock(input?: {
+  versionStatus?: "draft" | "sent";
+  draftLockUserId?: string | null;
+  rpcError?: {
+    code: string;
+    message: string;
+    details: string | null;
+    hint: string | null;
+  } | null;
+  validLaborRoleIds?: string[];
+}) {
+  const tenantMembershipBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+  };
+
+  tenantMembershipBuilder.eq.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.order.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.limit.mockResolvedValue({
+    data: [
+      {
+        tenant_id: TENANT_ID,
+        role: "admin",
+        is_default: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    error: null,
+  });
+
+  const estimateVersionAccessBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        id: VERSION_ID,
+        project_id: PROJECT_ID,
+        status: input?.versionStatus ?? "draft",
+        margin_multiplier: 1,
+        tax_rate_bp: 2000,
+        updated_at: VERSION_UPDATED_AT,
+        total_ht_cents: 0,
+        total_tax_cents: 0,
+        total_ttc_cents: 0,
+        estimate_projects: {
+          id: PROJECT_ID,
+          tenant_id: TENANT_ID,
+          user_id: OWNER_USER_ID,
+          name: "Project",
+          reference: null,
+          client_name: null,
+          notes: null,
+          is_archived: false,
+        },
+      },
+      error: null,
+    }),
+  };
+  estimateVersionAccessBuilder.eq.mockReturnValue(estimateVersionAccessBuilder);
+
+  const draftLocksBuilder = {
+    eq: vi.fn(),
+    gt: vi.fn(),
+    maybeSingle: vi.fn().mockResolvedValue({
+      data:
+        input?.draftLockUserId === null
+          ? null
+          : {
+              id: "lock-assembly",
+              version_id: VERSION_ID,
+              user_id: input?.draftLockUserId ?? USER_ID,
+              locked_at: VERSION_UPDATED_AT,
+              expires_at: LOCK_EXPIRES_AT,
+            },
+      error: null,
+    }),
+  };
+  draftLocksBuilder.eq.mockReturnValue(draftLocksBuilder);
+  draftLocksBuilder.gt.mockReturnValue(draftLocksBuilder);
+
+  const assemblyBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        id: ASSEMBLY_ID,
+        tenant_id: TENANT_ID,
+        created_by: USER_ID,
+        name: "Mur",
+        description: null,
+        created_at: VERSION_UPDATED_AT,
+        updated_at: VERSION_UPDATED_AT,
+      },
+      error: null,
+    }),
+  };
+  assemblyBuilder.eq.mockReturnValue(assemblyBuilder);
+
+  let assemblyItemsOrderCalls = 0;
+  const assemblyItemsBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(() => {
+      assemblyItemsOrderCalls += 1;
+      if (assemblyItemsOrderCalls >= 2) {
+        return Promise.resolve({
+          data: [
+            {
+              id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+              tenant_id: TENANT_ID,
+              assembly_id: ASSEMBLY_ID,
+              title: "Parpaing",
+              unit: "m2",
+              k_fo: 1.2,
+              k_mo: 1.1,
+              labor_role_id: LABOR_ROLE_ID,
+              default_quantity: 2,
+              position: 1,
+              created_at: VERSION_UPDATED_AT,
+              updated_at: VERSION_UPDATED_AT,
+            },
+          ],
+          error: null,
+        });
+      }
+      return assemblyItemsBuilder;
+    }),
+  };
+  assemblyItemsBuilder.eq.mockReturnValue(assemblyItemsBuilder);
+
+  const laborRolesBuilder = {
+    eq: vi.fn(),
+    in: vi.fn().mockResolvedValue({
+      data: (input?.validLaborRoleIds ?? []).map((id) => ({ id })),
+      error: null,
+    }),
+  };
+  laborRolesBuilder.eq.mockReturnValue(laborRolesBuilder);
+
+  const estimateItemsUpdateIn = vi.fn().mockResolvedValue({
+    data: null,
+    error: null,
+  });
+  const estimateItemsUpdateBuilder = {
+    eq: vi.fn(),
+    in: estimateItemsUpdateIn,
+  };
+  estimateItemsUpdateBuilder.eq.mockReturnValue(estimateItemsUpdateBuilder);
+
+  const estimateItemsSelectIn = vi.fn().mockResolvedValue({
+    data: [
+      {
+        id: INSERTED_SECTION_ID,
+        item_type: "section",
+      },
+      {
+        id: INSERTED_LINE_ID,
+        item_type: "line",
+        labor_role_id: null,
+      },
+    ],
+    error: null,
+  });
+  const estimateItemsSelectBuilder = {
+    eq: vi.fn(),
+    in: estimateItemsSelectIn,
+  };
+  estimateItemsSelectBuilder.eq.mockReturnValue(estimateItemsSelectBuilder);
+
+  const rpc = vi.fn().mockResolvedValue({
+    data: [
+      {
+        id: INSERTED_SECTION_ID,
+        item_type: "section",
+        parent_id: null,
+        position: 2,
+        labor_role_id: null,
+      },
+      {
+        id: INSERTED_LINE_ID,
+        item_type: "line",
+        parent_id: INSERTED_SECTION_ID,
+        position: 1,
+        labor_role_id: LABOR_ROLE_ID,
+      },
+    ],
+    error: input?.rpcError ?? null,
+  });
+
+  const supabase = {
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user: {
+            id: USER_ID,
+          },
+        },
+        error: null,
+      }),
+    },
+    from: vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => tenantMembershipBuilder),
+        };
+      }
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => estimateVersionAccessBuilder),
+        };
+      }
+      if (table === "draft_locks") {
+        return {
+          select: vi.fn(() => draftLocksBuilder),
+        };
+      }
+      if (table === "estimate_assemblies") {
+        return {
+          select: vi.fn(() => assemblyBuilder),
+        };
+      }
+      if (table === "estimate_assembly_items") {
+        return {
+          select: vi.fn(() => assemblyItemsBuilder),
+        };
+      }
+      if (table === "labor_roles") {
+        return {
+          select: vi.fn(() => laborRolesBuilder),
+        };
+      }
+      if (table === "estimate_items") {
+        return {
+          update: vi.fn(() => estimateItemsUpdateBuilder),
+          select: vi.fn(() => estimateItemsSelectBuilder),
+        };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+    rpc,
+    __mocks: {
+      estimateItemsUpdateIn,
+      estimateItemsSelectIn,
+    },
+  };
+
+  return supabase;
+}
+
+function createAssemblyUpdateSupabaseMock(input?: {
+  rpcError?: {
+    code: string;
+    message: string;
+    details: string | null;
+    hint: string | null;
+  } | null;
+}) {
+  const tenantMembershipBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+  };
+
+  tenantMembershipBuilder.eq.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.order.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.limit.mockResolvedValue({
+    data: [
+      {
+        tenant_id: TENANT_ID,
+        role: "admin",
+        is_default: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    error: null,
+  });
+
+  const assemblyBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        id: ASSEMBLY_ID,
+        tenant_id: TENANT_ID,
+        created_by: USER_ID,
+        name: "Mur",
+        description: null,
+        created_at: VERSION_UPDATED_AT,
+        updated_at: VERSION_UPDATED_AT,
+      },
+      error: null,
+    }),
+  };
+  assemblyBuilder.eq.mockReturnValue(assemblyBuilder);
+
+  let assemblyItemsOrderCalls = 0;
+  const assemblyItemsBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(() => {
+      assemblyItemsOrderCalls += 1;
+      if (assemblyItemsOrderCalls >= 2) {
+        return Promise.resolve({
+          data: [
+            {
+              id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+              tenant_id: TENANT_ID,
+              assembly_id: ASSEMBLY_ID,
+              title: "Ligne",
+              unit: null,
+              k_fo: 1,
+              k_mo: 1,
+              labor_role_id: LABOR_ROLE_ID,
+              default_quantity: null,
+              position: 1,
+              created_at: VERSION_UPDATED_AT,
+              updated_at: VERSION_UPDATED_AT,
+            },
+          ],
+          error: null,
+        });
+      }
+      return assemblyItemsBuilder;
+    }),
+  };
+  assemblyItemsBuilder.eq.mockReturnValue(assemblyItemsBuilder);
+
+  const supabase = {
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user: {
+            id: USER_ID,
+          },
+        },
+        error: null,
+      }),
+    },
+    from: vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => tenantMembershipBuilder),
+        };
+      }
+      if (table === "estimate_assemblies") {
+        return {
+          select: vi.fn(() => assemblyBuilder),
+        };
+      }
+      if (table === "estimate_assembly_items") {
+        return {
+          select: vi.fn(() => assemblyItemsBuilder),
+        };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+    rpc: vi.fn().mockResolvedValue({
+      data: 1,
+      error: input?.rpcError ?? null,
+    }),
+  };
+
+  return supabase;
+}
+
+describe("estimate assemblies insertion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("inserts assembly items and clears invalid labor roles", async () => {
+    const supabase = createAssemblyInsertSupabaseMock({
+      validLaborRoleIds: [],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await insertAssemblyIntoVersion({
+      assemblyId: ASSEMBLY_ID,
+      versionId: VERSION_ID,
+      afterItemId: ITEM_ID_1,
+    });
+
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "insert_estimate_assembly_into_version",
+      expect.objectContaining({
+        p_version_id: VERSION_ID,
+        p_assembly_id: ASSEMBLY_ID,
+        p_after_item_id: ITEM_ID_1,
+      })
+    );
+    expect(supabase.__mocks.estimateItemsUpdateIn).toHaveBeenCalled();
+    expect(result.items).toEqual([
+      expect.objectContaining({ id: INSERTED_SECTION_ID }),
+      expect.objectContaining({ id: INSERTED_LINE_ID }),
+    ]);
+  });
+
+  it("requires an active draft lock owned by current user", async () => {
+    const supabase = createAssemblyInsertSupabaseMock({
+      draftLockUserId: null,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      insertAssemblyIntoVersion({
+        assemblyId: ASSEMBLY_ID,
+        versionId: VERSION_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "LOCK_REQUIRED",
+    });
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects insertion when version is read only", async () => {
+    const supabase = createAssemblyInsertSupabaseMock({
+      versionStatus: "sent",
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      insertAssemblyIntoVersion({
+        assemblyId: ASSEMBLY_ID,
+        versionId: VERSION_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "READ_ONLY",
+    });
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("maps invalid anchor errors from RPC to BAD_REQUEST", async () => {
+    const supabase = createAssemblyInsertSupabaseMock({
+      rpcError: {
+        code: "P0001",
+        message: "after_item_id invalide",
+        details: null,
+        hint: null,
+      },
+      validLaborRoleIds: [LABOR_ROLE_ID],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      insertAssemblyIntoVersion({
+        assemblyId: ASSEMBLY_ID,
+        versionId: VERSION_ID,
+        afterItemId: ITEM_ID_1,
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "afterItemId invalide.",
+    });
+  });
+});
+
+describe("estimate assemblies updates", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("replaces assembly items through a single transactional RPC", async () => {
+    const supabase = createAssemblyUpdateSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await updateEstimateAssembly(ASSEMBLY_ID, {
+      items: [
+        {
+          title: "Ligne",
+          labor_role_id: LABOR_ROLE_ID,
+          position: 1,
+        },
+      ],
+    });
+
+    expect(supabase.rpc).toHaveBeenCalledWith("replace_estimate_assembly_items", {
+      p_assembly_id: ASSEMBLY_ID,
+      p_items: [
+        {
+          title: "Ligne",
+          unit: null,
+          k_fo: 1,
+          k_mo: 1,
+          labor_role_id: LABOR_ROLE_ID,
+          default_quantity: null,
+          position: 1,
+        },
+      ],
+    });
+    expect(result.assembly.id).toBe(ASSEMBLY_ID);
+    expect(result.assembly.items).toHaveLength(1);
   });
 });

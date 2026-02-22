@@ -329,6 +329,18 @@ describe("estimate assembly schemas", () => {
     expect(parsed.items?.map((item) => item.position)).toEqual([2, 1]);
   });
 
+  it("preserves omitted fields on partial update payloads", () => {
+    const parsed = updateEstimateAssemblySchema.parse({
+      name: "Mur v2",
+    });
+
+    expect(parsed).toEqual({
+      name: "Mur v2",
+    });
+    expect("description" in parsed).toBe(false);
+    expect("items" in parsed).toBe(false);
+  });
+
   it("normalizes list query defaults", () => {
     const parsed = listEstimateAssembliesQuerySchema.parse({});
     expect(parsed.limit).toBe(20);

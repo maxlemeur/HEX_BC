@@ -14,6 +14,7 @@ $tests = @(
   "ti-147-editor.ps1",
   "ti-148-calculations.ps1",
   "ti-149-duplicate.ps1",
+  "ti-182-assemblies.ps1",
   "ti-150-status.ps1",
   "ti-151-print.ps1",
   "ti-152-export.ps1",
@@ -25,11 +26,15 @@ $tests = @(
 $failures = @()
 foreach ($test in $tests) {
   $path = Join-Path $root $test
+  $testSession = "e2e-hex-$PID-$($test -replace '\.ps1$', '')"
+  $env:E2E_SESSION = $testSession
   try {
     & $path
   } catch {
     $failures += $test
     Write-Host "FAIL ${test}: $($_.Exception.Message)"
+  } finally {
+    Remove-Item Env:E2E_SESSION -ErrorAction SilentlyContinue
   }
 }
 

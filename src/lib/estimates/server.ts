@@ -19,6 +19,7 @@ import {
   notFound,
   unauthorized,
 } from "./errors";
+import { generateEstimatePdfNow } from "./pdf-generator";
 import type {
   BulkUpdateEstimateItemsInput,
   BulkUpdateEstimateVersionPatchInput,
@@ -2112,19 +2113,7 @@ export async function updateEstimateAssembly(
   }
 
   if ("items" in input && input.items) {
-    const { error: deleteError } = await supabase
-      .from("estimate_assembly_items")
-      .delete()
-      .eq("tenant_id", tenantId)
-      .eq("assembly_id", assemblyId);
-
-    if (deleteError) {
-      throw mapSupabaseError(deleteError, "Impossible de mettre a jour l'assemblage.");
-    }
-
-    const itemsPayload: EstimateAssemblyItemInsert[] = input.items.map((item) => ({
-      tenant_id: tenantId,
-      assembly_id: assemblyId,
+    const itemsPayload = input.items.map((item) => ({
       title: item.title.trim(),
       unit: toNullableText(item.unit),
       k_fo: item.k_fo ?? 1,
@@ -2134,13 +2123,17 @@ export async function updateEstimateAssembly(
       position: item.position,
     }));
 
-    const { error: insertItemsError } = await supabase
-      .from("estimate_assembly_items")
-      .insert(itemsPayload);
+    const { error: replaceItemsError } = await supabase.rpc(
+      "replace_estimate_assembly_items",
+      {
+        p_assembly_id: assemblyId,
+        p_items: itemsPayload,
+      }
+    );
 
-    if (insertItemsError) {
+    if (replaceItemsError) {
       throw mapSupabaseError(
-        insertItemsError,
+        replaceItemsError,
         "Impossible de mettre a jour l'assemblage."
       );
     }
@@ -3118,6 +3111,11 @@ export async function patchEstimateStatus(
   let sealHash: string | null = null;
 
   if (version.status === "draft" && input.status === "sent") {
+    await generateEstimatePdfNow(versionId, {
+      force: true,
+      triggeredBy: "send",
+    });
+
     const sealSource = await loadEstimateSealSource({
       supabase,
       tenantId,

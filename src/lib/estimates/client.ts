@@ -179,6 +179,18 @@ export type BulkUpdateEstimateVersionPatch = Pick<
 
 export type SuggestionRuleFeedback = "accept" | "reject";
 
+export type EstimatePdfStatus = "missing" | "processing" | "failed" | "ready";
+
+export type EstimatePdfStatusResponse = {
+  status: EstimatePdfStatus;
+  downloadUrl?: string;
+  filePath?: string;
+  sha256Hash?: string;
+  generatedAt?: string;
+  fileSizeBytes?: number;
+  lastError?: string;
+};
+
 export type EstimateDraftLock = {
   versionId: string;
   userId: string | null;
@@ -436,6 +448,40 @@ function extractErrorCode(payload: unknown): string | null {
     toStringValue(payload.code) ??
     null
   );
+}
+
+function isEstimatePdfStatus(value: string): value is EstimatePdfStatus {
+  return (
+    value === "missing" ||
+    value === "processing" ||
+    value === "failed" ||
+    value === "ready"
+  );
+}
+
+function parseEstimatePdfStatus(payload: unknown): EstimatePdfStatusResponse | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const rawStatus = toStringValue(root.status);
+  if (!rawStatus || !isEstimatePdfStatus(rawStatus)) {
+    return null;
+  }
+
+  return {
+    status: rawStatus,
+    downloadUrl:
+      toStringValue(root.download_url) ?? toStringValue(root.downloadUrl) ?? undefined,
+    filePath: toStringValue(root.file_path) ?? toStringValue(root.filePath) ?? undefined,
+    sha256Hash:
+      toStringValue(root.sha256_hash) ?? toStringValue(root.sha256Hash) ?? undefined,
+    generatedAt:
+      toStringValue(root.generated_at) ?? toStringValue(root.generatedAt) ?? undefined,
+    fileSizeBytes:
+      toNumber(root.file_size_bytes) ?? toNumber(root.fileSizeBytes) ?? undefined,
+    lastError:
+      toStringValue(root.last_error) ?? toStringValue(root.lastError) ?? undefined,
+  };
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -1305,6 +1351,79 @@ export async function updateEstimateStatus(
   }
 
   return entity as EstimateVersionRow;
+}
+
+export async function requestEstimatePdfGeneration(
+  versionId: string,
+  options: { force?: boolean } = {}
+): Promise<EstimatePdfStatusResponse> {
+  const query = new URLSearchParams();
+  if (options.force) {
+    query.set("force", "1");
+  }
+
+  const path = query.size > 0
+    ? `/api/estimates/${versionId}/pdf?${query.toString()}`
+    : `/api/estimates/${versionId}/pdf`;
+
+  const payload = await requestJson<unknown>(
+    path,
+    {
+      method: "POST",
+    },
+    "Impossible de lancer la generation du PDF."
+  );
+
+  const parsed = parseEstimatePdfStatus(payload);
+  if (!parsed) {
+    throw new Error("Impossible de lire le statut de generation du PDF.");
+  }
+
+  return parsed;
+}
+
+export async function fetchEstimatePdfStatus(
+  versionId: string
+): Promise<EstimatePdfStatusResponse> {
+  try {
+    const payload = await requestJson<unknown>(
+      `/api/estimates/${versionId}/pdf?format=json`,
+      {
+        method: "GET",
+      },
+      "Impossible de recuperer le statut du PDF."
+    );
+
+    const parsed = parseEstimatePdfStatus(payload);
+    if (!parsed) {
+      throw new Error("Impossible de lire le statut du PDF.");
+    }
+
+    return parsed;
+  } catch (error) {
+    if (
+      isEstimateApiError(error) &&
+      (error.code === "PDF_NOT_READY" || error.code === "PDF_GENERATION_FAILED")
+    ) {
+      const parsed = parseEstimatePdfStatus(error.details);
+      if (parsed) {
+        return parsed;
+      }
+
+      if (error.code === "PDF_GENERATION_FAILED") {
+        return {
+          status: "failed",
+          lastError: error.message,
+        };
+      }
+
+      return {
+        status: "missing",
+      };
+    }
+
+    throw error;
+  }
 }
 
 export async function acquireEstimateDraftLock(

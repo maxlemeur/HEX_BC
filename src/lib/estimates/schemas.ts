@@ -524,11 +524,19 @@ export const updateEstimateAssemblySchema = z
       }
 
       const record = value as Record<string, unknown>;
-      return {
-        name: record.name,
-        description: record.description,
-        items: record.items,
-      };
+      const payload: Record<string, unknown> = {};
+
+      if (Object.prototype.hasOwnProperty.call(record, "name")) {
+        payload.name = record.name;
+      }
+      if (Object.prototype.hasOwnProperty.call(record, "description")) {
+        payload.description = record.description;
+      }
+      if (Object.prototype.hasOwnProperty.call(record, "items")) {
+        payload.items = record.items;
+      }
+
+      return payload;
     },
     z.object({
       name: assemblyNameSchema.optional(),

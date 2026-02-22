@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { EstimateDocument } from "@/components/EstimateDocument";
+import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { DuplicateEstimateButton } from "@/components/estimates/DuplicateEstimateButton";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import {
@@ -181,6 +182,7 @@ export default async function EstimateDetailPage({
           >
             Imprimer
           </Link>
+          <EstimatePdfDownloadButton versionId={versionId} />
         </div>
       </div>
 

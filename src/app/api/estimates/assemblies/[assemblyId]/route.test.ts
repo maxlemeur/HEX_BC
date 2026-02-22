@@ -89,6 +89,32 @@ describe("estimate assembly by id route", () => {
     );
   });
 
+  it("keeps omitted fields omitted for partial updates", async () => {
+    vi.mocked(updateEstimateAssembly).mockResolvedValue({
+      assembly: { id: ASSEMBLY_ID },
+    } as never);
+
+    const request = new Request("http://localhost", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "Mur renomme",
+      }),
+    });
+
+    const response = await PATCH(request, {
+      params: Promise.resolve({ assemblyId: ASSEMBLY_ID }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(vi.mocked(updateEstimateAssembly)).toHaveBeenCalledWith(
+      ASSEMBLY_ID,
+      {
+        name: "Mur renomme",
+      }
+    );
+  });
+
   it("deletes an assembly", async () => {
     vi.mocked(deleteEstimateAssembly).mockResolvedValue({
       deleted_id: ASSEMBLY_ID,

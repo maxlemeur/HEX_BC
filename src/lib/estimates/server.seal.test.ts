@@ -6,10 +6,15 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+vi.mock("./pdf-generator", () => ({
+  generateEstimatePdfNow: vi.fn(),
+}));
+
 import {
   patchEstimateStatus,
   verifyEstimateSeal,
 } from "@/lib/estimates/server";
+import { generateEstimatePdfNow } from "./pdf-generator";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -471,6 +476,38 @@ describe("estimate status seal flow", () => {
         }),
       })
     );
+
+    expect(vi.mocked(generateEstimatePdfNow)).toHaveBeenCalledWith(VERSION_ID, {
+      force: true,
+      triggeredBy: "send",
+    });
+  });
+
+  it("aborts draft -> sent transition when PDF generation fails", async () => {
+    const supabase = createSupabaseSealMock({
+      versionSelectResponses: [
+        {
+          data: createVersionAccessRow("draft"),
+          error: null,
+        },
+      ],
+      estimateItemsResult: {
+        data: [],
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(generateEstimatePdfNow).mockRejectedValueOnce(
+      new Error("pdf generation failed")
+    );
+
+    await expect(
+      patchEstimateStatus(VERSION_ID, { status: "sent" }, UPDATED_AT)
+    ).rejects.toThrow("pdf generation failed");
+
+    expect(supabase.__mocks.updatePayloads).toEqual([]);
+    expect(supabase.__mocks.eventInsert).not.toHaveBeenCalled();
   });
 });
 

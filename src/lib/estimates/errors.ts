@@ -18,7 +18,9 @@ export type ApiErrorCode =
   | "ESTIMATE_TEMPLATE_INSTANTIATE_FAILED"
   | "ESTIMATE_ASSEMBLY_NOT_FOUND"
   | "ESTIMATE_ASSEMBLY_NAME_CONFLICT"
-  | "ESTIMATE_ASSEMBLY_INSERT_FAILED";
+  | "ESTIMATE_ASSEMBLY_INSERT_FAILED"
+  | "PDF_NOT_READY"
+  | "PDF_GENERATION_FAILED";
 
 type ApiErrorBody = {
   code: ApiErrorCode | string;
@@ -60,7 +62,7 @@ export class ApiError extends Error {
   }
 }
 
-export function ok<T>(data: T, status: 200 | 201 = 200) {
+export function ok<T>(data: T, status: 200 | 201 | 202 = 200) {
   return NextResponse.json<ApiSuccessResponse<T>>(
     {
       ok: true,

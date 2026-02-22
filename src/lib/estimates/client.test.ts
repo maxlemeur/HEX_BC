@@ -8,11 +8,12 @@ import {
   deleteEstimateAssembly,
   duplicateEstimateAssembly,
   fetchEstimateAssemblies,
-  fetchEstimateAssembly,
   fetchEstimateEditorData,
+  fetchEstimatePdfStatus,
   insertAssemblyIntoVersion,
   isEstimateApiError,
   releaseEstimateDraftLock,
+  requestEstimatePdfGeneration,
   renewEstimateDraftLock,
   saveEstimateVersion,
   sendEstimateSuggestionRuleFeedback,
@@ -24,6 +25,8 @@ const VERSION_ID = "77777777-7777-4777-8777-777777777777";
 const ITEM_ID = "88888888-8888-4888-8888-888888888888";
 const RULE_ID = "99999999-9999-4999-8999-999999999999";
 const LOCK_USER_ID = "11111111-1111-4111-8111-111111111111";
+const TENANT_ID = "22222222-2222-4222-8222-222222222222";
+const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const SUPPLY_TYPE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ASSEMBLY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const UPDATED_AT = "2026-02-20T10:00:00.000Z";
@@ -914,5 +917,119 @@ describe("estimate client assemblies wrappers", () => {
         method: "DELETE",
       })
     );
+  });
+
+  it("requests manual PDF generation on the expected endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            status: "ready",
+            download_url: "https://example.com/pdf",
+            file_path: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
+            sha256_hash: "a".repeat(64),
+            generated_at: "2026-02-21T10:00:00.000Z",
+            file_size_bytes: 1024,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await requestEstimatePdfGeneration(VERSION_ID, { force: true });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/pdf?force=1`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+      })
+    );
+    expect(result).toEqual({
+      status: "ready",
+      downloadUrl: "https://example.com/pdf",
+      filePath: `${TENANT_ID}/${PROJECT_ID}/${VERSION_ID}.pdf`,
+      sha256Hash: "a".repeat(64),
+      generatedAt: "2026-02-21T10:00:00.000Z",
+      fileSizeBytes: 1024,
+      lastError: undefined,
+    });
+  });
+
+  it("fetches PDF status from json endpoint and parses processing state", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            status: "processing",
+          },
+        }),
+        {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchEstimatePdfStatus(VERSION_ID);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/pdf?format=json`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(result).toEqual({
+      status: "processing",
+      downloadUrl: undefined,
+      filePath: undefined,
+      sha256Hash: undefined,
+      generatedAt: undefined,
+      fileSizeBytes: undefined,
+      lastError: undefined,
+    });
+  });
+
+  it("maps PDF error payloads into normalized failed status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error: {
+            code: "PDF_GENERATION_FAILED",
+            message: "La generation a echoue",
+            details: {
+              status: "failed",
+              last_error: "boom",
+            },
+          },
+        }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchEstimatePdfStatus(VERSION_ID);
+
+    expect(result).toEqual({
+      status: "failed",
+      lastError: "boom",
+      downloadUrl: undefined,
+      filePath: undefined,
+      sha256Hash: undefined,
+      generatedAt: undefined,
+      fileSizeBytes: undefined,
+    });
   });
 });

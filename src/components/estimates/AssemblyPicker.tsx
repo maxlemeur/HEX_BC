@@ -194,7 +194,7 @@ export function AssemblyPicker({
               Inserer un groupe de lignes apres la ligne active.
             </p>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Ancre d'insertion: {anchorItemId ?? "fin de racine"}
+              Ancre d&apos;insertion: {anchorItemId ?? "fin de racine"}
             </p>
           </div>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
@@ -254,7 +254,7 @@ export function AssemblyPicker({
                   Selectionnez un assemblage pour afficher son apercu.
                 </div>
               ) : !selectedDetail ? (
-                <div className="text-sm text-[var(--slate-500)]">Chargement de l'aperu...</div>
+                <div className="text-sm text-[var(--slate-500)]">Chargement de l&apos;apercu...</div>
               ) : (
                 <div>
                   <h3 className="text-base font-semibold text-[var(--slate-800)]">

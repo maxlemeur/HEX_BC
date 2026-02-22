@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import type {
   CreateEstimateAssemblyPayload,
@@ -25,7 +25,6 @@ type AssemblyDraftItem = {
 };
 
 type AssemblyEditorModalProps = {
-  isOpen: boolean;
   isSubmitting: boolean;
   initialValue?: EstimateAssemblyDetail | null;
   onClose: () => void;
@@ -80,25 +79,20 @@ function readPositiveInteger(value: string, fallback: number) {
 }
 
 export function AssemblyEditorModal({
-  isOpen,
   isSubmitting,
   initialValue,
   onClose,
   onSubmit,
 }: AssemblyEditorModalProps) {
   const isEditMode = Boolean(initialValue);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [items, setItems] = useState<AssemblyDraftItem[]>([]);
+  const [name, setName] = useState(() => initialValue?.name ?? "");
+  const [description, setDescription] = useState(
+    () => initialValue?.description ?? ""
+  );
+  const [items, setItems] = useState<AssemblyDraftItem[]>(() =>
+    toDraftItems(initialValue)
+  );
   const [validationError, setValidationError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setName(initialValue?.name ?? "");
-    setDescription(initialValue?.description ?? "");
-    setItems(toDraftItems(initialValue));
-    setValidationError(null);
-  }, [initialValue, isOpen]);
 
   const modalTitle = useMemo(
     () => (isEditMode ? "Modifier l'assemblage" : "Nouvel assemblage"),
@@ -203,8 +197,6 @@ export function AssemblyEditorModal({
     });
   }
 
-  if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
       <div
@@ -222,7 +214,7 @@ export function AssemblyEditorModal({
               {modalTitle}
             </h2>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Configurez des lignes reutilisables pour les insertions dans l'editeur.
+              Configurez des lignes reutilisables pour les insertions dans l&apos;editeur.
             </p>
           </div>
           <button
@@ -239,7 +231,7 @@ export function AssemblyEditorModal({
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="form-label" htmlFor="assembly-name">
-                Nom de l'assemblage *
+                Nom de l&apos;assemblage *
               </label>
               <input
                 id="assembly-name"

@@ -34,6 +34,7 @@ npm run e2e:run -- e2e/hex/ti-146-parameters.ps1
 npm run e2e:run -- e2e/hex/ti-147-editor.ps1
 npm run e2e:run -- e2e/hex/ti-148-calculations.ps1
 npm run e2e:run -- e2e/hex/ti-149-duplicate.ps1
+npm run e2e:run -- e2e/hex/ti-182-assemblies.ps1
 npm run e2e:run -- e2e/hex/ti-150-status.ps1
 npm run e2e:run -- e2e/hex/ti-151-print.ps1
 npm run e2e:run -- e2e/hex/ti-152-export.ps1
@@ -62,6 +63,8 @@ pwsh -NoProfile -File e2e/hex/run-all.ps1
 - `E2E_SESSION` to control the agent-browser session name
 - `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD` for auth state
 - `E2E_AUTH_STATE` path for saved auth state (default: `e2e/.auth.json`)
+
+By default, session names are isolated per process (`e2e-$PID`, `e2e-auth-$PID`, `e2e-hex-$PID`) and `e2e:hex` isolates each test with its own session. This avoids collisions when multiple devs run E2E in parallel.
 
 ## Environment examples
 

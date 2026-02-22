@@ -938,6 +938,73 @@ export type Database = {
           },
         ];
       };
+      estimate_documents: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          version_id: string;
+          file_path: string | null;
+          sha256_hash: string | null;
+          file_size_bytes: number | null;
+          generated_by: string | null;
+          generated_at: string | null;
+          status: "processing" | "ready" | "failed";
+          last_error: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          version_id: string;
+          file_path?: string | null;
+          sha256_hash?: string | null;
+          file_size_bytes?: number | null;
+          generated_by?: string | null;
+          generated_at?: string | null;
+          status: "processing" | "ready" | "failed";
+          last_error?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          version_id?: string;
+          file_path?: string | null;
+          sha256_hash?: string | null;
+          file_size_bytes?: number | null;
+          generated_by?: string | null;
+          generated_at?: string | null;
+          status?: "processing" | "ready" | "failed";
+          last_error?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "estimate_documents_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_documents_version_id_fkey";
+            columns: ["version_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_versions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_documents_generated_by_fkey";
+            columns: ["generated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       draft_locks: {
         Row: {
           id: string;
@@ -1210,6 +1277,81 @@ export type Database = {
           name?: string;
           hourly_rate_cents?: number;
           is_active?: boolean;
+          position?: number;
+        };
+        Relationships: [];
+      };
+      estimate_assemblies: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          created_by: string;
+          name: string;
+          description: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          created_by: string;
+          name: string;
+          description?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          created_by?: string;
+          name?: string;
+          description?: string | null;
+        };
+        Relationships: [];
+      };
+      estimate_assembly_items: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          assembly_id: string;
+          title: string;
+          unit: string | null;
+          k_fo: number;
+          k_mo: number;
+          labor_role_id: string | null;
+          default_quantity: number | null;
+          position: number;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          assembly_id: string;
+          title: string;
+          unit?: string | null;
+          k_fo?: number;
+          k_mo?: number;
+          labor_role_id?: string | null;
+          default_quantity?: number | null;
+          position?: number;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          assembly_id?: string;
+          title?: string;
+          unit?: string | null;
+          k_fo?: number;
+          k_mo?: number;
+          labor_role_id?: string | null;
+          default_quantity?: number | null;
           position?: number;
         };
         Relationships: [];
@@ -1546,6 +1688,53 @@ export type Database = {
           project_id: string;
           version_id: string;
         }[];
+      };
+      insert_estimate_assembly_into_version: {
+        Args: {
+          p_version_id: string;
+          p_assembly_id: string;
+          p_after_item_id?: string | null;
+        };
+        Returns: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          version_id: string;
+          parent_id: string | null;
+          item_type: "section" | "line";
+          position: number;
+          title: string;
+          description: string | null;
+          quantity: number | null;
+          unit_price_ht_cents: number | null;
+          tax_rate_bp: number | null;
+          k_fo: number | null;
+          h_mo: number | null;
+          h_mo_majoration: number;
+          k_mo: number | null;
+          h_mo_atelier: number | null;
+          k_mo_atelier: number | null;
+          labor_role_atelier_id: string | null;
+          h_mo_chantier: number | null;
+          k_mo_chantier: number | null;
+          labor_role_chantier_id: string | null;
+          pu_ht_cents: number | null;
+          labor_role_id: string | null;
+          category_id: string | null;
+          supply_type_id: string | null;
+          selected_supplier_price_id: string | null;
+          line_total_ht_cents: number | null;
+          line_tax_cents: number | null;
+          line_total_ttc_cents: number | null;
+        }[];
+      };
+      replace_estimate_assembly_items: {
+        Args: {
+          p_assembly_id: string;
+          p_items: Json;
+        };
+        Returns: number;
       };
       link_mapped_rows_to_catalogue: {
         Args: {
