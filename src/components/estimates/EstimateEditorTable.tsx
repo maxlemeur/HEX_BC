@@ -37,11 +37,16 @@ import {
   type EstimateItemRecord,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
+import { PastePreviewDialog } from "@/components/estimates/PastePreviewDialog";
 import {
   sendEstimateSuggestionRuleFeedback,
 } from "@/lib/estimates/client";
 import { AssemblyPicker } from "@/components/estimates/AssemblyPicker";
 import { EditableCell } from "@/components/estimates/EditableCell";
+import {
+  SupplierComparisonPanel,
+  type SupplierComparisonAlternative,
+} from "@/components/estimates/SupplierComparisonPanel";
 import {
   useSpreadsheetNavigation,
   type SpreadsheetCell,
@@ -69,6 +74,21 @@ import {
   rankSuggestions,
   type SuggestionMatchKind,
 } from "@/lib/estimates/suggestion-scoring";
+import {
+  CLIPBOARD_TARGET_FIELDS,
+  DEFAULT_CLIPBOARD_FIELD_ORDER,
+  buildClipboardPreviewRows,
+  detectClipboardFormat,
+  parseTsvMatrix,
+  serializeSelectedRowsToTsv,
+  suggestClipboardColumnMapping,
+  type ClipboardColumnMapping,
+  type ClipboardFormat,
+  type ClipboardPreviewRow,
+  type ClipboardPreviewValues,
+  type ClipboardTargetField,
+  type ClipboardTsvMatrix,
+} from "@/lib/estimates/clipboard";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 import type { Database } from "@/types/database";
 
@@ -167,6 +187,15 @@ type EstimateEditorTableProps = {
     assemblyId: string,
     afterItemId: string | null
   ) => Promise<void>;
+  onPasteRows: (input: {
+    anchorRowId: string | null;
+    rows: ClipboardPreviewValues[];
+  }) => Promise<void>;
+  onUndo: () => Promise<void>;
+  onRedo: () => Promise<void>;
+  canUndo: boolean;
+  canRedo: boolean;
+  isUndoRedoBusy: boolean;
   bulkSuggestionEligibleCount: number;
   onOpenBulkSuggestDialog: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
@@ -197,6 +226,17 @@ const TEXT_LIKE_INPUT_TYPES = new Set([
 ]);
 const SUGGESTION_SCORE_MAX = 5;
 const CATALOGUE_SUGGESTIONS_DEBOUNCE_MS = 300;
+const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardTargetField, string> = {
+  designation: "Designation",
+  quantity: "Quantite",
+  unit: "Unite",
+  unit_price_ht: "Prix unitaire HT",
+  supply_type: "Type FO",
+  k_fo: "K FO",
+  h_mo: "h MO",
+  k_mo: "K MO",
+  h_mo_majoration: "Majoration MO",
+};
 const SPREADSHEET_COLUMN_KEYS = {
   title: "title",
   quantity: "quantity",
@@ -261,6 +301,8 @@ const QUALITY_BADGE_CLASSNAMES: Record<EstimateQualityFlagKey, string> = {
   missing_labor_role: "border-red-200 bg-red-50 text-red-700",
   price_outlier: "border-orange-200 bg-orange-50 text-orange-700",
   quantity_outlier: "border-orange-200 bg-orange-50 text-orange-700",
+  supplier_price_outdated: "border-amber-200 bg-amber-50 text-amber-700",
+  labor_split_incomplete: "border-orange-200 bg-orange-50 text-orange-700",
 };
 
 type SupplierAlternativeKind =
@@ -310,6 +352,13 @@ type SuggestPricesResponse = {
   query: string;
   stale_price_days: number;
   suggestions: CataloguePriceSuggestion[];
+};
+
+type SupplierComparisonResult = {
+  item_id: string;
+  best_supplier_price_id: string | null;
+  selected_supplier_price_id: string | null;
+  alternatives: SupplierComparisonAlternative[];
 };
 
 function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
@@ -491,6 +540,129 @@ async function fetchCatalogueSuggestions(
   return suggestions.slice(0, 10);
 }
 
+function toObjectRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function toSupplierComparisonAlternative(
+  source: unknown
+): SupplierComparisonAlternative | null {
+  const record = toObjectRecord(source);
+  if (!record) return null;
+
+  const supplierPriceId =
+    toNonEmptyString(record.supplier_price_id) ?? toNonEmptyString(record.supplierPriceId);
+  const supplierName =
+    toNonEmptyString(record.supplier_name) ?? toNonEmptyString(record.supplierName);
+  if (!supplierPriceId || !supplierName) return null;
+
+  const adjustedUnitPriceCents = toFiniteNumber(
+    record.adjusted_unit_price_cents,
+    toFiniteNumber(record.unit_price_cents, 0)
+  );
+  const currency = toNonEmptyString(record.currency);
+  const supplierReference =
+    toNonEmptyString(record.supplier_reference) ?? toNonEmptyString(record.supplierReference);
+  const updatedAt = toNonEmptyString(record.updated_at) ?? toNonEmptyString(record.updatedAt);
+  const catalogueUrl =
+    toNonEmptyString(record.catalogue_url) ?? toNonEmptyString(record.catalogueUrl);
+  const productDesignation =
+    toNonEmptyString(record.product_designation) ??
+    toNonEmptyString(record.productDesignation) ??
+    toNonEmptyString(record.designation) ??
+    null;
+  const isStale = record.is_stale === true || record.isStale === true;
+
+  return {
+    supplier_price_id: supplierPriceId,
+    supplier_name: supplierName,
+    adjusted_unit_price_cents: adjustedUnitPriceCents,
+    currency,
+    supplier_reference: supplierReference,
+    updated_at: updatedAt,
+    is_stale: isStale,
+    catalogue_url: catalogueUrl,
+    product_designation: productDesignation,
+  };
+}
+
+function parseSupplierComparisonResult(payload: unknown, fallbackItemId: string) {
+  const envelopeRecord = toObjectRecord(payload);
+  const dataRecord = toObjectRecord(envelopeRecord?.data);
+  const directComparisonRecord =
+    toObjectRecord(dataRecord?.comparison) ?? toObjectRecord(envelopeRecord?.comparison);
+  const comparisonsArray =
+    (Array.isArray(dataRecord?.comparisons) ? dataRecord.comparisons : null) ??
+    (Array.isArray(envelopeRecord?.comparisons) ? envelopeRecord.comparisons : null);
+  const selectedFromArray =
+    comparisonsArray
+      ?.map((entry) => toObjectRecord(entry))
+      .find((entry) => {
+        if (!entry) return false;
+        const itemId =
+          toNonEmptyString(entry.item_id) ?? toNonEmptyString(entry.itemId);
+        return itemId === fallbackItemId;
+      }) ??
+    comparisonsArray?.map((entry) => toObjectRecord(entry)).find(Boolean) ??
+    null;
+  const comparisonRecord =
+    directComparisonRecord ?? selectedFromArray ?? dataRecord ?? envelopeRecord ?? {};
+  const alternativesSource = Array.isArray(comparisonRecord.alternatives)
+    ? comparisonRecord.alternatives
+    : Array.isArray(dataRecord?.alternatives)
+      ? dataRecord.alternatives
+      : [];
+
+  const alternatives = alternativesSource
+    .map((entry) => toSupplierComparisonAlternative(entry))
+    .filter((entry): entry is SupplierComparisonAlternative => entry !== null)
+    .slice(0, 3);
+
+  return {
+    item_id:
+      toNonEmptyString(comparisonRecord.item_id) ??
+      toNonEmptyString(comparisonRecord.itemId) ??
+      fallbackItemId,
+    best_supplier_price_id:
+      toNonEmptyString(comparisonRecord.best_supplier_price_id) ??
+      toNonEmptyString(comparisonRecord.bestSupplierPriceId),
+    selected_supplier_price_id:
+      toNonEmptyString(comparisonRecord.selected_supplier_price_id) ??
+      toNonEmptyString(comparisonRecord.selectedSupplierPriceId),
+    alternatives,
+  } satisfies SupplierComparisonResult;
+}
+
+async function fetchSupplierComparisons(
+  versionId: string,
+  itemId: string,
+  signal: AbortSignal
+): Promise<SupplierComparisonResult> {
+  const response = await fetch(`/api/estimates/${versionId}/supplier-comparisons`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+    signal,
+    body: JSON.stringify({
+      item_ids: [itemId],
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    throw new Error(
+      resolveApiErrorMessage(payload, "Impossible de charger la comparaison fournisseurs.")
+    );
+  }
+
+  return parseSupplierComparisonResult(payload, itemId);
+}
+
 function toFiniteNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -644,9 +816,15 @@ type SortableRowProps = {
   laborRoles: LaborRole[];
   navigation: SpreadsheetNavigationState;
   isLineSelected: boolean;
+  hasSupplierComparisonMismatch: boolean;
   onAddSection: (parentId: string | null) => void;
   onAddLine: (parentId: string | null) => void;
   onDeleteItem: (itemId: string) => void;
+  onOpenSupplierComparisonPanel: (itemId: string) => void;
+  onOpenSupplierComparisonContextMenu: (
+    itemId: string,
+    position: { x: number; y: number }
+  ) => void;
   onPatchItem: (
     itemId: string,
     patch: ItemPatch,
@@ -682,9 +860,12 @@ const SortableRow = memo(function SortableRow({
   laborRoles,
   navigation,
   isLineSelected,
+  hasSupplierComparisonMismatch,
   onAddSection,
   onAddLine,
   onDeleteItem,
+  onOpenSupplierComparisonPanel,
+  onOpenSupplierComparisonContextMenu,
   onPatchItem,
   onUnitChange,
   onUnitCommit,
@@ -1211,6 +1392,25 @@ const SortableRow = memo(function SortableRow({
     });
   };
 
+  const handleLineContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (item.item_type !== "line") return;
+
+    const target = event.target as HTMLElement;
+    if (
+      target.closest(
+        "input,select,textarea,button,a,[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']"
+      )
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    onOpenSupplierComparisonContextMenu(item.id, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -1218,6 +1418,7 @@ const SortableRow = memo(function SortableRow({
       className={`estimate-row${isLineSelected ? " estimate-row--selected" : ""}`}
       role="row"
       onMouseDown={handleRowModifierSelection}
+      onContextMenu={handleLineContextMenu}
     >
       <div className="estimate-cell estimate-cell--selection">
         <input
@@ -1349,6 +1550,13 @@ const SortableRow = memo(function SortableRow({
                   ) : null}
                 </div>
               ))}
+            </div>
+          ) : null}
+          {hasSupplierComparisonMismatch ? (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="estimate-supplier-comparison-row-badge">
+                Meilleur prix fournisseur disponible
+              </span>
             </div>
           ) : null}
           {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
@@ -1959,6 +2167,13 @@ const SortableRow = memo(function SortableRow({
       </div>
       <div className="estimate-cell estimate-cell--actions">
         <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={() => onOpenSupplierComparisonPanel(item.id)}
+        >
+          Comparer
+        </button>
+        <button
           className="btn btn-danger btn-sm"
           type="button"
           onClick={() => onDeleteItem(item.id)}
@@ -2007,6 +2222,20 @@ type BulkMoveDestination = {
   label: string;
 };
 
+type PastePreviewDialogRow = {
+  id: string;
+  rowNumber: number;
+  include: boolean;
+  values: Record<string, string | number | boolean | null>;
+  invalidReasons: string[];
+};
+
+type SupplierComparisonContextMenuState = {
+  itemId: string;
+  x: number;
+  y: number;
+};
+
 export function EstimateEditorTable({
   versionId,
   items,
@@ -2043,6 +2272,12 @@ export function EstimateEditorTable({
   onBulkSetCategory,
   onBulkSetLaborRole,
   onInsertAssembly,
+  onPasteRows,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  isUndoRedoBusy,
   bulkSuggestionEligibleCount,
   onOpenBulkSuggestDialog,
   onReorder,
@@ -2070,7 +2305,33 @@ export function EstimateEditorTable({
   const [lastUsedAtOverrideByRuleId, setLastUsedAtOverrideByRuleId] = useState<
     Record<string, string>
   >({});
+  const [supplierComparisonMenu, setSupplierComparisonMenu] =
+    useState<SupplierComparisonContextMenuState | null>(null);
+  const [supplierComparisonPanelItemId, setSupplierComparisonPanelItemId] =
+    useState<string | null>(null);
+  const [supplierComparisonByItemId, setSupplierComparisonByItemId] = useState<
+    Record<string, SupplierComparisonResult>
+  >({});
+  const [bestSupplierPriceIdByItemId, setBestSupplierPriceIdByItemId] = useState<
+    Record<string, string | null>
+  >({});
+  const [isSupplierComparisonLoading, setIsSupplierComparisonLoading] = useState(false);
+  const [supplierComparisonError, setSupplierComparisonError] = useState<string | null>(
+    null
+  );
+  const [pasteMatrix, setPasteMatrix] = useState<ClipboardTsvMatrix | null>(null);
+  const [pasteMapping, setPasteMapping] = useState<ClipboardColumnMapping>({});
+  const [pastePreviewRows, setPastePreviewRows] = useState<ClipboardPreviewRow[]>([]);
+  const [pasteIncludedByLineNumber, setPasteIncludedByLineNumber] = useState<
+    Record<number, boolean>
+  >({});
+  const [pasteErrors, setPasteErrors] = useState<string[]>([]);
+  const [isPastePreviewOpen, setIsPastePreviewOpen] = useState(false);
+  const [isPastingRows, setIsPastingRows] = useState(false);
+  const [detectedClipboardFormat, setDetectedClipboardFormat] =
+    useState<ClipboardFormat>("generic");
   const tableCardRef = useRef<HTMLDivElement | null>(null);
+  const supplierComparisonAbortRef = useRef<AbortController | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -2105,6 +2366,12 @@ export function EstimateEditorTable({
     walk(null, 0);
     return depth;
   }, [itemsByParent]);
+
+  const itemById = useMemo(() => {
+    const map = new Map<string, EstimateItem>();
+    items.forEach((item) => map.set(item.id, item));
+    return map;
+  }, [items]);
 
   const bulkMoveDestinations = useMemo(() => {
     const destinations: BulkMoveDestination[] = [{ id: null, label: "Racine" }];
@@ -2365,6 +2632,224 @@ export function EstimateEditorTable({
   const allVisibleSelected =
     visibleLineIdList.length > 0 && selectedLineCount === visibleLineIdList.length;
 
+  const clipboardTargetOptions = useMemo(() => {
+    return CLIPBOARD_TARGET_FIELDS.map((field) => ({
+      value: field,
+      label: CLIPBOARD_TARGET_FIELD_LABELS[field],
+      required: field === "designation",
+    }));
+  }, []);
+
+  const pasteMappingEntries = useMemo(() => {
+    if (!pasteMatrix) return [];
+
+    return pasteMatrix.headers.map((sourceColumn) => ({
+      sourceColumn,
+      targetField: pasteMapping[sourceColumn] ?? null,
+      targetOptions: clipboardTargetOptions,
+    }));
+  }, [clipboardTargetOptions, pasteMapping, pasteMatrix]);
+
+  const pasteDialogRows = useMemo<PastePreviewDialogRow[]>(() => {
+    return pastePreviewRows.map((row, index) => {
+      const rowId = `${row.lineNumber}-${index}`;
+      const include =
+        pasteIncludedByLineNumber[row.lineNumber] ?? row.status === "valid";
+
+      return {
+        id: rowId,
+        rowNumber: row.lineNumber,
+        include,
+        values: row.rawValues,
+        invalidReasons: row.reasons,
+      };
+    });
+  }, [pasteIncludedByLineNumber, pastePreviewRows]);
+
+  const mapClipboardFormatForDialog = useCallback(
+    (format: ClipboardFormat): "bdc" | "optima" | "generic" => {
+      if (format === "bdc_v1_1") return "bdc";
+      if (format === "optima") return "optima";
+      return "generic";
+    },
+    []
+  );
+
+  const openPastePreviewFromText = useCallback((rawText: string) => {
+    const matrix = parseTsvMatrix(rawText);
+    const errors: string[] = [];
+
+    if (matrix.headers.length === 0 || matrix.rows.length === 0) {
+      errors.push("Aucune ligne exploitable detectee dans le presse-papier.");
+    }
+
+    const detectedFormat =
+      matrix.headers.length > 0 ? detectClipboardFormat(matrix.headers) : "generic";
+    const suggestedMapping = suggestClipboardColumnMapping(matrix.headers);
+    const preview = buildClipboardPreviewRows(matrix, suggestedMapping);
+
+    setDetectedClipboardFormat(detectedFormat);
+    setPasteMatrix(matrix);
+    setPasteMapping(suggestedMapping);
+    setPastePreviewRows(preview.rows);
+    setPasteErrors(errors);
+    setPasteIncludedByLineNumber(() => {
+      const initial: Record<number, boolean> = {};
+      preview.rows.forEach((row) => {
+        initial[row.lineNumber] = row.status === "valid";
+      });
+      return initial;
+    });
+    setIsPastePreviewOpen(true);
+  }, []);
+
+  const handlePasteMappingChange = useCallback(
+    (sourceColumn: string, targetField: string | null) => {
+      if (!pasteMatrix) return;
+
+      setPasteMapping((previous) => {
+        const next: ClipboardColumnMapping = { ...previous };
+        if (!targetField) {
+          delete next[sourceColumn];
+        } else if (CLIPBOARD_TARGET_FIELDS.includes(targetField as ClipboardTargetField)) {
+          next[sourceColumn] = targetField as ClipboardTargetField;
+        }
+
+        const preview = buildClipboardPreviewRows(pasteMatrix, next);
+        setPastePreviewRows(preview.rows);
+        setPasteIncludedByLineNumber((previousInclude) => {
+          const merged: Record<number, boolean> = {};
+          preview.rows.forEach((row) => {
+            const existing = previousInclude[row.lineNumber];
+            merged[row.lineNumber] =
+              existing !== undefined ? existing : row.status === "valid";
+          });
+          return merged;
+        });
+        return next;
+      });
+    },
+    [pasteMatrix]
+  );
+
+  const handleTogglePasteRow = useCallback((rowId: string, include: boolean) => {
+    const lineNumber = Number.parseInt(rowId.split("-")[0] ?? "", 10);
+    if (!Number.isFinite(lineNumber)) return;
+
+    setPasteIncludedByLineNumber((previous) => ({
+      ...previous,
+      [lineNumber]: include,
+    }));
+  }, []);
+
+  const closePastePreview = useCallback(() => {
+    setIsPastePreviewOpen(false);
+    setIsPastingRows(false);
+    setPasteErrors([]);
+  }, []);
+
+  const handleConfirmPastePreview = useCallback(async () => {
+    if (isReadOnly || isPastingRows) return;
+
+    const selectedRows = pastePreviewRows.filter((row) => {
+      const include = pasteIncludedByLineNumber[row.lineNumber] ?? row.status === "valid";
+      return include && row.status === "valid" && Boolean(row.values.designation);
+    });
+
+    if (selectedRows.length === 0) {
+      setPasteErrors(["Aucune ligne valide selectionnee pour insertion."]);
+      return;
+    }
+
+    setIsPastingRows(true);
+    setPasteErrors([]);
+
+    try {
+      const activeCellDataId =
+        tableCardRef.current
+          ?.querySelector<HTMLElement>("[data-cell-id].estimate-cell--active")
+          ?.getAttribute("data-cell-id") ?? "";
+      const anchorRowId =
+        activeCellDataId.includes("::")
+          ? (activeCellDataId.split("::")[0] ?? null)
+          : null;
+
+      await onPasteRows({
+        anchorRowId,
+        rows: selectedRows.map((row) => row.values),
+      });
+      closePastePreview();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Impossible d'inserer les lignes collees.";
+      setPasteErrors([message]);
+    } finally {
+      setIsPastingRows(false);
+    }
+  }, [
+    closePastePreview,
+    isPastingRows,
+    isReadOnly,
+    onPasteRows,
+    pasteIncludedByLineNumber,
+    pastePreviewRows,
+  ]);
+
+  const copySelectedRowsToClipboard = useCallback(async () => {
+    if (!hasSelectedLines) return;
+
+    const lineById = new Map(
+      items
+        .filter((item): item is EstimateItem => item.item_type === "line")
+        .map((item) => [item.id, item])
+    );
+    const rows = selectedLineIdList
+      .map((itemId) => lineById.get(itemId) ?? null)
+      .filter((item): item is EstimateItem => item !== null)
+      .map((item) => ({
+        designation: item.title,
+        quantity: item.quantity,
+        unit: (mergedUnitDrafts[item.id] ?? item.description ?? "").trim() || null,
+        unit_price_ht:
+          typeof item.unit_price_ht_cents === "number"
+            ? Number((item.unit_price_ht_cents / 100).toFixed(2))
+            : null,
+        supply_type:
+          item.supply_type_id && supplyTypeById.has(item.supply_type_id)
+            ? (supplyTypeById.get(item.supply_type_id)?.name ?? null)
+            : null,
+        k_fo: item.k_fo,
+        h_mo: item.h_mo,
+        k_mo: item.k_mo,
+        h_mo_majoration:
+          typeof item.h_mo_majoration === "number"
+            ? Number((item.h_mo_majoration * 100).toFixed(2))
+            : null,
+      }));
+
+    const tsv = serializeSelectedRowsToTsv(rows, {
+      fields: DEFAULT_CLIPBOARD_FIELD_ORDER,
+      includeHeader: true,
+    });
+
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(tsv);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = tsv;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  }, [hasSelectedLines, items, mergedUnitDrafts, selectedLineIdList, supplyTypeById]);
+
   const toggleAllVisibleLines = useCallback(
     (checked: boolean) => {
       if (checked) {
@@ -2460,6 +2945,178 @@ export function EstimateEditorTable({
     [clearLineSelection, hasSelectedLines]
   );
 
+  const closeSupplierComparisonContextMenu = useCallback(() => {
+    setSupplierComparisonMenu(null);
+  }, []);
+
+  const loadSupplierComparison = useCallback(
+    async (itemId: string) => {
+      if (!versionId) {
+        setSupplierComparisonError("Version de devis invalide.");
+        return;
+      }
+
+      if (supplierComparisonAbortRef.current) {
+        supplierComparisonAbortRef.current.abort();
+      }
+
+      const abortController = new AbortController();
+      supplierComparisonAbortRef.current = abortController;
+
+      setIsSupplierComparisonLoading(true);
+      setSupplierComparisonError(null);
+
+      try {
+        const comparison = await fetchSupplierComparisons(
+          versionId,
+          itemId,
+          abortController.signal
+        );
+
+        if (abortController.signal.aborted) return;
+
+        setSupplierComparisonByItemId((prev) => ({
+          ...prev,
+          [itemId]: comparison,
+        }));
+        setBestSupplierPriceIdByItemId((prev) => ({
+          ...prev,
+          [itemId]: comparison.best_supplier_price_id,
+        }));
+      } catch (error) {
+        if (abortController.signal.aborted) return;
+
+        setSupplierComparisonError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de charger la comparaison fournisseurs."
+        );
+      } finally {
+        if (!abortController.signal.aborted) {
+          setIsSupplierComparisonLoading(false);
+        }
+      }
+    },
+    [versionId]
+  );
+
+  const openSupplierComparisonPanel = useCallback(
+    (itemId: string) => {
+      const item = itemById.get(itemId);
+      if (!item || item.item_type !== "line") return;
+
+      setSupplierComparisonPanelItemId(itemId);
+      setSupplierComparisonError(null);
+      void loadSupplierComparison(itemId);
+    },
+    [itemById, loadSupplierComparison]
+  );
+
+  const handleOpenSupplierComparisonContextMenu = useCallback(
+    (itemId: string, position: { x: number; y: number }) => {
+      const item = itemById.get(itemId);
+      if (!item || item.item_type !== "line") return;
+
+      const menuWidth = 240;
+      const menuHeight = 44;
+      const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
+      const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
+
+      setSupplierComparisonMenu({
+        itemId,
+        x,
+        y,
+      });
+    },
+    [itemById]
+  );
+
+  const handleCloseSupplierComparisonPanel = useCallback(() => {
+    setSupplierComparisonPanelItemId(null);
+    setSupplierComparisonError(null);
+    setIsSupplierComparisonLoading(false);
+    if (supplierComparisonAbortRef.current) {
+      supplierComparisonAbortRef.current.abort();
+      supplierComparisonAbortRef.current = null;
+    }
+  }, []);
+
+  const activeSupplierComparisonItem = useMemo(() => {
+    if (!supplierComparisonPanelItemId) return null;
+    const item = itemById.get(supplierComparisonPanelItemId);
+    return item && item.item_type === "line" ? item : null;
+  }, [itemById, supplierComparisonPanelItemId]);
+
+  const activeSupplierComparison = useMemo(() => {
+    if (!supplierComparisonPanelItemId) return null;
+    return supplierComparisonByItemId[supplierComparisonPanelItemId] ?? null;
+  }, [supplierComparisonByItemId, supplierComparisonPanelItemId]);
+
+  const handleSelectSupplierComparisonAlternative = useCallback(
+    (alternative: SupplierComparisonAlternative) => {
+      if (isReadOnly || !activeSupplierComparisonItem) return;
+
+      const selectedDescription = (alternative.product_designation ?? "").trim();
+      const patch: ItemPatch = {
+        description: selectedDescription.length > 0 ? selectedDescription : null,
+        unit_price_ht_cents: alternative.adjusted_unit_price_cents,
+        selected_supplier_price_id: alternative.supplier_price_id,
+      };
+
+      onPatchItem(activeSupplierComparisonItem.id, patch, { persist: true });
+      setSupplierComparisonPanelItemId(null);
+    },
+    [activeSupplierComparisonItem, isReadOnly, onPatchItem]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (supplierComparisonAbortRef.current) {
+        supplierComparisonAbortRef.current.abort();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!supplierComparisonMenu) return;
+
+    const closeMenu = () => setSupplierComparisonMenu(null);
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest(".estimate-supplier-comparison-context-menu")
+      ) {
+        return;
+      }
+      closeMenu();
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      closeMenu();
+    };
+
+    window.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [supplierComparisonMenu]);
+
+  useEffect(() => {
+    if (!supplierComparisonPanelItemId) return;
+    const item = itemById.get(supplierComparisonPanelItemId);
+    if (!item || item.item_type !== "line") {
+      setSupplierComparisonPanelItemId(null);
+    }
+  }, [itemById, supplierComparisonPanelItemId]);
+
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       const target = event.target;
@@ -2521,19 +3178,110 @@ export function EstimateEditorTable({
         }
         event.preventDefault();
         void handleBulkDeleteSelection();
+        return;
+      }
+
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        event.key.toLowerCase() === "c"
+      ) {
+        if (
+          isTextEditingTarget(target) ||
+          isUndoRedoBusy ||
+          !shortcutScope.canHandleBulkSelectionShortcut ||
+          !hasSelectedLines
+        ) {
+          return;
+        }
+        event.preventDefault();
+        void copySelectedRowsToClipboard();
+        return;
+      }
+
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "z"
+      ) {
+        if (
+          isTextEditingTarget(target) ||
+          !shortcutScope.canHandleSelectAllShortcut ||
+          isUndoRedoBusy ||
+          !canUndo
+        ) {
+          return;
+        }
+        event.preventDefault();
+        void onUndo();
+        return;
+      }
+
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        ((event.shiftKey && event.key.toLowerCase() === "z") ||
+          (!event.shiftKey && event.key.toLowerCase() === "y"))
+      ) {
+        if (
+          isTextEditingTarget(target) ||
+          !shortcutScope.canHandleSelectAllShortcut ||
+          isUndoRedoBusy ||
+          !canRedo
+        ) {
+          return;
+        }
+        event.preventDefault();
+        void onRedo();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    canRedo,
+    canUndo,
     clearLineSelection,
+    copySelectedRowsToClipboard,
     handleBulkDeleteSelection,
     hasSelectedLines,
     isReadOnly,
+    isUndoRedoBusy,
+    onRedo,
+    onUndo,
     selectAllVisibleLines,
     visibleLineIdList,
   ]);
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      const target = event.target;
+      const withinTable =
+        tableCardRef.current && target instanceof Node
+          ? tableCardRef.current.contains(target)
+          : false;
+
+      if (!withinTable) {
+        return;
+      }
+
+      if (isReadOnly || isTextEditingTarget(target)) {
+        return;
+      }
+
+      const clipboardText = event.clipboardData?.getData("text/plain") ?? "";
+      if (!clipboardText.trim()) {
+        return;
+      }
+
+      event.preventDefault();
+      openPastePreviewFromText(clipboardText);
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [isReadOnly, openPastePreviewFromText]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -2987,6 +3735,11 @@ export function EstimateEditorTable({
       qualityFlags: EstimateQualityFlagKey[],
       sectionTotals: SectionTotals | null
     ) => {
+      const bestSupplierPriceId = bestSupplierPriceIdByItemId[item.id] ?? null;
+      const hasSupplierComparisonMismatch =
+        bestSupplierPriceId !== null &&
+        (item.selected_supplier_price_id ?? null) !== bestSupplierPriceId;
+
       return (
         <SortableRow
           versionId={versionId}
@@ -3001,9 +3754,14 @@ export function EstimateEditorTable({
           laborRoles={laborRoles}
           navigation={spreadsheetNavigation}
           isLineSelected={item.item_type === "line" && isLineSelected(item.id)}
+          hasSupplierComparisonMismatch={hasSupplierComparisonMismatch}
           onAddSection={onAddSection}
           onAddLine={onAddLine}
           onDeleteItem={onDeleteItem}
+          onOpenSupplierComparisonPanel={openSupplierComparisonPanel}
+          onOpenSupplierComparisonContextMenu={
+            handleOpenSupplierComparisonContextMenu
+          }
           onPatchItem={onPatchItem}
           onUnitChange={handleUnitDraftChange}
           onUnitCommit={handleUnitCommit}
@@ -3020,9 +3778,11 @@ export function EstimateEditorTable({
       );
     },
     [
+      bestSupplierPriceIdByItemId,
       canReorder,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
+      handleOpenSupplierComparisonContextMenu,
       handleSupplyTypeCommit,
       handleSupplyTypeDraftChange,
       handleLineSelectionInteraction,
@@ -3032,6 +3792,7 @@ export function EstimateEditorTable({
       isLineSelected,
       isReadOnly,
       laborRoles,
+      openSupplierComparisonPanel,
       onAddLine,
       onAddSection,
       onDeleteItem,
@@ -3185,6 +3946,24 @@ export function EstimateEditorTable({
             />
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={() => void onUndo()}
+              disabled={isReadOnly || isUndoRedoBusy || !canUndo}
+              aria-label="Annuler la derniere action"
+            >
+              Undo
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={() => void onRedo()}
+              disabled={isReadOnly || isUndoRedoBusy || !canRedo}
+              aria-label="Retablir la derniere action"
+            >
+              Redo
+            </button>
             <span className="text-xs text-[var(--slate-600)]">
               {selectedLineCount} selection(s)
             </span>
@@ -3482,6 +4261,44 @@ export function EstimateEditorTable({
         </DndContext>
       </div>
 
+      {supplierComparisonMenu ? (
+        <div
+          className="estimate-supplier-comparison-context-menu"
+          role="menu"
+          aria-label="Actions de comparaison fournisseurs"
+          style={{
+            left: `${supplierComparisonMenu.x}px`,
+            top: `${supplierComparisonMenu.y}px`,
+          }}
+        >
+          <button
+            type="button"
+            className="estimate-supplier-comparison-context-menu__action"
+            role="menuitem"
+            onClick={() => {
+              openSupplierComparisonPanel(supplierComparisonMenu.itemId);
+              closeSupplierComparisonContextMenu();
+            }}
+          >
+            Comparer fournisseurs
+          </button>
+        </div>
+      ) : null}
+
+      <SupplierComparisonPanel
+        isOpen={Boolean(activeSupplierComparisonItem)}
+        itemTitle={activeSupplierComparisonItem?.title ?? ""}
+        alternatives={activeSupplierComparison?.alternatives ?? []}
+        bestSupplierPriceId={
+          activeSupplierComparison?.best_supplier_price_id ?? null
+        }
+        isLoading={isSupplierComparisonLoading}
+        error={supplierComparisonError}
+        isReadOnly={isReadOnly}
+        onClose={handleCloseSupplierComparisonPanel}
+        onSelectAlternative={handleSelectSupplierComparisonAlternative}
+      />
+
       <datalist id="estimate-unit-options">
         {DEFAULT_UNITS.map((unit) => (
           <option key={unit} value={unit} />
@@ -3502,6 +4319,18 @@ export function EstimateEditorTable({
         onInsert={(assemblyId) =>
           onInsertAssembly(assemblyId, insertionAnchorItemId)
         }
+      />
+
+      <PastePreviewDialog
+        isOpen={isPastePreviewOpen}
+        detectedFormat={mapClipboardFormatForDialog(detectedClipboardFormat)}
+        mapping={pasteMappingEntries}
+        rows={pasteDialogRows}
+        errors={pasteErrors}
+        onMappingChange={handlePasteMappingChange}
+        onToggleRow={handleTogglePasteRow}
+        onConfirm={() => void handleConfirmPastePreview()}
+        onClose={closePastePreview}
       />
     </div>
   );

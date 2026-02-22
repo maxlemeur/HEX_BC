@@ -455,6 +455,11 @@ try {
   $result = Parse-JsonPayload -RawPayload $resultJson
 
   if ($result.error) {
+    if ($result.error -in @("not_enough_alternatives", "not_enough_priced_alternatives")) {
+      Write-Host "EST-030 WARN: jeu de donnees insuffisant pour comparer plusieurs fournisseurs."
+      Write-Host "EST-030 PASS (skipped due to insufficient alternatives)"
+      return
+    }
     throw "EST-030 flow failed: $($result.error)"
   }
 

@@ -1562,6 +1562,232 @@ body {
   gap: 8px;
 }
 
+.estimate-supplier-comparison-row-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #f59e0b;
+  border-radius: 999px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+}
+
+.estimate-supplier-comparison-context-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 220px;
+  border: 1px solid var(--slate-200);
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.2);
+  padding: 6px;
+}
+
+.estimate-supplier-comparison-context-menu__action {
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--slate-700);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.estimate-supplier-comparison-context-menu__action:hover {
+  background: rgba(30, 58, 95, 0.08);
+  color: var(--brand-blue);
+}
+
+.estimate-supplier-comparison-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.estimate-supplier-comparison-backdrop__dismiss {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(2, 6, 23, 0.45);
+  cursor: default;
+}
+
+.estimate-supplier-comparison-panel {
+  position: relative;
+  width: min(760px, 100%);
+  max-height: min(88vh, 900px);
+  overflow: hidden;
+  border: 1px solid var(--slate-200);
+  border-radius: 16px;
+  background: white;
+  box-shadow: 0 24px 50px rgba(2, 6, 23, 0.26);
+  display: flex;
+  flex-direction: column;
+}
+
+.estimate-supplier-comparison-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--slate-200);
+}
+
+.estimate-supplier-comparison-panel__title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--slate-800);
+}
+
+.estimate-supplier-comparison-panel__subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--slate-500);
+}
+
+.estimate-supplier-comparison-panel__content {
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.estimate-supplier-comparison-state {
+  border: 1px solid var(--slate-200);
+  border-radius: 12px;
+  background: var(--slate-50);
+  padding: 12px;
+  font-size: 13px;
+  color: var(--slate-600);
+}
+
+.estimate-supplier-comparison-state--error {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.estimate-supplier-comparison-option {
+  border: 1px solid var(--slate-200);
+  border-radius: 14px;
+  background: white;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.estimate-supplier-comparison-option--best {
+  border-color: rgba(30, 58, 95, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(30, 58, 95, 0.15);
+  background: rgba(30, 58, 95, 0.03);
+}
+
+.estimate-supplier-comparison-option__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.estimate-supplier-comparison-option__name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--slate-800);
+}
+
+.estimate-supplier-comparison-option__reference {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--slate-500);
+}
+
+.estimate-supplier-comparison-option__price {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--brand-blue);
+}
+
+.estimate-supplier-comparison-option__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--slate-600);
+}
+
+.estimate-supplier-comparison-option__badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.estimate-supplier-comparison-option__badge--best {
+  border-color: rgba(30, 58, 95, 0.4);
+  color: var(--brand-blue);
+  background: rgba(30, 58, 95, 0.1);
+}
+
+.estimate-supplier-comparison-option__badge--stale {
+  border-color: #f59e0b;
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.estimate-supplier-comparison-option__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.estimate-supplier-comparison-option__link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.estimate-supplier-comparison-option__link--muted {
+  color: var(--slate-500);
+  text-decoration: none;
+}
+
+@media (max-width: 768px) {
+  .estimate-supplier-comparison-backdrop {
+    align-items: flex-end;
+    padding: 8px;
+  }
+
+  .estimate-supplier-comparison-panel {
+    width: 100%;
+    max-height: 92vh;
+  }
+
+  .estimate-supplier-comparison-option__footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 .estimate-input {
   width: 100%;
   height: 34px;
