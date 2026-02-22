@@ -278,6 +278,69 @@ describe("estimate changelog", () => {
     expect(designationField?.afterValue).toBeNull();
   });
 
+  it("returns empty sections and zero counts for an empty diff", () => {
+    const changelog = buildEstimateChangelog({
+      previous: createDetails({
+        version: createVersion({
+          id: "version-prev",
+          version_number: 1,
+          total_ht_cents: 500,
+          total_ttc_cents: 600,
+        }),
+        items: [
+          createSection({
+            id: "section-1",
+            version_id: "version-prev",
+            position: 1,
+            title: "Electricite",
+          }),
+          createLine({
+            id: "line-1",
+            version_id: "version-prev",
+            parent_id: "section-1",
+            position: 1,
+            title: "Cable",
+            quantity: 1,
+            line_total_ht_cents: 500,
+            line_total_ttc_cents: 600,
+          }),
+        ],
+      }),
+      current: createDetails({
+        version: createVersion({
+          id: "version-current",
+          version_number: 2,
+          total_ht_cents: 500,
+          total_ttc_cents: 600,
+        }),
+        items: [
+          createSection({
+            id: "section-1-copy",
+            version_id: "version-current",
+            position: 1,
+            title: "Electricite",
+          }),
+          createLine({
+            id: "line-1-copy",
+            version_id: "version-current",
+            parent_id: "section-1-copy",
+            position: 1,
+            title: "Cable",
+            quantity: 1,
+            line_total_ht_cents: 500,
+            line_total_ttc_cents: 600,
+          }),
+        ],
+      }),
+    });
+
+    expect(changelog.summary.totalChangeCount).toBe(0);
+    expect(changelog.summary.addedCount).toBe(0);
+    expect(changelog.summary.removedCount).toBe(0);
+    expect(changelog.summary.modifiedCount).toBe(0);
+    expect(changelog.sections).toHaveLength(0);
+  });
+
   it("splits deltas between root section entry and nested section lines", () => {
     const addedSection = createSection({
       id: "section-plomberie",

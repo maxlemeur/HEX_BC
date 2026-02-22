@@ -14,8 +14,10 @@ import {
   getEstimateTemplate,
   instantiateEstimateFromTemplate,
   listEstimateTemplates,
+  listEstimateVersionVariants,
   listEstimateVersionEvents,
   listLatestEstimates,
+  moveEstimateItem,
   reorderEstimateItems,
   updateMarginTier,
 } from "@/lib/estimates/server";
@@ -112,7 +114,17 @@ function createAuth(role: "admin" | "engineer" = "engineer") {
   };
 }
 
-function createVersionAccessBuilder() {
+function createVersionAccessBuilder(
+  overrides: Partial<{
+    id: string;
+    project_id: string;
+    parent_version_id: string | null;
+    variant_label: string | null;
+  }> = {}
+) {
+  const versionId = overrides.id ?? VERSION_ID;
+  const projectId = overrides.project_id ?? PROJECT_ID;
+
   const versionBuilder = {
     eq: vi.fn(),
     single: vi.fn(),
@@ -120,8 +132,8 @@ function createVersionAccessBuilder() {
   versionBuilder.eq.mockReturnValue(versionBuilder);
   versionBuilder.single.mockReturnValue({
     data: {
-      id: VERSION_ID,
-      project_id: PROJECT_ID,
+      id: versionId,
+      project_id: projectId,
       status: "draft",
       margin_mode: "fixed",
       margin_multiplier: 1,
@@ -130,10 +142,10 @@ function createVersionAccessBuilder() {
       total_ht_cents: 12000,
       total_tax_cents: 2400,
       total_ttc_cents: 14400,
-      parent_version_id: null,
-      variant_label: null,
+      parent_version_id: overrides.parent_version_id ?? null,
+      variant_label: overrides.variant_label ?? null,
       estimate_projects: {
-        id: PROJECT_ID,
+        id: projectId,
         tenant_id: TENANT_ID,
         user_id: USER_ID,
         name: "Projet",
@@ -430,6 +442,286 @@ describe("estimate server coverage additions", () => {
       actor_name: "Alice",
       occurred_at: "2026-02-22T11:00:00.000Z",
     });
+  });
+
+  it("includes descendant variants when listing comparison data", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder({
+      id: "variant-b",
+      parent_version_id: "base-version",
+    });
+    const variantsBuilder = chainResult({
+      data: [
+        {
+          id: "base-version",
+          project_id: PROJECT_ID,
+          version_number: 1,
+          status: "draft",
+          title: "Base",
+          total_ht_cents: 1000,
+          total_tax_cents: 200,
+          total_ttc_cents: 1200,
+          updated_at: "2026-02-22T08:00:00.000Z",
+          parent_version_id: null,
+          variant_label: null,
+        },
+        {
+          id: "variant-a",
+          project_id: PROJECT_ID,
+          version_number: 2,
+          status: "draft",
+          title: "A",
+          total_ht_cents: 1100,
+          total_tax_cents: 220,
+          total_ttc_cents: 1320,
+          updated_at: "2026-02-22T09:00:00.000Z",
+          parent_version_id: "base-version",
+          variant_label: "A",
+        },
+        {
+          id: "variant-b",
+          project_id: PROJECT_ID,
+          version_number: 3,
+          status: "draft",
+          title: "B",
+          total_ht_cents: 1200,
+          total_tax_cents: 240,
+          total_ttc_cents: 1440,
+          updated_at: "2026-02-22T10:00:00.000Z",
+          parent_version_id: "base-version",
+          variant_label: "B",
+        },
+        {
+          id: "variant-c",
+          project_id: PROJECT_ID,
+          version_number: 4,
+          status: "draft",
+          title: "C",
+          total_ht_cents: 1300,
+          total_tax_cents: 260,
+          total_ttc_cents: 1560,
+          updated_at: "2026-02-22T11:00:00.000Z",
+          parent_version_id: "variant-b",
+          variant_label: "C",
+        },
+        {
+          id: "variant-d",
+          project_id: PROJECT_ID,
+          version_number: 5,
+          status: "draft",
+          title: "D",
+          total_ht_cents: 1400,
+          total_tax_cents: 280,
+          total_ttc_cents: 1680,
+          updated_at: "2026-02-22T11:30:00.000Z",
+          parent_version_id: "variant-c",
+          variant_label: "D",
+        },
+        {
+          id: "other-base",
+          project_id: PROJECT_ID,
+          version_number: 10,
+          status: "draft",
+          title: "Other Base",
+          total_ht_cents: 2000,
+          total_tax_cents: 400,
+          total_ttc_cents: 2400,
+          updated_at: "2026-02-22T07:00:00.000Z",
+          parent_version_id: null,
+          variant_label: null,
+        },
+        {
+          id: "other-variant",
+          project_id: PROJECT_ID,
+          version_number: 11,
+          status: "draft",
+          title: "Other Variant",
+          total_ht_cents: 2100,
+          total_tax_cents: 420,
+          total_ttc_cents: 2520,
+          updated_at: "2026-02-22T07:30:00.000Z",
+          parent_version_id: "other-base",
+          variant_label: "A",
+        },
+      ],
+      error: null,
+    });
+    const lineItemsBuilder = chainResult({
+      data: [
+        { version_id: "variant-a" },
+        { version_id: "variant-a" },
+        { version_id: "variant-c" },
+        { version_id: "variant-d" },
+      ],
+      error: null,
+    });
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn((columns: string) => {
+              if (columns.includes("estimate_projects")) {
+                return versionAccessBuilder;
+              }
+
+              return variantsBuilder;
+            }),
+          };
+        }
+        if (table === "estimate_items") {
+          return {
+            select: vi.fn(() => lineItemsBuilder),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await listEstimateVersionVariants("variant-b");
+
+    expect(result.base_version_id).toBe("base-version");
+    expect(result.items.map((item) => item.id)).toEqual([
+      "base-version",
+      "variant-a",
+      "variant-b",
+      "variant-c",
+      "variant-d",
+    ]);
+    expect(result.items.find((item) => item.id === "variant-a")?.line_count).toBe(2);
+    expect(result.items.find((item) => item.id === "variant-c")?.line_count).toBe(1);
+    expect(result.items.find((item) => item.id === "variant-d")?.line_count).toBe(1);
+    expect(result.items.some((item) => item.id === "other-variant")).toBe(false);
+  });
+
+  it("orders variant labels by generated sequence index", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder({
+      id: "base-version",
+      parent_version_id: null,
+    });
+    const variantsBuilder = chainResult({
+      data: [
+        {
+          id: "base-version",
+          project_id: PROJECT_ID,
+          version_number: 1,
+          status: "draft",
+          title: "Base",
+          total_ht_cents: 1000,
+          total_tax_cents: 200,
+          total_ttc_cents: 1200,
+          updated_at: "2026-02-22T08:00:00.000Z",
+          parent_version_id: null,
+          variant_label: null,
+        },
+        {
+          id: "variant-aa",
+          project_id: PROJECT_ID,
+          version_number: 5,
+          status: "draft",
+          title: "AA",
+          total_ht_cents: 1500,
+          total_tax_cents: 300,
+          total_ttc_cents: 1800,
+          updated_at: "2026-02-22T13:00:00.000Z",
+          parent_version_id: "base-version",
+          variant_label: "AA",
+        },
+        {
+          id: "variant-b",
+          project_id: PROJECT_ID,
+          version_number: 3,
+          status: "draft",
+          title: "B",
+          total_ht_cents: 1200,
+          total_tax_cents: 240,
+          total_ttc_cents: 1440,
+          updated_at: "2026-02-22T10:00:00.000Z",
+          parent_version_id: "base-version",
+          variant_label: "B",
+        },
+        {
+          id: "variant-a",
+          project_id: PROJECT_ID,
+          version_number: 2,
+          status: "draft",
+          title: "A",
+          total_ht_cents: 1100,
+          total_tax_cents: 220,
+          total_ttc_cents: 1320,
+          updated_at: "2026-02-22T09:00:00.000Z",
+          parent_version_id: "base-version",
+          variant_label: "A",
+        },
+        {
+          id: "variant-z",
+          project_id: PROJECT_ID,
+          version_number: 4,
+          status: "draft",
+          title: "Z",
+          total_ht_cents: 1400,
+          total_tax_cents: 280,
+          total_ttc_cents: 1680,
+          updated_at: "2026-02-22T12:00:00.000Z",
+          parent_version_id: "base-version",
+          variant_label: "Z",
+        },
+      ],
+      error: null,
+    });
+    const lineItemsBuilder = chainResult({
+      data: [],
+      error: null,
+    });
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn((columns: string) => {
+              if (columns.includes("estimate_projects")) {
+                return versionAccessBuilder;
+              }
+
+              return variantsBuilder;
+            }),
+          };
+        }
+        if (table === "estimate_items") {
+          return {
+            select: vi.fn(() => lineItemsBuilder),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await listEstimateVersionVariants("base-version");
+
+    expect(result.items.map((item) => item.variant_label)).toEqual([
+      null,
+      "A",
+      "B",
+      "Z",
+      "AA",
+    ]);
   });
 
   it("lists templates with search and computed line counts", async () => {
@@ -1243,5 +1535,346 @@ describe("estimate server coverage additions", () => {
       status: 409,
       code: "CONFLICT",
     });
+  });
+
+  it("moves an estimate item across parents and calls move_estimate_item RPC", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const draftLockBuilder = createDraftLockBuilder();
+    const movingItemBuilder = chainResult({
+      data: {
+        id: "item-1",
+        version_id: VERSION_ID,
+        parent_id: "parent-source",
+        item_type: "line",
+      },
+      error: null,
+    });
+    const targetParentBuilder = chainResult({
+      data: {
+        id: "parent-target",
+        version_id: VERSION_ID,
+        parent_id: null,
+        item_type: "section",
+      },
+      error: null,
+    });
+    const sourceSiblingsBuilder = chainResult({
+      data: [{ id: "item-1" }, { id: "source-2" }],
+      error: null,
+    });
+    const targetSiblingsBuilder = chainResult({
+      data: [{ id: "target-1" }],
+      error: null,
+    });
+
+    let estimateItemsCalls = 0;
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "draft_locks") {
+          return {
+            select: vi.fn(() => draftLockBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          estimateItemsCalls += 1;
+          if (estimateItemsCalls === 1) {
+            return {
+              select: vi.fn(() => movingItemBuilder),
+            };
+          }
+          if (estimateItemsCalls === 2) {
+            return {
+              select: vi.fn(() => targetParentBuilder),
+            };
+          }
+          if (estimateItemsCalls === 3) {
+            return {
+              select: vi.fn(() => sourceSiblingsBuilder),
+            };
+          }
+          if (estimateItemsCalls === 4) {
+            return {
+              select: vi.fn(() => targetSiblingsBuilder),
+            };
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn().mockReturnValue({
+        data: 3,
+        error: null,
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await moveEstimateItem(VERSION_ID, {
+      item_id: "item-1",
+      from_parent_id: "parent-source",
+      to_parent_id: "parent-target",
+      ordered_source_ids: ["source-2"],
+      ordered_target_ids: ["target-1", "item-1"],
+    });
+
+    expect(result).toEqual({
+      item_id: "item-1",
+      from_parent_id: "parent-source",
+      to_parent_id: "parent-target",
+      ordered_source_ids: ["source-2"],
+      ordered_target_ids: ["target-1", "item-1"],
+      updated_count: 3,
+    });
+    expect(supabase.rpc).toHaveBeenCalledWith("move_estimate_item", {
+      target_version_id: VERSION_ID,
+      target_item_id: "item-1",
+      source_parent_id: "parent-source",
+      target_parent_id: "parent-target",
+      ordered_source_item_ids: ["source-2"],
+      ordered_target_item_ids: ["target-1", "item-1"],
+    });
+  });
+
+  it("returns conflict when from_parent_id does not match the persisted parent", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const draftLockBuilder = createDraftLockBuilder();
+    const movingItemBuilder = chainResult({
+      data: {
+        id: "item-1",
+        version_id: VERSION_ID,
+        parent_id: "actual-parent",
+        item_type: "line",
+      },
+      error: null,
+    });
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "draft_locks") {
+          return {
+            select: vi.fn(() => draftLockBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          return {
+            select: vi.fn(() => movingItemBuilder),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn(),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      moveEstimateItem(VERSION_ID, {
+        item_id: "item-1",
+        from_parent_id: "stale-parent",
+        to_parent_id: "parent-target",
+        ordered_source_ids: ["source-2"],
+        ordered_target_ids: ["target-1", "item-1"],
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects moving a section under a subsection", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const draftLockBuilder = createDraftLockBuilder();
+    const movingItemBuilder = chainResult({
+      data: {
+        id: "section-1",
+        version_id: VERSION_ID,
+        parent_id: null,
+        item_type: "section",
+      },
+      error: null,
+    });
+    const targetParentBuilder = chainResult({
+      data: {
+        id: "subsection-1",
+        version_id: VERSION_ID,
+        parent_id: "root-section",
+        item_type: "section",
+      },
+      error: null,
+    });
+
+    let estimateItemsCalls = 0;
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "draft_locks") {
+          return {
+            select: vi.fn(() => draftLockBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          estimateItemsCalls += 1;
+          if (estimateItemsCalls === 1) {
+            return {
+              select: vi.fn(() => movingItemBuilder),
+            };
+          }
+          if (estimateItemsCalls === 2) {
+            return {
+              select: vi.fn(() => targetParentBuilder),
+            };
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn(),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      moveEstimateItem(VERSION_ID, {
+        item_id: "section-1",
+        from_parent_id: null,
+        to_parent_id: "subsection-1",
+        ordered_source_ids: ["line-1"],
+        ordered_target_ids: ["line-2", "section-1"],
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects moving a line to a parent deeper than two levels", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const draftLockBuilder = createDraftLockBuilder();
+    const movingItemBuilder = chainResult({
+      data: {
+        id: "line-1",
+        version_id: VERSION_ID,
+        parent_id: "parent-source",
+        item_type: "line",
+      },
+      error: null,
+    });
+    const targetParentBuilder = chainResult({
+      data: {
+        id: "target-subsection",
+        version_id: VERSION_ID,
+        parent_id: "parent-mid",
+        item_type: "section",
+      },
+      error: null,
+    });
+    const grandParentBuilder = chainResult({
+      data: {
+        id: "parent-mid",
+        parent_id: "parent-root",
+        item_type: "section",
+      },
+      error: null,
+    });
+
+    let estimateItemsCalls = 0;
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "draft_locks") {
+          return {
+            select: vi.fn(() => draftLockBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          estimateItemsCalls += 1;
+          if (estimateItemsCalls === 1) {
+            return {
+              select: vi.fn(() => movingItemBuilder),
+            };
+          }
+          if (estimateItemsCalls === 2) {
+            return {
+              select: vi.fn(() => targetParentBuilder),
+            };
+          }
+          if (estimateItemsCalls === 3) {
+            return {
+              select: vi.fn(() => grandParentBuilder),
+            };
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn(),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      moveEstimateItem(VERSION_ID, {
+        item_id: "line-1",
+        from_parent_id: "parent-source",
+        to_parent_id: "target-subsection",
+        ordered_source_ids: ["source-1"],
+        ordered_target_ids: ["target-1", "line-1"],
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 });

@@ -373,6 +373,159 @@ describe("estimate diff", () => {
     expect(diff.entries[0]?.afterItem?.id).toBe("current-line-inserted");
   });
 
+  it("returns 0 entries when versions are identical", () => {
+    const section = createSection({
+      id: "section-1",
+      version_id: "version-prev",
+      position: 1,
+      title: "Electricite",
+    });
+    const line = createLine({
+      id: "line-1",
+      version_id: "version-prev",
+      parent_id: section.id,
+      position: 1,
+      title: "Cable",
+      quantity: 2,
+      unit_price_ht_cents: 500,
+      line_total_ht_cents: 1_000,
+      line_total_ttc_cents: 1_200,
+    });
+
+    const sectionCopy = createSection({
+      id: "section-1-copy",
+      version_id: "version-current",
+      position: 1,
+      title: "Electricite",
+    });
+    const lineCopy = createLine({
+      id: "line-1-copy",
+      version_id: "version-current",
+      parent_id: sectionCopy.id,
+      position: 1,
+      title: "Cable",
+      quantity: 2,
+      unit_price_ht_cents: 500,
+      line_total_ht_cents: 1_000,
+      line_total_ttc_cents: 1_200,
+    });
+
+    const diff = buildEstimateDiff({
+      previous: createDetails({
+        version: createVersion({
+          id: "version-prev",
+          version_number: 1,
+          total_ht_cents: 1_000,
+          total_ttc_cents: 1_200,
+        }),
+        items: [section, line],
+      }),
+      current: createDetails({
+        version: createVersion({
+          id: "version-current",
+          version_number: 2,
+          total_ht_cents: 1_000,
+          total_ttc_cents: 1_200,
+        }),
+        items: [sectionCopy, lineCopy],
+      }),
+    });
+
+    expect(diff.entries).toHaveLength(0);
+    expect(diff.summary.addedCount).toBe(0);
+    expect(diff.summary.removedCount).toBe(0);
+    expect(diff.summary.modifiedCount).toBe(0);
+    expect(diff.summary.deltaHtCents).toBe(0);
+    expect(diff.summary.deltaTtcCents).toBe(0);
+  });
+
+  it("returns 0 entries when both versions have 0 items", () => {
+    const diff = buildEstimateDiff({
+      previous: createDetails({
+        version: createVersion({
+          id: "version-prev",
+          version_number: 1,
+          total_ht_cents: 0,
+          total_ttc_cents: 0,
+        }),
+        items: [],
+      }),
+      current: createDetails({
+        version: createVersion({
+          id: "version-current",
+          version_number: 2,
+          total_ht_cents: 0,
+          total_ttc_cents: 0,
+        }),
+        items: [],
+      }),
+    });
+
+    expect(diff.entries).toHaveLength(0);
+    expect(diff.summary.addedCount).toBe(0);
+    expect(diff.summary.removedCount).toBe(0);
+    expect(diff.summary.modifiedCount).toBe(0);
+  });
+
+  it("handles mixed section and line changes at the same level", () => {
+    const prevSection = createSection({
+      id: "prev-section",
+      version_id: "version-prev",
+      position: 1,
+      title: "Section A",
+    });
+    const prevLine = createLine({
+      id: "prev-root-line",
+      version_id: "version-prev",
+      position: 2,
+      title: "Root line",
+      line_total_ht_cents: 100,
+      line_total_ttc_cents: 120,
+    });
+
+    const curSection = createSection({
+      id: "cur-section",
+      version_id: "version-current",
+      position: 1,
+      title: "Section A modified",
+    });
+    const curLine = createLine({
+      id: "cur-root-line",
+      version_id: "version-current",
+      position: 2,
+      title: "Root line",
+      quantity: 5,
+      line_total_ht_cents: 500,
+      line_total_ttc_cents: 600,
+    });
+
+    const diff = buildEstimateDiff({
+      previous: createDetails({
+        version: createVersion({
+          id: "version-prev",
+          version_number: 1,
+          total_ht_cents: 100,
+          total_ttc_cents: 120,
+        }),
+        items: [prevSection, prevLine],
+      }),
+      current: createDetails({
+        version: createVersion({
+          id: "version-current",
+          version_number: 2,
+          total_ht_cents: 500,
+          total_ttc_cents: 600,
+        }),
+        items: [curSection, curLine],
+      }),
+    });
+
+    expect(diff.summary.modifiedCount).toBe(2);
+    const entityTypes = diff.entries.map((e) => e.entityType);
+    expect(entityTypes).toContain("section");
+    expect(entityTypes).toContain("line");
+  });
+
   it("matches renamed sections and still compares their children", () => {
     const previousSection = createSection({
       id: "prev-section",

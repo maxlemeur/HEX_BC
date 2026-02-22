@@ -210,35 +210,39 @@ function SideBySideEntry({
           </table>
         </div>
       ) : (
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white p-3 text-sm">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
-              {previousVersionLabel}
-            </p>
-            <p className="font-medium text-[var(--slate-900)]">
-              {entry.beforeItem ? entry.beforeItem.title : "-"}
-            </p>
-            {entry.beforeItem?.item_type === "line" ? (
-              <p className="mt-1 text-xs text-[var(--slate-600)]">
-                HT {formatEUR(entry.beforeItem.line_total_ht_cents ?? 0)} | TTC{" "}
-                {formatEUR(entry.beforeItem.line_total_ttc_cents ?? 0)}
+        <div className="mt-4 grid gap-3">
+          {entry.changeType !== "added" ? (
+            <div className="rounded-lg border border-[var(--slate-200)] bg-white p-3 text-sm">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+                {previousVersionLabel}
               </p>
-            ) : null}
-          </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white p-3 text-sm">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
-              {currentVersionLabel}
-            </p>
-            <p className="font-medium text-[var(--slate-900)]">
-              {entry.afterItem ? entry.afterItem.title : "-"}
-            </p>
-            {entry.afterItem?.item_type === "line" ? (
-              <p className="mt-1 text-xs text-[var(--slate-600)]">
-                HT {formatEUR(entry.afterItem.line_total_ht_cents ?? 0)} | TTC{" "}
-                {formatEUR(entry.afterItem.line_total_ttc_cents ?? 0)}
+              <p className="font-medium text-[var(--slate-900)]">
+                {entry.beforeItem ? entry.beforeItem.title : "-"}
               </p>
-            ) : null}
-          </div>
+              {entry.beforeItem?.item_type === "line" ? (
+                <p className="mt-1 text-xs text-[var(--slate-600)]">
+                  HT {formatEUR(entry.beforeItem.line_total_ht_cents ?? 0)} | TTC{" "}
+                  {formatEUR(entry.beforeItem.line_total_ttc_cents ?? 0)}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {entry.changeType !== "removed" ? (
+            <div className="rounded-lg border border-[var(--slate-200)] bg-white p-3 text-sm">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+                {currentVersionLabel}
+              </p>
+              <p className="font-medium text-[var(--slate-900)]">
+                {entry.afterItem ? entry.afterItem.title : "-"}
+              </p>
+              {entry.afterItem?.item_type === "line" ? (
+                <p className="mt-1 text-xs text-[var(--slate-600)]">
+                  HT {formatEUR(entry.afterItem.line_total_ht_cents ?? 0)} | TTC{" "}
+                  {formatEUR(entry.afterItem.line_total_ttc_cents ?? 0)}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
     </article>
@@ -251,6 +255,14 @@ export function EstimateDiffView({
   previousVersionLabel,
   currentVersionLabel,
 }: Readonly<EstimateDiffViewProps>) {
+  if (diff.entries.length === 0) {
+    return (
+      <div className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+        Aucun changement detecte entre les versions selectionnees.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <section className="dashboard-card p-4">
@@ -297,21 +309,18 @@ export function EstimateDiffView({
           <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
             <p className="text-xs text-[var(--slate-500)]">Totaux</p>
             <p className="text-xs text-[var(--slate-600)]">
-              {previousVersionLabel}: HT {formatEUR(diff.summary.previousTotals.totalHtCents)}
+              {previousVersionLabel}: HT {formatEUR(diff.summary.previousTotals.totalHtCents)} | TTC{" "}
+              {formatEUR(diff.summary.previousTotals.totalTtcCents)}
             </p>
             <p className="text-xs text-[var(--slate-900)]">
-              {currentVersionLabel}: HT {formatEUR(diff.summary.currentTotals.totalHtCents)}
+              {currentVersionLabel}: HT {formatEUR(diff.summary.currentTotals.totalHtCents)} | TTC{" "}
+              {formatEUR(diff.summary.currentTotals.totalTtcCents)}
             </p>
           </div>
         </div>
       </section>
 
       <section className="space-y-3">
-        {diff.entries.length === 0 ? (
-          <div className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
-            Aucun changement detecte entre les versions selectionnees.
-          </div>
-        ) : null}
 
         {diff.entries.map((entry) =>
           mode === "inline" ? (

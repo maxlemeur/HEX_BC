@@ -13,10 +13,10 @@ function isTsxInstalled() {
 }
 
 if (!isTsxInstalled()) {
-  console.warn(
-    "[validate-openapi] Skipped because optional dev dependency `tsx` is not installed."
+  console.error(
+    "[validate-openapi] Failed: required dev dependency `tsx` is not installed, so OpenAPI validation cannot run."
   );
-  process.exit(0);
+  process.exit(1);
 }
 
 const result = spawnSync(

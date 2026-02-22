@@ -393,7 +393,7 @@ export default async function EstimateDiffPage({
                   compareSearch,
                 })}
               >
-                Inline
+                En ligne
               </Link>
               <Link
                 className={
@@ -410,7 +410,7 @@ export default async function EstimateDiffPage({
                   compareSearch,
                 })}
               >
-                Side-by-side
+                Cote a cote
               </Link>
             </div>
 
@@ -471,10 +471,10 @@ export default async function EstimateDiffPage({
                     compareSearch,
                   })}
                 >
-                  Prev
+                  Prec.
                 </Link>
               ) : (
-                <span className="btn btn-secondary btn-sm opacity-50">Prev</span>
+                <span className="btn btn-secondary btn-sm opacity-50">Prec.</span>
               )}
               {comparePage < compareTotalPages ? (
                 <Link
@@ -488,10 +488,10 @@ export default async function EstimateDiffPage({
                     compareSearch,
                   })}
                 >
-                  Next
+                  Suiv.
                 </Link>
               ) : (
-                <span className="btn btn-secondary btn-sm opacity-50">Next</span>
+                <span className="btn btn-secondary btn-sm opacity-50">Suiv.</span>
               )}
             </div>
           </div>

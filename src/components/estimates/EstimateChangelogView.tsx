@@ -88,7 +88,7 @@ export function EstimateChangelogView({
               target="_blank"
               rel="noreferrer noopener"
             >
-              Export PDF changelog
+              Exporter changelog PDF
             </a>
           ) : null}
         </div>
@@ -115,7 +115,7 @@ export function EstimateChangelogView({
               target="_blank"
               rel="noreferrer noopener"
             >
-              Export PDF changelog
+              Exporter changelog PDF
             </a>
           ) : null}
         </div>
