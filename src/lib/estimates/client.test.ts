@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   acquireEstimateDraftLock,
+  batchEstimateOperations,
   bulkUpdateEstimateItems,
   createEstimateAssembly,
   createEstimateItem,
@@ -17,6 +18,7 @@ import {
   renewEstimateDraftLock,
   saveEstimateVersion,
   sendEstimateSuggestionRuleFeedback,
+  exportEstimate,
   updateEstimateAssembly,
   updateEstimateStatus,
 } from "@/lib/estimates/client";
@@ -116,6 +118,122 @@ describe("estimate client optimistic concurrency", () => {
         updated_at: NEXT_UPDATED_AT,
       },
     });
+  });
+
+  it("sends grouped batch operations with If-Match", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            committed: true,
+            results: [
+              {
+                index: 0,
+                op: "update",
+                status: "ok",
+                data: {
+                  item: {
+                    id: ITEM_ID,
+                  },
+                },
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await batchEstimateOperations(
+      VERSION_ID,
+      UPDATED_AT,
+      [
+        {
+          op: "update",
+          id: ITEM_ID,
+          data: {
+            title: "Nouveau titre",
+          },
+        },
+      ],
+      {
+        dryRun: true,
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/batch?dry_run=true`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        headers: expect.objectContaining({
+          "If-Match": UPDATED_AT,
+        }),
+      })
+    );
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      concurrency_token: UPDATED_AT,
+      dry_run: true,
+      operations: [
+        {
+          op: "update",
+          id: ITEM_ID,
+          data: {
+            title: "Nouveau titre",
+          },
+        },
+      ],
+    });
+    expect(result).toEqual({
+      committed: true,
+      results: [
+        {
+          index: 0,
+          op: "update",
+          status: "ok",
+          data: {
+            item: {
+              id: ITEM_ID,
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  it("downloads xlsx export and parses filename from Content-Disposition", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("xlsx-binary", {
+        status: 200,
+        headers: {
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": 'attachment; filename=\"devis-ALPHA-v4.xlsx\"',
+        },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await exportEstimate(VERSION_ID, "xlsx");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/export?format=xlsx`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(result.filename).toBe("devis-ALPHA-v4.xlsx");
+    expect(result.size).toBeGreaterThan(0);
   });
 
   it("includes h_mo_majoration and supply_type_id when creating line items", async () => {

@@ -6,12 +6,16 @@ type ExportDropdownProps = {
   onExportExcel: () => void;
   onExportCSV: () => void;
   disabled?: boolean;
+  loading?: boolean;
+  loadingLabel?: string;
 };
 
 export function ExportDropdown({
   onExportExcel,
   onExportCSV,
   disabled = false,
+  loading = false,
+  loadingLabel = "Export en cours...",
 }: ExportDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,7 +52,7 @@ export function ExportDropdown({
         type="button"
         className="btn btn-secondary btn-sm"
         onClick={() => setIsOpen(!isOpen)}
-        disabled={disabled}
+        disabled={disabled || loading}
         aria-expanded={isOpen}
         aria-haspopup="true"
       >
@@ -67,7 +71,7 @@ export function ExportDropdown({
           <polyline points="7 10 12 15 17 10" />
           <line x1="12" y1="15" x2="12" y2="3" />
         </svg>
-        Exporter
+        {loading ? loadingLabel : "Exporter"}
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="14"
@@ -90,6 +94,7 @@ export function ExportDropdown({
             type="button"
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--slate-700)] hover:bg-[var(--slate-50)] transition-colors"
             onClick={handleExcelClick}
+            disabled={loading}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <rect x="3" y="3" width="18" height="18" rx="2" fill="#10b981" />
@@ -105,6 +110,7 @@ export function ExportDropdown({
             type="button"
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--slate-700)] hover:bg-[var(--slate-50)] transition-colors"
             onClick={handleCSVClick}
+            disabled={loading}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <rect x="3" y="3" width="18" height="18" rx="2" fill="#64748b" />

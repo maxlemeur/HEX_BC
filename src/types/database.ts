@@ -1837,6 +1837,13 @@ export type Database = {
         };
         Returns: number;
       };
+      log_estimate_batch_audit: {
+        Args: {
+          target_version_id: string;
+          operations_payload?: Json;
+        };
+        Returns: string;
+      };
       log_estimate_version_event: {
         Args: {
           p_estimate_version_id: string;

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run validate-openapi && next build",
     "start": "next start",
     "e2e": "node ./e2e/run-ps1.mjs e2e/smoke.ps1",
     "e2e:auth": "node ./e2e/run-ps1.mjs e2e/auth.ps1",
@@ -18,6 +18,8 @@
     "e2e:hex:assemblies": "node ./e2e/run-ps1.mjs e2e/hex/run-all.ps1 -Suite assemblies",
     "e2e:run": "node ./e2e/run-ps1.mjs",
     "lint": "eslint . --max-warnings=0",
+    "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",
+    "validate-openapi": "node --import tsx scripts/validate-openapi.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
@@ -30,6 +32,7 @@
     "@supabase/supabase-js": "^2.90.1",
     "@tanstack/react-virtual": "^3.13.18",
     "archiver": "^7.0.1",
+    "exceljs": "^4.4.0",
     "motion": "^12.34.3",
     "next": "16.1.6",
     "postal-mime": "^2.7.3",
@@ -46,10 +49,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/react-test-renderer": "^19.1.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "react-test-renderer": "^19.2.3",
     "tailwindcss": "^4",
+    "tsx": "^4.20.6",
     "typescript": "^5",
     "vitest": "^4.0.18"
   }
