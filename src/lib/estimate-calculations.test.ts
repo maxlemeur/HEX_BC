@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeEstimateLineValues,
   computeEstimateTotals,
+  computeCascadeDiscountCents,
   computeSectionTotals,
   computeInitialDiscountCents,
   computeStoredDiscountCents,
@@ -499,9 +500,22 @@ describe("estimate calculations", () => {
 
     expect(totals).toEqual({
       costSubtotalCents: 8000,
+      saleSubtotalBeforeCoefficientCents: 12000,
       saleSubtotalCents: 12000,
       discountCents: 2000,
       appliedMarginMultiplier: 1.5,
+      globalCoefficient: 1,
+      discountMode: "simple",
+      discountStepTotals: [
+        {
+          stepNumber: 1,
+          stepBp: null,
+          subtotalBeforeCents: 12000,
+          discountCents: 2000,
+          subtotalAfterCents: 10000,
+          cumulativeDiscountCents: 2000,
+        },
+      ],
       saleTotalCents: 10000,
       taxCents: 1000,
       ttcCents: 11000,
@@ -509,6 +523,131 @@ describe("estimate calculations", () => {
       roundingAdjustmentCents: 0,
       adjustedTaxCents: 1000,
     });
+  });
+
+  it("EST-025: cascade vide n'applique aucune remise", () => {
+    const totals = computeEstimateTotals({
+      lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 10000, k_fo: 1 })],
+      marginMultiplier: 1,
+      discountCents: 9999,
+      discountMode: "cascade",
+      discountStepsBp: [],
+      taxRateBp: 2000,
+      roundingMode: "none",
+      roundingStepCents: 1,
+    });
+
+    expect(totals.discountCents).toBe(0);
+    expect(totals.saleSubtotalCents).toBe(10000);
+    expect(totals.saleTotalCents).toBe(10000);
+    expect(totals.discountStepTotals).toEqual([]);
+  });
+
+  it("EST-025: 1 etape en cascade = simple (bp)", () => {
+    const baseInput = {
+      lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 12345, k_fo: 1 })],
+      marginMultiplier: 1,
+      discountCents: 0,
+      discountStepsBp: [1500],
+      taxRateBp: 0,
+      roundingMode: "none" as const,
+      roundingStepCents: 1,
+    };
+
+    const simpleTotals = computeEstimateTotals({
+      ...baseInput,
+      discountMode: "simple",
+    });
+    const cascadeTotals = computeEstimateTotals({
+      ...baseInput,
+      discountMode: "cascade",
+    });
+
+    expect(cascadeTotals.discountCents).toBe(simpleTotals.discountCents);
+    expect(cascadeTotals.saleTotalCents).toBe(simpleTotals.saleTotalCents);
+    expect(cascadeTotals.discountStepTotals).toHaveLength(1);
+  });
+
+  it("EST-025: multi-etapes applique bankersRound a chaque etape", () => {
+    const cascade = computeCascadeDiscountCents(1001, [5000, 5000]);
+    expect(cascade).toEqual({
+      discountCents: 750,
+      subtotalAfterDiscountCents: 251,
+      steps: [
+        {
+          stepNumber: 1,
+          stepBp: 5000,
+          subtotalBeforeCents: 1001,
+          discountCents: 500,
+          subtotalAfterCents: 501,
+          cumulativeDiscountCents: 500,
+        },
+        {
+          stepNumber: 2,
+          stepBp: 5000,
+          subtotalBeforeCents: 501,
+          discountCents: 250,
+          subtotalAfterCents: 251,
+          cumulativeDiscountCents: 750,
+        },
+      ],
+    });
+
+    const totals = computeEstimateTotals({
+      lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 1001, k_fo: 1 })],
+      marginMultiplier: 1,
+      discountCents: 0,
+      discountMode: "cascade",
+      discountStepsBp: [5000, 5000],
+      taxRateBp: 0,
+      roundingMode: "none",
+      roundingStepCents: 1,
+    });
+
+    expect(totals.discountCents).toBe(750);
+    expect(totals.saleTotalCents).toBe(251);
+    expect(totals.discountStepTotals).toEqual(cascade.steps);
+  });
+
+  it("EST-025: global_coefficient est applique apres marge et avant remise", () => {
+    const totals = computeEstimateTotals({
+      lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 1000, k_fo: 1 })],
+      marginMultiplier: 1.5,
+      global_coefficient: 1.2,
+      discountCents: 100,
+      taxRateBp: 2000,
+      roundingMode: "none",
+      roundingStepCents: 1,
+    });
+
+    expect(totals.saleSubtotalBeforeCoefficientCents).toBe(1500);
+    expect(totals.saleSubtotalCents).toBe(1800);
+    expect(totals.discountCents).toBe(100);
+    expect(totals.saleTotalCents).toBe(1700);
+    expect(totals.taxCents).toBe(340);
+    expect(totals.globalCoefficient).toBe(1.2);
+  });
+
+  it("EST-025: limites sur les etapes et le coefficient global", () => {
+    const cascade = computeCascadeDiscountCents(1000, [-500, 20000, Number.NaN]);
+    expect(cascade.discountCents).toBe(1000);
+    expect(cascade.subtotalAfterDiscountCents).toBe(0);
+    expect(cascade.steps.map((step) => step.stepBp)).toEqual([0, 10000, 0]);
+
+    const totals = computeEstimateTotals({
+      lineItems: [createLine({ quantity: 1, unit_price_ht_cents: 1000, k_fo: 1 })],
+      marginMultiplier: 1,
+      globalCoefficient: -10,
+      discountCents: 500,
+      taxRateBp: 2000,
+      roundingMode: "none",
+      roundingStepCents: 1,
+    });
+
+    expect(totals.saleSubtotalCents).toBe(0);
+    expect(totals.saleTotalCents).toBe(0);
+    expect(totals.taxCents).toBe(0);
+    expect(totals.globalCoefficient).toBe(0);
   });
 
   it("applies rounding modes none/nearest/up/down", () => {

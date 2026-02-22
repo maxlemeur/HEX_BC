@@ -53,9 +53,13 @@ export type EstimateLineValues = {
 
 export type EstimateTotals = {
   costSubtotalCents: number;
+  saleSubtotalBeforeCoefficientCents: number;
   saleSubtotalCents: number;
   discountCents: number;
   appliedMarginMultiplier: number;
+  globalCoefficient: number;
+  discountMode: DiscountMode;
+  discountStepTotals: DiscountStepTotal[];
   saleTotalCents: number;
   taxCents: number;
   ttcCents: number;
@@ -66,6 +70,20 @@ export type EstimateTotals = {
 
 export type RoundingMode = "none" | "nearest" | "up" | "down";
 export type MarginMode = "fixed" | "tiered";
+export type DiscountMode = "simple" | "cascade";
+export type DiscountStepTotal = {
+  stepNumber: number;
+  stepBp: number | null;
+  subtotalBeforeCents: number;
+  discountCents: number;
+  subtotalAfterCents: number;
+  cumulativeDiscountCents: number;
+};
+export type CascadeDiscountComputation = {
+  discountCents: number;
+  subtotalAfterDiscountCents: number;
+  steps: DiscountStepTotal[];
+};
 export const UNASSIGNED_SUPPLY_TYPE_KEY = "__unassigned__";
 
 /* ---------- helpers ---------- */
@@ -80,6 +98,20 @@ function clampNonNegative(value: number) {
 
 function clampMarginMultiplier(value: number | null | undefined): number {
   return Math.min(Math.max(toSafeNumber(value, 1), 0), MAX_MARGIN_MULTIPLIER);
+}
+
+function clampGlobalCoefficient(value: number | null | undefined): number {
+  return Math.max(toSafeNumber(value, 1), 0);
+}
+
+function normalizeDiscountStepsBp(
+  steps: Array<number | null | undefined> | null | undefined
+): number[] {
+  if (!Array.isArray(steps)) return [];
+  return steps.map((step) => {
+    const safeStep = bankersRound(toSafeNumber(step, 0));
+    return Math.min(Math.max(safeStep, 0), 10000);
+  });
 }
 
 function hasLaborSplitPayload(
@@ -193,6 +225,53 @@ export function computeEstimateLineValues(
   };
 }
 
+export function computeCascadeDiscountCents(
+  baseSubtotalCents: number,
+  discountStepsBp: Array<number | null | undefined> | null | undefined
+): CascadeDiscountComputation {
+  const safeBaseSubtotal = clampNonNegative(
+    capCents(bankersRound(toSafeNumber(baseSubtotalCents, 0)))
+  );
+  const normalizedSteps = normalizeDiscountStepsBp(discountStepsBp);
+
+  if (safeBaseSubtotal <= 0 || normalizedSteps.length === 0) {
+    return {
+      discountCents: 0,
+      subtotalAfterDiscountCents: safeBaseSubtotal,
+      steps: [],
+    };
+  }
+
+  let runningSubtotalCents = safeBaseSubtotal;
+  let cumulativeDiscountCents = 0;
+  const steps: DiscountStepTotal[] = normalizedSteps.map((stepBp, index) => {
+    const subtotalBeforeCents = runningSubtotalCents;
+    const computedDiscount = bankersRound((subtotalBeforeCents * stepBp) / 10000);
+    const discountCents = Math.min(
+      Math.max(computedDiscount, 0),
+      subtotalBeforeCents
+    );
+    const subtotalAfterCents = subtotalBeforeCents - discountCents;
+    cumulativeDiscountCents += discountCents;
+    runningSubtotalCents = subtotalAfterCents;
+
+    return {
+      stepNumber: index + 1,
+      stepBp,
+      subtotalBeforeCents,
+      discountCents,
+      subtotalAfterCents,
+      cumulativeDiscountCents,
+    };
+  });
+
+  return {
+    discountCents: cumulativeDiscountCents,
+    subtotalAfterDiscountCents: runningSubtotalCents,
+    steps,
+  };
+}
+
 /* ---------- totals computation ---------- */
 
 export function computeEstimateTotals({
@@ -201,6 +280,12 @@ export function computeEstimateTotals({
   marginMode,
   marginTiers,
   discountCents,
+  discountMode,
+  discount_mode,
+  discountStepsBp,
+  discount_steps,
+  globalCoefficient,
+  global_coefficient,
   taxRateBp,
   roundingMode,
   roundingStepCents,
@@ -210,6 +295,12 @@ export function computeEstimateTotals({
   marginMode?: MarginMode;
   marginTiers?: MarginTier[];
   discountCents: number;
+  discountMode?: DiscountMode;
+  discount_mode?: DiscountMode;
+  discountStepsBp?: Array<number | null | undefined> | null;
+  discount_steps?: Array<number | null | undefined> | null;
+  globalCoefficient?: number | null;
+  global_coefficient?: number | null;
   taxRateBp: number;
   roundingMode: RoundingMode;
   roundingStepCents: number;
@@ -218,7 +309,14 @@ export function computeEstimateTotals({
   const safeMargin = clampMarginMultiplier(marginMultiplier);
   const safeMarginMode: MarginMode = marginMode === "tiered" ? "tiered" : "fixed";
   const safeMarginTiers = marginTiers ?? getMarginTiers();
-  const safeDiscount = Math.max(toSafeNumber(discountCents, 0), 0);
+  const safeDiscountMode: DiscountMode =
+    (discountMode ?? discount_mode) === "cascade" ? "cascade" : "simple";
+  const safeDiscountStepsBp = normalizeDiscountStepsBp(
+    discountStepsBp ?? discount_steps
+  );
+  const safeGlobalCoefficient = clampGlobalCoefficient(
+    globalCoefficient ?? global_coefficient
+  );
   const safeTaxRate = Math.max(toSafeNumber(taxRateBp, 0), 0);
 
   // EST-028 pass 1: compute raw costs to resolve the applicable margin tier.
@@ -248,17 +346,68 @@ export function computeEstimateTotals({
         marginMultiplier: appliedMarginMultiplier,
         taxRateBp: safeTaxRate,
       });
-      acc.saleSubtotalCents += line.saleLineCents;
+      acc.saleSubtotalBeforeCoefficientCents += line.saleLineCents;
       acc.lineTaxTotalCents += line.taxLineCents;
       return acc;
     },
-    { saleSubtotalCents: 0, lineTaxTotalCents: 0 }
+    {
+      saleSubtotalBeforeCoefficientCents: 0,
+      lineTaxTotalCents: 0,
+    }
+  );
+  const saleSubtotalCents = clampNonNegative(
+    capCents(
+      bankersRound(
+        secondPassTotals.saleSubtotalBeforeCoefficientCents * safeGlobalCoefficient
+      )
+    )
   );
 
-  const saleTotalCents = Math.max(secondPassTotals.saleSubtotalCents - safeDiscount, 0);
+  let safeDiscount = 0;
+  let discountStepTotals: DiscountStepTotal[] = [];
+
+  if (safeDiscountMode === "cascade") {
+    const cascadeDiscount = computeCascadeDiscountCents(
+      saleSubtotalCents,
+      safeDiscountStepsBp
+    );
+    safeDiscount = cascadeDiscount.discountCents;
+    discountStepTotals = cascadeDiscount.steps;
+  } else if (safeDiscountStepsBp.length > 0) {
+    const simpleDiscount = computeCascadeDiscountCents(
+      saleSubtotalCents,
+      [safeDiscountStepsBp[0]]
+    );
+    safeDiscount = simpleDiscount.discountCents;
+    discountStepTotals = simpleDiscount.steps;
+  } else {
+    safeDiscount = Math.min(
+      Math.max(toSafeNumber(discountCents, 0), 0),
+      saleSubtotalCents
+    );
+    if (safeDiscount > 0) {
+      const subtotalAfterCents = saleSubtotalCents - safeDiscount;
+      discountStepTotals = [
+        {
+          stepNumber: 1,
+          stepBp: null,
+          subtotalBeforeCents: saleSubtotalCents,
+          discountCents: safeDiscount,
+          subtotalAfterCents,
+          cumulativeDiscountCents: safeDiscount,
+        },
+      ];
+    }
+  }
+
+  const saleTotalCents = Math.max(saleSubtotalCents - safeDiscount, 0);
+  const taxBeforeDiscountCents =
+    safeGlobalCoefficient === 1
+      ? secondPassTotals.lineTaxTotalCents
+      : computeTaxCents(saleSubtotalCents, safeTaxRate);
   // A5: tax = sum of per-line taxes minus tax on the discount amount
   const discountTaxCents = computeTaxCents(safeDiscount, safeTaxRate);
-  const taxCents = Math.max(secondPassTotals.lineTaxTotalCents - discountTaxCents, 0);
+  const taxCents = Math.max(taxBeforeDiscountCents - discountTaxCents, 0);
   const ttcCents = saleTotalCents + taxCents;
   const roundedCandidate = applyRounding(
     ttcCents,
@@ -271,9 +420,14 @@ export function computeEstimateTotals({
 
   return {
     costSubtotalCents: firstPassTotals.costSubtotalCents,
-    saleSubtotalCents: secondPassTotals.saleSubtotalCents,
+    saleSubtotalBeforeCoefficientCents:
+      secondPassTotals.saleSubtotalBeforeCoefficientCents,
+    saleSubtotalCents,
     discountCents: safeDiscount,
     appliedMarginMultiplier,
+    globalCoefficient: safeGlobalCoefficient,
+    discountMode: safeDiscountMode,
+    discountStepTotals,
     saleTotalCents,
     taxCents,
     ttcCents,
@@ -311,6 +465,9 @@ export type EstimateVersionForCalc = {
   margin_mode?: MarginMode;
   tax_rate_bp: number;
   discount_bp: number;
+  discount_mode?: DiscountMode;
+  discount_steps?: Array<number | null> | null;
+  global_coefficient?: number | null;
   status?: string;
   total_ht_cents?: number | null;
   total_tax_cents?: number | null;
@@ -708,7 +865,32 @@ export function computeInitialDiscountCents(
   }, 0);
 
   if (!saleSubtotal) return 0;
-  return Math.round((saleSubtotal * version.discount_bp) / 10000);
+
+  const saleSubtotalAfterCoefficientCents = clampNonNegative(
+    capCents(
+      bankersRound(
+        saleSubtotal * clampGlobalCoefficient(version.global_coefficient)
+      )
+    )
+  );
+  const safeMode: DiscountMode =
+    version.discount_mode === "cascade" ? "cascade" : "simple";
+  const safeSteps = normalizeDiscountStepsBp(version.discount_steps);
+
+  if (safeMode === "cascade") {
+    return computeCascadeDiscountCents(
+      saleSubtotalAfterCoefficientCents,
+      safeSteps
+    ).discountCents;
+  }
+  if (safeSteps.length > 0) {
+    return computeCascadeDiscountCents(saleSubtotalAfterCoefficientCents, [
+      safeSteps[0],
+    ]).discountCents;
+  }
+  return Math.round(
+    (saleSubtotalAfterCoefficientCents * version.discount_bp) / 10000
+  );
 }
 
 /**
@@ -723,12 +905,40 @@ export function computeStoredDiscountCents(
     return sum + (item.line_total_ht_cents ?? 0);
   }, 0);
 
-  if (Number.isFinite(version.total_ht_cents ?? NaN)) {
-    return Math.max(saleSubtotal - (version.total_ht_cents ?? 0), 0);
+  if (!saleSubtotal) return 0;
+  const saleSubtotalAfterCoefficientCents = clampNonNegative(
+    capCents(
+      bankersRound(
+        saleSubtotal * clampGlobalCoefficient(version.global_coefficient)
+      )
+    )
+  );
+  const safeMode: DiscountMode =
+    version.discount_mode === "cascade" ? "cascade" : "simple";
+  const safeSteps = normalizeDiscountStepsBp(version.discount_steps);
+
+  if (safeMode === "cascade") {
+    return computeCascadeDiscountCents(
+      saleSubtotalAfterCoefficientCents,
+      safeSteps
+    ).discountCents;
+  }
+  if (safeSteps.length > 0) {
+    return computeCascadeDiscountCents(saleSubtotalAfterCoefficientCents, [
+      safeSteps[0],
+    ]).discountCents;
   }
 
-  if (!saleSubtotal) return 0;
-  return Math.round((saleSubtotal * version.discount_bp) / 10000);
+  if (Number.isFinite(version.total_ht_cents ?? NaN)) {
+    return Math.max(
+      saleSubtotalAfterCoefficientCents - (version.total_ht_cents ?? 0),
+      0
+    );
+  }
+
+  return Math.round(
+    (saleSubtotalAfterCoefficientCents * version.discount_bp) / 10000
+  );
 }
 
 /**
@@ -823,7 +1033,46 @@ export function computeReadOnlyTotals({
     return sum + (item.line_total_ht_cents ?? 0);
   }, 0);
 
-  const saleTotalFallback = Math.max(saleSubtotalCents - discountCents, 0);
+  const safeGlobalCoefficient = clampGlobalCoefficient(version.global_coefficient);
+  const saleSubtotalAfterCoefficientCents = clampNonNegative(
+    capCents(bankersRound(saleSubtotalCents * safeGlobalCoefficient))
+  );
+  const safeDiscountMode: DiscountMode =
+    version.discount_mode === "cascade" ? "cascade" : "simple";
+  const safeDiscountSteps = normalizeDiscountStepsBp(version.discount_steps);
+  let discountStepTotals: DiscountStepTotal[] = [];
+
+  if (safeDiscountMode === "cascade") {
+    discountStepTotals = computeCascadeDiscountCents(
+      saleSubtotalAfterCoefficientCents,
+      safeDiscountSteps
+    ).steps;
+  } else if (safeDiscountSteps.length > 0) {
+    discountStepTotals = computeCascadeDiscountCents(
+      saleSubtotalAfterCoefficientCents,
+      [safeDiscountSteps[0]]
+    ).steps;
+  } else if (discountCents > 0) {
+    const safeDiscount = Math.min(discountCents, saleSubtotalAfterCoefficientCents);
+    discountStepTotals = [
+      {
+        stepNumber: 1,
+        stepBp: null,
+        subtotalBeforeCents: saleSubtotalAfterCoefficientCents,
+        discountCents: safeDiscount,
+        subtotalAfterCents: Math.max(
+          saleSubtotalAfterCoefficientCents - safeDiscount,
+          0
+        ),
+        cumulativeDiscountCents: safeDiscount,
+      },
+    ];
+  }
+
+  const saleTotalFallback = Math.max(
+    saleSubtotalAfterCoefficientCents - discountCents,
+    0
+  );
   const saleTotalCents = Number.isFinite(version.total_ht_cents ?? NaN)
     ? (version.total_ht_cents ?? saleTotalFallback)
     : saleTotalFallback;
@@ -845,9 +1094,13 @@ export function computeReadOnlyTotals({
 
   return {
     costSubtotalCents,
-    saleSubtotalCents,
+    saleSubtotalBeforeCoefficientCents: saleSubtotalCents,
+    saleSubtotalCents: saleSubtotalAfterCoefficientCents,
     discountCents,
     appliedMarginMultiplier: clampMarginMultiplier(version.margin_multiplier),
+    globalCoefficient: safeGlobalCoefficient,
+    discountMode: safeDiscountMode,
+    discountStepTotals,
     saleTotalCents,
     taxCents,
     ttcCents,

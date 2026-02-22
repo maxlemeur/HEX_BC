@@ -27,6 +27,13 @@ describe("schema regressions", () => {
     expect(schemaSql).toMatch(/if locked_count <> expected_count then[\s\S]*STALE_BULK_UPDATE_ITEMS/);
   });
 
+  it("defines move_estimate_item RPC with authenticated execute grant", () => {
+    expect(schemaSql).toMatch(/create or replace function public\.move_estimate_item\(/);
+    expect(schemaSql).toMatch(/ordered_source_item_ids uuid\[\]/);
+    expect(schemaSql).toMatch(/ordered_target_item_ids uuid\[\]/);
+    expect(schemaSql).toMatch(/grant execute on function public\.move_estimate_item\(/);
+  });
+
   it("supports tenant creator bootstrap for initial admin membership", () => {
     expect(schemaSql).toMatch(/create or replace function public\.can_bootstrap_tenant_membership\(/);
     expect(schemaSql).toMatch(
@@ -34,6 +41,13 @@ describe("schema regressions", () => {
     );
     expect(schemaSql).toMatch(
       /create policy "Tenant admins can insert memberships"[\s\S]*can_bootstrap_tenant_membership\(tenant_id, user_id, role\)/
+    );
+  });
+
+  it("creates a default tenant membership when a user signs up", () => {
+    expect(schemaSql).toMatch(/create or replace function public\.handle_new_user\(\)/);
+    expect(schemaSql).toMatch(
+      /insert into public\.tenant_memberships[\s\S]*default_tenant_id[\s\S]*new\.id/
     );
   });
 

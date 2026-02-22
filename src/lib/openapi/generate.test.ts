@@ -37,9 +37,11 @@ describe("generateOpenApiDocument", () => {
     expect(document.openapi).toBe("3.1.0");
     expect(document.paths).toHaveProperty("/api/estimates");
     expect(document.paths).toHaveProperty("/api/estimates/{versionId}/items");
+    expect(document.paths).toHaveProperty("/api/estimates/{versionId}/items/move");
     expect(document.paths).toHaveProperty("/api/estimates/{versionId}/batch");
     expect(document.paths).toHaveProperty("/api/estimates/{versionId}/export");
     expect(document.components.schemas).toHaveProperty("CreateEstimateRequest");
+    expect(document.components.schemas).toHaveProperty("MoveEstimateItemRequest");
     expect(document.components.schemas).toHaveProperty("ApiFailureResponse");
 
     const patchOperation = document.paths["/api/estimates/{versionId}"]?.patch as

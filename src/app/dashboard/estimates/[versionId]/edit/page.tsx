@@ -13,7 +13,11 @@ import {
 
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
-import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
+import {
+  EstimateEditorTable,
+  type SuggestionCorrectionPayload,
+  type SuggestionLearningState,
+} from "@/components/estimates/EstimateEditorTable";
 import { EstimateEventsTimeline } from "@/components/estimates/EstimateEventsTimeline";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
@@ -277,6 +281,11 @@ type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
 type EstimateEditorVirtualizationConfig = NonNullable<
   EstimateEditorTableProps["virtualization"]
 >;
+type SuggestionLearningOverrides =
+  SuggestionLearningState["by_rule_id"][string]["overrides"];
+type SuggestionLearningTrackResult = SuggestionLearningState & {
+  tracked_count: number;
+};
 
 const AUDIT_LOG_LIMIT = 25;
 const CONFLICT_DRAFT_STORAGE_PREFIX = "estimate:edit:conflict-draft:";
@@ -302,6 +311,10 @@ const ESTIMATE_EDITOR_VIRTUALIZATION_CONFIG: EstimateEditorVirtualizationRuntime
     overscan: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_OVERSCAN,
     maxHeight: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_CONTAINER_HEIGHT,
   });
+const EMPTY_SUGGESTION_LEARNING_STATE: SuggestionLearningState = {
+  enabled: false,
+  by_rule_id: {},
+};
 
 function getProjectName(
   value: EstimateVersionView["estimate_projects"]
@@ -477,6 +490,147 @@ function toNullableFiniteNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function toApiDataRecord(payload: unknown): JsonRecord | null {
+  if (!isRecord(payload)) return null;
+  if (isRecord(payload.data)) return payload.data;
+  return payload;
+}
+
+function resolveSuggestionLearningErrorMessage(payload: unknown, fallback: string) {
+  if (!isRecord(payload)) return fallback;
+  const nestedError = isRecord(payload.error) ? payload.error : null;
+  return (
+    toNonEmptyString(nestedError?.message) ??
+    toNonEmptyString(payload.message) ??
+    fallback
+  );
+}
+
+function parseNullableNumericValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseFloat(trimmed.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeSuggestionLearningOverrides(value: unknown): SuggestionLearningOverrides {
+  if (!isRecord(value)) return {};
+
+  const overrides: SuggestionLearningOverrides = {};
+
+  if ("description" in value) {
+    overrides.description = toNonEmptyString(value.description);
+  }
+  if ("category_id" in value) {
+    overrides.category_id = toNonEmptyString(value.category_id);
+  }
+  if ("k_fo" in value) {
+    overrides.k_fo = parseNullableNumericValue(value.k_fo);
+  }
+  if ("k_mo" in value) {
+    overrides.k_mo = parseNullableNumericValue(value.k_mo);
+  }
+  if ("labor_role_id" in value) {
+    overrides.labor_role_id = toNonEmptyString(value.labor_role_id);
+  }
+  if ("supply_type_id" in value) {
+    overrides.supply_type_id = toNonEmptyString(value.supply_type_id);
+  }
+
+  return overrides;
+}
+
+function normalizeSuggestionLearningState(payload: unknown): SuggestionLearningState {
+  const data = toApiDataRecord(payload);
+  if (!data) return EMPTY_SUGGESTION_LEARNING_STATE;
+
+  const byRuleSource = isRecord(data.by_rule_id) ? data.by_rule_id : {};
+  const byRuleId: SuggestionLearningState["by_rule_id"] = {};
+
+  Object.entries(byRuleSource).forEach(([ruleIdFromKey, value]) => {
+    if (!isRecord(value)) return;
+
+    const ruleId = toNonEmptyString(value.rule_id) ?? ruleIdFromKey;
+    if (!ruleId) return;
+
+    byRuleId[ruleId] = {
+      rule_id: ruleId,
+      learning_boost: Math.max(toFiniteNumber(value.learning_boost, 0), 0),
+      overrides: normalizeSuggestionLearningOverrides(value.overrides),
+    };
+  });
+
+  const configRecord = isRecord(data.config) ? data.config : null;
+  return {
+    enabled: configRecord?.enabled === true,
+    by_rule_id: byRuleId,
+  };
+}
+
+async function fetchSuggestionLearningState(
+  versionId: string
+): Promise<SuggestionLearningState> {
+  if (!versionId) return EMPTY_SUGGESTION_LEARNING_STATE;
+
+  const response = await fetch(`/api/estimates/${versionId}/suggestion-learning`, {
+    method: "GET",
+    cache: "no-store",
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    throw new Error(
+      resolveSuggestionLearningErrorMessage(
+        payload,
+        "Impossible de charger les apprentissages de suggestions."
+      )
+    );
+  }
+
+  return normalizeSuggestionLearningState(payload);
+}
+
+async function trackSuggestionCorrectionsForVersion(input: {
+  versionId: string;
+  corrections: SuggestionCorrectionPayload[];
+}): Promise<SuggestionLearningTrackResult> {
+  if (!input.versionId || input.corrections.length === 0) {
+    return {
+      ...EMPTY_SUGGESTION_LEARNING_STATE,
+      tracked_count: 0,
+    };
+  }
+
+  const response = await fetch(`/api/estimates/${input.versionId}/suggestion-learning`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+    body: JSON.stringify({
+      corrections: input.corrections,
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    throw new Error(
+      resolveSuggestionLearningErrorMessage(
+        payload,
+        "Impossible d'enregistrer les corrections de suggestion."
+      )
+    );
+  }
+
+  const data = toApiDataRecord(payload);
+  return {
+    ...normalizeSuggestionLearningState(payload),
+    tracked_count: Math.max(0, Math.trunc(toFiniteNumber(data?.tracked_count, 0))),
+  };
 }
 
 function formatSupplierComparisonDate(value: string | null) {
@@ -1089,6 +1243,8 @@ export default function EditEstimatePage() {
   const [supplyTypes, setSupplyTypes] = useState<SupplyType[]>([]);
   const [laborRoles, setLaborRoles] = useState<LaborRole[]>([]);
   const [suggestionRules, setSuggestionRules] = useState<SuggestionRule[]>([]);
+  const [suggestionLearningState, setSuggestionLearningState] =
+    useState<SuggestionLearningState>(EMPTY_SUGGESTION_LEARNING_STATE);
   const [dismissedOutlierFlagsByItemId, setDismissedOutlierFlagsByItemId] =
     useState<EstimateOutlierFlagsByItemId>({});
   const [outlierActionPendingByItemId, setOutlierActionPendingByItemId] =
@@ -1262,9 +1418,19 @@ export default function EditEstimatePage() {
     async function load() {
       setIsLoading(true);
       setLoadError(null);
+      setSuggestionLearningState(EMPTY_SUGGESTION_LEARNING_STATE);
 
       try {
-        const data = await fetchEstimateEditorData(resolvedVersionId);
+        const [data, learning] = await Promise.all([
+          fetchEstimateEditorData(resolvedVersionId),
+          fetchSuggestionLearningState(resolvedVersionId).catch((error) => {
+            console.error(
+              "Impossible de charger les apprentissages de suggestions.",
+              error
+            );
+            return EMPTY_SUGGESTION_LEARNING_STATE;
+          }),
+        ]);
         if (!active) return;
 
         let versionRow = data.version as EstimateVersionView;
@@ -1323,6 +1489,7 @@ export default function EditEstimatePage() {
         setSupplyTypes(data.supplyTypes ?? []);
         setLaborRoles(rolesData);
         setSuggestionRules(data.suggestionRules ?? []);
+        setSuggestionLearningState(learning);
         setSettings(initialSettings);
         setSavedSettings(initialSettings);
         setConflictState(null);
@@ -5549,6 +5716,28 @@ export default function EditEstimatePage() {
     }
   }
 
+  const handleTrackSuggestionCorrections = useCallback<
+    NonNullable<EstimateEditorTableProps["onTrackSuggestionCorrections"]>
+  >(
+    async (corrections) => {
+      if (corrections.length === 0) return;
+
+      const currentVersionId = versionRef.current?.id ?? resolvedVersionId;
+      if (!currentVersionId) return;
+
+      const trackingResult = await trackSuggestionCorrectionsForVersion({
+        versionId: currentVersionId,
+        corrections,
+      });
+
+      setSuggestionLearningState({
+        enabled: trackingResult.enabled,
+        by_rule_id: trackingResult.by_rule_id,
+      });
+    },
+    [resolvedVersionId]
+  );
+
   const editorTableProps = useMemo<EstimateEditorTableProps>(
     () => ({
       versionId: version?.id ?? resolvedVersionId,
@@ -5557,6 +5746,7 @@ export default function EditEstimatePage() {
       supplyTypes,
       laborRoles,
       suggestionRules,
+      learningState: suggestionLearningState,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
       outlierActionPendingByItemId,
@@ -5582,6 +5772,7 @@ export default function EditEstimatePage() {
       onInsertAssembly: handleInsertAssembly,
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,
+      onTrackSuggestionCorrections: handleTrackSuggestionCorrections,
       onApplyBulkMajoration: handleApplyBulkMajoration,
       onBulkDeleteLines: handleBulkDeleteLines,
       onBulkMoveLines: handleBulkMoveLines,
@@ -5642,8 +5833,10 @@ export default function EditEstimatePage() {
       qualityCounts,
       qualityFilter,
       qualityFlagsByItemId,
+      handleTrackSuggestionCorrections,
       supplyTypes,
       suggestionRules,
+      suggestionLearningState,
       bulkSuggestionEligibleCount,
       checklistScrollTargetItemId,
       totals?.appliedMarginMultiplier,

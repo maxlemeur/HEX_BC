@@ -21,8 +21,12 @@ import {
   patchEstimateStatusSchema,
   patchEstimateVersionSchema,
   promoteEstimateVariantSchema,
+  purgeSuggestionLearningSchema,
+  reviewSuggestionLearningSchema,
   reorderEstimateItemsSchema,
+  suggestionLearningFieldSchema,
   suggestionRuleFeedbackSchema,
+  trackSuggestionCorrectionsSchema,
   updateEstimateAssemblySchema,
   updateEstimateItemSchema,
   updateEstimateTemplateSchema,
@@ -418,6 +422,58 @@ const suggestionRuleSchema = z
   })
   .passthrough();
 
+const suggestionLearningReviewStatusSchema = z.enum(["approved", "rejected"]);
+
+const suggestionLearningProposalSchema = z.object({
+  rule_id: uuidSchema,
+  field_name: suggestionLearningFieldSchema,
+  corrected_value: z.string().nullable(),
+  correction_count: z.number().int(),
+  first_seen_at: z.string(),
+  last_seen_at: z.string(),
+  review_status: suggestionLearningReviewStatusSchema.nullable(),
+  decided_by: uuidSchema.nullable(),
+  decided_at: z.string().nullable(),
+  is_active: z.boolean(),
+  sample_original_value: z.string().nullable(),
+  sample_item_title: z.string().nullable(),
+});
+
+const suggestionLearningRuleBoostSchema = z.object({
+  rule_id: uuidSchema,
+  learning_boost: z.number(),
+  overrides: z.object({
+    description: z.string().nullable().optional(),
+    category_id: uuidSchema.nullable().optional(),
+    k_fo: z.number().nullable().optional(),
+    k_mo: z.number().nullable().optional(),
+    labor_role_id: uuidSchema.nullable().optional(),
+    supply_type_id: uuidSchema.nullable().optional(),
+  }),
+  fields: z.array(suggestionLearningProposalSchema),
+});
+
+const suggestionLearningConfigSchema = z.object({
+  enabled: z.boolean(),
+  threshold: z.number().int(),
+  retention_months: z.number().int(),
+});
+
+const suggestionLearningStateSchema = z.object({
+  config: suggestionLearningConfigSchema,
+  proposals: z.array(suggestionLearningProposalSchema),
+  by_rule_id: z.record(z.string(), suggestionLearningRuleBoostSchema),
+});
+
+const suggestionLearningTrackResultSchema = suggestionLearningStateSchema.extend({
+  tracked_count: z.number().int(),
+});
+
+const suggestionLearningPurgeResultSchema = suggestionLearningStateSchema.extend({
+  deleted_count: z.number().int(),
+  retention_months: z.number().int(),
+});
+
 const marginTierSchema = z
   .object({
     id: uuidSchema,
@@ -783,6 +839,14 @@ const estimateSuggestionRuleFeedbackDataSchema = z.object({
   feedback: suggestionFeedbackSchema,
 });
 
+const estimateSuggestionLearningStateDataSchema = suggestionLearningStateSchema;
+
+const estimateSuggestionLearningTrackDataSchema = suggestionLearningTrackResultSchema;
+
+const adminSuggestionLearningStateDataSchema = suggestionLearningStateSchema;
+
+const adminSuggestionLearningPurgeDataSchema = suggestionLearningPurgeResultSchema;
+
 const estimateEventsDataSchema = z.object({
   events: z.array(estimateVersionEventSchema),
 });
@@ -914,6 +978,26 @@ const apiEstimateSuggestionRuleFeedbackSchemaDefinition =
   successResponseSchemaDefinition(
     "ApiEstimateSuggestionRuleFeedbackResponse",
     estimateSuggestionRuleFeedbackDataSchema
+  );
+const apiEstimateSuggestionLearningStateSchemaDefinition =
+  successResponseSchemaDefinition(
+    "ApiEstimateSuggestionLearningStateResponse",
+    estimateSuggestionLearningStateDataSchema
+  );
+const apiEstimateSuggestionLearningTrackSchemaDefinition =
+  successResponseSchemaDefinition(
+    "ApiEstimateSuggestionLearningTrackResponse",
+    estimateSuggestionLearningTrackDataSchema
+  );
+const apiAdminSuggestionLearningStateSchemaDefinition =
+  successResponseSchemaDefinition(
+    "ApiAdminSuggestionLearningStateResponse",
+    adminSuggestionLearningStateDataSchema
+  );
+const apiAdminSuggestionLearningPurgeSchemaDefinition =
+  successResponseSchemaDefinition(
+    "ApiAdminSuggestionLearningPurgeResponse",
+    adminSuggestionLearningPurgeDataSchema
   );
 const apiEstimateEventsSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateEventsResponse",
@@ -1296,6 +1380,24 @@ const suggestionRuleFeedbackBody = jsonBody({
   name: "SuggestionRuleFeedbackRequest",
   description: "Feedback utilisateur sur une suggestion appliquee.",
   schema: suggestionRuleFeedbackSchema,
+});
+
+const trackSuggestionCorrectionsBody = jsonBody({
+  name: "TrackSuggestionCorrectionsRequest",
+  description: "Corrections appliquees pour alimenter le learning de suggestion.",
+  schema: trackSuggestionCorrectionsSchema,
+});
+
+const reviewSuggestionLearningBody = jsonBody({
+  name: "ReviewSuggestionLearningRequest",
+  description: "Action admin de validation, rejet ou reset d'une correction apprise.",
+  schema: reviewSuggestionLearningSchema,
+});
+
+const purgeSuggestionLearningBody = jsonBody({
+  name: "PurgeSuggestionLearningRequest",
+  description: "Purge de l'historique de corrections selon la retention cible.",
+  schema: purgeSuggestionLearningSchema,
 });
 
 const outlierToggleBody = jsonBody({
@@ -1741,6 +1843,37 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
   },
   {
     method: "get",
+    path: "/api/estimates/{versionId}/suggestion-learning",
+    summary: "Lire l'etat du suggestion learning",
+    description:
+      "Retourne la configuration learning et les propositions apprises pour la version.",
+    tags: ["Estimate Rules"],
+    parameters: [versionIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Etat du suggestion learning retourne.",
+        apiEstimateSuggestionLearningStateSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/estimates/{versionId}/suggestion-learning",
+    summary: "Enregistrer des corrections learning",
+    description:
+      "Enregistre les corrections appliquees sur les suggestions d'une version brouillon.",
+    tags: ["Estimate Rules"],
+    parameters: [versionIdPathParameter],
+    requestBody: trackSuggestionCorrectionsBody,
+    responses: {
+      "200": jsonResponse(
+        "Corrections learning enregistrees.",
+        apiEstimateSuggestionLearningTrackSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "get",
     path: "/api/estimates/{versionId}/events",
     summary: "Lister les evenements",
     description: "Retourne l'historique des evenements de version.",
@@ -2093,6 +2226,50 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Assemblage insere dans la version.",
         apiEstimateItemsSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/admin/suggestion-learning",
+    summary: "Lister suggestion learning tenant",
+    description:
+      "Retourne les suggestions apprises du tenant (incluant inactives) pour l'administration.",
+    tags: ["Administration"],
+    responses: {
+      "200": jsonResponse(
+        "Etat admin suggestion learning retourne.",
+        apiAdminSuggestionLearningStateSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "patch",
+    path: "/api/admin/suggestion-learning",
+    summary: "Revoir une suggestion apprise",
+    description:
+      "Valide, rejette ou reset une suggestion apprise sur une combinaison regle/champ/valeur.",
+    tags: ["Administration"],
+    requestBody: reviewSuggestionLearningBody,
+    responses: {
+      "200": jsonResponse(
+        "Etat admin suggestion learning mis a jour.",
+        apiAdminSuggestionLearningStateSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/admin/suggestion-learning/purge",
+    summary: "Purger l'historique learning",
+    description:
+      "Supprime les corrections historiques selon la retention puis retourne l'etat rafraichi.",
+    tags: ["Administration"],
+    requestBody: purgeSuggestionLearningBody,
+    responses: {
+      "200": jsonResponse(
+        "Historique learning purge avec succes.",
+        apiAdminSuggestionLearningPurgeSchemaDefinition
       ),
     },
   },

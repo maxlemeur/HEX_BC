@@ -3,14 +3,19 @@ import { describe, expect, it } from "vitest";
 import {
   batchOperationsSchema,
   bulkUpdateEstimateItemsRequestSchema,
+  createEstimateSchema,
   createEstimateVariantSchema,
   createEstimateAssemblySchema,
   createMarginTierSchema,
   insertAssemblyIntoVersionSchema,
   listEstimateAssembliesQuerySchema,
+  moveEstimateItemSchema,
   patchEstimateVersionSchema,
+  purgeSuggestionLearningSchema,
   promoteEstimateVariantSchema,
+  reviewSuggestionLearningSchema,
   suggestionRuleFeedbackSchema,
+  trackSuggestionCorrectionsSchema,
   updateEstimateAssemblySchema,
   updateMarginTierSchema,
 } from "@/lib/estimates/schemas";
@@ -18,7 +23,66 @@ import {
 const ITEM_ID_1 = "11111111-1111-4111-8111-111111111111";
 const ITEM_ID_2 = "22222222-2222-4222-8222-222222222222";
 const ITEM_ID_3 = "33333333-3333-4333-8333-333333333333";
+const PARENT_ID_1 = "44444444-4444-4444-8444-444444444444";
+const PARENT_ID_2 = "55555555-5555-4555-8555-555555555555";
 const UPDATED_AT = "2026-02-21T10:00:00.000Z";
+
+describe("createEstimateSchema", () => {
+  it("accepts cascade discount fields when creating an estimate", () => {
+    const parsed = createEstimateSchema.parse({
+      project: {
+        name: "Projet A",
+      },
+      version: {
+        discount_mode: "cascade",
+        discount_steps: [300, 150],
+        global_coefficient: 1.05,
+      },
+    });
+
+    expect(parsed.version).toMatchObject({
+      discount_mode: "cascade",
+      discount_steps: [300, 150],
+      global_coefficient: 1.05,
+    });
+  });
+
+  it("accepts an empty cascade steps array", () => {
+    const parsed = createEstimateSchema.parse({
+      project: {
+        name: "Projet A",
+      },
+      version: {
+        discount_mode: "cascade",
+        discount_steps: [],
+      },
+    });
+
+    expect(parsed.version).toMatchObject({
+      discount_mode: "cascade",
+      discount_steps: [],
+    });
+  });
+
+  it("rejects discount steps without cascade mode", () => {
+    const parsed = createEstimateSchema.safeParse({
+      project: {
+        name: "Projet A",
+      },
+      version: {
+        discount_steps: [200],
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("discount_steps doit etre vide en mode simple")
+      )
+    ).toBe(true);
+  });
+});
 
 describe("patchEstimateVersionSchema", () => {
   it("rejects payloads that only carry updated_at", () => {
@@ -66,6 +130,38 @@ describe("patchEstimateVersionSchema", () => {
     expect(
       parsed.error.issues.some((issue) =>
         issue.message.includes("Doit etre >= 0")
+      )
+    ).toBe(true);
+  });
+
+  it("accepts cascade discount fields", () => {
+    const parsed = patchEstimateVersionSchema.parse({
+      discount_mode: "cascade",
+      discount_steps: [250, 100],
+      global_coefficient: 1.12,
+      updated_at: UPDATED_AT,
+    });
+
+    expect(parsed).toMatchObject({
+      discount_mode: "cascade",
+      discount_steps: [250, 100],
+      global_coefficient: 1.12,
+      updated_at: UPDATED_AT,
+    });
+  });
+
+  it("rejects simple mode with non-empty discount steps", () => {
+    const parsed = patchEstimateVersionSchema.safeParse({
+      discount_mode: "simple",
+      discount_steps: [150],
+      updated_at: UPDATED_AT,
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("discount_steps doit etre vide en mode simple")
       )
     ).toBe(true);
   });
@@ -277,6 +373,54 @@ describe("batchOperationsSchema", () => {
   });
 });
 
+describe("moveEstimateItemSchema", () => {
+  it("accepts a valid inter-parent move payload", () => {
+    const parsed = moveEstimateItemSchema.parse({
+      item_id: ITEM_ID_1,
+      from_parent_id: PARENT_ID_1,
+      to_parent_id: PARENT_ID_2,
+      ordered_source_ids: [ITEM_ID_2],
+      ordered_target_ids: [ITEM_ID_3, ITEM_ID_1],
+    });
+
+    expect(parsed).toEqual({
+      item_id: ITEM_ID_1,
+      from_parent_id: PARENT_ID_1,
+      to_parent_id: PARENT_ID_2,
+      ordered_source_ids: [ITEM_ID_2],
+      ordered_target_ids: [ITEM_ID_3, ITEM_ID_1],
+    });
+  });
+
+  it("rejects invalid source/target ordering constraints", () => {
+    const parsed = moveEstimateItemSchema.safeParse({
+      item_id: ITEM_ID_1,
+      from_parent_id: null,
+      to_parent_id: null,
+      ordered_source_ids: [ITEM_ID_1],
+      ordered_target_ids: [ITEM_ID_2],
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("ordered_source_ids ne doit pas contenir item_id")
+      )
+    ).toBe(true);
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("ordered_target_ids doit contenir item_id")
+      )
+    ).toBe(true);
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("doivent etre differents")
+      )
+    ).toBe(true);
+  });
+});
+
 describe("suggestionRuleFeedbackSchema", () => {
   it("accepts feedback values accept and reject", () => {
     expect(suggestionRuleFeedbackSchema.parse({ feedback: "accept" })).toEqual({
@@ -325,6 +469,67 @@ describe("suggestionRuleFeedbackSchema", () => {
         count: 1.5,
       }).success
     ).toBe(false);
+  });
+});
+
+describe("suggestion learning schemas", () => {
+  it("accepts tracked correction payloads", () => {
+    const parsed = trackSuggestionCorrectionsSchema.parse({
+      corrections: [
+        {
+          rule_id: ITEM_ID_1,
+          field_name: "k_fo",
+          original_value: "1.15",
+          corrected_value: "1.20",
+          item_title: "Pose gaine",
+        },
+      ],
+    });
+
+    expect(parsed.corrections).toHaveLength(1);
+    expect(parsed.corrections[0]).toEqual({
+      rule_id: ITEM_ID_1,
+      field_name: "k_fo",
+      original_value: "1.15",
+      corrected_value: "1.20",
+      item_title: "Pose gaine",
+    });
+  });
+
+  it("rejects unknown tracked fields", () => {
+    expect(
+      trackSuggestionCorrectionsSchema.safeParse({
+        corrections: [
+          {
+            rule_id: ITEM_ID_1,
+            field_name: "quantity",
+            original_value: "1",
+            corrected_value: "2",
+            item_title: "x",
+          },
+        ],
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts review and purge payloads", () => {
+    expect(
+      reviewSuggestionLearningSchema.parse({
+        rule_id: ITEM_ID_1,
+        field_name: "description",
+        corrected_value: "ml",
+        action: "approve",
+      })
+    ).toEqual({
+      rule_id: ITEM_ID_1,
+      field_name: "description",
+      corrected_value: "ml",
+      action: "approve",
+    });
+
+    expect(purgeSuggestionLearningSchema.parse({ retention_months: 6 })).toEqual({
+      retention_months: 6,
+    });
   });
 });
 

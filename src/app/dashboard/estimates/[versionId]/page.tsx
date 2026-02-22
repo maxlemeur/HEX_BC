@@ -12,6 +12,7 @@ import {
   type SealIntegrityState,
 } from "@/components/estimates/SealIntegrityBadge";
 import { isFeatureEnabled } from "@/lib/feature-flags";
+import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import {
   listEstimateProjectVersions,
   listEstimateVersionVariants,
@@ -82,7 +83,7 @@ export default async function EstimateDetailPage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
+      "project_id, tenant_id, version_number, status, seal_hash, title, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -166,14 +167,59 @@ export default async function EstimateDetailPage({
     supplyTypeLabelsById[supplyType.id] = supplyType.name;
   });
 
-  const saleSubtotalCents = items.reduce((sum, item) => {
-    if (item.item_type !== "line") return sum;
-    return sum + (item.line_total_ht_cents ?? 0);
-  }, 0);
-  const discountCents = Math.round(
-    (saleSubtotalCents * version.discount_bp) / 10000
-  );
-  const appliedMarginMultiplier = version.margin_multiplier;
+  const lineItemsForTotals = items
+    .filter((item) => item.item_type === "line")
+    .map((item) => ({
+      ...item,
+      labor_role_hourly_rate_cents: item.labor_role_id
+        ? (laborRateById[item.labor_role_id] ?? 0)
+        : 0,
+      labor_role_atelier_hourly_rate_cents: item.labor_role_atelier_id
+        ? (laborRateById[item.labor_role_atelier_id] ?? 0)
+        : 0,
+      labor_role_chantier_hourly_rate_cents: item.labor_role_chantier_id
+        ? (laborRateById[item.labor_role_chantier_id] ?? 0)
+        : 0,
+    }));
+  const baseTotals = computeEstimateTotals({
+    lineItems: lineItemsForTotals,
+    marginMultiplier: version.margin_multiplier,
+    marginMode: version.margin_mode,
+    discountCents: 0,
+    discountMode: version.discount_mode,
+    discountStepsBp: version.discount_steps,
+    globalCoefficient: version.global_coefficient,
+    taxRateBp: version.tax_rate_bp,
+    roundingMode: version.rounding_mode,
+    roundingStepCents: version.rounding_step_cents,
+  });
+  const fallbackDiscountCents =
+    baseTotals.saleSubtotalCents > 0
+      ? Math.round((baseTotals.saleSubtotalCents * version.discount_bp) / 10000)
+      : 0;
+  const computedTotals = computeEstimateTotals({
+    lineItems: lineItemsForTotals,
+    marginMultiplier: version.margin_multiplier,
+    marginMode: version.margin_mode,
+    discountCents: fallbackDiscountCents,
+    discountMode: version.discount_mode,
+    discountStepsBp: version.discount_steps,
+    globalCoefficient: version.global_coefficient,
+    taxRateBp: version.tax_rate_bp,
+    roundingMode: version.rounding_mode,
+    roundingStepCents: version.rounding_step_cents,
+  });
+  const discountCents = computedTotals.discountCents;
+  const appliedMarginMultiplier = computedTotals.appliedMarginMultiplier;
+  const totalHtCents = Number.isFinite(version.total_ht_cents ?? NaN)
+    ? version.total_ht_cents
+    : computedTotals.saleTotalCents;
+  const totalTaxCents = Number.isFinite(version.total_tax_cents ?? NaN)
+    ? version.total_tax_cents
+    : computedTotals.adjustedTaxCents;
+  const totalTtcCents = Number.isFinite(version.total_ttc_cents ?? NaN)
+    ? version.total_ttc_cents
+    : computedTotals.roundedTtcCents;
 
   let sealState: SealIntegrityState = "unsealed";
   let sealHashPrefix = version.seal_hash?.slice(0, 8) ?? null;
@@ -251,9 +297,9 @@ export default async function EstimateDetailPage({
             taxRateBp={version.tax_rate_bp}
             isLaborSplitEnabled={isLaborSplitEnabled}
             laborRateById={laborRateById}
-            totalHtCents={version.total_ht_cents}
-            totalTaxCents={version.total_tax_cents}
-            totalTtcCents={version.total_ttc_cents}
+            totalHtCents={totalHtCents}
+            totalTaxCents={totalTaxCents}
+            totalTtcCents={totalTtcCents}
             supplyTypeLabelsById={supplyTypeLabelsById}
             items={items}
           />

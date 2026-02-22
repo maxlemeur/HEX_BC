@@ -2,11 +2,14 @@
 
 import { formatEUR } from "@/lib/money";
 import type {
+  DiscountStepTotal,
   EstimateTotals,
   MarginMode,
   RoundingMode,
 } from "@/lib/estimate-calculations";
 import type { MarginTier } from "@/lib/estimates/margin-tiers";
+
+export type DiscountMode = "simple" | "cascade";
 
 export type EstimateSettingsState = {
   title: string;
@@ -16,6 +19,9 @@ export type EstimateSettingsState = {
   margin_mode?: MarginMode;
   margin_tiers?: MarginTier[];
   discount_cents: number;
+  discount_mode?: DiscountMode;
+  discount_steps?: number[];
+  global_coefficient?: number;
   tax_rate_bp: number;
   rounding_mode: RoundingMode;
   rounding_step_cents: number;
@@ -35,6 +41,8 @@ type EstimateSettingsPanelProps = {
 
 const MARGIN_SUGGESTIONS = [1.05, 1.1, 1.2, 1.3, 1.5];
 const DEFAULT_TAX_BP = 2000;
+const MAX_CASCADE_STEPS = 4;
+const DEFAULT_CASCADE_STEP_BP = 500;
 
 const ROUNDING_OPTIONS = [
   { label: "Aucun", mode: "none" as const, step: 1 },
@@ -65,6 +73,30 @@ function sortMarginTiers(tiers: MarginTier[]) {
   });
 }
 
+function clampCascadeStepBp(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(Math.max(Math.round(value), 0), 10000);
+}
+
+function normalizeCascadeStepsBp(steps: number[] | undefined): number[] {
+  return (steps ?? [])
+    .map((step) => clampCascadeStepBp(step))
+    .slice(0, MAX_CASCADE_STEPS);
+}
+
+function toPercentFromBp(stepBp: number) {
+  return stepBp / 100;
+}
+
+function toBpFromPercent(percent: number) {
+  return clampCascadeStepBp(Math.round(percent * 100));
+}
+
+function getStepTotal(step: DiscountStepTotal | undefined) {
+  if (!step) return null;
+  return step.subtotalAfterCents;
+}
+
 export function EstimateSettingsPanel({
   projectName,
   versionNumber,
@@ -84,6 +116,13 @@ export function EstimateSettingsPanel({
   );
   const marginMode: MarginMode = settings.margin_mode ?? "fixed";
   const marginTiers = sortMarginTiers(settings.margin_tiers ?? []);
+  const discountMode: DiscountMode =
+    settings.discount_mode === "cascade" ? "cascade" : "simple";
+  const discountStepsBp = normalizeCascadeStepsBp(settings.discount_steps);
+  const globalCoefficient = Number.isFinite(settings.global_coefficient ?? NaN)
+    ? Math.max(settings.global_coefficient ?? 1, 0)
+    : 1;
+  const discountStepTotals = totals?.discountStepTotals ?? [];
 
   return (
     <div className="dashboard-card p-8">
@@ -266,26 +305,168 @@ export function EstimateSettingsPanel({
             </div>
           )}
 
-          <div>
-            <label className="form-label" htmlFor="estimate-discount">
-              Remise (EUR HT)
-            </label>
-            <input
-              id="estimate-discount"
-              className="form-input"
-              type="number"
-              step="0.01"
-              min={0}
-              value={settings.discount_cents / 100}
-              disabled={isReadOnly}
-              onChange={(event) =>
-                onChange({
-                  discount_cents: Math.round(
-                    Number(event.target.value || 0) * 100
-                  ),
-                })
-              }
-            />
+          <div className="space-y-4">
+            <div>
+              <p className="form-label">Mode remise</p>
+              <div className="estimate-chip-row mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`estimate-chip ${
+                    discountMode === "simple" ? "estimate-chip--active" : ""
+                  }`}
+                  disabled={isReadOnly}
+                  onClick={() => onChange({ discount_mode: "simple" })}
+                >
+                  Simple
+                </button>
+                <button
+                  type="button"
+                  className={`estimate-chip ${
+                    discountMode === "cascade" ? "estimate-chip--active" : ""
+                  }`}
+                  disabled={isReadOnly}
+                  onClick={() => {
+                    onChange({
+                      discount_mode: "cascade",
+                      discount_steps: discountStepsBp,
+                      global_coefficient: globalCoefficient,
+                    });
+                  }}
+                >
+                  Cascade
+                </button>
+              </div>
+            </div>
+
+            {discountMode === "simple" ? (
+              <div>
+                <label className="form-label" htmlFor="estimate-discount">
+                  Remise (EUR HT)
+                </label>
+                <input
+                  id="estimate-discount"
+                  className="form-input"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={settings.discount_cents / 100}
+                  disabled={isReadOnly}
+                  onChange={(event) =>
+                    onChange({
+                      discount_mode: "simple",
+                      discount_steps: [],
+                      discount_cents: Math.round(
+                        Number(event.target.value || 0) * 100
+                      ),
+                    })
+                  }
+                />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label
+                    className="form-label"
+                    htmlFor="estimate-discount-global-coefficient"
+                  >
+                    Coefficient global
+                  </label>
+                  <input
+                    id="estimate-discount-global-coefficient"
+                    className="form-input"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={globalCoefficient}
+                    disabled={isReadOnly}
+                    onChange={(event) =>
+                      onChange({
+                        discount_mode: "cascade",
+                        global_coefficient: Math.max(
+                          Number(event.target.value || 0),
+                          0
+                        ),
+                      })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  {discountStepsBp.map((stepBp, index) => (
+                    <div
+                      key={`discount-step-${index}`}
+                      className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-3"
+                    >
+                      <div className="flex flex-wrap items-end gap-3">
+                        <div className="min-w-[180px] flex-1">
+                          <label
+                            className="form-label"
+                            htmlFor={`estimate-discount-step-${index}`}
+                          >
+                            Etape {index + 1} (%)
+                          </label>
+                          <input
+                            id={`estimate-discount-step-${index}`}
+                            className="form-input"
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            value={toPercentFromBp(stepBp)}
+                            disabled={isReadOnly}
+                            onChange={(event) => {
+                              const nextSteps = [...discountStepsBp];
+                              nextSteps[index] = toBpFromPercent(
+                                Number(event.target.value || 0)
+                              );
+                              onChange({
+                                discount_mode: "cascade",
+                                discount_steps: nextSteps,
+                              });
+                            }}
+                          />
+                        </div>
+                        <div className="min-w-[170px] flex-1 rounded-md border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-600)]">
+                          Total apres etape:{" "}
+                          <strong>
+                            {formatEUR(getStepTotal(discountStepTotals[index]) ?? 0)}
+                          </strong>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          disabled={isReadOnly}
+                          onClick={() => {
+                            const nextSteps = discountStepsBp.filter(
+                              (_, stepIndex) => stepIndex !== index
+                            );
+                            onChange({
+                              discount_mode: "cascade",
+                              discount_steps: nextSteps,
+                            });
+                          }}
+                        >
+                          Supprimer
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={isReadOnly || discountStepsBp.length >= MAX_CASCADE_STEPS}
+                  onClick={() => {
+                    const nextSteps = [...discountStepsBp, DEFAULT_CASCADE_STEP_BP];
+                    onChange({
+                      discount_mode: "cascade",
+                      discount_steps: nextSteps,
+                    });
+                  }}
+                >
+                  Ajouter une etape
+                </button>
+              </div>
+            )}
           </div>
 
           <div>

@@ -42,6 +42,10 @@ type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateDocumentRow = Database["public"]["Tables"]["estimate_documents"]["Row"];
+type LaborRoleRate = Pick<
+  Database["public"]["Tables"]["labor_roles"]["Row"],
+  "id" | "hourly_rate_cents"
+>;
 
 type EmbeddedProject = Pick<
   EstimateProjectRow,
@@ -59,6 +63,9 @@ type VersionWithProject = Pick<
   | "margin_multiplier"
   | "margin_mode"
   | "discount_bp"
+  | "discount_mode"
+  | "discount_steps"
+  | "global_coefficient"
   | "tax_rate_bp"
   | "rounding_mode"
   | "rounding_step_cents"
@@ -557,7 +564,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, project_id, version_number, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name)"
+      "id, tenant_id, project_id, version_number, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -597,6 +604,32 @@ async function loadItems(input: {
   }
 
   return (data ?? []) as EstimateItemRow[];
+}
+
+async function loadLaborRatesByRoleId(input: {
+  supabase: Supabase;
+  tenantId: string;
+  roleIds: string[];
+}) {
+  if (input.roleIds.length === 0) {
+    return new Map<string, number>();
+  }
+
+  const { data, error } = await input.supabase
+    .from("labor_roles")
+    .select("id, hourly_rate_cents")
+    .eq("tenant_id", input.tenantId)
+    .in("id", input.roleIds);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les roles MO.");
+  }
+
+  const rates = new Map<string, number>();
+  ((data ?? []) as LaborRoleRate[]).forEach((role) => {
+    rates.set(role.id, role.hourly_rate_cents ?? 0);
+  });
+  return rates;
 }
 
 async function loadLogoDataUri() {
@@ -902,15 +935,61 @@ export async function generateEstimatePdfNow(
     const rows = buildRows(items);
     const lineItems = items.filter((item) => item.item_type === "line");
 
-    const saleSubtotalCents = lineItems.reduce((sum, item) => {
-      return sum + (item.line_total_ht_cents ?? 0);
-    }, 0);
+    const laborRoleIds = Array.from(
+      new Set(
+        lineItems
+          .flatMap((item) => [
+            item.labor_role_id,
+            item.labor_role_atelier_id,
+            item.labor_role_chantier_id,
+          ])
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+    const laborRatesByRoleId = await loadLaborRatesByRoleId({
+      supabase: context.supabase,
+      tenantId: context.tenantId,
+      roleIds: laborRoleIds,
+    });
 
-    const computedTotals = computeEstimateTotals({
-      lineItems,
+    const lineItemsForTotals = lineItems.map((item) => ({
+      ...item,
+      labor_role_hourly_rate_cents: item.labor_role_id
+        ? (laborRatesByRoleId.get(item.labor_role_id) ?? 0)
+        : 0,
+      labor_role_atelier_hourly_rate_cents: item.labor_role_atelier_id
+        ? (laborRatesByRoleId.get(item.labor_role_atelier_id) ?? 0)
+        : 0,
+      labor_role_chantier_hourly_rate_cents: item.labor_role_chantier_id
+        ? (laborRatesByRoleId.get(item.labor_role_chantier_id) ?? 0)
+        : 0,
+    }));
+
+    const baseTotals = computeEstimateTotals({
+      lineItems: lineItemsForTotals,
       marginMultiplier: access.version.margin_multiplier,
       marginMode: access.version.margin_mode,
-      discountCents: Math.round((saleSubtotalCents * access.version.discount_bp) / 10000),
+      discountCents: 0,
+      discountMode: access.version.discount_mode,
+      discountStepsBp: access.version.discount_steps,
+      globalCoefficient: access.version.global_coefficient,
+      taxRateBp: access.version.tax_rate_bp,
+      roundingMode: access.version.rounding_mode,
+      roundingStepCents: access.version.rounding_step_cents,
+    });
+    const fallbackDiscountCents =
+      baseTotals.saleSubtotalCents > 0
+        ? Math.round((baseTotals.saleSubtotalCents * access.version.discount_bp) / 10000)
+        : 0;
+
+    const computedTotals = computeEstimateTotals({
+      lineItems: lineItemsForTotals,
+      marginMultiplier: access.version.margin_multiplier,
+      marginMode: access.version.margin_mode,
+      discountCents: fallbackDiscountCents,
+      discountMode: access.version.discount_mode,
+      discountStepsBp: access.version.discount_steps,
+      globalCoefficient: access.version.global_coefficient,
       taxRateBp: access.version.tax_rate_bp,
       roundingMode: access.version.rounding_mode,
       roundingStepCents: access.version.rounding_step_cents,
