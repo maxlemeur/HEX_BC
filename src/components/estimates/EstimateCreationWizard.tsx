@@ -1,0 +1,950 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import {
+  createEstimate,
+  fetchEstimateTemplates,
+  instantiateEstimateFromTemplate,
+  type EstimateTemplateSummary,
+} from "@/lib/estimates/client";
+import {
+  getMarginTiers,
+  type MarginTier,
+} from "@/lib/estimates/margin-tiers";
+import {
+  wizardStep1Schema,
+  wizardStep2Schema,
+  wizardStep3Schema,
+} from "@/lib/estimates/schemas";
+import { formatEUR } from "@/lib/money";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const STORAGE_KEY = "est-wizard-draft";
+const DEFAULT_VALIDITE_JOURS = 30;
+const DEFAULT_TAX_RATE_BP = 2000;
+
+const ROUNDING_OPTIONS = [
+  { label: "Aucun", mode: "none" as const, step: 1 },
+  { label: "1 EUR", mode: "nearest" as const, step: 100 },
+  { label: "10 EUR", mode: "nearest" as const, step: 1000 },
+  { label: "50 EUR", mode: "nearest" as const, step: 5000 },
+  { label: "100 EUR", mode: "nearest" as const, step: 10000 },
+] as const;
+
+const STEPS = [
+  { label: "Projet", description: "Informations projet" },
+  { label: "Parametres", description: "Marge, TVA, arrondi" },
+  { label: "Import", description: "Import optionnel" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type WizardData = {
+  // Step 1
+  projectName: string;
+  clientName: string;
+  reference: string;
+  title: string;
+  // Step 2
+  dateDevis: string;
+  validiteJours: string;
+  marginMode: "fixed" | "tiered";
+  marginBp: string;
+  taxRateBp: string;
+  roundingMode: "none" | "nearest" | "up" | "down";
+  roundingStepCents: string;
+  currency: string;
+  // Step 3
+  creationMode: "blank" | "template";
+  selectedTemplateId: string;
+};
+
+type StepErrors = Record<string, string>;
+
+type EstimateCreationWizardProps = {
+  onCreated: (versionId: string) => void;
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function todayISO(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+function initialWizardData(): WizardData {
+  return {
+    projectName: "",
+    clientName: "",
+    reference: "",
+    title: "",
+    dateDevis: todayISO(),
+    validiteJours: String(DEFAULT_VALIDITE_JOURS),
+    marginMode: "fixed",
+    marginBp: "0",
+    taxRateBp: String(DEFAULT_TAX_RATE_BP),
+    roundingMode: "none",
+    roundingStepCents: "1",
+    currency: "EUR",
+    creationMode: "blank",
+    selectedTemplateId: "",
+  };
+}
+
+function loadDraft(): WizardData | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as WizardData;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(data: WizardData) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    // Quota exceeded — ignore
+  }
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function formatDateLabel(isoValue: string) {
+  const parsed = new Date(isoValue);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const year = parsed.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+function parseZodErrors(error: unknown): StepErrors {
+  if (
+    error &&
+    typeof error === "object" &&
+    "issues" in error &&
+    Array.isArray((error as { issues: unknown[] }).issues)
+  ) {
+    const zodError = error as { issues: Array<{ path: (string | number)[]; message: string }> };
+    const errors: StepErrors = {};
+    for (const issue of zodError.issues) {
+      const key = String(issue.path[0] ?? "_root");
+      if (!errors[key]) errors[key] = issue.message;
+    }
+    return errors;
+  }
+  return { _root: "Erreur de validation." };
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function StepIndicator({
+  currentStep,
+  validatedSteps,
+}: {
+  currentStep: number;
+  validatedSteps: Set<number>;
+}) {
+  return (
+    <nav aria-label="Etapes de creation" className="mb-8">
+      <ol className="flex items-center gap-2">
+        {STEPS.map((step, index) => {
+          const isActive = index === currentStep;
+          const isValidated = validatedSteps.has(index);
+          const isPast = index < currentStep;
+
+          return (
+            <li key={step.label} className="flex flex-1 items-center gap-2">
+              {index > 0 && (
+                <div
+                  className={`h-px flex-1 ${
+                    isPast || isValidated
+                      ? "bg-[var(--primary)]"
+                      : "bg-[var(--slate-200)]"
+                  }`}
+                />
+              )}
+              <div className="flex flex-col items-center gap-1">
+                <div
+                  className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors ${
+                    isActive
+                      ? "bg-[var(--primary)] text-white"
+                      : isValidated
+                        ? "bg-[var(--success)] text-white"
+                        : "bg-[var(--slate-100)] text-[var(--slate-500)]"
+                  }`}
+                >
+                  {isValidated && !isActive ? (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    index + 1
+                  )}
+                </div>
+                <span
+                  className={`text-xs text-center ${
+                    isActive
+                      ? "font-semibold text-[var(--primary)]"
+                      : "text-[var(--slate-500)]"
+                  }`}
+                >
+                  {step.label}
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
+
+function ReadOnlyMarginTiers({ tiers }: { tiers: MarginTier[] }) {
+  const sorted = useMemo(
+    () =>
+      [...tiers].sort(
+        (a, b) => a.threshold_cents - b.threshold_cents
+      ),
+    [tiers]
+  );
+
+  if (sorted.length === 0) {
+    return (
+      <p className="text-sm text-[var(--slate-500)]">
+        Aucune tranche de marge configuree.
+      </p>
+    );
+  }
+
+  return (
+    <div className="table-scroll mt-3">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Seuil</th>
+            <th>Multiplicateur</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((tier, i) => (
+            <tr key={tier.id ?? i}>
+              <td>{formatEUR(tier.threshold_cents)}</td>
+              <td>x{tier.multiplier.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function EstimateCreationWizard({
+  onCreated,
+}: EstimateCreationWizardProps) {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [validatedSteps, setValidatedSteps] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [data, setData] = useState<WizardData>(() => {
+    const draft = loadDraft();
+    return draft ?? initialWizardData();
+  });
+  const [errors, setErrors] = useState<StepErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Templates
+  const [templates, setTemplates] = useState<EstimateTemplateSummary[]>([]);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+
+  // Margin tiers
+  const marginTiers = useMemo(() => getMarginTiers(), []);
+
+  // Load templates
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      setIsLoadingTemplates(true);
+      setTemplatesError(null);
+      try {
+        const list = await fetchEstimateTemplates({ limit: 10, order: "recent" });
+        if (!mounted) return;
+        setTemplates(list);
+      } catch (err) {
+        if (!mounted) return;
+        setTemplatesError(
+          err instanceof Error ? err.message : "Impossible de charger les templates."
+        );
+      } finally {
+        if (mounted) setIsLoadingTemplates(false);
+      }
+    }
+    void load();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Update helper
+  const updateField = useCallback(
+    <K extends keyof WizardData>(key: K, value: WizardData[K]) => {
+      setData((prev) => ({ ...prev, [key]: value }));
+      setErrors((prev) => {
+        if (!prev[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    },
+    []
+  );
+
+  // Validation
+  const validateStep = useCallback(
+    (step: number): boolean => {
+      setErrors({});
+      try {
+        if (step === 0) {
+          wizardStep1Schema.parse({
+            projectName: data.projectName,
+            clientName: data.clientName || null,
+            reference: data.reference || null,
+            title: data.title || null,
+          });
+        } else if (step === 1) {
+          wizardStep2Schema.parse({
+            dateDevis: data.dateDevis,
+            validiteJours: Number(data.validiteJours),
+            marginMode: data.marginMode,
+            marginBp: data.marginBp ? Number(data.marginBp) : undefined,
+            taxRateBp: Number(data.taxRateBp),
+            roundingMode: data.roundingMode,
+            roundingStepCents:
+              data.roundingMode !== "none"
+                ? Number(data.roundingStepCents)
+                : undefined,
+            currency: data.currency || undefined,
+          });
+        } else if (step === 2) {
+          wizardStep3Schema.parse({
+            creationMode: data.creationMode,
+            selectedTemplateId:
+              data.creationMode === "template"
+                ? data.selectedTemplateId || undefined
+                : undefined,
+          });
+        }
+        return true;
+      } catch (err) {
+        setErrors(parseZodErrors(err));
+        return false;
+      }
+    },
+    [data]
+  );
+
+  // Navigation
+  function goNext() {
+    if (!validateStep(currentStep)) return;
+    setValidatedSteps((prev) => new Set(prev).add(currentStep));
+    saveDraft(data);
+    setCurrentStep((prev) => Math.min(prev + 1, STEPS.length - 1));
+  }
+
+  function goBack() {
+    setErrors({});
+    setCurrentStep((prev) => Math.max(prev - 1, 0));
+  }
+
+  // Submit
+  async function handleSubmit() {
+    if (!validateStep(currentStep)) return;
+    setValidatedSteps((prev) => new Set(prev).add(currentStep));
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      let versionId: string;
+
+      if (data.creationMode === "template" && data.selectedTemplateId) {
+        const result = await instantiateEstimateFromTemplate(
+          data.selectedTemplateId,
+          {
+            projectName: data.projectName.trim(),
+            versionTitle: data.title.trim() || null,
+            dateDevis: data.dateDevis,
+            validiteJours: Number(data.validiteJours),
+          }
+        );
+        versionId = result.versionId;
+      } else {
+        versionId = await createEstimate({
+          projectName: data.projectName.trim(),
+          title: data.title.trim() || null,
+          dateDevis: data.dateDevis,
+          validiteJours: Number(data.validiteJours),
+          clientName: data.clientName.trim() || null,
+          reference: data.reference.trim() || null,
+          marginMode: data.marginMode,
+          marginBp: data.marginBp ? Number(data.marginBp) : undefined,
+          taxRateBp: Number(data.taxRateBp),
+          roundingMode: data.roundingMode,
+          roundingStepCents:
+            data.roundingMode !== "none"
+              ? Number(data.roundingStepCents)
+              : undefined,
+          currency: data.currency || undefined,
+        });
+      }
+
+      clearDraft();
+      onCreated(versionId);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Impossible de creer le chiffrage."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  // Quick create (skip wizard)
+  async function handleQuickCreate() {
+    if (!data.projectName.trim()) {
+      setErrors({ projectName: "Le nom du projet est obligatoire." });
+      setCurrentStep(0);
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const versionId = await createEstimate({
+        projectName: data.projectName.trim(),
+        title: null,
+        dateDevis: todayISO(),
+        validiteJours: DEFAULT_VALIDITE_JOURS,
+      });
+      clearDraft();
+      onCreated(versionId);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Impossible de creer le chiffrage."
+      );
+      setIsSubmitting(false);
+    }
+  }
+
+  // Rounding helper
+  function handleRoundingChange(value: string) {
+    if (value === "none") {
+      updateField("roundingMode", "none");
+      updateField("roundingStepCents", "1");
+    } else {
+      const option = ROUNDING_OPTIONS.find((o) => String(o.step) === value);
+      if (option) {
+        updateField("roundingMode", option.mode);
+        updateField("roundingStepCents", String(option.step));
+      }
+    }
+  }
+
+  function getRoundingValue(): string {
+    if (data.roundingMode === "none") return "none";
+    return data.roundingStepCents;
+  }
+
+  // -------------------------------------------------------------------------
+  // Render steps
+  // -------------------------------------------------------------------------
+
+  function renderStep1() {
+    return (
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className="form-label" htmlFor="wiz-project-name">
+            Nom du projet *
+          </label>
+          <input
+            id="wiz-project-name"
+            className={`form-input ${errors.projectName ? "border-[var(--error)]" : ""}`}
+            placeholder="Nom du projet"
+            value={data.projectName}
+            onChange={(e) => updateField("projectName", e.target.value)}
+            autoFocus
+          />
+          {errors.projectName && (
+            <p className="mt-1 text-sm text-[var(--error)]">{errors.projectName}</p>
+          )}
+        </div>
+
+        <div>
+          <label className="form-label" htmlFor="wiz-client-name">
+            Client
+          </label>
+          <input
+            id="wiz-client-name"
+            className="form-input"
+            placeholder="Nom du client"
+            value={data.clientName}
+            onChange={(e) => updateField("clientName", e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="form-label" htmlFor="wiz-reference">
+            Reference
+          </label>
+          <input
+            id="wiz-reference"
+            className="form-input"
+            placeholder="Ref. projet"
+            value={data.reference}
+            onChange={(e) => updateField("reference", e.target.value)}
+          />
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className="form-label" htmlFor="wiz-title">
+            Titre de la version
+          </label>
+          <input
+            id="wiz-title"
+            className="form-input"
+            placeholder="Titre de la version (optionnel)"
+            value={data.title}
+            onChange={(e) => updateField("title", e.target.value)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  function renderStep2() {
+    return (
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div>
+          <label className="form-label" htmlFor="wiz-date-devis">
+            Date devis *
+          </label>
+          <input
+            id="wiz-date-devis"
+            className={`form-input ${errors.dateDevis ? "border-[var(--error)]" : ""}`}
+            type="date"
+            value={data.dateDevis}
+            onChange={(e) => updateField("dateDevis", e.target.value)}
+          />
+          {errors.dateDevis && (
+            <p className="mt-1 text-sm text-[var(--error)]">{errors.dateDevis}</p>
+          )}
+        </div>
+
+        <div>
+          <label className="form-label" htmlFor="wiz-validite">
+            Validite (jours) *
+          </label>
+          <input
+            id="wiz-validite"
+            className={`form-input ${errors.validiteJours ? "border-[var(--error)]" : ""}`}
+            type="number"
+            min={1}
+            value={data.validiteJours}
+            onChange={(e) => updateField("validiteJours", e.target.value)}
+          />
+          {errors.validiteJours && (
+            <p className="mt-1 text-sm text-[var(--error)]">{errors.validiteJours}</p>
+          )}
+        </div>
+
+        {/* Margin mode */}
+        <div className="sm:col-span-2">
+          <span className="form-label">Mode de marge *</span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={
+                data.marginMode === "fixed"
+                  ? "btn btn-primary btn-sm"
+                  : "btn btn-secondary btn-sm"
+              }
+              onClick={() => updateField("marginMode", "fixed")}
+            >
+              Marge fixe
+            </button>
+            <button
+              type="button"
+              className={
+                data.marginMode === "tiered"
+                  ? "btn btn-primary btn-sm"
+                  : "btn btn-secondary btn-sm"
+              }
+              onClick={() => updateField("marginMode", "tiered")}
+            >
+              Marge par tranche
+            </button>
+          </div>
+        </div>
+
+        {data.marginMode === "fixed" && (
+          <div>
+            <label className="form-label" htmlFor="wiz-margin-bp">
+              Marge (points de base)
+            </label>
+            <input
+              id="wiz-margin-bp"
+              className="form-input"
+              type="number"
+              min={0}
+              value={data.marginBp}
+              onChange={(e) => updateField("marginBp", e.target.value)}
+              placeholder="Ex: 1500 = 15%"
+            />
+          </div>
+        )}
+
+        {data.marginMode === "tiered" && (
+          <div className="sm:col-span-2">
+            <p className="form-label">Tranches de marge (tenant)</p>
+            <p className="mb-2 text-sm text-[var(--slate-500)]">
+              Les tranches ci-dessous sont configurees pour votre organisation et seront appliquees automatiquement.
+            </p>
+            <ReadOnlyMarginTiers tiers={marginTiers} />
+          </div>
+        )}
+
+        {/* Tax */}
+        <div>
+          <label className="form-label" htmlFor="wiz-tax-rate">
+            TVA (points de base) *
+          </label>
+          <input
+            id="wiz-tax-rate"
+            className={`form-input ${errors.taxRateBp ? "border-[var(--error)]" : ""}`}
+            type="number"
+            min={0}
+            max={10000}
+            value={data.taxRateBp}
+            onChange={(e) => updateField("taxRateBp", e.target.value)}
+            placeholder="2000 = 20%"
+          />
+          {errors.taxRateBp && (
+            <p className="mt-1 text-sm text-[var(--error)]">{errors.taxRateBp}</p>
+          )}
+          <p className="mt-1 text-xs text-[var(--slate-400)]">
+            {Number(data.taxRateBp) > 0
+              ? `${(Number(data.taxRateBp) / 100).toFixed(1)}%`
+              : "Pas de TVA"}
+          </p>
+        </div>
+
+        {/* Rounding */}
+        <div>
+          <label className="form-label" htmlFor="wiz-rounding">
+            Arrondi
+          </label>
+          <select
+            id="wiz-rounding"
+            className="form-input form-select"
+            value={getRoundingValue()}
+            onChange={(e) => handleRoundingChange(e.target.value)}
+          >
+            {ROUNDING_OPTIONS.map((opt) => (
+              <option
+                key={`${opt.mode}-${opt.step}`}
+                value={opt.mode === "none" ? "none" : String(opt.step)}
+              >
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    );
+  }
+
+  function renderStep3() {
+    return (
+      <div className="grid gap-6">
+        <div>
+          <span className="form-label">Mode de creation</span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={
+                data.creationMode === "blank"
+                  ? "btn btn-primary btn-sm"
+                  : "btn btn-secondary btn-sm"
+              }
+              onClick={() => updateField("creationMode", "blank")}
+            >
+              Nouveau (vide)
+            </button>
+            <button
+              type="button"
+              className={
+                data.creationMode === "template"
+                  ? "btn btn-primary btn-sm"
+                  : "btn btn-secondary btn-sm"
+              }
+              onClick={() => updateField("creationMode", "template")}
+            >
+              Depuis un modele
+            </button>
+            <Link
+              className="btn btn-ghost btn-sm"
+              href="/dashboard/estimates/templates"
+            >
+              Bibliotheque templates
+            </Link>
+          </div>
+        </div>
+
+        {data.creationMode === "template" && (
+          <div>
+            <label className="form-label" htmlFor="wiz-template-id">
+              Template (10 plus recents)
+            </label>
+            <select
+              id="wiz-template-id"
+              className={`form-input form-select ${errors.selectedTemplateId ? "border-[var(--error)]" : ""}`}
+              value={data.selectedTemplateId}
+              onChange={(e) => updateField("selectedTemplateId", e.target.value)}
+              disabled={isLoadingTemplates || templates.length === 0}
+            >
+              {templates.length === 0 ? (
+                <option value="">
+                  {isLoadingTemplates
+                    ? "Chargement..."
+                    : "Aucun template disponible"}
+                </option>
+              ) : (
+                <>
+                  <option value="">Selectionnez un template</option>
+                  {templates.map((tpl) => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.name} - {tpl.itemCount} lignes -{" "}
+                      {formatDateLabel(tpl.createdAt)}
+                    </option>
+                  ))}
+                </>
+              )}
+            </select>
+            {errors.selectedTemplateId && (
+              <p className="mt-1 text-sm text-[var(--error)]">
+                {errors.selectedTemplateId}
+              </p>
+            )}
+            {templatesError && (
+              <div className="alert alert-error mt-3">{templatesError}</div>
+            )}
+          </div>
+        )}
+
+        {/* Summary */}
+        <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
+          <h3 className="mb-3 text-sm font-semibold text-[var(--slate-700)]">
+            Recapitulatif
+          </h3>
+          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-[var(--slate-500)]">Projet</dt>
+              <dd className="font-medium">{data.projectName || "-"}</dd>
+            </div>
+            {data.clientName && (
+              <div>
+                <dt className="text-[var(--slate-500)]">Client</dt>
+                <dd className="font-medium">{data.clientName}</dd>
+              </div>
+            )}
+            <div>
+              <dt className="text-[var(--slate-500)]">Date</dt>
+              <dd className="font-medium">{formatDateLabel(data.dateDevis)}</dd>
+            </div>
+            <div>
+              <dt className="text-[var(--slate-500)]">Marge</dt>
+              <dd className="font-medium">
+                {data.marginMode === "tiered"
+                  ? "Par tranche"
+                  : data.marginBp
+                    ? `${(Number(data.marginBp) / 100).toFixed(1)}%`
+                    : "Non definie"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[var(--slate-500)]">TVA</dt>
+              <dd className="font-medium">
+                {Number(data.taxRateBp) > 0
+                  ? `${(Number(data.taxRateBp) / 100).toFixed(1)}%`
+                  : "Pas de TVA"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[var(--slate-500)]">Mode</dt>
+              <dd className="font-medium">
+                {data.creationMode === "template"
+                  ? "Depuis template"
+                  : "Nouveau (vide)"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Main render
+  // -------------------------------------------------------------------------
+
+  const isLastStep = currentStep === STEPS.length - 1;
+
+  return (
+    <div>
+      <StepIndicator
+        currentStep={currentStep}
+        validatedSteps={validatedSteps}
+      />
+
+      {submitError && (
+        <div className="alert alert-error mb-6">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="m15 9-6 6" />
+            <path d="m9 9 6 6" />
+          </svg>
+          {submitError}
+        </div>
+      )}
+
+      {errors._root && (
+        <div className="alert alert-error mb-6">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="m15 9-6 6" />
+            <path d="m9 9 6 6" />
+          </svg>
+          {errors._root}
+        </div>
+      )}
+
+      <div className="dashboard-card p-8">
+        <h2 className="mb-1 text-lg font-semibold text-[var(--slate-800)]">
+          {STEPS[currentStep].label}
+        </h2>
+        <p className="mb-6 text-sm text-[var(--slate-500)]">
+          {STEPS[currentStep].description}
+        </p>
+
+        {currentStep === 0 && renderStep1()}
+        {currentStep === 1 && renderStep2()}
+        {currentStep === 2 && renderStep3()}
+
+        {/* Navigation */}
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--slate-100)] pt-6">
+          <div className="flex items-center gap-3">
+            {currentStep > 0 && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={goBack}
+                disabled={isSubmitting}
+              >
+                Retour
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Quick create — available on any step */}
+            {!isLastStep && (
+              <button
+                type="button"
+                className="btn btn-ghost text-sm"
+                onClick={handleQuickCreate}
+                disabled={isSubmitting}
+                title="Creer directement avec les parametres par defaut"
+              >
+                Creer directement
+              </button>
+            )}
+
+            {isLastStep ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Creation...
+                  </>
+                ) : (
+                  "Creer le chiffrage"
+                )}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={goNext}
+                disabled={isSubmitting}
+              >
+                Suivant
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,457 @@
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  wizardStep1Schema,
+  wizardStep2Schema,
+  wizardStep3Schema,
+} from "@/lib/estimates/schemas";
+
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
+vi.mock("next/link", () => ({
+  default: function MockLink({
+    children,
+    href,
+  }: {
+    children: React.ReactNode;
+    href: string;
+  }) {
+    return <a href={href}>{children}</a>;
+  },
+}));
+
+vi.mock("@/lib/estimates/client", () => ({
+  createEstimate: vi.fn().mockResolvedValue("version-abc-123"),
+  fetchEstimateTemplates: vi.fn().mockResolvedValue([]),
+  instantiateEstimateFromTemplate: vi
+    .fn()
+    .mockResolvedValue({ versionId: "version-tpl-123" }),
+}));
+
+vi.mock("@/lib/estimates/margin-tiers", () => ({
+  getMarginTiers: vi.fn().mockReturnValue([
+    { id: "t1", threshold_cents: 0, multiplier: 1.6, position: 0 },
+    { id: "t2", threshold_cents: 10_000_000, multiplier: 1.45, position: 1 },
+  ]),
+}));
+
+vi.mock("@/lib/money", () => ({
+  formatEUR: (cents: number) => `${(cents / 100).toFixed(2)} EUR`,
+}));
+
+// Lazy-import after mocks are wired
+import { EstimateCreationWizard } from "@/components/estimates/EstimateCreationWizard";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function setup(onCreated = vi.fn()) {
+  const user = userEvent.setup();
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const result = render(<EstimateCreationWizard onCreated={onCreated} />, {
+    container,
+  });
+  return { user, onCreated, ...result };
+}
+
+// =========================================================================
+// 1. Wizard step schemas - pure validation
+// =========================================================================
+
+describe("wizardStep1Schema", () => {
+  it("rejects empty projectName", () => {
+    const result = wizardStep1Schema.safeParse({
+      projectName: "",
+      clientName: null,
+      reference: null,
+      title: null,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects whitespace-only projectName", () => {
+    const result = wizardStep1Schema.safeParse({
+      projectName: "   ",
+      clientName: null,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts valid projectName with optional fields null", () => {
+    const result = wizardStep1Schema.safeParse({
+      projectName: "Mon Projet",
+      clientName: null,
+      reference: null,
+      title: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts valid data with all optional fields", () => {
+    const result = wizardStep1Schema.safeParse({
+      projectName: "Projet Alpha",
+      clientName: "Client X",
+      reference: "REF-001",
+      title: "Version initiale",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.projectName).toBe("Projet Alpha");
+      expect(result.data.clientName).toBe("Client X");
+    }
+  });
+
+  it("trims projectName", () => {
+    const result = wizardStep1Schema.safeParse({
+      projectName: "  Projet B  ",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.projectName).toBe("Projet B");
+    }
+  });
+
+  it("transforms empty optional strings to null", () => {
+    const result = wizardStep1Schema.safeParse({
+      projectName: "P",
+      clientName: "",
+      reference: "  ",
+      title: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.clientName).toBeNull();
+      expect(result.data.reference).toBeNull();
+    }
+  });
+});
+
+describe("wizardStep2Schema", () => {
+  const validStep2 = {
+    dateDevis: "2026-03-15",
+    validiteJours: 30,
+    marginMode: "fixed" as const,
+    taxRateBp: 2000,
+    roundingMode: "none" as const,
+  };
+
+  it("accepts valid data", () => {
+    const result = wizardStep2Schema.safeParse(validStep2);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid date format", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      dateDevis: "15/03/2026",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-existent date", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      dateDevis: "2026-02-30",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects validiteJours <= 0", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      validiteJours: 0,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects non-integer validiteJours", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      validiteJours: 30.5,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects taxRateBp > 10000", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      taxRateBp: 10001,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects taxRateBp < 0", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      taxRateBp: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts taxRateBp at boundaries 0 and 10000", () => {
+    expect(
+      wizardStep2Schema.safeParse({ ...validStep2, taxRateBp: 0 }).success,
+    ).toBe(true);
+    expect(
+      wizardStep2Schema.safeParse({ ...validStep2, taxRateBp: 10000 }).success,
+    ).toBe(true);
+  });
+
+  it("rejects invalid marginMode", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      marginMode: "custom",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts tiered marginMode", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      marginMode: "tiered",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts optional marginBp", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      marginBp: 1500,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts optional roundingStepCents", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      roundingMode: "nearest",
+      roundingStepCents: 100,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts optional currency", () => {
+    const result = wizardStep2Schema.safeParse({
+      ...validStep2,
+      currency: "EUR",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("wizardStep3Schema", () => {
+  it("accepts blank creationMode without template", () => {
+    const result = wizardStep3Schema.safeParse({
+      creationMode: "blank",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts template mode with valid UUID", () => {
+    const result = wizardStep3Schema.safeParse({
+      creationMode: "template",
+      selectedTemplateId: "11111111-1111-4111-8111-111111111111",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects template mode without selectedTemplateId", () => {
+    const result = wizardStep3Schema.safeParse({
+      creationMode: "template",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(msgs).toContain("Veuillez selectionner un template.");
+    }
+  });
+
+  it("rejects template mode with invalid UUID", () => {
+    const result = wizardStep3Schema.safeParse({
+      creationMode: "template",
+      selectedTemplateId: "not-a-uuid",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid creationMode", () => {
+    const result = wizardStep3Schema.safeParse({
+      creationMode: "import",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("ignores selectedTemplateId for blank mode", () => {
+    const result = wizardStep3Schema.safeParse({
+      creationMode: "blank",
+      selectedTemplateId: "11111111-1111-4111-8111-111111111111",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+// =========================================================================
+// 2. EstimateCreationWizard component tests
+// =========================================================================
+
+describe("EstimateCreationWizard", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it("renders step 1 by default with project name input", () => {
+    setup();
+
+    // "Projet" appears in both the step indicator and the step heading
+    expect(screen.getAllByText("Projet").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Informations projet")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Nom du projet/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Client/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Reference/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Titre de la version/)).toBeInTheDocument();
+  });
+
+  it("shows validation error when trying to proceed without project name", async () => {
+    const { user } = setup();
+
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    expect(screen.getByText("Champ obligatoire.")).toBeInTheDocument();
+  });
+
+  it("navigates to step 2 after filling project name", async () => {
+    const { user } = setup();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "Test Project");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    expect(screen.getByText("Marge, TVA, arrondi")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Date devis/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Validite/)).toBeInTheDocument();
+  });
+
+  it("preserves data when navigating back from step 2", async () => {
+    const { user } = setup();
+
+    await user.type(
+      screen.getByLabelText(/Nom du projet/),
+      "My Important Project",
+    );
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    // Now on step 2 - go back
+    await user.click(screen.getByRole("button", { name: /Retour/ }));
+
+    // Check project name is preserved
+    const input = screen.getByLabelText(/Nom du projet/) as HTMLInputElement;
+    expect(input.value).toBe("My Important Project");
+  });
+
+  it("shows quick create button on non-last steps", () => {
+    setup();
+
+    expect(
+      screen.getByRole("button", { name: /Creer directement/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows margin tiers table when tiered mode selected", async () => {
+    const { user } = setup();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "Project Tiers");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    // Now on step 2 - click "Marge par tranche"
+    await user.click(
+      screen.getByRole("button", { name: /Marge par tranche/ }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Tranches de marge/)).toBeInTheDocument();
+      expect(screen.getByText("Seuil")).toBeInTheDocument();
+      expect(screen.getByText("Multiplicateur")).toBeInTheDocument();
+      expect(screen.getByText("x1.60")).toBeInTheDocument();
+      expect(screen.getByText("x1.45")).toBeInTheDocument();
+    });
+  });
+
+  it("does not show margin tiers table in fixed mode", async () => {
+    const { user } = setup();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "Project Fixed");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    // Default is "fixed" - no tiers table
+    expect(screen.queryByText(/Tranches de marge/)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Marge fixe/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("navigates through all 3 steps", async () => {
+    const { user } = setup();
+
+    // Step 1
+    await user.type(screen.getByLabelText(/Nom du projet/), "Full Flow");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    // Step 2
+    expect(screen.getByLabelText(/Date devis/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    // Step 3
+    expect(screen.getByText("Recapitulatif")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Creer le chiffrage/ }),
+    ).toBeInTheDocument();
+    // Quick create should not appear on last step
+    expect(
+      screen.queryByRole("button", { name: /Creer directement/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows Retour button only from step 2 onwards", async () => {
+    const { user } = setup();
+
+    // Step 1 - no back button
+    expect(
+      screen.queryByRole("button", { name: /Retour/ }),
+    ).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "BackTest");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    // Step 2 - back button exists
+    expect(
+      screen.getByRole("button", { name: /Retour/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("displays step indicator with correct labels", () => {
+    setup();
+
+    const nav = screen.getByRole("navigation", {
+      name: /Etapes de creation/,
+    });
+    expect(within(nav).getByText("Projet")).toBeInTheDocument();
+    expect(within(nav).getByText("Parametres")).toBeInTheDocument();
+    expect(within(nav).getByText("Import")).toBeInTheDocument();
+  });
+});

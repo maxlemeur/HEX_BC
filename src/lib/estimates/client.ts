@@ -169,6 +169,14 @@ export type CreateEstimatePayload = {
   dateDevis: string;
   validiteJours: number;
   marginMultiplier?: number;
+  clientName?: string | null;
+  reference?: string | null;
+  marginMode?: "fixed" | "tiered";
+  marginBp?: number;
+  taxRateBp?: number;
+  roundingMode?: "none" | "nearest" | "up" | "down";
+  roundingStepCents?: number;
+  currency?: string;
 };
 
 export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at">;
@@ -1236,8 +1244,8 @@ export async function createEstimate(
       body: JSON.stringify({
         project: {
           name: input.projectName,
-          reference: null,
-          client_name: null,
+          reference: input.reference ?? null,
+          client_name: input.clientName ?? null,
           notes: null,
         },
         version: {
@@ -1245,6 +1253,12 @@ export async function createEstimate(
           date_devis: input.dateDevis,
           validite_jours: input.validiteJours,
           margin_multiplier: input.marginMultiplier ?? 1,
+          ...(input.marginMode ? { margin_mode: input.marginMode } : {}),
+          ...(input.marginBp != null ? { margin_bp: input.marginBp } : {}),
+          ...(input.taxRateBp != null ? { tax_rate_bp: input.taxRateBp } : {}),
+          ...(input.roundingMode ? { rounding_mode: input.roundingMode } : {}),
+          ...(input.roundingStepCents != null ? { rounding_step_cents: input.roundingStepCents } : {}),
+          ...(input.currency ? { currency: input.currency } : {}),
         },
       }),
     },

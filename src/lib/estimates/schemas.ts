@@ -55,6 +55,12 @@ const basisPointsSchema = z
   .number()
   .int("Entier attendu.")
   .min(0, "Doit etre >= 0.");
+const discountStepBpSchema = basisPointsSchema.max(10000, "Doit etre <= 10000.");
+const discountStepsSchema = z.array(discountStepBpSchema);
+const globalCoefficientSchema = z
+  .number()
+  .finite("Nombre invalide.")
+  .min(0, "Doit etre >= 0.");
 
 const updatedAtTokenSchema = z
   .string()
@@ -87,8 +93,39 @@ export const estimateRoundingModeSchema = z.enum([
 ]);
 
 export const estimateMarginModeSchema = z.enum(["fixed", "tiered"]);
+export const estimateDiscountModeSchema = z.enum(["simple", "cascade"]);
 
 export const estimateItemTypeSchema = z.enum(["section", "line"]);
+
+const createEstimateVersionSchema = z
+  .object({
+    title: optionalNullableTextSchema.optional(),
+    date_devis: dateOnlySchema.optional(),
+    validite_jours: positiveIntegerSchema.optional(),
+    margin_multiplier: nonNegativeNumberSchema.optional(),
+    margin_mode: estimateMarginModeSchema.optional(),
+    currency: z.string().trim().min(1, "Champ obligatoire.").max(16).optional(),
+    margin_bp: basisPointsSchema.optional(),
+    discount_bp: basisPointsSchema.optional(),
+    discount_mode: estimateDiscountModeSchema.optional(),
+    discount_steps: discountStepsSchema.optional(),
+    global_coefficient: globalCoefficientSchema.optional(),
+    tax_rate_bp: taxRateBpSchema.optional(),
+    rounding_mode: estimateRoundingModeSchema.optional(),
+    rounding_step_cents: positiveIntegerSchema.optional(),
+  })
+  .superRefine((payload, ctx) => {
+    const mode = payload.discount_mode ?? "simple";
+    const steps = payload.discount_steps ?? [];
+
+    if (mode === "simple" && steps.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "discount_steps doit etre vide en mode simple.",
+        path: ["discount_steps"],
+      });
+    }
+  });
 
 export const createEstimateSchema = z.object({
   project: z.object({
@@ -97,21 +134,7 @@ export const createEstimateSchema = z.object({
     client_name: optionalNullableTextSchema.optional(),
     notes: optionalNullableTextSchema.optional(),
   }),
-  version: z
-    .object({
-      title: optionalNullableTextSchema.optional(),
-      date_devis: dateOnlySchema.optional(),
-      validite_jours: positiveIntegerSchema.optional(),
-      margin_multiplier: nonNegativeNumberSchema.optional(),
-      margin_mode: estimateMarginModeSchema.optional(),
-      currency: z.string().trim().min(1, "Champ obligatoire.").max(16).optional(),
-      margin_bp: basisPointsSchema.optional(),
-      discount_bp: basisPointsSchema.optional(),
-      tax_rate_bp: taxRateBpSchema.optional(),
-      rounding_mode: estimateRoundingModeSchema.optional(),
-      rounding_step_cents: positiveIntegerSchema.optional(),
-    })
-    .optional(),
+  version: createEstimateVersionSchema.optional(),
 });
 
 export const patchEstimateVersionSchema = z
@@ -124,6 +147,9 @@ export const patchEstimateVersionSchema = z
     currency: z.string().trim().min(1, "Champ obligatoire.").max(16).optional(),
     margin_bp: basisPointsSchema.optional(),
     discount_bp: basisPointsSchema.optional(),
+    discount_mode: estimateDiscountModeSchema.optional(),
+    discount_steps: discountStepsSchema.optional(),
+    global_coefficient: globalCoefficientSchema.optional(),
     tax_rate_bp: taxRateBpSchema.optional(),
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
@@ -136,12 +162,26 @@ export const patchEstimateVersionSchema = z
     const hasUpdatableField = Object.keys(payload).some(
       (key) => key !== "updated_at"
     );
-    if (hasUpdatableField) return;
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Aucun champ a mettre a jour.",
-      path: [],
-    });
+    if (!hasUpdatableField) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Aucun champ a mettre a jour.",
+        path: [],
+      });
+      return;
+    }
+
+    if (
+      payload.discount_mode === "simple" &&
+      Array.isArray(payload.discount_steps) &&
+      payload.discount_steps.length > 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "discount_steps doit etre vide en mode simple.",
+        path: ["discount_steps"],
+      });
+    }
   });
 
 export const patchEstimateStatusSchema = z.object({
@@ -798,3 +838,42 @@ export type ListEstimateAssembliesQueryInput = z.infer<
 export type InsertAssemblyIntoVersionInput = z.infer<
   typeof insertAssemblyIntoVersionSchema
 >;
+
+// ---------------------------------------------------------------------------
+// Wizard step schemas (EST-082)
+// ---------------------------------------------------------------------------
+
+export const wizardStep1Schema = z.object({
+  projectName: requiredTextSchema,
+  clientName: optionalNullableTextSchema.optional(),
+  reference: optionalNullableTextSchema.optional(),
+  title: optionalNullableTextSchema.optional(),
+});
+
+export const wizardStep2Schema = z.object({
+  dateDevis: dateOnlySchema,
+  validiteJours: positiveIntegerSchema,
+  marginMode: estimateMarginModeSchema,
+  marginBp: basisPointsSchema.optional(),
+  taxRateBp: taxRateBpSchema,
+  roundingMode: estimateRoundingModeSchema,
+  roundingStepCents: positiveIntegerSchema.optional(),
+  currency: z.string().trim().min(1, "Champ obligatoire.").max(16).optional(),
+});
+
+export const wizardStep3Schema = z.object({
+  creationMode: z.enum(["blank", "template"]),
+  selectedTemplateId: z.string().uuid(UUID_ERROR_MESSAGE).optional(),
+}).superRefine((data, ctx) => {
+  if (data.creationMode === "template" && !data.selectedTemplateId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Veuillez selectionner un template.",
+      path: ["selectedTemplateId"],
+    });
+  }
+});
+
+export type WizardStep1Input = z.infer<typeof wizardStep1Schema>;
+export type WizardStep2Input = z.infer<typeof wizardStep2Schema>;
+export type WizardStep3Input = z.infer<typeof wizardStep3Schema>;

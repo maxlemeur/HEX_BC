@@ -14,6 +14,19 @@ type ShortcutScopeResult = {
   canHandleBulkSelectionShortcut: boolean;
 };
 
+const NON_TEXT_INPUT_TYPES = new Set([
+  "button",
+  "checkbox",
+  "color",
+  "file",
+  "hidden",
+  "image",
+  "radio",
+  "range",
+  "reset",
+  "submit",
+]);
+
 function isTextEditingTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) {
     return false;
@@ -24,7 +37,8 @@ function isTextEditingTarget(target: EventTarget | null) {
   }
 
   if (target instanceof HTMLInputElement) {
-    return true;
+    const inputType = target.type.toLowerCase();
+    return !NON_TEXT_INPUT_TYPES.has(inputType);
   }
 
   if (target instanceof HTMLElement && target.isContentEditable) {
