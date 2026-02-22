@@ -36,6 +36,7 @@ import {
   type SectionTotals,
 } from "@/lib/estimate-calculations";
 import { PastePreviewDialog } from "@/components/estimates/PastePreviewDialog";
+import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
 import {
   sendEstimateSuggestionRuleFeedback,
 } from "@/lib/estimates/client";
@@ -46,6 +47,12 @@ import {
   type SupplierComparisonAlternative,
 } from "@/components/estimates/SupplierComparisonPanel";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
+import {
+  useEstimateClipboard,
+} from "@/components/estimates/hooks/useEstimateClipboard";
+import {
+  useEstimateKeyboardShortcuts,
+} from "@/components/estimates/hooks/useEstimateKeyboardShortcuts";
 import {
   useEstimateSelection,
 } from "@/components/estimates/hooks/useEstimateSelection";
@@ -60,7 +67,6 @@ import {
 import { type MultiSelectItemInteraction } from "@/hooks/useMultiSelect";
 import { useVirtualList } from "@/hooks/useVirtualList";
 import {
-  ESTIMATE_QUALITY_FLAG_KEYS,
   ESTIMATE_QUALITY_FLAG_META,
   type EstimateQualityFlagCounts,
   type EstimateQualityFlagKey,
@@ -77,19 +83,7 @@ import {
   type SuggestionMatchKind,
 } from "@/lib/estimates/suggestion-scoring";
 import {
-  CLIPBOARD_TARGET_FIELDS,
-  DEFAULT_CLIPBOARD_FIELD_ORDER,
-  buildClipboardPreviewRows,
-  detectClipboardFormat,
-  parseTsvMatrix,
-  serializeSelectedRowsToTsv,
-  suggestClipboardColumnMapping,
-  type ClipboardColumnMapping,
-  type ClipboardFormat,
-  type ClipboardPreviewRow,
   type ClipboardPreviewValues,
-  type ClipboardTargetField,
-  type ClipboardTsvMatrix,
 } from "@/lib/estimates/clipboard";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 import type { Database } from "@/types/database";
@@ -213,34 +207,8 @@ const DEFAULT_VIRTUAL_OVERSCAN = 8;
 const DEFAULT_VIRTUAL_MAX_HEIGHT = 640;
 const EMPTY_ITEMS: EstimateItem[] = [];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
-const TEXT_LIKE_INPUT_TYPES = new Set([
-  "",
-  "text",
-  "search",
-  "url",
-  "tel",
-  "email",
-  "password",
-  "number",
-  "date",
-  "datetime-local",
-  "month",
-  "time",
-  "week",
-]);
 const SUGGESTION_SCORE_MAX = 5;
 const CATALOGUE_SUGGESTIONS_DEBOUNCE_MS = 300;
-const CLIPBOARD_TARGET_FIELD_LABELS: Record<ClipboardTargetField, string> = {
-  designation: "Designation",
-  quantity: "Quantite",
-  unit: "Unite",
-  unit_price_ht: "Prix unitaire HT",
-  supply_type: "Type FO",
-  k_fo: "K FO",
-  h_mo: "h MO",
-  k_mo: "K MO",
-  h_mo_majoration: "Majoration MO",
-};
 const SPREADSHEET_COLUMN_KEYS = {
   title: "title",
   quantity: "quantity",
@@ -364,20 +332,6 @@ type SupplierComparisonResult = {
   selected_supplier_price_id: string | null;
   alternatives: SupplierComparisonAlternative[];
 };
-
-function parseEstimateQualityFilter(value: string): EstimateQualityFilter {
-  if (value === "all_lines" || value === "with_anomalies") {
-    return value;
-  }
-  if (ESTIMATE_QUALITY_FLAG_KEYS.includes(value as EstimateQualityFlagKey)) {
-    return value as EstimateQualityFlagKey;
-  }
-  return "all_lines";
-}
-
-function parseOutlierMethod(value: string): EstimateOutlierMethod {
-  return value === "zscore" ? "zscore" : "iqr";
-}
 
 function toSuggestionUsageCount(rule: SuggestionRule | Record<string, unknown>) {
   const usageValue = (rule as Record<string, unknown>).usage_count;
@@ -691,30 +645,6 @@ function getSpreadsheetColumnKeys(
     : isLaborSplitEnabled
       ? LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT
       : LINE_SPREADSHEET_COLUMN_KEYS;
-}
-
-function isTextEditingTarget(target: EventTarget | null) {
-  if (!(target instanceof Element)) {
-    return false;
-  }
-
-  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-    return true;
-  }
-
-  if (target instanceof HTMLInputElement) {
-    return TEXT_LIKE_INPUT_TYPES.has(target.type);
-  }
-
-  if (target instanceof HTMLElement && target.isContentEditable) {
-    return true;
-  }
-
-  return Boolean(
-    target.closest(
-      "[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']"
-    )
-  );
 }
 
 export type EstimateTableShortcutScope = {
@@ -2214,14 +2144,6 @@ type VirtualizedSuggestionRow = {
 
 type VirtualizedRow = VirtualizedItemRow | VirtualizedSuggestionRow;
 
-type PastePreviewDialogRow = {
-  id: string;
-  rowNumber: number;
-  include: boolean;
-  values: Record<string, string | number | boolean | null>;
-  invalidReasons: string[];
-};
-
 type SupplierComparisonContextMenuState = {
   itemId: string;
   x: number;
@@ -2309,18 +2231,6 @@ export function EstimateEditorTable({
   const [supplierComparisonError, setSupplierComparisonError] = useState<string | null>(
     null
   );
-  const [pasteMatrix, setPasteMatrix] = useState<ClipboardTsvMatrix | null>(null);
-  const [pasteMapping, setPasteMapping] = useState<ClipboardColumnMapping>({});
-  const [pastePreviewRows, setPastePreviewRows] = useState<ClipboardPreviewRow[]>([]);
-  const [pasteIncludedByLineNumber, setPasteIncludedByLineNumber] = useState<
-    Record<number, boolean>
-  >({});
-  const [pasteErrors, setPasteErrors] = useState<string[]>([]);
-  const [isPastePreviewOpen, setIsPastePreviewOpen] = useState(false);
-  const [isPastingRows, setIsPastingRows] = useState(false);
-  const [pasteAnchorRowId, setPasteAnchorRowId] = useState<string | null>(null);
-  const [detectedClipboardFormat, setDetectedClipboardFormat] =
-    useState<ClipboardFormat>("generic");
   const tableCardRef = useRef<HTMLDivElement | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
   const supplierComparisonAbortRef = useRef<AbortController | null>(null);
@@ -2502,219 +2412,28 @@ export function EstimateEditorTable({
     onBulkSetLaborRole,
   });
 
-  const clipboardTargetOptions = useMemo(() => {
-    return CLIPBOARD_TARGET_FIELDS.map((field) => ({
-      value: field,
-      label: CLIPBOARD_TARGET_FIELD_LABELS[field],
-      required: field === "designation",
-    }));
-  }, []);
-
-  const pasteMappingEntries = useMemo(() => {
-    if (!pasteMatrix) return [];
-
-    return pasteMatrix.headers.map((sourceColumn) => ({
-      sourceColumn,
-      targetField: pasteMapping[sourceColumn] ?? null,
-      targetOptions: clipboardTargetOptions,
-    }));
-  }, [clipboardTargetOptions, pasteMapping, pasteMatrix]);
-
-  const pasteDialogRows = useMemo<PastePreviewDialogRow[]>(() => {
-    return pastePreviewRows.map((row, index) => {
-      const rowId = `${row.lineNumber}-${index}`;
-      const include =
-        pasteIncludedByLineNumber[row.lineNumber] ?? row.status === "valid";
-
-      return {
-        id: rowId,
-        rowNumber: row.lineNumber,
-        include,
-        values: row.rawValues,
-        invalidReasons: row.reasons,
-      };
-    });
-  }, [pasteIncludedByLineNumber, pastePreviewRows]);
-
-  const mapClipboardFormatForDialog = useCallback(
-    (format: ClipboardFormat): "bdc" | "optima" | "generic" => {
-      if (format === "bdc_v1_1") return "bdc";
-      if (format === "optima") return "optima";
-      return "generic";
-    },
-    []
-  );
-
-  const openPastePreviewFromText = useCallback((rawText: string) => {
-    const matrix = parseTsvMatrix(rawText);
-    const errors: string[] = [];
-
-    if (matrix.headers.length === 0 || matrix.rows.length === 0) {
-      errors.push("Aucune ligne exploitable detectee dans le presse-papier.");
-    }
-
-    const detectedFormat =
-      matrix.headers.length > 0 ? detectClipboardFormat(matrix.headers) : "generic";
-    const suggestedMapping = suggestClipboardColumnMapping(matrix.headers);
-    const preview = buildClipboardPreviewRows(matrix, suggestedMapping);
-
-    setDetectedClipboardFormat(detectedFormat);
-    setPasteMatrix(matrix);
-    setPasteMapping(suggestedMapping);
-    setPastePreviewRows(preview.rows);
-    setPasteErrors(errors);
-    setPasteAnchorRowId(insertionAnchorItemIdRef.current);
-    setPasteIncludedByLineNumber(() => {
-      const initial: Record<number, boolean> = {};
-      preview.rows.forEach((row) => {
-        initial[row.lineNumber] = row.status === "valid";
-      });
-      return initial;
-    });
-    setIsPastePreviewOpen(true);
-  }, []);
-
-  const handlePasteMappingChange = useCallback(
-    (sourceColumn: string, targetField: string | null) => {
-      if (!pasteMatrix) return;
-
-      setPasteMapping((previous) => {
-        const next: ClipboardColumnMapping = { ...previous };
-        if (!targetField) {
-          delete next[sourceColumn];
-        } else if (CLIPBOARD_TARGET_FIELDS.includes(targetField as ClipboardTargetField)) {
-          next[sourceColumn] = targetField as ClipboardTargetField;
-        }
-
-        const preview = buildClipboardPreviewRows(pasteMatrix, next);
-        setPastePreviewRows(preview.rows);
-        setPasteIncludedByLineNumber((previousInclude) => {
-          const merged: Record<number, boolean> = {};
-          preview.rows.forEach((row) => {
-            const existing = previousInclude[row.lineNumber];
-            merged[row.lineNumber] =
-              existing !== undefined ? existing : row.status === "valid";
-          });
-          return merged;
-        });
-        return next;
-      });
-    },
-    [pasteMatrix]
-  );
-
-  const handleTogglePasteRow = useCallback((rowId: string, include: boolean) => {
-    const lineNumber = Number.parseInt(rowId.split("-")[0] ?? "", 10);
-    if (!Number.isFinite(lineNumber)) return;
-
-    setPasteIncludedByLineNumber((previous) => ({
-      ...previous,
-      [lineNumber]: include,
-    }));
-  }, []);
-
-  const closePastePreview = useCallback(() => {
-    setIsPastePreviewOpen(false);
-    setIsPastingRows(false);
-    setPasteErrors([]);
-    setPasteAnchorRowId(null);
-  }, []);
-
-  const handleConfirmPastePreview = useCallback(async () => {
-    if (isReadOnly || isPastingRows) return;
-
-    const selectedRows = pastePreviewRows.filter((row) => {
-      const include = pasteIncludedByLineNumber[row.lineNumber] ?? row.status === "valid";
-      return include && row.status === "valid" && Boolean(row.values.designation);
-    });
-
-    if (selectedRows.length === 0) {
-      setPasteErrors(["Aucune ligne valide selectionnee pour insertion."]);
-      return;
-    }
-
-    setIsPastingRows(true);
-    setPasteErrors([]);
-
-    try {
-      await onPasteRows({
-        anchorRowId: pasteAnchorRowId,
-        rows: selectedRows.map((row) => row.values),
-      });
-      closePastePreview();
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Impossible d'inserer les lignes collees.";
-      setPasteErrors([message]);
-    } finally {
-      setIsPastingRows(false);
-    }
-  }, [
+  const {
+    isPastePreviewOpen,
+    detectedClipboardFormatForDialog,
+    pasteMappingEntries,
+    pasteDialogRows,
+    pasteErrors,
+    handlePasteMappingChange,
+    handleTogglePasteRow,
+    handleConfirmPastePreview,
     closePastePreview,
-    isPastingRows,
+    copySelectedRowsToClipboard,
+  } = useEstimateClipboard({
     isReadOnly,
+    tableCardRef,
+    insertionAnchorItemIdRef,
+    items,
+    selectedLineIdList,
+    hasSelectedLines,
+    mergedUnitDrafts,
+    supplyTypeById,
     onPasteRows,
-    pasteAnchorRowId,
-    pasteIncludedByLineNumber,
-    pastePreviewRows,
-  ]);
-
-  const copySelectedRowsToClipboard = useCallback(async () => {
-    if (!hasSelectedLines) return;
-
-    const lineById = new Map(
-      items
-        .filter((item): item is EstimateItem => item.item_type === "line")
-        .map((item) => [item.id, item])
-    );
-    const rows = selectedLineIdList
-      .map((itemId) => lineById.get(itemId) ?? null)
-      .filter((item): item is EstimateItem => item !== null)
-      .map((item) => ({
-        designation: item.title,
-        quantity: item.quantity,
-        unit: (mergedUnitDrafts[item.id] ?? item.description ?? "").trim() || null,
-        unit_price_ht:
-          typeof item.unit_price_ht_cents === "number"
-            ? Number((item.unit_price_ht_cents / 100).toFixed(2))
-            : null,
-        supply_type:
-          item.supply_type_id && supplyTypeById.has(item.supply_type_id)
-            ? (supplyTypeById.get(item.supply_type_id)?.name ?? null)
-            : null,
-        k_fo: item.k_fo,
-        h_mo: item.h_mo,
-        k_mo: item.k_mo,
-        h_mo_majoration:
-          typeof item.h_mo_majoration === "number" ? item.h_mo_majoration : null,
-      }));
-
-    const tsv = serializeSelectedRowsToTsv(rows, {
-      fields: DEFAULT_CLIPBOARD_FIELD_ORDER,
-      includeHeader: true,
-    });
-
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(tsv);
-        return;
-      } catch {
-        // Fall back to the legacy copy path when async clipboard access is blocked.
-      }
-    }
-
-    const textarea = document.createElement("textarea");
-    textarea.value = tsv;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    document.execCommand("copy");
-    document.body.removeChild(textarea);
-  }, [hasSelectedLines, items, mergedUnitDrafts, selectedLineIdList, supplyTypeById]);
+  });
 
   const handleTableBodyMouseDown = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -2898,173 +2617,23 @@ export function EstimateEditorTable({
     }
   }, [itemById, supplierComparisonPanelItemId]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      const target = event.target;
-      const withinTable =
-        tableCardRef.current && target instanceof Node
-          ? tableCardRef.current.contains(target)
-          : false;
-      const isPageLevelTarget =
-        target === document.body || target === document.documentElement;
-      const shortcutScope = resolveEstimateTableShortcutScope({
-        withinTable,
-        hasSelectedLines,
-        isPageLevelTarget,
-      });
-
-      if (!shortcutScope.canHandleAnyShortcut) {
-        return;
-      }
-
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.shiftKey &&
-        !event.altKey &&
-        event.key.toLowerCase() === "a"
-      ) {
-        if (
-          !shortcutScope.canHandleSelectAllShortcut ||
-          isTextEditingTarget(target) ||
-          visibleLineIdList.length === 0 ||
-          isReadOnly
-        ) {
-          return;
-        }
-        event.preventDefault();
-        selectAllVisibleLines(visibleLineIdList);
-        return;
-      }
-
-      if (event.key === "Escape") {
-        if (
-          isTextEditingTarget(target) ||
-          !shortcutScope.canHandleBulkSelectionShortcut ||
-          supplierComparisonMenu !== null
-        ) {
-          return;
-        }
-        event.preventDefault();
-        clearLineSelection();
-        return;
-      }
-
-      if (event.key === "Delete") {
-        if (
-          event.repeat ||
-          isReadOnly ||
-          !shortcutScope.canHandleBulkSelectionShortcut ||
-          isTextEditingTarget(target)
-        ) {
-          return;
-        }
-        event.preventDefault();
-        void handleBulkDeleteSelection();
-        return;
-      }
-
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.altKey &&
-        event.key.toLowerCase() === "c"
-      ) {
-        if (
-          isTextEditingTarget(target) ||
-          isUndoRedoBusy ||
-          !shortcutScope.canHandleBulkSelectionShortcut ||
-          !hasSelectedLines
-        ) {
-          return;
-        }
-        event.preventDefault();
-        void copySelectedRowsToClipboard();
-        return;
-      }
-
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.shiftKey &&
-        !event.altKey &&
-        event.key.toLowerCase() === "z"
-      ) {
-        if (
-          isTextEditingTarget(target) ||
-          !shortcutScope.canHandleSelectAllShortcut ||
-          isUndoRedoBusy ||
-          !canUndo
-        ) {
-          return;
-        }
-        event.preventDefault();
-        void onUndo();
-        return;
-      }
-
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.altKey &&
-        ((event.shiftKey && event.key.toLowerCase() === "z") ||
-          (!event.shiftKey && event.key.toLowerCase() === "y"))
-      ) {
-        if (
-          isTextEditingTarget(target) ||
-          !shortcutScope.canHandleSelectAllShortcut ||
-          isUndoRedoBusy ||
-          !canRedo
-        ) {
-          return;
-        }
-        event.preventDefault();
-        void onRedo();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    canRedo,
-    canUndo,
-    clearLineSelection,
-    copySelectedRowsToClipboard,
-    handleBulkDeleteSelection,
+  useEstimateKeyboardShortcuts({
+    tableCardRef,
     hasSelectedLines,
+    visibleLineIdList,
     isReadOnly,
     isUndoRedoBusy,
-    onRedo,
-    onUndo,
+    canUndo,
+    canRedo,
+    isSupplierComparisonMenuOpen: supplierComparisonMenu !== null,
+    onResolveShortcutScope: resolveEstimateTableShortcutScope,
     selectAllVisibleLines,
-    supplierComparisonMenu,
-    visibleLineIdList,
-  ]);
-
-  useEffect(() => {
-    const handlePaste = (event: ClipboardEvent) => {
-      const target = event.target;
-      const withinTable =
-        tableCardRef.current && target instanceof Node
-          ? tableCardRef.current.contains(target)
-          : false;
-
-      if (!withinTable) {
-        return;
-      }
-
-      if (isReadOnly || isTextEditingTarget(target)) {
-        return;
-      }
-
-      const clipboardText = event.clipboardData?.getData("text/plain") ?? "";
-      if (!clipboardText.trim()) {
-        return;
-      }
-
-      event.preventDefault();
-      openPastePreviewFromText(clipboardText);
-    };
-
-    window.addEventListener("paste", handlePaste);
-    return () => window.removeEventListener("paste", handlePaste);
-  }, [isReadOnly, openPastePreviewFromText]);
+    clearLineSelection,
+    onBulkDeleteSelection: handleBulkDeleteSelection,
+    onCopySelectedRowsToClipboard: copySelectedRowsToClipboard,
+    onUndo,
+    onRedo,
+  });
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -3732,256 +3301,32 @@ export function EstimateEditorTable({
   return (
     <EstimateEditorProvider value={estimateEditorContextValue}>
       <div ref={tableCardRef} className="dashboard-card p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--slate-800)]">
-            Editeur du devis
-          </h2>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
-            Organisez chapitres, sous-chapitres et lignes FO/MO.
-          </p>
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
-            {qualityCounts.linesWithAnomaliesCount} ligne(s) avec anomalies sur{" "}
-            {qualityCounts.linesCount} ligne(s) ({qualityCounts.totalFlagsCount} flag(s))
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label
-            className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
-            htmlFor="estimate-quality-filter"
-          >
-            Filtre qualite
-          </label>
-          <select
-            id="estimate-quality-filter"
-            className="estimate-input estimate-select"
-            style={{ width: "auto", minWidth: "260px" }}
-            value={qualityFilter}
-            onChange={(event) =>
-              onQualityFilterChange(parseEstimateQualityFilter(event.target.value))
-            }
-          >
-            <option value="all_lines">
-              Toutes les lignes ({qualityCounts.linesCount})
-            </option>
-            <option value="with_anomalies">
-              Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
-            </option>
-            {ESTIMATE_QUALITY_FLAG_KEYS.map((flag) => (
-              <option key={flag} value={flag}>
-                {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
-              </option>
-            ))}
-          </select>
-          <div className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1">
-            <label
-              className="text-xs font-semibold uppercase tracking-[0.08em] text-orange-700"
-              htmlFor="estimate-outlier-method"
-            >
-              Outliers
-            </label>
-            <select
-              id="estimate-outlier-method"
-              className="estimate-input estimate-select"
-              style={{ width: "auto", minWidth: "104px" }}
-              value={outlierDetectionMethod}
-              disabled={isReadOnly}
-              onChange={(event) =>
-                onOutlierDetectionMethodChange(parseOutlierMethod(event.target.value))
-              }
-            >
-              <option value="iqr">IQR</option>
-              <option value="zscore">Z-score</option>
-            </select>
-            <input
-              className="estimate-input"
-              style={{ width: "92px" }}
-              type="number"
-              step="0.1"
-              min={0.1}
-              value={outlierThreshold}
-              disabled={isReadOnly}
-              onChange={(event) =>
-                onOutlierThresholdChange(parseNumberInput(event.target.value))
-              }
-              aria-label="Seuil de detection des outliers"
-            />
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={() => void onUndo()}
-              disabled={isReadOnly || isUndoRedoBusy || !canUndo}
-              aria-label="Annuler la derniere action"
-            >
-              Undo
-            </button>
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={() => void onRedo()}
-              disabled={isReadOnly || isUndoRedoBusy || !canRedo}
-              aria-label="Retablir la derniere action"
-            >
-              Redo
-            </button>
-            <span className="text-xs text-[var(--slate-600)]">
-              {selectedLineCount} selection(s)
-            </span>
-            <input
-              className="estimate-input"
-              style={{ width: "92px" }}
-              type="number"
-              step="0.1"
-              min={0}
-              value={bulkMajorationPercent}
-              onChange={(event) => setBulkMajorationPercent(event.target.value)}
-              placeholder="100"
-              disabled={isReadOnly}
-              aria-label="Majoration MO en pourcentage"
-            />
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={() => void handleApplyBulkMajoration()}
-              disabled={isReadOnly || !hasSelectedLines}
-            >
-              Appliquer majoration
-            </button>
-            <button
-              className="btn btn-danger btn-sm"
-              type="button"
-              onClick={() => void handleBulkDeleteSelection()}
-              disabled={isReadOnly || !hasSelectedLines}
-            >
-              Supprimer selection
-            </button>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1">
-            <label
-              className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
-              htmlFor="estimate-bulk-move-target"
-            >
-              Deplacer
-            </label>
-            <select
-              id="estimate-bulk-move-target"
-              className="estimate-input estimate-select"
-              style={{ width: "auto", minWidth: "180px" }}
-              value={bulkMoveParentId}
-              onChange={(event) => setBulkMoveParentId(event.target.value)}
-              disabled={isReadOnly}
-            >
-              {bulkMoveDestinations.map((destination) => (
-                <option
-                  key={destination.id ?? ROOT_KEY}
-                  value={destination.id ?? ""}
-                >
-                  {destination.label}
-                </option>
-              ))}
-            </select>
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={() => void handleApplyBulkMove()}
-              disabled={isReadOnly || !hasSelectedLines}
-            >
-              Appliquer
-            </button>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1">
-            <label
-              className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
-              htmlFor="estimate-bulk-category"
-            >
-              Categorie
-            </label>
-            <select
-              id="estimate-bulk-category"
-              className="estimate-input estimate-select"
-              style={{ width: "auto", minWidth: "180px" }}
-              value={bulkCategoryId}
-              onChange={(event) => setBulkCategoryId(event.target.value)}
-              disabled={isReadOnly}
-            >
-              <option value="">Aucune</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={() => void handleApplyBulkCategory()}
-              disabled={isReadOnly || !hasSelectedLines}
-            >
-              Appliquer
-            </button>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1">
-            <label
-              className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
-              htmlFor="estimate-bulk-labor-role"
-            >
-              Role MO
-            </label>
-            <select
-              id="estimate-bulk-labor-role"
-              className="estimate-input estimate-select"
-              style={{ width: "auto", minWidth: "180px" }}
-              value={bulkLaborRoleId}
-              onChange={(event) => setBulkLaborRoleId(event.target.value)}
-              disabled={isReadOnly}
-            >
-              <option value="">Aucun</option>
-              {laborRoles.map((role) => (
-                <option key={role.id} value={role.id} disabled={!role.is_active}>
-                  {role.name}
-                  {!role.is_active ? " (inactif)" : ""}
-                </option>
-              ))}
-            </select>
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={() => void handleApplyBulkLaborRole()}
-              disabled={isReadOnly || !hasSelectedLines}
-            >
-              Appliquer
-            </button>
-          </div>
-          {bulkSuggestionEligibleCount > 0 ? (
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={onOpenBulkSuggestDialog}
-              disabled={isReadOnly}
-            >
-              Appliquer les suggestions ({bulkSuggestionEligibleCount})
-            </button>
-          ) : null}
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={() => setIsAssemblyPickerOpen(true)}
-            disabled={isReadOnly}
-          >
-            Assemblages
-          </button>
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={() => onAddSection(null)}
-            disabled={isReadOnly}
-          >
-            + Chapitre
-          </button>
-        </div>
-      </div>
+        <EstimateEditorToolbar
+          qualityCounts={qualityCounts}
+          qualityFilter={qualityFilter}
+          outlierDetectionMethod={outlierDetectionMethod}
+          outlierThreshold={outlierThreshold}
+          isUndoRedoBusy={isUndoRedoBusy}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          bulkMoveDestinations={bulkMoveDestinations}
+          categories={categories}
+          laborRoles={laborRoles}
+          bulkSuggestionEligibleCount={bulkSuggestionEligibleCount}
+          onQualityFilterChange={onQualityFilterChange}
+          onOutlierDetectionMethodChange={onOutlierDetectionMethodChange}
+          onOutlierThresholdChange={onOutlierThresholdChange}
+          onUndo={onUndo}
+          onRedo={onRedo}
+          onApplyBulkMajoration={handleApplyBulkMajoration}
+          onBulkDeleteSelection={handleBulkDeleteSelection}
+          onApplyBulkMove={handleApplyBulkMove}
+          onApplyBulkCategory={handleApplyBulkCategory}
+          onApplyBulkLaborRole={handleApplyBulkLaborRole}
+          onOpenBulkSuggestDialog={onOpenBulkSuggestDialog}
+          onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
+          onAddRootSection={() => onAddSection(null)}
+        />
 
       {actionError && (
         <div className="alert alert-error mt-4">
@@ -4185,7 +3530,7 @@ export function EstimateEditorTable({
 
       <PastePreviewDialog
         isOpen={isPastePreviewOpen}
-        detectedFormat={mapClipboardFormatForDialog(detectedClipboardFormat)}
+        detectedFormat={detectedClipboardFormatForDialog}
         mapping={pasteMappingEntries}
         rows={pasteDialogRows}
         errors={pasteErrors}

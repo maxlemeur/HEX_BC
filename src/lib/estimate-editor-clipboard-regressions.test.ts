@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest";
 
 function readEstimateEditorTableSource() {
   return fs.readFileSync(
-    path.resolve(process.cwd(), "src/components/estimates/EstimateEditorTable.tsx"),
+    path.resolve(
+      process.cwd(),
+      "src/components/estimates/hooks/useEstimateClipboard.ts"
+    ),
     "utf8"
   );
 }
@@ -15,7 +18,7 @@ describe("EstimateEditorTable clipboard regressions", () => {
   const copyStart = source.indexOf(
     "const copySelectedRowsToClipboard = useCallback(async () => {"
   );
-  const copyEnd = source.indexOf("const toggleAllVisibleLines = useCallback(", copyStart);
+  const copyEnd = source.indexOf("useEffect(() => {", copyStart);
 
   it("keeps h_mo_majoration clipboard export as coefficient values", () => {
     expect(copyStart).toBeGreaterThan(-1);
