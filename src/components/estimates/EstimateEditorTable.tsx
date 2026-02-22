@@ -550,6 +550,23 @@ function isTextEditingTarget(target: EventTarget | null) {
   );
 }
 
+export type EstimateTableShortcutScope = {
+  withinTable: boolean;
+  hasSelectedLines: boolean;
+  isPageLevelTarget: boolean;
+};
+
+export function resolveEstimateTableShortcutScope(scope: EstimateTableShortcutScope) {
+  const canHandleBulkSelectionShortcut =
+    scope.hasSelectedLines && (scope.withinTable || scope.isPageLevelTarget);
+
+  return {
+    canHandleAnyShortcut: scope.withinTable || canHandleBulkSelectionShortcut,
+    canHandleSelectAllShortcut: scope.withinTable,
+    canHandleBulkSelectionShortcut,
+  };
+}
+
 type SortableReturn = ReturnType<typeof useSortable>;
 type SpreadsheetNavigationState = ReturnType<typeof useSpreadsheetNavigation>;
 type DragHandleProps = {
@@ -2450,8 +2467,15 @@ export function EstimateEditorTable({
         tableCardRef.current && target instanceof Node
           ? tableCardRef.current.contains(target)
           : false;
+      const isPageLevelTarget =
+        target === document.body || target === document.documentElement;
+      const shortcutScope = resolveEstimateTableShortcutScope({
+        withinTable,
+        hasSelectedLines,
+        isPageLevelTarget,
+      });
 
-      if (!withinTable) {
+      if (!shortcutScope.canHandleAnyShortcut) {
         return;
       }
 
@@ -2461,7 +2485,12 @@ export function EstimateEditorTable({
         !event.altKey &&
         event.key.toLowerCase() === "a"
       ) {
-        if (isTextEditingTarget(target) || visibleLineIdList.length === 0 || isReadOnly) {
+        if (
+          !shortcutScope.canHandleSelectAllShortcut ||
+          isTextEditingTarget(target) ||
+          visibleLineIdList.length === 0 ||
+          isReadOnly
+        ) {
           return;
         }
         event.preventDefault();
@@ -2470,7 +2499,10 @@ export function EstimateEditorTable({
       }
 
       if (event.key === "Escape") {
-        if (isTextEditingTarget(target) || !hasSelectedLines) {
+        if (
+          isTextEditingTarget(target) ||
+          !shortcutScope.canHandleBulkSelectionShortcut
+        ) {
           return;
         }
         event.preventDefault();
@@ -2482,7 +2514,7 @@ export function EstimateEditorTable({
         if (
           event.repeat ||
           isReadOnly ||
-          !hasSelectedLines ||
+          !shortcutScope.canHandleBulkSelectionShortcut ||
           isTextEditingTarget(target)
         ) {
           return;

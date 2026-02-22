@@ -90,6 +90,7 @@ import {
   updateEstimateStatus,
   updateEstimateSuggestionRule,
 } from "@/lib/estimates/client";
+import { refreshVersionTokenAfterAssemblyInsert } from "@/lib/estimates/editor-version-refresh";
 import { useDraftLock } from "@/hooks/useDraftLock";
 import type { Database } from "@/types/database";
 
@@ -2960,16 +2961,6 @@ export default function EditEstimatePage() {
 
         setItems([...shiftedExistingItems, ...insertedItems]);
         setTotalsOutOfSync(false);
-
-        const refreshed = await fetchEstimateEditorData(version.id);
-        setVersion((previous) =>
-          previous
-            ? {
-                ...previous,
-                updated_at: refreshed.version.updated_at,
-              }
-            : previous
-        );
       } catch (error) {
         if (!handleVersionConflict(error, { persistDraft: true })) {
           setActionError(
@@ -2980,7 +2971,34 @@ export default function EditEstimatePage() {
             )
           );
         }
+        return;
       }
+
+      await refreshVersionTokenAfterAssemblyInsert(version.id, {
+        fetchEstimateEditorData,
+        onVersionToken: (updatedAt) => {
+          setVersion((previous) =>
+            previous
+              ? {
+                  ...previous,
+                  updated_at: updatedAt,
+                }
+              : previous
+          );
+          if (versionRef.current) {
+            versionRef.current = {
+              ...versionRef.current,
+              updated_at: updatedAt,
+            };
+          }
+        },
+        onError: (error) => {
+          console.error(
+            "Impossible de rafraichir le jeton de version apres insertion d'assemblage.",
+            error
+          );
+        },
+      });
     },
     [
       conflictState?.message,
