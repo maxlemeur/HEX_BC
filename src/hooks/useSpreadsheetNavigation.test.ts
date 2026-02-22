@@ -62,6 +62,25 @@ describe("useSpreadsheetNavigation helpers", () => {
     );
   });
 
+  it("returns null when moving in an empty navigation model", () => {
+    const model = createSpreadsheetNavigationModel([]);
+
+    expect(resolveSpreadsheetNextCellId(model, "row-1::title", "next")).toBeNull();
+  });
+
+  it("keeps same cell when moving vertically in a single-row model", () => {
+    const model = createSpreadsheetNavigationModel([
+      { rowId: "row-1", columnKeys: ["title", "quantity"] },
+    ]);
+
+    expect(resolveSpreadsheetNextCellId(model, "row-1::title", "down")).toBe(
+      "row-1::title"
+    );
+    expect(resolveSpreadsheetNextCellId(model, "row-1::title", "up")).toBe(
+      "row-1::title"
+    );
+  });
+
   it("starts editing on single click for editable cell container", () => {
     expect(
       resolveSpreadsheetPointerCommand({
@@ -102,6 +121,21 @@ describe("useSpreadsheetNavigation helpers", () => {
       })
     ).toEqual({
       setActive: true,
+      startEditing: false,
+      selectAll: false,
+    });
+  });
+
+  it("never starts editing when navigation is disabled", () => {
+    expect(
+      resolveSpreadsheetPointerCommand({
+        action: "double-click",
+        disabled: true,
+        editable: true,
+        isCellTarget: true,
+      })
+    ).toEqual({
+      setActive: false,
       startEditing: false,
       selectAll: false,
     });
@@ -152,6 +186,32 @@ describe("useSpreadsheetNavigation helpers", () => {
         metaKey: false,
         altKey: false,
         fromEditor: true,
+        editable: true,
+      })
+    ).toBeNull();
+  });
+
+  it("supports escape in editor mode and ignores unknown keys", () => {
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "Escape",
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        fromEditor: true,
+        editable: true,
+      })
+    ).toEqual({ type: "escape-editor" });
+
+    expect(
+      resolveSpreadsheetKeyCommand({
+        key: "Dead",
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        fromEditor: false,
         editable: true,
       })
     ).toBeNull();
