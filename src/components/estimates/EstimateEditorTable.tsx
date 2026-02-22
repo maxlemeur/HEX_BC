@@ -182,6 +182,13 @@ type EstimateEditorTableProps = {
   bulkSuggestionEligibleCount: number;
   onOpenBulkSuggestDialog: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
+  onMoveItem: (
+    itemId: string,
+    fromParentId: string | null,
+    toParentId: string | null,
+    orderedSourceIds: string[],
+    orderedTargetIds: string[]
+  ) => void;
   scrollToItemId?: string | null;
   onScrollToItemHandled?: () => void;
   virtualization?: EstimateVirtualizationConfig;
@@ -455,6 +462,7 @@ export function EstimateEditorTable({
   bulkSuggestionEligibleCount,
   onOpenBulkSuggestDialog,
   onReorder,
+  onMoveItem,
   scrollToItemId,
   onScrollToItemHandled,
   virtualization,
@@ -1133,6 +1141,7 @@ export function EstimateEditorTable({
     canReorder,
     itemsByParent,
     onReorder,
+    onMoveItem,
     hasVisibleRows,
     getVisibleItems,
     depthMap,

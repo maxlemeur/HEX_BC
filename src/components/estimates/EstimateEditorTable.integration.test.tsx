@@ -183,6 +183,7 @@ function renderEstimateEditorTable() {
       bulkSuggestionEligibleCount={0}
       onOpenBulkSuggestDialog={vi.fn()}
       onReorder={vi.fn()}
+      onMoveItem={vi.fn()}
     />
   );
 

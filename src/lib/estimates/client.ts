@@ -3,6 +3,7 @@ import type {
   EstimateOutlierFlagKey,
   EstimateOutlierFlagsByItemId,
 } from "@/lib/estimates/outlier-detection";
+import type { MoveEstimateItemInput } from "@/lib/estimates/schemas";
 
 type EstimateProjectRow =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -1649,6 +1650,23 @@ export async function reorderEstimateItems(
       }),
     },
     "Impossible de reordonner les lignes."
+  );
+}
+
+export async function moveEstimateItem(
+  versionId: string,
+  payload: MoveEstimateItemInput
+): Promise<void> {
+  await requestJson<unknown>(
+    `/api/estimates/${versionId}/items/move`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    "Impossible de deplacer l'element."
   );
 }
 

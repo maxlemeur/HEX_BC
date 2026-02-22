@@ -872,6 +872,9 @@ export type Database = {
           currency: string;
           margin_bp: number;
           discount_bp: number;
+          discount_mode: "simple" | "cascade";
+          discount_steps: number[];
+          global_coefficient: number;
           tax_rate_bp: number;
           rounding_mode: "none" | "nearest" | "up" | "down";
           rounding_step_cents: number;
@@ -898,6 +901,9 @@ export type Database = {
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
+          discount_mode?: "simple" | "cascade";
+          discount_steps?: number[];
+          global_coefficient?: number;
           tax_rate_bp?: number;
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;
@@ -924,6 +930,9 @@ export type Database = {
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
+          discount_mode?: "simple" | "cascade";
+          discount_steps?: number[];
+          global_coefficient?: number;
           tax_rate_bp?: number;
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;
@@ -1338,6 +1347,117 @@ export type Database = {
         };
         Relationships: [];
       };
+      suggestion_corrections: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          rule_id: string;
+          field_name:
+            | "description"
+            | "category_id"
+            | "k_fo"
+            | "k_mo"
+            | "labor_role_id"
+            | "supply_type_id";
+          original_value: string | null;
+          corrected_value: string | null;
+          item_title: string;
+          user_id: string;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          rule_id: string;
+          field_name:
+            | "description"
+            | "category_id"
+            | "k_fo"
+            | "k_mo"
+            | "labor_role_id"
+            | "supply_type_id";
+          original_value?: string | null;
+          corrected_value?: string | null;
+          item_title?: string;
+          user_id: string;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          rule_id?: string;
+          field_name?:
+            | "description"
+            | "category_id"
+            | "k_fo"
+            | "k_mo"
+            | "labor_role_id"
+            | "supply_type_id";
+          original_value?: string | null;
+          corrected_value?: string | null;
+          item_title?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      suggestion_learning_reviews: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          rule_id: string;
+          field_name:
+            | "description"
+            | "category_id"
+            | "k_fo"
+            | "k_mo"
+            | "labor_role_id"
+            | "supply_type_id";
+          corrected_value: string | null;
+          status: "approved" | "rejected";
+          decided_by: string;
+          decided_at: string;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          rule_id: string;
+          field_name:
+            | "description"
+            | "category_id"
+            | "k_fo"
+            | "k_mo"
+            | "labor_role_id"
+            | "supply_type_id";
+          corrected_value?: string | null;
+          status: "approved" | "rejected";
+          decided_by: string;
+          decided_at?: string;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          rule_id?: string;
+          field_name?:
+            | "description"
+            | "category_id"
+            | "k_fo"
+            | "k_mo"
+            | "labor_role_id"
+            | "supply_type_id";
+          corrected_value?: string | null;
+          status?: "approved" | "rejected";
+          decided_by?: string;
+          decided_at?: string;
+        };
+        Relationships: [];
+      };
       labor_roles: {
         Row: {
           id: string;
@@ -1566,6 +1686,9 @@ export type Database = {
           currency: string;
           margin_bp: number;
           discount_bp: number;
+          discount_mode: "simple" | "cascade";
+          discount_steps: number[];
+          global_coefficient: number;
           tax_rate_bp: number;
           rounding_mode: "none" | "nearest" | "up" | "down";
           rounding_step_cents: number;
@@ -1585,6 +1708,9 @@ export type Database = {
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
+          discount_mode?: "simple" | "cascade";
+          discount_steps?: number[];
+          global_coefficient?: number;
           tax_rate_bp?: number;
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;
@@ -1604,6 +1730,9 @@ export type Database = {
           currency?: string;
           margin_bp?: number;
           discount_bp?: number;
+          discount_mode?: "simple" | "cascade";
+          discount_steps?: number[];
+          global_coefficient?: number;
           tax_rate_bp?: number;
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;
@@ -1744,6 +1873,27 @@ export type Database = {
         };
         Returns: number;
       };
+      get_suggestion_learnings: {
+        Args: {
+          target_tenant_id?: string;
+          threshold?: number;
+          include_inactive?: boolean;
+        };
+        Returns: {
+          rule_id: string;
+          field_name: string;
+          corrected_value: string | null;
+          correction_count: number;
+          first_seen_at: string;
+          last_seen_at: string;
+          review_status: string | null;
+          decided_by: string | null;
+          decided_at: string | null;
+          is_active: boolean;
+          sample_original_value: string | null;
+          sample_item_title: string | null;
+        }[];
+      };
       current_tenant_id: {
         Args: Record<PropertyKey, never>;
         Returns: string | null;
@@ -1863,6 +2013,24 @@ export type Database = {
           created_by: string | null;
         };
       };
+      move_estimate_item: {
+        Args: {
+          target_version_id: string;
+          target_item_id: string;
+          source_parent_id: string | null;
+          target_parent_id: string | null;
+          ordered_source_item_ids: string[];
+          ordered_target_item_ids: string[];
+        };
+        Returns: number;
+      };
+      purge_suggestion_corrections: {
+        Args: {
+          target_tenant_id?: string;
+          retention_months?: number;
+        };
+        Returns: number;
+      };
       reorder_estimate_items: {
         Args: {
           target_parent_id: string | null;
@@ -1885,6 +2053,7 @@ export type Database = {
       estimate_status: "draft" | "sent" | "accepted" | "archived";
       estimate_item_type: "section" | "line";
       estimate_margin_mode: "fixed" | "tiered";
+      estimate_discount_mode: "simple" | "cascade";
       estimate_rounding_mode: "none" | "nearest" | "up" | "down";
       estimate_rule_match_type: "keyword";
       tenant_role: "admin" | "engineer" | "viewer";

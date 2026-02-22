@@ -380,6 +380,70 @@ export const reorderEstimateItemsSchema = z
     });
   });
 
+export const moveEstimateItemSchema = z
+  .object({
+    item_id: uuidSchema,
+    from_parent_id: nullableUuidSchema,
+    to_parent_id: nullableUuidSchema,
+    ordered_source_ids: z.array(uuidSchema),
+    ordered_target_ids: z
+      .array(uuidSchema)
+      .min(1, "ordered_target_ids ne peut pas etre vide."),
+  })
+  .superRefine((payload, ctx) => {
+    const sourceSet = new Set(payload.ordered_source_ids);
+    if (sourceSet.size !== payload.ordered_source_ids.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "ordered_source_ids doit contenir des identifiants uniques.",
+        path: ["ordered_source_ids"],
+      });
+    }
+
+    const targetSet = new Set(payload.ordered_target_ids);
+    if (targetSet.size !== payload.ordered_target_ids.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "ordered_target_ids doit contenir des identifiants uniques.",
+        path: ["ordered_target_ids"],
+      });
+    }
+
+    if (payload.ordered_source_ids.includes(payload.item_id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "ordered_source_ids ne doit pas contenir item_id.",
+        path: ["ordered_source_ids"],
+      });
+    }
+
+    if (!payload.ordered_target_ids.includes(payload.item_id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "ordered_target_ids doit contenir item_id.",
+        path: ["ordered_target_ids"],
+      });
+    }
+
+    if (payload.from_parent_id === payload.to_parent_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "from_parent_id et to_parent_id doivent etre differents pour un move inter-parent.",
+        path: ["to_parent_id"],
+      });
+    }
+
+    if (payload.ordered_source_ids.some((id) => targetSet.has(id))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "ordered_source_ids et ordered_target_ids ne doivent pas se chevaucher.",
+        path: ["ordered_target_ids"],
+      });
+    }
+  });
+
 export const batchCreateEstimateOperationSchema = z.object({
   op: z.literal("create"),
   data: createEstimateItemSchema,
@@ -544,6 +608,43 @@ export const suggestionRuleFeedbackValueSchema = z.enum(["accept", "reject"]);
 export const suggestionRuleFeedbackSchema = z.object({
   feedback: suggestionRuleFeedbackValueSchema,
   count: positiveIntegerSchema.optional(),
+});
+
+export const suggestionLearningFieldSchema = z.enum([
+  "description",
+  "category_id",
+  "k_fo",
+  "k_mo",
+  "labor_role_id",
+  "supply_type_id",
+]);
+
+export const trackSuggestionCorrectionsSchema = z.object({
+  corrections: z
+    .array(
+      z.object({
+        rule_id: uuidSchema,
+        field_name: suggestionLearningFieldSchema,
+        original_value: optionalNullableTextSchema.optional(),
+        corrected_value: optionalNullableTextSchema.optional(),
+        item_title: optionalNullableTextSchema
+          .default("")
+          .transform((value) => value ?? ""),
+      })
+    )
+    .min(1, "Au moins une correction est requise.")
+    .max(50, "Trop de corrections dans une seule requete."),
+});
+
+export const reviewSuggestionLearningSchema = z.object({
+  rule_id: uuidSchema,
+  field_name: suggestionLearningFieldSchema,
+  corrected_value: optionalNullableTextSchema.optional(),
+  action: z.enum(["approve", "reject", "reset"]),
+});
+
+export const purgeSuggestionLearningSchema = z.object({
+  retention_months: positiveIntegerSchema.max(120, "Doit etre <= 120.").optional(),
 });
 
 export const createEstimateTemplateFromVersionSchema = z.preprocess(
@@ -768,6 +869,7 @@ export type BulkUpdateEstimateItemsRequestInput = z.infer<
 >;
 export type DeleteEstimateItemInput = z.infer<typeof deleteEstimateItemSchema>;
 export type ReorderEstimateItemsInput = z.infer<typeof reorderEstimateItemsSchema>;
+export type MoveEstimateItemInput = z.infer<typeof moveEstimateItemSchema>;
 export type BatchCreateEstimateOperationInput = z.infer<
   typeof batchCreateEstimateOperationSchema
 >;
@@ -803,6 +905,18 @@ export type SuggestionRuleFeedbackValue = z.infer<
 >;
 export type SuggestionRuleFeedbackInput = z.infer<
   typeof suggestionRuleFeedbackSchema
+>;
+export type SuggestionLearningFieldInput = z.infer<
+  typeof suggestionLearningFieldSchema
+>;
+export type TrackSuggestionCorrectionsInput = z.infer<
+  typeof trackSuggestionCorrectionsSchema
+>;
+export type ReviewSuggestionLearningInput = z.infer<
+  typeof reviewSuggestionLearningSchema
+>;
+export type PurgeSuggestionLearningInput = z.infer<
+  typeof purgeSuggestionLearningSchema
 >;
 export type CreateEstimateTemplateFromVersionInput = z.infer<
   typeof createEstimateTemplateFromVersionSchema

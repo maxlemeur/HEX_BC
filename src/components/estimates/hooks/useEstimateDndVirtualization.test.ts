@@ -138,6 +138,7 @@ describe("useEstimateDndVirtualization", () => {
         canReorder: true,
         itemsByParent,
         onReorder: vi.fn(),
+        onMoveItem: vi.fn(),
         hasVisibleRows: true,
         getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
         depthMap: new Map([
@@ -197,6 +198,7 @@ describe("useEstimateDndVirtualization", () => {
     ]);
 
     const onReorder = vi.fn();
+    const onMoveItem = vi.fn();
     const tableCardRef = createRef<HTMLDivElement>();
     tableCardRef.current = document.createElement("div");
 
@@ -205,6 +207,7 @@ describe("useEstimateDndVirtualization", () => {
         canReorder: true,
         itemsByParent,
         onReorder,
+        onMoveItem,
         hasVisibleRows: true,
         getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
         depthMap: new Map(),
@@ -224,6 +227,7 @@ describe("useEstimateDndVirtualization", () => {
     });
 
     expect(onReorder).toHaveBeenCalledWith(null, ["line-1", "line-3", "line-2"]);
+    expect(onMoveItem).not.toHaveBeenCalled();
 
     act(() => {
       result.current.handleDragEnd({
@@ -233,6 +237,215 @@ describe("useEstimateDndVirtualization", () => {
     });
 
     expect(onReorder).toHaveBeenCalledTimes(1);
+    expect(onMoveItem).toHaveBeenCalledWith(
+      "child-a",
+      "section-1",
+      null,
+      [],
+      ["child-a", "line-1", "line-2", "line-3"]
+    );
+  });
+
+  it("keeps root sections at root when dragging over another root section", () => {
+    const sectionA = createItem({ id: "section-a", item_type: "section", position: 1 });
+    const sectionB = createItem({ id: "section-b", item_type: "section", position: 2 });
+
+    const itemsByParent = new Map<string, EstimateItem[]>([["root", [sectionA, sectionB]]]);
+    const onReorder = vi.fn();
+    const onMoveItem = vi.fn();
+    const tableCardRef = createRef<HTMLDivElement>();
+    tableCardRef.current = document.createElement("div");
+
+    const { result } = renderHook(() =>
+      useEstimateDndVirtualization({
+        canReorder: true,
+        itemsByParent,
+        onReorder,
+        onMoveItem,
+        hasVisibleRows: true,
+        getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
+        depthMap: new Map([
+          ["section-a", 0],
+          ["section-b", 0],
+        ]),
+        mergedUnitDrafts: {},
+        mergedSupplyTypeDrafts: {},
+        qualityFlagsByItemId: {},
+        suggestionsByItemId: new Map(),
+        tableCardRef,
+      })
+    );
+
+    act(() => {
+      result.current.handleDragEnd({
+        active: { id: "section-a", data: { current: { parentId: null } } },
+        over: { id: "section-b", data: { current: { parentId: null } } },
+      } as never);
+    });
+
+    expect(onReorder).toHaveBeenCalledWith(null, ["section-b", "section-a"]);
+    expect(onMoveItem).not.toHaveBeenCalled();
+  });
+
+  it("moves an item into a section when dropping over a section row", () => {
+    const section1 = createItem({ id: "section-1", item_type: "section" });
+    const section2 = createItem({ id: "section-2", item_type: "section" });
+    const sourceLine = createItem({
+      id: "line-source",
+      item_type: "line",
+      parent_id: "section-1",
+    });
+    const targetLine = createItem({
+      id: "line-target",
+      item_type: "line",
+      parent_id: "section-2",
+    });
+
+    const itemsByParent = new Map<string, EstimateItem[]>([
+      ["root", [section1, section2]],
+      ["section-1", [sourceLine]],
+      ["section-2", [targetLine]],
+    ]);
+
+    const onReorder = vi.fn();
+    const onMoveItem = vi.fn();
+    const tableCardRef = createRef<HTMLDivElement>();
+    tableCardRef.current = document.createElement("div");
+
+    const { result } = renderHook(() =>
+      useEstimateDndVirtualization({
+        canReorder: true,
+        itemsByParent,
+        onReorder,
+        onMoveItem,
+        hasVisibleRows: true,
+        getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
+        depthMap: new Map([
+          ["section-1", 0],
+          ["section-2", 0],
+          ["line-source", 1],
+          ["line-target", 1],
+        ]),
+        mergedUnitDrafts: {},
+        mergedSupplyTypeDrafts: {},
+        qualityFlagsByItemId: {},
+        suggestionsByItemId: new Map(),
+        tableCardRef,
+      })
+    );
+
+    act(() => {
+      result.current.handleDragEnd({
+        active: { id: "line-source", data: { current: { parentId: "section-1" } } },
+        over: { id: "section-2", data: { current: { parentId: null } } },
+      } as never);
+    });
+
+    expect(onReorder).not.toHaveBeenCalled();
+    expect(onMoveItem).toHaveBeenCalledWith(
+      "line-source",
+      "section-1",
+      "section-2",
+      [],
+      ["line-target", "line-source"]
+    );
+  });
+
+  it("rejects invalid cross-parent drops", () => {
+    const rootSection = createItem({ id: "section-root", item_type: "section" });
+    const subSection = createItem({
+      id: "section-sub",
+      item_type: "section",
+      parent_id: "section-root",
+    });
+    const deepSection = createItem({
+      id: "section-deep",
+      item_type: "section",
+      parent_id: "section-sub",
+    });
+    const rootSectionToMove = createItem({ id: "section-other", item_type: "section" });
+    const lineUnderOther = createItem({
+      id: "line-under-other",
+      item_type: "line",
+      parent_id: "section-other",
+    });
+    const lineUnderSub = createItem({
+      id: "line-under-sub",
+      item_type: "line",
+      parent_id: "section-sub",
+    });
+    const malformedLineParent = createItem({ id: "line-parent", item_type: "line" });
+    const malformedLineChild = createItem({
+      id: "line-child",
+      item_type: "line",
+      parent_id: "line-parent",
+    });
+
+    const itemsByParent = new Map<string, EstimateItem[]>([
+      ["root", [rootSection, rootSectionToMove, malformedLineParent]],
+      ["section-root", [subSection]],
+      ["section-sub", [lineUnderSub, deepSection]],
+      ["section-other", [lineUnderOther]],
+      ["line-parent", [malformedLineChild]],
+    ]);
+
+    const onReorder = vi.fn();
+    const onMoveItem = vi.fn();
+    const tableCardRef = createRef<HTMLDivElement>();
+    tableCardRef.current = document.createElement("div");
+
+    const { result } = renderHook(() =>
+      useEstimateDndVirtualization({
+        canReorder: true,
+        itemsByParent,
+        onReorder,
+        onMoveItem,
+        hasVisibleRows: true,
+        getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
+        depthMap: new Map([
+          ["section-root", 0],
+          ["section-sub", 1],
+          ["section-deep", 2],
+          ["section-other", 0],
+          ["line-under-sub", 2],
+          ["line-under-other", 1],
+          ["line-parent", 0],
+          ["line-child", 1],
+        ]),
+        mergedUnitDrafts: {},
+        mergedSupplyTypeDrafts: {},
+        qualityFlagsByItemId: {},
+        suggestionsByItemId: new Map(),
+        tableCardRef,
+      })
+    );
+
+    act(() => {
+      result.current.handleDragEnd({
+        active: { id: "section-sub", data: { current: { parentId: "section-root" } } },
+        over: {
+          id: "line-under-other",
+          data: { current: { parentId: "section-other" } },
+        },
+      } as never);
+    });
+
+    act(() => {
+      result.current.handleDragEnd({
+        active: { id: "section-other", data: { current: { parentId: null } } },
+        over: { id: "line-under-sub", data: { current: { parentId: "section-sub" } } },
+      } as never);
+    });
+
+    act(() => {
+      result.current.handleDragEnd({
+        active: { id: "line-under-sub", data: { current: { parentId: "section-sub" } } },
+        over: { id: "line-child", data: { current: { parentId: "line-parent" } } },
+      } as never);
+    });
+
+    expect(onMoveItem).not.toHaveBeenCalled();
+    expect(onReorder).not.toHaveBeenCalled();
   });
 
   it("scrolls to target row in virtual mode and handles keyboard navigation fallback", async () => {
@@ -276,6 +489,7 @@ describe("useEstimateDndVirtualization", () => {
         canReorder: true,
         itemsByParent,
         onReorder: vi.fn(),
+        onMoveItem: vi.fn(),
         hasVisibleRows: true,
         getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
         depthMap: new Map(),

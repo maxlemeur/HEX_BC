@@ -98,6 +98,7 @@ import {
   exportEstimate,
   insertAssemblyIntoVersion,
   isEstimateApiError,
+  moveEstimateItem,
   reorderEstimateItems,
   saveEstimateVersion,
   sendEstimateSuggestionRuleFeedback,
@@ -264,6 +265,13 @@ type BulkSuggestUndoState = {
 };
 type EstimateUndoRedoCommand = UndoRedoCommand & {
   label?: string;
+};
+type EstimateItemMovePayload = {
+  itemId: string;
+  fromParentId: string | null;
+  toParentId: string | null;
+  orderedSourceIds: string[];
+  orderedTargetIds: string[];
 };
 type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
 type EstimateEditorVirtualizationConfig = NonNullable<
@@ -979,6 +987,52 @@ function buildSiblingOrderByParent(sourceItems: EstimateItem[]) {
   });
 
   return orderedIdsByParent;
+}
+
+function applyInterParentMoveOptimistically(
+  sourceItems: EstimateItem[],
+  move: EstimateItemMovePayload
+) {
+  const sourcePositionById = new Map(
+    move.orderedSourceIds.map((itemId, index) => [itemId, index + 1])
+  );
+  const targetPositionById = new Map(
+    move.orderedTargetIds.map((itemId, index) => [itemId, index + 1])
+  );
+
+  return sourceItems.map((item) => {
+    if (item.id === move.itemId) {
+      const nextPosition = targetPositionById.get(item.id);
+      if (nextPosition === undefined) return item;
+      return {
+        ...item,
+        parent_id: move.toParentId,
+        position: nextPosition,
+      };
+    }
+
+    if ((item.parent_id ?? null) === move.fromParentId) {
+      const nextPosition = sourcePositionById.get(item.id);
+      if (nextPosition !== undefined) {
+        return {
+          ...item,
+          position: nextPosition,
+        };
+      }
+    }
+
+    if ((item.parent_id ?? null) === move.toParentId) {
+      const nextPosition = targetPositionById.get(item.id);
+      if (nextPosition !== undefined) {
+        return {
+          ...item,
+          position: nextPosition,
+        };
+      }
+    }
+
+    return item;
+  });
 }
 
 function sortItemsForTreeRecreation(sourceItems: EstimateItem[]) {
@@ -3594,6 +3648,19 @@ export default function EditEstimatePage() {
     []
   );
 
+  const persistMoveItem = useCallback(
+    async (versionId: string, move: EstimateItemMovePayload) => {
+      await moveEstimateItem(versionId, {
+        item_id: move.itemId,
+        from_parent_id: move.fromParentId,
+        to_parent_id: move.toParentId,
+        ordered_source_ids: move.orderedSourceIds,
+        ordered_target_ids: move.orderedTargetIds,
+      });
+    },
+    []
+  );
+
   const handleAddSection = useCallback(
     async (parentId: string | null) => {
       if (!version) return;
@@ -3981,11 +4048,18 @@ export default function EditEstimatePage() {
         setActionError(readOnlyActionErrorMessage);
         return;
       }
-      if (!window.confirm("Supprimer cet element et son contenu ?")) return;
-      setActionError(null);
-
       const snapshot = itemsRef.current;
       const idsToRemove = collectSubtreeItemIds(snapshot, itemId);
+      const impactedCount = idsToRemove.size;
+      const impactedLabel =
+        impactedCount > 1
+          ? `${impactedCount} elements (cet element + ${impactedCount - 1} enfant${
+              impactedCount - 1 > 1 ? "s" : ""
+            })`
+          : "cet element";
+      if (!window.confirm(`Supprimer ${impactedLabel} ?`)) return;
+      setActionError(null);
+
       const deletedSnapshots = snapshot.filter((item) => idsToRemove.has(item.id));
       const allSiblingOrders = buildSiblingOrderByParent(snapshot);
       const siblingOrderByParent = new Map<string | null, string[]>();
@@ -4843,6 +4917,128 @@ export default function EditEstimatePage() {
     [isReadOnly, pushHistoryCommand, readOnlyActionErrorMessage, version?.id]
   );
 
+  const handleMoveItem = useCallback<EstimateEditorTableProps["onMoveItem"]>(
+    async (
+      itemId,
+      fromParentId,
+      toParentId,
+      orderedSourceIds,
+      orderedTargetIds
+    ) => {
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+      if (fromParentId === toParentId) {
+        await handleReorder(fromParentId, orderedTargetIds);
+        return;
+      }
+
+      const snapshot = itemsRef.current;
+      const movedItem = snapshot.find((item) => item.id === itemId);
+      if (!movedItem) return;
+
+      const previousSourceOrderedIds = snapshot
+        .filter((item) => item.parent_id === fromParentId)
+        .sort((left, right) => left.position - right.position)
+        .map((item) => item.id);
+      const previousTargetOrderedIds = snapshot
+        .filter((item) => item.parent_id === toParentId)
+        .sort((left, right) => left.position - right.position)
+        .map((item) => item.id);
+
+      const movePayload: EstimateItemMovePayload = {
+        itemId,
+        fromParentId,
+        toParentId,
+        orderedSourceIds,
+        orderedTargetIds,
+      };
+      const parentUnchanged = (movedItem.parent_id ?? null) === toParentId;
+      const sourceOrderUnchanged =
+        previousSourceOrderedIds.join("|") === orderedSourceIds.join("|");
+      const targetOrderUnchanged =
+        previousTargetOrderedIds.join("|") === orderedTargetIds.join("|");
+      if (parentUnchanged && sourceOrderUnchanged && targetOrderUnchanged) {
+        return;
+      }
+
+      const optimisticItems = applyInterParentMoveOptimistically(snapshot, movePayload);
+      setActionError(null);
+      setItems(optimisticItems);
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot) {
+        setActionError("Version introuvable.");
+        setItems(snapshot);
+        return;
+      }
+
+      try {
+        await persistMoveItem(versionSnapshot.id, movePayload);
+        setTotalsOutOfSync(false);
+        pushHistoryCommand({
+          label: "move-item",
+          undo: async () => {
+            const undoVersionSnapshot = versionRef.current;
+            if (!undoVersionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const undoPayload: EstimateItemMovePayload = {
+              itemId,
+              fromParentId: toParentId,
+              toParentId: fromParentId,
+              orderedSourceIds: previousTargetOrderedIds,
+              orderedTargetIds: previousSourceOrderedIds,
+            };
+            const undoSnapshot = itemsRef.current;
+            setItems(applyInterParentMoveOptimistically(undoSnapshot, undoPayload));
+
+            try {
+              await persistMoveItem(undoVersionSnapshot.id, undoPayload);
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              setItems(undoSnapshot);
+              throw error;
+            }
+          },
+          redo: async () => {
+            const redoVersionSnapshot = versionRef.current;
+            if (!redoVersionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const redoSnapshot = itemsRef.current;
+            setItems(applyInterParentMoveOptimistically(redoSnapshot, movePayload));
+
+            try {
+              await persistMoveItem(redoVersionSnapshot.id, movePayload);
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              setItems(redoSnapshot);
+              throw error;
+            }
+          },
+        });
+      } catch (error) {
+        setItems(snapshot);
+        setActionError(
+          resolveEstimateActionError(
+            error instanceof Error ? error.message : "Impossible de deplacer l'element."
+          )
+        );
+      }
+    },
+    [
+      handleReorder,
+      isReadOnly,
+      persistMoveItem,
+      pushHistoryCommand,
+      readOnlyActionErrorMessage,
+    ]
+  );
+
   const handlePasteRows = useCallback<EstimateEditorTableProps["onPasteRows"]>(
     async ({ anchorRowId, rows }) => {
       if (isReadOnly) {
@@ -5400,6 +5596,7 @@ export default function EditEstimatePage() {
       bulkSuggestionEligibleCount,
       onOpenBulkSuggestDialog: handleOpenBulkSuggestDialog,
       onReorder: handleReorder,
+      onMoveItem: handleMoveItem,
       scrollToItemId: checklistScrollTargetItemId,
       onScrollToItemHandled: handleChecklistScrollHandled,
       virtualization: editorTableVirtualization,
@@ -5429,6 +5626,7 @@ export default function EditEstimatePage() {
       handleQualityFilterChange,
       handleChecklistScrollHandled,
       handleReorder,
+      handleMoveItem,
       handleOpenBulkSuggestDialog,
       handleToggleOutlierDismiss,
       canUndo,

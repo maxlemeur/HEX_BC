@@ -32,6 +32,8 @@ drop table if exists public.mapping_templates cascade;
 drop table if exists public.dpgf_rows_mapped cascade;
 drop table if exists public.dpgf_rows_raw cascade;
 drop table if exists public.dpgf_imports cascade;
+drop table if exists public.suggestion_learning_reviews cascade;
+drop table if exists public.suggestion_corrections cascade;
 drop table if exists public.estimate_versions cascade;
 drop table if exists public.estimate_projects cascade;
 drop table if exists public.estimate_categories cascade;
@@ -2271,6 +2273,113 @@ create index if not exists tenant_memberships_user_id_idx
   on public.tenant_memberships (user_id);
 create index if not exists tenant_memberships_tenant_role_idx
   on public.tenant_memberships (tenant_id, role);
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  default_tenant_id uuid;
+  membership_role public.tenant_role;
+begin
+  insert into public.profiles (id, full_name, phone, job_title, work_email, role)
+  values (
+    new.id,
+    coalesce(nullif(trim(new.raw_user_meta_data->>'full_name'), ''), new.email, 'Utilisateur'),
+    nullif(trim(new.raw_user_meta_data->>'phone'), ''),
+    nullif(trim(new.raw_user_meta_data->>'job_title'), ''),
+    new.email,
+    'buyer'
+  )
+  on conflict (id) do update
+  set
+    full_name = excluded.full_name,
+    phone = excluded.phone,
+    job_title = excluded.job_title,
+    work_email = excluded.work_email;
+
+  membership_role := case
+    when lower(coalesce(new.raw_user_meta_data->>'role', '')) = 'admin' then 'admin'::public.tenant_role
+    else 'engineer'::public.tenant_role
+  end;
+
+  select t.id
+    into default_tenant_id
+  from public.tenants t
+  where t.slug = 'hydro-express'
+  order by t.created_at asc
+  limit 1;
+
+  if default_tenant_id is null then
+    select t.id
+      into default_tenant_id
+    from public.tenants t
+    order by t.created_at asc
+    limit 1;
+  end if;
+
+  if default_tenant_id is null then
+    insert into public.tenants (name, slug, created_by)
+    values ('Hydro Express', 'hydro-express', new.id)
+    on conflict (slug) do update
+    set name = excluded.name
+    returning id into default_tenant_id;
+
+    if default_tenant_id is null then
+      select t.id
+        into default_tenant_id
+      from public.tenants t
+      where t.slug = 'hydro-express'
+      limit 1;
+    end if;
+  end if;
+
+  if default_tenant_id is null then
+    raise exception 'Unable to resolve a default tenant for user %', new.id;
+  end if;
+
+  insert into public.tenant_memberships (
+    tenant_id,
+    user_id,
+    role,
+    is_default
+  )
+  values (
+    default_tenant_id,
+    new.id,
+    membership_role,
+    not exists (
+      select 1
+      from public.tenant_memberships tm
+      where tm.user_id = new.id
+        and tm.is_default
+    )
+  )
+  on conflict (tenant_id, user_id)
+  do update
+  set role = excluded.role;
+
+  with ranked_defaults as (
+    select
+      tm.id,
+      row_number() over (
+        partition by tm.user_id
+        order by tm.is_default desc, tm.created_at asc, tm.id asc
+      ) as rank_in_user
+    from public.tenant_memberships tm
+    where tm.user_id = new.id
+  )
+  update public.tenant_memberships tm
+  set is_default = (ranked_defaults.rank_in_user = 1)
+  from ranked_defaults
+  where tm.id = ranked_defaults.id
+    and tm.is_default is distinct from (ranked_defaults.rank_in_user = 1);
+
+  return new;
+end;
+$$;
 
 alter table public.tenants enable row level security;
 alter table public.tenant_memberships enable row level security;
@@ -7367,3 +7476,1496 @@ begin
   return updated_count;
 end;
 $$;
+
+
+-- EST-025: add cascade discount mode/steps and global coefficient on estimates.
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_type t
+    join pg_namespace n on n.oid = t.typnamespace
+    where n.nspname = 'public'
+      and t.typname = 'estimate_discount_mode'
+  ) then
+    create type public.estimate_discount_mode as enum ('simple', 'cascade');
+  end if;
+end;
+$$;
+
+alter table public.estimate_versions
+  add column if not exists discount_mode public.estimate_discount_mode not null default 'simple',
+  add column if not exists discount_steps integer[] not null default '{}',
+  add column if not exists global_coefficient numeric not null default 1;
+
+alter table public.estimate_templates
+  add column if not exists discount_mode public.estimate_discount_mode not null default 'simple',
+  add column if not exists discount_steps integer[] not null default '{}',
+  add column if not exists global_coefficient numeric not null default 1;
+
+alter table public.estimate_versions
+  drop constraint if exists estimate_versions_discount_mode_steps_check;
+alter table public.estimate_versions
+  add constraint estimate_versions_discount_mode_steps_check
+  check (discount_mode <> 'simple' or cardinality(discount_steps) = 0);
+
+alter table public.estimate_versions
+  drop constraint if exists estimate_versions_global_coefficient_nonnegative_check;
+alter table public.estimate_versions
+  add constraint estimate_versions_global_coefficient_nonnegative_check
+  check (global_coefficient >= 0);
+
+alter table public.estimate_templates
+  drop constraint if exists estimate_templates_discount_mode_steps_check;
+alter table public.estimate_templates
+  add constraint estimate_templates_discount_mode_steps_check
+  check (discount_mode <> 'simple' or cardinality(discount_steps) = 0);
+
+alter table public.estimate_templates
+  drop constraint if exists estimate_templates_global_coefficient_nonnegative_check;
+alter table public.estimate_templates
+  add constraint estimate_templates_global_coefficient_nonnegative_check
+  check (global_coefficient >= 0);
+
+create or replace function public.guard_estimate_versions_readonly()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.status <> 'draft' then
+    if new.status = old.status then
+      raise exception 'Estimate version is read-only';
+    end if;
+
+    if new.created_at is distinct from old.created_at
+      or new.project_id is distinct from old.project_id
+      or new.version_number is distinct from old.version_number
+      or new.title is distinct from old.title
+      or new.date_devis is distinct from old.date_devis
+      or new.validite_jours is distinct from old.validite_jours
+      or new.margin_multiplier is distinct from old.margin_multiplier
+      or new.margin_mode is distinct from old.margin_mode
+      or new.currency is distinct from old.currency
+      or new.margin_bp is distinct from old.margin_bp
+      or new.discount_bp is distinct from old.discount_bp
+      or new.discount_mode is distinct from old.discount_mode
+      or new.discount_steps is distinct from old.discount_steps
+      or new.global_coefficient is distinct from old.global_coefficient
+      or new.tax_rate_bp is distinct from old.tax_rate_bp
+      or new.rounding_mode is distinct from old.rounding_mode
+      or new.rounding_step_cents is distinct from old.rounding_step_cents
+      or new.total_ht_cents is distinct from old.total_ht_cents
+      or new.total_tax_cents is distinct from old.total_tax_cents
+      or new.total_ttc_cents is distinct from old.total_ttc_cents
+      or new.seal_hash is distinct from old.seal_hash
+      or new.parent_version_id is distinct from old.parent_version_id
+      or new.variant_label is distinct from old.variant_label
+    then
+      raise exception 'Estimate version is read-only';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create or replace function public.duplicate_estimate_version(
+  source_version_id uuid,
+  as_variant boolean default false
+)
+returns uuid
+language plpgsql
+set search_path = public
+as $$
+declare
+  source_version public.estimate_versions%rowtype;
+  new_version_id uuid := gen_random_uuid();
+  new_version_number integer;
+  variant_parent_id uuid := null;
+  next_variant_index integer := 0;
+  next_variant_label text := null;
+begin
+  select v.*
+    into source_version
+  from public.estimate_versions v
+  join public.estimate_projects p on p.id = v.project_id
+  where v.id = source_version_id
+    and (select public.is_tenant_member(p.tenant_id))
+    and (
+      p.user_id = (select auth.uid())
+      or (select public.has_tenant_role(p.tenant_id, array['admin'::public.tenant_role]))
+    );
+
+  if not found then
+    raise exception 'Estimate version not found or access denied';
+  end if;
+
+  select coalesce(max(version_number), 0) + 1
+    into new_version_number
+  from public.estimate_versions
+  where project_id = source_version.project_id;
+
+  if coalesce(as_variant, false) then
+    variant_parent_id := source_version_id;
+
+    loop
+      next_variant_index := next_variant_index + 1;
+      next_variant_label := public.estimate_variant_label_from_index(next_variant_index);
+
+      exit when not exists (
+        select 1
+        from public.estimate_versions existing_variant
+        where existing_variant.parent_version_id = variant_parent_id
+          and existing_variant.variant_label = next_variant_label
+      );
+    end loop;
+  end if;
+
+  insert into public.estimate_versions (
+    id,
+    tenant_id,
+    project_id,
+    version_number,
+    status,
+    title,
+    date_devis,
+    validite_jours,
+    margin_multiplier,
+    margin_mode,
+    currency,
+    margin_bp,
+    discount_bp,
+    discount_mode,
+    discount_steps,
+    global_coefficient,
+    tax_rate_bp,
+    rounding_mode,
+    rounding_step_cents,
+    total_ht_cents,
+    total_tax_cents,
+    total_ttc_cents,
+    parent_version_id,
+    variant_label
+  )
+  values (
+    new_version_id,
+    source_version.tenant_id,
+    source_version.project_id,
+    new_version_number,
+    'draft',
+    source_version.title,
+    source_version.date_devis,
+    source_version.validite_jours,
+    source_version.margin_multiplier,
+    source_version.margin_mode,
+    source_version.currency,
+    source_version.margin_bp,
+    source_version.discount_bp,
+    source_version.discount_mode,
+    source_version.discount_steps,
+    source_version.global_coefficient,
+    source_version.tax_rate_bp,
+    source_version.rounding_mode,
+    source_version.rounding_step_cents,
+    source_version.total_ht_cents,
+    source_version.total_tax_cents,
+    source_version.total_ttc_cents,
+    variant_parent_id,
+    next_variant_label
+  );
+
+  create temporary table _estimate_item_map (
+    old_id uuid primary key,
+    new_id uuid not null
+  ) on commit drop;
+
+  insert into _estimate_item_map (old_id, new_id)
+  select id, gen_random_uuid()
+  from public.estimate_items
+  where version_id = source_version_id;
+
+  insert into public.estimate_items (
+    id,
+    tenant_id,
+    version_id,
+    parent_id,
+    item_type,
+    position,
+    title,
+    description,
+    quantity,
+    unit_price_ht_cents,
+    tax_rate_bp,
+    k_fo,
+    h_mo,
+    h_mo_majoration,
+    k_mo,
+    h_mo_atelier,
+    k_mo_atelier,
+    labor_role_atelier_id,
+    h_mo_chantier,
+    k_mo_chantier,
+    labor_role_chantier_id,
+    pu_ht_cents,
+    labor_role_id,
+    category_id,
+    supply_type_id,
+    selected_supplier_price_id,
+    line_total_ht_cents,
+    line_tax_cents,
+    line_total_ttc_cents
+  )
+  select
+    map.new_id,
+    source_version.tenant_id,
+    new_version_id,
+    parent_map.new_id,
+    src.item_type,
+    src.position,
+    src.title,
+    src.description,
+    src.quantity,
+    src.unit_price_ht_cents,
+    src.tax_rate_bp,
+    src.k_fo,
+    src.h_mo,
+    src.h_mo_majoration,
+    src.k_mo,
+    src.h_mo_atelier,
+    src.k_mo_atelier,
+    src.labor_role_atelier_id,
+    src.h_mo_chantier,
+    src.k_mo_chantier,
+    src.labor_role_chantier_id,
+    src.pu_ht_cents,
+    src.labor_role_id,
+    src.category_id,
+    src.supply_type_id,
+    src.selected_supplier_price_id,
+    src.line_total_ht_cents,
+    src.line_tax_cents,
+    src.line_total_ttc_cents
+  from public.estimate_items src
+  join _estimate_item_map map on map.old_id = src.id
+  left join _estimate_item_map parent_map on parent_map.old_id = src.parent_id;
+
+  return new_version_id;
+end;
+$$;
+
+create or replace function public.create_estimate_template_from_version(
+  p_source_version_id uuid,
+  p_name text,
+  p_description text
+)
+returns uuid
+language plpgsql
+set search_path = public
+as $$
+declare
+  source_version public.estimate_versions%rowtype;
+  source_owner_id uuid;
+  current_user_id uuid := (select auth.uid());
+  new_template_id uuid := gen_random_uuid();
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if nullif(btrim(coalesce(p_name, '')), '') is null then
+    raise exception 'Template name is required';
+  end if;
+
+  select v.*, p.user_id
+    into source_version, source_owner_id
+  from public.estimate_versions v
+  join public.estimate_projects p
+    on p.id = v.project_id
+   and p.tenant_id = v.tenant_id
+  where v.id = p_source_version_id
+    and (select public.is_tenant_member(v.tenant_id))
+    and (
+      p.user_id = current_user_id
+      or (select public.has_tenant_role(v.tenant_id, array['admin'::public.tenant_role]))
+    );
+
+  if not found then
+    raise exception 'Template source version not found or access denied';
+  end if;
+
+  insert into public.estimate_templates (
+    id,
+    tenant_id,
+    created_by,
+    source_version_id,
+    name,
+    description,
+    margin_multiplier,
+    margin_mode,
+    currency,
+    margin_bp,
+    discount_bp,
+    discount_mode,
+    discount_steps,
+    global_coefficient,
+    tax_rate_bp,
+    rounding_mode,
+    rounding_step_cents,
+    validite_jours
+  )
+  values (
+    new_template_id,
+    source_version.tenant_id,
+    current_user_id,
+    source_version.id,
+    btrim(p_name),
+    nullif(btrim(coalesce(p_description, '')), ''),
+    source_version.margin_multiplier,
+    source_version.margin_mode,
+    source_version.currency,
+    source_version.margin_bp,
+    source_version.discount_bp,
+    source_version.discount_mode,
+    source_version.discount_steps,
+    source_version.global_coefficient,
+    source_version.tax_rate_bp,
+    source_version.rounding_mode,
+    source_version.rounding_step_cents,
+    source_version.validite_jours
+  );
+
+  create temporary table _estimate_template_item_map (
+    old_id uuid primary key,
+    new_id uuid not null
+  ) on commit drop;
+
+  insert into _estimate_template_item_map (old_id, new_id)
+  select id, gen_random_uuid()
+  from public.estimate_items
+  where version_id = p_source_version_id;
+
+  insert into public.estimate_template_items (
+    id,
+    tenant_id,
+    template_id,
+    parent_id,
+    item_type,
+    position,
+    title,
+    description,
+    quantity,
+    unit_price_ht_cents,
+    tax_rate_bp,
+    k_fo,
+    h_mo,
+    h_mo_majoration,
+    k_mo,
+    h_mo_atelier,
+    k_mo_atelier,
+    labor_role_atelier_id,
+    h_mo_chantier,
+    k_mo_chantier,
+    labor_role_chantier_id,
+    pu_ht_cents,
+    labor_role_id,
+    category_id,
+    supply_type_id,
+    line_total_ht_cents,
+    line_tax_cents,
+    line_total_ttc_cents
+  )
+  select
+    map.new_id,
+    source_version.tenant_id,
+    new_template_id,
+    parent_map.new_id,
+    src.item_type,
+    src.position,
+    src.title,
+    src.description,
+    src.quantity,
+    src.unit_price_ht_cents,
+    src.tax_rate_bp,
+    src.k_fo,
+    src.h_mo,
+    src.h_mo_majoration,
+    src.k_mo,
+    src.h_mo_atelier,
+    src.k_mo_atelier,
+    src.labor_role_atelier_id,
+    src.h_mo_chantier,
+    src.k_mo_chantier,
+    src.labor_role_chantier_id,
+    src.pu_ht_cents,
+    src.labor_role_id,
+    src.category_id,
+    src.supply_type_id,
+    src.line_total_ht_cents,
+    src.line_tax_cents,
+    src.line_total_ttc_cents
+  from public.estimate_items src
+  join _estimate_template_item_map map on map.old_id = src.id
+  left join _estimate_template_item_map parent_map on parent_map.old_id = src.parent_id
+  where src.version_id = p_source_version_id;
+
+  return new_template_id;
+end;
+$$;
+
+create or replace function public.duplicate_estimate_template(
+  p_template_id uuid,
+  p_name text
+)
+returns uuid
+language plpgsql
+set search_path = public
+as $$
+declare
+  source_template public.estimate_templates%rowtype;
+  current_user_id uuid := (select auth.uid());
+  new_template_id uuid := gen_random_uuid();
+  duplicate_name text;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select t.*
+    into source_template
+  from public.estimate_templates t
+  where t.id = p_template_id
+    and (select public.is_tenant_member(t.tenant_id))
+    and (
+      t.created_by = current_user_id
+      or (select public.has_tenant_role(t.tenant_id, array['admin'::public.tenant_role]))
+    );
+
+  if not found then
+    raise exception 'Template not found or access denied';
+  end if;
+
+  duplicate_name := nullif(btrim(coalesce(p_name, '')), '');
+  if duplicate_name is null then
+    duplicate_name := source_template.name || ' (copie)';
+  end if;
+
+  insert into public.estimate_templates (
+    id,
+    tenant_id,
+    created_by,
+    source_version_id,
+    name,
+    description,
+    margin_multiplier,
+    margin_mode,
+    currency,
+    margin_bp,
+    discount_bp,
+    discount_mode,
+    discount_steps,
+    global_coefficient,
+    tax_rate_bp,
+    rounding_mode,
+    rounding_step_cents,
+    validite_jours
+  )
+  values (
+    new_template_id,
+    source_template.tenant_id,
+    current_user_id,
+    source_template.source_version_id,
+    duplicate_name,
+    source_template.description,
+    source_template.margin_multiplier,
+    source_template.margin_mode,
+    source_template.currency,
+    source_template.margin_bp,
+    source_template.discount_bp,
+    source_template.discount_mode,
+    source_template.discount_steps,
+    source_template.global_coefficient,
+    source_template.tax_rate_bp,
+    source_template.rounding_mode,
+    source_template.rounding_step_cents,
+    source_template.validite_jours
+  );
+
+  create temporary table _estimate_template_duplicate_map (
+    old_id uuid primary key,
+    new_id uuid not null
+  ) on commit drop;
+
+  insert into _estimate_template_duplicate_map (old_id, new_id)
+  select id, gen_random_uuid()
+  from public.estimate_template_items
+  where template_id = p_template_id;
+
+  insert into public.estimate_template_items (
+    id,
+    tenant_id,
+    template_id,
+    parent_id,
+    item_type,
+    position,
+    title,
+    description,
+    quantity,
+    unit_price_ht_cents,
+    tax_rate_bp,
+    k_fo,
+    h_mo,
+    h_mo_majoration,
+    k_mo,
+    h_mo_atelier,
+    k_mo_atelier,
+    labor_role_atelier_id,
+    h_mo_chantier,
+    k_mo_chantier,
+    labor_role_chantier_id,
+    pu_ht_cents,
+    labor_role_id,
+    category_id,
+    supply_type_id,
+    line_total_ht_cents,
+    line_tax_cents,
+    line_total_ttc_cents
+  )
+  select
+    map.new_id,
+    source_template.tenant_id,
+    new_template_id,
+    parent_map.new_id,
+    src.item_type,
+    src.position,
+    src.title,
+    src.description,
+    src.quantity,
+    src.unit_price_ht_cents,
+    src.tax_rate_bp,
+    src.k_fo,
+    src.h_mo,
+    src.h_mo_majoration,
+    src.k_mo,
+    src.h_mo_atelier,
+    src.k_mo_atelier,
+    src.labor_role_atelier_id,
+    src.h_mo_chantier,
+    src.k_mo_chantier,
+    src.labor_role_chantier_id,
+    src.pu_ht_cents,
+    src.labor_role_id,
+    src.category_id,
+    src.supply_type_id,
+    src.line_total_ht_cents,
+    src.line_tax_cents,
+    src.line_total_ttc_cents
+  from public.estimate_template_items src
+  join _estimate_template_duplicate_map map on map.old_id = src.id
+  left join _estimate_template_duplicate_map parent_map on parent_map.old_id = src.parent_id
+  where src.template_id = p_template_id;
+
+  return new_template_id;
+end;
+$$;
+
+create or replace function public.instantiate_estimate_from_template(
+  p_template_id uuid,
+  p_project_name text,
+  p_version_title text,
+  p_date_devis date,
+  p_validite_jours integer
+)
+returns table (project_id uuid, version_id uuid)
+language plpgsql
+set search_path = public
+as $$
+declare
+  source_template public.estimate_templates%rowtype;
+  current_user_id uuid := (select auth.uid());
+  new_project_id uuid := gen_random_uuid();
+  new_version_id uuid := gen_random_uuid();
+  target_validite_jours integer;
+  total_ht integer := 0;
+  total_tax integer := 0;
+  total_ttc integer := 0;
+begin
+  if current_user_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if nullif(btrim(coalesce(p_project_name, '')), '') is null then
+    raise exception 'Project name is required';
+  end if;
+
+  select t.*
+    into source_template
+  from public.estimate_templates t
+  where t.id = p_template_id
+    and (select public.is_tenant_member(t.tenant_id))
+    and (
+      t.created_by = current_user_id
+      or (select public.has_tenant_role(t.tenant_id, array['admin'::public.tenant_role]))
+    );
+
+  if not found then
+    raise exception 'Template not found or access denied';
+  end if;
+
+  target_validite_jours := coalesce(p_validite_jours, source_template.validite_jours);
+  if target_validite_jours <= 0 then
+    raise exception 'validite_jours must be greater than 0';
+  end if;
+
+  select
+    coalesce(sum(item.line_total_ht_cents), 0),
+    coalesce(sum(item.line_tax_cents), 0)
+    into total_ht, total_tax
+  from public.estimate_template_items item
+  where item.template_id = p_template_id
+    and item.tenant_id = source_template.tenant_id
+    and item.item_type = 'line';
+
+  total_ttc := total_ht + total_tax;
+
+  insert into public.estimate_projects (
+    id,
+    tenant_id,
+    user_id,
+    name
+  )
+  values (
+    new_project_id,
+    source_template.tenant_id,
+    current_user_id,
+    btrim(p_project_name)
+  );
+
+  insert into public.estimate_versions (
+    id,
+    tenant_id,
+    project_id,
+    version_number,
+    status,
+    title,
+    date_devis,
+    validite_jours,
+    margin_multiplier,
+    margin_mode,
+    currency,
+    margin_bp,
+    discount_bp,
+    discount_mode,
+    discount_steps,
+    global_coefficient,
+    tax_rate_bp,
+    rounding_mode,
+    rounding_step_cents,
+    total_ht_cents,
+    total_tax_cents,
+    total_ttc_cents
+  )
+  values (
+    new_version_id,
+    source_template.tenant_id,
+    new_project_id,
+    1,
+    'draft',
+    nullif(btrim(coalesce(p_version_title, '')), ''),
+    coalesce(p_date_devis, current_date),
+    target_validite_jours,
+    source_template.margin_multiplier,
+    source_template.margin_mode,
+    source_template.currency,
+    source_template.margin_bp,
+    source_template.discount_bp,
+    source_template.discount_mode,
+    source_template.discount_steps,
+    source_template.global_coefficient,
+    source_template.tax_rate_bp,
+    source_template.rounding_mode,
+    source_template.rounding_step_cents,
+    total_ht,
+    total_tax,
+    total_ttc
+  );
+
+  create temporary table _estimate_template_instantiation_map (
+    old_id uuid primary key,
+    new_id uuid not null
+  ) on commit drop;
+
+  insert into _estimate_template_instantiation_map (old_id, new_id)
+  select id, gen_random_uuid()
+  from public.estimate_template_items
+  where template_id = p_template_id;
+
+  insert into public.estimate_items (
+    id,
+    tenant_id,
+    version_id,
+    parent_id,
+    item_type,
+    position,
+    title,
+    description,
+    quantity,
+    unit_price_ht_cents,
+    tax_rate_bp,
+    k_fo,
+    h_mo,
+    h_mo_majoration,
+    k_mo,
+    h_mo_atelier,
+    k_mo_atelier,
+    labor_role_atelier_id,
+    h_mo_chantier,
+    k_mo_chantier,
+    labor_role_chantier_id,
+    pu_ht_cents,
+    labor_role_id,
+    category_id,
+    supply_type_id,
+    line_total_ht_cents,
+    line_tax_cents,
+    line_total_ttc_cents
+  )
+  select
+    map.new_id,
+    source_template.tenant_id,
+    new_version_id,
+    parent_map.new_id,
+    src.item_type,
+    src.position,
+    src.title,
+    src.description,
+    src.quantity,
+    src.unit_price_ht_cents,
+    src.tax_rate_bp,
+    src.k_fo,
+    src.h_mo,
+    src.h_mo_majoration,
+    src.k_mo,
+    src.h_mo_atelier,
+    src.k_mo_atelier,
+    src.labor_role_atelier_id,
+    src.h_mo_chantier,
+    src.k_mo_chantier,
+    src.labor_role_chantier_id,
+    src.pu_ht_cents,
+    src.labor_role_id,
+    src.category_id,
+    src.supply_type_id,
+    src.line_total_ht_cents,
+    src.line_tax_cents,
+    src.line_total_ttc_cents
+  from public.estimate_template_items src
+  join _estimate_template_instantiation_map map on map.old_id = src.id
+  left join _estimate_template_instantiation_map parent_map on parent_map.old_id = src.parent_id
+  where src.template_id = p_template_id;
+
+  return query
+  select new_project_id, new_version_id;
+end;
+$$;
+
+-- EST-122: move estimate item across parents with atomic dual reordering.
+
+create or replace function public.move_estimate_item(
+  target_version_id uuid,
+  target_item_id uuid,
+  source_parent_id uuid,
+  target_parent_id uuid,
+  ordered_source_item_ids uuid[],
+  ordered_target_item_ids uuid[]
+)
+returns integer
+language plpgsql
+set search_path = public
+as $$
+declare
+  target_version public.estimate_versions%rowtype;
+  target_item public.estimate_items%rowtype;
+  source_parent_item public.estimate_items%rowtype;
+  target_parent_item public.estimate_items%rowtype;
+  source_expected_count integer := 0;
+  target_expected_count integer := 0;
+  source_locked_count integer := 0;
+  target_locked_count integer := 0;
+  source_updated_count integer := 0;
+  target_updated_count integer := 0;
+  target_position integer := 0;
+begin
+  if target_version_id is null then
+    raise exception 'target_version_id is required';
+  end if;
+
+  if target_item_id is null then
+    raise exception 'target_item_id is required';
+  end if;
+
+  if ordered_source_item_ids is null then
+    raise exception 'ordered_source_item_ids is required';
+  end if;
+
+  if ordered_target_item_ids is null then
+    raise exception 'ordered_target_item_ids is required';
+  end if;
+
+  if source_parent_id is not distinct from target_parent_id then
+    raise exception 'source_parent_id and target_parent_id must be different';
+  end if;
+
+  if coalesce(array_length(ordered_target_item_ids, 1), 0) = 0 then
+    raise exception 'ordered_target_item_ids cannot be empty';
+  end if;
+
+  select *
+    into target_version
+  from public.estimate_versions ev
+  where ev.id = target_version_id
+  for update;
+
+  if not found then
+    raise exception 'target_version_id is invalid';
+  end if;
+
+  select *
+    into target_item
+  from public.estimate_items item
+  where item.id = target_item_id
+    and item.version_id = target_version_id
+    and item.tenant_id = target_version.tenant_id
+  for update;
+
+  if not found then
+    raise exception 'target_item_id is invalid for target_version_id';
+  end if;
+
+  if target_item.parent_id is distinct from source_parent_id then
+    raise exception 'source_parent_id mismatch for target_item_id';
+  end if;
+
+  if source_parent_id is not null then
+    select *
+      into source_parent_item
+    from public.estimate_items parent
+    where parent.id = source_parent_id
+      and parent.version_id = target_version_id
+      and parent.tenant_id = target_version.tenant_id
+      and parent.item_type = 'section'
+    for update;
+
+    if not found then
+      raise exception 'source_parent_id is invalid for target_version_id';
+    end if;
+  end if;
+
+  if target_parent_id is not null then
+    select *
+      into target_parent_item
+    from public.estimate_items parent
+    where parent.id = target_parent_id
+      and parent.version_id = target_version_id
+      and parent.tenant_id = target_version.tenant_id
+      and parent.item_type = 'section'
+    for update;
+
+    if not found then
+      raise exception 'target_parent_id is invalid for target_version_id';
+    end if;
+  end if;
+
+  if target_item.item_type = 'section' then
+    if target_parent_id is not null and target_parent_item.parent_id is not null then
+      raise exception 'section target_parent_id must reference a root section';
+    end if;
+
+    if target_parent_id is not null and exists (
+      select 1
+      from public.estimate_items section_child
+      where section_child.version_id = target_version_id
+        and section_child.tenant_id = target_version.tenant_id
+        and section_child.parent_id = target_item_id
+        and section_child.item_type = 'section'
+    ) then
+      raise exception 'section with subsections cannot become a subsection';
+    end if;
+  end if;
+
+  if target_item.item_type = 'line'
+     and target_parent_id is not null
+     and target_parent_item.parent_id is not null then
+    if not exists (
+      select 1
+      from public.estimate_items parent_section
+      where parent_section.id = target_parent_item.parent_id
+        and parent_section.version_id = target_version_id
+        and parent_section.tenant_id = target_version.tenant_id
+        and parent_section.item_type = 'section'
+        and parent_section.parent_id is null
+    ) then
+      raise exception 'line target_parent_id exceeds maximum depth';
+    end if;
+  end if;
+
+  create temporary table _move_source_order (
+    id uuid primary key,
+    position integer not null
+  ) on commit drop;
+
+  insert into _move_source_order (id, position)
+  select src.id, src.ordinality::integer as position
+  from unnest(ordered_source_item_ids) with ordinality as src(id, ordinality);
+
+  get diagnostics source_expected_count = row_count;
+
+  if source_expected_count <> coalesce(array_length(ordered_source_item_ids, 1), 0) then
+    raise exception 'ordered_source_item_ids contains duplicates';
+  end if;
+
+  if exists (
+    select 1
+    from _move_source_order source_order
+    where source_order.id = target_item_id
+  ) then
+    raise exception 'ordered_source_item_ids must not contain target_item_id';
+  end if;
+
+  create temporary table _move_target_order (
+    id uuid primary key,
+    position integer not null
+  ) on commit drop;
+
+  insert into _move_target_order (id, position)
+  select src.id, src.ordinality::integer as position
+  from unnest(ordered_target_item_ids) with ordinality as src(id, ordinality);
+
+  get diagnostics target_expected_count = row_count;
+
+  if target_expected_count <> coalesce(array_length(ordered_target_item_ids, 1), 0) then
+    raise exception 'ordered_target_item_ids contains duplicates';
+  end if;
+
+  if not exists (
+    select 1
+    from _move_target_order target_order
+    where target_order.id = target_item_id
+  ) then
+    raise exception 'ordered_target_item_ids must contain target_item_id';
+  end if;
+
+  if exists (
+    select 1
+    from _move_source_order source_order
+    join _move_target_order target_order
+      on target_order.id = source_order.id
+  ) then
+    raise exception 'ordered_source_item_ids and ordered_target_item_ids overlap';
+  end if;
+
+  perform item.id
+  from public.estimate_items item
+  where item.version_id = target_version_id
+    and item.tenant_id = target_version.tenant_id
+    and item.parent_id is not distinct from source_parent_id
+    and item.id <> target_item_id
+  for update;
+
+  get diagnostics source_locked_count = row_count;
+
+  if source_locked_count <> source_expected_count then
+    raise exception 'ordered_source_item_ids count mismatch';
+  end if;
+
+  perform item.id
+  from public.estimate_items item
+  where item.version_id = target_version_id
+    and item.tenant_id = target_version.tenant_id
+    and item.parent_id is not distinct from target_parent_id
+    and item.id <> target_item_id
+  for update;
+
+  get diagnostics target_locked_count = row_count;
+
+  if target_locked_count + 1 <> target_expected_count then
+    raise exception 'ordered_target_item_ids count mismatch';
+  end if;
+
+  if exists (
+    select 1
+    from _move_source_order source_order
+    left join public.estimate_items item
+      on item.id = source_order.id
+      and item.version_id = target_version_id
+      and item.tenant_id = target_version.tenant_id
+      and item.parent_id is not distinct from source_parent_id
+      and item.id <> target_item_id
+    where item.id is null
+  ) then
+    raise exception 'ordered_source_item_ids contains invalid source ids';
+  end if;
+
+  if exists (
+    select 1
+    from public.estimate_items item
+    where item.version_id = target_version_id
+      and item.tenant_id = target_version.tenant_id
+      and item.parent_id is not distinct from source_parent_id
+      and item.id <> target_item_id
+      and not exists (
+        select 1
+        from _move_source_order source_order
+        where source_order.id = item.id
+      )
+  ) then
+    raise exception 'ordered_source_item_ids is missing source ids';
+  end if;
+
+  if exists (
+    select 1
+    from _move_target_order target_order
+    left join public.estimate_items item
+      on item.id = target_order.id
+      and item.version_id = target_version_id
+      and item.tenant_id = target_version.tenant_id
+      and (
+        item.id = target_item_id
+        or (
+          item.parent_id is not distinct from target_parent_id
+          and item.id <> target_item_id
+        )
+      )
+    where item.id is null
+  ) then
+    raise exception 'ordered_target_item_ids contains invalid target ids';
+  end if;
+
+  if exists (
+    select 1
+    from public.estimate_items item
+    where item.version_id = target_version_id
+      and item.tenant_id = target_version.tenant_id
+      and item.parent_id is not distinct from target_parent_id
+      and item.id <> target_item_id
+      and not exists (
+        select 1
+        from _move_target_order target_order
+        where target_order.id = item.id
+      )
+  ) then
+    raise exception 'ordered_target_item_ids is missing target ids';
+  end if;
+
+  select target_order.position
+    into target_position
+  from _move_target_order target_order
+  where target_order.id = target_item_id;
+
+  if target_position is null or target_position <= 0 then
+    raise exception 'target_item_id position is invalid in ordered_target_item_ids';
+  end if;
+
+  update public.estimate_items item
+  set position = -source_order.position
+  from _move_source_order source_order
+  where item.id = source_order.id
+    and item.version_id = target_version_id
+    and item.tenant_id = target_version.tenant_id
+    and item.parent_id is not distinct from source_parent_id
+    and item.id <> target_item_id;
+
+  update public.estimate_items item
+  set position = -target_order.position
+  from _move_target_order target_order
+  where item.id = target_order.id
+    and item.version_id = target_version_id
+    and item.tenant_id = target_version.tenant_id
+    and item.id <> target_item_id
+    and item.parent_id is not distinct from target_parent_id;
+
+  update public.estimate_items item
+  set
+    parent_id = target_parent_id,
+    position = -target_position
+  where item.id = target_item_id
+    and item.version_id = target_version_id
+    and item.tenant_id = target_version.tenant_id;
+
+  update public.estimate_items item
+  set position = source_order.position
+  from _move_source_order source_order
+  where item.id = source_order.id
+    and item.version_id = target_version_id
+    and item.tenant_id = target_version.tenant_id
+    and item.parent_id is not distinct from source_parent_id
+    and item.id <> target_item_id;
+
+  get diagnostics source_updated_count = row_count;
+
+  update public.estimate_items item
+  set
+    parent_id = target_parent_id,
+    position = target_order.position
+  from _move_target_order target_order
+  where item.id = target_order.id
+    and item.version_id = target_version_id
+    and item.tenant_id = target_version.tenant_id;
+
+  get diagnostics target_updated_count = row_count;
+
+  if source_updated_count <> source_expected_count then
+    raise exception 'ordered_source_item_ids stale write detected';
+  end if;
+
+  if target_updated_count <> target_expected_count then
+    raise exception 'ordered_target_item_ids stale write detected';
+  end if;
+
+  return source_updated_count + target_updated_count;
+end;
+$$;
+
+grant execute on function public.move_estimate_item(
+  uuid,
+  uuid,
+  uuid,
+  uuid,
+  uuid[],
+  uuid[]
+) to authenticated;
+
+-- EST-163: suggestion learning from manual corrections.
+
+alter table if exists public.feature_flags
+  add column if not exists value text;
+
+create table if not exists public.suggestion_corrections (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  tenant_id uuid not null references public.tenants(id) on delete restrict,
+  rule_id uuid not null references public.estimate_suggestion_rules(id) on delete cascade,
+  field_name text not null check (
+    field_name in (
+      'description',
+      'category_id',
+      'k_fo',
+      'k_mo',
+      'labor_role_id',
+      'supply_type_id'
+    )
+  ),
+  original_value text,
+  corrected_value text,
+  item_title text not null default '',
+  user_id uuid not null references public.profiles(id) on delete restrict
+);
+
+alter table public.suggestion_corrections
+  alter column tenant_id set default public.current_tenant_id();
+
+create index if not exists suggestion_corrections_rule_field_corrected_idx
+  on public.suggestion_corrections (rule_id, field_name, corrected_value);
+
+create index if not exists suggestion_corrections_tenant_created_idx
+  on public.suggestion_corrections (tenant_id, created_at desc);
+
+create index if not exists suggestion_corrections_tenant_rule_idx
+  on public.suggestion_corrections (tenant_id, rule_id);
+
+create or replace function public.assign_suggestion_corrections_tenant_id()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  parent_tenant_id uuid;
+begin
+  if new.rule_id is not null then
+    select esr.tenant_id
+      into parent_tenant_id
+    from public.estimate_suggestion_rules esr
+    where esr.id = new.rule_id;
+  end if;
+
+  new.tenant_id := coalesce(parent_tenant_id, new.tenant_id, public.current_tenant_id());
+  return new;
+end;
+$$;
+
+drop trigger if exists set_suggestion_corrections_tenant_id
+  on public.suggestion_corrections;
+create trigger set_suggestion_corrections_tenant_id
+  before insert or update on public.suggestion_corrections
+  for each row execute procedure public.assign_suggestion_corrections_tenant_id();
+
+alter table public.suggestion_corrections enable row level security;
+
+drop policy if exists "Tenant members can view suggestion corrections"
+  on public.suggestion_corrections;
+drop policy if exists "Tenant members can insert suggestion corrections"
+  on public.suggestion_corrections;
+drop policy if exists "Tenant admins can delete suggestion corrections"
+  on public.suggestion_corrections;
+
+create policy "Tenant members can view suggestion corrections"
+  on public.suggestion_corrections
+  for select
+  to authenticated
+  using ((select public.is_tenant_member(tenant_id)));
+
+create policy "Tenant members can insert suggestion corrections"
+  on public.suggestion_corrections
+  for insert
+  to authenticated
+  with check (
+    (select public.is_tenant_member(tenant_id))
+    and user_id = (select auth.uid())
+  );
+
+create policy "Tenant admins can delete suggestion corrections"
+  on public.suggestion_corrections
+  for delete
+  to authenticated
+  using ((select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role])));
+
+create table if not exists public.suggestion_learning_reviews (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  tenant_id uuid not null references public.tenants(id) on delete restrict,
+  rule_id uuid not null references public.estimate_suggestion_rules(id) on delete cascade,
+  field_name text not null check (
+    field_name in (
+      'description',
+      'category_id',
+      'k_fo',
+      'k_mo',
+      'labor_role_id',
+      'supply_type_id'
+    )
+  ),
+  corrected_value text,
+  status text not null check (status in ('approved', 'rejected')),
+  decided_by uuid not null references public.profiles(id) on delete restrict,
+  decided_at timestamptz not null default now()
+);
+
+alter table public.suggestion_learning_reviews
+  alter column tenant_id set default public.current_tenant_id();
+
+drop trigger if exists set_suggestion_learning_reviews_updated_at
+  on public.suggestion_learning_reviews;
+create trigger set_suggestion_learning_reviews_updated_at
+  before update on public.suggestion_learning_reviews
+  for each row execute procedure public.set_updated_at();
+
+create unique index if not exists suggestion_learning_reviews_unique_triplet_idx
+  on public.suggestion_learning_reviews (
+    tenant_id,
+    rule_id,
+    field_name,
+    coalesce(corrected_value, '__NULL__')
+  );
+
+create index if not exists suggestion_learning_reviews_tenant_rule_idx
+  on public.suggestion_learning_reviews (tenant_id, rule_id);
+
+create or replace function public.assign_suggestion_learning_reviews_tenant_id()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  parent_tenant_id uuid;
+begin
+  if new.rule_id is not null then
+    select esr.tenant_id
+      into parent_tenant_id
+    from public.estimate_suggestion_rules esr
+    where esr.id = new.rule_id;
+  end if;
+
+  new.tenant_id := coalesce(parent_tenant_id, new.tenant_id, public.current_tenant_id());
+  return new;
+end;
+$$;
+
+drop trigger if exists set_suggestion_learning_reviews_tenant_id
+  on public.suggestion_learning_reviews;
+create trigger set_suggestion_learning_reviews_tenant_id
+  before insert or update on public.suggestion_learning_reviews
+  for each row execute procedure public.assign_suggestion_learning_reviews_tenant_id();
+
+alter table public.suggestion_learning_reviews enable row level security;
+
+drop policy if exists "Tenant members can view suggestion learning reviews"
+  on public.suggestion_learning_reviews;
+drop policy if exists "Tenant admins can manage suggestion learning reviews"
+  on public.suggestion_learning_reviews;
+
+create policy "Tenant members can view suggestion learning reviews"
+  on public.suggestion_learning_reviews
+  for select
+  to authenticated
+  using ((select public.is_tenant_member(tenant_id)));
+
+create policy "Tenant admins can manage suggestion learning reviews"
+  on public.suggestion_learning_reviews
+  for all
+  to authenticated
+  using ((select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role])))
+  with check ((select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role])));
+
+create or replace function public.get_suggestion_learnings(
+  target_tenant_id uuid default public.current_tenant_id(),
+  threshold integer default 3,
+  include_inactive boolean default false
+)
+returns table (
+  rule_id uuid,
+  field_name text,
+  corrected_value text,
+  correction_count integer,
+  first_seen_at timestamptz,
+  last_seen_at timestamptz,
+  review_status text,
+  decided_by uuid,
+  decided_at timestamptz,
+  is_active boolean,
+  sample_original_value text,
+  sample_item_title text
+)
+language sql
+stable
+set search_path = public
+as $$
+  with normalized as (
+    select
+      coalesce(target_tenant_id, public.current_tenant_id()) as tenant_id,
+      greatest(coalesce(threshold, 3), 1) as min_corrections
+  ),
+  aggregated as (
+    select
+      c.rule_id,
+      c.field_name,
+      c.corrected_value,
+      count(*)::integer as correction_count,
+      min(c.created_at) as first_seen_at,
+      max(c.created_at) as last_seen_at,
+      (
+        array_agg(c.original_value order by c.created_at desc)
+          filter (where c.original_value is not null)
+      )[1] as sample_original_value,
+      (
+        array_agg(c.item_title order by c.created_at desc)
+          filter (where c.item_title is not null and btrim(c.item_title) <> '')
+      )[1] as sample_item_title
+    from public.suggestion_corrections c
+    join normalized n on n.tenant_id = c.tenant_id
+    group by c.rule_id, c.field_name, c.corrected_value
+  ),
+  merged as (
+    select
+      a.rule_id,
+      a.field_name,
+      a.corrected_value,
+      a.correction_count,
+      a.first_seen_at,
+      a.last_seen_at,
+      r.status as review_status,
+      r.decided_by,
+      r.decided_at,
+      case
+        when r.status = 'approved' then true
+        when r.status = 'rejected' then false
+        else a.correction_count >= n.min_corrections
+      end as is_active,
+      a.sample_original_value,
+      a.sample_item_title
+    from aggregated a
+    join normalized n on true
+    left join public.suggestion_learning_reviews r
+      on r.tenant_id = n.tenant_id
+      and r.rule_id = a.rule_id
+      and r.field_name = a.field_name
+      and coalesce(r.corrected_value, '__NULL__') = coalesce(a.corrected_value, '__NULL__')
+  )
+  select
+    merged.rule_id,
+    merged.field_name,
+    merged.corrected_value,
+    merged.correction_count,
+    merged.first_seen_at,
+    merged.last_seen_at,
+    merged.review_status,
+    merged.decided_by,
+    merged.decided_at,
+    merged.is_active,
+    merged.sample_original_value,
+    merged.sample_item_title
+  from merged
+  where include_inactive or merged.is_active
+  order by merged.is_active desc, merged.correction_count desc, merged.last_seen_at desc;
+$$;
+
+create or replace function public.purge_suggestion_corrections(
+  target_tenant_id uuid default public.current_tenant_id(),
+  retention_months integer default 12
+)
+returns integer
+language plpgsql
+set search_path = public
+as $$
+declare
+  scoped_tenant_id uuid := coalesce(target_tenant_id, public.current_tenant_id());
+  normalized_retention_months integer := greatest(1, least(coalesce(retention_months, 12), 120));
+  deleted_count integer := 0;
+begin
+  if scoped_tenant_id is null then
+    return 0;
+  end if;
+
+  if not (select public.has_tenant_role(scoped_tenant_id, array['admin'::public.tenant_role])) then
+    raise exception 'Access denied';
+  end if;
+
+  delete from public.suggestion_corrections
+  where tenant_id = scoped_tenant_id
+    and created_at < (now() - make_interval(months => normalized_retention_months));
+
+  get diagnostics deleted_count = row_count;
+
+  delete from public.suggestion_learning_reviews r
+  where r.tenant_id = scoped_tenant_id
+    and not exists (
+      select 1
+      from public.suggestion_corrections c
+      where c.tenant_id = r.tenant_id
+        and c.rule_id = r.rule_id
+        and c.field_name = r.field_name
+        and coalesce(c.corrected_value, '__NULL__') = coalesce(r.corrected_value, '__NULL__')
+    );
+
+  return deleted_count;
+end;
+$$;
+
+grant execute on function public.get_suggestion_learnings(uuid, integer, boolean) to authenticated;
+grant execute on function public.purge_suggestion_corrections(uuid, integer) to authenticated;
+
+insert into public.feature_flags (tenant_id, flag_key, enabled, value)
+select t.id, 'EST_163_SUGGESTION_LEARNING', false, null
+from public.tenants t
+on conflict (tenant_id, flag_key) do nothing;
+
+insert into public.feature_flags (tenant_id, flag_key, enabled, value)
+select t.id, 'EST_163_SUGGESTION_LEARNING_THRESHOLD', true, '3'
+from public.tenants t
+on conflict (tenant_id, flag_key) do nothing;
+
+insert into public.feature_flags (tenant_id, flag_key, enabled, value)
+select t.id, 'EST_163_SUGGESTION_LEARNING_RETENTION_MONTHS', true, '12'
+from public.tenants t
+on conflict (tenant_id, flag_key) do nothing;

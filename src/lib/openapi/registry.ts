@@ -17,6 +17,7 @@ import {
   instantiateEstimateFromTemplateSchema,
   listEstimateAssembliesQuerySchema,
   listEstimateTemplatesQuerySchema,
+  moveEstimateItemSchema,
   patchEstimateStatusSchema,
   patchEstimateVersionSchema,
   promoteEstimateVariantSchema,
@@ -740,6 +741,15 @@ const estimateItemsReorderDataSchema = z.object({
   updated_count: z.number().int(),
 });
 
+const estimateItemsMoveDataSchema = z.object({
+  item_id: uuidSchema,
+  from_parent_id: uuidSchema.nullable(),
+  to_parent_id: uuidSchema.nullable(),
+  ordered_source_ids: z.array(uuidSchema),
+  ordered_target_ids: z.array(uuidSchema),
+  updated_count: z.number().int(),
+});
+
 const estimateItemsBulkDataSchema = z.object({
   updated_count: z.number().int(),
   version: estimateVersionTokenSchema,
@@ -867,6 +877,10 @@ const apiEstimateItemSchemaDefinition = successResponseSchemaDefinition(
 const apiEstimateItemsReorderSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateItemsReorderResponse",
   estimateItemsReorderDataSchema
+);
+const apiEstimateItemsMoveSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateItemsMoveResponse",
+  estimateItemsMoveDataSchema
 );
 const apiEstimateItemsBulkSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateItemsBulkResponse",
@@ -1222,6 +1236,13 @@ const reorderEstimateItemsBody = jsonBody({
   schema: reorderEstimateItemsSchema,
 });
 
+const moveEstimateItemBody = jsonBody({
+  name: "MoveEstimateItemRequest",
+  description:
+    "Deplace un item vers un autre parent avec nouvel ordre source/cible.",
+  schema: moveEstimateItemSchema,
+});
+
 const bulkUpdateEstimateItemsBody = jsonBody({
   name: "BulkUpdateEstimateItemsRequest",
   description: "Mise a jour en lot des items.",
@@ -1510,6 +1531,22 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     requestBody: deleteEstimateItemBody,
     responses: {
       "200": jsonResponse("Item supprime.", apiDeletedIdSchemaDefinition),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/estimates/{versionId}/items/move",
+    summary: "Deplacer un item",
+    description:
+      "Deplace un item d'un parent source vers un parent cible avec reordonnancement atomique.",
+    tags: ["Estimate Items"],
+    parameters: [versionIdPathParameter],
+    requestBody: moveEstimateItemBody,
+    responses: {
+      "200": jsonResponse(
+        "Item deplace avec succes.",
+        apiEstimateItemsMoveSchemaDefinition
+      ),
     },
   },
   {

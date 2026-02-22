@@ -44,6 +44,7 @@ import type {
   PatchEstimateStatusInput,
   PatchEstimateVersionInput,
   ReorderEstimateItemsInput,
+  MoveEstimateItemInput,
   SuggestionRuleFeedbackInput,
   UpdateEstimateAssemblyInput,
   UpdateEstimateTemplateInput,
@@ -300,6 +301,9 @@ type EstimateTemplateRow = {
   currency: string;
   margin_bp: number;
   discount_bp: number;
+  discount_mode: Database["public"]["Enums"]["estimate_discount_mode"];
+  discount_steps: number[];
+  global_coefficient: number;
   tax_rate_bp: number;
   rounding_mode: EstimateVersionRow["rounding_mode"];
   rounding_step_cents: number;
@@ -356,6 +360,8 @@ const DEFAULT_TAX_RATE_BP = 2000;
 const DEFAULT_ROUNDING_MODE: EstimateVersionRow["rounding_mode"] = "none";
 const DEFAULT_ROUNDING_STEP_CENTS = 1;
 const DEFAULT_MARGIN_MODE: EstimateVersionRow["margin_mode"] = "fixed";
+const DEFAULT_DISCOUNT_MODE: EstimateVersionRow["discount_mode"] = "simple";
+const DEFAULT_GLOBAL_COEFFICIENT = 1;
 const DEFAULT_CURRENCY = "EUR";
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;
@@ -3032,6 +3038,10 @@ export async function createEstimate(input: CreateEstimateInput) {
     currency: input.version?.currency?.trim() || DEFAULT_CURRENCY,
     margin_bp: input.version?.margin_bp ?? 0,
     discount_bp: input.version?.discount_bp ?? 0,
+    discount_mode: input.version?.discount_mode ?? DEFAULT_DISCOUNT_MODE,
+    discount_steps: input.version?.discount_steps ?? [],
+    global_coefficient:
+      input.version?.global_coefficient ?? DEFAULT_GLOBAL_COEFFICIENT,
     tax_rate_bp: input.version?.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
     rounding_mode: input.version?.rounding_mode ?? DEFAULT_ROUNDING_MODE,
     rounding_step_cents:
@@ -3840,6 +3850,15 @@ export async function patchEstimateVersion(
   }
   if ("discount_bp" in input) {
     payload.discount_bp = input.discount_bp;
+  }
+  if ("discount_mode" in input) {
+    payload.discount_mode = input.discount_mode;
+  }
+  if ("discount_steps" in input) {
+    payload.discount_steps = input.discount_steps;
+  }
+  if ("global_coefficient" in input) {
+    payload.global_coefficient = input.global_coefficient;
   }
   if ("tax_rate_bp" in input) {
     payload.tax_rate_bp = input.tax_rate_bp;
@@ -5362,6 +5381,262 @@ export async function reorderEstimateItems(
   return {
     parent_id: parentId,
     ordered_ids: input.ordered_ids,
+    updated_count: normalizedUpdatedCount,
+  };
+}
+
+export async function moveEstimateItem(
+  versionId: string,
+  input: MoveEstimateItemInput
+) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
+
+  const fromParentId = input.from_parent_id ?? null;
+  const toParentId = input.to_parent_id ?? null;
+
+  if (fromParentId === toParentId) {
+    throw badRequest(
+      "from_parent_id et to_parent_id doivent etre differents pour un move inter-parent."
+    );
+  }
+
+  const { data: item, error: itemError } = await supabase
+    .from("estimate_items")
+    .select("id, version_id, parent_id, item_type")
+    .eq("tenant_id", tenantId)
+    .eq("id", input.item_id)
+    .eq("version_id", versionId)
+    .single();
+
+  if (itemError || !item) {
+    throw notFound("Element de chiffrage introuvable.");
+  }
+
+  if ((item.parent_id ?? null) !== fromParentId) {
+    throw conflict("Le parent source est obsolete.", {
+      item_id: item.id,
+      expected_from_parent_id: item.parent_id ?? null,
+      received_from_parent_id: fromParentId,
+    });
+  }
+
+  let targetParent:
+    | Pick<EstimateItemRow, "id" | "version_id" | "parent_id" | "item_type">
+    | null = null;
+
+  if (toParentId !== null) {
+    const { data: parent, error: parentError } = await supabase
+      .from("estimate_items")
+      .select("id, version_id, parent_id, item_type")
+      .eq("tenant_id", tenantId)
+      .eq("id", toParentId)
+      .eq("version_id", versionId)
+      .single();
+
+    if (parentError || !parent) {
+      throw badRequest("to_parent_id invalide.");
+    }
+
+    if (parent.item_type !== "section") {
+      throw badRequest("Le parent cible doit etre de type section.");
+    }
+
+    if (parent.id === item.id) {
+      throw badRequest("Un element ne peut pas etre son propre parent.");
+    }
+
+    targetParent = parent;
+  }
+
+  if (item.item_type === "section" && targetParent !== null) {
+    if (targetParent.parent_id !== null) {
+      throw badRequest(
+        "Une section ne peut etre enfant que de la racine ou d'une section racine."
+      );
+    }
+
+    const { data: sectionChildren, error: sectionChildrenError } = await supabase
+      .from("estimate_items")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("version_id", versionId)
+      .eq("parent_id", item.id)
+      .eq("item_type", "section")
+      .limit(1);
+
+    if (sectionChildrenError) {
+      throw mapSupabaseError(
+        sectionChildrenError,
+        "Impossible de verifier la profondeur de la section."
+      );
+    }
+
+    if ((sectionChildren ?? []).length > 0) {
+      throw badRequest(
+        "Une section contenant des sous-sections ne peut pas devenir une sous-section."
+      );
+    }
+  }
+
+  if (item.item_type === "line" && targetParent !== null && targetParent.parent_id !== null) {
+    const { data: grandParent, error: grandParentError } = await supabase
+      .from("estimate_items")
+      .select("id, parent_id, item_type")
+      .eq("tenant_id", tenantId)
+      .eq("id", targetParent.parent_id)
+      .eq("version_id", versionId)
+      .single();
+
+    if (grandParentError || !grandParent || grandParent.item_type !== "section") {
+      throw badRequest("Le parent cible depasse la profondeur maximale autorisee.");
+    }
+
+    if (grandParent.parent_id !== null) {
+      throw badRequest("Le parent cible depasse la profondeur maximale autorisee.");
+    }
+  }
+
+  const loadSiblingIds = async (parentId: string | null) => {
+    let query = supabase
+      .from("estimate_items")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("version_id", versionId)
+      .order("position", { ascending: true })
+      .order("id", { ascending: true });
+
+    query = parentId === null
+      ? query.is("parent_id", null)
+      : query.eq("parent_id", parentId);
+
+    const { data: siblings, error: siblingsError } = await query;
+
+    if (siblingsError) {
+      throw mapSupabaseError(
+        siblingsError,
+        "Impossible de charger les items de deplacement."
+      );
+    }
+
+    return (siblings ?? []).map((sibling) => sibling.id);
+  };
+
+  const sourceSiblings = await loadSiblingIds(fromParentId);
+
+  if (!sourceSiblings.includes(item.id)) {
+    throw conflict("La liste de deplacement est obsolete.", {
+      reason: "item_not_in_source_parent",
+      item_id: item.id,
+      from_parent_id: fromParentId,
+      observed_source_ids: sourceSiblings,
+    });
+  }
+
+  const expectedSourceIds = sourceSiblings.filter((siblingId) => siblingId !== item.id);
+  const expectedTargetIds = [...(await loadSiblingIds(toParentId)), item.id];
+
+  if (input.ordered_source_ids.includes(item.id)) {
+    throw badRequest("ordered_source_ids ne doit pas contenir item_id.");
+  }
+
+  if (!input.ordered_target_ids.includes(item.id)) {
+    throw badRequest("ordered_target_ids doit contenir item_id.");
+  }
+
+  const sourceReceivedSet = new Set(input.ordered_source_ids);
+  const targetReceivedSet = new Set(input.ordered_target_ids);
+
+  if (input.ordered_source_ids.some((id) => targetReceivedSet.has(id))) {
+    throw badRequest(
+      "ordered_source_ids et ordered_target_ids ne doivent pas se chevaucher."
+    );
+  }
+
+  const sourceExpectedSet = new Set(expectedSourceIds);
+  const targetExpectedSet = new Set(expectedTargetIds);
+
+  const sourceHasUnknownIds = input.ordered_source_ids.some(
+    (id) => !sourceExpectedSet.has(id)
+  );
+  const sourceHasMissingIds = expectedSourceIds.some(
+    (id) => !sourceReceivedSet.has(id)
+  );
+
+  const targetHasUnknownIds = input.ordered_target_ids.some(
+    (id) => !targetExpectedSet.has(id)
+  );
+  const targetHasMissingIds = expectedTargetIds.some(
+    (id) => !targetReceivedSet.has(id)
+  );
+
+  if (
+    input.ordered_source_ids.length !== expectedSourceIds.length ||
+    sourceHasUnknownIds ||
+    sourceHasMissingIds ||
+    input.ordered_target_ids.length !== expectedTargetIds.length ||
+    targetHasUnknownIds ||
+    targetHasMissingIds
+  ) {
+    throw conflict("La liste de deplacement est obsolete.", {
+      item_id: item.id,
+      from_parent_id: fromParentId,
+      to_parent_id: toParentId,
+      expected_source_ids: expectedSourceIds,
+      received_source_ids: input.ordered_source_ids,
+      expected_target_ids: expectedTargetIds,
+      received_target_ids: input.ordered_target_ids,
+    });
+  }
+
+  const { data: updatedCount, error: moveError } = await supabase.rpc(
+    "move_estimate_item",
+    {
+      target_version_id: versionId,
+      target_item_id: item.id,
+      source_parent_id: fromParentId,
+      target_parent_id: toParentId,
+      ordered_source_item_ids: input.ordered_source_ids,
+      ordered_target_item_ids: input.ordered_target_ids,
+    }
+  );
+
+  if (moveError) {
+    throw mapSupabaseError(moveError, "Impossible de deplacer l'element.");
+  }
+
+  const normalizedUpdatedCount = updatedCount ?? 0;
+  const expectedUpdatedCount =
+    input.ordered_source_ids.length + input.ordered_target_ids.length;
+
+  if (normalizedUpdatedCount !== expectedUpdatedCount) {
+    throw conflict("La liste de deplacement est obsolete.", {
+      item_id: item.id,
+      from_parent_id: fromParentId,
+      to_parent_id: toParentId,
+      expected_source_ids: expectedSourceIds,
+      received_source_ids: input.ordered_source_ids,
+      expected_target_ids: expectedTargetIds,
+      received_target_ids: input.ordered_target_ids,
+      updated_count: normalizedUpdatedCount,
+    });
+  }
+
+  return {
+    item_id: item.id,
+    from_parent_id: fromParentId,
+    to_parent_id: toParentId,
+    ordered_source_ids: input.ordered_source_ids,
+    ordered_target_ids: input.ordered_target_ids,
     updated_count: normalizedUpdatedCount,
   };
 }

@@ -34,6 +34,8 @@ const DEFAULT_VIRTUAL_OVERSCAN = 8;
 const DEFAULT_VIRTUAL_MAX_HEIGHT = 640;
 const EMPTY_ITEMS: EstimateItem[] = [];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
+const MAX_SECTION_DEPTH = 1;
+const MAX_LINE_DEPTH = 2;
 
 function getParentKey(id: string | null) {
   return id ?? ROOT_KEY;
@@ -62,6 +64,13 @@ export type UseEstimateDndVirtualizationInput = {
   canReorder: boolean;
   itemsByParent: Map<string, EstimateItem[]>;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
+  onMoveItem: (
+    itemId: string,
+    fromParentId: string | null,
+    toParentId: string | null,
+    orderedSourceIds: string[],
+    orderedTargetIds: string[]
+  ) => void;
   hasVisibleRows: boolean;
   getVisibleItems: (parentId: string | null) => EstimateItem[];
   depthMap: Map<string, number>;
@@ -79,6 +88,7 @@ export function useEstimateDndVirtualization({
   canReorder,
   itemsByParent,
   onReorder,
+  onMoveItem,
   hasVisibleRows,
   getVisibleItems,
   depthMap,
@@ -159,25 +169,163 @@ export function useEstimateDndVirtualization({
     })
   );
 
+  const itemById = useMemo(() => {
+    const map = new Map<string, EstimateItem>();
+    itemsByParent.forEach((siblings) => {
+      siblings.forEach((item) => {
+        map.set(item.id, item);
+      });
+    });
+    return map;
+  }, [itemsByParent]);
+
+  const resolveDepth = useCallback(
+    (itemId: string): number => {
+      const fromMap = depthMap.get(itemId);
+      if (fromMap !== undefined) return fromMap;
+
+      let depth = 0;
+      let currentParentId = itemById.get(itemId)?.parent_id ?? null;
+      while (currentParentId) {
+        const parent = itemById.get(currentParentId);
+        if (!parent) break;
+        depth += 1;
+        currentParentId = parent.parent_id;
+      }
+      return depth;
+    },
+    [depthMap, itemById]
+  );
+
+  const isDescendantParent = useCallback(
+    (targetParentId: string | null, activeItemId: string): boolean => {
+      let currentParentId = targetParentId;
+      while (currentParentId) {
+        if (currentParentId === activeItemId) return true;
+        const parent = itemById.get(currentParentId);
+        if (!parent) break;
+        currentParentId = parent.parent_id;
+      }
+      return false;
+    },
+    [itemById]
+  );
+
+  const canMoveToParent = useCallback(
+    (activeItem: EstimateItem, targetParentId: string | null): boolean => {
+      if (targetParentId !== null) {
+        const targetParent = itemById.get(targetParentId);
+        if (!targetParent || targetParent.item_type !== "section") {
+          return false;
+        }
+      }
+
+      if (activeItem.item_type === "section") {
+        if (targetParentId !== null) {
+          const queue = [activeItem.id];
+          while (queue.length > 0) {
+            const currentId = queue.pop();
+            if (!currentId) continue;
+            const children = itemsByParent.get(getParentKey(currentId)) ?? EMPTY_ITEMS;
+            for (const child of children) {
+              if (child.item_type === "section") {
+                return false;
+              }
+              queue.push(child.id);
+            }
+          }
+        }
+
+        if (
+          targetParentId !== null &&
+          isDescendantParent(targetParentId, activeItem.id)
+        ) {
+          return false;
+        }
+        const nextDepth =
+          targetParentId === null ? 0 : resolveDepth(targetParentId) + 1;
+        return nextDepth <= MAX_SECTION_DEPTH;
+      }
+
+      const nextDepth =
+        targetParentId === null ? 0 : resolveDepth(targetParentId) + 1;
+      return nextDepth <= MAX_LINE_DEPTH;
+    },
+    [isDescendantParent, itemById, itemsByParent, resolveDepth]
+  );
+
   const handleDragEnd = useCallback(
     (event: Parameters<NonNullable<DndContextProps["onDragEnd"]>>[0]) => {
       if (!canReorder) return;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
 
-      const activeParent = active.data.current?.parentId ?? null;
-      const overParent = over.data.current?.parentId ?? null;
-      if (activeParent !== overParent) return;
+      const activeId = String(active.id);
+      const overId = String(over.id);
+      const activeItem = itemById.get(activeId);
+      const overItem = itemById.get(overId);
+      if (!activeItem) return;
 
-      const siblings = itemsByParent.get(getParentKey(activeParent)) ?? EMPTY_ITEMS;
-      const oldIndex = siblings.findIndex((item) => item.id === active.id);
-      const newIndex = siblings.findIndex((item) => item.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
+      const activeParent =
+        (active.data.current?.parentId as string | null | undefined) ??
+        activeItem.parent_id ??
+        null;
+      const overParentFromData = over.data.current?.parentId as
+        | string
+        | null
+        | undefined;
+      const overParent =
+        overParentFromData !== undefined
+          ? overParentFromData
+          : (overItem?.parent_id ?? null);
 
-      const ordered = arrayMove(siblings, oldIndex, newIndex).map((item) => item.id);
-      onReorder(activeParent, ordered);
+      let targetParentId = overParent;
+      const canDropInsideSection =
+        overItem?.item_type === "section" &&
+        (activeItem.item_type === "line" || activeParent !== null);
+      if (canDropInsideSection && canMoveToParent(activeItem, overItem.id)) {
+        targetParentId = overItem.id;
+      }
+      if (!canMoveToParent(activeItem, targetParentId)) return;
+
+      if (targetParentId === activeParent) {
+        const siblings = itemsByParent.get(getParentKey(activeParent)) ?? EMPTY_ITEMS;
+        const oldIndex = siblings.findIndex((item) => item.id === activeId);
+        const newIndex = siblings.findIndex((item) => item.id === overId);
+        if (oldIndex === -1 || newIndex === -1) return;
+
+        const ordered = arrayMove(siblings, oldIndex, newIndex).map((item) => item.id);
+        onReorder(activeParent, ordered);
+        return;
+      }
+
+      const sourceSiblings =
+        itemsByParent.get(getParentKey(activeParent)) ?? EMPTY_ITEMS;
+      const targetSiblings =
+        itemsByParent.get(getParentKey(targetParentId)) ?? EMPTY_ITEMS;
+      const sourceIds = sourceSiblings.map((item) => item.id);
+      if (!sourceIds.includes(activeId)) return;
+
+      const orderedSourceIds = sourceIds.filter((id) => id !== activeId);
+      const orderedTargetIds = targetSiblings
+        .map((item) => item.id)
+        .filter((id) => id !== activeId);
+      const overIndex = orderedTargetIds.indexOf(overId);
+      const insertIndex =
+        targetParentId === overItem?.id || overIndex === -1
+          ? orderedTargetIds.length
+          : overIndex;
+      orderedTargetIds.splice(insertIndex, 0, activeId);
+
+      onMoveItem(
+        activeId,
+        activeParent,
+        targetParentId,
+        orderedSourceIds,
+        orderedTargetIds
+      );
     },
-    [canReorder, itemsByParent, onReorder]
+    [canMoveToParent, canReorder, itemById, itemsByParent, onMoveItem, onReorder]
   );
 
   const virtualizedSortableIds = useMemo(() => {

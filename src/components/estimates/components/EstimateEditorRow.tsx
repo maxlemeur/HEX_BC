@@ -799,14 +799,16 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             >
               + Ligne
             </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={() => onAddSection(item.id)}
-              disabled={isReadOnly}
-            >
-              + Sous-chapitre
-            </button>
+            {depth === 0 ? (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => onAddSection(item.id)}
+                disabled={isReadOnly}
+              >
+                + Sous-chapitre
+              </button>
+            ) : null}
             <button
               className="btn btn-danger btn-sm"
               type="button"
