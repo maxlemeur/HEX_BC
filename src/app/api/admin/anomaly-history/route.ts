@@ -71,6 +71,23 @@ export async function GET(request: Request) {
 
     const supabase = await getSupabase();
 
+    if (format === "csv") {
+      const currentResult = await getCurrentAnomalySummary(
+        supabase,
+        tenantId,
+        anomalyFilters
+      );
+      const csv = buildCsvContent(currentResult.currentAnomalies);
+      return new Response(csv, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition":
+            'attachment; filename="anomaly-history.csv"',
+        },
+      });
+    }
+
     const [currentResult, trendResult] = await Promise.all([
       getCurrentAnomalySummary(supabase, tenantId, anomalyFilters),
       getAnomalyTrend(supabase, tenantId, trendFilters),
@@ -82,18 +99,6 @@ export async function GET(request: Request) {
       trend: trendResult.trend,
       avgResolution: trendResult.avgResolution,
     };
-
-    if (format === "csv") {
-      const csv = buildCsvContent(result.currentAnomalies);
-      return new Response(csv, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/csv; charset=utf-8",
-          "Content-Disposition":
-            'attachment; filename="anomaly-history.csv"',
-        },
-      });
-    }
 
     return ok(result);
   } catch (error) {

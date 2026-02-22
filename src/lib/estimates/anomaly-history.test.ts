@@ -51,7 +51,11 @@ vi.mock("@/lib/estimate-quality", () => ({
   computeEstimateQualityFlagsByItemId: vi.fn().mockReturnValue({}),
 }));
 
-import { getAnomalyTrend } from "@/lib/estimates/anomaly-history";
+import {
+  getAnomalyTrend,
+  getCurrentAnomalySummary,
+} from "@/lib/estimates/anomaly-history";
+import { computeEstimateQualityFlagsByItemId } from "@/lib/estimate-quality";
 
 const TENANT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
@@ -67,7 +71,55 @@ function buildMockSupabase(auditRows: Record<string, unknown>[]) {
 
   return {
     from: vi.fn().mockReturnValue(query),
-  } as never;
+    __query: query,
+  };
+}
+
+function buildMockSummarySupabase(params: {
+  estimateItemsRows: Record<string, unknown>[];
+  dismissalRows?: Record<string, unknown>[];
+}) {
+  const estimateItemsBuilder = {
+    eq: vi.fn().mockReturnThis(),
+    data: params.estimateItemsRows,
+    error: null,
+  };
+
+  const estimateItemSelect = vi.fn().mockReturnValue(estimateItemsBuilder);
+
+  const dismissalResult = {
+    data: params.dismissalRows ?? [],
+    error: null,
+  };
+
+  const dismissalBuilder = {
+    eq: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnValue(dismissalResult),
+  };
+
+  const dismissalSelect = vi.fn().mockReturnValue(dismissalBuilder);
+
+  return {
+    from: vi.fn((table: string) => {
+      if (table === "estimate_items") {
+        return {
+          select: estimateItemSelect,
+        };
+      }
+
+      if (table === "estimate_item_outlier_dismissals") {
+        return {
+          select: dismissalSelect,
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+    __mocks: {
+      estimateItemSelect,
+      dismissalSelect,
+    },
+  };
 }
 
 describe("getAnomalyTrend", () => {
@@ -77,7 +129,7 @@ describe("getAnomalyTrend", () => {
 
   it("returns empty trend for no audit logs", async () => {
     const supabase = buildMockSupabase([]);
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {});
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
 
     expect(result.trend).toEqual([]);
     expect(result.avgResolution).toEqual([]);
@@ -95,7 +147,7 @@ describe("getAnomalyTrend", () => {
       },
     ]);
 
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {});
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
 
     expect(result.trend).toEqual([
       { period: "2025-06", opened: 1, resolved: 0 },
@@ -114,7 +166,7 @@ describe("getAnomalyTrend", () => {
       },
     ]);
 
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {});
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
 
     // missing_price, missing_quantity, missing_labor_time all opened
     expect(result.trend).toEqual([
@@ -142,7 +194,7 @@ describe("getAnomalyTrend", () => {
       },
     ]);
 
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {});
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
 
     // INSERT: missing_price opened. UPDATE: missing_price resolved.
     expect(result.trend).toEqual([
@@ -170,7 +222,7 @@ describe("getAnomalyTrend", () => {
       },
     ]);
 
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {});
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
 
     expect(result.avgResolution).toEqual([
       { flagKey: "missing_price", flagLabel: "Prix manquant", avgDays: 3 },
@@ -197,7 +249,7 @@ describe("getAnomalyTrend", () => {
       },
     ]);
 
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {});
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
 
     // INSERT opens missing_price, DELETE resolves it
     expect(result.trend).toEqual([
@@ -233,7 +285,7 @@ describe("getAnomalyTrend", () => {
       },
     ]);
 
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {});
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
 
     // INSERT opens missing_price + missing_quantity
     // UPDATE 1 resolves missing_price
@@ -263,7 +315,7 @@ describe("getAnomalyTrend", () => {
       },
     ]);
 
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {
       date_from: "2025-06-01",
       date_to: "2025-06-30",
     });
@@ -285,7 +337,7 @@ describe("getAnomalyTrend", () => {
       },
     ]);
 
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {});
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
 
     // missing_labor_role: h_mo > 0 && labor_role_id is null
     expect(result.trend).toEqual([
@@ -305,9 +357,104 @@ describe("getAnomalyTrend", () => {
       },
     ]);
 
-    const result = await getAnomalyTrend(supabase, TENANT_ID, {});
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
 
     expect(result.trend).toEqual([]);
     expect(result.avgResolution).toEqual([]);
+  });
+
+  it("queries newest rows but replays transitions chronologically", async () => {
+    const supabase = buildMockSupabase([
+      {
+        id: "log-2",
+        created_at: "2025-06-03T00:00:00Z",
+        record_id: "item-1",
+        action: "UPDATE",
+        before_data: { unit_price_ht_cents: 0, quantity: 5, h_mo: 2, labor_role_id: "role-1" },
+        after_data: { unit_price_ht_cents: 500, quantity: 5, h_mo: 2, labor_role_id: "role-1" },
+      },
+      {
+        id: "log-1",
+        created_at: "2025-06-01T00:00:00Z",
+        record_id: "item-1",
+        action: "INSERT",
+        before_data: null,
+        after_data: { unit_price_ht_cents: 0, quantity: 5, h_mo: 2, labor_role_id: "role-1" },
+      },
+    ]);
+
+    const result = await getAnomalyTrend(supabase as never, TENANT_ID, {});
+
+    expect(supabase.__query.order).toHaveBeenCalledWith(
+      "created_at",
+      { ascending: false }
+    );
+    expect(result.avgResolution).toEqual([
+      { flagKey: "missing_price", flagLabel: "Prix manquant", avgDays: 2 },
+    ]);
+  });
+});
+
+describe("getCurrentAnomalySummary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("derives version label from version_number and uses it for search", async () => {
+    vi.mocked(computeEstimateQualityFlagsByItemId).mockReturnValue({
+      "item-1": ["missing_price"],
+    });
+
+    const supabase = buildMockSummarySupabase({
+      estimateItemsRows: [
+        {
+          id: "item-1",
+          item_type: "line",
+          selected_supplier_price_id: null,
+          estimate_versions: {
+            id: "version-1",
+            title: null,
+            version_number: 12,
+            tenant_id: TENANT_ID,
+            estimate_projects: {
+              id: "project-1",
+              name: "Projet A",
+              is_archived: false,
+              user_id: "owner-1",
+              profiles: {
+                id: "owner-1",
+                full_name: "Owner One",
+              },
+            },
+          },
+        },
+      ],
+      dismissalRows: [],
+    });
+
+    const result = await getCurrentAnomalySummary(supabase as never, TENANT_ID, {
+      search: "v12",
+    });
+
+    expect(supabase.__mocks.estimateItemSelect).toHaveBeenCalledWith(
+      expect.stringContaining("title")
+    );
+    expect(supabase.__mocks.estimateItemSelect).toHaveBeenCalledWith(
+      expect.stringContaining("version_number")
+    );
+    expect(supabase.__mocks.estimateItemSelect).not.toHaveBeenCalledWith(
+      expect.stringContaining("label")
+    );
+    expect(result.currentAnomalies).toEqual([
+      expect.objectContaining({
+        versionId: "version-1",
+        versionLabel: "V12",
+        projectName: "Projet A",
+        ownerName: "Owner One",
+        flagKey: "missing_price",
+        severity: "blocking",
+        itemCount: 1,
+      }),
+    ]);
   });
 });

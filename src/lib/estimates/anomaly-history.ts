@@ -180,6 +180,21 @@ type VersionMeta = {
   ownerName: string;
 };
 
+function resolveVersionLabel(input: {
+  id: string;
+  title: string | null;
+  version_number: number;
+}): string {
+  const title = input.title?.trim();
+  if (title && title.length > 0) {
+    return title;
+  }
+  if (Number.isFinite(input.version_number)) {
+    return `V${input.version_number}`;
+  }
+  return input.id;
+}
+
 export async function getCurrentAnomalySummary(
   supabase: Supabase,
   tenantId: string,
@@ -196,7 +211,8 @@ export async function getCurrentAnomalySummary(
       *,
       estimate_versions!inner (
         id,
-        label,
+        title,
+        version_number,
         tenant_id,
         estimate_projects!inner (
           id,
@@ -228,7 +244,8 @@ export async function getCurrentAnomalySummary(
   type ItemWithJoins = EstimateItemRow & {
     estimate_versions: {
       id: string;
-      label: string;
+      title: string | null;
+      version_number: number;
       tenant_id: string;
       estimate_projects: {
         id: string;
@@ -245,7 +262,8 @@ export async function getCurrentAnomalySummary(
       }[];
     } | {
       id: string;
-      label: string;
+      title: string | null;
+      version_number: number;
       tenant_id: string;
       estimate_projects: {
         id: string;
@@ -286,12 +304,11 @@ export async function getCurrentAnomalySummary(
     }
 
     // Apply search filter
+    const versionLabel = resolveVersionLabel(version);
     if (filters.search) {
       const lowerSearch = filters.search.toLowerCase();
       const matchesProject = project.name.toLowerCase().includes(lowerSearch);
-      const matchesVersion = (version.label ?? "")
-        .toLowerCase()
-        .includes(lowerSearch);
+      const matchesVersion = versionLabel.toLowerCase().includes(lowerSearch);
       if (!matchesProject && !matchesVersion) continue;
     }
 
@@ -302,7 +319,7 @@ export async function getCurrentAnomalySummary(
     if (!versionMetaMap.has(version.id)) {
       versionMetaMap.set(version.id, {
         versionId: version.id,
-        versionLabel: version.label ?? version.id,
+        versionLabel,
         projectName: project.name,
         ownerUserId: project.user_id,
         ownerName: profile?.full_name ?? "Inconnu",
@@ -580,7 +597,7 @@ export async function getAnomalyTrend(
     .eq("table_name", "estimate_items")
     .in("action", ["INSERT", "UPDATE", "DELETE"])
     .gte("created_at", twelveMonthsAgo.toISOString())
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(MAX_AUDIT_ROWS);
 
   if (logsError) {
@@ -590,7 +607,11 @@ export async function getAnomalyTrend(
     );
   }
 
-  const logs = (rawLogs ?? []) as AuditLogRow[];
+  // Query keeps newest rows; replay in chronological order for correct transitions.
+  const logs = ((rawLogs ?? []) as AuditLogRow[]).sort(
+    (a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
 
   // Running state: tracks which flags are currently "open" for each item
   // key = `${record_id}::${flag_key}`, value = opened_at timestamp

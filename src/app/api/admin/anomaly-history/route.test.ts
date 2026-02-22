@@ -168,7 +168,9 @@ describe("/api/admin/anomaly-history", () => {
         },
       ],
     });
-    vi.mocked(getAnomalyTrend).mockResolvedValue(EMPTY_TREND_RESULT);
+    vi.mocked(getAnomalyTrend).mockRejectedValue(
+      new Error("trend should not run for csv")
+    );
 
     const request = new Request(
       "http://localhost/api/admin/anomaly-history?format=csv"
@@ -182,5 +184,6 @@ describe("/api/admin/anomaly-history", () => {
     expect(text).toContain("Version ID");
     expect(text).toContain("Projet A");
     expect(text).toContain("Prix manquant");
+    expect(vi.mocked(getAnomalyTrend)).not.toHaveBeenCalled();
   });
 });
