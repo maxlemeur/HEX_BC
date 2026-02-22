@@ -304,6 +304,9 @@ describe("streamEstimateVersionBdcV11Xlsx", () => {
     expect(typeof lineRow[15]).toBe("number");
     expect(typeof lineRow[16]).toBe("number");
     expect(typeof lineRow[17]).toBe("number");
+    expect(Math.round((lineRow[17] as number) * 100)).toBe(
+      Math.round((lineRow[15] as number) * 100) + Math.round((lineRow[16] as number) * 100)
+    );
 
     const identificationColor = sheet?.cellStates.get("1:1")?.fill?.fgColor.argb;
     const foColor = sheet?.cellStates.get("1:7")?.fill?.fgColor.argb;
@@ -331,6 +334,151 @@ describe("streamEstimateVersionBdcV11Xlsx", () => {
     expect(sheet?.cellStates.get("3:8")?.numFmt).toBe("#,##0.00 \"€\"");
     expect(sheet?.cellStates.get("3:16")?.numFmt).toBe("#,##0.00 \"€\"");
     expect(sheet?.cellStates.get("3:20")?.numFmt).toBe("#,##0.00 \"€\"");
+  });
+
+  it("chunks supplier comparison requests when estimate has more than 200 lines", async () => {
+    const lineItems = Array.from({ length: 201 }, (_, index) => ({
+      id: `line-${index + 1}`,
+      item_type: "line" as const,
+      parent_id: null,
+      position: index + 1,
+      title: `Ligne ${index + 1}`,
+      description: "u",
+      quantity: 1,
+      unit_price_ht_cents: 1000,
+      tax_rate_bp: 2000,
+      k_fo: 1,
+      h_mo: 0,
+      h_mo_majoration: 1,
+      k_mo: 1,
+      h_mo_atelier: null,
+      k_mo_atelier: null,
+      labor_role_atelier_id: null,
+      h_mo_chantier: null,
+      k_mo_chantier: null,
+      labor_role_chantier_id: null,
+      pu_ht_cents: null,
+      labor_role_id: null,
+      category_id: null,
+      supply_type_id: null,
+      line_total_ht_cents: null,
+      line_tax_cents: null,
+      line_total_ttc_cents: null,
+    }));
+
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+      version: {
+        id: VERSION_ID,
+        version_number: 5,
+        margin_multiplier: 1,
+        tax_rate_bp: 2000,
+        estimate_projects: {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Projet Beta",
+          reference: "BETA/2026",
+        },
+      },
+      items: lineItems,
+      supply_types: [],
+      labor_roles: [],
+      categories: [],
+    } as never);
+    vi.mocked(getEstimateSupplierComparisons).mockImplementation(
+      async (_versionId: string, itemIds: string[]) =>
+        ({
+          comparisons: itemIds.map((itemId) => ({
+            item_id: itemId,
+            selected_supplier_price_id: null,
+            alternatives: [],
+          })),
+        }) as never
+    );
+
+    const { workbookWriterFactory } = createWorkbookHarness();
+    const exported = await streamEstimateVersionBdcV11Xlsx(VERSION_ID, {
+      workbookWriterFactory,
+    });
+
+    const bytes = Buffer.from(await new Response(exported.stream).arrayBuffer());
+    expect(bytes.byteLength).toBeGreaterThan(0);
+
+    const calls = vi.mocked(getEstimateSupplierComparisons).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[1]).toHaveLength(200);
+    expect(calls[1]?.[1]).toHaveLength(1);
+  });
+
+  it("computes FO total from line-level rounding instead of per-unit pre-rounding", async () => {
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue({
+      version: {
+        id: VERSION_ID,
+        version_number: 6,
+        margin_multiplier: 1,
+        tax_rate_bp: 2000,
+        estimate_projects: {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Projet Gamma",
+          reference: "GAMMA/2026",
+        },
+      },
+      items: [
+        {
+          id: "line-fo-rounding",
+          item_type: "line",
+          parent_id: null,
+          position: 1,
+          title: "Rounding line",
+          description: "u",
+          quantity: 3,
+          unit_price_ht_cents: 101,
+          tax_rate_bp: 2000,
+          k_fo: 0.3333,
+          h_mo: 0.0002,
+          h_mo_majoration: 1,
+          k_mo: 1,
+          h_mo_atelier: null,
+          k_mo_atelier: null,
+          labor_role_atelier_id: null,
+          h_mo_chantier: null,
+          k_mo_chantier: null,
+          labor_role_chantier_id: null,
+          pu_ht_cents: null,
+          labor_role_id: "role-1",
+          category_id: null,
+          supply_type_id: null,
+          line_total_ht_cents: null,
+          line_tax_cents: null,
+          line_total_ttc_cents: null,
+        },
+      ],
+      supply_types: [],
+      labor_roles: [
+        {
+          id: "role-1",
+          name: "Poseur",
+          hourly_rate_cents: 5000,
+        },
+      ],
+      categories: [],
+    } as never);
+    vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({
+      comparisons: [],
+    } as never);
+
+    const { workbookWriterFactory, worksheets } = createWorkbookHarness();
+    const exported = await streamEstimateVersionBdcV11Xlsx(VERSION_ID, {
+      workbookWriterFactory,
+    });
+
+    const bytes = Buffer.from(await new Response(exported.stream).arrayBuffer());
+    expect(bytes.byteLength).toBeGreaterThan(0);
+
+    const sheet = worksheets.find((entry) => entry.name === "BDC_V1_1");
+    const lineRow = sheet?.rows[1] as unknown[];
+
+    expect(Math.round((lineRow[15] as number) * 100)).toBe(101);
+    expect(Math.round((lineRow[16] as number) * 100)).toBe(1);
+    expect(Math.round((lineRow[17] as number) * 100)).toBe(102);
   });
 
   it("skips supplier comparison call when there are no line items", async () => {

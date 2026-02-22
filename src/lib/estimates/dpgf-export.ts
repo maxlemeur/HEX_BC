@@ -62,6 +62,12 @@ type DpgfLineRow = {
   majorationMo: number | null;
   roleMo: string;
   categorie: string;
+  hMoAtelier: number | null;
+  kMoAtelier: number | null;
+  roleMoAtelier: string;
+  hMoChantier: number | null;
+  kMoChantier: number | null;
+  roleMoChantier: string;
   isSection: boolean;
 };
 
@@ -236,6 +242,42 @@ function resolveLaborHours(item: EstimateItemRecord) {
   return item.h_mo ?? 0;
 }
 
+function resolveLaborCoefficient(item: EstimateItemRecord) {
+  if (!isLaborSplitEnabled(item)) {
+    return item.k_mo ?? 1;
+  }
+
+  const hAtelier = item.h_mo_atelier ?? 0;
+  const hChantier = item.h_mo_chantier ?? 0;
+  const totalHours = hAtelier + hChantier;
+  if (totalHours <= 0) return 1;
+
+  const kAtelier = item.k_mo_atelier ?? 1;
+  const kChantier = item.k_mo_chantier ?? 1;
+  return (hAtelier * kAtelier + hChantier * kChantier) / totalHours;
+}
+
+function resolveLaborRoleSplitLabels(
+  item: EstimateItemRecord,
+  laborRoleNameById: Map<string, string>
+) {
+  if (!isLaborSplitEnabled(item)) {
+    return {
+      atelier: "",
+      chantier: "",
+    };
+  }
+
+  return {
+    atelier: item.labor_role_atelier_id
+      ? (laborRoleNameById.get(item.labor_role_atelier_id) ?? "Role atelier")
+      : "",
+    chantier: item.labor_role_chantier_id
+      ? (laborRoleNameById.get(item.labor_role_chantier_id) ?? "Role chantier")
+      : "",
+  };
+}
+
 function buildDpgfRows(input: {
   items: EstimateItemRecord[];
   supplyTypeById: Map<string, string>;
@@ -262,9 +304,18 @@ function buildDpgfRows(input: {
         majorationMo: null,
         roleMo: "",
         categorie: "",
+        hMoAtelier: null,
+        kMoAtelier: null,
+        roleMoAtelier: "",
+        hMoChantier: null,
+        kMoChantier: null,
+        roleMoChantier: "",
         isSection: true,
       };
     }
+
+    const splitEnabled = isLaborSplitEnabled(item);
+    const splitRoleLabels = resolveLaborRoleSplitLabels(item, input.laborRoleNameById);
 
     return {
       type: "line",
@@ -275,10 +326,16 @@ function buildDpgfRows(input: {
       typeFo: item.supply_type_id ? (input.supplyTypeById.get(item.supply_type_id) ?? "") : "",
       kFo: item.k_fo ?? 1,
       hMo: resolveLaborHours(item),
-      kMo: item.k_mo ?? 1,
+      kMo: resolveLaborCoefficient(item),
       majorationMo: item.h_mo_majoration ?? 1,
       roleMo: resolveLaborRoleLabel(item, input.laborRoleNameById),
       categorie: item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
+      hMoAtelier: splitEnabled ? (item.h_mo_atelier ?? 0) : null,
+      kMoAtelier: splitEnabled ? (item.k_mo_atelier ?? 1) : null,
+      roleMoAtelier: splitRoleLabels.atelier,
+      hMoChantier: splitEnabled ? (item.h_mo_chantier ?? 0) : null,
+      kMoChantier: splitEnabled ? (item.k_mo_chantier ?? 1) : null,
+      roleMoChantier: splitRoleLabels.chantier,
       isSection: false,
     };
   });
@@ -305,6 +362,12 @@ async function writeWorkbook(input: {
     { header: "Majoration MO", key: "majoration_mo", width: 18 },
     { header: "Role MO", key: "role_mo", width: 24 },
     { header: "Categorie", key: "categorie", width: 24 },
+    { header: "h MO Atelier", key: "h_mo_atelier", width: 14 },
+    { header: "K MO Atelier", key: "k_mo_atelier", width: 14 },
+    { header: "Role MO Atelier", key: "role_mo_atelier", width: 24 },
+    { header: "h MO Chantier", key: "h_mo_chantier", width: 15 },
+    { header: "K MO Chantier", key: "k_mo_chantier", width: 15 },
+    { header: "Role MO Chantier", key: "role_mo_chantier", width: 24 },
   ];
   styleWorksheetHeader(dataSheet);
 
@@ -322,6 +385,12 @@ async function writeWorkbook(input: {
       row.majorationMo,
       row.roleMo,
       row.categorie,
+      row.hMoAtelier,
+      row.kMoAtelier,
+      row.roleMoAtelier,
+      row.hMoChantier,
+      row.kMoChantier,
+      row.roleMoChantier,
     ]);
 
     if (row.isSection) {
@@ -329,7 +398,7 @@ async function writeWorkbook(input: {
         bold: true,
       };
     } else {
-      setDecimalColumns(dataRow, [3, 7, 8, 9, 10]);
+      setDecimalColumns(dataRow, [3, 7, 8, 9, 10, 13, 14, 16, 17]);
       setCurrencyColumns(dataRow, [5]);
     }
 

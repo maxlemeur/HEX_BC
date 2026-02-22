@@ -110,6 +110,8 @@ type BdcExportPayload = {
   rows: BdcExportRow[];
 };
 
+const SUPPLIER_COMPARISON_BATCH_SIZE = 200;
+
 function toSafeString(value: string | null | undefined, fallback: string) {
   const normalized = value?.trim();
   if (!normalized) return fallback;
@@ -362,6 +364,28 @@ function resolveSupplierByRank(
   };
 }
 
+async function getSupplierComparisonsForExport(versionId: string, lineItemIds: string[]) {
+  if (lineItemIds.length === 0) {
+    return [] as SupplierComparison[];
+  }
+
+  const comparisons: SupplierComparison[] = [];
+  for (
+    let startIndex = 0;
+    startIndex < lineItemIds.length;
+    startIndex += SUPPLIER_COMPARISON_BATCH_SIZE
+  ) {
+    const batchItemIds = lineItemIds.slice(
+      startIndex,
+      startIndex + SUPPLIER_COMPARISON_BATCH_SIZE
+    );
+    const batchResult = await getEstimateSupplierComparisons(versionId, batchItemIds);
+    comparisons.push(...(batchResult.comparisons as SupplierComparison[]));
+  }
+
+  return comparisons;
+}
+
 function buildBdcRows(input: {
   items: EstimateItemRecord[];
   version: EstimateVersionForCalc & { version_number: number };
@@ -423,7 +447,7 @@ function buildBdcRows(input: {
     const unitPriceFoCents = Math.max(toNullableNumber(item.unit_price_ht_cents) ?? 0, 0);
     const kFo = Math.max(item.k_fo ?? 1, 0);
     const prFoCents = Math.round(unitPriceFoCents * kFo);
-    const foTotalCents = Math.round(quantity * prFoCents);
+    const foTotalCents = Math.round(quantity * unitPriceFoCents * kFo);
 
     const laborRateLegacyCents = item.labor_role_id
       ? (input.laborRateById.get(item.labor_role_id) ?? 0)
@@ -451,6 +475,7 @@ function buildBdcRows(input: {
     );
 
     const moTotalCents = Math.max(lineValues.costLineCents - foTotalCents, 0);
+    const totalHtCents = foTotalCents + moTotalCents;
 
     return {
       type: "line",
@@ -475,7 +500,7 @@ function buildBdcRows(input: {
       categorie: item.category_id ? (input.categoryById.get(item.category_id) ?? "") : "",
       totalFoHtEur: toEuroAmount(foTotalCents),
       totalMoHtEur: toEuroAmount(moTotalCents),
-      totalHtEur: toEuroAmount(lineValues.saleLineCents),
+      totalHtEur: toEuroAmount(totalHtCents),
       supplier1Name: supplier1.name,
       supplier1PriceEur: supplier1.unitPriceEur,
       supplier1Ref: supplier1.reference,
@@ -622,15 +647,10 @@ async function buildBdcExportPayload(versionId: string): Promise<BdcExportPayloa
     .filter((item) => item.item_type === "line")
     .map((item) => item.id);
 
-  const supplierComparisons = lineItemIds.length
-    ? await getEstimateSupplierComparisons(versionId, lineItemIds)
-    : { comparisons: [] };
+  const supplierComparisons = await getSupplierComparisonsForExport(versionId, lineItemIds);
 
   const comparisonByItemId = new Map(
-    (supplierComparisons.comparisons as SupplierComparison[]).map((comparison) => [
-      comparison.item_id,
-      comparison,
-    ])
+    supplierComparisons.map((comparison) => [comparison.item_id, comparison])
   );
   const supplyTypeById = new Map(
     (details.supply_types ?? []).map((supplyType) => [supplyType.id, supplyType.name])
