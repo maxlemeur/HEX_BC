@@ -33,6 +33,7 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
   - `npm run e2e:hex:settings`
   - `npm run e2e:hex:security`
   - `npm run e2e:hex:assemblies`
+  - `npm run e2e:hex:dpgf`
 
 ### Suite matrix
 
@@ -64,6 +65,8 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
   - `ti-141-db-rls.ps1`
 - `assemblies`:
   - `ti-182-assemblies.ps1`
+- `dpgf`:
+  - `dpgf-import-flow.ps1`
 - `all`:
   - full HEX coverage (including `ti-140-epic.ps1`)
 

@@ -1,0 +1,9 @@
+supplier_id;product_id;unit_price;currency
+a1eb7cf8-93af-4581-8a0f-ac2aa8d25979;adf54da7-33ad-4aeb-9d3e-d33bc2eb714a;25.50;EUR
+d32526da-8485-4b72-ba1a-09696ff031da;ccf2cb35-1b6b-4427-9532-0520df7e1696;8.00;EUR
+CEDEO;Tube Inox;15.00;EUR
+;adf54da7-33ad-4aeb-9d3e-d33bc2eb714a;10.00;EUR
+d32526da-8485-4b72-ba1a-09696ff031da;;12.00;USD
+9f7b985d-11da-4573-b276-340bdef55faa;adf54da7-33ad-4aeb-9d3e-d33bc2eb714a;;EUR
+d32526da-8485-4b72-ba1a-09696ff031da;ccf2cb35-1b6b-4427-9532-0520df7e1696;-5.00;EUR
+5c4b5667-bb1e-4295-a3e8-9b0dbd9c4a02;adf54da7-33ad-4aeb-9d3e-d33bc2eb714a;42,90;EUR

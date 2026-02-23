@@ -16,6 +16,7 @@
     "e2e:hex:settings": "node ./e2e/run-ps1.mjs e2e/hex/run-all.ps1 -Suite settings",
     "e2e:hex:security": "node ./e2e/run-ps1.mjs e2e/hex/run-all.ps1 -Suite security",
     "e2e:hex:assemblies": "node ./e2e/run-ps1.mjs e2e/hex/run-all.ps1 -Suite assemblies",
+    "e2e:hex:dpgf": "node ./e2e/run-ps1.mjs e2e/hex/run-all.ps1 -Suite dpgf",
     "e2e:run": "node ./e2e/run-ps1.mjs",
     "lint": "eslint . --max-warnings=0",
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",

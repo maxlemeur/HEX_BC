@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 
 function Get-HexSuites {
   $all = @(
+    "prices-page.ps1",
     "ti-140-epic.ps1",
     "est-101-keyboard.ps1",
     "est-102-inline-edit.ps1",
@@ -24,7 +25,8 @@ function Get-HexSuites {
     "ti-152-export.ps1",
     "ti-153-suggestions.ps1",
     "ti-141-db-rls.ps1",
-    "ti-142-types.ps1"
+    "ti-142-types.ps1",
+    "dpgf-import-flow.ps1"
   )
 
   return [ordered]@{
@@ -33,6 +35,9 @@ function Get-HexSuites {
       "ti-147-editor.ps1",
       "ti-148-calculations.ps1",
       "ti-150-status.ps1"
+    )
+    dpgf = @(
+      "dpgf-import-flow.ps1"
     )
     editor = @(
       "est-101-keyboard.ps1",
@@ -65,6 +70,9 @@ function Get-HexSuites {
     )
     assemblies = @(
       "ti-182-assemblies.ps1"
+    )
+    catalogue = @(
+      "prices-page.ps1"
     )
     all = $all
   }
