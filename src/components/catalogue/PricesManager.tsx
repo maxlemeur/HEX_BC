@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchApi } from "@/components/catalogue/api";
 import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
 import type { SupplierPrice } from "@/components/catalogue/types";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   DEFAULT_STALE_PRICE_DAYS,
   isPriceStale,
@@ -41,7 +43,13 @@ const EMPTY_FORM: SupplierPriceFormState = {
 
 function formatDate(value: string | undefined | null) {
   if (!value) return "-";
-  return value;
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 }
 
 function toEuroInput(unitPriceCents: number | undefined) {
@@ -82,8 +90,43 @@ export function PricesManager() {
       2
     )
   );
+  const [showBulkJson, setShowBulkJson] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // --- Resolution noms ---
+  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
+  const [products, setProducts] = useState<{ id: string; designation: string; reference?: string | null }[]>([]);
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  const supplierMap = useMemo(() => new Map(suppliers.map((s) => [s.id, s.name])), [suppliers]);
+  const productMap = useMemo(() => new Map(products.map((p) => [p.id, p.designation])), [products]);
+
+  const supplierOptions = useMemo(
+    () => suppliers.map((s) => ({ value: s.id, label: s.name })),
+    [suppliers]
+  );
+  const productOptions = useMemo(
+    () => products.map((p) => ({ value: p.id, label: p.designation, keywords: [p.reference ?? ""].filter(Boolean) })),
+    [products]
+  );
+
+  useEffect(() => {
+    async function loadLookups() {
+      const [sr, pr] = await Promise.all([
+        supabase.from("suppliers").select("id, name").order("name"),
+        supabase.from("products").select("id, designation, reference").order("designation"),
+      ]);
+      setSuppliers((sr.data ?? []) as { id: string; name: string }[]);
+      setProducts((pr.data ?? []) as { id: string; designation: string; reference?: string | null }[]);
+    }
+    void loadLookups();
+  }, [supabase]);
+
+  // --- Feedback formulaire ---
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
+  const formSectionRef = useRef<HTMLElement>(null);
 
   const displayedItems = useMemo(() => {
     if (!staleOnly) return items;
@@ -132,9 +175,17 @@ export function PricesManager() {
     void loadItems();
   }, [loadItems]);
 
+  useEffect(() => {
+    if (editingId && formSectionRef.current) {
+      formSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [editingId]);
+
   function resetForm() {
     setEditingId(null);
     setFormState(EMPTY_FORM);
+    setFormError(null);
+    setFormSuccess(null);
   }
 
   function onEdit(item: SupplierPrice) {
@@ -151,6 +202,8 @@ export function PricesManager() {
     });
     setError(null);
     setSuccess(null);
+    setFormError(null);
+    setFormSuccess(null);
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -158,18 +211,18 @@ export function PricesManager() {
 
     const unitPriceCents = parseEuroToCents(formState.unit_price_euros);
     if (unitPriceCents === null || unitPriceCents < 0) {
-      setError("Prix unitaire invalide.");
+      setFormError("Prix unitaire invalide.");
       return;
     }
 
     if (!formState.supplier_id.trim() || !formState.product_id.trim()) {
-      setError("supplier_id et product_id sont requis.");
+      setFormError("Le fournisseur et le produit sont requis.");
       return;
     }
 
     setIsSaving(true);
-    setError(null);
-    setSuccess(null);
+    setFormError(null);
+    setFormSuccess(null);
 
     try {
       if (editingId) {
@@ -194,7 +247,7 @@ export function PricesManager() {
           }),
         });
 
-        setSuccess("Prix fournisseur mis a jour.");
+        setFormSuccess("Prix fournisseur mis a jour.");
       } else {
         await fetchApi<{ item: SupplierPrice }>("/api/prices", {
           method: "POST",
@@ -216,13 +269,13 @@ export function PricesManager() {
           }),
         });
 
-        setSuccess("Prix fournisseur cree.");
+        setFormSuccess("Prix fournisseur cree.");
       }
 
       resetForm();
       await loadItems();
     } catch (saveError) {
-      setError(
+      setFormError(
         saveError instanceof Error
           ? saveError.message
           : "Impossible d'enregistrer le prix fournisseur."
@@ -273,7 +326,7 @@ export function PricesManager() {
     try {
       parsedPayload = JSON.parse(bulkPayload);
     } catch {
-      setError("Le JSON de bulk create est invalide.");
+      setError("Le JSON saisi est invalide.");
       return;
     }
 
@@ -293,13 +346,13 @@ export function PricesManager() {
         }),
       });
 
-      setSuccess(`Bulk create termine: ${result.created_count} lignes (${result.mode}).`);
+      setSuccess(`Creation en masse terminee : ${result.created_count} ligne(s) creee(s).`);
       await loadItems();
     } catch (bulkError) {
       setError(
         bulkError instanceof Error
           ? bulkError.message
-          : "Impossible d'executer le bulk create."
+          : "Impossible d'executer la creation en masse."
       );
     } finally {
       setIsBulkRunning(false);
@@ -308,14 +361,14 @@ export function PricesManager() {
 
   return (
     <div className="space-y-6">
-      <PriceBookCsvImport onImported={loadItems} />
+      <PriceBookCsvImport onImported={loadItems} lookups={{ suppliers, products }} />
 
       <section className="dashboard-card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-[var(--slate-900)]">Prix fournisseur</h2>
             <p className="text-sm text-[var(--slate-500)]">
-              CRUD + operation bulk create via endpoint RPC/fallback.
+              Liste des prix fournisseurs enregistres.
             </p>
           </div>
 
@@ -327,51 +380,60 @@ export function PricesManager() {
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <div>
             <label className="form-label" htmlFor="prices-filter-supplier">
-              Filtre supplier_id
+              Filtrer par fournisseur
             </label>
-            <input
+            <SearchableSelect
               id="prices-filter-supplier"
-              className="form-input"
               value={searchSupplierId}
-              onChange={(event) => setSearchSupplierId(event.target.value)}
-              placeholder="UUID fournisseur"
+              options={[{ value: "", label: "Tous les fournisseurs" }, ...supplierOptions]}
+              placeholder="Tous les fournisseurs"
+              onValueChange={(val) => setSearchSupplierId(val)}
             />
           </div>
           <div>
             <label className="form-label" htmlFor="prices-filter-product">
-              Filtre product_id
+              Filtrer par produit
             </label>
-            <input
+            <SearchableSelect
               id="prices-filter-product"
-              className="form-input"
               value={searchProductId}
-              onChange={(event) => setSearchProductId(event.target.value)}
-              placeholder="UUID produit"
+              options={[{ value: "", label: "Tous les produits" }, ...productOptions]}
+              placeholder="Tous les produits"
+              onValueChange={(val) => setSearchProductId(val)}
             />
           </div>
         </div>
-        <label className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
+        <label
+          className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--slate-700)]"
+          title={`Affiche uniquement les prix non mis a jour depuis plus de ${stalePriceDays} jours`}
+        >
           <input
             type="checkbox"
             checked={staleOnly}
             onChange={(event) => setStaleOnly(event.target.checked)}
           />
-          Prix anciens seulement ({stalePriceDays} jours)
+          Prix anciens seulement (non mis a jour depuis {stalePriceDays} jours)
         </label>
 
         {error ? <div className="alert alert-error mt-4">{error}</div> : null}
         {success ? <div className="alert alert-success mt-4">{success}</div> : null}
 
-        <div className="mt-4 table-scroll">
+        {!isLoading && items.length > 0 ? (
+          <p className="mt-4 text-xs text-[var(--slate-500)]">
+            Affichage de {displayedItems.length} prix{staleOnly && items.length !== displayedItems.length ? ` sur ${items.length} charges` : ""}
+          </p>
+        ) : null}
+
+        <div className="mt-2 table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Supplier ID</th>
-                <th>Product ID</th>
+                <th>Fournisseur</th>
+                <th>Produit</th>
                 <th>Prix</th>
                 <th>Validite</th>
-                <th>Maj</th>
-                <th>Anciennete</th>
+                <th>Mis a jour le</th>
+                <th title="Indique si le prix n'a pas ete mis a jour depuis longtemps">Fraicheur</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
@@ -400,9 +462,12 @@ export function PricesManager() {
 
                   return (
                     <tr key={item.id}>
-                      <td className="font-mono text-xs text-[var(--slate-700)]">{item.supplier_id}</td>
-                      <td className="font-mono text-xs text-[var(--slate-700)]">
-                        {item.product_id ?? item.catalogue_item_id}
+                      <td className="text-sm text-[var(--slate-700)]">
+                        {supplierMap.get(item.supplier_id) ?? item.supplier_id}
+                      </td>
+                      <td className="text-sm text-[var(--slate-700)]">
+                        {productMap.get(item.product_id ?? item.catalogue_item_id ?? "") ??
+                          item.product_id ?? item.catalogue_item_id}
                       </td>
                       <td className="font-medium text-[var(--slate-900)]">
                         {typeof item.unit_price_cents === "number"
@@ -411,9 +476,13 @@ export function PricesManager() {
                         {item.currency ? ` ${item.currency}` : ""}
                       </td>
                       <td>
-                        {formatDate(item.valid_from)} {"->"} {formatDate(item.valid_to)}
+                        {item.valid_from || item.valid_to ? (
+                          <>{formatDate(item.valid_from)} {"\u2192"} {item.valid_to ? formatDate(item.valid_to) : "(illimite)"}</>
+                        ) : (
+                          <span className="text-[var(--slate-400)]">Non definie</span>
+                        )}
                       </td>
-                      <td>{item.updated_at ?? item.created_at ?? "-"}</td>
+                      <td>{formatDate(item.updated_at ?? item.created_at)}</td>
                       <td>
                         {stale ? (
                           <span className="inline-flex rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
@@ -450,39 +519,39 @@ export function PricesManager() {
         </div>
       </section>
 
-      <section className="dashboard-card p-6">
+      <section ref={formSectionRef} className="dashboard-card p-6">
         <h2 className="text-lg font-semibold text-[var(--slate-900)]">
           {editingId ? "Modifier un prix fournisseur" : "Ajouter un prix fournisseur"}
         </h2>
+        {formError ? <div className="alert alert-error mt-2">{formError}</div> : null}
+        {formSuccess ? <div className="alert alert-success mt-2">{formSuccess}</div> : null}
 
         <form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={onSubmit}>
           <div>
             <label className="form-label" htmlFor="price-supplier-id">
-              Supplier ID
+              Fournisseur
             </label>
-            <input
+            <SearchableSelect
               id="price-supplier-id"
-              className="form-input"
               value={formState.supplier_id}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, supplier_id: event.target.value }))
-              }
+              options={supplierOptions}
+              placeholder="Rechercher un fournisseur..."
               required
+              onValueChange={(val) => setFormState((p) => ({ ...p, supplier_id: val }))}
             />
           </div>
 
           <div>
             <label className="form-label" htmlFor="price-product-id">
-              Product ID
+              Produit
             </label>
-            <input
+            <SearchableSelect
               id="price-product-id"
-              className="form-input"
               value={formState.product_id}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, product_id: event.target.value }))
-              }
+              options={productOptions}
+              placeholder="Rechercher un produit..."
               required
+              onValueChange={(val) => setFormState((p) => ({ ...p, product_id: val }))}
             />
           </div>
 
@@ -506,15 +575,16 @@ export function PricesManager() {
             <label className="form-label" htmlFor="price-currency">
               Devise
             </label>
-            <input
+            <select
               id="price-currency"
               className="form-input"
               value={formState.currency}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, currency: event.target.value }))
-              }
-              placeholder="EUR"
-            />
+              onChange={(e) => setFormState((p) => ({ ...p, currency: e.target.value }))}
+            >
+              <option value="EUR">EUR - Euro</option>
+              <option value="USD">USD - Dollar US</option>
+              <option value="GBP">GBP - Livre sterling</option>
+            </select>
           </div>
 
           <div>
@@ -558,6 +628,7 @@ export function PricesManager() {
               onChange={(event) =>
                 setFormState((prev) => ({ ...prev, source: event.target.value }))
               }
+              placeholder="ex: Devis, Catalogue, Site web..."
             />
           </div>
 
@@ -595,29 +666,42 @@ export function PricesManager() {
       </section>
 
       <section className="dashboard-card p-6">
-        <h2 className="text-lg font-semibold text-[var(--slate-900)]">Bulk create prix fournisseur</h2>
-        <p className="mt-1 text-sm text-[var(--slate-500)]">
-          Envoi direct vers `/api/prices` action `bulk-create`.
-        </p>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between text-left"
+          onClick={() => setShowBulkJson((prev) => !prev)}
+        >
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--slate-900)]">Mode avance</h2>
+            <p className="mt-1 text-sm text-[var(--slate-500)]">
+              Collez un tableau JSON pour creer plusieurs prix en une seule fois.
+            </p>
+          </div>
+          <span className="text-[var(--slate-400)] text-lg">{showBulkJson ? "\u25B2" : "\u25BC"}</span>
+        </button>
 
-        <textarea
-          className="form-input form-textarea mt-4 font-mono text-xs"
-          value={bulkPayload}
-          onChange={(event) => setBulkPayload(event.target.value)}
-          spellCheck={false}
-          rows={12}
-        />
+        {showBulkJson ? (
+          <>
+            <textarea
+              className="form-input form-textarea mt-4 font-mono text-xs"
+              value={bulkPayload}
+              onChange={(event) => setBulkPayload(event.target.value)}
+              spellCheck={false}
+              rows={12}
+            />
 
-        <div className="mt-4">
-          <button
-            type="button"
-            className="btn btn-accent"
-            onClick={() => void onBulkCreate()}
-            disabled={isBulkRunning}
-          >
-            {isBulkRunning ? "Traitement..." : "Executer bulk create"}
-          </button>
-        </div>
+            <div className="mt-4">
+              <button
+                type="button"
+                className="btn btn-accent"
+                onClick={() => void onBulkCreate()}
+                disabled={isBulkRunning}
+              >
+                {isBulkRunning ? "Traitement..." : "Lancer la creation en masse"}
+              </button>
+            </div>
+          </>
+        ) : null}
       </section>
     </div>
   );

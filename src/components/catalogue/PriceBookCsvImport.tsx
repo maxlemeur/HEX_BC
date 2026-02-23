@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 
+import { useCallback } from "react";
+
 import { fetchApi } from "@/components/catalogue/api";
 import { ColumnMapper } from "@/components/mappings/ColumnMapper";
 import { useFileParser, type ParsedImportRow } from "@/hooks/useFileParser";
@@ -11,6 +13,7 @@ import {
   suggestPriceBookColumnMapping,
   validatePriceBookRows,
   type PriceBookColumnMapping,
+  type PriceBookLookups,
   type PriceBookValidationProgress,
   type PriceBookValidationResult,
 } from "@/lib/catalogue/csv-import";
@@ -24,9 +27,9 @@ const ACCEPTED_FILE_TYPES = ".csv,text/csv,application/csv,text/plain";
 const ATOMIC_BULK_BATCH_SIZE = 5000;
 
 const TARGET_FIELDS = [
-  { value: "supplier_id", label: "Supplier ID", required: true },
-  { value: "product_id", label: "Product ID" },
-  { value: "catalogue_item_id", label: "Catalogue Item ID" },
+  { value: "supplier_name", label: "Fournisseur", required: true },
+  { value: "product_reference", label: "Reference produit" },
+  { value: "product_designation", label: "Designation produit" },
   { value: "unit_price", label: "Prix unitaire", required: true },
   { value: "currency", label: "Devise" },
 ];
@@ -48,8 +51,10 @@ function isCsvFile(file: File): boolean {
 
 export function PriceBookCsvImport({
   onImported,
+  lookups,
 }: {
   onImported: () => Promise<void> | void;
+  lookups: PriceBookLookups;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { parseFile } = useFileParser();
@@ -113,6 +118,7 @@ export function PriceBookCsvImport({
         previewLimit: 10,
         chunkSize: 200,
         rowLineNumbers: nextRowLineNumbers,
+        lookups,
         onProgress: (nextProgress) => {
           setProgress(nextProgress);
         },
@@ -180,7 +186,7 @@ export function PriceBookCsvImport({
   async function onRefreshPreview() {
     if (!canValidate) {
       setError(
-        "Le mapping minimal est incomplet: supplier_id, unit_price et product_id/catalogue_item_id."
+        "Le mapping minimal est incomplet : Fournisseur, Prix unitaire et Reference ou Designation produit."
       );
       return;
     }
@@ -214,7 +220,7 @@ export function PriceBookCsvImport({
 
       await onImported();
 
-      setSuccess(`Import termine: ${result.created_count} ligne(s) creee(s) (${result.mode}).`);
+      setSuccess(`Import termine : ${result.created_count} ligne(s) creee(s).`);
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -226,6 +232,23 @@ export function PriceBookCsvImport({
     }
   }
 
+  const downloadCsvTemplate = useCallback(() => {
+    const lines = [
+      "# Colonnes acceptees : fournisseur (nom), reference ou designation (produit), prix, devise",
+      "# Les noms doivent correspondre exactement a ceux enregistres dans l'application",
+      "fournisseur;reference_produit;prix_unitaire;devise",
+      "CEDEO;TUBE-INOX-28;12.50;EUR",
+      "ARCUS;CABLE-3G1.5;8.00;EUR",
+    ];
+    const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "modele_prix_fournisseurs.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
   const autoMappedCount = Object.keys(mapping).length;
 
   return (
@@ -233,10 +256,10 @@ export function PriceBookCsvImport({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-[var(--slate-900)]">
-            Import CSV price book
+            Importer un fichier de prix (CSV)
           </h2>
           <p className="text-sm text-[var(--slate-500)]">
-            Workflow en 3 etapes: upload, mapping/validation, import des lignes valides.
+            Importez vos prix depuis un fichier CSV en 3 etapes : chargement du fichier, verification des colonnes, puis import.
           </p>
         </div>
       </div>
@@ -269,7 +292,7 @@ export function PriceBookCsvImport({
             onClick={() => void onAnalyzeFile()}
             disabled={!selectedFile || isParsing || isValidating || isSubmitting}
           >
-            {isParsing ? "Parsing..." : "Analyser"}
+            {isParsing ? "Analyse..." : "Analyser"}
           </button>
 
           <button
@@ -286,21 +309,30 @@ export function PriceBookCsvImport({
           </button>
         </div>
 
-        {selectedFile ? (
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
-            {selectedFile.name}
-          </p>
-        ) : null}
+        <div className="mt-2 flex items-center gap-3">
+          {selectedFile ? (
+            <p className="text-xs text-[var(--slate-500)]">
+              {selectedFile.name}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            className="text-xs text-[var(--brand-blue)] underline hover:no-underline"
+            onClick={downloadCsvTemplate}
+          >
+            Telecharger un modele CSV
+          </button>
+        </div>
       </div>
 
       {showProgress ? (
         <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-white p-4">
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="font-medium text-[var(--slate-800)]">
-              {isParsing ? "Parsing CSV en cours..." : "Validation des lignes en cours..."}
+              {isParsing ? "Analyse du fichier en cours..." : "Validation des lignes en cours..."}
             </span>
             <span className="text-[var(--slate-500)]">
-              {isParsing ? "Progression en preparation..." : getProgressLabel(progress)}
+              {isParsing ? "Preparation..." : getProgressLabel(progress)}
             </span>
           </div>
 
@@ -345,7 +377,7 @@ export function PriceBookCsvImport({
               {isValidating ? "Validation..." : "Mettre a jour l'apercu"}
             </button>
             <span className="text-xs text-[var(--slate-500)]">
-              Mapping requis: `supplier_id`, `unit_price` et `product_id` ou `catalogue_item_id`.
+              Champs requis : Fournisseur, Prix unitaire, et Reference ou Designation produit.
             </span>
           </div>
         </div>
@@ -395,8 +427,8 @@ export function PriceBookCsvImport({
                 <thead>
                   <tr>
                     <th>Ligne</th>
-                    <th>Supplier ID</th>
-                    <th>Product / Catalogue Item</th>
+                    <th>Fournisseur</th>
+                    <th>Produit</th>
                     <th>Prix</th>
                     <th>Devise</th>
                     <th>Statut</th>
@@ -411,31 +443,58 @@ export function PriceBookCsvImport({
                       </td>
                     </tr>
                   ) : (
-                    validation.previewRows.map((row) => (
-                      <tr key={row.lineNumber}>
-                        <td>{row.lineNumber}</td>
-                        <td className="font-mono text-xs">{row.values.supplier_id || "-"}</td>
-                        <td className="font-mono text-xs">
-                          {row.values.product_id || row.values.catalogue_item_id || "-"}
-                        </td>
-                        <td>{row.values.unit_price || "-"}</td>
-                        <td>{row.values.currency || "EUR"}</td>
-                        <td>
-                          <span
-                            className={
-                              row.status === "valid"
-                                ? "status-badge status-confirmed"
-                                : "status-badge status-canceled"
-                            }
-                          >
-                            {row.status === "valid" ? "Valide" : "Invalide"}
-                          </span>
-                        </td>
-                        <td className="text-sm text-[var(--slate-600)]">
-                          {row.reason ?? "-"}
-                        </td>
-                      </tr>
-                    ))
+                    validation.previewRows.map((row) => {
+                      const supplierCsv = row.values.supplier_name;
+                      const productCsv = row.values.product_reference || row.values.product_designation;
+                      const supplierResolved = row.resolved?.supplier_name;
+                      const productResolved = row.resolved?.product_name;
+
+                      return (
+                        <tr key={row.lineNumber}>
+                          <td>{row.lineNumber}</td>
+                          <td className="text-sm">
+                            {supplierResolved ? (
+                              <span className="text-[var(--slate-800)]">
+                                {supplierResolved}
+                                <span className="ml-1 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">OK</span>
+                              </span>
+                            ) : supplierCsv ? (
+                              <span className="text-[var(--danger)]">{supplierCsv}</span>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td className="text-sm">
+                            {productResolved ? (
+                              <span className="text-[var(--slate-800)]">
+                                {productResolved}
+                                <span className="ml-1 inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">OK</span>
+                              </span>
+                            ) : productCsv ? (
+                              <span className="text-[var(--danger)]">{productCsv}</span>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td>{row.values.unit_price || "-"}</td>
+                          <td>{row.values.currency || "EUR"}</td>
+                          <td>
+                            <span
+                              className={
+                                row.status === "valid"
+                                  ? "status-badge status-confirmed"
+                                  : "status-badge status-canceled"
+                              }
+                            >
+                              {row.status === "valid" ? "Valide" : "Invalide"}
+                            </span>
+                          </td>
+                          <td className="text-sm text-[var(--slate-600)]">
+                            {row.reason ?? "-"}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -485,8 +544,7 @@ export function PriceBookCsvImport({
               Etape 3 - Import final
             </h3>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Seules les lignes valides sont envoyees vers `POST /api/prices` action
-              `bulk-create-atomic`.
+              Seules les lignes valides seront importees dans votre base de prix.
             </p>
 
             <div className="mt-4">
