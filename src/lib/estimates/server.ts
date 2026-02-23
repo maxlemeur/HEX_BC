@@ -29,6 +29,12 @@ import {
 } from "./errors";
 import { evaluateEstimateSendGating } from "./gating";
 import { generateEstimatePdfNow } from "./pdf-generator";
+import {
+  DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN,
+  ESTIMATE_ITEM_AID_REGEX_FEATURE_FLAG_KEY,
+  normalizeEstimateItemAid,
+  parseEstimateItemAidRegexPattern,
+} from "./schemas";
 import type {
   BulkUpdateEstimateItemsInput,
   BulkUpdateEstimateVersionPatchInput,
@@ -652,6 +658,32 @@ function parseBulkUpdateCountDetails(details: string | null | undefined) {
     expected_count: expectedCount,
     updated_count: countValue,
   };
+}
+
+async function resolveEstimateItemAidRegex(input: {
+  tenantId: string;
+  supabase: Supabase;
+}) {
+  const configuredPattern = await getFeatureFlagValueForTenant(
+    input.tenantId,
+    ESTIMATE_ITEM_AID_REGEX_FEATURE_FLAG_KEY,
+    { supabase: input.supabase }
+  );
+
+  return parseEstimateItemAidRegexPattern(configuredPattern);
+}
+
+function assertEstimateItemAidFormat(input: {
+  aid: string | null;
+  aidRegex: RegExp;
+}) {
+  if (!input.aid) return;
+  const regex = new RegExp(input.aidRegex.source, input.aidRegex.flags);
+  if (regex.test(input.aid)) return;
+
+  throw badRequest(
+    `AID invalide. Format attendu: ${DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN}.`
+  );
 }
 
 function normalizeConcurrencyToken(token: string | null | undefined) {
@@ -3185,7 +3217,7 @@ export async function instantiateEstimateFromTemplate(
   templateId: string,
   input: InstantiateEstimateFromTemplateInput
 ) {
-  const { supabase } = await getAuthenticatedContext();
+  const { supabase, tenantId } = await getAuthenticatedContext();
 
   const { data, error } = await supabase.rpc("instantiate_estimate_from_template", {
     p_template_id: templateId,
@@ -3220,6 +3252,21 @@ export async function instantiateEstimateFromTemplate(
       { data },
       "ESTIMATE_TEMPLATE_INSTANTIATE_FAILED"
     );
+  }
+
+  const projectNotes = toNullableText(input.project_notes);
+  if (projectNotes) {
+    const { error: projectUpdateError } = await supabase
+      .from("estimate_projects")
+      .update({
+        notes: projectNotes,
+      })
+      .eq("id", projectId)
+      .eq("tenant_id", tenantId);
+
+    if (projectUpdateError) {
+      throw mapSupabaseError(projectUpdateError, "Impossible d'instancier le template.");
+    }
   }
 
   return {
@@ -5798,6 +5845,13 @@ export async function createEstimateItem(
   });
 
   const position = input.position ?? (await getNextItemPosition(supabase, versionId, parentId));
+  const aidRegex = await resolveEstimateItemAidRegex({ tenantId, supabase });
+  const aid = normalizeEstimateItemAid(input.aid);
+
+  assertEstimateItemAidFormat({
+    aid,
+    aidRegex,
+  });
 
   if (input.item_type === "section") {
     const title = input.title ?? (parentId ? "Nouveau sous-chapitre" : "Nouveau chapitre");
@@ -5811,6 +5865,7 @@ export async function createEstimateItem(
         item_type: "section",
         position,
         title,
+        aid,
       } as EstimateItemInsert)
       .select("*")
       .single();
@@ -5913,6 +5968,7 @@ export async function createEstimateItem(
       item_type: "line",
       position,
       title,
+      aid,
       description,
       quantity,
       unit_price_ht_cents: unitPriceHtCents,
@@ -6017,8 +6073,16 @@ export async function updateEstimateItem(
     parentId: nextParentId,
     itemId: currentItem.id,
   });
+  const aidRegex = await resolveEstimateItemAidRegex({ tenantId, supabase });
 
-  if (currentItem.item_type === "section") {
+  const targetItemType =
+    "item_type" in input ? input.item_type : currentItem.item_type;
+  const isConvertingLineToSection =
+    currentItem.item_type === "line" && targetItemType === "section";
+  const isConvertingSectionToLine =
+    currentItem.item_type === "section" && targetItemType === "line";
+
+  if (targetItemType === "section") {
     const containsLineFields = SECTION_ONLY_FORBIDDEN_FIELDS.some((fieldName) => {
       return fieldName in input;
     });
@@ -6041,6 +6105,46 @@ export async function updateEstimateItem(
       payload.position = input.position;
     }
 
+    if ("aid" in input) {
+      const nextAid = normalizeEstimateItemAid(input.aid);
+      assertEstimateItemAidFormat({
+        aid: nextAid,
+        aidRegex,
+      });
+      payload.aid = nextAid;
+    }
+
+    if (isConvertingLineToSection) {
+      Object.assign(
+        payload,
+        {
+          item_type: "section",
+          description: null,
+          quantity: null,
+          unit_price_ht_cents: null,
+          tax_rate_bp: null,
+          k_fo: null,
+          h_mo: null,
+          h_mo_majoration: null,
+          k_mo: null,
+          h_mo_atelier: null,
+          k_mo_atelier: null,
+          labor_role_atelier_id: null,
+          h_mo_chantier: null,
+          k_mo_chantier: null,
+          labor_role_chantier_id: null,
+          pu_ht_cents: null,
+          labor_role_id: null,
+          category_id: null,
+          supply_type_id: null,
+          selected_supplier_price_id: null,
+          line_total_ht_cents: null,
+          line_tax_cents: null,
+          line_total_ttc_cents: null,
+        } as unknown as EstimateItemUpdate
+      );
+    }
+
     const { data, error } = await supabase
       .from("estimate_items")
       .update(payload)
@@ -6059,70 +6163,115 @@ export async function updateEstimateItem(
 
     return {
       item: data,
+      ...(isConvertingLineToSection
+        ? { converted_from_item_type: "line" as const }
+        : {}),
     };
   }
+
+  const nextAid =
+    "aid" in input
+      ? normalizeEstimateItemAid(input.aid)
+      : (normalizeEstimateItemAid((currentItem as EstimateItemRow).aid) ?? null);
+  if ("aid" in input) {
+    assertEstimateItemAidFormat({
+      aid: nextAid,
+      aidRegex,
+    });
+  }
+
+  const currentLineDefaults =
+    currentItem.item_type === "line"
+      ? currentItem
+      : ({
+          quantity: 1,
+          unit_price_ht_cents: 0,
+          tax_rate_bp: version.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
+          k_fo: 1,
+          h_mo: 0,
+          h_mo_majoration: 1,
+          k_mo: 1,
+          h_mo_atelier: null,
+          k_mo_atelier: null,
+          labor_role_atelier_id: null,
+          h_mo_chantier: null,
+          k_mo_chantier: null,
+          labor_role_chantier_id: null,
+          labor_role_id: null,
+          category_id: null,
+          supply_type_id: null,
+          selected_supplier_price_id: null,
+          description: null,
+          pu_ht_cents: 0,
+        } satisfies Partial<EstimateItemRow>);
 
   const nextTitle =
     ("title" in input ? input.title : currentItem.title) ?? currentItem.title;
   const nextDescription =
     ("description" in input
       ? toNullableText(input.description)
-      : currentItem.description) ?? null;
+      : (currentLineDefaults.description ?? null)) ?? null;
   const nextQuantity =
-    ("quantity" in input ? input.quantity : currentItem.quantity) ?? 0;
+    ("quantity" in input
+      ? input.quantity
+      : (currentLineDefaults.quantity ?? 1)) ?? 1;
   const nextUnitPriceHtCents =
     ("unit_price_ht_cents" in input
       ? input.unit_price_ht_cents
-      : currentItem.unit_price_ht_cents) ?? 0;
+      : (currentLineDefaults.unit_price_ht_cents ?? 0)) ?? 0;
   const nextTaxRateBp =
     ("tax_rate_bp" in input
       ? input.tax_rate_bp
-      : currentItem.tax_rate_bp) ??
+      : (currentLineDefaults.tax_rate_bp ?? null)) ??
     version.tax_rate_bp ??
     DEFAULT_TAX_RATE_BP;
-  const nextKFo = ("k_fo" in input ? input.k_fo : currentItem.k_fo) ?? 1;
-  const nextHMo = ("h_mo" in input ? input.h_mo : currentItem.h_mo) ?? 0;
+  const nextKFo = ("k_fo" in input ? input.k_fo : (currentLineDefaults.k_fo ?? 1)) ?? 1;
+  const nextHMo = ("h_mo" in input ? input.h_mo : (currentLineDefaults.h_mo ?? 0)) ?? 0;
   const nextHMoMajoration =
     ("h_mo_majoration" in input
       ? input.h_mo_majoration
-      : (currentItem as EstimateItemRow).h_mo_majoration) ?? 1;
-  const nextKMo = ("k_mo" in input ? input.k_mo : currentItem.k_mo) ?? 1;
+      : (currentLineDefaults.h_mo_majoration ?? 1)) ?? 1;
+  const nextKMo = ("k_mo" in input ? input.k_mo : (currentLineDefaults.k_mo ?? 1)) ?? 1;
   const nextHMoAtelier =
     "h_mo_atelier" in input
       ? input.h_mo_atelier ?? null
-      : ((currentItem as EstimateItemRow).h_mo_atelier ?? null);
+      : (currentLineDefaults.h_mo_atelier ?? null);
   const nextKMoAtelier =
     "k_mo_atelier" in input
       ? input.k_mo_atelier ?? null
-      : ((currentItem as EstimateItemRow).k_mo_atelier ?? null);
+      : (currentLineDefaults.k_mo_atelier ?? null);
   const nextLaborRoleAtelierId =
     "labor_role_atelier_id" in input
       ? input.labor_role_atelier_id ?? null
-      : ((currentItem as EstimateItemRow).labor_role_atelier_id ?? null);
+      : (currentLineDefaults.labor_role_atelier_id ?? null);
   const nextHMoChantier =
     "h_mo_chantier" in input
       ? input.h_mo_chantier ?? null
-      : ((currentItem as EstimateItemRow).h_mo_chantier ?? null);
+      : (currentLineDefaults.h_mo_chantier ?? null);
   const nextKMoChantier =
     "k_mo_chantier" in input
       ? input.k_mo_chantier ?? null
-      : ((currentItem as EstimateItemRow).k_mo_chantier ?? null);
+      : (currentLineDefaults.k_mo_chantier ?? null);
   const nextLaborRoleChantierId =
     "labor_role_chantier_id" in input
       ? input.labor_role_chantier_id ?? null
-      : ((currentItem as EstimateItemRow).labor_role_chantier_id ?? null);
+      : (currentLineDefaults.labor_role_chantier_id ?? null);
   const nextLaborRoleId =
-    "labor_role_id" in input ? (input.labor_role_id ?? null) : currentItem.labor_role_id;
+    "labor_role_id" in input
+      ? (input.labor_role_id ?? null)
+      : (currentLineDefaults.labor_role_id ?? null);
   const nextCategoryId =
-    "category_id" in input ? (input.category_id ?? null) : currentItem.category_id;
+    "category_id" in input
+      ? (input.category_id ?? null)
+      : (currentLineDefaults.category_id ?? null);
   const nextSupplyTypeId =
     "supply_type_id" in input
       ? (input.supply_type_id ?? null)
-      : ((currentItem as EstimateItemRow).supply_type_id ?? null);
+      : (currentLineDefaults.supply_type_id ?? null);
   const nextSelectedSupplierPriceId =
     "selected_supplier_price_id" in input
       ? (input.selected_supplier_price_id ?? null)
-      : ((currentItem as EstimateItemRow).selected_supplier_price_id ?? null);
+      : (currentLineDefaults.selected_supplier_price_id ?? null);
   const nextPosition =
     ("position" in input ? input.position : currentItem.position) ??
     currentItem.position;
@@ -6172,7 +6321,7 @@ export async function updateEstimateItem(
       h_mo_chantier: nextHMoChantier,
       k_mo_chantier: nextKMoChantier,
       labor_role_chantier_id: nextLaborRoleChantierId,
-      pu_ht_cents: currentItem.pu_ht_cents,
+      pu_ht_cents: currentLineDefaults.pu_ht_cents ?? 0,
       labor_role_hourly_rate_cents: laborRateLegacyCents,
     },
     {
@@ -6185,9 +6334,11 @@ export async function updateEstimateItem(
   );
 
   const payload: EstimateItemUpdate = {
+    item_type: "line",
     parent_id: nextParentId,
     position: nextPosition,
     title: nextTitle,
+    aid: nextAid,
     description: nextDescription,
     quantity: nextQuantity,
     unit_price_ht_cents: nextUnitPriceHtCents,
@@ -6212,25 +6363,129 @@ export async function updateEstimateItem(
     line_total_ttc_cents: lineValues.ttcLineCents,
   };
 
-  const { data, error } = await supabase
-    .from("estimate_items")
-    .update(payload)
-    .eq("tenant_id", tenantId)
-    .eq("id", currentItem.id)
-    .eq("version_id", versionId)
-    .select("*")
-    .single();
+  const reassignedChildren: Array<{
+    id: string;
+    previous_parent_id: string | null;
+    previous_position: number;
+    parent_id: string | null;
+    position: number;
+  }> = [];
 
-  if (error || !data) {
-    if (error) {
-      throw mapSupabaseError(error, "Impossible de mettre a jour la ligne.");
+  if (isConvertingSectionToLine) {
+    const { data: childItemsData, error: childItemsError } = await supabase
+      .from("estimate_items")
+      .select("id, parent_id, position")
+      .eq("tenant_id", tenantId)
+      .eq("version_id", versionId)
+      .eq("parent_id", currentItem.id)
+      .order("position", { ascending: true })
+      .order("id", { ascending: true });
+
+    if (childItemsError) {
+      throw mapSupabaseError(
+        childItemsError,
+        "Impossible de reaffecter les enfants de la section."
+      );
     }
-    throw badRequest("Impossible de mettre a jour la ligne.");
+
+    const childItems = (childItemsData ?? []) as Array<{
+      id: string;
+      parent_id: string | null;
+      position: number;
+    }>;
+
+    if (childItems.length > 0) {
+      let nextChildPosition = await getNextItemPosition(supabase, versionId, nextParentId);
+      childItems.forEach((child) => {
+        reassignedChildren.push({
+          id: child.id,
+          previous_parent_id: child.parent_id ?? null,
+          previous_position: child.position,
+          parent_id: nextParentId,
+          position: nextChildPosition,
+        });
+        nextChildPosition += 1;
+      });
+    }
   }
 
-  return {
-    item: data,
+  const rollbackChildren = async () => {
+    if (reassignedChildren.length === 0) return;
+    for (const child of reassignedChildren) {
+      const { error } = await supabase
+        .from("estimate_items")
+        .update({
+          parent_id: child.previous_parent_id,
+          position: child.previous_position,
+        } as EstimateItemUpdate)
+        .eq("tenant_id", tenantId)
+        .eq("id", child.id)
+        .eq("version_id", versionId);
+
+      if (error) {
+        console.error("Failed to rollback converted section children", {
+          versionId,
+          sectionId: currentItem.id,
+          childId: child.id,
+          error,
+        });
+      }
+    }
   };
+
+  try {
+    for (const child of reassignedChildren) {
+      const { error: childUpdateError } = await supabase
+        .from("estimate_items")
+        .update({
+          parent_id: child.parent_id,
+          position: child.position,
+        } as EstimateItemUpdate)
+        .eq("tenant_id", tenantId)
+        .eq("id", child.id)
+        .eq("version_id", versionId);
+
+      if (childUpdateError) {
+        throw mapSupabaseError(
+          childUpdateError,
+          "Impossible de reaffecter les enfants de la section."
+        );
+      }
+    }
+
+    const { data, error } = await supabase
+      .from("estimate_items")
+      .update(payload)
+      .eq("tenant_id", tenantId)
+      .eq("id", currentItem.id)
+      .eq("version_id", versionId)
+      .select("*")
+      .single();
+
+    if (error || !data) {
+      if (error) {
+        throw mapSupabaseError(error, "Impossible de mettre a jour la ligne.");
+      }
+      throw badRequest("Impossible de mettre a jour la ligne.");
+    }
+
+    return {
+      item: data,
+      ...(isConvertingSectionToLine
+        ? {
+            converted_from_item_type: "section" as const,
+            reassigned_children: reassignedChildren.map((child) => ({
+              id: child.id,
+              parent_id: child.parent_id,
+              position: child.position,
+            })),
+          }
+        : {}),
+    };
+  } catch (error) {
+    await rollbackChildren();
+    throw error;
+  }
 }
 
 export async function bulkUpdateEstimateItems(
@@ -6270,6 +6525,23 @@ export async function bulkUpdateEstimateItems(
   }
 
   const updatesPayload = input.map((item) => ({ ...item }));
+  const aidRegex = await resolveEstimateItemAidRegex({ tenantId, supabase });
+
+  updatesPayload.forEach((item) => {
+    if (!Object.prototype.hasOwnProperty.call(item, "aid")) {
+      return;
+    }
+
+    const nextAid = normalizeEstimateItemAid(
+      (item as { aid?: string | null }).aid ?? null
+    );
+    assertEstimateItemAidFormat({
+      aid: nextAid,
+      aidRegex,
+    });
+    (item as { aid?: string | null }).aid = nextAid;
+  });
+
   if (updatesPayload.length === 0 && !versionPatch) {
     return {
       updated_count: 0,

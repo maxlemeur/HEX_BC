@@ -1580,6 +1580,7 @@ export type Database = {
           item_type: "section" | "line";
           position: number;
           title: string;
+          aid?: string | null;
           description: string | null;
           quantity: number | null;
           unit_price_ht_cents: number | null;
@@ -1613,6 +1614,7 @@ export type Database = {
           item_type: "section" | "line";
           position?: number;
           title: string;
+          aid?: string | null;
           description?: string | null;
           quantity?: number | null;
           unit_price_ht_cents?: number | null;
@@ -1646,6 +1648,7 @@ export type Database = {
           item_type?: "section" | "line";
           position?: number;
           title?: string;
+          aid?: string | null;
           description?: string | null;
           quantity?: number | null;
           unit_price_ht_cents?: number | null;

@@ -381,4 +381,33 @@ describe("EstimateDocument - EST-121", () => {
     expect(lineRowMarkup).toContain("Chantier:");
     expect(lineRowMarkup).toContain("Maj:");
   });
+
+  it("affiche une numerotation hierarchique calculee a la volee", () => {
+    const parentSectionId = "section-number-parent";
+    const childSectionId = "section-number-child";
+    const items: EstimateItem[] = [
+      createSection({ id: parentSectionId, title: "Section parent", position: 1 }),
+      createSection({
+        id: childSectionId,
+        parent_id: parentSectionId,
+        title: "Section enfant",
+        position: 1,
+      }),
+      createEstimateItem({
+        id: "line-number-child",
+        parent_id: childSectionId,
+        title: "Ligne enfant",
+        position: 1,
+      }),
+    ];
+
+    const markup = renderEstimateDocument(items);
+    const parentSectionRow = findTableRowMarkup(markup, "Section parent");
+    const childSectionRow = findTableRowMarkup(markup, "Section enfant");
+    const lineRow = findTableRowMarkup(markup, "Ligne enfant");
+
+    expect(parentSectionRow).toMatch(/>1<\/span>\s*<span>Section parent<\/span>/);
+    expect(childSectionRow).toMatch(/>1\.1<\/span>\s*<span>Section enfant<\/span>/);
+    expect(lineRow).toMatch(/>1\.1\.1<\/span>\s*<span>Ligne enfant<\/span>/);
+  });
 });

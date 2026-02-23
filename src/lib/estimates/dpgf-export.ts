@@ -51,6 +51,7 @@ type WorkbookWriterLike = {
 
 type DpgfLineRow = {
   type: "section" | "line";
+  aid: string;
   designation: string;
   quantite: number | null;
   unite: string;
@@ -160,6 +161,13 @@ function toEuroAmount(valueCents: number | null | undefined): number | null {
 function toNullableNumber(value: number | null | undefined): number | null {
   if (!Number.isFinite(value ?? NaN)) return null;
   return value ?? null;
+}
+
+function resolveExportAid(item: EstimateItemRecord) {
+  const aid = (item as EstimateItemRecord & { aid?: string | null }).aid;
+  if (typeof aid !== "string") return item.id;
+  const normalized = aid.trim();
+  return normalized.length > 0 ? normalized : item.id;
 }
 
 function resolveDepthByItemId(items: EstimateItemRecord[]) {
@@ -293,6 +301,7 @@ function buildDpgfRows(input: {
     if (item.item_type !== "line") {
       return {
         type: "section",
+        aid: resolveExportAid(item),
         designation: `${indentation}${item.title}`,
         quantite: null,
         unite: "",
@@ -319,6 +328,7 @@ function buildDpgfRows(input: {
 
     return {
       type: "line",
+      aid: resolveExportAid(item),
       designation: `${indentation}${item.title}`,
       quantite: toNullableNumber(item.quantity),
       unite: item.description?.trim() ?? "",
@@ -351,7 +361,8 @@ async function writeWorkbook(input: {
   const dataSheet = workbook.addWorksheet("Donnees");
   dataSheet.columns = [
     { header: "Type", key: "type", width: 12 },
-    { header: "Designation", key: "designation", width: 52 },
+    { header: "AID", key: "aid", width: 22 },
+    { header: "Designation", key: "designation", width: 44 },
     { header: "Quantite", key: "quantite", width: 12 },
     { header: "Unite", key: "unite", width: 18 },
     { header: "Prix unitaire HT EUR", key: "prix_unitaire_ht_eur", width: 22 },
@@ -374,6 +385,7 @@ async function writeWorkbook(input: {
   input.payload.rows.forEach((row) => {
     const dataRow = dataSheet.addRow([
       row.type,
+      row.aid,
       row.designation,
       row.quantite,
       row.unite,
@@ -398,8 +410,8 @@ async function writeWorkbook(input: {
         bold: true,
       };
     } else {
-      setDecimalColumns(dataRow, [3, 7, 8, 9, 10, 13, 14, 16, 17]);
-      setCurrencyColumns(dataRow, [5]);
+      setDecimalColumns(dataRow, [4, 8, 9, 10, 11, 14, 15, 17, 18]);
+      setCurrencyColumns(dataRow, [6]);
     }
 
     dataRow.commit();

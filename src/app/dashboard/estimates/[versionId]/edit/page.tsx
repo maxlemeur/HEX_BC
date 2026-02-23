@@ -156,6 +156,7 @@ type ItemPatch = Partial<
   Pick<
     EstimateItem,
     | "title"
+    | "aid"
     | "description"
     | "quantity"
     | "unit_price_ht_cents"
@@ -1143,6 +1144,7 @@ function buildEstimateItemUpdatePayload(item: EstimateItem): EstimateItemUpdateP
   if (item.item_type === "line") {
     const payload: EstimateItemUpdatePayload = {
       title: item.title,
+      aid: item.aid ?? null,
       description: item.description ?? null,
       quantity: item.quantity,
       unit_price_ht_cents: item.unit_price_ht_cents,
@@ -1167,6 +1169,7 @@ function buildEstimateItemUpdatePayload(item: EstimateItem): EstimateItemUpdateP
 
   return {
     title: item.title,
+    aid: item.aid ?? null,
   };
 }
 
@@ -1193,6 +1196,7 @@ function buildEstimateItemInsertPayload(
       item_type: "section",
       position,
       title,
+      aid: item.aid ?? null,
     };
   }
 
@@ -1202,6 +1206,7 @@ function buildEstimateItemInsertPayload(
     item_type: "line",
     position,
     title,
+    aid: item.aid ?? null,
     description: item.description ?? null,
     quantity: item.quantity,
     unit_price_ht_cents: item.unit_price_ht_cents,

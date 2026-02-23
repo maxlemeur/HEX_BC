@@ -73,6 +73,7 @@ import {
   type EstimateOutlierFlagsByItemId,
   type EstimateOutlierMethod,
 } from "@/lib/estimates/outlier-detection";
+import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import {
   rankSuggestions,
 } from "@/lib/estimates/suggestion-scoring";
@@ -100,6 +101,7 @@ type ItemPatch = Partial<
   Pick<
     EstimateItem,
     | "title"
+    | "aid"
     | "description"
     | "quantity"
     | "unit_price_ht_cents"
@@ -277,6 +279,17 @@ type SupplierComparisonResult = {
   alternatives: SupplierComparisonAlternative[];
 };
 
+type ConversionReassignedChild = {
+  id: string;
+  parent_id: string | null;
+  position: number;
+};
+
+type ConvertEstimateItemResult = {
+  item: EstimateItem;
+  reassigned_children: ConversionReassignedChild[];
+};
+
 function toSuggestionUsageCount(rule: SuggestionRule | Record<string, unknown>) {
   const usageValue = (rule as Record<string, unknown>).usage_count;
   if (typeof usageValue === "number" && Number.isFinite(usageValue) && usageValue >= 0) {
@@ -430,6 +443,68 @@ function parseSupplierComparisonResult(payload: unknown, fallbackItemId: string)
   } satisfies SupplierComparisonResult;
 }
 
+function parseConvertEstimateItemResult(payload: unknown) {
+  const envelopeRecord = toObjectRecord(payload);
+  const dataRecord = toObjectRecord(envelopeRecord?.data) ?? envelopeRecord;
+  const itemRecord = toObjectRecord(dataRecord?.item);
+  if (!itemRecord) {
+    throw new Error("Impossible de convertir l'element.");
+  }
+
+  const reassignedChildrenSource = Array.isArray(dataRecord?.reassigned_children)
+    ? dataRecord.reassigned_children
+    : [];
+  const reassignedChildren = reassignedChildrenSource
+    .map((entry) => toObjectRecord(entry))
+    .map((entry) => {
+      const id = toNonEmptyString(entry?.id);
+      const parentIdRaw =
+        entry?.parent_id === null ? null : toNonEmptyString(entry?.parent_id);
+      const position = toFiniteNumber(entry?.position, Number.NaN);
+      if (!id || !Number.isFinite(position) || position < 1) return null;
+      return {
+        id,
+        parent_id: parentIdRaw,
+        position: Math.floor(position),
+      } satisfies ConversionReassignedChild;
+    })
+    .filter(
+      (entry): entry is ConversionReassignedChild => entry !== null
+    );
+
+  return {
+    item: itemRecord as unknown as EstimateItem,
+    reassigned_children: reassignedChildren,
+  } satisfies ConvertEstimateItemResult;
+}
+
+async function convertEstimateItemType(
+  versionId: string,
+  itemId: string,
+  itemType: "section" | "line"
+): Promise<ConvertEstimateItemResult> {
+  const response = await fetch(`/api/estimates/${versionId}/items`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+    body: JSON.stringify({
+      id: itemId,
+      item_type: itemType,
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    throw new Error(
+      resolveApiErrorMessage(payload, "Impossible de convertir l'element.")
+    );
+  }
+
+  return parseConvertEstimateItemResult(payload);
+}
+
 async function fetchSupplierComparisons(
   versionId: string,
   itemId: string,
@@ -550,6 +625,75 @@ function extractTrackedSuggestionValuesFromPatch(patch: ItemPatch) {
   return trackedValues;
 }
 
+function normalizeQuickFilterTerm(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getEstimateItemAid(item: EstimateItem) {
+  const raw = (item as EstimateItem & { aid?: string | null }).aid;
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : "";
+}
+
+function matchesQuickFilter(item: EstimateItem, normalizedTerm: string) {
+  if (!normalizedTerm) return true;
+  const title = item.title.toLowerCase();
+  const aid = getEstimateItemAid(item).toLowerCase();
+  return title.includes(normalizedTerm) || aid.includes(normalizedTerm);
+}
+
+function filterItemsByQuickFilter(items: EstimateItem[], searchTerm: string) {
+  const normalizedTerm = normalizeQuickFilterTerm(searchTerm);
+  if (!normalizedTerm) return items;
+
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const childrenByParent = new Map<string, EstimateItem[]>();
+
+  items.forEach((item) => {
+    const parentKey = item.parent_id ?? "root";
+    const siblings = childrenByParent.get(parentKey) ?? [];
+    siblings.push(item);
+    childrenByParent.set(parentKey, siblings);
+  });
+
+  const includeIds = new Set<string>();
+
+  const includeAncestors = (itemId: string) => {
+    let current = itemById.get(itemId);
+    while (current?.parent_id) {
+      const parent = itemById.get(current.parent_id);
+      if (!parent) return;
+      includeIds.add(parent.id);
+      current = parent;
+    }
+  };
+
+  const includeDescendants = (sectionId: string) => {
+    const stack = [...(childrenByParent.get(sectionId) ?? [])];
+    while (stack.length > 0) {
+      const child = stack.pop();
+      if (!child) continue;
+      if (includeIds.has(child.id)) continue;
+      includeIds.add(child.id);
+      if (child.item_type === "section") {
+        stack.push(...(childrenByParent.get(child.id) ?? []));
+      }
+    }
+  };
+
+  items.forEach((item) => {
+    if (!matchesQuickFilter(item, normalizedTerm)) return;
+    includeIds.add(item.id);
+    includeAncestors(item.id);
+    if (item.item_type === "section") {
+      includeDescendants(item.id);
+    }
+  });
+
+  return items.filter((item) => includeIds.has(item.id));
+}
+
 export type EstimateTableShortcutScope = {
   withinTable: boolean;
   hasSelectedLines: boolean;
@@ -668,6 +812,7 @@ export function EstimateEditorTable({
     useState<string | null>(null);
   const [saveAsAssemblyName, setSaveAsAssemblyName] = useState("");
   const [isSaveAsAssemblyPending, setIsSaveAsAssemblyPending] = useState(false);
+  const saveAsAssemblyNameInputRef = useRef<HTMLInputElement | null>(null);
   const [supplierComparisonPanelItemId, setSupplierComparisonPanelItemId] =
     useState<string | null>(null);
   const [supplierComparisonByItemId, setSupplierComparisonByItemId] = useState<
@@ -680,12 +825,21 @@ export function EstimateEditorTable({
   const [supplierComparisonError, setSupplierComparisonError] = useState<string | null>(
     null
   );
+  const [isItemConversionPending, setIsItemConversionPending] = useState(false);
   const tableCardRef = useRef<HTMLDivElement | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
   const supplierComparisonAbortRef = useRef<AbortController | null>(null);
   const appliedSuggestionContextByItemIdRef = useRef<
     Record<string, AppliedSuggestionContext>
   >({});
+  const normalizedSearchTerm = useMemo(
+    () => normalizeQuickFilterTerm(searchTerm),
+    [searchTerm]
+  );
+  const quickFilteredItems = useMemo(
+    () => filterItemsByQuickFilter(items, searchTerm),
+    [items, searchTerm]
+  );
 
   const {
     itemsByParent,
@@ -699,7 +853,7 @@ export function EstimateEditorTable({
     visibleLineIdList,
     visibleItemsInOrder,
   } = useEstimateVisibility({
-    items,
+    items: quickFilteredItems,
     qualityFilter,
     qualityFlagsByItemId,
     marginMultiplier,
@@ -710,8 +864,8 @@ export function EstimateEditorTable({
   });
   const dynamicGridStyle = useMemo(() => {
     if (isLaborSplitEnabled) return undefined; // labor split uses its own grid, not affected by column visibility
-    const cols: string[] = ["minmax(320px, 3fr)", "80px", "80px", "110px"]; // designation, qty, unit, PR.FO
-    let minWidth = 320 + 80 + 80 + 110;
+    const cols: string[] = ["160px", "minmax(320px, 3fr)", "80px", "80px", "110px"]; // AID, designation, qty, unit, PR.FO
+    let minWidth = 160 + 320 + 80 + 80 + 110;
     if (columnVisibility.visibleColumns.has("supply_type")) { cols.push("140px"); minWidth += 140; }
     if (columnVisibility.visibleColumns.has("k_fo")) { cols.push("70px"); minWidth += 70; }
     cols.push("80px"); minWidth += 80; // h MO (always visible)
@@ -727,9 +881,9 @@ export function EstimateEditorTable({
 
   // Compute super-header FO/MO group spans for the grid
   const superHeaderSpans = useMemo(() => {
-    const foStart = 4; // PR.FO is always column 4 (after designation, qty, unit)
+    const foStart = 5; // PR.FO is always column 5 (after AID, designation, qty, unit)
     if (isLaborSplitEnabled) {
-      return { foStart, foSpan: 3, moStart: 7, moSpan: 7, puStart: 14 };
+      return { foStart, foSpan: 3, moStart: 8, moSpan: 7, puStart: 15 };
     }
     const foSpan =
       1 +
@@ -746,6 +900,10 @@ export function EstimateEditorTable({
   }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
 
   const canReorder = !isReadOnly && qualityFilter === "all_lines";
+  const itemNumberById = useMemo(
+    () => computeEstimateItemNumbering(items),
+    [items]
+  );
   const availableSectionDuplicateTargets = useMemo(
     () =>
       sectionDuplicateTargets.filter((target) => target.versionId !== versionId),
@@ -1081,7 +1239,7 @@ export function EstimateEditorTable({
       if (!item || item.item_type !== "section") return;
 
       const menuWidth = 300;
-      const menuHeight = 88;
+      const menuHeight = 280;
       const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
       const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
 
@@ -1092,6 +1250,125 @@ export function EstimateEditorTable({
       });
     },
     [isReadOnly, itemById]
+  );
+
+  const applyItemConversionResultLocally = useCallback(
+    (result: ConvertEstimateItemResult) => {
+      onPatchItem(result.item.id, result.item as unknown as ItemPatch, {
+        persist: false,
+      });
+      result.reassigned_children.forEach((child) => {
+        onPatchItem(
+          child.id,
+          {
+            parent_id: child.parent_id,
+            position: child.position,
+          } as unknown as ItemPatch,
+          { persist: false }
+        );
+      });
+    },
+    [onPatchItem]
+  );
+
+  const handleConvertLineToSection = useCallback(
+    async (lineId: string) => {
+      if (isReadOnly || isItemConversionPending) return;
+
+      const item = itemById.get(lineId);
+      if (!item || item.item_type !== "line") return;
+
+      const targetLineIds =
+        selectedLineIdList.length > 1 && selectedLineIdList.includes(lineId)
+          ? selectedLineIdList.filter((candidateId) => {
+              const candidate = itemById.get(candidateId);
+              return candidate?.item_type === "line";
+            })
+          : [lineId];
+      if (targetLineIds.length === 0) return;
+
+      const confirmed = window.confirm(
+        targetLineIds.length > 1
+          ? `Convertir ${targetLineIds.length} lignes selectionnees en sections ?`
+          : "Convertir cette ligne en section ?"
+      );
+      if (!confirmed) return;
+
+      closeSupplierComparisonContextMenu();
+      setIsItemConversionPending(true);
+      try {
+        for (const targetLineId of targetLineIds) {
+          const result = await convertEstimateItemType(
+            versionId,
+            targetLineId,
+            "section"
+          );
+          applyItemConversionResultLocally(result);
+        }
+        if (targetLineIds.length > 1) {
+          clearLineSelection();
+        }
+      } catch (error) {
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : "Impossible de convertir la ligne."
+        );
+      } finally {
+        setIsItemConversionPending(false);
+      }
+    },
+    [
+      applyItemConversionResultLocally,
+      clearLineSelection,
+      closeSupplierComparisonContextMenu,
+      isItemConversionPending,
+      isReadOnly,
+      itemById,
+      selectedLineIdList,
+      versionId,
+    ]
+  );
+
+  const handleConvertSectionToLine = useCallback(
+    async (sectionId: string) => {
+      if (isReadOnly || isItemConversionPending) return;
+
+      const item = itemById.get(sectionId);
+      if (!item || item.item_type !== "section") return;
+
+      const directChildrenCount = (itemsByParent.get(sectionId) ?? []).length;
+      const confirmed = window.confirm(
+        directChildrenCount > 0
+          ? "Convertir cette section en ligne ? Les enfants seront rattaches au parent."
+          : "Convertir cette section en ligne ?"
+      );
+      if (!confirmed) return;
+
+      closeSectionContextMenu();
+      setIsItemConversionPending(true);
+      try {
+        const result = await convertEstimateItemType(versionId, sectionId, "line");
+        applyItemConversionResultLocally(result);
+      } catch (error) {
+        window.alert(
+          error instanceof Error
+            ? error.message
+            : "Impossible de convertir la section."
+        );
+      } finally {
+        setIsItemConversionPending(false);
+      }
+    },
+    [
+      applyItemConversionResultLocally,
+      closeSectionContextMenu,
+      isItemConversionPending,
+      isReadOnly,
+      itemById,
+      itemsByParent,
+      versionId,
+    ]
   );
 
   const handleDuplicateSectionInPlace = useCallback(async () => {
@@ -1285,7 +1562,7 @@ export function EstimateEditorTable({
       if (!item || item.item_type !== "line") return;
 
       const menuWidth = 240;
-      const menuHeight = 44;
+      const menuHeight = 96;
       const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
       const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
 
@@ -1436,6 +1713,11 @@ export function EstimateEditorTable({
       setDuplicateSectionTargetVersionId("");
     }
   }, [duplicateSectionDialogSectionId, itemById]);
+
+  useEffect(() => {
+    if (!saveAsAssemblyDialogSectionId) return;
+    saveAsAssemblyNameInputRef.current?.focus();
+  }, [saveAsAssemblyDialogSectionId]);
 
   useEstimateKeyboardShortcuts({
     tableCardRef,
@@ -1822,6 +2104,7 @@ export function EstimateEditorTable({
         <EstimateEditorRow
           versionId={versionId}
           item={item}
+          itemNumber={itemNumberById[item.id] ?? null}
           depth={depth}
           unitValue={unitValue}
           supplyTypeValue={supplyTypeValue}
@@ -1846,6 +2129,7 @@ export function EstimateEditorTable({
           onSupplyTypeCommit={handleSupplyTypeCommit}
           onAddLine={onAddLine}
           onAddSection={onAddSection}
+          onConvertLineToSection={handleConvertLineToSection}
           onToggleOutlierDismiss={onToggleOutlierDismiss}
           onLineSelectionInteraction={handleLineSelectionInteraction}
           sectionTotals={sectionTotals}
@@ -1855,9 +2139,9 @@ export function EstimateEditorTable({
           isLaborSplitEnabled={isLaborSplitEnabled}
           visibleColumns={isLaborSplitEnabled ? undefined : columnVisibility.visibleColumns}
           isSearchMatch={
-            searchTerm.length > 0 &&
+            normalizedSearchTerm.length > 0 &&
             item.item_type === "line" &&
-            Boolean(item.title?.toLowerCase().includes(searchTerm.toLowerCase()))
+            matchesQuickFilter(item, normalizedSearchTerm)
           }
           isLastChild={isLastChild}
           parentIsLastChild={parentIsLastChild}
@@ -1879,6 +2163,8 @@ export function EstimateEditorTable({
       handleLineSelectionInteraction,
       handleUnitCommit,
       handleUnitDraftChange,
+      handleConvertLineToSection,
+      itemNumberById,
       isLaborSplitEnabled,
       isLineSelected,
       isReadOnly,
@@ -1888,7 +2174,7 @@ export function EstimateEditorTable({
       patchItemWithSuggestionTracking,
       onToggleOutlierDismiss,
       outlierActionPendingByItemId,
-      searchTerm,
+      normalizedSearchTerm,
       spreadsheetNavigation,
       supplyTypeById,
       versionId,
@@ -2081,7 +2367,7 @@ export function EstimateEditorTable({
       >
         {/* Super-header: FO / MO column group labels */}
         <div className="estimate-table__super-head" aria-hidden="true">
-          <div style={{ gridColumn: `1 / span 3` }} />
+          <div style={{ gridColumn: `1 / span 4` }} />
           <div
             className="estimate-super-head__group estimate-super-head__group--fo"
             style={{ gridColumn: `${superHeaderSpans.foStart} / span ${superHeaderSpans.foSpan}` }}
@@ -2097,6 +2383,12 @@ export function EstimateEditorTable({
           <div style={{ gridColumn: `${superHeaderSpans.puStart} / span 3` }} />
         </div>
         <div className="estimate-table__head">
+          <div className="relative">
+            <ColumnHeaderHelp
+              label="AID"
+              tooltip="Identifiant article (filtre rapide via la recherche en haut)"
+            />
+          </div>
           <div className="relative flex items-center gap-2">
             <input
               type="checkbox"
@@ -2170,6 +2462,7 @@ export function EstimateEditorTable({
         />
         {hasVisibleRows ? (
           <div className="estimate-table__footer">
+            <div></div>
             <div className="font-semibold text-[var(--slate-800)]">Total</div>
             <div></div>
             <div></div>
@@ -2242,6 +2535,15 @@ export function EstimateEditorTable({
               + Sous-chapitre
             </button>
           )}
+          <button
+            type="button"
+            className="estimate-supplier-comparison-context-menu__action"
+            role="menuitem"
+            onClick={() => void handleConvertSectionToLine(sectionContextMenu.sectionId)}
+            disabled={isReadOnly || isItemConversionPending}
+          >
+            Convertir en ligne
+          </button>
           <div className="estimate-section-context-menu__separator" />
           <button
             type="button"
@@ -2404,12 +2706,12 @@ export function EstimateEditorTable({
             <label className="form-label block">
               Nom de l&apos;assemblage
               <input
+                ref={saveAsAssemblyNameInputRef}
                 className="input mt-2 w-full"
                 type="text"
                 value={saveAsAssemblyName}
                 onChange={(event) => setSaveAsAssemblyName(event.target.value)}
                 disabled={isSaveAsAssemblyPending}
-                autoFocus
               />
             </label>
 
@@ -2453,8 +2755,18 @@ export function EstimateEditorTable({
               openSupplierComparisonPanel(supplierComparisonMenu.itemId);
               closeSupplierComparisonContextMenu();
             }}
+            disabled={isItemConversionPending}
           >
             Comparer fournisseurs
+          </button>
+          <button
+            type="button"
+            className="estimate-supplier-comparison-context-menu__action"
+            role="menuitem"
+            onClick={() => void handleConvertLineToSection(supplierComparisonMenu.itemId)}
+            disabled={isReadOnly || isItemConversionPending}
+          >
+            Convertir en section
           </button>
         </div>
       ) : null}

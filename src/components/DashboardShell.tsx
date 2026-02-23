@@ -324,6 +324,30 @@ const NAV_GROUPS: NavGroup[] = [
           </svg>
         ),
       },
+      {
+        href: "/dashboard/admin/rules",
+        label: "Rules engine",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M4 6h16" />
+            <path d="M4 12h10" />
+            <path d="M4 18h7" />
+            <circle cx="17" cy="12" r="2" />
+            <circle cx="14" cy="18" r="2" />
+            <circle cx="9" cy="6" r="2" />
+          </svg>
+        ),
+      },
     ],
   },
 ];

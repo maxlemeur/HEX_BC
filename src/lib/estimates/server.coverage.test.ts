@@ -19,6 +19,7 @@ import {
   listLatestEstimates,
   moveEstimateItem,
   reorderEstimateItems,
+  updateEstimateItem,
   updateMarginTier,
 } from "@/lib/estimates/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -1370,6 +1371,249 @@ describe("estimate server coverage additions", () => {
       status: 404,
       code: "NOT_FOUND",
     });
+  });
+
+  it("converts a line to section and clears line payload fields", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const draftLockBuilder = createDraftLockBuilder();
+    const featureFlagBuilder = chainResult({
+      data: null,
+      error: null,
+    });
+    const currentItemBuilder = chainResult({
+      data: {
+        id: "line-1",
+        version_id: VERSION_ID,
+        parent_id: null,
+        item_type: "line",
+        title: "Ligne",
+      },
+      error: null,
+    });
+    const convertedItemBuilder = chainResult({
+      data: {
+        id: "line-1",
+        version_id: VERSION_ID,
+        parent_id: null,
+        item_type: "section",
+        position: 2,
+        title: "Ligne",
+      },
+      error: null,
+    });
+    const estimateItemsUpdate = vi.fn(() => convertedItemBuilder);
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "feature_flags") {
+          return {
+            select: vi.fn(() => featureFlagBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "draft_locks") {
+          return {
+            select: vi.fn(() => draftLockBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          return {
+            select: vi.fn(() => currentItemBuilder),
+            update: estimateItemsUpdate,
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await updateEstimateItem(VERSION_ID, {
+      id: "line-1",
+      item_type: "section",
+    });
+
+    expect(result).toMatchObject({
+      converted_from_item_type: "line",
+      item: {
+        id: "line-1",
+        item_type: "section",
+      },
+    });
+    expect(estimateItemsUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        item_type: "section",
+        description: null,
+        quantity: null,
+        unit_price_ht_cents: null,
+        line_total_ht_cents: null,
+        line_total_ttc_cents: null,
+      })
+    );
+  });
+
+  it("converts a section to line and reassigns direct children to parent", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const draftLockBuilder = createDraftLockBuilder();
+    const featureFlagBuilder = chainResult({
+      data: null,
+      error: null,
+    });
+    const currentItemBuilder = chainResult({
+      data: {
+        id: "section-1",
+        version_id: VERSION_ID,
+        parent_id: null,
+        item_type: "section",
+        position: 1,
+        title: "Section",
+        aid: null,
+      },
+      error: null,
+    });
+    const sectionChildrenBuilder = chainResult({
+      data: [
+        {
+          id: "child-1",
+          parent_id: "section-1",
+          position: 1,
+        },
+        {
+          id: "child-2",
+          parent_id: "section-1",
+          position: 2,
+        },
+      ],
+      error: null,
+    });
+    const parentPositionBuilder = chainResult({
+      data: [{ position: 5 }],
+      error: null,
+    });
+    const childUpdateBuilder = chainResult({
+      data: null,
+      error: null,
+    });
+    const convertedItemBuilder = chainResult({
+      data: {
+        id: "section-1",
+        version_id: VERSION_ID,
+        parent_id: null,
+        item_type: "line",
+        position: 1,
+        title: "Section",
+      },
+      error: null,
+    });
+
+    let estimateItemsCalls = 0;
+    let estimateItemsUpdateCalls = 0;
+    const estimateItemsUpdate = vi.fn(() => {
+      estimateItemsUpdateCalls += 1;
+      if (estimateItemsUpdateCalls <= 2) {
+        return childUpdateBuilder;
+      }
+      return convertedItemBuilder;
+    });
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "feature_flags") {
+          return {
+            select: vi.fn(() => featureFlagBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "draft_locks") {
+          return {
+            select: vi.fn(() => draftLockBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          estimateItemsCalls += 1;
+          if (estimateItemsCalls === 1) {
+            return {
+              select: vi.fn(() => currentItemBuilder),
+              update: estimateItemsUpdate,
+            };
+          }
+          if (estimateItemsCalls === 2) {
+            return {
+              select: vi.fn(() => sectionChildrenBuilder),
+              update: estimateItemsUpdate,
+            };
+          }
+          if (estimateItemsCalls === 3) {
+            return {
+              select: vi.fn(() => parentPositionBuilder),
+              update: estimateItemsUpdate,
+            };
+          }
+          return {
+            select: vi.fn(() => parentPositionBuilder),
+            update: estimateItemsUpdate,
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await updateEstimateItem(VERSION_ID, {
+      id: "section-1",
+      item_type: "line",
+    });
+
+    expect(result).toMatchObject({
+      converted_from_item_type: "section",
+      item: {
+        id: "section-1",
+        item_type: "line",
+      },
+      reassigned_children: [
+        { id: "child-1", parent_id: null, position: 6 },
+        { id: "child-2", parent_id: null, position: 7 },
+      ],
+    });
+    expect(estimateItemsUpdate).toHaveBeenNthCalledWith(1, {
+      parent_id: null,
+      position: 6,
+    });
+    expect(estimateItemsUpdate).toHaveBeenNthCalledWith(2, {
+      parent_id: null,
+      position: 7,
+    });
+    expect(estimateItemsUpdate).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        item_type: "line",
+        quantity: 1,
+        unit_price_ht_cents: 0,
+      })
+    );
   });
 
   it("reorders sibling estimate items and returns updated count", async () => {

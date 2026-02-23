@@ -101,6 +101,7 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   margin_not_configured: "blocking",
   total_exceeds_budget: "blocking",
   no_pdf_generated: "blocking",
+  rule_violation: "blocking",
 };
 
 function parseCsvFlagList(value: string | null): Set<EstimateGatingFlagKey> {

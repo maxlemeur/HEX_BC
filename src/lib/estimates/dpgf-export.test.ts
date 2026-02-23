@@ -217,6 +217,7 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     expect(metadataSheet?.committed).toBe(true);
     expect(dataSheet?.rows[0]).toEqual([
       "Type",
+      "AID",
       "Designation",
       "Quantite",
       "Unite",
@@ -238,27 +239,29 @@ describe("streamEstimateVersionDpgfXlsx", () => {
 
     const sectionRow = dataSheet?.rows[1] as unknown[];
     expect(sectionRow[0]).toBe("section");
-    expect(sectionRow[1]).toBe("Gros oeuvre");
+    expect(sectionRow[1]).toBe("sec-1");
+    expect(sectionRow[2]).toBe("Gros oeuvre");
 
     const lineRow = dataSheet?.rows[2] as unknown[];
     expect(lineRow[0]).toBe("line");
-    expect(lineRow[1]).toBe("  Beton arme");
-    expect(lineRow[2]).toBe(3);
-    expect(lineRow[3]).toBe("m3");
-    expect(lineRow[4]).toBe(125.5);
-    expect(lineRow[5]).toBe("Materiaux");
-    expect(lineRow[6]).toBe(1.1);
-    expect(lineRow[7]).toBe(4);
-    expect(lineRow[8]).toBe(1.2);
-    expect(lineRow[9]).toBe(1.15);
-    expect(lineRow[10]).toBe("Poseur");
-    expect(lineRow[11]).toBe("Maconnerie");
-    expect(lineRow[12]).toBeNull();
+    expect(lineRow[1]).toBe("line-1");
+    expect(lineRow[2]).toBe("  Beton arme");
+    expect(lineRow[3]).toBe(3);
+    expect(lineRow[4]).toBe("m3");
+    expect(lineRow[5]).toBe(125.5);
+    expect(lineRow[6]).toBe("Materiaux");
+    expect(lineRow[7]).toBe(1.1);
+    expect(lineRow[8]).toBe(4);
+    expect(lineRow[9]).toBe(1.2);
+    expect(lineRow[10]).toBe(1.15);
+    expect(lineRow[11]).toBe("Poseur");
+    expect(lineRow[12]).toBe("Maconnerie");
     expect(lineRow[13]).toBeNull();
-    expect(lineRow[14]).toBe("");
-    expect(lineRow[15]).toBeNull();
+    expect(lineRow[14]).toBeNull();
+    expect(lineRow[15]).toBe("");
     expect(lineRow[16]).toBeNull();
-    expect(lineRow[17]).toBe("");
+    expect(lineRow[17]).toBeNull();
+    expect(lineRow[18]).toBe("");
 
     const metadataRows = metadataSheet?.rows as unknown[][];
     expect(metadataRows).toContainEqual(["Reference", "ALPHA/2026"]);
@@ -343,15 +346,15 @@ describe("streamEstimateVersionDpgfXlsx", () => {
     const dataSheet = worksheets.find((sheet) => sheet.name === "Donnees");
     const lineRow = dataSheet?.rows[1] as unknown[];
 
-    expect(lineRow[7]).toBe(3.5);
-    expect(lineRow[8]).toBeCloseTo((1.5 * 1.1 + 2 * 1.3) / 3.5, 6);
-    expect(lineRow[10]).toBe("Atelier: Role Atelier / Chantier: Role Chantier");
-    expect(lineRow[12]).toBe(1.5);
-    expect(lineRow[13]).toBe(1.1);
-    expect(lineRow[14]).toBe("Role Atelier");
-    expect(lineRow[15]).toBe(2);
-    expect(lineRow[16]).toBe(1.3);
-    expect(lineRow[17]).toBe("Role Chantier");
+    expect(lineRow[8]).toBe(3.5);
+    expect(lineRow[9]).toBeCloseTo((1.5 * 1.1 + 2 * 1.3) / 3.5, 6);
+    expect(lineRow[11]).toBe("Atelier: Role Atelier / Chantier: Role Chantier");
+    expect(lineRow[13]).toBe(1.5);
+    expect(lineRow[14]).toBe(1.1);
+    expect(lineRow[15]).toBe("Role Atelier");
+    expect(lineRow[16]).toBe(2);
+    expect(lineRow[17]).toBe(1.3);
+    expect(lineRow[18]).toBe("Role Chantier");
   });
 
   it("falls back to project name in DPGF filename when reference is empty", async () => {

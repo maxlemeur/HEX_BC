@@ -1419,7 +1419,7 @@ body {
 }
 
 .estimate-table {
-  --estimate-grid: minmax(320px, 3fr) 80px 100px 110px 140px 70px 80px 130px 130px 80px 110px 120px 50px;
+  --estimate-grid: 160px minmax(320px, 3fr) 80px 100px 110px 140px 70px 80px 130px 130px 80px 110px 120px 50px;
   --tree-indent: 40px;
   --tree-line-w: 2px;
   --tree-color-d0: rgba(59, 130, 246, 0.5);
@@ -1430,7 +1430,7 @@ body {
 }
 
 .estimate-table--labor-split {
-  --estimate-grid: minmax(320px, 3fr) 80px 100px 110px 140px 70px 100px 90px 140px 90px 90px 140px 90px 110px 120px 50px;
+  --estimate-grid: 160px minmax(320px, 3fr) 80px 100px 110px 140px 70px 100px 90px 140px 90px 90px 140px 90px 110px 120px 50px;
 }
 
 .estimate-table__head {
@@ -1438,7 +1438,7 @@ body {
   grid-template-columns: var(--estimate-grid);
   background: var(--slate-50);
   border-bottom: 1px solid var(--slate-200);
-  min-width: var(--estimate-min-width, 1512px);
+  min-width: var(--estimate-min-width, 1672px);
   position: relative;
 }
 
@@ -1458,13 +1458,13 @@ body {
 .estimate-table__body {
   display: flex;
   flex-direction: column;
-  min-width: var(--estimate-min-width, 1512px);
+  min-width: var(--estimate-min-width, 1672px);
 }
 
 .estimate-table--labor-split .estimate-table__head,
 .estimate-table--labor-split .estimate-table__body,
 .estimate-table--labor-split .estimate-table__footer {
-  min-width: 1920px;
+  min-width: 2000px;
 }
 
 .estimate-table__footer {
@@ -1472,7 +1472,7 @@ body {
   grid-template-columns: var(--estimate-grid);
   background: var(--slate-50);
   border-top: 2px solid var(--slate-300);
-  min-width: var(--estimate-min-width, 1512px);
+  min-width: var(--estimate-min-width, 1672px);
 }
 
 .estimate-table__footer > div {
@@ -2295,6 +2295,17 @@ body {
 
 .estimate-input--title {
   font-weight: 600;
+}
+
+.estimate-cell--aid {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+}
+
+.estimate-input--aid {
+  font-family: inherit;
+  text-transform: uppercase;
+  font-size: 12px;
 }
 
 .estimate-catalogue-suggestions {

@@ -194,6 +194,7 @@ export type InstantiateEstimateTemplatePayload = {
   versionTitle?: string | null;
   dateDevis?: string;
   validiteJours?: number;
+  projectNotes?: string | null;
 };
 
 export type EstimateVersionWithProject = EstimateVersionRow & {
@@ -2393,12 +2394,14 @@ function toCreateEstimateItemBody(
         parent_id: item.parent_id ?? null,
         position: item.position,
         title: item.title,
+        aid: item.aid ?? null,
       }
     : {
         item_type: "line" as const,
         parent_id: item.parent_id ?? null,
         position: item.position,
         title: item.title,
+        aid: item.aid ?? null,
         description: item.description ?? null,
         quantity: item.quantity,
         unit_price_ht_cents: item.unit_price_ht_cents,
@@ -3404,6 +3407,7 @@ export async function instantiateEstimateFromTemplate(
         versionTitle: input.versionTitle ?? null,
         dateDevis: input.dateDevis,
         validiteJours: input.validiteJours,
+        projectNotes: input.projectNotes ?? null,
       }),
     },
     "Impossible d'instancier le template."

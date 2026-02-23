@@ -22,6 +22,21 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
   const marginTiersCount = details.margin_tiers_count;
   const totalHtCents = details.total_ht_cents;
   const budgetCeilingHtCents = details.budget_ceiling_ht_cents;
+  const ruleViolations = Array.isArray(details.violations)
+    ? details.violations
+        .map((entry) => {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+            return null;
+          }
+          const record = entry as Record<string, unknown>;
+          const message = record.message;
+          if (typeof message === "string" && message.trim().length > 0) {
+            return message.trim();
+          }
+          return null;
+        })
+        .filter((entry): entry is string => entry !== null)
+    : [];
 
   if (typeof stalePriceDays === "number") {
     detailsLines.push(`Seuil d'obsolescence: ${stalePriceDays} jour(s).`);
@@ -37,6 +52,14 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
   }
   if (typeof budgetCeilingHtCents === "number") {
     detailsLines.push(`Plafond budget HT: ${budgetCeilingHtCents} cents.`);
+  }
+  if (ruleViolations.length > 0) {
+    ruleViolations.slice(0, 3).forEach((message) => {
+      detailsLines.push(`Regle: ${message}`);
+    });
+    if (ruleViolations.length > 3) {
+      detailsLines.push(`...${ruleViolations.length - 3} regle(s) supplementaire(s).`);
+    }
   }
   if (flag.itemIds.length > 0) {
     const preview = flag.itemIds.slice(0, 5).join(", ");

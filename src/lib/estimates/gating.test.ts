@@ -5,6 +5,10 @@ vi.mock("@/lib/feature-flags", () => ({
   getStalePriceDaysForTenant: vi.fn(),
 }));
 
+vi.mock("@/lib/estimates/rules-engine", () => ({
+  evaluateRules: vi.fn(),
+}));
+
 import {
   evaluateEstimateSendGating,
 } from "@/lib/estimates/gating";
@@ -12,6 +16,7 @@ import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
 } from "@/lib/feature-flags";
+import { evaluateRules } from "@/lib/estimates/rules-engine";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
@@ -134,6 +139,11 @@ describe("estimate send gating", () => {
     vi.clearAllMocks();
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
     vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
+    vi.mocked(evaluateRules).mockResolvedValue({
+      violations: [],
+      blockingViolations: [],
+      warningViolations: [],
+    });
   });
 
   it("returns canSend=true when no flags are raised", async () => {
@@ -149,9 +159,13 @@ describe("estimate send gating", () => {
       version: {
         id: VERSION_ID,
         margin_mode: "fixed",
+        margin_multiplier: 1,
         total_ht_cents: 10000,
+        project_id: "55555555-5555-4555-8555-555555555555",
       },
       project: {
+        id: "55555555-5555-4555-8555-555555555555",
+        client_name: "Client A",
         notes: null,
       },
     });
@@ -174,9 +188,13 @@ describe("estimate send gating", () => {
       version: {
         id: VERSION_ID,
         margin_mode: "tiered",
+        margin_multiplier: 1,
         total_ht_cents: 10000,
+        project_id: "55555555-5555-4555-8555-555555555555",
       },
       project: {
+        id: "55555555-5555-4555-8555-555555555555",
+        client_name: "Client A",
         notes: null,
       },
     });
@@ -209,9 +227,13 @@ describe("estimate send gating", () => {
       version: {
         id: VERSION_ID,
         margin_mode: "fixed",
+        margin_multiplier: 1,
         total_ht_cents: 10000,
+        project_id: "55555555-5555-4555-8555-555555555555",
       },
       project: {
+        id: "55555555-5555-4555-8555-555555555555",
+        client_name: "Client A",
         notes: null,
       },
     });
@@ -250,15 +272,95 @@ describe("estimate send gating", () => {
       version: {
         id: VERSION_ID,
         margin_mode: "fixed",
+        margin_multiplier: 1,
         total_ht_cents: 10000,
+        project_id: "55555555-5555-4555-8555-555555555555",
       },
       project: {
+        id: "55555555-5555-4555-8555-555555555555",
+        client_name: "Client A",
         notes: null,
       },
     });
 
     expect(result.warningFlags.map((flag) => flag.key)).toContain(
       "supplier_price_outdated"
+    );
+  });
+
+  it("surfaces rules engine violations through rule_violation flags", async () => {
+    vi.mocked(evaluateRules).mockResolvedValue({
+      violations: [
+        {
+          rule_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          rule_type: "min_margin",
+          scope_type: "global",
+          scope_id: null,
+          threshold_value: 1200,
+          action: "block",
+          severity: "blocking",
+          metric_key: "margin_bp",
+          actual_value: 900,
+          comparator: ">=",
+          approval_status: null,
+          approval_id: null,
+          message: "Violation marge minimum.",
+        },
+      ],
+      blockingViolations: [
+        {
+          rule_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          rule_type: "min_margin",
+          scope_type: "global",
+          scope_id: null,
+          threshold_value: 1200,
+          action: "block",
+          severity: "blocking",
+          metric_key: "margin_bp",
+          actual_value: 900,
+          comparator: ">=",
+          approval_status: null,
+          approval_id: null,
+          message: "Violation marge minimum.",
+        },
+      ],
+      warningViolations: [],
+    });
+
+    const supabase = createSupabaseGatingMock({
+      items: [createLineItem({ id: "line-1", quantity: 1, unitPriceHtCents: 5000 })],
+      marginTiers: [],
+      documents: [{ id: "doc-1" }],
+    });
+
+    const result = await evaluateEstimateSendGating({
+      supabase: supabase as never,
+      tenantId: TENANT_ID,
+      version: {
+        id: VERSION_ID,
+        margin_mode: "fixed",
+        margin_multiplier: 1,
+        margin_bp: 900,
+        discount_bp: 0,
+        total_ht_cents: 10000,
+        project_id: "55555555-5555-4555-8555-555555555555",
+      },
+      project: {
+        id: "55555555-5555-4555-8555-555555555555",
+        client_name: "Client A",
+        notes: null,
+      },
+    });
+
+    expect(result.canSend).toBe(false);
+    expect(result.blockingFlags).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "rule_violation",
+          severity: "blocking",
+          count: 1,
+        }),
+      ])
     );
   });
 });

@@ -364,6 +364,13 @@ function resolveSupplierByRank(
   };
 }
 
+function resolveExportAid(item: EstimateItemRecord) {
+  const aid = (item as EstimateItemRecord & { aid?: string | null }).aid;
+  if (typeof aid !== "string") return item.id;
+  const normalized = aid.trim();
+  return normalized.length > 0 ? normalized : item.id;
+}
+
 async function getSupplierComparisonsForExport(versionId: string, lineItemIds: string[]) {
   if (lineItemIds.length === 0) {
     return [] as SupplierComparison[];
@@ -405,7 +412,7 @@ function buildBdcRows(input: {
       return {
         type: "section",
         position: item.position,
-        aid: item.id,
+        aid: resolveExportAid(item),
         designation: `${indentation}${item.title}`,
         unite: "",
         quantite: null,
@@ -480,7 +487,7 @@ function buildBdcRows(input: {
     return {
       type: "line",
       position: item.position,
-      aid: item.id,
+      aid: resolveExportAid(item),
       designation: `${indentation}${item.title}`,
       unite: item.description?.trim() ?? "",
       quantite: quantity,

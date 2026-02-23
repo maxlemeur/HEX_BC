@@ -7,6 +7,7 @@ import {
   type SectionTotals,
 } from "@/lib/estimate-calculations";
 import { COMPANY_INFO } from "@/lib/company-info";
+import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import { formatEUR } from "@/lib/money";
 import type { Database } from "@/types/database";
 
@@ -172,6 +173,11 @@ function resolveTitle(item: EstimateItem) {
   return title || "Sans titre";
 }
 
+function resolveAid(item: EstimateItem) {
+  const aid = item.aid?.trim();
+  return aid && aid.length > 0 ? aid : "-";
+}
+
 function buildRows(items: EstimateItem[]) {
   const map = new Map<string, EstimateItem[]>();
   items.forEach((item) => {
@@ -216,6 +222,7 @@ export function EstimateDocument({
   items,
 }: EstimateDocumentProps) {
   const rows = buildRows(items);
+  const numberingById = computeEstimateItemNumbering(items);
   const sectionTotalsById: Record<string, SectionTotals> = {};
   const calcItems = items as EstimateItemRecord[];
   const laborRateMap = new Map(Object.entries(laborRateById));
@@ -362,6 +369,7 @@ export function EstimateDocument({
         <table className="w-full">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
+              <th className="w-40 px-4 py-4 print:px-2 print:py-2">AID</th>
               <th className="px-6 py-4 print:px-4 print:py-2">Designation</th>
               <th className="w-20 px-3 py-4 text-center print:px-2 print:py-2">
                 Qte
@@ -387,10 +395,18 @@ export function EstimateDocument({
             {rows.map(({ item, depth }) =>
               item.item_type === "section" ? (
                 <tr key={item.id} className="bg-[var(--slate-50)] print-color-adjust">
+                  <td className="px-4 py-3 font-mono text-xs text-[var(--slate-600)] print:px-2 print:py-2">
+                    {resolveAid(item)}
+                  </td>
                   <td colSpan={7} className="px-6 py-3 print:px-4 print:py-2">
                     <div style={{ paddingLeft: `${depth * 16}px` }}>
                       <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
-                        {resolveTitle(item)}
+                        {numberingById[item.id] ? (
+                          <span className="mr-2 font-semibold text-[var(--slate-600)]">
+                            {numberingById[item.id]}
+                          </span>
+                        ) : null}
+                        <span>{resolveTitle(item)}</span>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold normal-case tracking-normal text-[var(--slate-600)]">
                         {(() => {
@@ -446,9 +462,20 @@ export function EstimateDocument({
                 </tr>
               ) : (
                 <tr key={item.id}>
+                  <td className="px-4 py-4 font-mono text-xs text-slate-700 print:px-2 print:py-2">
+                    {resolveAid(item)}
+                  </td>
                   <td className="px-6 py-4 font-medium text-slate-800 print:px-4 print:py-2 print:text-slate-900">
-                    <div style={{ paddingLeft: `${depth * 16}px` }}>
-                      {resolveTitle(item)}
+                    <div
+                      style={{ paddingLeft: `${depth * 16}px` }}
+                      className="flex items-center gap-2"
+                    >
+                      {numberingById[item.id] ? (
+                        <span className="font-mono text-xs font-semibold text-slate-500">
+                          {numberingById[item.id]}
+                        </span>
+                      ) : null}
+                      <span>{resolveTitle(item)}</span>
                     </div>
                   </td>
                   <td className="w-20 px-3 py-4 text-center font-semibold print:px-2 print:py-2">

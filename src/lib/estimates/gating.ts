@@ -14,6 +14,7 @@ import {
 import type { Database } from "@/types/database";
 
 import { mapSupabaseError } from "./errors";
+import { evaluateRules, type EstimateRuleViolation } from "./rules-engine";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -31,6 +32,7 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "margin_not_configured",
   "total_exceeds_budget",
   "no_pdf_generated",
+  "rule_violation",
 ] as const;
 
 export type EstimateGatingFlagKey = (typeof ESTIMATE_GATING_FLAG_KEYS)[number];
@@ -62,6 +64,11 @@ export const ESTIMATE_GATING_FLAG_META: Record<
     description:
       "Aucun document PDF n'est genere pour cette version. Lancez une generation avant l'envoi.",
   },
+  rule_violation: {
+    label: "Regles metier non respectees",
+    description:
+      "Des regles metier (marge, remise, approbation) ne sont pas satisfaites.",
+  },
 };
 
 const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
@@ -79,6 +86,7 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   margin_not_configured: "blocking",
   total_exceeds_budget: "blocking",
   no_pdf_generated: "blocking",
+  rule_violation: "blocking",
 };
 
 export type EstimateGatingFlag = {
@@ -101,9 +109,10 @@ export type EstimateSendGatingResult = {
 
 type EstimateGatingVersion = Pick<
   EstimateVersionRow,
-  "id" | "margin_mode" | "total_ht_cents"
->;
-type EstimateGatingProject = Pick<EstimateProjectRow, "notes">;
+  "id" | "margin_mode" | "margin_multiplier" | "total_ht_cents" | "project_id"
+> &
+  Partial<Pick<EstimateVersionRow, "margin_bp" | "discount_bp">>;
+type EstimateGatingProject = Pick<EstimateProjectRow, "id" | "client_name" | "notes">;
 
 type EvaluateEstimateSendGatingInput = {
   supabase: Supabase;
@@ -378,10 +387,35 @@ export async function evaluateEstimateSendGating(
     itemIdsByFlag.no_pdf_generated.add(version.id);
   }
 
+  const rulesEvaluation = await evaluateRules({
+    supabase,
+    tenantId,
+    version: {
+      id: version.id,
+      project_id: version.project_id,
+      margin_bp: version.margin_bp,
+      margin_multiplier: version.margin_multiplier,
+      discount_bp: version.discount_bp,
+      total_ht_cents: version.total_ht_cents,
+    },
+    project: {
+      id: project.id,
+      client_name: project.client_name,
+    },
+    items: items.map((item) => ({
+      id: item.id,
+      category_id: item.category_id,
+    })),
+  });
+
   const blockingFlags: EstimateGatingFlag[] = [];
   const warningFlags: EstimateGatingFlag[] = [];
 
   ESTIMATE_GATING_FLAG_KEYS.forEach((key) => {
+    if (key === "rule_violation") {
+      return;
+    }
+
     const itemIds = Array.from(itemIdsByFlag[key]).sort((left, right) =>
       left.localeCompare(right)
     );
@@ -418,6 +452,49 @@ export async function evaluateEstimateSendGating(
     }
     warningFlags.push(flag);
   });
+
+  function toRuleViolationDetails(violations: EstimateRuleViolation[]) {
+    return {
+      violations: violations.map((violation) => ({
+        rule_id: violation.rule_id,
+        rule_type: violation.rule_type,
+        scope_type: violation.scope_type,
+        scope_id: violation.scope_id,
+        threshold_value: violation.threshold_value,
+        action: violation.action,
+        metric_key: violation.metric_key,
+        actual_value: violation.actual_value,
+        comparator: violation.comparator,
+        approval_status: violation.approval_status,
+        approval_id: violation.approval_id,
+        message: violation.message,
+      })),
+    } satisfies Record<string, unknown>;
+  }
+
+  if (rulesEvaluation.blockingViolations.length > 0) {
+    blockingFlags.push({
+      key: "rule_violation",
+      severity: "blocking",
+      count: rulesEvaluation.blockingViolations.length,
+      item_ids: [],
+      label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
+      description: ESTIMATE_GATING_FLAG_META.rule_violation.description,
+      details: toRuleViolationDetails(rulesEvaluation.blockingViolations),
+    });
+  }
+
+  if (rulesEvaluation.warningViolations.length > 0) {
+    warningFlags.push({
+      key: "rule_violation",
+      severity: "warning",
+      count: rulesEvaluation.warningViolations.length,
+      item_ids: [],
+      label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
+      description: ESTIMATE_GATING_FLAG_META.rule_violation.description,
+      details: toRuleViolationDetails(rulesEvaluation.warningViolations),
+    });
+  }
 
   return {
     canSend: blockingFlags.length === 0,

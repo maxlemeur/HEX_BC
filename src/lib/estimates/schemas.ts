@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
+const AID_TOO_LONG_ERROR_MESSAGE = "AID trop long.";
+
+export const DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN =
+  "^[A-Z]{2,4}\\.[A-Z]{2,4}\\.\\d{2,4}$";
+export const ESTIMATE_ITEM_AID_REGEX_FEATURE_FLAG_KEY = "ESTIMATE_ITEM_AID_REGEX";
+const DEFAULT_ESTIMATE_ITEM_AID_REGEX = new RegExp(
+  DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN
+);
 
 function isValidDateOnly(value: string) {
   const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -14,6 +22,29 @@ const requiredTextSchema = z
   .min(1, "Champ obligatoire.")
   .max(500, "Texte trop long.");
 
+export function normalizeEstimateItemAid(
+  value: string | null | undefined
+): string | null {
+  if (value === null || value === undefined) return null;
+  const normalized = value.trim().toUpperCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function parseEstimateItemAidRegexPattern(pattern: string | null | undefined) {
+  const normalized = pattern?.trim();
+  if (!normalized) {
+    return DEFAULT_ESTIMATE_ITEM_AID_REGEX;
+  }
+
+  try {
+    const parsed = new RegExp(normalized);
+    const flags = parsed.flags.replaceAll("g", "");
+    return new RegExp(parsed.source, flags);
+  } catch {
+    return DEFAULT_ESTIMATE_ITEM_AID_REGEX;
+  }
+}
+
 const optionalNullableTextSchema = z
   .union([z.string(), z.null()])
   .transform((value) => {
@@ -21,6 +52,10 @@ const optionalNullableTextSchema = z
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
   });
+
+const optionalAidSchema = z
+  .union([z.string().max(64, AID_TOO_LONG_ERROR_MESSAGE), z.null()])
+  .transform((value) => normalizeEstimateItemAid(value));
 
 const nonNegativeNumberSchema = z
   .number()
@@ -215,6 +250,7 @@ const createSectionItemSchema = z.object({
   parent_id: nullableUuidSchema.optional(),
   position: positiveIntegerSchema.optional(),
   title: requiredTextSchema.optional(),
+  aid: optionalAidSchema.optional(),
 });
 
 const createLineItemSchema = z.object({
@@ -222,6 +258,7 @@ const createLineItemSchema = z.object({
   parent_id: nullableUuidSchema.optional(),
   position: positiveIntegerSchema.optional(),
   title: requiredTextSchema.optional(),
+  aid: optionalAidSchema.optional(),
   description: optionalNullableTextSchema.optional(),
   quantity: nonNegativeNumberSchema.optional(),
   unit_price_ht_cents: nonNegativeIntegerSchema.optional(),
@@ -251,6 +288,7 @@ const updateEstimateItemFields = {
   parent_id: nullableUuidSchema.optional(),
   position: positiveIntegerSchema.optional(),
   title: requiredTextSchema.optional(),
+  aid: optionalAidSchema.optional(),
   description: optionalNullableTextSchema.optional(),
   quantity: nonNegativeNumberSchema.optional(),
   unit_price_ht_cents: nonNegativeIntegerSchema.optional(),
@@ -290,6 +328,21 @@ export const updateEstimateItemSchema = z
   .object({
     id: uuidSchema,
     ...updateEstimateItemFields,
+    item_type: estimateItemTypeSchema.optional(),
+  })
+  .superRefine((payload, ctx) => {
+    if (Object.keys(payload).length > 1) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Aucun champ de mise a jour fourni.",
+      path: [],
+    });
+  });
+
+const bulkUpdateEstimateItemSchema = z
+  .object({
+    id: uuidSchema,
+    ...updateEstimateItemFields,
   })
   .superRefine((payload, ctx) => {
     if (Object.keys(payload).length > 1) return;
@@ -301,7 +354,7 @@ export const updateEstimateItemSchema = z
   });
 
 export const bulkUpdateEstimateItemsSchema = z
-  .array(updateEstimateItemSchema)
+  .array(bulkUpdateEstimateItemSchema)
   .superRefine((payload, ctx) => {
     const ids = new Set<string>();
 
@@ -701,6 +754,7 @@ export const instantiateEstimateFromTemplateSchema = z.preprocess(
       version_title: record.version_title ?? record.versionTitle,
       date_devis: record.date_devis ?? record.dateDevis,
       validite_jours: record.validite_jours ?? record.validiteJours,
+      project_notes: record.project_notes ?? record.projectNotes,
     };
   },
   z.object({
@@ -708,6 +762,7 @@ export const instantiateEstimateFromTemplateSchema = z.preprocess(
     version_title: optionalNullableTextSchema.optional(),
     date_devis: dateOnlySchema.optional(),
     validite_jours: positiveIntegerSchema.optional(),
+    project_notes: optionalNullableTextSchema.optional(),
   })
 );
 export const instantiateEstimateTemplateSchema =

@@ -4,6 +4,7 @@ import {
   batchOperationsSchema,
   bulkUpdateEstimateItemsRequestSchema,
   createEstimateSchema,
+  createEstimateItemSchema,
   createEstimateVariantSchema,
   createEstimateAssemblySchema,
   duplicateEstimateSectionSchema,
@@ -20,6 +21,7 @@ import {
   suggestionRuleFeedbackSchema,
   trackSuggestionCorrectionsSchema,
   updateEstimateAssemblySchema,
+  updateEstimateItemSchema,
   updateMarginTierSchema,
 } from "@/lib/estimates/schemas";
 
@@ -84,6 +86,26 @@ describe("createEstimateSchema", () => {
         issue.message.includes("discount_steps doit etre vide en mode simple")
       )
     ).toBe(true);
+  });
+});
+
+describe("createEstimateItemSchema", () => {
+  it("normalizes AID values to uppercase and trims spaces", () => {
+    const parsed = createEstimateItemSchema.parse({
+      item_type: "line",
+      aid: "  aa.bb.0123  ",
+    });
+
+    expect(parsed.aid).toBe("AA.BB.0123");
+  });
+
+  it("converts blank AID values to null", () => {
+    const parsed = createEstimateItemSchema.parse({
+      item_type: "line",
+      aid: "   ",
+    });
+
+    expect(parsed.aid).toBeNull();
   });
 });
 
@@ -170,6 +192,20 @@ describe("patchEstimateVersionSchema", () => {
   });
 });
 
+describe("updateEstimateItemSchema", () => {
+  it("accepts item_type conversion on single-item payloads", () => {
+    const parsed = updateEstimateItemSchema.parse({
+      id: ITEM_ID_1,
+      item_type: "section",
+    });
+
+    expect(parsed).toMatchObject({
+      id: ITEM_ID_1,
+      item_type: "section",
+    });
+  });
+});
+
 describe("bulkUpdateEstimateItemsRequestSchema", () => {
   it("accepts bare updates arrays and wraps them in updates", () => {
     const parsed = bulkUpdateEstimateItemsRequestSchema.parse([
@@ -187,6 +223,17 @@ describe("bulkUpdateEstimateItemsRequestSchema", () => {
         },
       ],
     });
+  });
+
+  it("normalizes AID values in update payloads", () => {
+    const parsed = bulkUpdateEstimateItemsRequestSchema.parse([
+      {
+        id: ITEM_ID_1,
+        aid: "  ab.cd.9999  ",
+      },
+    ]);
+
+    expect(parsed.updates[0]?.aid).toBe("AB.CD.9999");
   });
 
   it("normalizes updated_at when provided in object payloads", () => {
@@ -291,6 +338,19 @@ describe("bulkUpdateEstimateItemsRequestSchema", () => {
         issue.message.includes("Aucun champ de mise a jour fourni")
       )
     ).toBe(true);
+  });
+
+  it("rejects item_type in bulk updates", () => {
+    const parsed = bulkUpdateEstimateItemsRequestSchema.safeParse({
+      updates: [
+        {
+          id: ITEM_ID_1,
+          item_type: "section",
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
   });
 });
 
