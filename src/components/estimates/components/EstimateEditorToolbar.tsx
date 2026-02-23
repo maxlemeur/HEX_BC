@@ -17,7 +17,8 @@ import {
   useEstimateEditorMeta,
   useEstimateEditorState,
 } from "@/components/estimates/context/EstimateEditorContext";
-import type { ColumnPreset } from "@/hooks/useColumnVisibility";
+import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
+import { usePopover } from "@/hooks/usePopover";
 
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
@@ -60,6 +61,12 @@ type EstimateEditorToolbarProps = {
   columnPreset: ColumnPreset;
   columnPresetLabels: Record<ColumnPreset, string>;
   onColumnPresetChange: (preset: ColumnPreset) => void;
+  searchTerm: string;
+  onSearchChange: (term: string) => void;
+  columnVisibleColumns: Set<ColumnKey>;
+  allAdvancedColumns: ColumnKey[];
+  columnLabels: Record<ColumnKey, string>;
+  onToggleColumn: (key: ColumnKey) => void;
 };
 
 const ROOT_KEY = "root";
@@ -112,10 +119,26 @@ export function EstimateEditorToolbar({
   columnPreset,
   columnPresetLabels,
   onColumnPresetChange,
+  searchTerm,
+  onSearchChange,
+  columnVisibleColumns,
+  allAdvancedColumns,
+  columnLabels,
+  onToggleColumn,
 }: EstimateEditorToolbarProps) {
   const state = useEstimateEditorState();
   const actions = useEstimateEditorActions();
   const meta = useEstimateEditorMeta();
+  const {
+    isOpen: columnsOpen,
+    toggle: columnsToggle,
+    setContainerRef: columnsContainerRef,
+  } = usePopover();
+  const {
+    isOpen: toolsOpen,
+    toggle: toolsToggle,
+    setContainerRef: toolsContainerRef,
+  } = usePopover();
 
   return (
     <div className="flex flex-col gap-3">
@@ -161,105 +184,149 @@ export function EstimateEditorToolbar({
           >
             + Chapitre
           </button>
-          <details className="relative">
-            <summary className="btn btn-secondary btn-sm cursor-pointer list-none select-none">
+          <input
+            type="search"
+            className="form-input h-8 w-48 text-sm"
+            placeholder="Rechercher..."
+            value={searchTerm}
+            onChange={(e) => onSearchChange(e.target.value)}
+          />
+          <div className="relative" ref={columnsContainerRef}>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={columnsToggle}
+            >
               Colonnes
-            </summary>
-            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-2 rounded-xl border border-[var(--slate-200)] bg-white p-3 shadow-xl" style={{ minWidth: "200px" }}>
-              {(Object.keys(columnPresetLabels) as ColumnPreset[]).map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  className={`btn btn-sm w-full text-left${columnPreset === preset ? " btn-primary" : " btn-secondary"}`}
-                  onClick={() => onColumnPresetChange(preset)}
-                >
-                  {columnPresetLabels[preset]}
-                </button>
-              ))}
-            </div>
-          </details>
-          <details className="relative">
-            <summary className="btn btn-secondary btn-sm cursor-pointer list-none select-none">
+            </button>
+            {columnsOpen && (
+              <div
+                className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-2 rounded-xl border border-[var(--slate-200)] bg-white p-3 shadow-xl"
+                style={{ minWidth: "200px" }}
+              >
+                {(Object.keys(columnPresetLabels) as ColumnPreset[]).map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    className={`btn btn-sm w-full text-left${columnPreset === preset ? " btn-primary" : " btn-secondary"}`}
+                    onClick={() => onColumnPresetChange(preset)}
+                  >
+                    {columnPresetLabels[preset]}
+                  </button>
+                ))}
+                {columnPreset === "custom" && (
+                  <div className="mt-2 border-t border-[var(--slate-200)] pt-2 space-y-1">
+                    {allAdvancedColumns.map((col) => (
+                      <label key={col} className="flex items-center gap-2 text-sm text-[var(--slate-700)] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={columnVisibleColumns.has(col)}
+                          onChange={() => onToggleColumn(col)}
+                        />
+                        {columnLabels[col]}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {qualityCounts.linesWithAnomaliesCount > 0 && (
+            <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">
+              {qualityCounts.linesWithAnomaliesCount} anomalie{qualityCounts.linesWithAnomaliesCount > 1 ? "s" : ""}
+            </span>
+          )}
+          <div className="relative" ref={toolsContainerRef}>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={toolsToggle}
+            >
               Outils avancés
-            </summary>
-            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-[var(--slate-200)] bg-white p-4 shadow-xl" style={{ minWidth: "320px" }}>
-              <div className="flex flex-wrap items-center gap-2">
-                <label
-                  className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
-                  htmlFor="estimate-quality-filter"
-                >
-                  Filtre qualité
-                </label>
-                <select
-                  id="estimate-quality-filter"
-                  className="estimate-input estimate-select"
-                  style={{ width: "auto", minWidth: "260px" }}
-                  value={qualityFilter}
-                  onChange={(event) => onQualityFilterChange(parseEstimateQualityFilter(event.target.value))}
-                >
-                  <option value="all_lines">Toutes les lignes ({qualityCounts.linesCount})</option>
-                  <option value="with_anomalies">
-                    Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
-                  </option>
-                  {ESTIMATE_QUALITY_FLAG_KEYS.map((flag) => (
-                    <option key={flag} value={flag}>
-                      {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
+            </button>
+            {toolsOpen && (
+              <div
+                className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-[var(--slate-200)] bg-white p-4 shadow-xl"
+                style={{ minWidth: "320px" }}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+                    htmlFor="estimate-quality-filter"
+                  >
+                    Filtre qualité
+                  </label>
+                  <select
+                    id="estimate-quality-filter"
+                    className="estimate-input estimate-select"
+                    style={{ width: "auto", minWidth: "260px" }}
+                    value={qualityFilter}
+                    onChange={(event) => onQualityFilterChange(parseEstimateQualityFilter(event.target.value))}
+                  >
+                    <option value="all_lines">Toutes les lignes ({qualityCounts.linesCount})</option>
+                    <option value="with_anomalies">
+                      Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
                     </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
-                <label
-                  className="text-xs font-semibold uppercase tracking-[0.08em] text-orange-700"
-                  htmlFor="estimate-outlier-method"
-                >
-                  Outliers
-                </label>
-                <select
-                  id="estimate-outlier-method"
-                  className="estimate-input estimate-select"
-                  style={{ width: "auto", minWidth: "104px" }}
-                  value={outlierDetectionMethod}
-                  disabled={meta.isReadOnly}
-                  onChange={(event) => onOutlierDetectionMethodChange(parseOutlierMethod(event.target.value))}
-                >
-                  <option value="iqr">IQR</option>
-                  <option value="zscore">Z-score</option>
-                </select>
-                <input
-                  className="estimate-input"
-                  style={{ width: "92px" }}
-                  type="number"
-                  step="0.1"
-                  min={0.1}
-                  value={outlierThreshold}
-                  disabled={meta.isReadOnly}
-                  onChange={(event) => onOutlierThresholdChange(parseNumberInput(event.target.value))}
-                  aria-label="Seuil de detection des outliers"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {bulkSuggestionEligibleCount > 0 ? (
+                    {ESTIMATE_QUALITY_FLAG_KEYS.map((flag) => (
+                      <option key={flag} value={flag}>
+                        {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-[0.08em] text-orange-700"
+                    htmlFor="estimate-outlier-method"
+                  >
+                    Outliers
+                  </label>
+                  <select
+                    id="estimate-outlier-method"
+                    className="estimate-input estimate-select"
+                    style={{ width: "auto", minWidth: "104px" }}
+                    value={outlierDetectionMethod}
+                    disabled={meta.isReadOnly}
+                    onChange={(event) => onOutlierDetectionMethodChange(parseOutlierMethod(event.target.value))}
+                  >
+                    <option value="iqr">IQR</option>
+                    <option value="zscore">Z-score</option>
+                  </select>
+                  <input
+                    className="estimate-input"
+                    style={{ width: "92px" }}
+                    type="number"
+                    step="0.1"
+                    min={0.1}
+                    value={outlierThreshold}
+                    disabled={meta.isReadOnly}
+                    onChange={(event) => onOutlierThresholdChange(parseNumberInput(event.target.value))}
+                    aria-label="Seuil de detection des outliers"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {bulkSuggestionEligibleCount > 0 ? (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      type="button"
+                      onClick={onOpenBulkSuggestDialog}
+                      disabled={meta.isReadOnly}
+                    >
+                      Suggestions ({bulkSuggestionEligibleCount})
+                    </button>
+                  ) : null}
                   <button
                     className="btn btn-secondary btn-sm"
                     type="button"
-                    onClick={onOpenBulkSuggestDialog}
+                    onClick={onOpenAssemblyPicker}
                     disabled={meta.isReadOnly}
                   >
-                    Suggestions ({bulkSuggestionEligibleCount})
+                    Assemblages
                   </button>
-                ) : null}
-                <button
-                  className="btn btn-secondary btn-sm"
-                  type="button"
-                  onClick={onOpenAssemblyPicker}
-                  disabled={meta.isReadOnly}
-                >
-                  Assemblages
-                </button>
+                </div>
               </div>
-            </div>
-          </details>
+            )}
+          </div>
           <KeyboardShortcutsButton />
         </div>
       </div>
@@ -403,6 +470,7 @@ const KEYBOARD_SHORTCUTS = [
   { keys: ["Ctrl", "Y"], description: "Refaire (Redo)" },
   { keys: ["Ctrl", "A"], description: "Sélectionner toutes les lignes" },
   { keys: ["Ctrl", "C"], description: "Copier les lignes sélectionnées" },
+  { keys: ["Ctrl", "Shift", "A"], description: "Ouvrir le sélecteur d'assemblages" },
   { keys: ["Delete"], description: "Supprimer les lignes sélectionnées" },
   { keys: ["Escape"], description: "Désélectionner / Annuler l'édition" },
   { keys: ["Tab"], description: "Cellule suivante" },

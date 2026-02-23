@@ -29,6 +29,7 @@ import {
   type SuggestionPreview,
 } from "@/components/estimates/components/EstimateSuggestionRow";
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
+import { ColumnHeaderHelp, COLUMN_HEADER_TOOLTIPS } from "@/components/estimates/components/ColumnHeaderHelp";
 import {
   sendEstimateSuggestionRuleFeedback,
 } from "@/lib/estimates/client";
@@ -634,6 +635,7 @@ export function EstimateEditorTable({
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
   const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
   const [isAssemblyPickerOpen, setIsAssemblyPickerOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
   const [dismissedSuggestionsByItemId, setDismissedSuggestionsByItemId] = useState<
     Record<string, Record<string, boolean>>
   >({});
@@ -1431,6 +1433,7 @@ export function EstimateEditorTable({
     onCopySelectedRowsToClipboard: copySelectedRowsToClipboard,
     onUndo,
     onRedo,
+    onOpenAssemblyPicker: () => setIsAssemblyPickerOpen(true),
   });
 
   const sendSuggestionFeedback = useCallback(
@@ -1825,6 +1828,11 @@ export function EstimateEditorTable({
           isReadOnly={isReadOnly}
           isLaborSplitEnabled={isLaborSplitEnabled}
           visibleColumns={isLaborSplitEnabled ? undefined : columnVisibility.visibleColumns}
+          isSearchMatch={
+            searchTerm.length > 0 &&
+            item.item_type === "line" &&
+            Boolean(item.title?.toLowerCase().includes(searchTerm.toLowerCase()))
+          }
         />
       );
     },
@@ -1852,6 +1860,7 @@ export function EstimateEditorTable({
       patchItemWithSuggestionTracking,
       onToggleOutlierDismiss,
       outlierActionPendingByItemId,
+      searchTerm,
       spreadsheetNavigation,
       supplyTypeById,
       versionId,
@@ -2003,6 +2012,12 @@ export function EstimateEditorTable({
           columnPreset={columnVisibility.preset}
           columnPresetLabels={columnVisibility.presetLabels}
           onColumnPresetChange={columnVisibility.setPreset}
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          columnVisibleColumns={columnVisibility.visibleColumns}
+          allAdvancedColumns={columnVisibility.allAdvancedColumns}
+          columnLabels={columnVisibility.columnLabels}
+          onToggleColumn={columnVisibility.toggleColumn}
         />
 
       {actionError && (
@@ -2040,44 +2055,44 @@ export function EstimateEditorTable({
               aria-label="Sélectionner toutes les lignes visibles"
             />
           </div>
-          <div title="Désignation de l'article" className="cursor-help">Désignation</div>
-          <div title="Quantité" className="cursor-help">Qté</div>
-          <div title="Unité de mesure" className="cursor-help">U</div>
-          <div title="Prix unitaire fourniture" className="cursor-help">PR. FO</div>
+          <div className="relative"><ColumnHeaderHelp label="Désignation" tooltip={COLUMN_HEADER_TOOLTIPS["Désignation"]} /></div>
+          <div className="relative"><ColumnHeaderHelp label="Qté" tooltip={COLUMN_HEADER_TOOLTIPS["Qté"]} /></div>
+          <div className="relative"><ColumnHeaderHelp label="U" tooltip={COLUMN_HEADER_TOOLTIPS["U"]} /></div>
+          <div className="relative"><ColumnHeaderHelp label="PR. FO" tooltip={COLUMN_HEADER_TOOLTIPS["PR. FO"]} /></div>
           {isLaborSplitEnabled ? (
             <>
-              <div title="Type de fourniture" className="cursor-help">Type FO</div>
-              <div title="Coefficient fourniture" className="cursor-help">K FO</div>
-              <div title="Pourcentage de majoration main d'œuvre" className="cursor-help">Majoration MO (%)</div>
-              <div title="Heures main d'œuvre atelier" className="cursor-help">h MO atelier</div>
-              <div title="Type de main d'œuvre atelier" className="cursor-help">Type MO atelier</div>
-              <div title="Coefficient main d'œuvre atelier" className="cursor-help">K MO atelier</div>
-              <div title="Heures main d'œuvre chantier" className="cursor-help">h MO chantier</div>
-              <div title="Type de main d'œuvre chantier" className="cursor-help">Type MO chantier</div>
-              <div title="Coefficient main d'œuvre chantier" className="cursor-help">K MO chantier</div>
+              <div className="relative"><ColumnHeaderHelp label="Type FO" tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]} /></div>
+              <div className="relative"><ColumnHeaderHelp label="K FO" tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]} /></div>
+              <div className="relative"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} /></div>
+              <div className="relative"><ColumnHeaderHelp label="h MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO atelier"]} /></div>
+              <div className="relative"><ColumnHeaderHelp label="Type MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO atelier"]} /></div>
+              <div className="relative"><ColumnHeaderHelp label="K MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO atelier"]} /></div>
+              <div className="relative"><ColumnHeaderHelp label="h MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO chantier"]} /></div>
+              <div className="relative"><ColumnHeaderHelp label="Type MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO chantier"]} /></div>
+              <div className="relative"><ColumnHeaderHelp label="K MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO chantier"]} /></div>
             </>
           ) : (
             <>
               {columnVisibility.visibleColumns.has("supply_type") ? (
-                <div title="Type de fourniture" className="cursor-help">Type FO</div>
+                <div className="relative"><ColumnHeaderHelp label="Type FO" tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]} /></div>
               ) : null}
               {columnVisibility.visibleColumns.has("k_fo") ? (
-                <div title="Coefficient fourniture" className="cursor-help">K FO</div>
+                <div className="relative"><ColumnHeaderHelp label="K FO" tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]} /></div>
               ) : null}
-              <div title="Heures main d'œuvre" className="cursor-help">h MO</div>
+              <div className="relative"><ColumnHeaderHelp label="h MO" tooltip={COLUMN_HEADER_TOOLTIPS["h MO"]} /></div>
               {columnVisibility.visibleColumns.has("h_mo_majoration") ? (
-                <div title="Pourcentage de majoration main d'œuvre" className="cursor-help">Majoration MO (%)</div>
+                <div className="relative"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} /></div>
               ) : null}
               {columnVisibility.visibleColumns.has("labor_role") ? (
-                <div title="Type de main d'œuvre" className="cursor-help">Type MO</div>
+                <div className="relative"><ColumnHeaderHelp label="Type MO" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO"]} /></div>
               ) : null}
               {columnVisibility.visibleColumns.has("k_mo") ? (
-                <div title="Coefficient main d'œuvre" className="cursor-help">K MO</div>
+                <div className="relative"><ColumnHeaderHelp label="K MO" tooltip={COLUMN_HEADER_TOOLTIPS["K MO"]} /></div>
               ) : null}
             </>
           )}
-          <div title="Prix unitaire HT calculé" className="cursor-help">P.U.</div>
-          <div title="Prix total HT de la ligne" className="cursor-help">Prix total</div>
+          <div className="relative"><ColumnHeaderHelp label="P.U." tooltip={COLUMN_HEADER_TOOLTIPS["P.U."]} /></div>
+          <div className="relative"><ColumnHeaderHelp label="Prix total" tooltip={COLUMN_HEADER_TOOLTIPS["Prix total"]} /></div>
           <div></div>
         </div>
         <EstimateEditorBody

@@ -25,13 +25,13 @@ function statusLabel(status: EstimateTimelineStatus) {
     case "draft":
       return "Brouillon";
     case "sent":
-      return "Envoye";
+      return "Envoyé";
     case "accepted":
-      return "Accepte";
+      return "Accepté";
     case "archived":
-      return "Archive";
+      return "Archivé";
     case "canceled":
-      return "Annule";
+      return "Annulé";
     default:
       return "Inconnu";
   }
@@ -187,7 +187,7 @@ export function EstimateTimeline({
                                 : "Issue d'une version parente"}
                             </span>
                           ) : null}
-                          <span>Cree le {formatDate(version.created_at)}</span>
+                          <span>Créé le {formatDate(version.created_at)}</span>
                           <span>
                             {version.author_name
                               ? `Par ${version.author_name}`
@@ -196,7 +196,25 @@ export function EstimateTimeline({
                         </div>
                       </div>
                       <div className="shrink-0 text-left sm:text-right">
-                        <p className="text-xs text-[var(--slate-500)]">Total TTC</p>
+                        <p className="text-xs text-[var(--slate-500)]">Total HT</p>
+                        <div className="flex items-center gap-1.5 sm:justify-end">
+                          <p className="text-sm font-semibold text-[var(--slate-800)]">
+                            {formatEUR(version.total_ht_cents)}
+                          </p>
+                          {(() => {
+                            const currentIndex = versions.indexOf(version);
+                            const previousVersion = versions[currentIndex + 1];
+                            if (!previousVersion) return null;
+                            const delta = version.total_ht_cents - previousVersion.total_ht_cents;
+                            if (delta === 0) return null;
+                            return (
+                              <span className={`text-xs font-medium ${delta > 0 ? "text-green-600" : "text-red-600"}`}>
+                                {delta > 0 ? "+" : ""}{formatEUR(delta)}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <p className="mt-0.5 text-xs text-[var(--slate-500)]">Total TTC</p>
                         <p className="text-sm font-semibold text-[var(--slate-800)]">
                           {formatEUR(version.total_ttc_cents)}
                         </p>

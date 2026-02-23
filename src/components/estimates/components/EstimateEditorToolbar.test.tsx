@@ -81,6 +81,15 @@ function renderToolbar(overrides?: { hasSelectedLines?: boolean }) {
         onOpenBulkSuggestDialog={vi.fn()}
         onOpenAssemblyPicker={vi.fn()}
         onAddRootSection={vi.fn()}
+        columnPreset="standard"
+        columnPresetLabels={{ essential: "Essentiel", standard: "Standard", full: "Complet", custom: "Personnalisé" }}
+        onColumnPresetChange={vi.fn()}
+        searchTerm=""
+        onSearchChange={vi.fn()}
+        columnVisibleColumns={new Set()}
+        allAdvancedColumns={[]}
+        columnLabels={{} as Record<import("@/hooks/useColumnVisibility").ColumnKey, string>}
+        onToggleColumn={vi.fn()}
       />
     </EstimateEditorProvider>
   );
@@ -93,7 +102,7 @@ describe("EstimateEditorToolbar", () => {
     const { actions, onUndo } = renderToolbar({ hasSelectedLines: true });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Annuler la derniere action" })
+      screen.getByRole("button", { name: "Annuler la dernière action" })
     );
     expect(onUndo).toHaveBeenCalledTimes(1);
 
@@ -103,10 +112,10 @@ describe("EstimateEditorToolbar", () => {
     expect(actions.setBulkMajorationPercent).toHaveBeenCalledWith("120");
   });
 
-  it("disables bulk majoration when no line is selected", () => {
+  it("hides bulk actions when no line is selected", () => {
     renderToolbar({ hasSelectedLines: false });
     expect(
-      screen.getByRole("button", { name: "Appliquer majoration" })
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Appliquer majoration" })
+    ).not.toBeInTheDocument();
   });
 });

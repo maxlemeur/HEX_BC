@@ -9,6 +9,8 @@ import {
   type AssemblyEditorInput,
 } from "@/components/estimates/AssemblyEditorModal";
 import { AssemblyLibraryTable } from "@/components/estimates/AssemblyLibraryTable";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { PromptModal } from "@/components/ui/PromptModal";
 import {
   createEstimateAssembly,
   deleteEstimateAssembly,
@@ -30,6 +32,9 @@ export default function EstimateAssembliesPage() {
   const [editingAssembly, setEditingAssembly] = useState<EstimateAssemblyDetail | null>(
     null
   );
+  const [renamingAssembly, setRenamingAssembly] = useState<{ id: string; name: string } | null>(null);
+  const [duplicatingAssembly, setDuplicatingAssembly] = useState<{ id: string; name: string } | null>(null);
+  const [deletingAssembly, setDeletingAssembly] = useState<{ id: string; name: string } | null>(null);
 
   const swrKey = useMemo(
     () => ["estimate-assemblies", search.trim().toLowerCase()],
@@ -112,18 +117,22 @@ export default function EstimateAssembliesPage() {
     }
   }, []);
 
-  const handleRename = useCallback(
-    async (assembly: EstimateAssemblySummary) => {
-      const nextName = window
-        .prompt("Nouveau nom de l'assemblage", assembly.name)
-        ?.trim();
-      if (!nextName || nextName === assembly.name) return;
+  const handleRename = useCallback((assembly: EstimateAssemblySummary) => {
+    setRenamingAssembly({ id: assembly.id, name: assembly.name });
+  }, []);
 
+  const confirmRename = useCallback(
+    async (nextName: string) => {
+      if (!renamingAssembly || nextName === renamingAssembly.name) {
+        setRenamingAssembly(null);
+        return;
+      }
       setActionError(null);
       setSuccessMessage(null);
-      setBusyAssemblyId(assembly.id);
+      setBusyAssemblyId(renamingAssembly.id);
+      setRenamingAssembly(null);
       try {
-        await updateEstimateAssembly(assembly.id, { name: nextName });
+        await updateEstimateAssembly(renamingAssembly.id, { name: nextName });
         setSuccessMessage("Assemblage renomme.");
         await mutate();
       } catch (error) {
@@ -134,21 +143,22 @@ export default function EstimateAssembliesPage() {
         setBusyAssemblyId(null);
       }
     },
-    [mutate]
+    [renamingAssembly, mutate]
   );
 
-  const handleDuplicate = useCallback(
-    async (assembly: EstimateAssemblySummary) => {
-      const duplicateName = window
-        .prompt("Nom de l'assemblage duplique", `${assembly.name} (copie)`)
-        ?.trim();
-      if (!duplicateName) return;
+  const handleDuplicate = useCallback((assembly: EstimateAssemblySummary) => {
+    setDuplicatingAssembly({ id: assembly.id, name: assembly.name });
+  }, []);
 
+  const confirmDuplicate = useCallback(
+    async (duplicateName: string) => {
+      if (!duplicatingAssembly) return;
       setActionError(null);
       setSuccessMessage(null);
-      setBusyAssemblyId(assembly.id);
+      setBusyAssemblyId(duplicatingAssembly.id);
+      setDuplicatingAssembly(null);
       try {
-        await duplicateEstimateAssembly(assembly.id, { name: duplicateName });
+        await duplicateEstimateAssembly(duplicatingAssembly.id, { name: duplicateName });
         setSuccessMessage("Assemblage duplique.");
         await mutate();
       } catch (error) {
@@ -159,33 +169,31 @@ export default function EstimateAssembliesPage() {
         setBusyAssemblyId(null);
       }
     },
-    [mutate]
+    [duplicatingAssembly, mutate]
   );
 
-  const handleDelete = useCallback(
-    async (assembly: EstimateAssemblySummary) => {
-      const confirmed = window.confirm(
-        `Supprimer l'assemblage "${assembly.name}" ? Cette action est irreversible.`
+  const handleDelete = useCallback((assembly: EstimateAssemblySummary) => {
+    setDeletingAssembly({ id: assembly.id, name: assembly.name });
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deletingAssembly) return;
+    setActionError(null);
+    setSuccessMessage(null);
+    setBusyAssemblyId(deletingAssembly.id);
+    setDeletingAssembly(null);
+    try {
+      await deleteEstimateAssembly(deletingAssembly.id);
+      setSuccessMessage("Assemblage supprime.");
+      await mutate();
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Impossible de supprimer l'assemblage."
       );
-      if (!confirmed) return;
-
-      setActionError(null);
-      setSuccessMessage(null);
-      setBusyAssemblyId(assembly.id);
-      try {
-        await deleteEstimateAssembly(assembly.id);
-        setSuccessMessage("Assemblage supprime.");
-        await mutate();
-      } catch (error) {
-        setActionError(
-          error instanceof Error ? error.message : "Impossible de supprimer l'assemblage."
-        );
-      } finally {
-        setBusyAssemblyId(null);
-      }
-    },
-    [mutate]
-  );
+    } finally {
+      setBusyAssemblyId(null);
+    }
+  }, [deletingAssembly, mutate]);
 
   return (
     <div className="animate-fade-in">
@@ -258,6 +266,34 @@ export default function EstimateAssembliesPage() {
           onSubmit={handleSubmitModal}
         />
       ) : null}
+
+      <PromptModal
+        open={renamingAssembly !== null}
+        title="Renommer l'assemblage"
+        label="Nouveau nom"
+        defaultValue={renamingAssembly?.name ?? ""}
+        confirmLabel="Renommer"
+        onConfirm={confirmRename}
+        onCancel={() => setRenamingAssembly(null)}
+      />
+      <PromptModal
+        open={duplicatingAssembly !== null}
+        title="Dupliquer l'assemblage"
+        label="Nom de la copie"
+        defaultValue={duplicatingAssembly ? `${duplicatingAssembly.name} (copie)` : ""}
+        confirmLabel="Dupliquer"
+        onConfirm={confirmDuplicate}
+        onCancel={() => setDuplicatingAssembly(null)}
+      />
+      <ConfirmModal
+        open={deletingAssembly !== null}
+        title="Supprimer l'assemblage"
+        message={`Supprimer l'assemblage "${deletingAssembly?.name ?? ""}" ? Cette action est irreversible.`}
+        confirmLabel="Supprimer"
+        variant="danger"
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeletingAssembly(null)}
+      />
     </div>
   );
 }

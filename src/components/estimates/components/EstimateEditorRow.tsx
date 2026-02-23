@@ -455,6 +455,7 @@ export type EstimateEditorRowProps = {
   isOutlierActionPending: boolean;
   isReadOnly: boolean;
   isLaborSplitEnabled: boolean;
+  isSearchMatch?: boolean;
 };
 
 export const EstimateEditorRow = memo(function EstimateEditorRow({
@@ -490,6 +491,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   isReadOnly,
   isLaborSplitEnabled,
   visibleColumns,
+  isSearchMatch,
 }: EstimateEditorRowProps) {
   const {
     attributes,
@@ -1075,7 +1077,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     <div
       ref={setNodeRef}
       style={style}
-      className={`estimate-row${isLineSelected ? " estimate-row--selected" : ""}`}
+      className={`estimate-row${isLineSelected ? " estimate-row--selected" : ""}${isSearchMatch ? " ring-2 ring-yellow-300 rounded" : ""}`}
       data-estimate-item-id={item.id}
       data-depth={depth}
       role="row"
@@ -1865,17 +1867,32 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           className="btn btn-ghost btn-sm"
           type="button"
           onClick={() => onOpenSupplierComparisonPanel(item.id)}
+          title="Comparer les prix fournisseurs"
         >
           Comparer
         </button>
-        <button
-          className="btn btn-danger btn-sm"
-          type="button"
-          onClick={() => onDeleteItem(item.id)}
-          disabled={isReadOnly}
-        >
-          Supprimer
-        </button>
+        <details className="relative">
+          <summary
+            className="btn btn-ghost btn-sm cursor-pointer list-none select-none"
+            title="Plus d'actions"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="5" r="1" />
+              <circle cx="12" cy="12" r="1" />
+              <circle cx="12" cy="19" r="1" />
+            </svg>
+          </summary>
+          <div className="absolute right-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl" style={{ minWidth: "140px" }}>
+            <button
+              className="btn btn-danger btn-sm w-full justify-start"
+              type="button"
+              onClick={() => onDeleteItem(item.id)}
+              disabled={isReadOnly}
+            >
+              Supprimer
+            </button>
+          </div>
+        </details>
       </div>
     </div>
   );

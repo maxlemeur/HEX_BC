@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { formatEUR } from "@/lib/money";
 import type {
   DiscountStepTotal,
@@ -108,6 +109,11 @@ export function EstimateSettingsPanel({
   onChange,
   onSave,
 }: EstimateSettingsPanelProps) {
+  const [glossaryDismissed, setGlossaryDismissed] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try { return localStorage.getItem("est-glossary-dismissed") === "1"; } catch { return false; }
+  });
+
   const taxEnabled = settings.tax_rate_bp > 0;
   const taxRatePercent = settings.tax_rate_bp / 100;
   const roundingValue = getRoundingValue(
@@ -142,6 +148,31 @@ export function EstimateSettingsPanel({
             <path d="m9 9 6 6" />
           </svg>
           {error}
+        </div>
+      )}
+
+      {!glossaryDismissed && (
+        <div className="mb-6 flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+          <div className="flex-1">
+            <p className="font-semibold">Glossaire</p>
+            <ul className="mt-1 space-y-0.5">
+              <li><strong>FO</strong> = Fourniture (materiaux, produits)</li>
+              <li><strong>MO</strong> = Main d&apos;oeuvre (travail, pose)</li>
+              <li><strong>K</strong> = Coefficient multiplicateur</li>
+              <li><strong>HT</strong> = Hors taxes / <strong>TTC</strong> = Toutes taxes comprises</li>
+            </ul>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-blue-400 hover:text-blue-600"
+            onClick={() => {
+              setGlossaryDismissed(true);
+              try { localStorage.setItem("est-glossary-dismissed", "1"); } catch {}
+            }}
+            aria-label="Masquer le glossaire"
+          >
+            &#x2715;
+          </button>
         </div>
       )}
 

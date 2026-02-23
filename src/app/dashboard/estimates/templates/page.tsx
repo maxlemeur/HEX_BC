@@ -5,6 +5,8 @@ import { useCallback, useMemo, useState } from "react";
 import useSWR from "swr";
 
 import { TemplateLibraryTable } from "@/components/estimates/TemplateLibraryTable";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { PromptModal } from "@/components/ui/PromptModal";
 import {
   deleteEstimateTemplate,
   duplicateEstimateTemplate,
@@ -18,6 +20,9 @@ export default function EstimateTemplatesPage() {
   const [busyTemplateId, setBusyTemplateId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [renamingTemplate, setRenamingTemplate] = useState<{ id: string; name: string } | null>(null);
+  const [duplicatingTemplate, setDuplicatingTemplate] = useState<{ id: string; name: string } | null>(null);
+  const [deletingTemplate, setDeletingTemplate] = useState<{ id: string; name: string } | null>(null);
 
   const swrKey = useMemo(
     () => ["estimate-templates", search.trim().toLowerCase()],
@@ -42,17 +47,22 @@ export default function EstimateTemplatesPage() {
     revalidateOnFocus: true,
   });
 
-  const handleRename = useCallback(
-    async (template: EstimateTemplateSummary) => {
-      const nextName = window.prompt("Nouveau nom du template", template.name)?.trim();
-      if (!nextName || nextName === template.name) return;
+  const handleRename = useCallback((template: EstimateTemplateSummary) => {
+    setRenamingTemplate({ id: template.id, name: template.name });
+  }, []);
 
+  const confirmRename = useCallback(
+    async (nextName: string) => {
+      if (!renamingTemplate || nextName === renamingTemplate.name) {
+        setRenamingTemplate(null);
+        return;
+      }
       setActionError(null);
       setSuccessMessage(null);
-      setBusyTemplateId(template.id);
-
+      setBusyTemplateId(renamingTemplate.id);
+      setRenamingTemplate(null);
       try {
-        await updateEstimateTemplate(template.id, { name: nextName });
+        await updateEstimateTemplate(renamingTemplate.id, { name: nextName });
         setSuccessMessage("Template renomme.");
         await mutate();
       } catch (error) {
@@ -63,22 +73,22 @@ export default function EstimateTemplatesPage() {
         setBusyTemplateId(null);
       }
     },
-    [mutate]
+    [renamingTemplate, mutate]
   );
 
-  const handleDuplicate = useCallback(
-    async (template: EstimateTemplateSummary) => {
-      const duplicateName = window
-        .prompt("Nom du template duplique", `${template.name} (copie)`)
-        ?.trim();
-      if (!duplicateName) return;
+  const handleDuplicate = useCallback((template: EstimateTemplateSummary) => {
+    setDuplicatingTemplate({ id: template.id, name: template.name });
+  }, []);
 
+  const confirmDuplicate = useCallback(
+    async (duplicateName: string) => {
+      if (!duplicatingTemplate) return;
       setActionError(null);
       setSuccessMessage(null);
-      setBusyTemplateId(template.id);
-
+      setBusyTemplateId(duplicatingTemplate.id);
+      setDuplicatingTemplate(null);
       try {
-        await duplicateEstimateTemplate(template.id, { name: duplicateName });
+        await duplicateEstimateTemplate(duplicatingTemplate.id, { name: duplicateName });
         setSuccessMessage("Template duplique.");
         await mutate();
       } catch (error) {
@@ -89,34 +99,31 @@ export default function EstimateTemplatesPage() {
         setBusyTemplateId(null);
       }
     },
-    [mutate]
+    [duplicatingTemplate, mutate]
   );
 
-  const handleDelete = useCallback(
-    async (template: EstimateTemplateSummary) => {
-      const confirmed = window.confirm(
-        `Supprimer le template \"${template.name}\" ? Cette action est irreversible.`
+  const handleDelete = useCallback((template: EstimateTemplateSummary) => {
+    setDeletingTemplate({ id: template.id, name: template.name });
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deletingTemplate) return;
+    setActionError(null);
+    setSuccessMessage(null);
+    setBusyTemplateId(deletingTemplate.id);
+    setDeletingTemplate(null);
+    try {
+      await deleteEstimateTemplate(deletingTemplate.id);
+      setSuccessMessage("Template supprime.");
+      await mutate();
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Impossible de supprimer le template."
       );
-      if (!confirmed) return;
-
-      setActionError(null);
-      setSuccessMessage(null);
-      setBusyTemplateId(template.id);
-
-      try {
-        await deleteEstimateTemplate(template.id);
-        setSuccessMessage("Template supprime.");
-        await mutate();
-      } catch (error) {
-        setActionError(
-          error instanceof Error ? error.message : "Impossible de supprimer le template."
-        );
-      } finally {
-        setBusyTemplateId(null);
-      }
-    },
-    [mutate]
-  );
+    } finally {
+      setBusyTemplateId(null);
+    }
+  }, [deletingTemplate, mutate]);
 
   return (
     <div className="animate-fade-in">
@@ -172,6 +179,34 @@ export default function EstimateTemplatesPage() {
           />
         )}
       </div>
+
+      <PromptModal
+        open={renamingTemplate !== null}
+        title="Renommer le template"
+        label="Nouveau nom"
+        defaultValue={renamingTemplate?.name ?? ""}
+        confirmLabel="Renommer"
+        onConfirm={confirmRename}
+        onCancel={() => setRenamingTemplate(null)}
+      />
+      <PromptModal
+        open={duplicatingTemplate !== null}
+        title="Dupliquer le template"
+        label="Nom de la copie"
+        defaultValue={duplicatingTemplate ? `${duplicatingTemplate.name} (copie)` : ""}
+        confirmLabel="Dupliquer"
+        onConfirm={confirmDuplicate}
+        onCancel={() => setDuplicatingTemplate(null)}
+      />
+      <ConfirmModal
+        open={deletingTemplate !== null}
+        title="Supprimer le template"
+        message={`Supprimer le template "${deletingTemplate?.name ?? ""}" ? Cette action est irreversible.`}
+        confirmLabel="Supprimer"
+        variant="danger"
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setDeletingTemplate(null)}
+      />
     </div>
   );
 }

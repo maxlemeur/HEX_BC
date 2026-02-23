@@ -68,6 +68,7 @@ type UseEstimateKeyboardShortcutsParams = {
   onCopySelectedRowsToClipboard: () => Promise<void>;
   onUndo: () => Promise<void>;
   onRedo: () => Promise<void>;
+  onOpenAssemblyPicker?: () => void;
 };
 
 export function useEstimateKeyboardShortcuts({
@@ -86,6 +87,7 @@ export function useEstimateKeyboardShortcuts({
   onCopySelectedRowsToClipboard,
   onUndo,
   onRedo,
+  onOpenAssemblyPicker,
 }: UseEstimateKeyboardShortcutsParams) {
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -205,6 +207,21 @@ export function useEstimateKeyboardShortcuts({
         }
         event.preventDefault();
         void onRedo();
+        return;
+      }
+
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "a"
+      ) {
+        if (isTextEditingTarget(target) || isReadOnly) {
+          return;
+        }
+        event.preventDefault();
+        onOpenAssemblyPicker?.();
+        return;
       }
     };
 
@@ -220,6 +237,7 @@ export function useEstimateKeyboardShortcuts({
     isUndoRedoBusy,
     onBulkDeleteSelection,
     onCopySelectedRowsToClipboard,
+    onOpenAssemblyPicker,
     onRedo,
     onResolveShortcutScope,
     onUndo,
