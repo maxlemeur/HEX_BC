@@ -147,8 +147,9 @@ export async function GET() {
 
     const sentCount = byStatus.sent;
     const acceptedCount = byStatus.accepted;
-    const acceptanceRate = sentCount > 0
-      ? Number(((acceptedCount / sentCount) * 100).toFixed(1))
+    const sentOrAcceptedCount = sentCount + acceptedCount;
+    const acceptanceRate = sentOrAcceptedCount > 0
+      ? Number(((acceptedCount / sentOrAcceptedCount) * 100).toFixed(1))
       : 0;
 
     const trend = buildRecentMonths(new Date(), TREND_MONTHS);

@@ -217,6 +217,7 @@ function MetricCard({
 
 export function EstimateDashboard({ data }: EstimateDashboardProps) {
   const { kpis, trend } = data;
+  const acceptanceTotalSent = kpis.acceptanceRateBase.accepted + kpis.acceptanceRateBase.sent;
 
   return (
     <div className="space-y-6">
@@ -245,7 +246,7 @@ export function EstimateDashboard({ data }: EstimateDashboardProps) {
         <MetricCard
           label="Taux acceptation"
           value={`${formatPercent(kpis.acceptanceRate)} %`}
-          hint={`${kpis.acceptanceRateBase.accepted} acceptes / ${kpis.acceptanceRateBase.sent} envoyes`}
+          hint={`${kpis.acceptanceRateBase.accepted} acceptes / ${acceptanceTotalSent} envoyes`}
         />
         <MetricCard
           label="CA accepte"

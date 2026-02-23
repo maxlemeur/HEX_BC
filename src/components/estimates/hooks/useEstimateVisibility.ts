@@ -27,6 +27,7 @@ type BulkMoveDestination = {
 
 type UseEstimateVisibilityParams = {
   items: EstimateItem[];
+  reorderItems?: EstimateItem[];
   qualityFilter: EstimateQualityFilter;
   qualityFlagsByItemId: EstimateQualityFlagsByItemId;
   marginMultiplier: number;
@@ -43,6 +44,18 @@ function getParentKey(id: string | null) {
   return id ?? ROOT_KEY;
 }
 
+function buildItemsByParentMap(items: EstimateItem[]) {
+  const map = new Map<string, EstimateItem[]>();
+  items.forEach((item) => {
+    const key = getParentKey(item.parent_id);
+    const list = map.get(key) ?? [];
+    list.push(item);
+    map.set(key, list);
+  });
+  map.forEach((list) => list.sort((a, b) => a.position - b.position));
+  return map;
+}
+
 function matchesQualityFilter(
   qualityFlags: EstimateQualityFlagKey[],
   filter: EstimateQualityFilter
@@ -54,6 +67,7 @@ function matchesQualityFilter(
 
 export function useEstimateVisibility({
   items,
+  reorderItems,
   qualityFilter,
   qualityFlagsByItemId,
   marginMultiplier,
@@ -62,16 +76,14 @@ export function useEstimateVisibility({
   laborRateById,
   isLaborSplitEnabled,
 }: UseEstimateVisibilityParams) {
+  const reorderSourceItems = reorderItems ?? items;
+
   const itemsByParent = useMemo(() => {
-    const map = new Map<string, EstimateItem[]>();
-    items.forEach((item) => {
-      const key = getParentKey(item.parent_id);
-      const list = map.get(key) ?? [];
-      list.push(item);
-      map.set(key, list);
-    });
-    map.forEach((list) => list.sort((a, b) => a.position - b.position));
-    return map;
+    return buildItemsByParentMap(reorderSourceItems);
+  }, [reorderSourceItems]);
+
+  const visibleSourceItemsByParent = useMemo(() => {
+    return buildItemsByParentMap(items);
   }, [items]);
 
   const depthMap = useMemo(() => {
@@ -91,9 +103,9 @@ export function useEstimateVisibility({
 
   const itemById = useMemo(() => {
     const map = new Map<string, EstimateItem>();
-    items.forEach((item) => map.set(item.id, item));
+    reorderSourceItems.forEach((item) => map.set(item.id, item));
     return map;
-  }, [items]);
+  }, [reorderSourceItems]);
 
   const bulkMoveDestinations = useMemo(() => {
     const destinations: BulkMoveDestination[] = [{ id: null, label: "Racine" }];
@@ -131,7 +143,7 @@ export function useEstimateVisibility({
     const visible = new Set<string>();
 
     function walk(parentId: string | null): boolean {
-      const list = itemsByParent.get(getParentKey(parentId)) ?? [];
+      const list = visibleSourceItemsByParent.get(getParentKey(parentId)) ?? [];
       let hasVisibleLine = false;
 
       list.forEach((item) => {
@@ -156,7 +168,7 @@ export function useEstimateVisibility({
 
     walk(null);
     return visible;
-  }, [itemsByParent, qualityFilter, visibleLineIds]);
+  }, [qualityFilter, visibleLineIds, visibleSourceItemsByParent]);
 
   const sectionTotalsById = useMemo(() => {
     const map = new Map<string, SectionTotals>();
@@ -193,7 +205,7 @@ export function useEstimateVisibility({
 
   const visibleItemsByParent = useMemo(() => {
     const map = new Map<string, EstimateItem[]>();
-    itemsByParent.forEach((list, parentKey) => {
+    visibleSourceItemsByParent.forEach((list, parentKey) => {
       const visibleList = list.filter((item) => {
         if (item.item_type === "line") {
           return visibleLineIds.has(item.id);
@@ -205,7 +217,7 @@ export function useEstimateVisibility({
       }
     });
     return map;
-  }, [itemsByParent, visibleLineIds, visibleSectionIds]);
+  }, [visibleLineIds, visibleSectionIds, visibleSourceItemsByParent]);
 
   const getVisibleItems = useCallback(
     (parentId: string | null) => {

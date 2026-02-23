@@ -437,6 +437,7 @@ export function EstimateCreationWizard({
             versionTitle: data.title.trim() || null,
             dateDevis: data.dateDevis,
             validiteJours: Number(data.validiteJours),
+            projectNotes: buildProjectNotes(data.projectFamily),
           }
         );
         versionId = result.versionId;

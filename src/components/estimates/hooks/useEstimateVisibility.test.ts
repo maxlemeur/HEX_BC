@@ -128,4 +128,57 @@ describe("useEstimateVisibility", () => {
       { id: "section-2", label: "  - Child" },
     ]);
   });
+
+  it("keeps reorder siblings unfiltered while showing quick-filtered rows", () => {
+    const allItems: EstimateItem[] = [
+      createItem({ id: "section-1", item_type: "section", title: "Section", position: 0 }),
+      createItem({
+        id: "line-1",
+        parent_id: "section-1",
+        item_type: "line",
+        title: "Visible line 1",
+        position: 1,
+      }),
+      createItem({
+        id: "line-2",
+        parent_id: "section-1",
+        item_type: "line",
+        title: "Hidden line",
+        position: 2,
+      }),
+      createItem({
+        id: "line-3",
+        parent_id: "section-1",
+        item_type: "line",
+        title: "Visible line 3",
+        position: 3,
+      }),
+    ];
+    const quickFilteredItems = allItems.filter((item) => item.id !== "line-2");
+
+    const { result } = renderHook(() =>
+      useEstimateVisibility({
+        items: quickFilteredItems,
+        reorderItems: allItems,
+        qualityFilter: "all_lines",
+        qualityFlagsByItemId: {},
+        marginMultiplier: 1,
+        discountCents: 0,
+        taxRateBp: 2000,
+        laborRateById: new Map(),
+        isLaborSplitEnabled: false,
+      })
+    );
+
+    expect(result.current.getVisibleItems("section-1").map((item) => item.id)).toEqual([
+      "line-1",
+      "line-3",
+    ]);
+    expect(result.current.itemsByParent.get("section-1")?.map((item) => item.id)).toEqual([
+      "line-1",
+      "line-2",
+      "line-3",
+    ]);
+    expect(result.current.itemById.has("line-2")).toBe(true);
+  });
 });

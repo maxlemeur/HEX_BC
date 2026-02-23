@@ -155,7 +155,7 @@ describe("estimate stats route", () => {
               accepted: 1,
               archived: 1,
             },
-            acceptanceRate: 100,
+            acceptanceRate: 50,
             acceptanceRateBase: {
               accepted: 1,
               sent: 1,

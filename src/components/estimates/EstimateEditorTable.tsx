@@ -854,6 +854,7 @@ export function EstimateEditorTable({
     visibleItemsInOrder,
   } = useEstimateVisibility({
     items: quickFilteredItems,
+    reorderItems: items,
     qualityFilter,
     qualityFlagsByItemId,
     marginMultiplier,
