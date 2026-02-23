@@ -38,7 +38,7 @@ const ROUNDING_OPTIONS = [
 
 const STEPS = [
   { label: "Projet", description: "Informations projet" },
-  { label: "Parametres", description: "Marge, TVA, arrondi" },
+  { label: "Paramètres", description: "Marge, TVA, arrondi" },
   { label: "Import", description: "Import optionnel" },
 ] as const;
 
@@ -164,7 +164,7 @@ function StepIndicator({
   validatedSteps: Set<number>;
 }) {
   return (
-    <nav aria-label="Etapes de creation" className="mb-8">
+    <nav aria-label="Étapes de création" className="mb-8">
       <ol className="flex items-center gap-2">
         {STEPS.map((step, index) => {
           const isActive = index === currentStep;
@@ -237,7 +237,7 @@ function ReadOnlyMarginTiers({ tiers }: { tiers: MarginTier[] }) {
   if (sorted.length === 0) {
     return (
       <p className="text-sm text-[var(--slate-500)]">
-        Aucune tranche de marge configuree.
+        Aucune tranche de marge configurée.
       </p>
     );
   }
@@ -409,6 +409,7 @@ export function EstimateCreationWizard({
         );
         versionId = result.versionId;
       } else {
+        const marginBpNum = data.marginBp ? Number(data.marginBp) : 0;
         versionId = await createEstimate({
           projectName: data.projectName.trim(),
           title: data.title.trim() || null,
@@ -417,7 +418,8 @@ export function EstimateCreationWizard({
           clientName: data.clientName.trim() || null,
           reference: data.reference.trim() || null,
           marginMode: data.marginMode,
-          marginBp: data.marginBp ? Number(data.marginBp) : undefined,
+          marginBp: marginBpNum > 0 ? marginBpNum : undefined,
+          marginMultiplier: marginBpNum > 0 ? 1 + marginBpNum / 10000 : undefined,
           taxRateBp: Number(data.taxRateBp),
           roundingMode: data.roundingMode,
           roundingStepCents:
@@ -432,7 +434,7 @@ export function EstimateCreationWizard({
       onCreated(versionId);
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Impossible de creer le chiffrage."
+        err instanceof Error ? err.message : "Impossible de créer le chiffrage."
       );
     } finally {
       setIsSubmitting(false);
@@ -461,7 +463,7 @@ export function EstimateCreationWizard({
       onCreated(versionId);
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Impossible de creer le chiffrage."
+        err instanceof Error ? err.message : "Impossible de créer le chiffrage."
       );
       setIsSubmitting(false);
     }
@@ -573,7 +575,7 @@ export function EstimateCreationWizard({
 
         <div>
           <label className="form-label" htmlFor="wiz-validite">
-            Validite (jours) *
+            Validité (jours) *
           </label>
           <input
             id="wiz-validite"
@@ -620,17 +622,24 @@ export function EstimateCreationWizard({
         {data.marginMode === "fixed" && (
           <div>
             <label className="form-label" htmlFor="wiz-margin-bp">
-              Marge (points de base)
+              Marge (%)
             </label>
-            <input
-              id="wiz-margin-bp"
-              className="form-input"
-              type="number"
-              min={0}
-              value={data.marginBp}
-              onChange={(e) => updateField("marginBp", e.target.value)}
-              placeholder="Ex: 1500 = 15%"
-            />
+            <div className="relative">
+              <input
+                id="wiz-margin-bp"
+                className="form-input pr-8"
+                type="number"
+                step="0.1"
+                min={0}
+                value={Number(data.marginBp) > 0 ? (Number(data.marginBp) / 100).toString() : ""}
+                onChange={(e) => {
+                  const percent = Number(e.target.value || 0);
+                  updateField("marginBp", String(Math.round(percent * 100)));
+                }}
+                placeholder="Ex: 15"
+              />
+              <span className="estimate-tax-suffix">%</span>
+            </div>
           </div>
         )}
 
@@ -638,7 +647,7 @@ export function EstimateCreationWizard({
           <div className="sm:col-span-2">
             <p className="form-label">Tranches de marge (tenant)</p>
             <p className="mb-2 text-sm text-[var(--slate-500)]">
-              Les tranches ci-dessous sont configurees pour votre organisation et seront appliquees automatiquement.
+              Les tranches ci-dessous sont configurées pour votre organisation et seront appliquées automatiquement.
             </p>
             <ReadOnlyMarginTiers tiers={marginTiers} />
           </div>
@@ -647,26 +656,28 @@ export function EstimateCreationWizard({
         {/* Tax */}
         <div>
           <label className="form-label" htmlFor="wiz-tax-rate">
-            TVA (points de base) *
+            TVA (%) *
           </label>
-          <input
-            id="wiz-tax-rate"
-            className={`form-input ${errors.taxRateBp ? "border-[var(--error)]" : ""}`}
-            type="number"
-            min={0}
-            max={10000}
-            value={data.taxRateBp}
-            onChange={(e) => updateField("taxRateBp", e.target.value)}
-            placeholder="2000 = 20%"
-          />
+          <div className="relative">
+            <input
+              id="wiz-tax-rate"
+              className={`form-input pr-8 ${errors.taxRateBp ? "border-[var(--error)]" : ""}`}
+              type="number"
+              step="0.1"
+              min={0}
+              max={100}
+              value={Number(data.taxRateBp) > 0 ? (Number(data.taxRateBp) / 100).toString() : ""}
+              onChange={(e) => {
+                const percent = Number(e.target.value || 0);
+                updateField("taxRateBp", String(Math.round(percent * 100)));
+              }}
+              placeholder="Ex: 20"
+            />
+            <span className="estimate-tax-suffix">%</span>
+          </div>
           {errors.taxRateBp && (
             <p className="mt-1 text-sm text-[var(--error)]">{errors.taxRateBp}</p>
           )}
-          <p className="mt-1 text-xs text-[var(--slate-400)]">
-            {Number(data.taxRateBp) > 0
-              ? `${(Number(data.taxRateBp) / 100).toFixed(1)}%`
-              : "Pas de TVA"}
-          </p>
         </div>
 
         {/* Rounding */}
@@ -720,13 +731,13 @@ export function EstimateCreationWizard({
               }
               onClick={() => updateField("creationMode", "template")}
             >
-              Depuis un modele
+              Depuis un modèle
             </button>
             <Link
               className="btn btn-ghost btn-sm"
               href="/dashboard/estimates/templates"
             >
-              Bibliotheque templates
+              Bibliothèque templates
             </Link>
           </div>
         </div>
@@ -751,7 +762,7 @@ export function EstimateCreationWizard({
                 </option>
               ) : (
                 <>
-                  <option value="">Selectionnez un template</option>
+                  <option value="">Sélectionnez un template</option>
                   {templates.map((tpl) => (
                     <option key={tpl.id} value={tpl.id}>
                       {tpl.name} - {tpl.itemCount} lignes -{" "}
@@ -775,7 +786,7 @@ export function EstimateCreationWizard({
         {/* Summary */}
         <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--slate-700)]">
-            Recapitulatif
+            Récapitulatif
           </h3>
           <dl className="grid gap-2 text-sm sm:grid-cols-2">
             <div>
@@ -799,7 +810,7 @@ export function EstimateCreationWizard({
                   ? "Par tranche"
                   : data.marginBp
                     ? `${(Number(data.marginBp) / 100).toFixed(1)}%`
-                    : "Non definie"}
+                    : "Non définie"}
               </dd>
             </div>
             <div>
@@ -910,9 +921,9 @@ export function EstimateCreationWizard({
                 className="btn btn-ghost text-sm"
                 onClick={handleQuickCreate}
                 disabled={isSubmitting}
-                title="Creer directement avec les parametres par defaut"
+                title="Créer directement avec les paramètres par défaut"
               >
-                Creer directement
+                Créer directement
               </button>
             )}
 
@@ -926,10 +937,10 @@ export function EstimateCreationWizard({
                 {isSubmitting ? (
                   <>
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    Creation...
+                    Création...
                   </>
                 ) : (
-                  "Creer le chiffrage"
+                  "Créer le chiffrage"
                 )}
               </button>
             ) : (

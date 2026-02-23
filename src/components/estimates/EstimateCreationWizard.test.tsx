@@ -368,7 +368,7 @@ describe("EstimateCreationWizard", () => {
     setup();
 
     expect(
-      screen.getByRole("button", { name: /Creer directement/ }),
+      screen.getByRole("button", { name: /Créer directement/ }),
     ).toBeInTheDocument();
   });
 
@@ -419,11 +419,11 @@ describe("EstimateCreationWizard", () => {
     // Step 3
     expect(screen.getByText("Recapitulatif")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Creer le chiffrage/ }),
+      screen.getByRole("button", { name: /Créer le chiffrage/ }),
     ).toBeInTheDocument();
     // Quick create should not appear on last step
     expect(
-      screen.queryByRole("button", { name: /Creer directement/ }),
+      screen.queryByRole("button", { name: /Créer directement/ }),
     ).not.toBeInTheDocument();
   });
 
@@ -448,10 +448,10 @@ describe("EstimateCreationWizard", () => {
     setup();
 
     const nav = screen.getByRole("navigation", {
-      name: /Etapes de creation/,
+      name: /Étapes de création/,
     });
     expect(within(nav).getByText("Projet")).toBeInTheDocument();
-    expect(within(nav).getByText("Parametres")).toBeInTheDocument();
+    expect(within(nav).getByText("Paramètres")).toBeInTheDocument();
     expect(within(nav).getByText("Import")).toBeInTheDocument();
   });
 });

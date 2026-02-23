@@ -2,8 +2,10 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type FocusEvent,
   type KeyboardEvent,
@@ -79,14 +81,29 @@ export function EditableCell<TCommitValue = string>({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const isEditing = navigation.isCellEditing(cell);
-  const inputValue = toInputValue(value);
+  const propInputValue = toInputValue(value);
+
+  // Keep a local editing value so intermediate keystrokes are not clobbered
+  // by the parent re-rendering with a converted (e.g. cents→euros) value.
+  const [localEditingValue, setLocalEditingValue] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setLocalEditingValue(null);
+    }
+  }, [isEditing]);
+
+  const inputValue = isEditing && localEditingValue !== null
+    ? localEditingValue
+    : propInputValue;
+
   const displayValue = useMemo(() => {
     if (formatDisplayValue) {
       return formatDisplayValue(value);
     }
 
-    return inputValue;
-  }, [formatDisplayValue, inputValue, value]);
+    return propInputValue;
+  }, [formatDisplayValue, propInputValue, value]);
 
   const showPlaceholder = displayValue.trim().length === 0 && Boolean(placeholder);
   const displayContent = showPlaceholder ? placeholder : displayValue || " ";
@@ -130,7 +147,8 @@ export function EditableCell<TCommitValue = string>({
     (event: FocusEvent<HTMLInputElement>) => {
       editorProps.onBlur(event);
 
-      const nextValue = event.currentTarget.value;
+      const nextValue = localEditingValue ?? event.currentTarget.value;
+      setLocalEditingValue(null);
       if (parseOnCommit) {
         onCommit(parseOnCommit(nextValue));
         return;
@@ -138,7 +156,7 @@ export function EditableCell<TCommitValue = string>({
 
       onCommit(nextValue as TCommitValue);
     },
-    [editorProps, onCommit, parseOnCommit]
+    [editorProps, localEditingValue, onCommit, parseOnCommit]
   );
 
   return (
@@ -173,10 +191,17 @@ export function EditableCell<TCommitValue = string>({
         min={type === "number" ? min : undefined}
         max={type === "number" ? max : undefined}
         disabled={readOnly}
-        onFocus={editorProps.onFocus}
+        onFocus={(event) => {
+          setLocalEditingValue(event.currentTarget.value);
+          editorProps.onFocus(event);
+        }}
         onBlur={handleInputBlur}
         onKeyDown={editorProps.onKeyDown}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          const next = event.target.value;
+          setLocalEditingValue(next);
+          onChange(next);
+        }}
         style={isEditing ? undefined : HIDDEN_EDITOR_STYLE}
       />
     </div>

@@ -6,7 +6,7 @@ export default function DashboardPricesPage() {
       <div className="page-header">
         <h1 className="page-title">Prix fournisseurs</h1>
         <p className="page-description">
-          CRUD des prix fournisseur et operation bulk create pour les imports massifs.
+          Gerez les tarifs de vos fournisseurs. Ajoutez-les un par un ou importez-les en masse depuis un fichier CSV.
         </p>
       </div>
 

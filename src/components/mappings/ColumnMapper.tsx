@@ -94,8 +94,8 @@ export function ColumnMapper({
 
       <div className="border-t border-[var(--slate-200)] px-6 py-4 text-xs text-[var(--slate-500)]">
         {missingRequiredTargets.length === 0
-          ? "Champs requis presents: hex_code, designation."
-          : `Champs requis manquants: ${missingRequiredTargets.join(", ")}.`}
+          ? `Tous les champs requis sont mappes (${targetFields.filter((f) => f.required).map((f) => f.label).join(", ")}).`
+          : `Champs requis manquants : ${missingRequiredTargets.map((v) => targetFields.find((f) => f.value === v)?.label ?? v).join(", ")}.`}
       </div>
     </section>
   );

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans, Outfit, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
 import { ToastProvider } from "@/components/ui/Toast";
 import "./globals.css";
 
@@ -36,6 +37,38 @@ export default function RootLayout({
       <body
         className={`${dmSans.variable} ${outfit.variable} ${jetbrainsMono.variable} antialiased`}
       >
+        {process.env.NODE_ENV === "development" ? (
+          <Script id="dev-safe-performance-measure" strategy="beforeInteractive">
+            {`(() => {
+  if (typeof window === "undefined" || !window.performance || typeof window.performance.measure !== "function") {
+    return;
+  }
+
+  const performanceApi = window.performance;
+  const originalMeasure = performanceApi.measure.bind(performanceApi);
+
+  performanceApi.measure = function patchedMeasure(...args) {
+    try {
+      return originalMeasure(...args);
+    } catch (error) {
+      const message =
+        typeof error === "object" &&
+        error !== null &&
+        "message" in error &&
+        typeof error.message === "string"
+          ? error.message
+          : String(error);
+
+      if (message.toLowerCase().includes("negative time stamp")) {
+        return undefined;
+      }
+
+      throw error;
+    }
+  };
+})();`}
+          </Script>
+        ) : null}
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

@@ -215,10 +215,18 @@ function mapSupabaseError(error: PostgrestError, fallbackMessage: string): Catal
 }
 
 function fromZodError(error: ZodError): CatalogueApiError {
+  const summary = error.issues
+    .slice(0, 3)
+    .map((issue) => {
+      const path = issue.path.filter(Boolean).join(".");
+      return path ? `${path}: ${issue.message}` : issue.message;
+    })
+    .join(" ; ");
+
   return new CatalogueApiError({
     status: 400,
     code: "VALIDATION_ERROR",
-    message: "Payload invalide.",
+    message: summary || "Donnees invalides.",
     details: {
       issues: error.issues.map((issue) => ({
         path: issue.path.join("."),

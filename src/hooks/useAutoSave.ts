@@ -47,13 +47,14 @@ export function shouldBlockBeforeUnload(
 export function resolveAutoSaveStatusLabel(status: AutoSaveStatus) {
   switch (status) {
     case "saving":
-      return "Sauvegarde en cours...";
+      return "Sauvegarde en cours…";
     case "error":
       return "Erreur de sauvegarde";
     case "saved":
+      return "Sauvegardé";
     case "idle":
     default:
-      return "Sauvegarde";
+      return "Sauvegarde auto";
   }
 }
 
@@ -282,6 +283,15 @@ export function useAutoSave({
       clearTimers();
     };
   }, [clearTimers]);
+
+  // Auto-reset "saved" status back to "idle" after 3 seconds
+  useEffect(() => {
+    if (status !== "saved") return;
+    const timer = setTimeout(() => {
+      setStatus("idle");
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [status]);
 
   return {
     status,

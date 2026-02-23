@@ -979,6 +979,129 @@ function estimateStatusClass(status: EstimateStatus) {
   }
 }
 
+function MoreActionsDropdown({
+  onExportDpgf,
+  onExportBdc,
+  isExporting,
+  isExportDisabled,
+  activeExportMode,
+  versionId,
+  canArchive,
+  onArchive,
+  isArchiveDisabled,
+}: {
+  onExportDpgf: () => void;
+  onExportBdc: () => void;
+  isExporting: boolean;
+  isExportDisabled: boolean;
+  activeExportMode: EstimateExportMode | "csv" | null;
+  versionId: string;
+  canArchive: boolean;
+  onArchive: () => void;
+  isArchiveDisabled: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
+
+  const menuItemClass =
+    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--slate-700)] hover:bg-[var(--slate-50)] transition-colors";
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+        aria-haspopup="true"
+      >
+        Plus d&apos;actions
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`ml-1 transition-transform ${isOpen ? "rotate-180" : ""}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-lg z-50">
+          <button
+            type="button"
+            className={menuItemClass}
+            onClick={() => {
+              setIsOpen(false);
+              onExportDpgf();
+            }}
+            disabled={isExportDisabled}
+          >
+            {isExporting && activeExportMode === "dpgf"
+              ? "Export DPGF..."
+              : "Exporter DPGF"}
+          </button>
+          <button
+            type="button"
+            className={menuItemClass}
+            onClick={() => {
+              setIsOpen(false);
+              onExportBdc();
+            }}
+            disabled={isExportDisabled}
+          >
+            {isExporting && activeExportMode === "bdc"
+              ? "Export BDC V1.1..."
+              : "Exporter BDC V1.1"}
+          </button>
+          <div className="my-1">
+            <EstimatePdfDownloadButton versionId={versionId} />
+          </div>
+          <div className="my-1">
+            <SaveAsTemplateButton versionId={versionId} />
+          </div>
+          {canArchive ? (
+            <>
+              <div className="my-1 border-t border-[var(--slate-200)]" />
+              <button
+                type="button"
+                className={`${menuItemClass} text-red-600 hover:bg-red-50`}
+                onClick={() => {
+                  setIsOpen(false);
+                  onArchive();
+                }}
+                disabled={isArchiveDisabled}
+              >
+                Archiver
+              </button>
+            </>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function formatSectionDuplicateTargetLabel(input: {
   versionNumber: number;
   title: string | null;
@@ -1750,7 +1873,8 @@ export default function EditEstimatePage() {
         : "Cette version est en lecture seule.";
   const canSend = version?.status === "draft";
   const hasKnownBlockingSendFlags = (sendGating?.blockingFlags.length ?? 0) > 0;
-  const isSendBlockedForCurrentUser = hasKnownBlockingSendFlags && !isAdmin;
+  const isSendBlockedForCurrentUser =
+    sendGating !== null && !sendGating.canSend && hasKnownBlockingSendFlags && !isAdmin;
   const sendWorkflowPhaseLabel =
     sendWorkflowPhase === "verification"
       ? "Verification..."
@@ -3193,7 +3317,8 @@ export default function EditEstimatePage() {
   const autoSaveStatusClassName = useMemo(() => {
     if (autoSaveStatus === "saving") return "status-badge status-sent";
     if (autoSaveStatus === "error") return "status-badge status-canceled";
-    return "status-badge status-confirmed";
+    if (autoSaveStatus === "saved") return "status-badge status-accepted";
+    return "status-badge status-draft";
   }, [autoSaveStatus]);
 
   const enqueueBufferedItemUpdate = useCallback(
@@ -6180,12 +6305,17 @@ export default function EditEstimatePage() {
     <div className="animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">Editer le chiffrage</h1>
+          <h1 className="page-title">Éditer le chiffrage</h1>
           <p className="page-description">
-            Version{" "}
-            <span className="font-mono text-[var(--slate-600)]">
-              {versionId}
-            </span>
+            {projectName ? (
+              <>
+                {projectName}
+                {" — "}
+                <span className="font-semibold">V{version.version_number}</span>
+              </>
+            ) : (
+              <span className="font-semibold">V{version.version_number}</span>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -6193,7 +6323,21 @@ export default function EditEstimatePage() {
             {estimateStatusLabel(version.status)}
           </span>
           {version.status === "draft" ? (
-            <span className={autoSaveStatusClassName}>{autoSaveStatusLabel}</span>
+            <span className={autoSaveStatusClassName}>
+              {autoSaveStatus === "saving" ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  {autoSaveStatusLabel}
+                </span>
+              ) : autoSaveStatus === "saved" ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                  {autoSaveStatusLabel}
+                </span>
+              ) : (
+                autoSaveStatusLabel
+              )}
+            </span>
           ) : null}
           <ExportDropdown
             onExportExcel={handleExportExcel}
@@ -6202,28 +6346,6 @@ export default function EditEstimatePage() {
             loading={isExporting}
             loadingLabel={exportLoadingLabel}
           />
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={() => void handleExportDpgf()}
-            disabled={isExportDisabled}
-          >
-            {isExporting && activeExportMode === "dpgf"
-              ? "Export DPGF..."
-              : "Exporter DPGF"}
-          </button>
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={() => void handleExportBdc()}
-            disabled={isExportDisabled}
-          >
-            {isExporting && activeExportMode === "bdc"
-              ? "Export BDC V1.1..."
-              : "Exporter BDC V1.1"}
-          </button>
-          <EstimatePdfDownloadButton versionId={versionId} />
-          <SaveAsTemplateButton versionId={versionId} />
           {canSend ? (
             <button
               className="btn btn-secondary btn-sm"
@@ -6254,21 +6376,22 @@ export default function EditEstimatePage() {
               Accepter
             </button>
           ) : null}
-          {canArchive ? (
-            <button
-              className="btn btn-danger btn-sm"
-              type="button"
-              onClick={() => handleStatusChange("archived")}
-              disabled={
-                isUpdatingStatus ||
-                isDraftLockedByOther ||
-                isDraftLockAcquiring ||
-                isForcingDraftUnlock
-              }
-            >
-              Archiver
-            </button>
-          ) : null}
+          <MoreActionsDropdown
+            onExportDpgf={() => void handleExportDpgf()}
+            onExportBdc={() => void handleExportBdc()}
+            isExporting={isExporting}
+            isExportDisabled={isExportDisabled}
+            activeExportMode={activeExportMode}
+            versionId={versionId}
+            canArchive={canArchive}
+            onArchive={() => handleStatusChange("archived")}
+            isArchiveDisabled={
+              isUpdatingStatus ||
+              isDraftLockedByOther ||
+              isDraftLockAcquiring ||
+              isForcingDraftUnlock
+            }
+          />
           <Link
             className="btn btn-secondary btn-sm"
             href={`/dashboard/estimates/${versionId ?? ""}`}
@@ -6299,7 +6422,7 @@ export default function EditEstimatePage() {
 
       {canSend && isSendBlockedForCurrentUser ? (
         <div className="alert alert-warning mb-6">
-          Des anomalies bloquantes sont detectees. Corrigez-les avant envoi ou demandez un administrateur pour forcer l&apos;envoi.
+          Des anomalies bloquantes sont détectées. Corrigez-les avant envoi ou demandez un administrateur pour forcer l&apos;envoi.
         </div>
       ) : null}
 
@@ -6503,7 +6626,7 @@ export default function EditEstimatePage() {
           type="button"
           onClick={() => setActiveTab("settings")}
         >
-          Parametrage
+          Paramétrage
         </button>
         <button
           className={`estimate-tab ${
@@ -6512,7 +6635,7 @@ export default function EditEstimatePage() {
           type="button"
           onClick={() => setActiveTab("editor")}
         >
-          Editeur
+          Éditeur
         </button>
       </div>
 

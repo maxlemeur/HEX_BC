@@ -430,7 +430,7 @@ export default function EstimatesPage() {
                 ) : (
                   paginatedEstimates.map((estimate, index) => {
                     const isDuplicating = duplicatingId === estimate.versionId;
-                    const title = estimate.title?.trim() || "Sans titre";
+                    const title = estimate.title?.trim() || estimate.projectName?.trim() || "—";
                     const projectMeta =
                       estimate.projectReference?.trim() ||
                       estimate.projectClient?.trim();
@@ -532,7 +532,7 @@ export default function EstimatesPage() {
           ) : (
             <div className="divide-y divide-[var(--slate-200)]">
               {paginatedEstimates.map((estimate) => {
-                const title = estimate.title?.trim() || "Sans titre";
+                const title = estimate.title?.trim() || estimate.projectName?.trim() || "—";
                 const projectMeta =
                   estimate.projectReference?.trim() ||
                   estimate.projectClient?.trim();
