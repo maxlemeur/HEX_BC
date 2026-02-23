@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 
-import { useImportFlow } from "@/hooks/useImportFlow";
+import { useImportFlow, type ImportListItem } from "@/hooks/useImportFlow";
 
 const ACCEPTED_FILE_TYPES = ".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -35,7 +36,7 @@ function formatSize(bytes: number): string {
 }
 
 function formatModeThreshold(bytes: number): string {
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+  return `${(bytes / (1024 * 1024)).toFixed(0)} Mo`;
 }
 
 function statusLabel(status: string): string {
@@ -44,11 +45,9 @@ function statusLabel(status: string): string {
       return "En attente";
     case "parsing":
     case "processing":
-      return "Parsing";
+      return "En cours";
     case "parsed":
-      return "Parse";
     case "imported":
-      return "Importe";
     case "completed":
       return "Termine";
     case "failed":
@@ -76,15 +75,49 @@ function statusClass(status: string): string {
   }
 }
 
-function modeLabel(mode: "worker" | "server" | "unknown"): string {
-  if (mode === "worker") return "Worker";
-  if (mode === "server") return "Serveur";
-  return "-";
+function isTerminalStatus(status: string): boolean {
+  return ["parsed", "imported", "completed", "failed"].includes(status);
+}
+
+function truncateId(id: string): string {
+  if (id.length <= 12) return id;
+  return `${id.slice(0, 8)}...`;
+}
+
+// T-02: Status filter tabs
+type StatusFilter = "all" | "active" | "completed" | "failed";
+
+function filterImports(items: ImportListItem[], filter: StatusFilter, search: string): ImportListItem[] {
+  let filtered = items;
+
+  if (filter === "active") {
+    filtered = filtered.filter((item) => !isTerminalStatus(item.status));
+  } else if (filter === "completed") {
+    filtered = filtered.filter((item) =>
+      ["parsed", "imported", "completed"].includes(item.status)
+    );
+  } else if (filter === "failed") {
+    filtered = filtered.filter((item) => item.status === "failed");
+  }
+
+  if (search.trim()) {
+    const lowerSearch = search.toLowerCase();
+    filtered = filtered.filter((item) =>
+      item.fileName.toLowerCase().includes(lowerSearch)
+    );
+  }
+
+  return filtered;
 }
 
 export function ImportWizard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [historySearch, setHistorySearch] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const {
     imports,
@@ -97,6 +130,7 @@ export function ImportWizard() {
     workerError,
     modeMessage,
     lastMode,
+    lastImportId,
     maxClientParseSizeBytes,
     importFile,
     refreshImports,
@@ -122,29 +156,123 @@ export function ImportWizard() {
     }
   }
 
+  function handleDrop(event: React.DragEvent) {
+    event.preventDefault();
+    setIsDragOver(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+    }
+  }
+
+  function handleDragOver(event: React.DragEvent) {
+    event.preventDefault();
+    setIsDragOver(true);
+  }
+
+  function handleDragLeave() {
+    setIsDragOver(false);
+  }
+
+  async function copyId(id: string) {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    } catch {
+      // Clipboard not available
+    }
+  }
+
+  const filteredImports = filterImports(imports, statusFilter, historySearch);
+
+  const STATUS_TABS: { key: StatusFilter; label: string }[] = [
+    { key: "all", label: "Tous" },
+    { key: "active", label: "En cours" },
+    { key: "completed", label: "Termines" },
+    { key: "failed", label: "Echecs" },
+  ];
+
   return (
     <div className="space-y-6">
+      {/* M-02: Success banner with CTA after import */}
+      {lastImportId && !isSubmitting ? (
+        <div className="rounded-xl border border-[var(--success)] bg-[var(--success-light)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-medium text-[var(--success)]">
+                Import termine avec succes
+              </p>
+              <p className="mt-1 text-sm text-[var(--slate-600)]">
+                Passez a l&apos;etape suivante pour mapper les colonnes de votre fichier.
+              </p>
+            </div>
+            <Link
+              href={`/dashboard/mappings?import_id=${lastImportId}`}
+              className="btn btn-primary"
+            >
+              Mapper les colonnes
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
       <section className="dashboard-card p-6">
         <div className="mb-5">
           <h2 className="text-lg font-semibold text-[var(--slate-800)]">
             Importer un fichier
           </h2>
           <p className="mt-1 text-sm text-[var(--slate-500)]">
-            Format supporte: CSV, XLSX.
+            Formats supportes : CSV, XLSX, XLS.
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="form-label" htmlFor="import-file-input">
-              Fichier a importer
-            </label>
+          {/* M-04: Drag-and-drop zone */}
+          <div
+            ref={dropZoneRef}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            className={`
+              relative rounded-xl border-2 border-dashed p-8 text-center transition-colors
+              ${isDragOver
+                ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
+                : "border-[var(--slate-300)] bg-[var(--slate-50)] hover:border-[var(--slate-400)]"
+              }
+            `}
+          >
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--slate-400)"
+                  strokeWidth="1.5"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <path d="m7 10 5 5 5-5" />
+                  <path d="M12 15V3" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-[var(--slate-700)]">
+                  Glissez-deposez votre fichier ici
+                </p>
+                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                  ou cliquez pour parcourir
+                </p>
+              </div>
+            </div>
             <input
               id="import-file-input"
               ref={fileInputRef}
               type="file"
               accept={ACCEPTED_FILE_TYPES}
-              className="form-input h-auto py-3"
+              className="absolute inset-0 cursor-pointer opacity-0"
               onChange={(event) => {
                 const nextFile = event.target.files?.[0] ?? null;
                 setSelectedFile(nextFile);
@@ -152,11 +280,24 @@ export function ImportWizard() {
               disabled={isSubmitting}
               required
             />
-            <p className="mt-2 text-xs text-[var(--slate-500)]">
-              Parsing worker jusqu&apos;a {formatModeThreshold(maxClientParseSizeBytes)}.
-              Au-dela, fallback serveur en multipart.
-            </p>
           </div>
+
+          {/* M-03: Clear french help text */}
+          <p className="text-xs text-[var(--slate-500)]">
+            Les fichiers de moins de {formatModeThreshold(maxClientParseSizeBytes)} sont traites dans votre navigateur. Au-dela, traitement serveur.
+          </p>
+
+          {/* M-05: Example file link */}
+          <p className="text-xs text-[var(--slate-500)]">
+            Besoin d&apos;aide ?{" "}
+            <a
+              href="/exemple-dpgf.xlsx"
+              download
+              className="font-medium text-[var(--brand-blue)] underline hover:text-[var(--brand-blue-dark)]"
+            >
+              Telecharger un fichier exemple
+            </a>
+          </p>
 
           {selectedFile ? (
             <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
@@ -188,6 +329,16 @@ export function ImportWizard() {
           </div>
         </form>
 
+        {/* M-06: Progress bar during parsing */}
+        {isSubmitting ? (
+          <div className="mt-4">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--slate-200)]">
+              <div className="h-full animate-pulse rounded-full bg-[var(--brand-blue)]" style={{ width: "60%" }} />
+            </div>
+            <p className="mt-2 text-xs text-[var(--slate-500)]">Traitement en cours...</p>
+          </div>
+        ) : null}
+
         <div aria-live="polite" className="sr-only">
           {modeMessage ?? ""}
         </div>
@@ -200,7 +351,7 @@ export function ImportWizard() {
 
         {workerError ? (
           <div className="alert alert-info mt-3">
-            Echec worker: {workerError}
+            Echec du traitement navigateur : {workerError}
           </div>
         ) : null}
 
@@ -237,6 +388,32 @@ export function ImportWizard() {
           </div>
         </div>
 
+        {/* T-02: Filters and search */}
+        <div className="flex flex-wrap items-center gap-3 border-b border-[var(--slate-200)] px-6 py-3">
+          <div className="flex gap-1">
+            {STATUS_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setStatusFilter(tab.key)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  statusFilter === tab.key
+                    ? "bg-[var(--brand-blue)] text-white"
+                    : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <input
+            className="form-input form-input--sm max-w-[200px]"
+            placeholder="Rechercher par nom..."
+            value={historySearch}
+            onChange={(event) => setHistorySearch(event.target.value)}
+          />
+        </div>
+
         {loadError ? (
           <div className="alert alert-error m-4">{loadError}</div>
         ) : null}
@@ -245,11 +422,13 @@ export function ImportWizard() {
           <table className="data-table">
             <thead>
               <tr>
+                {/* T-03: ID column */}
+                <th>ID</th>
                 <th>Nom</th>
                 <th>Statut</th>
                 <th>Lignes</th>
                 <th>Date</th>
-                <th>Mode</th>
+                {/* M-07: MODE column hidden by default */}
               </tr>
             </thead>
             <tbody>
@@ -262,7 +441,7 @@ export function ImportWizard() {
                     </div>
                   </td>
                 </tr>
-              ) : imports.length === 0 ? (
+              ) : filteredImports.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-12 text-center">
                     <div className="flex flex-col items-center gap-3">
@@ -293,14 +472,34 @@ export function ImportWizard() {
                   </td>
                 </tr>
               ) : (
-                imports.map((item) => (
+                filteredImports.map((item) => (
                   <tr key={item.id}>
+                    {/* T-03: Truncated ID with copy button */}
+                    <td>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 font-mono text-xs text-[var(--slate-500)] hover:text-[var(--brand-blue)]"
+                        title={item.id}
+                        onClick={() => void copyId(item.id)}
+                      >
+                        {truncateId(item.id)}
+                        {copiedId === item.id ? (
+                          <span className="text-[var(--success)]">✓</span>
+                        ) : (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        )}
+                      </button>
+                    </td>
                     <td className="max-w-[280px]">
                       <span className="block truncate font-medium text-[var(--slate-800)]">
                         {item.fileName}
                       </span>
                     </td>
                     <td>
+                      {/* M-08: Uniform status labels */}
                       <span className={statusClass(item.status)}>
                         {statusLabel(item.status)}
                       </span>
@@ -311,7 +510,6 @@ export function ImportWizard() {
                     <td className="text-sm text-[var(--slate-500)]">
                       {formatDate(item.createdAt)}
                     </td>
-                    <td>{modeLabel(item.mode)}</td>
                   </tr>
                 ))
               )}

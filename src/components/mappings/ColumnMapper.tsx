@@ -62,11 +62,16 @@ export function ColumnMapper({
             <tbody>
               {sourceColumns.map((sourceColumn) => {
                 const currentTarget = mapping[sourceColumn] ?? "";
+                const isRequiredTarget = requiredTargets.includes(currentTarget);
 
                 return (
                   <tr key={sourceColumn}>
                     <td>
                       <span className="font-medium text-[var(--slate-800)]">{sourceColumn}</span>
+                      {/* M-12: Red asterisk on rows mapped to required fields */}
+                      {isRequiredTarget ? (
+                        <span className="ml-1 text-red-500" title="Champ requis">*</span>
+                      ) : null}
                     </td>
                     <td>
                       <select

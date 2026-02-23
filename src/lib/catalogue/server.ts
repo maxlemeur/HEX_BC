@@ -249,12 +249,16 @@ export function toErrorResponse(error: unknown) {
     apiError = internalError();
   }
 
+  // K-01: Log internal details server-side only, never expose to client
+  if (apiError.details) {
+    console.error(`[catalogue] API error details (${apiError.code}):`, apiError.details);
+  }
+
   const body: ApiFailureResponse = {
     ok: false,
     error: {
       code: apiError.code,
       message: apiError.message,
-      details: apiError.details,
     },
   };
 
@@ -320,6 +324,8 @@ async function insertSingleWithFallback(
   fallbackMessage: string
 ): Promise<JsonRecord> {
   const attemptPayload = sanitizeWritePayload(payload);
+  // K-07: Track silently dropped columns
+  const droppedColumns: string[] = [];
 
   for (let index = 0; index < 8; index += 1) {
     const { data, error } = await supabase
@@ -329,6 +335,11 @@ async function insertSingleWithFallback(
       .single();
 
     if (!error) {
+      if (droppedColumns.length > 0) {
+        console.warn(
+          `[catalogue] insertSingleWithFallback: dropped columns [${droppedColumns.join(", ")}] from table "${table}"`
+        );
+      }
       return (data ?? {}) as JsonRecord;
     }
 
@@ -337,6 +348,7 @@ async function insertSingleWithFallback(
       throw mapSupabaseError(error, fallbackMessage);
     }
 
+    droppedColumns.push(missingColumn);
     delete attemptPayload[missingColumn];
   }
 
@@ -933,32 +945,37 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
     }
   }
 
+  // T-13: Batch payload updates in chunks of 100 instead of 1 per row
   if (input.update_payload && !input.dry_run && links.length > 0) {
     const payloadByRowId = new Map(candidates.map((candidate) => [candidate.id, candidate.payload]));
 
-    await Promise.all(
-      links.map(async (link) => {
-        const currentPayload = payloadByRowId.get(link.mapped_row_id);
-        if (!currentPayload) return;
+    const linkChunks = chunkItems(links, 100);
 
-        const nextPayload = {
-          ...currentPayload,
-          product_id: link.product_id,
-          catalogue_item_id: link.catalogue_item_id,
-          product_match_type: link.match_type,
-          catalogue_match_type: link.match_type,
-        };
+    for (const chunk of linkChunks) {
+      await Promise.all(
+        chunk.map(async (link) => {
+          const currentPayload = payloadByRowId.get(link.mapped_row_id);
+          if (!currentPayload) return;
 
-        const { error } = await supabase
-          .from("dpgf_rows_mapped")
-          .update({ payload: nextPayload })
-          .eq("id", link.mapped_row_id);
+          const nextPayload = {
+            ...currentPayload,
+            product_id: link.product_id,
+            catalogue_item_id: link.catalogue_item_id,
+            product_match_type: link.match_type,
+            catalogue_match_type: link.match_type,
+          };
 
-        if (error) {
-          throw mapSupabaseError(error, "Impossible de lier les lignes mappees au catalogue.");
-        }
-      })
-    );
+          const { error } = await supabase
+            .from("dpgf_rows_mapped")
+            .update({ payload: nextPayload })
+            .eq("id", link.mapped_row_id);
+
+          if (error) {
+            throw mapSupabaseError(error, "Impossible de lier les lignes mappees au catalogue.");
+          }
+        })
+      );
+    }
   }
 
   return {

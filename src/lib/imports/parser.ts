@@ -155,6 +155,9 @@ export function detectImportSourceFormat(
   return "csv";
 }
 
+// K-02: Parse timeout (30s) to prevent malicious files from blocking the server
+const PARSE_TIMEOUT_MS = 30_000;
+
 export async function parseImportFile(file: File): Promise<ParsedImportFile> {
   const sourceFormat = detectImportSourceFormat(file.name, file.type);
   const fileBytes = await file.arrayBuffer();
@@ -163,11 +166,25 @@ export async function parseImportFile(file: File): Promise<ParsedImportFile> {
     throw new Error("Le fichier est vide.");
   }
 
-  const workbook = XLSX.read(fileBytes, {
-    type: "array",
-    raw: true,
-    cellDates: false,
+  // K-02: Wrap XLSX parsing with a timeout
+  const parsePromise = new Promise<XLSX.WorkBook>((resolve) => {
+    resolve(
+      XLSX.read(fileBytes, {
+        type: "array",
+        raw: true,
+        cellDates: false,
+      })
+    );
   });
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(
+      () => reject(new Error("Delai de traitement depasse (30s). Le fichier est peut-etre trop volumineux ou corrompu.")),
+      PARSE_TIMEOUT_MS
+    );
+  });
+
+  const workbook = await Promise.race([parsePromise, timeoutPromise]);
 
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) {

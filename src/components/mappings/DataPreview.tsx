@@ -92,13 +92,13 @@ export function DataPreview({
           <thead>
             <tr>
               <th>#</th>
-              <th>hex_code</th>
-              <th>designation</th>
-              <th>quantity</th>
-              <th>unit</th>
-              <th>unit_price_ht</th>
-              <th>supply_type</th>
-              <th>h_mo_majoration</th>
+              <th>Code HEX</th>
+              <th>Designation</th>
+              <th>Quantite</th>
+              <th>Unite</th>
+              <th>Prix unitaire HT</th>
+              <th>Type FO</th>
+              <th>Majoration MO</th>
               <th>Etat</th>
             </tr>
           </thead>

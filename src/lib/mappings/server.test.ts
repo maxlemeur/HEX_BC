@@ -257,6 +257,8 @@ describe("mapping API helpers", () => {
   });
 
   it("keeps status/code/message/details from explicit API errors", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
     const response = toErrorResponse(
       badRequest("Payload invalide", { field: "mapping" }, "BAD_PAYLOAD")
     );
@@ -265,22 +267,29 @@ describe("mapping API helpers", () => {
       error: {
         code: string;
         message: string;
-        details: unknown;
       };
     };
 
     expect(response.status).toBe(400);
+    // K-01: details are no longer exposed to the client
     expect(body).toEqual({
       ok: false,
       error: {
         code: "BAD_PAYLOAD",
         message: "Payload invalide",
-        details: { field: "mapping" },
       },
     });
+    // K-01: details are logged server-side instead
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[mappings] API error details"),
+      expect.objectContaining({ field: "mapping" })
+    );
+
+    errorSpy.mockRestore();
   });
 
   it("maps zod parsing failures to VALIDATION_ERROR", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const schema = z.object({
       import_id: z.string().uuid(),
     });
@@ -298,7 +307,6 @@ describe("mapping API helpers", () => {
       error: {
         code: string;
         message: string;
-        details: { issues: Array<{ path: string; code: string; message: string }> };
       };
     };
 
@@ -306,8 +314,17 @@ describe("mapping API helpers", () => {
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(body.error.message).toBe("Payload invalide.");
-    expect(body.error.details.issues.length).toBeGreaterThan(0);
-    expect(body.error.details.issues[0]?.path).toBe("import_id");
+    // K-01: details no longer exposed to client, but logged server-side
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[mappings] API error details"),
+      expect.objectContaining({
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: "import_id" }),
+        ]),
+      })
+    );
+
+    errorSpy.mockRestore();
   });
 
   it("maps unknown failures to INTERNAL_ERROR and logs them", async () => {

@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { ColumnMapper, type ColumnMapping } from "@/components/mappings/ColumnMapper";
 import { DataPreview } from "@/components/mappings/DataPreview";
@@ -130,13 +132,18 @@ async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function MappingWizard() {
+  // M-09: Accept ?import_id= query param
+  const searchParams = useSearchParams();
+  const importIdFromUrl = searchParams.get("import_id");
+
   const [imports, setImports] = useState<ImportListItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
-  const [selectedImportId, setSelectedImportId] = useState("");
+  const [selectedImportId, setSelectedImportId] = useState(importIdFromUrl ?? "");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [mapping, setMapping] = useState<ColumnMapping>({});
   const [sourceColumns, setSourceColumns] = useState<string[]>([]);
   const [previewRows, setPreviewRows] = useState<MappingPreviewRow[]>([]);
+  const [previewLimit, setPreviewLimit] = useState(20);
   const [validation, setValidation] = useState<MappingValidation | null>(null);
   const [duplicates, setDuplicates] = useState<DuplicatesSummary | null>(null);
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
@@ -147,6 +154,7 @@ export function MappingWizard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [autoMappedCount, setAutoMappedCount] = useState(0);
   const previewRequestIdRef = useRef(0);
 
   const selectedImport = useMemo(
@@ -176,7 +184,10 @@ export function MappingWizard() {
       setImports(importsData);
       setTemplates(mappingsData.templates ?? []);
 
-      if (importsData.length > 0) {
+      // M-09: Pre-select from query param, or first import
+      if (importIdFromUrl && importsData.some((item) => item.id === importIdFromUrl)) {
+        setSelectedImportId(importIdFromUrl);
+      } else if (importsData.length > 0) {
         setSelectedImportId((current) => current || importsData[0].id);
       }
     } catch (loadError) {
@@ -188,7 +199,7 @@ export function MappingWizard() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [importIdFromUrl]);
 
   const refreshSuggestions = useCallback(async (importId: string) => {
     const data = await fetchApi<{
@@ -214,12 +225,16 @@ export function MappingWizard() {
 
     setMapping((previousMapping) => {
       if (Object.keys(previousMapping).length > 0) return previousMapping;
-      return data.suggestions ?? {};
+      const suggestions = data.suggestions ?? {};
+      // M-15: Track auto-mapped columns count
+      const count = Object.keys(suggestions).length;
+      setAutoMappedCount(count);
+      return suggestions;
     });
   }, []);
 
   const refreshPreview = useCallback(
-    async (importId: string, nextMapping: ColumnMapping) => {
+    async (importId: string, nextMapping: ColumnMapping, limit: number) => {
       if (!importId) return;
       const requestId = previewRequestIdRef.current + 1;
       previewRequestIdRef.current = requestId;
@@ -241,7 +256,7 @@ export function MappingWizard() {
             action: "preview",
             import_id: importId,
             mapping: nextMapping,
-            limit: 20,
+            limit,
           }),
         });
 
@@ -279,6 +294,7 @@ export function MappingWizard() {
     setPreviewRows([]);
     setValidation(null);
     setDuplicates(null);
+    setAutoMappedCount(0);
 
     void (async () => {
       try {
@@ -295,67 +311,17 @@ export function MappingWizard() {
 
   useEffect(() => {
     if (!selectedImportId) return;
-    void refreshPreview(selectedImportId, mapping);
-  }, [selectedImportId, mapping, refreshPreview]);
+    void refreshPreview(selectedImportId, mapping, previewLimit);
+  }, [selectedImportId, mapping, previewLimit, refreshPreview]);
 
-  async function handleValidate() {
-    try {
-      setError(null);
-      const data = await fetchApi<MappingValidation>("/api/mappings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "validate",
-          mapping,
-        }),
-      });
-
-      setValidation(data);
-
-      if (data.is_valid) {
-        setSuccess("Mapping valide: les champs requis sont correctement renseignes.");
-      } else {
-        setSuccess(null);
-      }
-    } catch (validationError) {
-      setError(
-        validationError instanceof Error
-          ? validationError.message
-          : "Impossible de valider le mapping."
-      );
-    }
-  }
-
-  async function handleCheckDuplicates() {
+  // M-10: Combined "Apercu" action (refresh + validate + doublons)
+  async function handleRefreshAll() {
     if (!selectedImportId) return;
-
-    try {
-      setError(null);
-      const data = await fetchApi<DuplicatesSummary>("/api/mappings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "duplicates",
-          import_id: selectedImportId,
-          mapping,
-          limit: 10000,
-        }),
-      });
-
-      setDuplicates(data);
-    } catch (duplicatesError) {
-      setError(
-        duplicatesError instanceof Error
-          ? duplicatesError.message
-          : "Impossible de verifier les doublons."
-      );
-    }
+    setError(null);
+    await refreshPreview(selectedImportId, mapping, previewLimit);
   }
 
+  // M-10: Single "Enregistrer le mapping" action
   async function handleCreateMapping() {
     if (!selectedImportId) return;
 
@@ -380,9 +346,9 @@ export function MappingWizard() {
         }),
       });
 
-      setSuccess("Mapping enregistre avec succes.");
+      setSuccess("Mapping enregistre avec succes. Vous pouvez passer a la liaison catalogue.");
       await loadBaseData();
-      await refreshPreview(selectedImportId, mapping);
+      await refreshPreview(selectedImportId, mapping, previewLimit);
     } catch (createError) {
       setError(
         createError instanceof Error
@@ -407,6 +373,13 @@ export function MappingWizard() {
 
   return (
     <div className="space-y-6">
+      {/* M-15: Auto-mapping notification */}
+      {autoMappedCount > 0 ? (
+        <div className="rounded-xl border border-[var(--info)] bg-[var(--info-light)] px-4 py-3 text-sm text-[var(--info)]">
+          {autoMappedCount} colonne(s) pre-mappee(s) automatiquement. Verifiez les associations ci-dessous.
+        </div>
+      ) : null}
+
       <section className="dashboard-card p-6">
         <div className="grid gap-4 lg:grid-cols-3">
           <div>
@@ -465,30 +438,15 @@ export function MappingWizard() {
           </div>
         </div>
 
+        {/* M-10: Consolidated to 2 buttons */}
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => void refreshPreview(selectedImportId, mapping)}
+            onClick={() => void handleRefreshAll()}
             disabled={!selectedImportId || isPreviewLoading}
           >
-            Rafraichir apercu
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => void handleValidate()}
-            disabled={isSubmitting}
-          >
-            Valider mapping
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => void handleCheckDuplicates()}
-            disabled={isSubmitting || !selectedImportId}
-          >
-            Controler doublons
+            {isPreviewLoading ? "Chargement..." : "Apercu et validation"}
           </button>
           <button
             type="button"
@@ -496,11 +454,20 @@ export function MappingWizard() {
             onClick={() => void handleCreateMapping()}
             disabled={isSubmitting || !selectedImportId}
           >
-            {isSubmitting ? "Enregistrement..." : "Creer mapping"}
+            {isSubmitting ? "Enregistrement..." : "Enregistrer le mapping"}
           </button>
+
+          {/* M-09: Back to import button */}
+          <Link
+            href="/dashboard/imports"
+            className="btn btn-secondary"
+          >
+            Retour a l&apos;import
+          </Link>
         </div>
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-[auto_1fr_1fr]">
+        {/* M-14: Hide template save fields when checkbox unchecked */}
+        <div className="mt-4">
           <label className="inline-flex items-center gap-2 text-sm text-[var(--slate-700)]">
             <input
               type="checkbox"
@@ -510,25 +477,41 @@ export function MappingWizard() {
             Sauvegarder aussi comme template
           </label>
 
-          <input
-            className="form-input"
-            placeholder="Nom du template"
-            value={templateName}
-            onChange={(event) => setTemplateName(event.target.value)}
-            disabled={!saveAsTemplate}
-          />
+          {saveAsTemplate ? (
+            <div className="mt-3 grid gap-4 lg:grid-cols-2">
+              <input
+                className="form-input"
+                placeholder="Nom du template"
+                value={templateName}
+                onChange={(event) => setTemplateName(event.target.value)}
+              />
 
-          <input
-            className="form-input"
-            placeholder="Fournisseur (optionnel)"
-            value={templateSupplierName}
-            onChange={(event) => setTemplateSupplierName(event.target.value)}
-            disabled={!saveAsTemplate}
-          />
+              <input
+                className="form-input"
+                placeholder="Fournisseur (optionnel)"
+                value={templateSupplierName}
+                onChange={(event) => setTemplateSupplierName(event.target.value)}
+              />
+            </div>
+          ) : null}
         </div>
 
         {error ? <div className="alert alert-error mt-4">{error}</div> : null}
-        {success ? <div className="alert alert-success mt-4">{success}</div> : null}
+        {success ? (
+          <div className="alert alert-success mt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>{success}</span>
+              {selectedImportId ? (
+                <Link
+                  href={`/dashboard/catalogue?import_id=${selectedImportId}`}
+                  className="btn btn-primary btn-sm"
+                >
+                  Lier au catalogue
+                </Link>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <ColumnMapper
@@ -538,6 +521,24 @@ export function MappingWizard() {
         onChange={setMapping}
         disabled={isLoading || !selectedImportId}
       />
+
+      {/* M-13: Preview row count selector */}
+      <div className="flex items-center gap-2">
+        <label className="text-sm text-[var(--slate-600)]" htmlFor="preview-limit">
+          Lignes d&apos;apercu :
+        </label>
+        <select
+          id="preview-limit"
+          className="form-input form-select form-input--sm w-auto"
+          value={previewLimit}
+          onChange={(event) => setPreviewLimit(Number(event.target.value))}
+        >
+          <option value={20}>20</option>
+          <option value={50}>50</option>
+          <option value={100}>100</option>
+          <option value={200}>200</option>
+        </select>
+      </div>
 
       <DataPreview
         rows={previewRows}

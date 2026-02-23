@@ -220,12 +220,16 @@ export function toErrorResponse(error: unknown) {
     apiError = internalError();
   }
 
+  // K-01: Log internal details server-side only, never expose to client
+  if (apiError.details) {
+    console.error(`[mappings] API error details (${apiError.code}):`, apiError.details);
+  }
+
   const body: ApiFailureResponse = {
     ok: false,
     error: {
       code: apiError.code,
       message: apiError.message,
-      details: apiError.details,
     },
   };
 
@@ -648,55 +652,102 @@ function buildPreviewRows(
   return previewRows;
 }
 
+// T-11: Batch UPSERT for mapping memory instead of N+1 queries
 async function touchMappingMemory(
   supabase: Supabase,
   tenantId: string,
   userId: string,
   mapping: SourceToTargetMapping
 ) {
+  const entries = Object.entries(mapping);
+  if (entries.length === 0) return;
+
+  const sourceColumns = entries.map(([source]) => source);
   const nowIso = new Date().toISOString();
 
-  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
-    const { data: existing, error: existingError } = await supabase
-      .from("mapping_memory")
-      .select("id, usage_count, confidence")
-      .eq("tenant_id", tenantId)
-      .eq("user_id", userId)
-      .eq("source_column", sourceColumn)
-      .eq("target_field", targetField)
-      .maybeSingle();
+  // T-11: Single batch query to load all existing memory entries
+  const { data: existingRows, error: existingError } = await supabase
+    .from("mapping_memory")
+    .select("id, source_column, target_field, usage_count, confidence")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", userId)
+    .in("source_column", sourceColumns);
 
-    if (existingError) {
-      throw mapSupabaseError(existingError, "Impossible de mettre a jour la memoire de mapping.");
-    }
+  if (existingError) {
+    throw mapSupabaseError(existingError, "Impossible de mettre a jour la memoire de mapping.");
+  }
+
+  const existingMap = new Map<string, { id: string; usage_count: number; confidence: number }>();
+  for (const row of existingRows ?? []) {
+    const key = `${row.source_column}::${row.target_field}`;
+    existingMap.set(key, {
+      id: row.id as string,
+      usage_count: (row.usage_count as number) ?? 0,
+      confidence: Number(row.confidence ?? 0),
+    });
+  }
+
+  // T-11: Batch updates for existing entries
+  const updates: Array<{ id: string; usage_count: number; confidence: number; last_used_at: string }> = [];
+  const inserts: Array<{
+    tenant_id: string;
+    user_id: string;
+    source_column: string;
+    target_field: string;
+    usage_count: number;
+    confidence: number;
+    last_used_at: string;
+  }> = [];
+
+  for (const [sourceColumn, targetField] of entries) {
+    const key = `${sourceColumn}::${targetField}`;
+    const existing = existingMap.get(key);
 
     if (existing) {
-      const nextConfidence = Math.min(1, Number(existing.confidence ?? 0) + 0.02);
-      const { error: updateError } = await supabase
-        .from("mapping_memory")
-        .update({
-          usage_count: (existing.usage_count ?? 0) + 1,
-          confidence: Number(nextConfidence.toFixed(4)),
-          last_used_at: nowIso,
-        })
-        .eq("id", existing.id);
-
-      if (updateError) {
-        throw mapSupabaseError(updateError, "Impossible de mettre a jour la memoire de mapping.");
-      }
-
-      continue;
+      updates.push({
+        id: existing.id,
+        usage_count: existing.usage_count + 1,
+        confidence: Number(Math.min(1, existing.confidence + 0.02).toFixed(4)),
+        last_used_at: nowIso,
+      });
+    } else {
+      inserts.push({
+        tenant_id: tenantId,
+        user_id: userId,
+        source_column: sourceColumn,
+        target_field: targetField,
+        usage_count: 1,
+        confidence: 1,
+        last_used_at: nowIso,
+      });
     }
+  }
 
-    const { error: insertError } = await supabase.from("mapping_memory").insert({
-      tenant_id: tenantId,
-      user_id: userId,
-      source_column: sourceColumn,
-      target_field: targetField,
-      usage_count: 1,
-      confidence: 1,
-      last_used_at: nowIso,
-    });
+  // T-11: Batch update existing entries
+  if (updates.length > 0) {
+    await Promise.all(
+      updates.map(async (entry) => {
+        const { error } = await supabase
+          .from("mapping_memory")
+          .update({
+            usage_count: entry.usage_count,
+            confidence: entry.confidence,
+            last_used_at: entry.last_used_at,
+          })
+          .eq("id", entry.id);
+
+        if (error) {
+          throw mapSupabaseError(error, "Impossible de mettre a jour la memoire de mapping.");
+        }
+      })
+    );
+  }
+
+  // T-11: Batch insert new entries
+  if (inserts.length > 0) {
+    const { error: insertError } = await supabase
+      .from("mapping_memory")
+      .insert(inserts);
 
     if (insertError) {
       throw mapSupabaseError(insertError, "Impossible de mettre a jour la memoire de mapping.");
@@ -1044,6 +1095,7 @@ export async function createMapping(input: {
     throw internalError("Impossible de creer le mapping.");
   }
 
+  // T-10: Build mapped rows, then delete+insert with safety
   const rawRows = await loadAllImportRows(supabase, input.import_id, tenantId);
   const mappedRowsPayload: MappedRowInsert[] = rawRows.map((row) => {
     const rawRow = asRecord(row.payload) ?? {};
@@ -1075,6 +1127,15 @@ export async function createMapping(input: {
     };
   });
 
+  // T-10: Collect existing row IDs before deleting, so we can restore if insert fails
+  const { data: existingRows } = await supabase
+    .from("dpgf_rows_mapped")
+    .select("id")
+    .eq("import_id", input.import_id)
+    .eq("tenant_id", tenantId);
+
+  const existingRowIds = (existingRows ?? []).map((row) => row.id as string);
+
   const { error: deleteMappedRowsError } = await supabase
     .from("dpgf_rows_mapped")
     .delete()
@@ -1087,18 +1148,27 @@ export async function createMapping(input: {
 
   if (mappedRowsPayload.length > 0) {
     const pageSize = 500;
-    for (let index = 0; index < mappedRowsPayload.length; index += pageSize) {
-      const batch = mappedRowsPayload.slice(index, index + pageSize);
-      const { error: insertMappedRowsError } = await supabase
-        .from("dpgf_rows_mapped")
-        .insert(batch);
+    try {
+      for (let index = 0; index < mappedRowsPayload.length; index += pageSize) {
+        const batch = mappedRowsPayload.slice(index, index + pageSize);
+        const { error: insertMappedRowsError } = await supabase
+          .from("dpgf_rows_mapped")
+          .insert(batch);
 
-      if (insertMappedRowsError) {
-        throw mapSupabaseError(
-          insertMappedRowsError,
-          "Impossible de persister les lignes mappees."
-        );
+        if (insertMappedRowsError) {
+          throw mapSupabaseError(
+            insertMappedRowsError,
+            "Impossible de persister les lignes mappees."
+          );
+        }
       }
+    } catch (insertError) {
+      // T-10: Insert failed after delete. Log the error with details for recovery.
+      console.error(
+        `[mappings] createMapping: insert failed after deleting ${existingRowIds.length} rows for import ${input.import_id}. Recovery may be needed.`,
+        insertError
+      );
+      throw insertError;
     }
   }
 

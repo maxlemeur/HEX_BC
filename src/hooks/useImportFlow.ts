@@ -268,6 +268,8 @@ export function useImportFlow() {
     []
   );
 
+  const [lastImportId, setLastImportId] = useState<string | null>(null);
+
   const importFile = useCallback(
     async (file: File): Promise<boolean> => {
       setIsSubmitting(true);
@@ -275,6 +277,7 @@ export function useImportFlow() {
       setWorkerError(null);
       setModeMessage(null);
       setLastMode(null);
+      setLastImportId(null);
 
       try {
         const shouldTryWorker = file.size <= CLIENT_PARSE_MAX_SIZE_BYTES;
@@ -284,7 +287,7 @@ export function useImportFlow() {
             const parsed = await parseFile(file);
             await postWorkerImport(file, parsed.rows, parsed.parser);
             setModeMessage(
-              "Mode worker: parsing local termine, envoi JSON declenche."
+              "Fichier traite dans votre navigateur, envoi termine."
             );
             setLastMode("worker");
           } catch (workerFailure) {
@@ -295,19 +298,23 @@ export function useImportFlow() {
             setWorkerError(workerFailureMessage);
             await postServerFallback(file, "worker_error");
             setModeMessage(
-              "Mode serveur: fallback multipart active apres echec du worker."
+              "Fichier envoye au serveur pour traitement."
             );
             setLastMode("server");
           }
         } else {
           await postServerFallback(file, "file_too_large");
           setModeMessage(
-            "Mode serveur: fichier volumineux, envoi multipart direct."
+            "Fichier volumineux, envoye au serveur pour traitement."
           );
           setLastMode("server");
         }
 
-        await refreshImports({ silent: true });
+        const nextImports = await fetchImportsList();
+        setImports(nextImports);
+        if (nextImports.length > 0) {
+          setLastImportId(nextImports[0].id);
+        }
         return true;
       } catch (error) {
         setSubmitError(
@@ -320,7 +327,7 @@ export function useImportFlow() {
         setIsSubmitting(false);
       }
     },
-    [parseFile, refreshImports]
+    [parseFile]
   );
 
   useEffect(() => {
@@ -359,6 +366,7 @@ export function useImportFlow() {
     workerError,
     modeMessage,
     lastMode,
+    lastImportId,
     maxClientParseSizeBytes: CLIENT_PARSE_MAX_SIZE_BYTES,
     importFile,
     refreshImports: refreshNow,

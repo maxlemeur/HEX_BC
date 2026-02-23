@@ -207,12 +207,16 @@ export function toErrorResponse(error: unknown) {
     apiError = internalError();
   }
 
+  // K-01: Log internal details server-side only, never expose to client
+  if (apiError.details) {
+    console.error(`[imports] API error details (${apiError.code}):`, apiError.details);
+  }
+
   const body: ApiFailureResponse = {
     ok: false,
     error: {
       code: apiError.code,
       message: apiError.message,
-      details: apiError.details,
     },
   };
 
