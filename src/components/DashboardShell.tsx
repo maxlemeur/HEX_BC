@@ -355,12 +355,20 @@ export function DashboardShell({
 
   // Sync from localStorage after hydration (avoids SSR mismatch)
   useEffect(() => {
-    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-    if (stored === "true") setCollapsed(true);
+    try {
+      const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+      if (stored === "true") setCollapsed(true);
+    } catch {
+      // localStorage can be unavailable in restricted browsing contexts.
+    }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed));
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed));
+    } catch {
+      // Ignore persistence failures to keep navigation usable.
+    }
   }, [collapsed]);
 
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
