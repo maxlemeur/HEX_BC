@@ -1,22 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import useSWR from "swr";
 
 import { fetchApi } from "@/components/catalogue/api";
 import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
 import type { SupplierPrice } from "@/components/catalogue/types";
+import { TableFilterBar } from "@/components/TableFilterBar";
+import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
+import { Modal } from "@/components/ui/Modal";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { useToast } from "@/components/ui/Toast";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import {
-  DEFAULT_STALE_PRICE_DAYS,
-  isPriceStale,
-  parseStalePriceDays,
-} from "@/lib/catalogue/stale-prices";
+import { priceFreshnessLevel } from "@/lib/catalogue/stale-prices";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 
 type PricesListResponse = {
   items: SupplierPrice[];
+};
+
+type EnrichedPrice = SupplierPrice & {
+  _supplierName: string;
+  _productName: string;
+  _freshnessLevel: "fresh" | "aging" | "stale";
+  _ageDays: number;
 };
 
 type SupplierPriceFormState = {
@@ -41,6 +48,34 @@ const EMPTY_FORM: SupplierPriceFormState = {
   notes: "",
 };
 
+// --- Filter & Sort config ---
+
+const FRESHNESS_FILTER_OPTIONS = [
+  { value: "fresh", label: "À jour (< 30j)" },
+  { value: "aging", label: "Vieillissant (30-90j)" },
+  { value: "stale", label: "Ancien (> 90j)" },
+];
+
+const PRICES_FILTERS: FilterConfig[] = [
+  {
+    type: "multi-select",
+    key: "_freshnessLevel",
+    label: "Fraîcheur",
+    placeholder: "Toutes",
+    options: FRESHNESS_FILTER_OPTIONS,
+  },
+];
+
+const PRICES_SORT_OPTIONS: SortOption[] = [
+  { key: "_supplierName", label: "Fournisseur", defaultDirection: "asc" },
+  { key: "_productName", label: "Produit", defaultDirection: "asc" },
+  { key: "unit_price_cents", label: "Prix HT" },
+  { key: "updated_at", label: "Dernière MAJ", defaultDirection: "desc" },
+];
+const LOOKUP_PAGE_SIZE = 1000;
+
+// --- Helpers ---
+
 function formatDate(value: string | undefined | null) {
   if (!value) return "-";
   const date = new Date(value);
@@ -57,21 +92,158 @@ function toEuroInput(unitPriceCents: number | undefined) {
   return (unitPriceCents / 100).toFixed(2).replace(".", ",");
 }
 
-export function PricesManager() {
-  const { value: stalePriceDaysValue } = useFeatureFlag("STALE_PRICE_DAYS");
-  const stalePriceDays = useMemo(
-    () => parseStalePriceDays(stalePriceDaysValue, DEFAULT_STALE_PRICE_DAYS),
-    [stalePriceDaysValue]
+// --- Freshness badge ---
+
+function FreshnessBadge({ level, ageDays }: { level: "fresh" | "aging" | "stale"; ageDays: number }) {
+  if (level === "fresh") {
+    return (
+      <span className="inline-flex rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+        À jour
+      </span>
+    );
+  }
+  if (level === "aging") {
+    return (
+      <span className="inline-flex rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
+        Vieillissant ({ageDays}j)
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+      Ancien ({ageDays}j)
+    </span>
   );
-  const [items, setItems] = useState<SupplierPrice[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isBulkRunning, setIsBulkRunning] = useState(false);
+}
+
+// --- Component ---
+
+export function PricesManager() {
+  const toast = useToast();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  // --- Lookups ---
+  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
+  const [products, setProducts] = useState<{ id: string; designation: string; reference?: string | null }[]>([]);
+
+  const supplierMap = useMemo(() => new Map(suppliers.map((s) => [s.id, s.name])), [suppliers]);
+  const productMap = useMemo(() => new Map(products.map((p) => [p.id, p.designation])), [products]);
+
+  const supplierOptions = useMemo(
+    () => suppliers.map((s) => ({ value: s.id, label: s.name })),
+    [suppliers]
+  );
+  const productOptions = useMemo(
+    () => products.map((p) => ({ value: p.id, label: p.designation, keywords: [p.reference ?? ""].filter(Boolean) })),
+    [products]
+  );
+
+  useEffect(() => {
+    async function fetchAllLookupRows<T>(
+      fetchPage: (from: number, to: number) => PromiseLike<{
+        data: T[] | null;
+        error: { message?: string | null } | null;
+      }>
+    ): Promise<T[]> {
+      const allRows: T[] = [];
+      let offset = 0;
+
+      while (true) {
+        const { data, error } = await fetchPage(offset, offset + LOOKUP_PAGE_SIZE - 1);
+        if (error) {
+          throw new Error(error.message ?? "Impossible de charger les référentiels.");
+        }
+
+        const pageRows = data ?? [];
+        allRows.push(...pageRows);
+
+        if (pageRows.length < LOOKUP_PAGE_SIZE) {
+          return allRows;
+        }
+
+        offset += LOOKUP_PAGE_SIZE;
+      }
+    }
+
+    async function loadLookups() {
+      const [supplierRows, productRows] = await Promise.all([
+        fetchAllLookupRows<{ id: string; name: string }>((from, to) =>
+          supabase
+            .from("suppliers")
+            .select("id, name")
+            .order("name")
+            .range(from, to)
+        ),
+        fetchAllLookupRows<{ id: string; designation: string; reference?: string | null }>(
+          (from, to) =>
+            supabase
+              .from("products")
+              .select("id, designation, reference")
+              .order("designation")
+              .range(from, to)
+        ),
+      ]);
+      setSuppliers(supplierRows);
+      setProducts(productRows);
+    }
+    void loadLookups();
+  }, [supabase]);
+
+  // --- SWR data fetching ---
+  const fetchPrices = useCallback(async () => {
+    const data = await fetchApi<PricesListResponse>("/api/prices?limit=400");
+    return data.items ?? [];
+  }, []);
+
+  const {
+    data: rawItems = [],
+    error: loadError,
+    isLoading,
+    isValidating,
+    mutate,
+  } = useSWR<SupplierPrice[]>("supplier-prices", fetchPrices, {
+    refreshInterval: 30000,
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+  });
+
+  // Enrich items with resolved names and freshness for TableFilterBar
+  const enrichedItems = useMemo<EnrichedPrice[]>(() => {
+    const now = new Date();
+    return rawItems.map((item) => {
+      const { level, ageDays } = priceFreshnessLevel(
+        { updatedAt: item.updated_at ?? null, createdAt: item.created_at ?? null },
+        now
+      );
+      return {
+        ...item,
+        _supplierName: supplierMap.get(item.supplier_id) ?? item.supplier_id,
+        _productName: productMap.get(item.product_id ?? item.catalogue_item_id ?? "") ?? item.product_id ?? item.catalogue_item_id ?? "",
+        _freshnessLevel: level,
+        _ageDays: ageDays,
+      };
+    });
+  }, [rawItems, supplierMap, productMap]);
+
+  // --- TableFilterBar state ---
+  const [displayedItems, setDisplayedItems] = useState<EnrichedPrice[]>([]);
+
+  // --- Form state ---
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [searchSupplierId, setSearchSupplierId] = useState("");
-  const [searchProductId, setSearchProductId] = useState("");
-  const [staleOnly, setStaleOnly] = useState(false);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [formState, setFormState] = useState<SupplierPriceFormState>(EMPTY_FORM);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  // --- Delete confirmation state ---
+  const [deleteTarget, setDeleteTarget] = useState<EnrichedPrice | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // --- CSV import collapsible ---
+  const [isCsvOpen, setIsCsvOpen] = useState(false);
+
+  // --- Bulk JSON ---
+  const [showBulkJson, setShowBulkJson] = useState(false);
+  const [isBulkRunning, setIsBulkRunning] = useState(false);
   const [bulkPayload, setBulkPayload] = useState(() =>
     JSON.stringify(
       [
@@ -90,105 +262,37 @@ export function PricesManager() {
       2
     )
   );
-  const [showBulkJson, setShowBulkJson] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
-  // --- Resolution noms ---
-  const [suppliers, setSuppliers] = useState<{ id: string; name: string }[]>([]);
-  const [products, setProducts] = useState<{ id: string; designation: string; reference?: string | null }[]>([]);
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  // --- Stats ---
+  const stats = useMemo(() => {
+    const total = enrichedItems.length;
+    const fresh = enrichedItems.filter((i) => i._freshnessLevel === "fresh").length;
+    const stale = enrichedItems.filter((i) => i._freshnessLevel === "stale").length;
+    const uniqueSuppliers = new Set(enrichedItems.map((i) => i.supplier_id)).size;
+    return { total, fresh, stale, uniqueSuppliers };
+  }, [enrichedItems]);
 
-  const supplierMap = useMemo(() => new Map(suppliers.map((s) => [s.id, s.name])), [suppliers]);
-  const productMap = useMemo(() => new Map(products.map((p) => [p.id, p.designation])), [products]);
+  // --- Form handlers ---
 
-  const supplierOptions = useMemo(
-    () => suppliers.map((s) => ({ value: s.id, label: s.name })),
-    [suppliers]
-  );
-  const productOptions = useMemo(
-    () => products.map((p) => ({ value: p.id, label: p.designation, keywords: [p.reference ?? ""].filter(Boolean) })),
-    [products]
-  );
-
-  useEffect(() => {
-    async function loadLookups() {
-      const [sr, pr] = await Promise.all([
-        supabase.from("suppliers").select("id, name").order("name"),
-        supabase.from("products").select("id, designation, reference").order("designation"),
-      ]);
-      setSuppliers((sr.data ?? []) as { id: string; name: string }[]);
-      setProducts((pr.data ?? []) as { id: string; designation: string; reference?: string | null }[]);
-    }
-    void loadLookups();
-  }, [supabase]);
-
-  // --- Feedback formulaire ---
-  const [formError, setFormError] = useState<string | null>(null);
-  const [formSuccess, setFormSuccess] = useState<string | null>(null);
-  const formSectionRef = useRef<HTMLElement>(null);
-
-  const displayedItems = useMemo(() => {
-    if (!staleOnly) return items;
-
-    const now = new Date();
-    return items.filter((item) =>
-      isPriceStale(
-        {
-          updatedAt: item.updated_at ?? null,
-          createdAt: item.created_at ?? null,
-        },
-        stalePriceDays,
-        now
-      )
-    );
-  }, [items, staleOnly, stalePriceDays]);
-
-  const loadItems = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const query = new URLSearchParams();
-      query.set("limit", "400");
-      if (searchSupplierId.trim()) {
-        query.set("supplier_id", searchSupplierId.trim());
-      }
-      if (searchProductId.trim()) {
-        query.set("product_id", searchProductId.trim());
-      }
-
-      const data = await fetchApi<PricesListResponse>(`/api/prices?${query.toString()}`);
-      setItems(data.items ?? []);
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Impossible de charger les prix fournisseur."
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [searchProductId, searchSupplierId]);
-
-  useEffect(() => {
-    void loadItems();
-  }, [loadItems]);
-
-  useEffect(() => {
-    if (editingId && formSectionRef.current) {
-      formSectionRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [editingId]);
-
-  function resetForm() {
+  const closeForm = useCallback(() => {
+    setIsFormOpen(false);
+    setFormError(null);
+    setIsSaving(false);
     setEditingId(null);
     setFormState(EMPTY_FORM);
-    setFormError(null);
-    setFormSuccess(null);
-  }
+  }, []);
 
-  function onEdit(item: SupplierPrice) {
+  const openCreateForm = useCallback(() => {
+    setFormError(null);
+    setIsSaving(false);
+    setEditingId(null);
+    setFormState(EMPTY_FORM);
+    setIsFormOpen(true);
+  }, []);
+
+  const openEditForm = useCallback((item: EnrichedPrice) => {
+    setFormError(null);
+    setIsSaving(false);
     setEditingId(item.id);
     setFormState({
       supplier_id: item.supplier_id ?? "",
@@ -200,11 +304,17 @@ export function PricesManager() {
       source: item.source ?? "",
       notes: item.notes ?? "",
     });
-    setError(null);
-    setSuccess(null);
-    setFormError(null);
-    setFormSuccess(null);
-  }
+    setIsFormOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isFormOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isFormOpen]);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -222,58 +332,37 @@ export function PricesManager() {
 
     setIsSaving(true);
     setFormError(null);
-    setFormSuccess(null);
 
     try {
+      const payload = {
+        supplier_id: formState.supplier_id.trim(),
+        product_id: formState.product_id.trim(),
+        unit_price_cents: unitPriceCents,
+        currency: formState.currency.trim().toUpperCase() || "EUR",
+        valid_from: formState.valid_from || null,
+        valid_to: formState.valid_to || null,
+        source: formState.source.trim() || null,
+        notes: formState.notes.trim() || null,
+      };
+
       if (editingId) {
         await fetchApi<{ item: SupplierPrice }>("/api/prices", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            action: "update",
-            id: editingId,
-            item: {
-              supplier_id: formState.supplier_id.trim(),
-              product_id: formState.product_id.trim(),
-              unit_price_cents: unitPriceCents,
-              currency: formState.currency.trim().toUpperCase() || "EUR",
-              valid_from: formState.valid_from || null,
-              valid_to: formState.valid_to || null,
-              source: formState.source.trim() || null,
-              notes: formState.notes.trim() || null,
-            },
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "update", id: editingId, item: payload }),
         });
-
-        setFormSuccess("Prix fournisseur mis a jour.");
+        toast.success({ title: "Prix fournisseur mis à jour." });
       } else {
         await fetchApi<{ item: SupplierPrice }>("/api/prices", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            action: "create",
-            item: {
-              supplier_id: formState.supplier_id.trim(),
-              product_id: formState.product_id.trim(),
-              unit_price_cents: unitPriceCents,
-              currency: formState.currency.trim().toUpperCase() || "EUR",
-              valid_from: formState.valid_from || null,
-              valid_to: formState.valid_to || null,
-              source: formState.source.trim() || null,
-              notes: formState.notes.trim() || null,
-            },
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "create", item: payload }),
         });
-
-        setFormSuccess("Prix fournisseur cree.");
+        toast.success({ title: "Prix fournisseur créé." });
       }
 
-      resetForm();
-      await loadItems();
+      closeForm();
+      await mutate();
     } catch (saveError) {
       setFormError(
         saveError instanceof Error
@@ -285,40 +374,33 @@ export function PricesManager() {
     }
   }
 
-  async function onDelete(item: SupplierPrice) {
-    if (!window.confirm("Supprimer ce prix fournisseur ?")) {
-      return;
-    }
+  // --- Delete handler ---
 
-    setError(null);
-    setSuccess(null);
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
 
     try {
       await fetchApi<{ deleted_id: string }>("/api/prices", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "delete",
-          id: item.id,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id: deleteTarget.id }),
       });
 
-      if (editingId === item.id) {
-        resetForm();
-      }
-
-      setSuccess("Prix fournisseur supprime.");
-      await loadItems();
+      toast.success({ title: "Prix fournisseur supprimé." });
+      setDeleteTarget(null);
+      await mutate();
     } catch (deleteError) {
-      setError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : "Impossible de supprimer le prix fournisseur."
-      );
+      toast.error({
+        title: "Erreur",
+        description: deleteError instanceof Error ? deleteError.message : "Impossible de supprimer le prix fournisseur.",
+      });
+    } finally {
+      setIsDeleting(false);
     }
   }
+
+  // --- Bulk create ---
 
   async function onBulkCreate() {
     let parsedPayload: unknown;
@@ -326,34 +408,26 @@ export function PricesManager() {
     try {
       parsedPayload = JSON.parse(bulkPayload);
     } catch {
-      setError("Le JSON saisi est invalide.");
+      toast.error({ title: "Le JSON saisi est invalide." });
       return;
     }
 
     setIsBulkRunning(true);
-    setError(null);
-    setSuccess(null);
 
     try {
       const result = await fetchApi<{ created_count: number; mode: string }>("/api/prices", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "bulk-create",
-          items: parsedPayload,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "bulk-create", items: parsedPayload }),
       });
 
-      setSuccess(`Creation en masse terminee : ${result.created_count} ligne(s) creee(s).`);
-      await loadItems();
+      toast.success({ title: `Création en masse terminée : ${result.created_count} ligne(s) créée(s).` });
+      await mutate();
     } catch (bulkError) {
-      setError(
-        bulkError instanceof Error
-          ? bulkError.message
-          : "Impossible d'executer la creation en masse."
-      );
+      toast.error({
+        title: "Erreur",
+        description: bulkError instanceof Error ? bulkError.message : "Impossible d'exécuter la création en masse.",
+      });
     } finally {
       setIsBulkRunning(false);
     }
@@ -361,310 +435,297 @@ export function PricesManager() {
 
   return (
     <div className="space-y-6">
-      <PriceBookCsvImport onImported={loadItems} lookups={{ suppliers, products }} />
+      {/* Page header */}
+      <div className="page-header flex items-start justify-between gap-6">
+        <div>
+          <h1 className="page-title">Prix fournisseurs</h1>
+          <p className="page-description">
+            Gérez les tarifs de vos fournisseurs. Ajoutez-les un par un ou importez-les en masse depuis un fichier CSV.
+          </p>
+        </div>
+        <button
+          className="btn btn-primary btn-lg"
+          type="button"
+          onClick={openCreateForm}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M5 12h14" />
+            <path d="M12 5v14" />
+          </svg>
+          Ajouter un prix
+        </button>
+      </div>
 
-      <section className="dashboard-card p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--slate-900)]">Prix fournisseur</h2>
-            <p className="text-sm text-[var(--slate-500)]">
-              Liste des prix fournisseurs enregistres.
-            </p>
+      {/* CSV Import - collapsible */}
+      <section className="dashboard-card overflow-hidden">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between px-6 py-4 text-left"
+          onClick={() => setIsCsvOpen((prev) => !prev)}
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--brand-blue)]/10">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.75">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" x2="12" y1="3" y2="15" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+                Importer un fichier de prix (CSV)
+              </h2>
+              <p className="text-xs text-[var(--slate-500)]">
+                Importez vos prix depuis un fichier CSV en 3 étapes.
+              </p>
+            </div>
           </div>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--slate-400)"
+            strokeWidth="2"
+            className={`transition-transform ${isCsvOpen ? "rotate-180" : ""}`}
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
 
-          <button type="button" className="btn btn-secondary" onClick={() => void loadItems()}>
-            Rafraichir
+        {isCsvOpen ? (
+          <div className="border-t border-[var(--slate-200)]">
+            <PriceBookCsvImport
+              onImported={() => void mutate()}
+              lookups={{ suppliers, products }}
+            />
+          </div>
+        ) : null}
+      </section>
+
+      {/* Stats cards */}
+      {!isLoading && enrichedItems.length > 0 ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Total prix</p>
+            <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">{stats.total}</p>
+          </div>
+          <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">À jour</p>
+            <p className="mt-1 text-lg font-semibold text-emerald-600">{stats.fresh}</p>
+          </div>
+          <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Anciens (&gt; 90j)</p>
+            <p className="mt-1 text-lg font-semibold text-red-600">{stats.stale}</p>
+          </div>
+          <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
+            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Fournisseurs couverts</p>
+            <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">{stats.uniqueSuppliers}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* TableFilterBar */}
+      <TableFilterBar
+        data={enrichedItems}
+        onDataChange={setDisplayedItems}
+        search={{
+          placeholder: "Rechercher par fournisseur ou produit...",
+          fields: ["_supplierName", "_productName"],
+        }}
+        filters={PRICES_FILTERS}
+        sortOptions={PRICES_SORT_OPTIONS}
+        resultCountLabel="prix fournisseur"
+        showResultCount
+      />
+
+      {/* Table card */}
+      <div className="dashboard-card overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
+          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+            Liste des prix fournisseurs
+          </h2>
+          <button
+            className="btn btn-secondary btn-sm"
+            disabled={isValidating}
+            onClick={() => void mutate()}
+            type="button"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className={isValidating ? "animate-spin" : ""}
+            >
+              <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+            </svg>
+            {isValidating ? "Chargement..." : "Actualiser"}
           </button>
         </div>
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <div>
-            <label className="form-label" htmlFor="prices-filter-supplier">
-              Filtrer par fournisseur
-            </label>
-            <SearchableSelect
-              id="prices-filter-supplier"
-              value={searchSupplierId}
-              options={[{ value: "", label: "Tous les fournisseurs" }, ...supplierOptions]}
-              placeholder="Tous les fournisseurs"
-              onValueChange={(val) => setSearchSupplierId(val)}
-            />
+        {loadError ? (
+          <div className="alert alert-error m-4">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <path d="m15 9-6 6" />
+              <path d="m9 9 6 6" />
+            </svg>
+            {loadError instanceof Error ? loadError.message : "Impossible de charger les prix fournisseur."}
           </div>
-          <div>
-            <label className="form-label" htmlFor="prices-filter-product">
-              Filtrer par produit
-            </label>
-            <SearchableSelect
-              id="prices-filter-product"
-              value={searchProductId}
-              options={[{ value: "", label: "Tous les produits" }, ...productOptions]}
-              placeholder="Tous les produits"
-              onValueChange={(val) => setSearchProductId(val)}
-            />
-          </div>
-        </div>
-        <label
-          className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--slate-700)]"
-          title={`Affiche uniquement les prix non mis a jour depuis plus de ${stalePriceDays} jours`}
-        >
-          <input
-            type="checkbox"
-            checked={staleOnly}
-            onChange={(event) => setStaleOnly(event.target.checked)}
-          />
-          Prix anciens seulement (non mis a jour depuis {stalePriceDays} jours)
-        </label>
-
-        {error ? <div className="alert alert-error mt-4">{error}</div> : null}
-        {success ? <div className="alert alert-success mt-4">{success}</div> : null}
-
-        {!isLoading && items.length > 0 ? (
-          <p className="mt-4 text-xs text-[var(--slate-500)]">
-            Affichage de {displayedItems.length} prix{staleOnly && items.length !== displayedItems.length ? ` sur ${items.length} charges` : ""}
-          </p>
         ) : null}
 
-        <div className="mt-2 table-scroll">
+        <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
                 <th>Fournisseur</th>
                 <th>Produit</th>
-                <th>Prix</th>
-                <th>Validite</th>
-                <th>Mis a jour le</th>
-                <th title="Indique si le prix n'a pas ete mis a jour depuis longtemps">Fraicheur</th>
+                <th>Prix HT</th>
+                <th>Validité</th>
+                <th>Mis à jour le</th>
+                <th title="Indique si le prix n'a pas été mis à jour depuis longtemps">Fraîcheur</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
+              {displayedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center text-[var(--slate-500)]">
-                    Chargement...
-                  </td>
-                </tr>
-              ) : displayedItems.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="text-center text-[var(--slate-500)]">
-                    Aucun prix fournisseur.
+                  <td colSpan={7} className="text-center py-12">
+                    {isLoading ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
+                        <span className="text-[var(--slate-500)]">Chargement...</span>
+                      </div>
+                    ) : enrichedItems.length === 0 ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--slate-400)" strokeWidth="1.5">
+                            <path d="M2 17 12 22 22 17" />
+                            <path d="M2 12 12 17 22 12" />
+                            <path d="M12 2 2 7 12 12 22 7Z" />
+                          </svg>
+                        </div>
+                        <div className="text-center">
+                          <p className="font-medium text-[var(--slate-700)]">Aucun prix fournisseur</p>
+                          <p className="mt-1 text-sm text-[var(--slate-500)]">
+                            Ajoutez un prix manuellement ou importez un fichier CSV pour démarrer.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm mt-2"
+                          onClick={openCreateForm}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 12h14" />
+                            <path d="M12 5v14" />
+                          </svg>
+                          Ajouter un prix
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--slate-400)" strokeWidth="1.5">
+                            <circle cx="11" cy="11" r="8" />
+                            <path d="m21 21-4.3-4.3" />
+                          </svg>
+                        </div>
+                        <div className="text-center">
+                          <p className="font-medium text-[var(--slate-700)]">Aucun résultat</p>
+                          <p className="mt-1 text-sm text-[var(--slate-500)]">Modifiez vos filtres pour voir plus de résultats.</p>
+                        </div>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ) : (
-                displayedItems.map((item) => {
-                  const stale = isPriceStale(
-                    {
-                      updatedAt: item.updated_at ?? null,
-                      createdAt: item.created_at ?? null,
-                    },
-                    stalePriceDays
-                  );
-
-                  return (
-                    <tr key={item.id}>
-                      <td className="text-sm text-[var(--slate-700)]">
-                        {supplierMap.get(item.supplier_id) ?? item.supplier_id}
-                      </td>
-                      <td className="text-sm text-[var(--slate-700)]">
-                        {productMap.get(item.product_id ?? item.catalogue_item_id ?? "") ??
-                          item.product_id ?? item.catalogue_item_id}
-                      </td>
-                      <td className="font-medium text-[var(--slate-900)]">
-                        {typeof item.unit_price_cents === "number"
-                          ? formatEUR(item.unit_price_cents)
-                          : "-"}
-                        {item.currency ? ` ${item.currency}` : ""}
-                      </td>
-                      <td>
-                        {item.valid_from || item.valid_to ? (
-                          <>{formatDate(item.valid_from)} {"\u2192"} {item.valid_to ? formatDate(item.valid_to) : "(illimite)"}</>
-                        ) : (
-                          <span className="text-[var(--slate-400)]">Non definie</span>
-                        )}
-                      </td>
-                      <td>{formatDate(item.updated_at ?? item.created_at)}</td>
-                      <td>
-                        {stale ? (
-                          <span className="inline-flex rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                            Prix ancien
-                          </span>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td>
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => onEdit(item)}
-                          >
-                            Modifier
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            onClick={() => void onDelete(item)}
-                          >
-                            Supprimer
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                displayedItems.map((item, index) => (
+                  <tr
+                    key={item.id}
+                    className="animate-fade-in"
+                    style={{ animationDelay: `${index * 0.03}s` }}
+                  >
+                    <td className="font-semibold text-[var(--slate-800)]">
+                      {item._supplierName}
+                    </td>
+                    <td className="text-sm text-[var(--slate-700)]">
+                      {item._productName}
+                    </td>
+                    <td className="font-mono font-medium text-[var(--slate-900)]">
+                      {typeof item.unit_price_cents === "number"
+                        ? formatEUR(item.unit_price_cents)
+                        : "-"}
+                      {item.currency && item.currency !== "EUR" ? ` ${item.currency}` : ""}
+                    </td>
+                    <td className="text-sm">
+                      {item.valid_from || item.valid_to ? (
+                        <>{formatDate(item.valid_from)} {"\u2192"} {item.valid_to ? formatDate(item.valid_to) : "(illimitée)"}</>
+                      ) : (
+                        <span className="text-[var(--slate-400)]">Non définie</span>
+                      )}
+                    </td>
+                    <td className="text-sm">{formatDate(item.updated_at ?? item.created_at)}</td>
+                    <td>
+                      <FreshnessBadge level={item._freshnessLevel} ageDays={item._ageDays} />
+                    </td>
+                    <td>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => openEditForm(item)}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                          </svg>
+                          Modifier
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => setDeleteTarget(item)}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                          </svg>
+                          Supprimer
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
-      </section>
 
-      <section ref={formSectionRef} className="dashboard-card p-6">
-        <h2 className="text-lg font-semibold text-[var(--slate-900)]">
-          {editingId ? "Modifier un prix fournisseur" : "Ajouter un prix fournisseur"}
-        </h2>
-        {formError ? <div className="alert alert-error mt-2">{formError}</div> : null}
-        {formSuccess ? <div className="alert alert-success mt-2">{formSuccess}</div> : null}
-
-        <form className="mt-4 grid gap-4 lg:grid-cols-2" onSubmit={onSubmit}>
-          <div>
-            <label className="form-label" htmlFor="price-supplier-id">
-              Fournisseur
-            </label>
-            <SearchableSelect
-              id="price-supplier-id"
-              value={formState.supplier_id}
-              options={supplierOptions}
-              placeholder="Rechercher un fournisseur..."
-              required
-              onValueChange={(val) => setFormState((p) => ({ ...p, supplier_id: val }))}
-            />
+        {!isLoading && rawItems.length >= 400 ? (
+          <div className="border-t border-[var(--slate-200)] px-6 py-3 text-xs text-[var(--slate-500)]">
+            Limite de 400 résultats atteinte. Utilisez les filtres pour affiner votre recherche.
           </div>
+        ) : null}
+      </div>
 
-          <div>
-            <label className="form-label" htmlFor="price-product-id">
-              Produit
-            </label>
-            <SearchableSelect
-              id="price-product-id"
-              value={formState.product_id}
-              options={productOptions}
-              placeholder="Rechercher un produit..."
-              required
-              onValueChange={(val) => setFormState((p) => ({ ...p, product_id: val }))}
-            />
-          </div>
-
-          <div>
-            <label className="form-label" htmlFor="price-unit-price">
-              Prix unitaire HT (EUR)
-            </label>
-            <input
-              id="price-unit-price"
-              className="form-input"
-              value={formState.unit_price_euros}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, unit_price_euros: event.target.value }))
-              }
-              placeholder="0,00"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="form-label" htmlFor="price-currency">
-              Devise
-            </label>
-            <select
-              id="price-currency"
-              className="form-input"
-              value={formState.currency}
-              onChange={(e) => setFormState((p) => ({ ...p, currency: e.target.value }))}
-            >
-              <option value="EUR">EUR - Euro</option>
-              <option value="USD">USD - Dollar US</option>
-              <option value="GBP">GBP - Livre sterling</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="form-label" htmlFor="price-valid-from">
-              Valide du
-            </label>
-            <input
-              id="price-valid-from"
-              type="date"
-              className="form-input"
-              value={formState.valid_from}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, valid_from: event.target.value }))
-              }
-            />
-          </div>
-
-          <div>
-            <label className="form-label" htmlFor="price-valid-to">
-              Valide au
-            </label>
-            <input
-              id="price-valid-to"
-              type="date"
-              className="form-input"
-              value={formState.valid_to}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, valid_to: event.target.value }))
-              }
-            />
-          </div>
-
-          <div>
-            <label className="form-label" htmlFor="price-source">
-              Source
-            </label>
-            <input
-              id="price-source"
-              className="form-input"
-              value={formState.source}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, source: event.target.value }))
-              }
-              placeholder="ex: Devis, Catalogue, Site web..."
-            />
-          </div>
-
-          <div>
-            <label className="form-label" htmlFor="price-notes">
-              Notes
-            </label>
-            <input
-              id="price-notes"
-              className="form-input"
-              value={formState.notes}
-              onChange={(event) =>
-                setFormState((prev) => ({ ...prev, notes: event.target.value }))
-              }
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 lg:col-span-2">
-            <button type="submit" className="btn btn-primary" disabled={isSaving}>
-              {isSaving ? "Enregistrement..." : editingId ? "Mettre a jour" : "Ajouter"}
-            </button>
-
-            {editingId ? (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={resetForm}
-                disabled={isSaving}
-              >
-                Annuler
-              </button>
-            ) : null}
-          </div>
-        </form>
-      </section>
-
+      {/* Bulk JSON section */}
       <section className="dashboard-card p-6">
         <button
           type="button"
@@ -672,9 +733,9 @@ export function PricesManager() {
           onClick={() => setShowBulkJson((prev) => !prev)}
         >
           <div>
-            <h2 className="text-lg font-semibold text-[var(--slate-900)]">Mode avance</h2>
+            <h2 className="text-lg font-semibold text-[var(--slate-900)]">Mode avancé</h2>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Collez un tableau JSON pour creer plusieurs prix en une seule fois.
+              Collez un tableau JSON pour créer plusieurs prix en une seule fois.
             </p>
           </div>
           <span className="text-[var(--slate-400)] text-lg">{showBulkJson ? "\u25B2" : "\u25BC"}</span>
@@ -697,12 +758,263 @@ export function PricesManager() {
                 onClick={() => void onBulkCreate()}
                 disabled={isBulkRunning}
               >
-                {isBulkRunning ? "Traitement..." : "Lancer la creation en masse"}
+                {isBulkRunning ? "Traitement..." : "Lancer la création en masse"}
               </button>
             </div>
           </>
         ) : null}
       </section>
+
+      {/* Create / Edit Modal */}
+      <Modal.Root open={isFormOpen} onOpenChange={(open) => { if (!open) closeForm(); }}>
+        <Modal.Content className="max-w-4xl">
+          <Modal.Header>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--brand-blue)]/10">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.75">
+                  {editingId ? (
+                    <>
+                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                      <path d="m15 5 4 4" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M5 12h14" />
+                      <path d="M12 5v14" />
+                    </>
+                  )}
+                </svg>
+              </div>
+              <div>
+                <Modal.Title>
+                  {editingId ? "Modifier un prix fournisseur" : "Ajouter un prix fournisseur"}
+                </Modal.Title>
+                <p className="text-sm text-[var(--slate-500)]">
+                  {editingId
+                    ? "Mettez à jour les informations du prix fournisseur."
+                    : "Renseignez les informations du nouveau prix."}
+                </p>
+              </div>
+            </div>
+          </Modal.Header>
+
+          <form className="grid gap-5 sm:grid-cols-2" onSubmit={onSubmit}>
+            <div>
+              <label className="form-label" htmlFor="price-supplier-id">Fournisseur *</label>
+              <SearchableSelect
+                id="price-supplier-id"
+                value={formState.supplier_id}
+                options={supplierOptions}
+                placeholder="Rechercher un fournisseur..."
+                required
+                onValueChange={(val) => setFormState((p) => ({ ...p, supplier_id: val }))}
+              />
+            </div>
+
+            <div>
+              <label className="form-label" htmlFor="price-product-id">Produit *</label>
+              <SearchableSelect
+                id="price-product-id"
+                value={formState.product_id}
+                options={productOptions}
+                placeholder="Rechercher un produit..."
+                required
+                onValueChange={(val) => setFormState((p) => ({ ...p, product_id: val }))}
+              />
+            </div>
+
+            <div>
+              <label className="form-label" htmlFor="price-unit-price">Prix unitaire HT *</label>
+              <div className="relative">
+                <input
+                  id="price-unit-price"
+                  className="form-input pr-12"
+                  inputMode="decimal"
+                  value={formState.unit_price_euros}
+                  onChange={(event) =>
+                    setFormState((prev) => ({ ...prev, unit_price_euros: event.target.value }))
+                  }
+                  placeholder="0,00"
+                  required
+                />
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-[var(--slate-400)]" aria-hidden="true">
+                  EUR
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="form-label" htmlFor="price-currency">Devise</label>
+              <select
+                id="price-currency"
+                className="form-input form-select"
+                value={formState.currency}
+                onChange={(e) => setFormState((p) => ({ ...p, currency: e.target.value }))}
+              >
+                <option value="EUR">EUR - Euro</option>
+                <option value="USD">USD - Dollar US</option>
+                <option value="GBP">GBP - Livre sterling</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="form-label" htmlFor="price-valid-from">Valide du</label>
+              <input
+                id="price-valid-from"
+                type="date"
+                className="form-input"
+                value={formState.valid_from}
+                onChange={(event) =>
+                  setFormState((prev) => ({ ...prev, valid_from: event.target.value }))
+                }
+              />
+            </div>
+
+            <div>
+              <label className="form-label" htmlFor="price-valid-to">Valide au</label>
+              <input
+                id="price-valid-to"
+                type="date"
+                className="form-input"
+                value={formState.valid_to}
+                onChange={(event) =>
+                  setFormState((prev) => ({ ...prev, valid_to: event.target.value }))
+                }
+              />
+            </div>
+
+            <div>
+              <label className="form-label" htmlFor="price-source">Source</label>
+              <input
+                id="price-source"
+                className="form-input"
+                value={formState.source}
+                onChange={(event) =>
+                  setFormState((prev) => ({ ...prev, source: event.target.value }))
+                }
+                placeholder="ex: Devis, Catalogue, Site web..."
+              />
+            </div>
+
+            <div>
+              <label className="form-label" htmlFor="price-notes">Notes</label>
+              <input
+                id="price-notes"
+                className="form-input"
+                value={formState.notes}
+                onChange={(event) =>
+                  setFormState((prev) => ({ ...prev, notes: event.target.value }))
+                }
+              />
+            </div>
+
+            <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-4 pt-2">
+              {formError ? (
+                <div className="alert alert-error flex-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="m15 9-6 6" />
+                    <path d="m9 9 6 6" />
+                  </svg>
+                  {formError}
+                </div>
+              ) : (
+                <span />
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  className="btn btn-secondary"
+                  onClick={closeForm}
+                  type="button"
+                  disabled={isSaving}
+                >
+                  Annuler
+                </button>
+                <button
+                  className="btn btn-primary"
+                  disabled={isSaving}
+                  type="submit"
+                >
+                  {isSaving ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+                      Enregistrement...
+                    </>
+                  ) : editingId ? (
+                    "Mettre à jour"
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M5 12h14" />
+                        <path d="M12 5v14" />
+                      </svg>
+                      Ajouter
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </form>
+        </Modal.Content>
+      </Modal.Root>
+
+      {/* Delete confirmation modal */}
+      <Modal.Root open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <Modal.Content className="max-w-md">
+          <Modal.Header>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--danger)]/10">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="1.75">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
+              </div>
+              <div>
+                <Modal.Title>Confirmer la suppression</Modal.Title>
+                <p className="text-sm text-[var(--slate-500)]">Cette action est irréversible.</p>
+              </div>
+            </div>
+          </Modal.Header>
+
+          {deleteTarget ? (
+            <Modal.Body>
+              <p className="text-sm text-[var(--slate-700)]">
+                Voulez-vous supprimer le prix de{" "}
+                <strong>{deleteTarget._supplierName}</strong> pour{" "}
+                <strong>{deleteTarget._productName}</strong>{" "}
+                ({typeof deleteTarget.unit_price_cents === "number" ? formatEUR(deleteTarget.unit_price_cents) : "-"}) ?
+              </p>
+            </Modal.Body>
+          ) : null}
+
+          <Modal.Footer>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setDeleteTarget(null)}
+              disabled={isDeleting}
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => void confirmDelete()}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+                  Suppression...
+                </>
+              ) : (
+                "Supprimer"
+              )}
+            </button>
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
     </div>
   );
 }

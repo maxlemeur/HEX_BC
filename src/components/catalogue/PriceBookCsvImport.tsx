@@ -28,8 +28,8 @@ const ATOMIC_BULK_BATCH_SIZE = 5000;
 
 const TARGET_FIELDS = [
   { value: "supplier_name", label: "Fournisseur", required: true },
-  { value: "product_reference", label: "Reference produit" },
-  { value: "product_designation", label: "Designation produit" },
+  { value: "product_reference", label: "Référence produit" },
+  { value: "product_designation", label: "Désignation produit" },
   { value: "unit_price", label: "Prix unitaire", required: true },
   { value: "currency", label: "Devise" },
 ];
@@ -132,12 +132,12 @@ export function PriceBookCsvImport({
 
   async function onAnalyzeFile() {
     if (!selectedFile) {
-      setError("Selectionnez un fichier CSV.");
+      setError("Sélectionnez un fichier CSV.");
       return;
     }
 
     if (!isCsvFile(selectedFile)) {
-      setError("Seuls les fichiers CSV sont supportes pour cet import.");
+      setError("Seuls les fichiers CSV sont supportés pour cet import.");
       return;
     }
 
@@ -150,18 +150,18 @@ export function PriceBookCsvImport({
     try {
       const parsed = await parseFile(selectedFile);
       if (parsed.parser !== "csv") {
-        throw new Error("Le format detecte n'est pas CSV.");
+        throw new Error("Le format détecté n'est pas CSV.");
       }
 
       const nextRows = parsed.rows;
       if (nextRows.length === 0) {
-        throw new Error("Le fichier CSV ne contient aucune ligne de donnees.");
+        throw new Error("Le fichier CSV ne contient aucune ligne de données.");
       }
       const nextRowLineNumbers = parsed.rowLineNumbers;
 
       const nextSourceColumns = extractPriceBookSourceColumns(nextRows);
       if (nextSourceColumns.length === 0) {
-        throw new Error("Aucune colonne exploitable n'a ete detectee.");
+        throw new Error("Aucune colonne exploitable n'a été détectée.");
       }
 
       const nextMapping = suggestPriceBookColumnMapping(nextSourceColumns);
@@ -186,7 +186,7 @@ export function PriceBookCsvImport({
   async function onRefreshPreview() {
     if (!canValidate) {
       setError(
-        "Le mapping minimal est incomplet : Fournisseur, Prix unitaire et Reference ou Designation produit."
+        "Le mapping minimal est incomplet : Fournisseur, Prix unitaire et Référence ou Désignation produit."
       );
       return;
     }
@@ -197,7 +197,7 @@ export function PriceBookCsvImport({
 
   async function onSubmitImport() {
     if (!validation || validation.acceptedRows === 0) {
-      setError("Aucune ligne valide a importer.");
+      setError("Aucune ligne valide à importer.");
       return;
     }
 
@@ -220,7 +220,7 @@ export function PriceBookCsvImport({
 
       await onImported();
 
-      setSuccess(`Import termine : ${result.created_count} ligne(s) creee(s).`);
+      setSuccess(`Import terminé : ${result.created_count} ligne(s) créée(s).`);
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -234,8 +234,6 @@ export function PriceBookCsvImport({
 
   const downloadCsvTemplate = useCallback(() => {
     const lines = [
-      "# Colonnes acceptees : fournisseur (nom), reference ou designation (produit), prix, devise",
-      "# Les noms doivent correspondre exactement a ceux enregistres dans l'application",
       "fournisseur;reference_produit;prix_unitaire;devise",
       "CEDEO;TUBE-INOX-28;12.50;EUR",
       "ARCUS;CABLE-3G1.5;8.00;EUR",
@@ -244,7 +242,7 @@ export function PriceBookCsvImport({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "modele_prix_fournisseurs.csv";
+    a.download = "modèle_prix_fournisseurs.csv";
     a.click();
     URL.revokeObjectURL(url);
   }, []);
@@ -252,20 +250,9 @@ export function PriceBookCsvImport({
   const autoMappedCount = Object.keys(mapping).length;
 
   return (
-    <section className="dashboard-card p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--slate-900)]">
-            Importer un fichier de prix (CSV)
-          </h2>
-          <p className="text-sm text-[var(--slate-500)]">
-            Importez vos prix depuis un fichier CSV en 3 etapes : chargement du fichier, verification des colonnes, puis import.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-5 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-        <h3 className="text-sm font-semibold text-[var(--slate-800)]">Etape 1 - Charger le CSV</h3>
+    <div className="p-6">
+      <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
+        <h3 className="text-sm font-semibold text-[var(--slate-800)]">Étape 1 - Charger le CSV</h3>
         <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
           <div>
             <label className="form-label" htmlFor="price-book-csv-input">
@@ -320,7 +307,7 @@ export function PriceBookCsvImport({
             className="text-xs text-[var(--brand-blue)] underline hover:no-underline"
             onClick={downloadCsvTemplate}
           >
-            Telecharger un modele CSV
+            Télécharger un modèle CSV
           </button>
         </div>
       </div>
@@ -332,7 +319,7 @@ export function PriceBookCsvImport({
               {isParsing ? "Analyse du fichier en cours..." : "Validation des lignes en cours..."}
             </span>
             <span className="text-[var(--slate-500)]">
-              {isParsing ? "Preparation..." : getProgressLabel(progress)}
+              {isParsing ? "Préparation..." : getProgressLabel(progress)}
             </span>
           </div>
 
@@ -348,11 +335,11 @@ export function PriceBookCsvImport({
       {hasRows ? (
         <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
           <h3 className="text-sm font-semibold text-[var(--slate-800)]">
-            Etape 2 - Mapping et validation
+            Étape 2 - Mapping et validation
           </h3>
           <p className="mt-1 text-xs text-[var(--slate-500)]">
-            {formatNumber(rows.length)} ligne(s) detectee(s), {autoMappedCount} colonne(s)
-            mappee(s) automatiquement.
+            {formatNumber(rows.length)} ligne(s) détectée(s), {autoMappedCount} colonne(s)
+            mappée(s) automatiquement.
           </p>
 
           <div className="mt-4">
@@ -374,10 +361,10 @@ export function PriceBookCsvImport({
               onClick={() => void onRefreshPreview()}
               disabled={!canValidate || isParsing || isValidating || isSubmitting}
             >
-              {isValidating ? "Validation..." : "Mettre a jour l'apercu"}
+              {isValidating ? "Validation..." : "Mettre à jour l'aperçu"}
             </button>
             <span className="text-xs text-[var(--slate-500)]">
-              Champs requis : Fournisseur, Prix unitaire, et Reference ou Designation produit.
+              Champs requis : Fournisseur, Prix unitaire, et Référence ou Désignation produit.
             </span>
           </div>
         </div>
@@ -407,7 +394,7 @@ export function PriceBookCsvImport({
             </div>
             <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
               <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
-                Lignes rejetees
+                Lignes rejetées
               </p>
               <p className="mt-1 text-base font-semibold text-[var(--danger)]">
                 {formatNumber(validation.rejectedRowsCount)}
@@ -418,7 +405,7 @@ export function PriceBookCsvImport({
           <section className="dashboard-card overflow-hidden">
             <div className="border-b border-[var(--slate-200)] px-6 py-4">
               <h3 className="text-sm font-semibold text-[var(--slate-800)]">
-                Apercu - 10 premieres lignes
+                Aperçu - 10 premières lignes
               </h3>
             </div>
 
@@ -439,7 +426,7 @@ export function PriceBookCsvImport({
                   {validation.previewRows.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="text-center text-[var(--slate-500)]">
-                        Aucun apercu disponible.
+                        Aucun aperçu disponible.
                       </td>
                     </tr>
                   ) : (
@@ -505,7 +492,7 @@ export function PriceBookCsvImport({
             <section className="dashboard-card overflow-hidden">
               <div className="border-b border-[var(--slate-200)] px-6 py-4">
                 <h3 className="text-sm font-semibold text-[var(--slate-800)]">
-                  Synthese des lignes rejetees
+                  Synthèse des lignes rejetées
                 </h3>
                 <p className="mt-1 text-xs text-[var(--slate-500)]">
                   Ligne + motif de rejet.
@@ -533,7 +520,7 @@ export function PriceBookCsvImport({
 
               {validation.rejectedRowsCount > 200 ? (
                 <div className="border-t border-[var(--slate-200)] px-6 py-4 text-xs text-[var(--slate-500)]">
-                  Liste tronquee aux 200 premieres lignes rejetees.
+                  Liste tronquée aux 200 premières lignes rejetées.
                 </div>
               ) : null}
             </section>
@@ -541,10 +528,10 @@ export function PriceBookCsvImport({
 
           <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
             <h3 className="text-sm font-semibold text-[var(--slate-800)]">
-              Etape 3 - Import final
+              Étape 3 - Import final
             </h3>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Seules les lignes valides seront importees dans votre base de prix.
+              Seules les lignes valides seront importées dans votre base de prix.
             </p>
 
             <div className="mt-4">
@@ -560,6 +547,6 @@ export function PriceBookCsvImport({
           </div>
         </div>
       ) : null}
-    </section>
+    </div>
   );
 }
