@@ -118,6 +118,8 @@ export function ImportWizard() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [historySearch, setHistorySearch] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [headerRowInput, setHeaderRowInput] = useState("");
+  const [headerRowError, setHeaderRowError] = useState<string | null>(null);
 
   const {
     imports,
@@ -140,7 +142,20 @@ export function ImportWizard() {
     event.preventDefault();
     if (!selectedFile || isSubmitting) return;
 
-    const success = await importFile(selectedFile);
+    const trimmedHeaderRow = headerRowInput.trim();
+    let headerRowNumber: number | null = null;
+
+    if (trimmedHeaderRow.length > 0) {
+      const parsed = Number(trimmedHeaderRow);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        setHeaderRowError("La ligne d'en-tete doit etre un entier >= 1.");
+        return;
+      }
+      headerRowNumber = parsed;
+    }
+
+    setHeaderRowError(null);
+    const success = await importFile(selectedFile, { headerRowNumber });
     if (!success) return;
 
     setSelectedFile(null);
@@ -287,6 +302,33 @@ export function ImportWizard() {
             Les fichiers de moins de {formatModeThreshold(maxClientParseSizeBytes)} sont traites dans votre navigateur. Au-dela, traitement serveur.
           </p>
 
+          <div className="max-w-xs">
+            <label
+              htmlFor="header-row-input"
+              className="mb-1 block text-xs font-medium text-[var(--slate-700)]"
+            >
+              Ligne d&apos;en-tete (optionnel)
+            </label>
+            <input
+              id="header-row-input"
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              value={headerRowInput}
+              onChange={(event) => {
+                setHeaderRowInput(event.target.value);
+                if (headerRowError) setHeaderRowError(null);
+              }}
+              placeholder="Auto"
+              disabled={isSubmitting}
+              className="form-input form-input--sm"
+            />
+            <p className="mt-1 text-xs text-[var(--slate-500)]">
+              Laissez vide pour detection automatique de la ligne d&apos;en-tete.
+            </p>
+          </div>
+
           {/* M-05: Example file link */}
           <p className="text-xs text-[var(--slate-500)]">
             Besoin d&apos;aide ?{" "}
@@ -357,6 +399,10 @@ export function ImportWizard() {
 
         {submitError ? (
           <div className="alert alert-error mt-3">{submitError}</div>
+        ) : null}
+
+        {headerRowError ? (
+          <div className="alert alert-error mt-3">{headerRowError}</div>
         ) : null}
       </section>
 

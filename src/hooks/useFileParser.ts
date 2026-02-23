@@ -9,6 +9,7 @@ export type ParserKind = "csv" | "xlsx";
 type ParseWorkerRequest = {
   requestId: string;
   buffer: ArrayBuffer;
+  headerRowNumber?: number | null;
 };
 
 type ParseWorkerSuccessResponse = {
@@ -25,6 +26,10 @@ type ParseWorkerErrorResponse = {
 };
 
 type ParseWorkerResponse = ParseWorkerSuccessResponse | ParseWorkerErrorResponse;
+
+type ParseFileOptions = {
+  headerRowNumber?: number | null;
+};
 
 export type FileParseResult = {
   mode: "worker";
@@ -81,12 +86,17 @@ function createParserWorker(parser: ParserKind): Worker {
 
 function runWorkerParser(
   parser: ParserKind,
-  buffer: ArrayBuffer
+  buffer: ArrayBuffer,
+  options?: ParseFileOptions
 ): Promise<{ rows: ParsedImportRow[]; rowLineNumbers?: number[] }> {
   return new Promise((resolve, reject) => {
     const worker = createParserWorker(parser);
     const requestId = buildRequestId();
-    const payload: ParseWorkerRequest = { requestId, buffer };
+    const payload: ParseWorkerRequest = {
+      requestId,
+      buffer,
+      headerRowNumber: options?.headerRowNumber ?? null,
+    };
     const timeoutId = window.setTimeout(() => {
       worker.terminate();
       reject(new Error("Le parsing local a depasse le delai autorise."));
@@ -128,26 +138,29 @@ function runWorkerParser(
 }
 
 export function useFileParser() {
-  const parseFile = useCallback(async (file: File): Promise<FileParseResult> => {
-    if (typeof window === "undefined" || typeof Worker === "undefined") {
-      throw new Error("Les workers ne sont pas disponibles dans cet environnement.");
-    }
+  const parseFile = useCallback(
+    async (file: File, options?: ParseFileOptions): Promise<FileParseResult> => {
+      if (typeof window === "undefined" || typeof Worker === "undefined") {
+        throw new Error("Les workers ne sont pas disponibles dans cet environnement.");
+      }
 
-    const parser = resolveParserKind(file);
-    if (!parser) {
-      throw new Error("Format non supporte. Utilisez un fichier CSV ou XLSX.");
-    }
+      const parser = resolveParserKind(file);
+      if (!parser) {
+        throw new Error("Format non supporte. Utilisez un fichier CSV ou XLSX.");
+      }
 
-    const buffer = await file.arrayBuffer();
-    const { rows, rowLineNumbers } = await runWorkerParser(parser, buffer);
+      const buffer = await file.arrayBuffer();
+      const { rows, rowLineNumbers } = await runWorkerParser(parser, buffer, options);
 
-    return {
-      mode: "worker",
-      parser,
-      rows,
-      rowLineNumbers,
-    };
-  }, []);
+      return {
+        mode: "worker",
+        parser,
+        rows,
+        rowLineNumbers,
+      };
+    },
+    []
+  );
 
   return { parseFile };
 }

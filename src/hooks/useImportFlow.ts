@@ -8,6 +8,10 @@ type RefreshOptions = {
   silent?: boolean;
 };
 
+export type ImportFileOptions = {
+  headerRowNumber?: number | null;
+};
+
 export type ImportExecutionMode = "worker" | "server" | "unknown";
 
 export type ImportListItem = {
@@ -178,11 +182,51 @@ async function fetchImportsList(): Promise<ImportListItem[]> {
   return normalizeImportList(payload);
 }
 
+async function extractCreatedImportId(response: Response): Promise<string | null> {
+  if (response.status === 204) return null;
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    return null;
+  }
+
+  const pickId = (value: unknown): string | null => {
+    if (!value || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    return (
+      coerceString(record.id) ??
+      coerceString(record.import_id) ??
+      coerceString(record.uuid) ??
+      null
+    );
+  };
+
+  if (Array.isArray(payload)) {
+    return pickId(payload[0] ?? null);
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  return (
+    pickId(record.data) ??
+    pickId(record.import) ??
+    pickId(record.result) ??
+    pickId(record) ??
+    null
+  );
+}
+
 async function postWorkerImport(
   file: File,
   rows: ParsedImportRow[],
-  parser: "csv" | "xlsx"
-): Promise<void> {
+  parser: "csv" | "xlsx",
+  headerRowNumber?: number | null
+): Promise<string | null> {
   const response = await fetch("/api/imports", {
     method: "POST",
     headers: {
@@ -196,6 +240,7 @@ async function postWorkerImport(
       sourceFormat: parser,
       mimeType: file.type || null,
       fileSizeBytes: file.size,
+      headerRowNumber: headerRowNumber ?? null,
       rows,
     }),
   });
@@ -203,17 +248,23 @@ async function postWorkerImport(
   if (!response.ok) {
     throw new Error(await extractErrorMessage(response, "Creation de l'import impossible."));
   }
+
+  return extractCreatedImportId(response);
 }
 
 async function postServerFallback(
   file: File,
-  reason: "worker_error" | "file_too_large"
-): Promise<void> {
+  reason: "worker_error" | "file_too_large",
+  headerRowNumber?: number | null
+): Promise<string | null> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("mode", "server");
   formData.append("parseMode", "server");
   formData.append("fallbackReason", reason);
+  if (typeof headerRowNumber === "number" && Number.isInteger(headerRowNumber)) {
+    formData.append("headerRowNumber", String(headerRowNumber));
+  }
 
   const response = await fetch("/api/imports", {
     method: "POST",
@@ -223,6 +274,8 @@ async function postServerFallback(
   if (!response.ok) {
     throw new Error(await extractErrorMessage(response, "Creation de l'import impossible."));
   }
+
+  return extractCreatedImportId(response);
 }
 
 export function useImportFlow() {
@@ -271,7 +324,7 @@ export function useImportFlow() {
   const [lastImportId, setLastImportId] = useState<string | null>(null);
 
   const importFile = useCallback(
-    async (file: File): Promise<boolean> => {
+    async (file: File, options?: ImportFileOptions): Promise<boolean> => {
       setIsSubmitting(true);
       setSubmitError(null);
       setWorkerError(null);
@@ -280,12 +333,19 @@ export function useImportFlow() {
       setLastImportId(null);
 
       try {
+        const headerRowNumber = options?.headerRowNumber ?? null;
         const shouldTryWorker = file.size <= CLIENT_PARSE_MAX_SIZE_BYTES;
+        let createdImportId: string | null = null;
 
         if (shouldTryWorker) {
           try {
-            const parsed = await parseFile(file);
-            await postWorkerImport(file, parsed.rows, parsed.parser);
+            const parsed = await parseFile(file, { headerRowNumber });
+            createdImportId = await postWorkerImport(
+              file,
+              parsed.rows,
+              parsed.parser,
+              headerRowNumber
+            );
             setModeMessage(
               "Fichier traite dans votre navigateur, envoi termine."
             );
@@ -296,25 +356,47 @@ export function useImportFlow() {
                 ? workerFailure.message
                 : "Le parsing local a echoue.";
             setWorkerError(workerFailureMessage);
-            await postServerFallback(file, "worker_error");
+            createdImportId = await postServerFallback(
+              file,
+              "worker_error",
+              headerRowNumber
+            );
             setModeMessage(
               "Fichier envoye au serveur pour traitement."
             );
             setLastMode("server");
           }
         } else {
-          await postServerFallback(file, "file_too_large");
+          createdImportId = await postServerFallback(
+            file,
+            "file_too_large",
+            headerRowNumber
+          );
           setModeMessage(
             "Fichier volumineux, envoye au serveur pour traitement."
           );
           setLastMode("server");
         }
 
-        const nextImports = await fetchImportsList();
-        setImports(nextImports);
-        if (nextImports.length > 0) {
-          setLastImportId(nextImports[0].id);
+        if (createdImportId) {
+          setLastImportId(createdImportId);
         }
+
+        try {
+          const nextImports = await fetchImportsList();
+          setImports(nextImports);
+          if (!createdImportId && nextImports.length > 0) {
+            setLastImportId(nextImports[0].id);
+          }
+          setLoadError(null);
+        } catch (refreshError) {
+          setLoadError(
+            refreshError instanceof Error
+              ? refreshError.message
+              : "Impossible de charger la liste des imports."
+          );
+        }
+
         return true;
       } catch (error) {
         setSubmitError(

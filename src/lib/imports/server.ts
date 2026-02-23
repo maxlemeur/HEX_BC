@@ -13,6 +13,7 @@ import {
   type ImportSourceFormat,
   type NormalizedImportRow,
 } from "./parser";
+import { normalizeHeaderRowNumber } from "./header-row";
 
 const DPGF_IMPORTS_BUCKET = "dpgf-imports";
 const MAX_IMPORT_FILE_SIZE_BYTES = 50 * 1024 * 1024;
@@ -267,6 +268,18 @@ function parseFileSizeBytes(value: unknown): number | null {
   }
 
   return Math.trunc(numeric);
+}
+
+function parseOptionalHeaderRowNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim().length === 0) return null;
+
+  const parsed = normalizeHeaderRowNumber(value);
+  if (parsed === null) {
+    throw badRequest("headerRowNumber invalide. Utiliser un entier >= 1.");
+  }
+
+  return parsed;
 }
 
 function normalizeSourceFormat(value: unknown, fallback: ImportSourceFormat): ImportSourceFormat {
@@ -534,6 +547,10 @@ export async function createImportFromMultipartFormData(formData: FormData) {
     throw badRequest("Aucun fichier fourni.");
   }
 
+  const headerRowNumber = parseOptionalHeaderRowNumber(
+    formData.get("headerRowNumber")
+  );
+
   validateImportFile(fileEntry);
 
   const { supabase, userId, tenantId } = await getAuthenticatedContext();
@@ -571,7 +588,9 @@ export async function createImportFromMultipartFormData(formData: FormData) {
       file_size_bytes: fileEntry.size,
     });
 
-    const parsed = await parseImportFile(fileEntry);
+    const parsed = await parseImportFile(fileEntry, {
+      headerRowNumber,
+    });
     await insertRawRows(supabase, importRecord.id, parsed.rows);
 
     return await updateImportRecord(

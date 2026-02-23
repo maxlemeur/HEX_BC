@@ -1,5 +1,7 @@
 import * as XLSX from "xlsx";
 
+import { resolveHeaderRowIndex } from "./header-row";
+
 export type ImportSourceFormat = "json" | "csv" | "xlsx";
 export type SimpleJsonValue = string | number | boolean | null;
 export type NormalizedImportRow = Record<string, SimpleJsonValue>;
@@ -8,6 +10,10 @@ export type ParsedImportFile = {
   sourceFormat: "csv" | "xlsx";
   headers: string[];
   rows: NormalizedImportRow[];
+};
+
+export type ParseImportFileOptions = {
+  headerRowNumber?: number | null;
 };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -158,7 +164,10 @@ export function detectImportSourceFormat(
 // K-02: Parse timeout (30s) to prevent malicious files from blocking the server
 const PARSE_TIMEOUT_MS = 30_000;
 
-export async function parseImportFile(file: File): Promise<ParsedImportFile> {
+export async function parseImportFile(
+  file: File,
+  options?: ParseImportFileOptions
+): Promise<ParsedImportFile> {
   const sourceFormat = detectImportSourceFormat(file.name, file.type);
   const fileBytes = await file.arrayBuffer();
 
@@ -200,7 +209,7 @@ export async function parseImportFile(file: File): Promise<ParsedImportFile> {
     header: 1,
     raw: true,
     defval: null,
-    blankrows: false,
+    blankrows: true,
   });
 
   if (matrix.length === 0) {
@@ -224,9 +233,14 @@ export async function parseImportFile(file: File): Promise<ParsedImportFile> {
     };
   }
 
-  const firstRow = Array.isArray(matrix[0]) ? matrix[0] : [];
-  const headers = buildHeaders(firstRow, columnCount);
-  const bodyRows = matrix.slice(1);
+  const headerRowIndex = resolveHeaderRowIndex(matrix, {
+    headerRowNumber: options?.headerRowNumber ?? null,
+  });
+  const headerRow = Array.isArray(matrix[headerRowIndex])
+    ? matrix[headerRowIndex]
+    : [];
+  const headers = buildHeaders(headerRow, columnCount);
+  const bodyRows = matrix.slice(headerRowIndex + 1);
 
   const rows: NormalizedImportRow[] = [];
   for (const row of bodyRows) {

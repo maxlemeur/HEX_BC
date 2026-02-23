@@ -1,9 +1,12 @@
+import { resolveHeaderRowIndex } from "../lib/imports/header-row";
+
 type ParsedImportScalar = string | number | boolean | null;
 type ParsedImportRow = Record<string, ParsedImportScalar>;
 
 type ParseWorkerRequest = {
   requestId: string;
   buffer: ArrayBuffer;
+  headerRowNumber?: number | null;
 };
 
 type ParseWorkerSuccessResponse = {
@@ -148,16 +151,17 @@ function parseCsvMatrix(rawText: string, delimiter: string): string[][] {
 }
 
 function toImportRows(
-  matrix: string[][]
+  matrix: string[][],
+  headerRowNumber?: number | null
 ): { rows: ParsedImportRow[]; rowLineNumbers: number[] } {
-  const headerIndex = matrix.findIndex((row) => !isEmptyRow(row));
-  if (headerIndex < 0) {
+  if (matrix.length === 0) {
     return {
       rows: [],
       rowLineNumbers: [],
     };
   }
 
+  const headerIndex = resolveHeaderRowIndex(matrix, { headerRowNumber });
   const headers = buildHeaders(matrix[headerIndex] ?? []);
   const rows: ParsedImportRow[] = [];
   const rowLineNumbers: number[] = [];
@@ -210,7 +214,7 @@ self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
     const text = new TextDecoder("utf-8").decode(payload.buffer);
     const delimiter = detectDelimiter(text);
     const matrix = parseCsvMatrix(text, delimiter);
-    const parsed = toImportRows(matrix);
+    const parsed = toImportRows(matrix, payload.headerRowNumber ?? null);
 
     postResponse({
       requestId,

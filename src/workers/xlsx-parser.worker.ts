@@ -1,11 +1,14 @@
 import * as XLSX from "xlsx";
 
+import { resolveHeaderRowIndex } from "../lib/imports/header-row";
+
 type ParsedImportScalar = string | number | boolean | null;
 type ParsedImportRow = Record<string, ParsedImportScalar>;
 
 type ParseWorkerRequest = {
   requestId: string;
   buffer: ArrayBuffer;
+  headerRowNumber?: number | null;
 };
 
 type ParseWorkerSuccessResponse = {
@@ -48,34 +51,52 @@ function rowHasValues(row: string[]): boolean {
   return row.some((cell) => cell.trim().length > 0);
 }
 
-function toImportRows(matrix: unknown[][]): ParsedImportRow[] {
-  const normalizedRows = matrix
-    .map((row) => row.map((cell) => cellToString(cell)))
-    .filter((row) => rowHasValues(row));
+function toImportRows(
+  matrix: unknown[][],
+  headerRowNumber?: number | null
+): ParsedImportRow[] {
+  if (matrix.length === 0) return [];
 
-  if (normalizedRows.length === 0) return [];
+  const headerRowIndex = resolveHeaderRowIndex(matrix, { headerRowNumber });
+  const rawHeaderRow = Array.isArray(matrix[headerRowIndex])
+    ? matrix[headerRowIndex]
+    : [];
+  const headers = buildHeaders(rawHeaderRow.map((cell) => cellToString(cell)));
 
-  const headers = buildHeaders(normalizedRows[0]);
+  const rows: ParsedImportRow[] = [];
+  for (
+    let sourceIndex = headerRowIndex + 1;
+    sourceIndex < matrix.length;
+    sourceIndex += 1
+  ) {
+    const sourceRow = Array.isArray(matrix[sourceIndex])
+      ? matrix[sourceIndex].map((cell) => cellToString(cell))
+      : [];
+    if (!rowHasValues(sourceRow)) continue;
 
-  return normalizedRows
-    .slice(1)
-    .map((sourceRow) => {
-      const row: ParsedImportRow = {};
-      const maxLength = Math.max(headers.length, sourceRow.length);
+    const row: ParsedImportRow = {};
+    const maxLength = Math.max(headers.length, sourceRow.length);
 
-      for (let index = 0; index < maxLength; index += 1) {
-        const key = headers[index] ?? `col_${index + 1}`;
-        row[key] = sourceRow[index] ?? "";
-      }
+    for (let index = 0; index < maxLength; index += 1) {
+      const key = headers[index] ?? `col_${index + 1}`;
+      row[key] = sourceRow[index] ?? "";
+    }
 
-      return row;
-    })
-    .filter((row) =>
-      Object.values(row).some((value) => String(value ?? "").trim().length > 0)
+    const hasValues = Object.values(row).some(
+      (value) => String(value ?? "").trim().length > 0
     );
+    if (!hasValues) continue;
+
+    rows.push(row);
+  }
+
+  return rows;
 }
 
-function parseWorkbook(buffer: ArrayBuffer): ParsedImportRow[] {
+function parseWorkbook(
+  buffer: ArrayBuffer,
+  headerRowNumber?: number | null
+): ParsedImportRow[] {
   const workbook = XLSX.read(buffer, {
     type: "array",
     raw: false,
@@ -91,11 +112,11 @@ function parseWorkbook(buffer: ArrayBuffer): ParsedImportRow[] {
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, {
     header: 1,
     defval: "",
-    blankrows: false,
+    blankrows: true,
     raw: false,
   });
 
-  return toImportRows(matrix as unknown[][]);
+  return toImportRows(matrix as unknown[][], headerRowNumber);
 }
 
 function postResponse(response: ParseWorkerResponse) {
@@ -116,7 +137,7 @@ self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
   }
 
   try {
-    const rows = parseWorkbook(payload.buffer);
+    const rows = parseWorkbook(payload.buffer, payload.headerRowNumber ?? null);
     postResponse({
       requestId,
       ok: true,
