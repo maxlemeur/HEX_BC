@@ -18,6 +18,77 @@ body {
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Sidebar collapsed state */
+.dashboard-sidebar--collapsed {
+  width: var(--sidebar-collapsed-width);
+}
+
+.dashboard-sidebar--collapsed .sidebar-label {
+  display: none;
+}
+
+.dashboard-sidebar--collapsed .sidebar-nav-group__label {
+  display: none;
+}
+
+.dashboard-sidebar--collapsed .sidebar-nav-item span {
+  display: none;
+}
+
+.dashboard-sidebar--collapsed .sidebar-nav-item {
+  justify-content: center;
+  padding: 12px;
+}
+
+.dashboard-sidebar--collapsed .sidebar-nav-item.active::before {
+  left: -4px;
+}
+
+.dashboard-sidebar--collapsed .sidebar-logo-link {
+  display: none;
+}
+
+.dashboard-sidebar--collapsed .sidebar-header {
+  justify-content: center;
+  padding: 0 16px;
+}
+
+.dashboard-sidebar--collapsed .sidebar-footer .flex {
+  justify-content: center;
+  padding: 8px;
+}
+
+.dashboard-sidebar--collapsed .sidebar-footer a {
+  justify-content: center;
+  flex: 0;
+}
+
+/* Sidebar toggle button */
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.sidebar-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.dashboard-sidebar--collapsed .sidebar-toggle {
+  margin: 0 auto;
+}
+
 .sidebar-nav-item {
   display: flex;
   align-items: center;
@@ -1395,15 +1466,28 @@ body {
 }
 
 .estimate-table {
-  --estimate-grid: 52px minmax(220px, 2.2fr) 80px 80px 110px 140px 70px 80px 130px 130px 80px 110px 120px 110px;
+  --estimate-grid: 52px minmax(260px, 3fr) 80px 80px 110px 140px 70px 80px 130px 130px 80px 110px 120px 110px;
   border: 1px solid var(--slate-200);
   border-radius: 16px;
   overflow-x: auto;
-  background: white;
+  position: relative;
+  background:
+    /* left cover */
+    linear-gradient(90deg, white 30%, transparent) center left,
+    /* right cover */
+    linear-gradient(90deg, transparent, white 70%) center right,
+    /* left shadow */
+    radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.12), transparent) center left,
+    /* right shadow */
+    radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.12), transparent) center right,
+    white;
+  background-repeat: no-repeat;
+  background-size: 40px 100%, 40px 100%, 12px 100%, 12px 100%, 100% 100%;
+  background-attachment: local, local, scroll, scroll, local;
 }
 
 .estimate-table--labor-split {
-  --estimate-grid: 52px minmax(220px, 2.2fr) 80px 80px 110px 140px 70px 100px 90px 140px 90px 90px 140px 90px 110px 120px 110px;
+  --estimate-grid: 52px minmax(260px, 3fr) 80px 80px 110px 140px 70px 100px 90px 140px 90px 90px 140px 90px 110px 120px 110px;
 }
 
 .estimate-table__head {
@@ -1411,7 +1495,7 @@ body {
   grid-template-columns: var(--estimate-grid);
   background: var(--slate-50);
   border-bottom: 1px solid var(--slate-200);
-  min-width: 1512px;
+  min-width: var(--estimate-min-width, 1512px);
 }
 
 .estimate-table__head > div {
@@ -1426,7 +1510,7 @@ body {
 .estimate-table__body {
   display: flex;
   flex-direction: column;
-  min-width: 1512px;
+  min-width: var(--estimate-min-width, 1512px);
 }
 
 .estimate-table--labor-split .estimate-table__head,
@@ -1451,11 +1535,32 @@ body {
 }
 
 .estimate-row--section {
-  background: var(--slate-50);
+  background: var(--slate-100);
+  border-left: 3px solid var(--blue-500, #3b82f6);
+}
+
+.estimate-row--section[data-depth="1"] {
+  background: var(--slate-75, #f5f7f9);
+  border-left: 3px solid var(--blue-300, #93c5fd);
+}
+
+.estimate-row--section .estimate-input--title {
+  font-weight: 600;
+  font-size: 14px;
 }
 
 .estimate-row--suggestion {
   background: rgba(30, 58, 95, 0.04);
+}
+
+.estimate-cell--required-empty {
+  background: rgba(239, 68, 68, 0.04);
+  border-bottom: 2px solid rgba(239, 68, 68, 0.3);
+}
+
+.estimate-row[data-depth="1"] .estimate-cell--designation,
+.estimate-row[data-depth="2"] .estimate-cell--designation {
+  border-left: 1px dashed var(--slate-300);
 }
 
 .estimate-cell {
@@ -1901,6 +2006,12 @@ body {
   font-size: 11px;
   font-weight: 600;
   color: var(--slate-600);
+}
+
+.estimate-section-total-chip--unassigned {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--amber-700, #b45309);
+  border: 1px dashed var(--amber-400, #fbbf24);
 }
 
 .estimate-suggestion {

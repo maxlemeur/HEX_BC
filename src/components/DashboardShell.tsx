@@ -3,9 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+
+const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 
 type NavGroup = {
   key: string;
@@ -348,6 +351,20 @@ export function DashboardShell({
     "FEATURE_FLAGS_SIDEBAR_INDICATOR"
   );
 
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Sync from localStorage after hydration (avoids SSR mismatch)
+  useEffect(() => {
+    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    if (stored === "true") setCollapsed(true);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed));
+  }, [collapsed]);
+
+  const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
+
   function isActive(href: string) {
     if (href === "/dashboard/orders") {
       return pathname === "/dashboard" || pathname.startsWith("/dashboard/orders");
@@ -357,10 +374,12 @@ export function DashboardShell({
 
   return (
     <div className="flex min-h-screen bg-[var(--background)]">
-      <aside className="no-print dashboard-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col">
-        <div className="flex h-20 items-center px-6">
-          <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
+      <aside
+        className={`no-print dashboard-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col${collapsed ? " dashboard-sidebar--collapsed" : ""}`}
+      >
+        <div className="flex h-20 items-center px-6 mt-2 sidebar-header">
+          <Link href="/dashboard" className="sidebar-logo-link flex items-center gap-3 min-w-0">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
               <Image
                 src="/logo-hydro-express.jpg"
                 alt="Hydro Express"
@@ -369,7 +388,7 @@ export function DashboardShell({
                 className="rounded-md"
               />
             </div>
-            <div>
+            <div className="sidebar-label">
               <span className="block text-base font-bold text-white">Hydro Express</span>
               <span className="block text-[11px] font-medium text-white/50">
                 Gestion des commandes
@@ -381,6 +400,36 @@ export function DashboardShell({
               ) : null}
             </div>
           </Link>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            className="sidebar-toggle"
+            aria-label={collapsed ? "Déployer le menu" : "Replier le menu"}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              {collapsed ? (
+                <>
+                  <polyline points="13 17 18 12 13 7" />
+                  <polyline points="6 17 11 12 6 7" />
+                </>
+              ) : (
+                <>
+                  <polyline points="11 17 6 12 11 7" />
+                  <polyline points="18 17 13 12 18 7" />
+                </>
+              )}
+            </svg>
+          </button>
         </div>
 
         <nav className="mt-4 flex-1 px-4" role="navigation" aria-label="Menu principal">
@@ -399,6 +448,7 @@ export function DashboardShell({
                       href={item.href}
                       className={`sidebar-nav-item ${active ? "active" : ""}`}
                       aria-current={active ? "page" : undefined}
+                      title={collapsed ? item.label : undefined}
                     >
                       {item.icon}
                       <span>{item.label}</span>
@@ -410,27 +460,37 @@ export function DashboardShell({
           ))}
         </nav>
 
-        <div className="border-t border-white/10 p-4">
+        <div className="border-t border-white/10 p-4 sidebar-footer">
           <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
             <Link
               href="/dashboard/profile"
               className="flex flex-1 items-center gap-3 min-w-0 rounded-lg -m-1.5 p-1.5 transition-colors hover:bg-white/5"
+              title={collapsed ? displayName || "Compte" : undefined}
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-orange text-sm font-bold text-white">
                 {userInitials}
               </div>
-              <div className="flex-1 min-w-0">
+              <div className="sidebar-label flex-1 min-w-0">
                 <p className="truncate text-sm font-medium text-white">
                   {displayName || "Compte"}
                 </p>
               </div>
             </Link>
-            <SignOutButton />
+            <div className="sidebar-label">
+              <SignOutButton />
+            </div>
           </div>
         </div>
       </aside>
 
-      <main className="flex-1 pl-[var(--sidebar-width)]">
+      <main
+        className="flex-1 transition-[padding-left] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+        style={{
+          paddingLeft: collapsed
+            ? "var(--sidebar-collapsed-width)"
+            : "var(--sidebar-width)",
+        }}
+      >
         <div className="min-h-screen px-8 py-8">{children}</div>
       </main>
     </div>
