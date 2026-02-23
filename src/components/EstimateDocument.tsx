@@ -1,18 +1,12 @@
 import Image from "next/image";
 
+import { EstimateDocumentTableRows } from "@/components/estimate-document/EstimateDocumentTableRows";
 import {
-  computeSectionTotals,
-  UNASSIGNED_SUPPLY_TYPE_KEY,
-  type EstimateItemRecord,
-  type SectionTotals,
-} from "@/lib/estimate-calculations";
+  prepareEstimateDocumentData,
+  type EstimateItem,
+} from "@/components/estimate-document/prepare-estimate-document-data";
 import { COMPANY_INFO } from "@/lib/company-info";
-import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 import { formatEUR } from "@/lib/money";
-import type { Database } from "@/types/database";
-
-type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
-type QrLikeCell = { id: string; enabled: boolean };
 
 export type EstimateDocumentProps = {
   projectName: string;
@@ -34,20 +28,6 @@ export type EstimateDocumentProps = {
   items: EstimateItem[];
 };
 
-const ROOT_KEY = "root";
-const EMPTY_SECTION_TOTALS: SectionTotals = {
-  foTotalCents: 0,
-  moTotalCents: 0,
-  moAtelierTotalCents: 0,
-  moChantierTotalCents: 0,
-  totalHtCents: 0,
-  totalTtcCents: 0,
-  supplyTypeFoTotalsCents: {},
-};
-
-function getParentKey(value: string | null) {
-  return value ?? ROOT_KEY;
-}
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
   if (Number.isNaN(date.getTime())) return "-";
@@ -56,150 +36,6 @@ function formatDate(dateStr: string): string {
     month: "2-digit",
     year: "numeric",
   });
-}
-
-function formatPercent(bp: number): string {
-  const value = bp / 100;
-  return new Intl.NumberFormat("fr-FR", {
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-function formatQuantity(value: number | null): string {
-  if (!Number.isFinite(value ?? NaN)) return "-";
-  return new Intl.NumberFormat("fr-FR", {
-    maximumFractionDigits: 3,
-  }).format(value ?? 0);
-}
-
-function formatMajorationPercent(value: number | null | undefined): string {
-  const percent = (value ?? 1) * 100;
-  return new Intl.NumberFormat("fr-FR", {
-    maximumFractionDigits: 2,
-  }).format(percent);
-}
-
-function formatCoefficient(value: number | null | undefined): string {
-  const normalized = Number.isFinite(value ?? NaN) ? (value as number) : 1;
-  return new Intl.NumberFormat("fr-FR", {
-    maximumFractionDigits: 2,
-  }).format(normalized);
-}
-
-function hashText(value: string) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function buildQrLikeCells(value: string, size = 21): QrLikeCell[] {
-  const matrix = Array.from({ length: size }, () =>
-    Array.from({ length: size }, () => false)
-  );
-  const reserved = Array.from({ length: size }, () =>
-    Array.from({ length: size }, () => false)
-  );
-
-  const markReserved = (startX: number, startY: number, width: number, height: number) => {
-    for (let y = startY; y < startY + height; y += 1) {
-      for (let x = startX; x < startX + width; x += 1) {
-        if (x < 0 || y < 0 || x >= size || y >= size) continue;
-        reserved[y][x] = true;
-      }
-    }
-  };
-
-  const drawFinder = (originX: number, originY: number) => {
-    for (let y = 0; y < 7; y += 1) {
-      for (let x = 0; x < 7; x += 1) {
-        const px = originX + x;
-        const py = originY + y;
-        if (px < 0 || py < 0 || px >= size || py >= size) continue;
-        const isOuter = x === 0 || y === 0 || x === 6 || y === 6;
-        const isInner = x >= 2 && x <= 4 && y >= 2 && y <= 4;
-        matrix[py][px] = isOuter || isInner;
-      }
-    }
-    markReserved(originX - 1, originY - 1, 9, 9);
-  };
-
-  drawFinder(0, 0);
-  drawFinder(size - 7, 0);
-  drawFinder(0, size - 7);
-
-  for (let i = 8; i < size - 8; i += 1) {
-    const marker = i % 2 === 0;
-    matrix[6][i] = marker;
-    matrix[i][6] = marker;
-    reserved[6][i] = true;
-    reserved[i][6] = true;
-  }
-
-  let seed = hashText(value);
-
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      if (reserved[y][x]) continue;
-      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-      const randomBit = ((seed >>> 30) & 1) === 1;
-      const patternBit = ((x * 3 + y * 5 + (seed & 0x0f)) % 7) < 3;
-      matrix[y][x] = randomBit !== patternBit;
-    }
-  }
-
-  return matrix.flatMap((row, y) =>
-    row.map((enabled, x) => ({
-      id: `${x}-${y}`,
-      enabled,
-    }))
-  );
-}
-
-function formatLaborSplitLine(params: {
-  hours: number | null;
-  coefficient: number | null;
-  laborRoleId: string | null;
-  laborRateById: Record<string, number>;
-}) {
-  const rate = params.laborRoleId ? (params.laborRateById[params.laborRoleId] ?? 0) : 0;
-  return `${formatQuantity(params.hours)} h x K ${formatCoefficient(params.coefficient)} x ${formatEUR(rate)}/h`;
-}
-
-function resolveTitle(item: EstimateItem) {
-  const title = item.title?.trim();
-  return title || "Sans titre";
-}
-
-function resolveAid(item: EstimateItem) {
-  const aid = item.aid?.trim();
-  return aid && aid.length > 0 ? aid : "-";
-}
-
-function buildRows(items: EstimateItem[]) {
-  const map = new Map<string, EstimateItem[]>();
-  items.forEach((item) => {
-    const key = getParentKey(item.parent_id);
-    const list = map.get(key) ?? [];
-    list.push(item);
-    map.set(key, list);
-  });
-  map.forEach((list) => list.sort((a, b) => a.position - b.position));
-
-  const rows: { item: EstimateItem; depth: number }[] = [];
-  const walk = (parentId: string | null, depth: number) => {
-    const list = map.get(getParentKey(parentId)) ?? [];
-    list.forEach((item) => {
-      rows.push({ item, depth });
-      if (item.item_type === "section") {
-        walk(item.id, depth + 1);
-      }
-    });
-  };
-  walk(null, 0);
-  return rows;
 }
 
 export function EstimateDocument({
@@ -221,32 +57,26 @@ export function EstimateDocument({
   supplyTypeLabelsById,
   items,
 }: EstimateDocumentProps) {
-  const rows = buildRows(items);
-  const numberingById = computeEstimateItemNumbering(items);
-  const sectionTotalsById: Record<string, SectionTotals> = {};
-  const calcItems = items as EstimateItemRecord[];
-  const laborRateMap = new Map(Object.entries(laborRateById));
-  items.forEach((item) => {
-    if (item.item_type !== "section") return;
-    sectionTotalsById[item.id] = computeSectionTotals({
-      items: calcItems,
-      sectionId: item.id,
-      marginMultiplier,
-      discountCents,
-      taxRateBp,
-      laborRateById: laborRateMap,
-      isLaborSplitEnabled,
-    });
+  const {
+    rows,
+    numberingById,
+    sectionTotalsById,
+    taxEnabled,
+    discountLabel,
+    validiteLabel,
+    taxLabel,
+    footerAddress,
+    qrLikeCells,
+  } = prepareEstimateDocumentData({
+    items,
+    marginMultiplier,
+    discountCents,
+    taxRateBp,
+    isLaborSplitEnabled,
+    laborRateById,
+    validiteJours,
+    portalUrl,
   });
-  const taxEnabled = taxRateBp > 0;
-  const discountLabel =
-    discountCents > 0 ? `-${formatEUR(discountCents)}` : formatEUR(0);
-  const validiteLabel =
-    validiteJours > 0 ? `${validiteJours} jours` : "-";
-  const taxLabel = taxEnabled ? `${formatPercent(taxRateBp)} %` : "";
-  const footerAddress =
-    `${COMPANY_INFO.address.street} ${COMPANY_INFO.address.postalCode} ${COMPANY_INFO.address.city}`;
-  const qrLikeCells = portalUrl ? buildQrLikeCells(portalUrl) : [];
 
   return (
     <div className="document-page relative mx-auto my-5 flex flex-col overflow-hidden bg-white px-[50px] pb-[50px] pt-[40px] shadow-2xl print:m-0 print:px-8 print:pb-8 print:pt-6 print:shadow-none">
@@ -392,142 +222,14 @@ export function EstimateDocument({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-sm print:text-slate-900">
-            {rows.map(({ item, depth }) =>
-              item.item_type === "section" ? (
-                <tr key={item.id} className="bg-[var(--slate-50)] print-color-adjust">
-                  <td className="px-4 py-3 font-mono text-xs text-[var(--slate-600)] print:px-2 print:py-2">
-                    {resolveAid(item)}
-                  </td>
-                  <td colSpan={7} className="px-6 py-3 print:px-4 print:py-2">
-                    <div style={{ paddingLeft: `${depth * 16}px` }}>
-                      <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
-                        {numberingById[item.id] ? (
-                          <span className="mr-2 font-semibold text-[var(--slate-600)]">
-                            {numberingById[item.id]}
-                          </span>
-                        ) : null}
-                        <span>{resolveTitle(item)}</span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold normal-case tracking-normal text-[var(--slate-600)]">
-                        {(() => {
-                          const totals =
-                            sectionTotalsById[item.id] ?? EMPTY_SECTION_TOTALS;
-                          return (
-                            <>
-                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                                FO {formatEUR(totals.foTotalCents)}
-                              </span>
-                              {isLaborSplitEnabled ? (
-                                <>
-                                  <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                                    MO atelier {formatEUR(totals.moAtelierTotalCents)}
-                                  </span>
-                                  <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                                    MO chantier {formatEUR(totals.moChantierTotalCents)}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                                  MO {formatEUR(totals.moTotalCents)}
-                                </span>
-                              )}
-                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                                HT {formatEUR(totals.totalHtCents)}
-                              </span>
-                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                                TTC {formatEUR(totals.totalTtcCents)}
-                              </span>
-                              {Object.entries(totals.supplyTypeFoTotalsCents ?? {})
-                                .sort(([, left], [, right]) => right - left)
-                                .map(([supplyTypeId, cents]) => {
-                                  const label =
-                                    supplyTypeId === UNASSIGNED_SUPPLY_TYPE_KEY
-                                      ? "Non classe"
-                                      : (supplyTypeLabelsById[supplyTypeId] ?? "Type inconnu");
-                                  return (
-                                    <span
-                                      key={`${item.id}:print-supply-type:${supplyTypeId}`}
-                                      className="rounded-full border border-slate-200 bg-white px-2 py-0.5"
-                                    >
-                                      {label} {formatEUR(cents)}
-                                    </span>
-                                  );
-                                })}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                <tr key={item.id}>
-                  <td className="px-4 py-4 font-mono text-xs text-slate-700 print:px-2 print:py-2">
-                    {resolveAid(item)}
-                  </td>
-                  <td className="px-6 py-4 font-medium text-slate-800 print:px-4 print:py-2 print:text-slate-900">
-                    <div
-                      style={{ paddingLeft: `${depth * 16}px` }}
-                      className="flex items-center gap-2"
-                    >
-                      {numberingById[item.id] ? (
-                        <span className="font-mono text-xs font-semibold text-slate-500">
-                          {numberingById[item.id]}
-                        </span>
-                      ) : null}
-                      <span>{resolveTitle(item)}</span>
-                    </div>
-                  </td>
-                  <td className="w-20 px-3 py-4 text-center font-semibold print:px-2 print:py-2">
-                    {formatQuantity(item.quantity)}
-                  </td>
-                  <td className="w-16 px-3 py-4 text-center print:px-2 print:py-2">
-                    {item.description?.trim() || "-"}
-                  </td>
-                  <td className="w-32 px-3 py-4 print:px-2 print:py-2">
-                    {item.supply_type_id
-                      ? (supplyTypeLabelsById[item.supply_type_id] ?? "Type inconnu")
-                      : "Non classe"}
-                  </td>
-                  <td className="w-24 px-3 py-4 text-center print:px-2 print:py-2">
-                    {isLaborSplitEnabled ? (
-                      <div className="space-y-1 text-left text-[11px] leading-tight text-slate-700 print:text-[10px]">
-                        <div>
-                          <span className="font-semibold">Atelier:</span>{" "}
-                          {formatLaborSplitLine({
-                            hours: item.h_mo_atelier,
-                            coefficient: item.k_mo_atelier,
-                            laborRoleId: item.labor_role_atelier_id,
-                            laborRateById,
-                          })}
-                        </div>
-                        <div>
-                          <span className="font-semibold">Chantier:</span>{" "}
-                          {formatLaborSplitLine({
-                            hours: item.h_mo_chantier,
-                            coefficient: item.k_mo_chantier,
-                            laborRoleId: item.labor_role_chantier_id,
-                            laborRateById,
-                          })}
-                        </div>
-                        <div>
-                          <span className="font-semibold">Maj:</span>{" "}
-                          {formatMajorationPercent(item.h_mo_majoration)} %
-                        </div>
-                      </div>
-                    ) : (
-                      `${formatMajorationPercent(item.h_mo_majoration)} %`
-                    )}
-                  </td>
-                  <td className="w-28 px-3 py-4 text-right print:px-2 print:py-2">
-                    {formatEUR(item.pu_ht_cents ?? 0)}
-                  </td>
-                  <td className="w-32 px-4 py-4 text-right font-bold print:px-2 print:py-2">
-                    {formatEUR(item.line_total_ht_cents ?? 0)}
-                  </td>
-                </tr>
-              )
-            )}
+            <EstimateDocumentTableRows
+              rows={rows}
+              numberingById={numberingById}
+              sectionTotalsById={sectionTotalsById}
+              isLaborSplitEnabled={isLaborSplitEnabled}
+              laborRateById={laborRateById}
+              supplyTypeLabelsById={supplyTypeLabelsById}
+            />
           </tbody>
         </table>
       </div>

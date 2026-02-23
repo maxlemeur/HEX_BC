@@ -53,6 +53,13 @@ import {
   type VirtualizedRow,
 } from "@/components/estimates/hooks/useEstimateDndVirtualization";
 import {
+  useEstimateSectionDialogs,
+} from "@/components/estimates/hooks/useEstimateSectionDialogs";
+import {
+  useEstimateSupplierComparison,
+  type SupplierComparisonResult,
+} from "@/components/estimates/hooks/useEstimateSupplierComparison";
+import {
   useEstimateVisibility,
 } from "@/components/estimates/hooks/useEstimateVisibility";
 import {
@@ -271,13 +278,6 @@ const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
 const EMPTY_SECTION_DUPLICATE_TARGETS: EstimateSectionDuplicateTarget[] = [];
 const SUGGESTION_SCORE_MAX = 5;
-
-type SupplierComparisonResult = {
-  item_id: string;
-  best_supplier_price_id: string | null;
-  selected_supplier_price_id: string | null;
-  alternatives: SupplierComparisonAlternative[];
-};
 
 type ConversionReassignedChild = {
   id: string;
@@ -710,18 +710,6 @@ export function resolveEstimateTableShortcutScope(scope: EstimateTableShortcutSc
     canHandleBulkSelectionShortcut,
   };
 }
-type SupplierComparisonContextMenuState = {
-  itemId: string;
-  x: number;
-  y: number;
-};
-
-type SectionContextMenuState = {
-  sectionId: string;
-  x: number;
-  y: number;
-};
-
 export function EstimateEditorTable({
   versionId,
   items,
@@ -799,36 +787,9 @@ export function EstimateEditorTable({
   const [lastUsedAtOverrideByRuleId, setLastUsedAtOverrideByRuleId] = useState<
     Record<string, string>
   >({});
-  const [supplierComparisonMenu, setSupplierComparisonMenu] =
-    useState<SupplierComparisonContextMenuState | null>(null);
-  const [sectionContextMenu, setSectionContextMenu] =
-    useState<SectionContextMenuState | null>(null);
-  const [duplicateSectionDialogSectionId, setDuplicateSectionDialogSectionId] =
-    useState<string | null>(null);
-  const [duplicateSectionTargetVersionId, setDuplicateSectionTargetVersionId] =
-    useState("");
-  const [isDuplicateSectionPending, setIsDuplicateSectionPending] = useState(false);
-  const [saveAsAssemblyDialogSectionId, setSaveAsAssemblyDialogSectionId] =
-    useState<string | null>(null);
-  const [saveAsAssemblyName, setSaveAsAssemblyName] = useState("");
-  const [isSaveAsAssemblyPending, setIsSaveAsAssemblyPending] = useState(false);
-  const saveAsAssemblyNameInputRef = useRef<HTMLInputElement | null>(null);
-  const [supplierComparisonPanelItemId, setSupplierComparisonPanelItemId] =
-    useState<string | null>(null);
-  const [supplierComparisonByItemId, setSupplierComparisonByItemId] = useState<
-    Record<string, SupplierComparisonResult>
-  >({});
-  const [bestSupplierPriceIdByItemId, setBestSupplierPriceIdByItemId] = useState<
-    Record<string, string | null>
-  >({});
-  const [isSupplierComparisonLoading, setIsSupplierComparisonLoading] = useState(false);
-  const [supplierComparisonError, setSupplierComparisonError] = useState<string | null>(
-    null
-  );
   const [isItemConversionPending, setIsItemConversionPending] = useState(false);
   const tableCardRef = useRef<HTMLDivElement | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
-  const supplierComparisonAbortRef = useRef<AbortController | null>(null);
   const appliedSuggestionContextByItemIdRef = useRef<
     Record<string, AppliedSuggestionContext>
   >({});
@@ -1224,34 +1185,54 @@ export function EstimateEditorTable({
     [clearLineSelection, hasSelectedLines]
   );
 
-  const closeSupplierComparisonContextMenu = useCallback(() => {
-    setSupplierComparisonMenu(null);
-  }, []);
+  const {
+    supplierComparisonMenu,
+    closeSupplierComparisonContextMenu,
+    handleOpenSupplierComparisonContextMenu,
+    openSupplierComparisonPanel,
+    handleCloseSupplierComparisonPanel,
+    activeSupplierComparisonItem,
+    activeSupplierComparison,
+    bestSupplierPriceIdByItemId,
+    isSupplierComparisonLoading,
+    supplierComparisonError,
+    handleSelectSupplierComparisonAlternative,
+  } = useEstimateSupplierComparison({
+    versionId,
+    itemById,
+    isReadOnly,
+    fetchSupplierComparison: fetchSupplierComparisons,
+    onPatchItemWithSuggestionTracking: patchItemWithSuggestionTracking,
+  });
 
-  const closeSectionContextMenu = useCallback(() => {
-    setSectionContextMenu(null);
-  }, []);
-
-  const handleOpenSectionContextMenu = useCallback(
-    (sectionId: string, position: { x: number; y: number }) => {
-      if (isReadOnly) return;
-
-      const item = itemById.get(sectionId);
-      if (!item || item.item_type !== "section") return;
-
-      const menuWidth = 300;
-      const menuHeight = 280;
-      const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
-      const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
-
-      setSectionContextMenu({
-        sectionId,
-        x,
-        y,
-      });
-    },
-    [isReadOnly, itemById]
-  );
+  const {
+    sectionContextMenu,
+    closeSectionContextMenu,
+    handleOpenSectionContextMenu,
+    handleDuplicateSectionInPlace,
+    handleOpenDuplicateSectionDialog,
+    closeDuplicateSectionDialog,
+    handleConfirmDuplicateSectionToVersion,
+    duplicateSectionDialogSectionId,
+    duplicateSectionTargetVersionId,
+    setDuplicateSectionTargetVersionId,
+    isDuplicateSectionPending,
+    handleOpenSaveAsAssemblyDialog,
+    closeSaveAsAssemblyDialog,
+    handleConfirmSaveAsAssembly,
+    saveAsAssemblyDialogSectionId,
+    saveAsAssemblyName,
+    setSaveAsAssemblyName,
+    saveAsAssemblyNameInputRef,
+    isSaveAsAssemblyPending,
+  } = useEstimateSectionDialogs({
+    isReadOnly,
+    itemById,
+    itemsByParent,
+    availableSectionDuplicateTargets,
+    onDuplicateSection,
+    onDuplicateSectionToVersion,
+  });
 
   const applyItemConversionResultLocally = useCallback(
     (result: ConvertEstimateItemResult) => {
@@ -1371,354 +1352,6 @@ export function EstimateEditorTable({
       versionId,
     ]
   );
-
-  const handleDuplicateSectionInPlace = useCallback(async () => {
-    if (!sectionContextMenu || !onDuplicateSection) return;
-
-    const targetSectionId = sectionContextMenu.sectionId;
-    closeSectionContextMenu();
-    await onDuplicateSection(targetSectionId);
-  }, [closeSectionContextMenu, onDuplicateSection, sectionContextMenu]);
-
-  const handleOpenDuplicateSectionDialog = useCallback(() => {
-    if (!sectionContextMenu) return;
-
-    const firstTargetVersionId = availableSectionDuplicateTargets[0]?.versionId ?? "";
-    setDuplicateSectionDialogSectionId(sectionContextMenu.sectionId);
-    setDuplicateSectionTargetVersionId(firstTargetVersionId);
-    closeSectionContextMenu();
-  }, [availableSectionDuplicateTargets, closeSectionContextMenu, sectionContextMenu]);
-
-  const closeDuplicateSectionDialog = useCallback(() => {
-    if (isDuplicateSectionPending) return;
-
-    setDuplicateSectionDialogSectionId(null);
-    setDuplicateSectionTargetVersionId("");
-  }, [isDuplicateSectionPending]);
-
-  const handleConfirmDuplicateSectionToVersion = useCallback(async () => {
-    if (!duplicateSectionDialogSectionId) return;
-    if (!duplicateSectionTargetVersionId) return;
-    if (!onDuplicateSectionToVersion) return;
-
-    setIsDuplicateSectionPending(true);
-    try {
-      await onDuplicateSectionToVersion({
-        sectionId: duplicateSectionDialogSectionId,
-        targetVersionId: duplicateSectionTargetVersionId,
-      });
-      setDuplicateSectionDialogSectionId(null);
-      setDuplicateSectionTargetVersionId("");
-    } finally {
-      setIsDuplicateSectionPending(false);
-    }
-  }, [
-    duplicateSectionDialogSectionId,
-    duplicateSectionTargetVersionId,
-    onDuplicateSectionToVersion,
-  ]);
-
-  const handleOpenSaveAsAssemblyDialog = useCallback(() => {
-    if (!sectionContextMenu) return;
-    const section = itemById.get(sectionContextMenu.sectionId);
-    setSaveAsAssemblyName(section?.title ?? "");
-    setSaveAsAssemblyDialogSectionId(sectionContextMenu.sectionId);
-    closeSectionContextMenu();
-  }, [closeSectionContextMenu, itemById, sectionContextMenu]);
-
-  const closeSaveAsAssemblyDialog = useCallback(() => {
-    if (isSaveAsAssemblyPending) return;
-    setSaveAsAssemblyDialogSectionId(null);
-    setSaveAsAssemblyName("");
-  }, [isSaveAsAssemblyPending]);
-
-  const handleConfirmSaveAsAssembly = useCallback(async () => {
-    if (!saveAsAssemblyDialogSectionId || !saveAsAssemblyName.trim()) return;
-
-    // Collect all line descendants of the section
-    function collectLineDescendants(parentId: string): EstimateItem[] {
-      const children = itemsByParent.get(parentId) ?? [];
-      const lines: EstimateItem[] = [];
-      children.forEach((child) => {
-        if (child.item_type === "line") {
-          lines.push(child);
-        } else if (child.item_type === "section") {
-          lines.push(...collectLineDescendants(child.id));
-        }
-      });
-      return lines;
-    }
-
-    const lines = collectLineDescendants(saveAsAssemblyDialogSectionId);
-    if (lines.length === 0) {
-      setSaveAsAssemblyDialogSectionId(null);
-      setSaveAsAssemblyName("");
-      return;
-    }
-
-    setIsSaveAsAssemblyPending(true);
-    try {
-      const assemblyItems = lines.map((line, index) => ({
-        title: line.title ?? "Ligne",
-        unit: line.description ?? undefined,
-        k_fo: line.k_fo ?? undefined,
-        k_mo: line.k_mo ?? undefined,
-        labor_role_id: line.labor_role_id ?? undefined,
-        default_quantity: line.quantity ?? undefined,
-        position: index + 1,
-      }));
-
-      const response = await fetch("/api/estimates/assemblies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: saveAsAssemblyName.trim(),
-          items: assemblyItems,
-        }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        console.error(
-          "Save as assembly failed:",
-          data && typeof data === "object" ? data : "Unknown error"
-        );
-      }
-
-      setSaveAsAssemblyDialogSectionId(null);
-      setSaveAsAssemblyName("");
-    } catch (error) {
-      console.error("Save as assembly error:", error);
-    } finally {
-      setIsSaveAsAssemblyPending(false);
-    }
-  }, [itemsByParent, saveAsAssemblyDialogSectionId, saveAsAssemblyName]);
-
-  const loadSupplierComparison = useCallback(
-    async (itemId: string) => {
-      if (!versionId) {
-        setSupplierComparisonError("Version de devis invalide.");
-        return;
-      }
-
-      if (supplierComparisonAbortRef.current) {
-        supplierComparisonAbortRef.current.abort();
-      }
-
-      const abortController = new AbortController();
-      supplierComparisonAbortRef.current = abortController;
-
-      setIsSupplierComparisonLoading(true);
-      setSupplierComparisonError(null);
-
-      try {
-        const comparison = await fetchSupplierComparisons(
-          versionId,
-          itemId,
-          abortController.signal
-        );
-
-        if (abortController.signal.aborted) return;
-
-        setSupplierComparisonByItemId((prev) => ({
-          ...prev,
-          [itemId]: comparison,
-        }));
-        setBestSupplierPriceIdByItemId((prev) => ({
-          ...prev,
-          [itemId]: comparison.best_supplier_price_id,
-        }));
-      } catch (error) {
-        if (abortController.signal.aborted) return;
-
-        setSupplierComparisonError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de charger la comparaison fournisseurs."
-        );
-      } finally {
-        if (!abortController.signal.aborted) {
-          setIsSupplierComparisonLoading(false);
-        }
-      }
-    },
-    [versionId]
-  );
-
-  const openSupplierComparisonPanel = useCallback(
-    (itemId: string) => {
-      const item = itemById.get(itemId);
-      if (!item || item.item_type !== "line") return;
-
-      setSupplierComparisonPanelItemId(itemId);
-      setSupplierComparisonError(null);
-      void loadSupplierComparison(itemId);
-    },
-    [itemById, loadSupplierComparison]
-  );
-
-  const handleOpenSupplierComparisonContextMenu = useCallback(
-    (itemId: string, position: { x: number; y: number }) => {
-      const item = itemById.get(itemId);
-      if (!item || item.item_type !== "line") return;
-
-      const menuWidth = 240;
-      const menuHeight = 96;
-      const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
-      const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
-
-      setSupplierComparisonMenu({
-        itemId,
-        x,
-        y,
-      });
-    },
-    [itemById]
-  );
-
-  const handleCloseSupplierComparisonPanel = useCallback(() => {
-    setSupplierComparisonPanelItemId(null);
-    setSupplierComparisonError(null);
-    setIsSupplierComparisonLoading(false);
-    if (supplierComparisonAbortRef.current) {
-      supplierComparisonAbortRef.current.abort();
-      supplierComparisonAbortRef.current = null;
-    }
-  }, []);
-
-  const activeSupplierComparisonItem = useMemo(() => {
-    if (!supplierComparisonPanelItemId) return null;
-    const item = itemById.get(supplierComparisonPanelItemId);
-    return item && item.item_type === "line" ? item : null;
-  }, [itemById, supplierComparisonPanelItemId]);
-
-  const activeSupplierComparison = useMemo(() => {
-    if (!supplierComparisonPanelItemId) return null;
-    return supplierComparisonByItemId[supplierComparisonPanelItemId] ?? null;
-  }, [supplierComparisonByItemId, supplierComparisonPanelItemId]);
-
-  const handleSelectSupplierComparisonAlternative = useCallback(
-    (alternative: SupplierComparisonAlternative) => {
-      if (isReadOnly || !activeSupplierComparisonItem) return;
-
-      const selectedDescription = (alternative.product_designation ?? "").trim();
-      const patch: ItemPatch = {
-        description: selectedDescription.length > 0 ? selectedDescription : null,
-        unit_price_ht_cents: alternative.adjusted_unit_price_cents,
-        selected_supplier_price_id: alternative.supplier_price_id,
-      };
-
-      patchItemWithSuggestionTracking(
-        activeSupplierComparisonItem.id,
-        patch,
-        { persist: true }
-      );
-      setSupplierComparisonPanelItemId(null);
-    },
-    [activeSupplierComparisonItem, isReadOnly, patchItemWithSuggestionTracking]
-  );
-
-  useEffect(() => {
-    return () => {
-      if (supplierComparisonAbortRef.current) {
-        supplierComparisonAbortRef.current.abort();
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!supplierComparisonMenu) return;
-
-    const closeMenu = () => setSupplierComparisonMenu(null);
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        target.closest(".estimate-supplier-comparison-context-menu")
-      ) {
-        return;
-      }
-      closeMenu();
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      closeMenu();
-    };
-
-    window.addEventListener("mousedown", handleMouseDown);
-    window.addEventListener("resize", closeMenu);
-    window.addEventListener("scroll", closeMenu, true);
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("mousedown", handleMouseDown);
-      window.removeEventListener("resize", closeMenu);
-      window.removeEventListener("scroll", closeMenu, true);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [supplierComparisonMenu]);
-
-  useEffect(() => {
-    if (!sectionContextMenu) return;
-
-    const closeMenu = () => setSectionContextMenu(null);
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        target.closest(".estimate-section-context-menu")
-      ) {
-        return;
-      }
-      closeMenu();
-    };
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      closeMenu();
-    };
-
-    window.addEventListener("mousedown", handleMouseDown);
-    window.addEventListener("resize", closeMenu);
-    window.addEventListener("scroll", closeMenu, true);
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("mousedown", handleMouseDown);
-      window.removeEventListener("resize", closeMenu);
-      window.removeEventListener("scroll", closeMenu, true);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [sectionContextMenu]);
-
-  useEffect(() => {
-    if (!supplierComparisonPanelItemId) return;
-    const item = itemById.get(supplierComparisonPanelItemId);
-    if (!item || item.item_type !== "line") {
-      setSupplierComparisonPanelItemId(null);
-    }
-  }, [itemById, supplierComparisonPanelItemId]);
-
-  useEffect(() => {
-    if (!sectionContextMenu) return;
-    const item = itemById.get(sectionContextMenu.sectionId);
-    if (!item || item.item_type !== "section") {
-      setSectionContextMenu(null);
-    }
-  }, [itemById, sectionContextMenu]);
-
-  useEffect(() => {
-    if (!duplicateSectionDialogSectionId) return;
-    const item = itemById.get(duplicateSectionDialogSectionId);
-    if (!item || item.item_type !== "section") {
-      setDuplicateSectionDialogSectionId(null);
-      setDuplicateSectionTargetVersionId("");
-    }
-  }, [duplicateSectionDialogSectionId, itemById]);
-
-  useEffect(() => {
-    if (!saveAsAssemblyDialogSectionId) return;
-    saveAsAssemblyNameInputRef.current?.focus();
-  }, [saveAsAssemblyDialogSectionId]);
 
   useEstimateKeyboardShortcuts({
     tableCardRef,
