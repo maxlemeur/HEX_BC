@@ -344,7 +344,7 @@ describe("EstimateCreationWizard", () => {
 
     expect(screen.getByText("Marge, TVA, arrondi")).toBeInTheDocument();
     expect(screen.getByLabelText(/Date devis/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Validite/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Validité/)).toBeInTheDocument();
   });
 
   it("preserves data when navigating back from step 2", async () => {
@@ -417,7 +417,7 @@ describe("EstimateCreationWizard", () => {
     await user.click(screen.getByRole("button", { name: /Suivant/ }));
 
     // Step 3
-    expect(screen.getByText("Recapitulatif")).toBeInTheDocument();
+    expect(screen.getByText("Récapitulatif")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Créer le chiffrage/ }),
     ).toBeInTheDocument();
@@ -425,6 +425,21 @@ describe("EstimateCreationWizard", () => {
     expect(
       screen.queryByRole("button", { name: /Créer directement/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps accented labels for validity and summary copy", async () => {
+    const { user } = setup();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "Flow accents");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    expect(screen.getByLabelText(/Validité/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Validite/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    expect(screen.getByText("Récapitulatif")).toBeInTheDocument();
+    expect(screen.queryByText("Recapitulatif")).not.toBeInTheDocument();
   });
 
   it("shows Retour button only from step 2 onwards", async () => {

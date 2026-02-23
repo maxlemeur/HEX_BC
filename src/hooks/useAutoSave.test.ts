@@ -29,13 +29,27 @@ describe("useAutoSave helpers", () => {
         metaKey: false,
       })
     ).toBe(false);
+    expect(
+      isSaveShortcutKey({
+        ctrlKey: true,
+        metaKey: false,
+      })
+    ).toBe(false);
   });
 
   it("maps autosave statuses to the expected french labels", () => {
-    expect(resolveAutoSaveStatusLabel("saving")).toBe("Sauvegarde en cours...");
-    expect(resolveAutoSaveStatusLabel("saved")).toBe("Sauvegarde");
-    expect(resolveAutoSaveStatusLabel("idle")).toBe("Sauvegarde");
+    expect(resolveAutoSaveStatusLabel("saving")).toBe("Sauvegarde en cours\u2026");
+    expect(resolveAutoSaveStatusLabel("saved")).toBe("Sauvegardé");
+    expect(resolveAutoSaveStatusLabel("idle")).toBe("Sauvegarde auto");
     expect(resolveAutoSaveStatusLabel("error")).toBe("Erreur de sauvegarde");
+  });
+
+  it("prevents regressions to legacy autosave labels", () => {
+    const savingLabel = resolveAutoSaveStatusLabel("saving");
+    expect(savingLabel).toContain("\u2026");
+    expect(savingLabel).not.toContain("...");
+    expect(resolveAutoSaveStatusLabel("saved")).not.toBe("Sauvegarde");
+    expect(resolveAutoSaveStatusLabel("idle")).not.toBe("Sauvegarde");
   });
 
   it("blocks beforeunload only when data may be lost", () => {
