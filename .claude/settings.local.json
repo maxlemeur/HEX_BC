@@ -10,7 +10,9 @@
       "Bash(pdftotext:*)",
       "Bash(done)",
       "Bash(npm install:*)",
-      "Bash(npx next lint:*)"
+      "Bash(npx next lint:*)",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__execute_sql"
     ]
   }
 }
