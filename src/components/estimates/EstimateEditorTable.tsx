@@ -17,6 +17,7 @@ import {
 import {
   type SectionTotals,
 } from "@/lib/estimate-calculations";
+import { formatEUR } from "@/lib/money";
 import { PastePreviewDialog } from "@/components/estimates/PastePreviewDialog";
 import { EstimateEditorBody } from "@/components/estimates/components/EstimateEditorBody";
 import {
@@ -657,6 +658,10 @@ export function EstimateEditorTable({
   const [duplicateSectionTargetVersionId, setDuplicateSectionTargetVersionId] =
     useState("");
   const [isDuplicateSectionPending, setIsDuplicateSectionPending] = useState(false);
+  const [saveAsAssemblyDialogSectionId, setSaveAsAssemblyDialogSectionId] =
+    useState<string | null>(null);
+  const [saveAsAssemblyName, setSaveAsAssemblyName] = useState("");
+  const [isSaveAsAssemblyPending, setIsSaveAsAssemblyPending] = useState(false);
   const [supplierComparisonPanelItemId, setSupplierComparisonPanelItemId] =
     useState<string | null>(null);
   const [supplierComparisonByItemId, setSupplierComparisonByItemId] = useState<
@@ -1109,6 +1114,82 @@ export function EstimateEditorTable({
     onDuplicateSectionToVersion,
   ]);
 
+  const handleOpenSaveAsAssemblyDialog = useCallback(() => {
+    if (!sectionContextMenu) return;
+    const section = itemById.get(sectionContextMenu.sectionId);
+    setSaveAsAssemblyName(section?.title ?? "");
+    setSaveAsAssemblyDialogSectionId(sectionContextMenu.sectionId);
+    closeSectionContextMenu();
+  }, [closeSectionContextMenu, itemById, sectionContextMenu]);
+
+  const closeSaveAsAssemblyDialog = useCallback(() => {
+    if (isSaveAsAssemblyPending) return;
+    setSaveAsAssemblyDialogSectionId(null);
+    setSaveAsAssemblyName("");
+  }, [isSaveAsAssemblyPending]);
+
+  const handleConfirmSaveAsAssembly = useCallback(async () => {
+    if (!saveAsAssemblyDialogSectionId || !saveAsAssemblyName.trim()) return;
+
+    // Collect all line descendants of the section
+    function collectLineDescendants(parentId: string): EstimateItem[] {
+      const children = itemsByParent.get(parentId) ?? [];
+      const lines: EstimateItem[] = [];
+      children.forEach((child) => {
+        if (child.item_type === "line") {
+          lines.push(child);
+        } else if (child.item_type === "section") {
+          lines.push(...collectLineDescendants(child.id));
+        }
+      });
+      return lines;
+    }
+
+    const lines = collectLineDescendants(saveAsAssemblyDialogSectionId);
+    if (lines.length === 0) {
+      setSaveAsAssemblyDialogSectionId(null);
+      setSaveAsAssemblyName("");
+      return;
+    }
+
+    setIsSaveAsAssemblyPending(true);
+    try {
+      const assemblyItems = lines.map((line, index) => ({
+        title: line.title ?? "Ligne",
+        unit: line.description ?? undefined,
+        k_fo: line.k_fo ?? undefined,
+        k_mo: line.k_mo ?? undefined,
+        labor_role_id: line.labor_role_id ?? undefined,
+        default_quantity: line.quantity ?? undefined,
+        position: index + 1,
+      }));
+
+      const response = await fetch("/api/estimates/assemblies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: saveAsAssemblyName.trim(),
+          items: assemblyItems,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        console.error(
+          "Save as assembly failed:",
+          data && typeof data === "object" ? data : "Unknown error"
+        );
+      }
+
+      setSaveAsAssemblyDialogSectionId(null);
+      setSaveAsAssemblyName("");
+    } catch (error) {
+      console.error("Save as assembly error:", error);
+    } finally {
+      setIsSaveAsAssemblyPending(false);
+    }
+  }, [itemsByParent, saveAsAssemblyDialogSectionId, saveAsAssemblyName]);
+
   const loadSupplierComparison = useCallback(
     async (itemId: string) => {
       if (!versionId) {
@@ -1341,7 +1422,8 @@ export function EstimateEditorTable({
     isSupplierComparisonMenuOpen:
       supplierComparisonMenu !== null ||
       sectionContextMenu !== null ||
-      duplicateSectionDialogSectionId !== null,
+      duplicateSectionDialogSectionId !== null ||
+      saveAsAssemblyDialogSectionId !== null,
     onResolveShortcutScope: resolveEstimateTableShortcutScope,
     selectAllVisibleLines,
     clearLineSelection,
@@ -1874,6 +1956,22 @@ export function EstimateEditorTable({
     ]
   );
 
+  const grandTotals = useMemo(() => {
+    const rootItems = itemsByParent.get("root") ?? [];
+    let foTotal = 0;
+    let moTotal = 0;
+    let htTotal = 0;
+    rootItems.forEach((item) => {
+      if (item.item_type !== "section") return;
+      const totals = getSectionTotals(item.id);
+      if (!totals) return;
+      foTotal += totals.foTotalCents;
+      moTotal += totals.moTotalCents;
+      htTotal += totals.totalHtCents;
+    });
+    return { foTotal, moTotal, htTotal };
+  }, [itemsByParent, getSectionTotals]);
+
   return (
     <EstimateEditorProvider value={estimateEditorContextValue}>
       <div ref={tableCardRef} className="dashboard-card p-6">
@@ -1926,8 +2024,9 @@ export function EstimateEditorTable({
         </div>
       )}
 
+      <div className="estimate-table-scroll mt-6 overflow-x-auto">
       <div
-        className={`estimate-table mt-6${isLaborSplitEnabled ? " estimate-table--labor-split" : ""}`}
+        className={`estimate-table${isLaborSplitEnabled ? " estimate-table--labor-split" : ""}`}
         style={dynamicGridStyle}
       >
         <div className="estimate-table__head">
@@ -2002,6 +2101,41 @@ export function EstimateEditorTable({
           renderVirtualRow={renderVirtualRow}
           renderList={() => renderList(null)}
         />
+        {hasVisibleRows ? (
+          <div className="estimate-table__footer">
+            <div></div>
+            <div className="font-semibold text-[var(--slate-800)]">Total</div>
+            <div></div>
+            <div></div>
+            <div className="text-right font-medium text-[var(--slate-700)]" title="Total Fournitures">
+              {formatEUR(grandTotals.foTotal)}
+            </div>
+            {isLaborSplitEnabled ? (
+              <>
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+                <div></div><div></div><div></div>
+              </>
+            ) : (
+              <>
+                {columnVisibility.visibleColumns.has("supply_type") ? <div></div> : null}
+                {columnVisibility.visibleColumns.has("k_fo") ? <div></div> : null}
+                <div className="text-right font-medium text-[var(--slate-700)]" title="Total Main d'œuvre">
+                  {formatEUR(grandTotals.moTotal)}
+                </div>
+                {columnVisibility.visibleColumns.has("h_mo_majoration") ? <div></div> : null}
+                {columnVisibility.visibleColumns.has("labor_role") ? <div></div> : null}
+                {columnVisibility.visibleColumns.has("k_mo") ? <div></div> : null}
+              </>
+            )}
+            <div></div>
+            <div className="text-right font-semibold text-[var(--slate-900)]" title="Total HT">
+              {formatEUR(grandTotals.htTotal)}
+            </div>
+            <div></div>
+          </div>
+        ) : null}
+      </div>
       </div>
 
       {sectionContextMenu ? (
@@ -2034,6 +2168,14 @@ export function EstimateEditorTable({
             }
           >
             Dupliquer vers un autre devis
+          </button>
+          <button
+            type="button"
+            className="estimate-supplier-comparison-context-menu__action"
+            role="menuitem"
+            onClick={handleOpenSaveAsAssemblyDialog}
+          >
+            Enregistrer comme assemblage
           </button>
         </div>
       ) : null}
@@ -2112,6 +2254,70 @@ export function EstimateEditorTable({
                 }
               >
                 {isDuplicateSectionPending ? "Duplication..." : "Dupliquer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {saveAsAssemblyDialogSectionId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
+          <div
+            className="dashboard-card w-full max-w-xl p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="save-as-assembly-dialog-title"
+          >
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2
+                  id="save-as-assembly-dialog-title"
+                  className="text-lg font-semibold text-[var(--slate-800)]"
+                >
+                  Enregistrer comme assemblage
+                </h2>
+                <p className="mt-1 text-sm text-[var(--slate-500)]">
+                  Les lignes de cette section seront enregistrées comme assemblage réutilisable.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={closeSaveAsAssemblyDialog}
+                disabled={isSaveAsAssemblyPending}
+              >
+                Fermer
+              </button>
+            </div>
+
+            <label className="form-label block">
+              Nom de l&apos;assemblage
+              <input
+                className="input mt-2 w-full"
+                type="text"
+                value={saveAsAssemblyName}
+                onChange={(event) => setSaveAsAssemblyName(event.target.value)}
+                disabled={isSaveAsAssemblyPending}
+                autoFocus
+              />
+            </label>
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={closeSaveAsAssemblyDialog}
+                disabled={isSaveAsAssemblyPending}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void handleConfirmSaveAsAssembly()}
+                disabled={isSaveAsAssemblyPending || !saveAsAssemblyName.trim()}
+              >
+                {isSaveAsAssemblyPending ? "Enregistrement..." : "Enregistrer"}
               </button>
             </div>
           </div>

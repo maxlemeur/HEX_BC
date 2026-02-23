@@ -217,7 +217,7 @@ export function EstimateSettingsPanel({
         </div>
       </div>
 
-      <div className="estimate-settings-grid mt-8 grid gap-6 lg:grid-cols-3">
+      <div className="estimate-settings-grid mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <div>
             <p className="form-label">Mode de marge</p>
@@ -248,22 +248,35 @@ export function EstimateSettingsPanel({
           {marginMode === "fixed" ? (
             <div>
               <label className="form-label" htmlFor="estimate-margin">
-                Marge (multiplicateur)
+                Marge
               </label>
-              <input
-                id="estimate-margin"
-                className="form-input"
-                type="number"
-                step="0.01"
-                min={0}
-                value={settings.margin_multiplier}
-                disabled={isReadOnly}
-                onChange={(event) =>
-                  onChange({
-                    margin_multiplier: Number(event.target.value || 0),
-                  })
-                }
-              />
+              <p className="mb-1 text-xs text-[var(--slate-500)]">
+                Multiplicateur appliqué au coût. Ex : 1.20 = marge de 20%.
+              </p>
+              <p className="mb-2 text-xs text-[var(--slate-500)]">
+                Ex : Coût 1 000 € × 1.20 = Vente 1 200 € (200 € de marge)
+              </p>
+              <div className="flex items-center gap-3">
+                <input
+                  id="estimate-margin"
+                  className="form-input flex-1"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={settings.margin_multiplier}
+                  disabled={isReadOnly}
+                  onChange={(event) =>
+                    onChange({
+                      margin_multiplier: Number(event.target.value || 0),
+                    })
+                  }
+                />
+                <span className="shrink-0 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2 text-sm font-medium text-[var(--slate-600)]">
+                  {settings.margin_multiplier > 0
+                    ? `${((settings.margin_multiplier - 1) * 100).toFixed(0)}%`
+                    : "0%"}
+                </span>
+              </div>
               <div className="estimate-chip-row mt-3 flex flex-wrap gap-2">
                 {MARGIN_SUGGESTIONS.map((value) => (
                   <button
@@ -276,6 +289,7 @@ export function EstimateSettingsPanel({
                     }`}
                     onClick={() => onChange({ margin_multiplier: value })}
                     disabled={isReadOnly}
+                    title={`Marge de ${((value - 1) * 100).toFixed(0)}%`}
                   >
                     {formatMarginMultiplier(value)}
                   </button>
@@ -547,7 +561,7 @@ export function EstimateSettingsPanel({
           </div>
         </div>
 
-        <div className="estimate-summary">
+        <div className="estimate-summary lg:sticky lg:top-8 lg:self-start">
           <div className="estimate-summary__header">
             <h3>Resume</h3>
             <p>Calculs temps reel</p>

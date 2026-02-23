@@ -17,7 +17,7 @@ import {
   useEstimateEditorMeta,
   useEstimateEditorState,
 } from "@/components/estimates/context/EstimateEditorContext";
-import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
+import type { ColumnPreset } from "@/hooks/useColumnVisibility";
 
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
@@ -138,8 +138,9 @@ export function EstimateEditorToolbar({
               onClick={() => void onUndo()}
               disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
               aria-label="Annuler la dernière action"
+              title="Annuler (Ctrl+Z)"
             >
-              Undo
+              Annuler
             </button>
             <button
               className="btn btn-secondary btn-sm"
@@ -147,8 +148,9 @@ export function EstimateEditorToolbar({
               onClick={() => void onRedo()}
               disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
               aria-label="Rétablir la dernière action"
+              title="Rétablir (Ctrl+Y)"
             >
-              Redo
+              Rétablir
             </button>
           </div>
           <button
@@ -178,7 +180,7 @@ export function EstimateEditorToolbar({
           </details>
           <details className="relative">
             <summary className="btn btn-secondary btn-sm cursor-pointer list-none select-none">
-              Outils avances
+              Outils avancés
             </summary>
             <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-[var(--slate-200)] bg-white p-4 shadow-xl" style={{ minWidth: "320px" }}>
               <div className="flex flex-wrap items-center gap-2">
@@ -186,7 +188,7 @@ export function EstimateEditorToolbar({
                   className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
                   htmlFor="estimate-quality-filter"
                 >
-                  Filtre qualite
+                  Filtre qualité
                 </label>
                 <select
                   id="estimate-quality-filter"
@@ -262,7 +264,8 @@ export function EstimateEditorToolbar({
         </div>
       </div>
       {state.hasSelectedLines ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
+        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--slate-200)] bg-white px-6 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
+          <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-2">
           <span className="text-xs font-semibold text-[var(--slate-700)]">
             {state.selectedLineCount} sélection(s)
           </span>
@@ -386,6 +389,7 @@ export function EstimateEditorToolbar({
           >
             Supprimer sélection
           </button>
+          </div>
         </div>
       ) : null}
     </div>

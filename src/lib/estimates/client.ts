@@ -60,6 +60,8 @@ export type EstimateListItem = {
   title: string | null;
   updatedAt: string;
   totalHtCents: number;
+  dateDevis: string | null;
+  validiteJours: number | null;
 };
 
 export type EstimateDraftVersionTarget = {
@@ -1196,6 +1198,16 @@ function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
     (projectNode ? toStringValue(projectNode.client_name) : null) ??
     null;
 
+  const dateDevis =
+    toStringValue(value.dateDevis) ??
+    toStringValue(value.date_devis) ??
+    null;
+
+  const validiteJours =
+    toNumber(value.validiteJours) ??
+    toNumber(value.validite_jours) ??
+    null;
+
   return {
     projectId,
     projectName,
@@ -1207,6 +1219,8 @@ function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
     title,
     updatedAt,
     totalHtCents,
+    dateDevis,
+    validiteJours,
   };
 }
 

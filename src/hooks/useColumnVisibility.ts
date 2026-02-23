@@ -42,7 +42,7 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
 const STORAGE_KEY = "est-col-vis";
 
 function loadPresetFromStorage(): ColumnPreset {
-  if (typeof window === "undefined") return "standard";
+  if (typeof window === "undefined") return "essential";
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "essential" || stored === "standard" || stored === "full") {
@@ -51,7 +51,7 @@ function loadPresetFromStorage(): ColumnPreset {
   } catch {
     // ignore
   }
-  return "standard";
+  return "essential";
 }
 
 function savePresetToStorage(preset: ColumnPreset) {

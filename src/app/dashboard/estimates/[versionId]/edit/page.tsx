@@ -1396,6 +1396,7 @@ export default function EditEstimatePage() {
   const [qualityFilter, setQualityFilter] =
     useState<EstimateQualityFilter>("all_lines");
   const [activeTab, setActiveTab] = useState<"settings" | "editor">("settings");
+  const hasSetInitialTabRef = useRef(false);
   const [isChecklistCollapsed, setIsChecklistCollapsed] = useState(false);
   const [checklistScrollTargetItemId, setChecklistScrollTargetItemId] =
     useState<string | null>(null);
@@ -1749,6 +1750,15 @@ export default function EditEstimatePage() {
     reloadNonce,
     resolvedVersionId,
   ]);
+
+  useEffect(() => {
+    if (hasSetInitialTabRef.current || isLoading) return;
+    hasSetInitialTabRef.current = true;
+    const lineCount = items.filter((item) => item.item_type === "line").length;
+    if (lineCount === 0) {
+      setActiveTab("editor");
+    }
+  }, [items, isLoading]);
 
   useEffect(() => {
     if (!resolvedVersionId) {

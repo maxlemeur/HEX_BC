@@ -5,6 +5,7 @@ import { EstimateDocument } from "@/components/EstimateDocument";
 import { EstimateTimeline } from "@/components/estimates/EstimateTimeline";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { DuplicateEstimateButton } from "@/components/estimates/DuplicateEstimateButton";
+import { EstimateStatusActions } from "@/components/estimates/EstimateStatusActions";
 import { VariantComparisonTable } from "@/components/estimates/VariantComparisonTable";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import {
@@ -18,6 +19,7 @@ import {
   listEstimateVersionVariants,
   verifyEstimateSeal,
 } from "@/lib/estimates/server";
+import { formatEUR } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
@@ -46,6 +48,40 @@ type EstimateDetailPageSearchParams = Record<
 >;
 
 const VERSION_TIMELINE_PAGE_SIZE = 20;
+
+type StatusBadgeStyle = { bg: string; color: string; label: string };
+
+const STATUS_BADGE_STYLES: Record<string, StatusBadgeStyle> = {
+  draft: { bg: "var(--slate-100)", color: "var(--slate-700)", label: "Brouillon" },
+  sent: { bg: "var(--info)", color: "#fff", label: "Envoyé" },
+  accepted: { bg: "#059669", color: "#fff", label: "Accepté" },
+  archived: { bg: "var(--slate-500)", color: "#fff", label: "Archivé" },
+};
+
+function StatusBadge({ status }: { status: string }) {
+  const style = STATUS_BADGE_STYLES[status] ?? STATUS_BADGE_STYLES.draft;
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
+      style={{ background: style.bg, color: style.color }}
+    >
+      {style.label}
+    </span>
+  );
+}
+
+function computeExpiryInfo(dateDevis: string | null, validiteJours: number | null) {
+  if (!dateDevis || !validiteJours || validiteJours <= 0) return null;
+  const start = new Date(`${dateDevis}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime())) return null;
+  const expiryDate = new Date(start.getTime() + validiteJours * 86400000);
+  const now = new Date();
+  const expired = now > expiryDate;
+  return {
+    expiryDate: expiryDate.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" }),
+    expired,
+  };
+}
 
 function resolveProject(
   value: EstimateVersion["estimate_projects"]
@@ -246,7 +282,8 @@ export default async function EstimateDetailPage({
         <div>
           <h1 className="page-title">Chiffrage</h1>
           <p className="page-description">
-            Version <span className="font-mono text-[var(--slate-600)]">{versionId}</span>
+            Version V{version.version_number}{" "}
+              {project?.name ? <span className="text-[var(--slate-500)]">— {project.name}</span> : null}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -254,32 +291,79 @@ export default async function EstimateDetailPage({
           <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
             Retour
           </Link>
-          <Link
-            className="btn btn-secondary btn-sm"
-            href={`/dashboard/estimates/${versionId}/edit`}
-          >
-            Editer
-          </Link>
-          <Link
-            className="btn btn-secondary btn-sm"
-            href={`/dashboard/estimates/${versionId}/diff`}
-          >
+          <Link className="btn btn-secondary btn-sm" href={`/dashboard/estimates/${versionId}/diff`}>
             Comparer
           </Link>
-          <SaveAsTemplateButton versionId={versionId} />
-          <DuplicateEstimateButton versionId={versionId} />
           <Link
             className="btn btn-primary btn-sm"
-            href={`/dashboard/estimates/${versionId}/print`}
+            href={`/dashboard/estimates/${versionId}/edit`}
           >
-            Imprimer
+            Éditer
           </Link>
-          <EstimatePdfDownloadButton versionId={versionId} />
+          <details className="relative">
+            <summary className="btn btn-secondary btn-sm cursor-pointer list-none select-none">
+              Plus d&apos;actions
+            </summary>
+            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl" style={{ minWidth: "180px" }}>
+              <Link
+                className="btn btn-ghost btn-sm w-full justify-start"
+                href={`/dashboard/estimates/${versionId}/diff`}
+              >
+                Comparer
+              </Link>
+              <SaveAsTemplateButton versionId={versionId} />
+              <DuplicateEstimateButton versionId={versionId} />
+              <Link
+                className="btn btn-ghost btn-sm w-full justify-start"
+                href={`/dashboard/estimates/${versionId}/print`}
+              >
+                Imprimer
+              </Link>
+              <EstimatePdfDownloadButton versionId={versionId} />
+            </div>
+          </details>
         </div>
       </div>
 
       <div className="py-8">
-        <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+        {(() => {
+          const expiry = computeExpiryInfo(version.date_devis, version.validite_jours);
+          return (
+            <div className="dashboard-card mb-6 p-6">
+              <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">Projet</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">{project?.name ?? "\u2014"}</p>
+                  {project?.client_name ? <p className="text-xs text-[var(--slate-500)]">{project.client_name}</p> : null}
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">Statut</p>
+                  <div className="mt-1">
+                    <StatusBadge status={version.status} />
+                    <EstimateStatusActions
+                      versionId={versionId}
+                      currentStatus={version.status as "draft" | "sent" | "accepted" | "archived"}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">Total HT</p>
+                  <p className="mt-1 text-lg font-bold text-[var(--slate-900)]">{formatEUR(totalHtCents ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">Total TTC</p>
+                  <p className="mt-1 text-lg font-bold text-[var(--slate-900)]">{formatEUR(totalTtcCents ?? 0)}</p>
+                  {expiry ? (
+                    <p className={`mt-1 text-xs ${expiry.expired ? "text-[var(--danger)]" : "text-[var(--slate-500)]"}`}>
+                      {expiry.expired ? "Expiré le" : "Valide jusqu\u0027au"} {expiry.expiryDate}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+        <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[360px_minmax(0,1fr)]">
           <EstimateTimeline
             currentVersionId={versionId}
             versions={versionTimeline.items}

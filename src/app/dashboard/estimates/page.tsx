@@ -20,6 +20,16 @@ import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips"
 import type { SortOption } from "@/components/TableFilterBar/types";
 
 const PAGE_SIZE = 20;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+const DATE_RANGE_OPTIONS = [
+  { value: "all", label: "Toutes les dates" },
+  { value: "month", label: "Ce mois-ci" },
+  { value: "quarter", label: "Ce trimestre" },
+  { value: "year", label: "Cette année" },
+] as const;
+
+type DateRange = (typeof DATE_RANGE_OPTIONS)[number]["value"];
 
 const ALL_STATUSES: EstimateStatus[] = ["draft", "sent", "accepted", "archived"];
 const SORT_OPTIONS: SortOption[] = [
@@ -33,11 +43,11 @@ function statusLabel(status: EstimateStatus) {
     case "draft":
       return "Brouillon";
     case "sent":
-      return "Envoye";
+      return "Envoyé";
     case "accepted":
-      return "Accepte";
+      return "Accepté";
     case "archived":
-      return "Archive";
+      return "Archivé";
     default:
       return status;
   }
@@ -72,6 +82,46 @@ function parseStatusParam(param: string | null): EstimateStatus[] {
   return param.split(",").filter((s): s is EstimateStatus => ALL_STATUSES.includes(s as EstimateStatus));
 }
 
+function getExpirationDate(estimate: EstimateListItem): Date | null {
+  if (!estimate.dateDevis || estimate.validiteJours == null) return null;
+  const d = new Date(estimate.dateDevis);
+  d.setDate(d.getDate() + estimate.validiteJours);
+  return d;
+}
+
+type ExpirationState = "expired" | "expiring_soon" | null;
+
+function getExpirationState(estimate: EstimateListItem, now: Date): ExpirationState {
+  if (estimate.status === "draft" || estimate.status === "archived") return null;
+  const expDate = getExpirationDate(estimate);
+  if (!expDate) return null;
+  if (expDate.getTime() < now.getTime()) return "expired";
+  if (expDate.getTime() - now.getTime() <= SEVEN_DAYS_MS) return "expiring_soon";
+  return null;
+}
+
+function filterByDateRange(items: EstimateListItem[], range: DateRange): EstimateListItem[] {
+  if (range === "all") return items;
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  let start: Date;
+  if (range === "month") {
+    start = new Date(year, month, 1);
+  } else if (range === "quarter") {
+    const quarterStart = month - (month % 3);
+    start = new Date(year, quarterStart, 1);
+  } else {
+    start = new Date(year, 0, 1);
+  }
+
+  return items.filter((e) => {
+    const d = e.updatedAt ? new Date(e.updatedAt) : null;
+    return d && d >= start;
+  });
+}
+
 export default function EstimatesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -88,6 +138,7 @@ export default function EstimatesPage() {
   // Status chip selection (separate from useTableFilter's multi-select)
   const [selectedStatuses, setSelectedStatuses] = useState<EstimateStatus[]>(initialStatus);
   const [currentPage, setCurrentPage] = useState(initialPage);
+  const [dateRange, setDateRange] = useState<DateRange>("all");
 
   const fetchEstimates = useCallback(async () => fetchEstimateList(), []);
 
@@ -105,12 +156,37 @@ export default function EstimatesPage() {
 
   // Pre-filter by status chips before passing to useTableFilter
   const statusFilteredData = useMemo(() => {
+    let data: EstimateListItem[];
     if (selectedStatuses.length === 0) {
       // No chip selected = show all except archived (default behavior)
-      return rawEstimates.filter((e) => e.status !== "archived");
+      data = rawEstimates.filter((e) => e.status !== "archived");
+    } else {
+      data = rawEstimates.filter((e) => selectedStatuses.includes(e.status));
     }
-    return rawEstimates.filter((e) => selectedStatuses.includes(e.status));
-  }, [rawEstimates, selectedStatuses]);
+    return filterByDateRange(data, dateRange);
+  }, [rawEstimates, selectedStatuses, dateRange]);
+
+  // Metrics computation
+  const metrics = useMemo(() => {
+    const now = new Date();
+    const nonArchived = rawEstimates.filter((e) => e.status !== "archived");
+    const totalHtEnCours = nonArchived.reduce((sum, e) => sum + e.totalHtCents, 0);
+    const acceptedCount = nonArchived.filter((e) => e.status === "accepted").length;
+    const acceptanceRate = nonArchived.length > 0
+      ? Math.round((acceptedCount / nonArchived.length) * 100)
+      : 0;
+    const expiringSoon = nonArchived.filter((e) => {
+      const state = getExpirationState(e, now);
+      return state === "expiring_soon" || state === "expired";
+    }).length;
+
+    return {
+      total: rawEstimates.length,
+      totalHtEnCours,
+      acceptanceRate,
+      expiringSoon,
+    };
+  }, [rawEstimates]);
 
   // Status counts from raw data (unfiltered)
   const statusCounts = useMemo(() => {
@@ -164,19 +240,22 @@ export default function EstimatesPage() {
   const prevSearchRef = useRef(searchValue);
   const prevStatusRef = useRef(selectedStatuses);
   const prevSortRef = useRef(sortState);
+  const prevDateRangeRef = useRef(dateRange);
 
   useEffect(() => {
     if (
       prevSearchRef.current !== searchValue ||
       prevStatusRef.current !== selectedStatuses ||
-      prevSortRef.current !== sortState
+      prevSortRef.current !== sortState ||
+      prevDateRangeRef.current !== dateRange
     ) {
       setCurrentPage(1);
       prevSearchRef.current = searchValue;
       prevStatusRef.current = selectedStatuses;
       prevSortRef.current = sortState;
+      prevDateRangeRef.current = dateRange;
     }
-  }, [searchValue, selectedStatuses, sortState]);
+  }, [searchValue, selectedStatuses, sortState, dateRange]);
 
   // Sync state to URL
   useEffect(() => {
@@ -216,6 +295,7 @@ export default function EstimatesPage() {
   const handleClearAll = useCallback(() => {
     clearAllFilters();
     setSelectedStatuses([]);
+    setDateRange("all");
   }, [clearAllFilters]);
 
   const goToPage = (page: number) => {
@@ -228,14 +308,14 @@ export default function EstimatesPage() {
         <div>
           <h1 className="page-title">Chiffrages</h1>
           <p className="page-description">
-            Suivez et preparez vos chiffrages par projet.
+            Suivez et préparez vos chiffrages par projet.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/templates">
+          <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/templates" title="Modèles de chiffrage réutilisables">
             Templates
           </Link>
-          <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/assemblies">
+          <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/assemblies" title="Groupes de lignes prédéfinis à insérer dans un chiffrage">
             Assemblages
           </Link>
           <Link className="btn btn-primary btn-lg" href="/dashboard/estimates/new">
@@ -257,6 +337,30 @@ export default function EstimatesPage() {
           </Link>
         </div>
       </div>
+
+      {/* Metrics banner */}
+      {!isLoading && rawEstimates.length > 0 ? (
+        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="dashboard-card px-4 py-3">
+            <p className="text-xs font-medium text-[var(--slate-500)]">Total devis</p>
+            <p className="mt-1 text-xl font-bold text-[var(--slate-800)]">{metrics.total}</p>
+          </div>
+          <div className="dashboard-card px-4 py-3">
+            <p className="text-xs font-medium text-[var(--slate-500)]">Total HT en cours</p>
+            <p className="mt-1 text-xl font-bold text-[var(--slate-800)]">{formatEUR(metrics.totalHtEnCours)}</p>
+          </div>
+          <div className="dashboard-card px-4 py-3">
+            <p className="text-xs font-medium text-[var(--slate-500)]">Taux d&#39;acceptation</p>
+            <p className="mt-1 text-xl font-bold text-[var(--slate-800)]">{metrics.acceptanceRate}%</p>
+          </div>
+          <div className="dashboard-card px-4 py-3">
+            <p className="text-xs font-medium text-[var(--slate-500)]">Expirant bientôt</p>
+            <p className="mt-1 text-xl font-bold" style={{ color: metrics.expiringSoon > 0 ? "var(--orange-600, #ea580c)" : "var(--slate-800)" }}>
+              {metrics.expiringSoon}
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {actionError ? (
         <div className="alert alert-error mb-6">
@@ -286,7 +390,7 @@ export default function EstimatesPage() {
                 Liste des chiffrages
               </h2>
               <p className="text-xs text-[var(--slate-500)]">
-                Derniere version active par projet.
+                Dernière version active par projet.
               </p>
             </div>
             <button
@@ -336,12 +440,21 @@ export default function EstimatesPage() {
                 onSortChange={setSort}
                 onDirectionToggle={toggleSortDirection}
               />
+              <select
+                className="btn btn-secondary btn-sm"
+                value={dateRange}
+                onChange={(e) => setDateRange(e.target.value as DateRange)}
+              >
+                {DATE_RANGE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
             </div>
             <ResultCount
               filteredCount={filteredCount}
               totalCount={totalCount}
               label="chiffrages"
-              activeFilterCount={activeFilterCount + (selectedStatuses.length > 0 ? 1 : 0)}
+              activeFilterCount={activeFilterCount + (selectedStatuses.length > 0 ? 1 : 0) + (dateRange !== "all" ? 1 : 0)}
               searchValue={searchValue}
               onClearAll={handleClearAll}
             />
@@ -373,8 +486,8 @@ export default function EstimatesPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Projet</th>
-                  <th>Titre</th>
+                  <th>Projet / Titre</th>
+                  <th>Client</th>
                   <th>Version</th>
                   <th>Statut</th>
                   <th className="text-right">Total HT vente</th>
@@ -419,8 +532,8 @@ export default function EstimatesPage() {
                             </p>
                             <p className="mt-1 text-sm text-[var(--slate-500)]">
                               {searchValue || selectedStatuses.length > 0
-                                ? "Aucun resultat pour ces filtres."
-                                : "Creez votre premier chiffrage pour demarrer."}
+                                ? "Aucun résultat pour ces filtres."
+                                : "Créez votre premier chiffrage pour démarrer."}
                             </p>
                           </div>
                         </div>
@@ -434,26 +547,33 @@ export default function EstimatesPage() {
                     const projectMeta =
                       estimate.projectReference?.trim() ||
                       estimate.projectClient?.trim();
+                    const expState = getExpirationState(estimate, new Date());
 
                     return (
                       <tr
                         key={estimate.versionId}
                         className="animate-fade-in"
-                        style={{ animationDelay: `${index * 0.03}s` }}
+                        style={{
+                          animationDelay: `${index * 0.03}s`,
+                          ...(expState === "expired" ? { backgroundColor: "rgba(239, 68, 68, 0.05)" } : {}),
+                          ...(expState === "expiring_soon" ? { backgroundColor: "rgba(249, 115, 22, 0.05)" } : {}),
+                        }}
                       >
                         <td>
                           <div className="flex flex-col">
                             <span className="font-semibold text-[var(--slate-800)]">
                               {estimate.projectName}
                             </span>
-                            {projectMeta ? (
+                            {title !== estimate.projectName ? (
                               <span className="text-xs text-[var(--slate-500)]">
-                                {projectMeta}
+                                {title}
                               </span>
                             ) : null}
                           </div>
                         </td>
-                        <td className="text-[var(--slate-600)]">{title}</td>
+                        <td className="text-[var(--slate-600)]">
+                          {estimate.projectClient || "—"}
+                        </td>
                         <td>
                           <Link
                             href={`/dashboard/estimates/${estimate.versionId}`}
@@ -463,9 +583,20 @@ export default function EstimatesPage() {
                           </Link>
                         </td>
                         <td>
-                          <span className={statusClass(estimate.status)}>
-                            {statusLabel(estimate.status)}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={statusClass(estimate.status)}>
+                              {statusLabel(estimate.status)}
+                            </span>
+                            {expState === "expired" ? (
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                                Expiré
+                              </span>
+                            ) : expState === "expiring_soon" ? (
+                              <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700">
+                                Expire bientôt
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="text-right font-mono font-semibold text-[var(--slate-800)]">
                           {formatEUR(estimate.totalHtCents)}
@@ -479,7 +610,13 @@ export default function EstimatesPage() {
                               href={`/dashboard/estimates/${estimate.versionId}`}
                               className="btn btn-secondary btn-sm"
                             >
-                              Ouvrir
+                              Voir
+                            </Link>
+                            <Link
+                              href={`/dashboard/estimates/${estimate.versionId}/edit`}
+                              className="btn btn-primary btn-sm"
+                            >
+                              Éditer
                             </Link>
                             <button
                               className="btn btn-ghost btn-sm"
@@ -500,7 +637,7 @@ export default function EstimatesPage() {
                               href={`/dashboard/estimates/${estimate.versionId}/print`}
                               className="btn btn-ghost btn-sm"
                             >
-                              Print
+                              Imprimer
                             </Link>
                           </div>
                         </td>
@@ -525,8 +662,8 @@ export default function EstimatesPage() {
               <p className="font-medium text-[var(--slate-700)]">Aucun chiffrage</p>
               <p className="text-sm text-[var(--slate-500)]">
                 {searchValue || selectedStatuses.length > 0
-                  ? "Aucun resultat pour ces filtres."
-                  : "Creez votre premier chiffrage pour demarrer."}
+                  ? "Aucun résultat pour ces filtres."
+                  : "Créez votre premier chiffrage pour démarrer."}
               </p>
             </div>
           ) : (
@@ -536,9 +673,17 @@ export default function EstimatesPage() {
                 const projectMeta =
                   estimate.projectReference?.trim() ||
                   estimate.projectClient?.trim();
+                const mobileExpState = getExpirationState(estimate, new Date());
 
                 return (
-                  <div key={estimate.versionId} className="px-4 py-4">
+                  <div
+                    key={estimate.versionId}
+                    className="px-4 py-4"
+                    style={{
+                      ...(mobileExpState === "expired" ? { backgroundColor: "rgba(239, 68, 68, 0.05)" } : {}),
+                      ...(mobileExpState === "expiring_soon" ? { backgroundColor: "rgba(249, 115, 22, 0.05)" } : {}),
+                    }}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold text-[var(--slate-800)]">
@@ -553,9 +698,20 @@ export default function EstimatesPage() {
                           {title}
                         </p>
                       </div>
-                      <span className={statusClass(estimate.status)}>
-                        {statusLabel(estimate.status)}
-                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={statusClass(estimate.status)}>
+                          {statusLabel(estimate.status)}
+                        </span>
+                        {mobileExpState === "expired" ? (
+                          <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                            Expiré
+                          </span>
+                        ) : mobileExpState === "expiring_soon" ? (
+                          <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700">
+                            Expire bientôt
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="mt-3 flex items-center justify-between">
                       <div className="flex items-center gap-3 text-sm">
@@ -571,12 +727,20 @@ export default function EstimatesPage() {
                           V{estimate.versionNumber}
                         </span>
                       </div>
-                      <Link
-                        href={`/dashboard/estimates/${estimate.versionId}`}
-                        className="btn btn-secondary btn-sm"
-                      >
-                        Ouvrir
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/dashboard/estimates/${estimate.versionId}/edit`}
+                          className="btn btn-primary btn-sm"
+                        >
+                          Éditer
+                        </Link>
+                        <Link
+                          href={`/dashboard/estimates/${estimate.versionId}`}
+                          className="btn btn-secondary btn-sm"
+                        >
+                          Voir
+                        </Link>
+                      </div>
                     </div>
                   </div>
                 );
@@ -594,7 +758,7 @@ export default function EstimatesPage() {
                 type="button"
                 onClick={() => goToPage(1)}
                 disabled={currentPage === 1}
-                aria-label="Premiere page"
+                aria-label="Première page"
               >
                 &laquo;
               </button>
@@ -603,7 +767,7 @@ export default function EstimatesPage() {
                 type="button"
                 onClick={() => goToPage(currentPage - 1)}
                 disabled={currentPage === 1}
-                aria-label="Page precedente"
+                aria-label="Page précédente"
               >
                 &lsaquo;
               </button>
@@ -626,7 +790,7 @@ export default function EstimatesPage() {
                 type="button"
                 onClick={() => goToPage(totalPages)}
                 disabled={currentPage === totalPages}
-                aria-label="Derniere page"
+                aria-label="Dernière page"
               >
                 &raquo;
               </button>

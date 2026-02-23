@@ -10,9 +10,9 @@ type EstimateStatusChipsProps = {
 
 const CHIPS: { status: EstimateStatus; label: string }[] = [
   { status: "draft", label: "Brouillon" },
-  { status: "sent", label: "Envoye" },
-  { status: "accepted", label: "Accepte" },
-  { status: "archived", label: "Archive" },
+  { status: "sent", label: "Envoyé" },
+  { status: "accepted", label: "Accepté" },
+  { status: "archived", label: "Archivé" },
 ];
 
 const CHIP_STYLES: Record<EstimateStatus, { bg: string; color: string; activeBg: string; activeColor: string }> = {

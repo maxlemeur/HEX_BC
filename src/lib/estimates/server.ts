@@ -175,6 +175,8 @@ type EstimateListRow = Pick<
   | "title"
   | "updated_at"
   | "total_ht_cents"
+  | "date_devis"
+  | "validite_jours"
 > & {
   estimate_projects: EstimateListProject | EstimateListProject[] | null;
 };
@@ -2546,7 +2548,7 @@ export async function listLatestEstimates() {
   let query = supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, title, updated_at, total_ht_cents, estimate_projects!inner(id, name, reference, client_name, is_archived)"
+      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)"
     )
     .eq("tenant_id", tenantId)
     .eq("estimate_projects.tenant_id", tenantId)
@@ -2578,6 +2580,8 @@ export async function listLatestEstimates() {
       title: string | null;
       updated_at: string;
       total_ht_cents: number;
+      date_devis: string | null;
+      validite_jours: number | null;
     }
   >();
 
@@ -2597,6 +2601,8 @@ export async function listLatestEstimates() {
       title: row.title,
       updated_at: row.updated_at,
       total_ht_cents: row.total_ht_cents,
+      date_devis: row.date_devis ?? null,
+      validite_jours: row.validite_jours ?? null,
     });
   });
 
