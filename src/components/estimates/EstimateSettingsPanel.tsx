@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatEUR } from "@/lib/money";
 import type {
   DiscountStepTotal,
@@ -44,6 +44,7 @@ const MARGIN_SUGGESTIONS = [1.05, 1.1, 1.2, 1.3, 1.5];
 const DEFAULT_TAX_BP = 2000;
 const MAX_CASCADE_STEPS = 4;
 const DEFAULT_CASCADE_STEP_BP = 500;
+const GLOSSARY_DISMISSED_STORAGE_KEY = "est-glossary-dismissed";
 
 const ROUNDING_OPTIONS = [
   { label: "Aucun", mode: "none" as const, step: 1 },
@@ -109,10 +110,18 @@ export function EstimateSettingsPanel({
   onChange,
   onSave,
 }: EstimateSettingsPanelProps) {
-  const [glossaryDismissed, setGlossaryDismissed] = useState(() => {
-    if (typeof window === "undefined") return true;
-    try { return localStorage.getItem("est-glossary-dismissed") === "1"; } catch { return false; }
-  });
+  const [glossaryDismissed, setGlossaryDismissed] = useState(false);
+
+  useEffect(() => {
+    try {
+      const dismissed = localStorage.getItem(GLOSSARY_DISMISSED_STORAGE_KEY) === "1";
+      if (!dismissed) return;
+      const rafId = window.requestAnimationFrame(() => setGlossaryDismissed(true));
+      return () => window.cancelAnimationFrame(rafId);
+    } catch {
+      return undefined;
+    }
+  }, []);
 
   const taxEnabled = settings.tax_rate_bp > 0;
   const taxRatePercent = settings.tax_rate_bp / 100;
@@ -167,7 +176,7 @@ export function EstimateSettingsPanel({
             className="shrink-0 text-blue-400 hover:text-blue-600"
             onClick={() => {
               setGlossaryDismissed(true);
-              try { localStorage.setItem("est-glossary-dismissed", "1"); } catch {}
+              try { localStorage.setItem(GLOSSARY_DISMISSED_STORAGE_KEY, "1"); } catch {}
             }}
             aria-label="Masquer le glossaire"
           >

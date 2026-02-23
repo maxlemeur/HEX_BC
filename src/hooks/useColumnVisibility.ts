@@ -130,12 +130,12 @@ export function useColumnVisibility() {
           return true;
         }
       );
+      const newCustom = Array.from(currentCols) as ColumnKey[];
+      setCustomColumns(newCustom);
 
       if (matchedPreset) {
         setPreset(matchedPreset);
       } else {
-        const newCustom = Array.from(currentCols) as ColumnKey[];
-        setCustomColumns(newCustom);
         setPreset("custom");
       }
     },
