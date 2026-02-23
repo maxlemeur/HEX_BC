@@ -81,6 +81,44 @@ export type DuplicateEstimateSectionResult = {
   versionToken: EstimateVersionToken | null;
 };
 
+export type EstimateImportSourceVersion = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  versionNumber: number;
+  status: EstimateStatus;
+  title: string | null;
+  updatedAt: string;
+  totalHtCents: number;
+};
+
+export type EstimateImportSectionPreview = {
+  id: string;
+  title: string;
+  lineCount: number;
+  totalHtCents: number;
+  position: number;
+};
+
+export type ImportEstimateSectionsMode = "merge" | "append";
+
+export type ImportEstimateSectionsPayload = {
+  sourceVersionId: string;
+  sectionIds: string[];
+  mode: ImportEstimateSectionsMode;
+};
+
+export type ImportEstimateSectionsResult = {
+  sourceVersionId: string;
+  targetVersionId: string;
+  mode: ImportEstimateSectionsMode;
+  importedSectionsCount: number;
+  importedLinesCount: number;
+  createdSectionIds: string[];
+  createdLineIds: string[];
+  versionToken: EstimateVersionToken | null;
+};
+
 export type EstimateTemplateSummary = {
   id: string;
   name: string;
@@ -197,6 +235,7 @@ export type CreateEstimatePayload = {
   roundingMode?: "none" | "nearest" | "up" | "down";
   roundingStepCents?: number;
   currency?: string;
+  projectNotes?: string | null;
 };
 
 export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at">;
@@ -1315,6 +1354,178 @@ function parseEstimateDraftVersionTargets(
     });
 }
 
+function isImportEstimateSectionsMode(
+  value: unknown
+): value is ImportEstimateSectionsMode {
+  return value === "merge" || value === "append";
+}
+
+function parseEstimateImportSourceVersion(
+  value: unknown
+): EstimateImportSourceVersion | null {
+  if (!isRecord(value)) return null;
+
+  const projectNode = (() => {
+    if (isRecord(value.estimate_projects)) {
+      return value.estimate_projects;
+    }
+    if (Array.isArray(value.estimate_projects)) {
+      const first = value.estimate_projects[0];
+      if (isRecord(first)) return first;
+    }
+    return null;
+  })();
+
+  const id = toStringValue(value.id);
+  const projectId =
+    toStringValue(value.projectId) ??
+    toStringValue(value.project_id) ??
+    (projectNode ? toStringValue(projectNode.id) : null);
+  const projectName =
+    toStringValue(value.projectName) ??
+    toStringValue(value.project_name) ??
+    (projectNode ? toStringValue(projectNode.name) : null);
+  const versionNumber =
+    toNumber(value.versionNumber) ?? toNumber(value.version_number);
+  const statusValue = toStringValue(value.status);
+  const updatedAt =
+    toStringValue(value.updatedAt) ?? toStringValue(value.updated_at);
+  const totalHtCents =
+    toNumber(value.totalHtCents) ?? toNumber(value.total_ht_cents);
+
+  if (
+    !id ||
+    !projectId ||
+    !projectName ||
+    versionNumber === null ||
+    !statusValue ||
+    !isEstimateStatus(statusValue) ||
+    !updatedAt ||
+    totalHtCents === null
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    projectId,
+    projectName,
+    versionNumber,
+    status: statusValue,
+    title: toStringValue(value.title),
+    updatedAt,
+    totalHtCents,
+  };
+}
+
+function parseEstimateImportSourceVersions(
+  payload: unknown
+): EstimateImportSourceVersion[] {
+  const root = getRootPayload(payload);
+  const rows = pickArray(root, ["items", "versions", "sources"]);
+
+  return rows
+    .map((entry) => parseEstimateImportSourceVersion(entry))
+    .filter((entry): entry is EstimateImportSourceVersion => entry !== null)
+    .sort((left, right) => {
+      const updatedDiff =
+        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      if (updatedDiff !== 0) return updatedDiff;
+      return right.versionNumber - left.versionNumber;
+    });
+}
+
+function parseEstimateImportSectionPreview(
+  value: unknown
+): EstimateImportSectionPreview | null {
+  if (!isRecord(value)) return null;
+
+  const id = toStringValue(value.id);
+  const title = toStringValue(value.title) ?? "Section sans titre";
+  const lineCount =
+    toNumber(value.lineCount) ?? toNumber(value.line_count) ?? 0;
+  const totalHtCents =
+    toNumber(value.totalHtCents) ?? toNumber(value.total_ht_cents) ?? 0;
+  const position = toNumber(value.position) ?? 0;
+
+  if (!id) return null;
+
+  return {
+    id,
+    title,
+    lineCount: Math.max(0, Math.trunc(lineCount)),
+    totalHtCents: Math.max(0, Math.trunc(totalHtCents)),
+    position: Math.max(0, Math.trunc(position)),
+  };
+}
+
+function parseEstimateImportSectionPreviews(
+  payload: unknown
+): EstimateImportSectionPreview[] {
+  const root = getRootPayload(payload);
+  const rows = pickArray(root, ["items", "sections"]);
+
+  return rows
+    .map((entry) => parseEstimateImportSectionPreview(entry))
+    .filter((entry): entry is EstimateImportSectionPreview => entry !== null)
+    .sort((left, right) => left.position - right.position);
+}
+
+function parseImportEstimateSectionsResult(
+  payload: unknown
+): ImportEstimateSectionsResult | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const sourceVersionId =
+    toStringValue(root.sourceVersionId) ?? toStringValue(root.source_version_id);
+  const targetVersionId =
+    toStringValue(root.targetVersionId) ?? toStringValue(root.target_version_id);
+  const modeValue = toStringValue(root.mode);
+  const importedSectionsCount =
+    toNumber(root.importedSectionsCount) ?? toNumber(root.imported_sections_count);
+  const importedLinesCount =
+    toNumber(root.importedLinesCount) ?? toNumber(root.imported_lines_count);
+
+  const createdSectionIdsRaw =
+    (Array.isArray(root.createdSectionIds) ? root.createdSectionIds : null) ??
+    (Array.isArray(root.created_section_ids) ? root.created_section_ids : null) ??
+    [];
+  const createdLineIdsRaw =
+    (Array.isArray(root.createdLineIds) ? root.createdLineIds : null) ??
+    (Array.isArray(root.created_line_ids) ? root.created_line_ids : null) ??
+    [];
+
+  const createdSectionIds = createdSectionIdsRaw
+    .map((entry) => toStringValue(entry))
+    .filter((entry): entry is string => entry !== null);
+  const createdLineIds = createdLineIdsRaw
+    .map((entry) => toStringValue(entry))
+    .filter((entry): entry is string => entry !== null);
+
+  if (
+    !sourceVersionId ||
+    !targetVersionId ||
+    importedSectionsCount === null ||
+    importedLinesCount === null ||
+    !modeValue ||
+    !isImportEstimateSectionsMode(modeValue)
+  ) {
+    return null;
+  }
+
+  return {
+    sourceVersionId,
+    targetVersionId,
+    mode: modeValue,
+    importedSectionsCount: Math.max(0, Math.trunc(importedSectionsCount)),
+    importedLinesCount: Math.max(0, Math.trunc(importedLinesCount)),
+    createdSectionIds,
+    createdLineIds,
+    versionToken: parseVersionToken(root),
+  };
+}
+
 function parseDuplicateEstimateSectionResult(
   payload: unknown
 ): DuplicateEstimateSectionResult | null {
@@ -1473,11 +1684,17 @@ function parseEstimateVersionEvents(payload: unknown): EstimateVersionEvent[] {
 }
 
 function parseVersionToken(payload: unknown): EstimateVersionToken | null {
-  const entity = extractEntity(payload, ["version", "estimateVersion"]);
+  const entity = extractEntity(payload, [
+    "version",
+    "estimateVersion",
+    "version_token",
+    "versionToken",
+  ]);
   if (!entity) return null;
 
   const id = toStringValue(entity.id);
-  const updatedAt = toStringValue(entity.updated_at);
+  const updatedAt =
+    toStringValue(entity.updated_at) ?? toStringValue(entity.updatedAt);
 
   if (!id || !updatedAt) return null;
 
@@ -1770,6 +1987,72 @@ export async function fetchEstimateDraftVersions(
   return parseEstimateDraftVersionTargets(payload);
 }
 
+export async function fetchEstimateImportSources(options?: {
+  excludeVersionId?: string;
+}): Promise<EstimateImportSourceVersion[]> {
+  const params = new URLSearchParams();
+  if (options?.excludeVersionId?.trim()) {
+    params.set("excludeVersionId", options.excludeVersionId.trim());
+  }
+
+  const query = params.toString();
+  const path = query.length > 0
+    ? `/api/estimates/import-sources?${query}`
+    : "/api/estimates/import-sources";
+
+  const payload = await requestJson<unknown>(
+    path,
+    {
+      method: "GET",
+    },
+    "Impossible de charger les devis sources."
+  );
+
+  return parseEstimateImportSourceVersions(payload);
+}
+
+export async function fetchEstimateImportableSections(
+  sourceVersionId: string
+): Promise<EstimateImportSectionPreview[]> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${sourceVersionId}/sections`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger les sections importables."
+  );
+
+  return parseEstimateImportSectionPreviews(payload);
+}
+
+export async function importEstimateSections(
+  targetVersionId: string,
+  input: ImportEstimateSectionsPayload
+): Promise<ImportEstimateSectionsResult> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${targetVersionId}/import-sections`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sourceVersionId: input.sourceVersionId,
+        sectionIds: input.sectionIds,
+        mode: input.mode,
+      }),
+    },
+    "Impossible d'importer les sections."
+  );
+
+  const parsed = parseImportEstimateSectionsResult(payload);
+  if (!parsed) {
+    throw new Error("Impossible de lire le resultat de l'import.");
+  }
+
+  return parsed;
+}
+
 export async function createEstimate(
   input: CreateEstimatePayload
 ): Promise<string> {
@@ -1785,7 +2068,7 @@ export async function createEstimate(
           name: input.projectName,
           reference: input.reference ?? null,
           client_name: input.clientName ?? null,
-          notes: null,
+          notes: input.projectNotes ?? null,
         },
         version: {
           title: input.title,

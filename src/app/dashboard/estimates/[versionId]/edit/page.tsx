@@ -20,6 +20,7 @@ import {
   type SuggestionLearningState,
 } from "@/components/estimates/EstimateEditorTable";
 import { EstimateEventsTimeline } from "@/components/estimates/EstimateEventsTimeline";
+import { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
@@ -104,6 +105,7 @@ import {
   fetchEstimateOutlierDismissedFlags,
   fetchEstimateVersionEvents,
   exportEstimate,
+  importEstimateSections,
   insertAssemblyIntoVersion,
   isEstimateApiError,
   moveEstimateItem,
@@ -114,6 +116,7 @@ import {
   toggleEstimateOutlierDismissedFlag,
   updateEstimateLaborRole,
   type EstimateExportMode,
+  type ImportEstimateSectionsPayload,
   type EstimateVersionEvent,
   type EstimateSendGatingResponse,
   updateEstimateStatus,
@@ -1397,7 +1400,10 @@ export default function EditEstimatePage() {
     useState<EstimateQualityFilter>("all_lines");
   const [activeTab, setActiveTab] = useState<"settings" | "editor">("settings");
   const hasSetInitialTabRef = useRef(false);
-  const [isChecklistCollapsed, setIsChecklistCollapsed] = useState(false);
+  const [isChecklistCollapsed, setIsChecklistCollapsed] = useState(true);
+  const [searchBarPortalNode, setSearchBarPortalNode] = useState<HTMLDivElement | null>(null);
+  const searchBarPortalRef = useRef<HTMLDivElement | null>(null);
+  searchBarPortalRef.current = searchBarPortalNode;
   const [checklistScrollTargetItemId, setChecklistScrollTargetItemId] =
     useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1450,6 +1456,10 @@ export default function EditEstimatePage() {
   const [sectionDuplicateTargets, setSectionDuplicateTargets] = useState<
     EstimateSectionDuplicateTarget[]
   >([]);
+  const [isImportFromEstimateDialogOpen, setIsImportFromEstimateDialogOpen] =
+    useState(false);
+  const [importSummaryMessage, setImportSummaryMessage] =
+    useState<string | null>(null);
   const {
     push: pushHistoryCommand,
     undo: executeUndo,
@@ -4600,6 +4610,88 @@ export default function EditEstimatePage() {
     ]
   );
 
+  const handleOpenImportFromEstimateDialog = useCallback(() => {
+    if (isReadOnly) {
+      setActionError(readOnlyActionErrorMessage);
+      return;
+    }
+    if (isConflictLocked) {
+      setActionError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+
+    if (!versionRef.current?.id) {
+      setActionError("Version introuvable.");
+      return;
+    }
+
+    setActionError(null);
+    setImportSummaryMessage(null);
+    setIsImportFromEstimateDialogOpen(true);
+  }, [
+    conflictState?.message,
+    isConflictLocked,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+  ]);
+
+  const handleConfirmImportFromEstimateDialog = useCallback(
+    async (input: ImportEstimateSectionsPayload) => {
+      if (isReadOnly) {
+        throw new Error(readOnlyActionErrorMessage);
+      }
+      if (isConflictLocked) {
+        throw new Error(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot?.id) {
+        throw new Error("Version introuvable.");
+      }
+
+      setActionError(null);
+      setImportSummaryMessage(null);
+
+      const result = await importEstimateSections(versionSnapshot.id, input);
+      await reloadItems();
+      setTotalsOutOfSync(false);
+
+      setImportSummaryMessage(
+        `${result.importedSectionsCount} section(s) et ${result.importedLinesCount} ligne(s) importees.`
+      );
+
+      if (result.versionToken?.updated_at) {
+        applyVersionToken(result.versionToken.updated_at);
+        return;
+      }
+
+      await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
+        fetchEstimateEditorData,
+        onVersionToken: (updatedAt) => {
+          applyVersionToken(updatedAt);
+        },
+        onError: (error) => {
+          console.error(
+            "Impossible de rafraichir le jeton de version apres import de sections.",
+            error
+          );
+        },
+      });
+    },
+    [
+      applyVersionToken,
+      conflictState?.message,
+      isConflictLocked,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      reloadItems,
+    ]
+  );
+
   const handleDeleteItem = useCallback(
     async (itemId: string) => {
       if (isReadOnly) {
@@ -6176,6 +6268,7 @@ export default function EditEstimatePage() {
       sectionDuplicateTargets,
       onDuplicateSection: handleDuplicateSection,
       onDuplicateSectionToVersion: handleDuplicateSectionToVersion,
+      onOpenImportFromEstimateDialog: handleOpenImportFromEstimateDialog,
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,
       onTrackSuggestionCorrections: handleTrackSuggestionCorrections,
@@ -6197,6 +6290,7 @@ export default function EditEstimatePage() {
       scrollToItemId: checklistScrollTargetItemId,
       onScrollToItemHandled: handleChecklistScrollHandled,
       virtualization: editorTableVirtualization,
+      searchBarPortalTarget: searchBarPortalRef,
     }),
     [
       actionError,
@@ -6210,6 +6304,7 @@ export default function EditEstimatePage() {
       handleInsertAssembly,
       handleDuplicateSection,
       handleDuplicateSectionToVersion,
+      handleOpenImportFromEstimateDialog,
       handleApplyBulkMajoration,
       handleBulkDeleteLines,
       handleBulkMoveLines,
@@ -6628,26 +6723,47 @@ export default function EditEstimatePage() {
         </div>
       ) : null}
 
-      <div className="estimate-tabs mt-6">
-        <button
-          className={`estimate-tab ${
-            activeTab === "settings" ? "estimate-tab--active" : ""
-          }`}
-          type="button"
-          onClick={() => setActiveTab("settings")}
-        >
-          Paramétrage
-        </button>
-        <button
-          className={`estimate-tab ${
-            activeTab === "editor" ? "estimate-tab--active" : ""
-          }`}
-          type="button"
-          onClick={() => setActiveTab("editor")}
-        >
-          Éditeur
-        </button>
+      <div className="mt-6 flex items-start gap-4">
+        <div className="estimate-tabs">
+          <button
+            className={`estimate-tab ${
+              activeTab === "settings" ? "estimate-tab--active" : ""
+            }`}
+            type="button"
+            onClick={() => setActiveTab("settings")}
+          >
+            Paramétrage
+          </button>
+          <button
+            className={`estimate-tab ${
+              activeTab === "editor" ? "estimate-tab--active" : ""
+            }`}
+            type="button"
+            onClick={() => setActiveTab("editor")}
+          >
+            Éditeur
+          </button>
+        </div>
+        <div className="ml-auto flex items-start gap-4">
+          <div className="shrink-0">
+            <EstimateChecklist
+              checklist={checklist}
+              isCollapsed={isChecklistCollapsed}
+              onToggleCollapsed={() =>
+                setIsChecklistCollapsed((previous) => !previous)
+              }
+              onCriterionClick={handleChecklistCriterionClick}
+            />
+          </div>
+          {activeTab === "editor" ? (
+            <div ref={setSearchBarPortalNode} className="shrink-0" />
+          ) : null}
+        </div>
       </div>
+
+      {importSummaryMessage ? (
+        <div className="alert alert-info mt-4">{importSummaryMessage}</div>
+      ) : null}
 
       {activeTab === "settings" ? (
         <div className="space-y-6 mt-6">
@@ -6809,24 +6925,8 @@ export default function EditEstimatePage() {
           ) : null}
         </div>
       ) : (
-        <div className="mt-6 flex flex-col gap-4 xl:flex-row">
-          <div
-            className={`shrink-0 ${isChecklistCollapsed ? "xl:w-64" : "xl:w-80"}`}
-          >
-            <div className="xl:sticky xl:top-4">
-              <EstimateChecklist
-                checklist={checklist}
-                isCollapsed={isChecklistCollapsed}
-                onToggleCollapsed={() =>
-                  setIsChecklistCollapsed((previous) => !previous)
-                }
-                onCriterionClick={handleChecklistCriterionClick}
-              />
-            </div>
-          </div>
-          <div className="min-w-0 flex-1">
-            <EstimateEditorTable {...editorTableProps} />
-          </div>
+        <div className="mt-6">
+          <EstimateEditorTable {...editorTableProps} />
         </div>
       )}
 
@@ -6843,6 +6943,14 @@ export default function EditEstimatePage() {
         onToggleItem={handleToggleBulkSuggestItem}
         onToggleAll={handleToggleAllBulkSuggestItems}
       />
+      {isImportFromEstimateDialogOpen ? (
+        <ImportFromEstimateDialog
+          isOpen
+          targetVersionId={version.id}
+          onClose={() => setIsImportFromEstimateDialogOpen(false)}
+          onConfirm={handleConfirmImportFromEstimateDialog}
+        />
+      ) : null}
       <EstimateSendGatingDialog
         isOpen={isSendGatingDialogOpen}
         isSubmitting={isUpdatingStatus}

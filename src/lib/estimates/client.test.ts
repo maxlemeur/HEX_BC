@@ -9,11 +9,14 @@ import {
   deleteEstimateAssembly,
   duplicateEstimateSection,
   duplicateEstimateAssembly,
+  fetchEstimateImportSources,
+  fetchEstimateImportableSections,
   fetchEstimateAssemblies,
   fetchEstimateDraftVersions,
   fetchEstimateEditorData,
   fetchEstimatePdfStatus,
   insertAssemblyIntoVersion,
+  importEstimateSections,
   isEstimateApiError,
   releaseEstimateDraftLock,
   requestEstimatePdfGeneration,
@@ -33,6 +36,8 @@ const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_ID = "33333333-3333-4333-8333-333333333333";
 const SUPPLY_TYPE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ASSEMBLY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const SOURCE_VERSION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const SECTION_ID_1 = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const UPDATED_AT = "2026-02-20T10:00:00.000Z";
 const NEXT_UPDATED_AT = "2026-02-20T10:00:01.000Z";
 const LOCK_EXPIRES_AT = "2026-02-20T10:30:00.000Z";
@@ -893,6 +898,174 @@ describe("estimate client section duplication wrappers", () => {
       copiedItemCount: 3,
       versionToken: {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        updated_at: NEXT_UPDATED_AT,
+      },
+    });
+  });
+
+  it("loads import sources and parses project/version metadata", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                id: SOURCE_VERSION_ID,
+                project_id: PROJECT_ID,
+                project_name: "Chantier A",
+                version_number: 12,
+                status: "sent",
+                title: "Version envoyee",
+                updated_at: "2026-02-23T08:00:00.000Z",
+                total_ht_cents: 128000,
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sources = await fetchEstimateImportSources({
+      excludeVersionId: VERSION_ID,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/import-sources?excludeVersionId=${VERSION_ID}`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(sources).toEqual([
+      {
+        id: SOURCE_VERSION_ID,
+        projectId: PROJECT_ID,
+        projectName: "Chantier A",
+        versionNumber: 12,
+        status: "sent",
+        title: "Version envoyee",
+        updatedAt: "2026-02-23T08:00:00.000Z",
+        totalHtCents: 128000,
+      },
+    ]);
+  });
+
+  it("loads importable sections for a source estimate", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            source_version_id: SOURCE_VERSION_ID,
+            items: [
+              {
+                id: SECTION_ID_1,
+                title: "Electricite",
+                line_count: 3,
+                total_ht_cents: 24900,
+                position: 1,
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const sections = await fetchEstimateImportableSections(SOURCE_VERSION_ID);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${SOURCE_VERSION_ID}/sections`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(sections).toEqual([
+      {
+        id: SECTION_ID_1,
+        title: "Electricite",
+        lineCount: 3,
+        totalHtCents: 24900,
+        position: 1,
+      },
+    ]);
+  });
+
+  it("imports sections and parses import summary with version token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            source_version_id: SOURCE_VERSION_ID,
+            target_version_id: VERSION_ID,
+            mode: "append",
+            imported_sections_count: 2,
+            imported_lines_count: 7,
+            created_section_ids: [SECTION_ID_1],
+            created_line_ids: [ITEM_ID],
+            version: {
+              id: VERSION_ID,
+              updated_at: NEXT_UPDATED_AT,
+            },
+          },
+        }),
+        {
+          status: 201,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await importEstimateSections(VERSION_ID, {
+      sourceVersionId: SOURCE_VERSION_ID,
+      sectionIds: [SECTION_ID_1],
+      mode: "append",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/import-sections`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+      })
+    );
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      sourceVersionId: SOURCE_VERSION_ID,
+      sectionIds: [SECTION_ID_1],
+      mode: "append",
+    });
+
+    expect(result).toEqual({
+      sourceVersionId: SOURCE_VERSION_ID,
+      targetVersionId: VERSION_ID,
+      mode: "append",
+      importedSectionsCount: 2,
+      importedLinesCount: 7,
+      createdSectionIds: [SECTION_ID_1],
+      createdLineIds: [ITEM_ID],
+      versionToken: {
+        id: VERSION_ID,
         updated_at: NEXT_UPDATED_AT,
       },
     });

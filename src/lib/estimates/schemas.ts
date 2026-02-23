@@ -738,6 +738,67 @@ export const duplicateEstimateSectionSchema = z.preprocess(
   })
 );
 
+export const importEstimateSectionsModeSchema = z.enum(["merge", "append"]);
+
+const importEstimateSectionIdsSchema = z
+  .array(uuidSchema)
+  .min(1, "section_ids ne peut pas etre vide.")
+  .max(100, "section_ids ne peut pas contenir plus de 100 sections.")
+  .superRefine((sectionIds, ctx) => {
+    const uniqueIds = new Set<string>();
+
+    sectionIds.forEach((sectionId, index) => {
+      if (!uniqueIds.has(sectionId)) {
+        uniqueIds.add(sectionId);
+        return;
+      }
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "section_ids doit contenir des identifiants uniques.",
+        path: [index],
+      });
+    });
+  });
+
+export const importEstimateSectionsSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      source_version_id:
+        record.source_version_id ?? record.sourceVersionId,
+      section_ids: record.section_ids ?? record.sectionIds,
+      mode: record.mode,
+    };
+  },
+  z.object({
+    source_version_id: uuidSchema,
+    section_ids: importEstimateSectionIdsSchema,
+    mode: importEstimateSectionsModeSchema.optional().default("append"),
+  })
+);
+
+export const listEstimateImportSourcesQuerySchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      exclude_version_id:
+        record.exclude_version_id ?? record.excludeVersionId ?? null,
+    };
+  },
+  z.object({
+    exclude_version_id: nullableUuidSchema.optional(),
+  })
+);
+
 const estimateAssemblyItemSchema = z.preprocess(
   (value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -962,6 +1023,15 @@ export type DuplicateEstimateTemplateInput = z.infer<
 >;
 export type DuplicateEstimateSectionInput = z.infer<
   typeof duplicateEstimateSectionSchema
+>;
+export type ImportEstimateSectionsModeInput = z.infer<
+  typeof importEstimateSectionsModeSchema
+>;
+export type ImportEstimateSectionsInput = z.infer<
+  typeof importEstimateSectionsSchema
+>;
+export type ListEstimateImportSourcesQueryInput = z.infer<
+  typeof listEstimateImportSourcesQuerySchema
 >;
 export type EstimateAssemblyItemInput = z.infer<typeof estimateAssemblyItemSchema>;
 export type CreateEstimateAssemblyInput = z.infer<

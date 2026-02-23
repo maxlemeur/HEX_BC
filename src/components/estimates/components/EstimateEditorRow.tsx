@@ -438,8 +438,6 @@ export type EstimateEditorRowProps = {
   isLineSelected: boolean;
   hasSupplierComparisonMismatch: boolean;
   visibleColumns?: ColumnVisibilitySet;
-  onAddSection: (parentId: string | null) => void;
-  onAddLine: (parentId: string | null) => void;
   onDeleteItem: (itemId: string) => void;
   onOpenSupplierComparisonPanel: (itemId: string) => void;
   onOpenSupplierComparisonContextMenu: (
@@ -464,6 +462,8 @@ export type EstimateEditorRowProps = {
     flagKey: EstimateOutlierFlagKey,
     dismissed: boolean
   ) => void;
+  onAddLine: (parentId: string | null) => void;
+  onAddSection: (parentId: string | null) => void;
   onLineSelectionInteraction: (interaction: MultiSelectItemInteraction) => void;
   sectionTotals: SectionTotals | null;
   isDragDisabled: boolean;
@@ -489,8 +489,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   navigation,
   isLineSelected,
   hasSupplierComparisonMismatch,
-  onAddSection,
-  onAddLine,
   onDeleteItem,
   onOpenSupplierComparisonPanel,
   onOpenSupplierComparisonContextMenu,
@@ -500,6 +498,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   onUnitCommit,
   onSupplyTypeChange,
   onSupplyTypeCommit,
+  onAddLine,
+  onAddSection,
   onToggleOutlierDismiss,
   onLineSelectionInteraction,
   sectionTotals,
@@ -786,6 +786,26 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             attributes={attributes}
             disabled={isReadOnly || isDragDisabled}
           />
+          <div className="estimate-section-hover-actions">
+            <button
+              className="estimate-section-hover-btn"
+              type="button"
+              onClick={() => onAddLine(item.id)}
+              disabled={isReadOnly}
+            >
+              + Ligne
+            </button>
+            {depth === 0 && (
+              <button
+                className="estimate-section-hover-btn"
+                type="button"
+                onClick={() => onAddSection(item.id)}
+                disabled={isReadOnly}
+              >
+                + Sous-chap
+              </button>
+            )}
+          </div>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <input
               className="estimate-input estimate-input--title"
@@ -807,101 +827,83 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             />
           </div>
         </div>
-        <div className="estimate-cell estimate-cell--section-actions">
-          <div className="estimate-section-totals">
-            <span className="estimate-section-total-chip estimate-section-total-chip--fo">
-              FO {formatEUR(sectionTotals?.foTotalCents ?? 0)}
-            </span>
-            {isLaborSplitEnabled ? (
-              <>
-                <span className="estimate-section-total-chip estimate-section-total-chip--mo">
-                  MO atelier {formatEUR(sectionTotals?.moAtelierTotalCents ?? 0)}
-                </span>
-                <span className="estimate-section-total-chip estimate-section-total-chip--mo">
-                  MO chantier {formatEUR(sectionTotals?.moChantierTotalCents ?? 0)}
-                </span>
-              </>
-            ) : (
-              <span className="estimate-section-total-chip estimate-section-total-chip--mo">
-                MO {formatEUR(sectionTotals?.moTotalCents ?? 0)}
-              </span>
-            )}
-            <span className="estimate-section-total-chip">
-              HT {formatEUR(sectionTotals?.totalHtCents ?? 0)}
-            </span>
-            <span className="estimate-section-total-chip">
-              TTC {formatEUR(sectionTotals?.totalTtcCents ?? 0)}
-            </span>
-            {supplyTypeEntries.map(([supplyTypeId, cents]) => {
-              const isUnassigned = supplyTypeId === UNASSIGNED_SUPPLY_TYPE_KEY;
-              const label = isUnassigned
-                ? "Sans categorie FO"
-                : (supplyTypeById.get(supplyTypeId)?.name ?? "Type inconnu");
-              return (
-                <span
-                  key={`${item.id}:supply_type:${supplyTypeId}`}
-                  className={`estimate-section-total-chip${isUnassigned ? " estimate-section-total-chip--unassigned" : ""}`}
-                  title={
-                    isUnassigned
-                      ? "Ces lignes n'ont pas de type de fourniture assigne."
-                      : undefined
-                  }
-                >
-                  {label} {formatEUR(cents)}
-                </span>
-              );
-            })}
-          </div>
-          <div className="estimate-row-actions">
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={() => onAddLine(item.id)}
-              disabled={isReadOnly}
-            >
-              + Ligne
-            </button>
-            {depth === 0 ? (
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                onClick={() => onAddSection(item.id)}
-                disabled={isReadOnly}
-              >
-                + Sous-chapitre
-              </button>
-            ) : null}
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                onOpenSectionContextMenu(item.id, {
-                  x: rect.left,
-                  y: rect.bottom + 4,
-                });
-              }}
-              disabled={isReadOnly}
-            >
-              Actions
-            </button>
-            <button
-              className="btn btn-danger btn-sm"
-              type="button"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Êtes-vous sûr de vouloir supprimer ce chapitre et toutes ses lignes ?"
-                  )
-                ) {
-                  onDeleteItem(item.id);
-                }
-              }}
-              disabled={isReadOnly}
-            >
-              Supprimer
-            </button>
-          </div>
+        {/* qty */}
+        <div />
+        {/* unit */}
+        <div />
+        {/* PR.FO total */}
+        <div
+          className="estimate-section-total-cell estimate-section-total-cell--fo"
+          title={supplyTypeEntries.length > 0
+            ? supplyTypeEntries.map(([id, cents]) => {
+                const isUnassigned = id === UNASSIGNED_SUPPLY_TYPE_KEY;
+                const label = isUnassigned
+                  ? "Sans catégorie FO"
+                  : (supplyTypeById.get(id)?.name ?? "Type inconnu");
+                return `${label} : ${formatEUR(cents)}`;
+              }).join("\n")
+            : undefined}
+        >
+          FO {formatEUR(sectionTotals?.foTotalCents ?? 0)}
+        </div>
+        {isLaborSplitEnabled ? (
+          <>
+            <div />{/* supply_type */}
+            <div />{/* k_fo */}
+            <div />{/* h_mo_majoration */}
+            <div className="estimate-section-total-cell estimate-section-total-cell--mo">
+              MO at. {formatEUR(sectionTotals?.moAtelierTotalCents ?? 0)}
+            </div>
+            <div />{/* labor_role_atelier */}
+            <div />{/* k_mo_atelier */}
+            <div className="estimate-section-total-cell estimate-section-total-cell--mo">
+              MO ch. {formatEUR(sectionTotals?.moChantierTotalCents ?? 0)}
+            </div>
+            <div />{/* labor_role_chantier */}
+            <div />{/* k_mo_chantier */}
+          </>
+        ) : (
+          <>
+            {(!visibleColumns || visibleColumns.has("supply_type")) ? <div /> : null}
+            {(!visibleColumns || visibleColumns.has("k_fo")) ? <div /> : null}
+            <div className="estimate-section-total-cell estimate-section-total-cell--mo">
+              MO {formatEUR(sectionTotals?.moTotalCents ?? 0)}
+            </div>
+            {(!visibleColumns || visibleColumns.has("h_mo_majoration")) ? <div /> : null}
+            {(!visibleColumns || visibleColumns.has("labor_role")) ? <div /> : null}
+            {(!visibleColumns || visibleColumns.has("k_mo")) ? <div /> : null}
+          </>
+        )}
+        {/* PU */}
+        <div />
+        {/* total HT */}
+        <div
+          className="estimate-section-total-cell estimate-section-total-cell--ht"
+          title={`TTC ${formatEUR(sectionTotals?.totalTtcCents ?? 0)}`}
+        >
+          HT {formatEUR(sectionTotals?.totalHtCents ?? 0)}
+        </div>
+        {/* actions */}
+        <div className="estimate-cell estimate-cell--actions">
+          <button
+            className="estimate-section-more-btn"
+            type="button"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              onOpenSectionContextMenu(item.id, {
+                x: rect.left,
+                y: rect.bottom + 4,
+              });
+            }}
+            disabled={isReadOnly}
+            aria-label="Actions"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="3" cy="8" r="1.5" />
+              <circle cx="8" cy="8" r="1.5" />
+              <circle cx="13" cy="8" r="1.5" />
+            </svg>
+          </button>
         </div>
       </div>
     );

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
@@ -123,6 +123,7 @@ function filterByDateRange(items: EstimateListItem[], range: DateRange): Estimat
 }
 
 export default function EstimatesPage() {
+  const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
@@ -267,9 +268,13 @@ export default function EstimatesPage() {
     if (currentPage > 1) params.set("page", String(currentPage));
 
     const qs = params.toString();
-    const newPath = qs ? `/dashboard/estimates?${qs}` : "/dashboard/estimates";
+    const currentQs = searchParams.toString();
+    if (qs === currentQs) {
+      return;
+    }
+    const newPath = qs ? `${pathname}?${qs}` : pathname;
     router.replace(newPath, { scroll: false });
-  }, [searchValue, selectedStatuses, sortState, currentPage, router]);
+  }, [searchValue, selectedStatuses, sortState, currentPage, pathname, router, searchParams]);
 
   const handleDuplicate = useCallback(
     async (versionId: string) => {
@@ -312,6 +317,9 @@ export default function EstimatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/dashboard" title="Vue analytique des chiffrages">
+            Dashboard
+          </Link>
           <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/templates" title="Modèles de chiffrage réutilisables">
             Templates
           </Link>

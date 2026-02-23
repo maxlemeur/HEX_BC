@@ -202,6 +202,7 @@ type EstimateEditorTableProps = {
   laborRateById: Map<string, number>;
   isLaborSplitEnabled?: boolean;
   isReadOnly: boolean;
+  searchBarPortalTarget?: React.RefObject<HTMLDivElement | null>;
   onQualityFilterChange: (value: EstimateQualityFilter) => void;
   onOutlierDetectionMethodChange: (value: EstimateOutlierMethod) => void;
   onOutlierThresholdChange: (value: number) => void;
@@ -250,6 +251,7 @@ type EstimateEditorTableProps = {
   isUndoRedoBusy: boolean;
   bulkSuggestionEligibleCount: number;
   onOpenBulkSuggestDialog: () => void;
+  onOpenImportFromEstimateDialog?: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
   onMoveItem: (
     itemId: string,
@@ -625,11 +627,13 @@ export function EstimateEditorTable({
   isUndoRedoBusy,
   bulkSuggestionEligibleCount,
   onOpenBulkSuggestDialog,
+  onOpenImportFromEstimateDialog,
   onReorder,
   onMoveItem,
   scrollToItemId,
   onScrollToItemHandled,
   virtualization,
+  searchBarPortalTarget,
 }: EstimateEditorTableProps) {
   const columnVisibility = useColumnVisibility();
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
@@ -706,19 +710,39 @@ export function EstimateEditorTable({
   });
   const dynamicGridStyle = useMemo(() => {
     if (isLaborSplitEnabled) return undefined; // labor split uses its own grid, not affected by column visibility
-    const cols: string[] = ["52px", "minmax(260px, 3fr)", "80px", "80px", "110px"]; // checkbox, designation, qty, unit, PR.FO
-    let minWidth = 52 + 260 + 80 + 80 + 110;
+    const cols: string[] = ["minmax(320px, 3fr)", "80px", "80px", "110px"]; // designation, qty, unit, PR.FO
+    let minWidth = 320 + 80 + 80 + 110;
     if (columnVisibility.visibleColumns.has("supply_type")) { cols.push("140px"); minWidth += 140; }
     if (columnVisibility.visibleColumns.has("k_fo")) { cols.push("70px"); minWidth += 70; }
     cols.push("80px"); minWidth += 80; // h MO (always visible)
     if (columnVisibility.visibleColumns.has("h_mo_majoration")) { cols.push("130px"); minWidth += 130; }
     if (columnVisibility.visibleColumns.has("labor_role")) { cols.push("130px"); minWidth += 130; }
     if (columnVisibility.visibleColumns.has("k_mo")) { cols.push("80px"); minWidth += 80; }
-    cols.push("110px", "120px", "110px"); minWidth += 110 + 120 + 110; // P.U., Prix total, actions
+    cols.push("110px", "120px", "50px"); minWidth += 110 + 120 + 50; // P.U., Prix total, actions
     return {
       "--estimate-grid": cols.join(" "),
       "--estimate-min-width": `${minWidth}px`,
     } as React.CSSProperties;
+  }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
+
+  // Compute super-header FO/MO group spans for the grid
+  const superHeaderSpans = useMemo(() => {
+    const foStart = 4; // PR.FO is always column 4 (after designation, qty, unit)
+    if (isLaborSplitEnabled) {
+      return { foStart, foSpan: 3, moStart: 7, moSpan: 7, puStart: 14 };
+    }
+    const foSpan =
+      1 +
+      (columnVisibility.visibleColumns.has("supply_type") ? 1 : 0) +
+      (columnVisibility.visibleColumns.has("k_fo") ? 1 : 0);
+    const moStart = foStart + foSpan;
+    const moSpan =
+      1 +
+      (columnVisibility.visibleColumns.has("h_mo_majoration") ? 1 : 0) +
+      (columnVisibility.visibleColumns.has("labor_role") ? 1 : 0) +
+      (columnVisibility.visibleColumns.has("k_mo") ? 1 : 0);
+    const puStart = moStart + moSpan;
+    return { foStart, foSpan, moStart, moSpan, puStart };
   }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
 
   const canReorder = !isReadOnly && qualityFilter === "all_lines";
@@ -1785,7 +1809,9 @@ export function EstimateEditorTable({
       unitValue: string,
       supplyTypeValue: string,
       qualityFlags: EstimateQualityFlagKey[],
-      sectionTotals: SectionTotals | null
+      sectionTotals: SectionTotals | null,
+      isLastChild?: boolean,
+      parentIsLastChild?: boolean
     ) => {
       const bestSupplierPriceId = bestSupplierPriceIdByItemId[item.id] ?? null;
       const hasSupplierComparisonMismatch =
@@ -1807,8 +1833,6 @@ export function EstimateEditorTable({
           navigation={spreadsheetNavigation}
           isLineSelected={item.item_type === "line" && isLineSelected(item.id)}
           hasSupplierComparisonMismatch={hasSupplierComparisonMismatch}
-          onAddSection={onAddSection}
-          onAddLine={onAddLine}
           onDeleteItem={onDeleteItem}
           onOpenSupplierComparisonPanel={openSupplierComparisonPanel}
           onOpenSupplierComparisonContextMenu={
@@ -1820,6 +1844,8 @@ export function EstimateEditorTable({
           onUnitCommit={handleUnitCommit}
           onSupplyTypeChange={handleSupplyTypeDraftChange}
           onSupplyTypeCommit={handleSupplyTypeCommit}
+          onAddLine={onAddLine}
+          onAddSection={onAddSection}
           onToggleOutlierDismiss={onToggleOutlierDismiss}
           onLineSelectionInteraction={handleLineSelectionInteraction}
           sectionTotals={sectionTotals}
@@ -1833,6 +1859,8 @@ export function EstimateEditorTable({
             item.item_type === "line" &&
             Boolean(item.title?.toLowerCase().includes(searchTerm.toLowerCase()))
           }
+          isLastChild={isLastChild}
+          parentIsLastChild={parentIsLastChild}
         />
       );
     },
@@ -1843,6 +1871,8 @@ export function EstimateEditorTable({
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
       handleOpenSectionContextMenu,
+      onAddLine,
+      onAddSection,
       handleOpenSupplierComparisonContextMenu,
       handleSupplyTypeCommit,
       handleSupplyTypeDraftChange,
@@ -1854,8 +1884,6 @@ export function EstimateEditorTable({
       isReadOnly,
       laborRoles,
       openSupplierComparisonPanel,
-      onAddLine,
-      onAddSection,
       onDeleteItem,
       patchItemWithSuggestionTracking,
       onToggleOutlierDismiss,
@@ -1878,13 +1906,15 @@ export function EstimateEditorTable({
         row.unitValue,
         row.supplyTypeValue,
         row.qualityFlags,
-        row.item.item_type === "section" ? getSectionTotals(row.item.id) : null
+        row.item.item_type === "section" ? getSectionTotals(row.item.id) : null,
+        row.isLastChild,
+        row.parentIsLastChild
       );
     },
     [getSectionTotals, renderSortableRow, renderSuggestionRow]
   );
 
-  function renderList(parentId: string | null) {
+  function renderList(parentId: string | null, parentIsLastChild?: boolean) {
     const list = getVisibleItems(parentId);
     if (list.length === 0) return null;
 
@@ -1894,7 +1924,8 @@ export function EstimateEditorTable({
           items={list.map((item) => item.id)}
           strategy={verticalListSortingStrategy}
         >
-          {list.map((item) => {
+          {list.map((item, index) => {
+            const isLast = index === list.length - 1;
             const suggestions = suggestionsByItemId.get(item.id);
             return (
               <Fragment key={item.id}>
@@ -1906,10 +1937,12 @@ export function EstimateEditorTable({
                   qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
                   item.item_type === "section"
                     ? getSectionTotals(item.id)
-                    : null
+                    : null,
+                  isLast,
+                  parentIsLastChild
                 )}
                 {suggestions ? renderSuggestionRow(item, suggestions) : null}
-                {item.item_type === "section" ? renderList(item.id) : null}
+                {item.item_type === "section" ? renderList(item.id, isLast) : null}
               </Fragment>
             );
           })}
@@ -2008,6 +2041,7 @@ export function EstimateEditorTable({
           onApplyBulkLaborRole={handleApplyBulkLaborRole}
           onOpenBulkSuggestDialog={onOpenBulkSuggestDialog}
           onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
+          onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
           onAddRootSection={() => onAddSection(null)}
           columnPreset={columnVisibility.preset}
           columnPresetLabels={columnVisibility.presetLabels}
@@ -2018,6 +2052,7 @@ export function EstimateEditorTable({
           allAdvancedColumns={columnVisibility.allAdvancedColumns}
           columnLabels={columnVisibility.columnLabels}
           onToggleColumn={columnVisibility.toggleColumn}
+          searchBarPortalTarget={searchBarPortalTarget}
         />
 
       {actionError && (
@@ -2044,8 +2079,25 @@ export function EstimateEditorTable({
         className={`estimate-table${isLaborSplitEnabled ? " estimate-table--labor-split" : ""}`}
         style={dynamicGridStyle}
       >
+        {/* Super-header: FO / MO column group labels */}
+        <div className="estimate-table__super-head" aria-hidden="true">
+          <div style={{ gridColumn: `1 / span 3` }} />
+          <div
+            className="estimate-super-head__group estimate-super-head__group--fo"
+            style={{ gridColumn: `${superHeaderSpans.foStart} / span ${superHeaderSpans.foSpan}` }}
+          >
+            Fournitures
+          </div>
+          <div
+            className="estimate-super-head__group estimate-super-head__group--mo"
+            style={{ gridColumn: `${superHeaderSpans.moStart} / span ${superHeaderSpans.moSpan}` }}
+          >
+            Main d&apos;oeuvre
+          </div>
+          <div style={{ gridColumn: `${superHeaderSpans.puStart} / span 3` }} />
+        </div>
         <div className="estimate-table__head">
-          <div>
+          <div className="relative flex items-center gap-2">
             <input
               type="checkbox"
               className="estimate-line-checkbox"
@@ -2054,44 +2106,44 @@ export function EstimateEditorTable({
               disabled={isReadOnly || visibleLineIdList.length === 0}
               aria-label="Sélectionner toutes les lignes visibles"
             />
+            <ColumnHeaderHelp label="Désignation" tooltip={COLUMN_HEADER_TOOLTIPS["Désignation"]} />
           </div>
-          <div className="relative"><ColumnHeaderHelp label="Désignation" tooltip={COLUMN_HEADER_TOOLTIPS["Désignation"]} /></div>
           <div className="relative"><ColumnHeaderHelp label="Qté" tooltip={COLUMN_HEADER_TOOLTIPS["Qté"]} /></div>
           <div className="relative"><ColumnHeaderHelp label="U" tooltip={COLUMN_HEADER_TOOLTIPS["U"]} /></div>
-          <div className="relative"><ColumnHeaderHelp label="PR. FO" tooltip={COLUMN_HEADER_TOOLTIPS["PR. FO"]} /></div>
+          <div className="relative estimate-col--fo"><ColumnHeaderHelp label="PR. FO" tooltip={COLUMN_HEADER_TOOLTIPS["PR. FO"]} /></div>
           {isLaborSplitEnabled ? (
             <>
-              <div className="relative"><ColumnHeaderHelp label="Type FO" tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]} /></div>
-              <div className="relative"><ColumnHeaderHelp label="K FO" tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]} /></div>
-              <div className="relative"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} /></div>
-              <div className="relative"><ColumnHeaderHelp label="h MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO atelier"]} /></div>
-              <div className="relative"><ColumnHeaderHelp label="Type MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO atelier"]} /></div>
-              <div className="relative"><ColumnHeaderHelp label="K MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO atelier"]} /></div>
-              <div className="relative"><ColumnHeaderHelp label="h MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO chantier"]} /></div>
-              <div className="relative"><ColumnHeaderHelp label="Type MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO chantier"]} /></div>
-              <div className="relative"><ColumnHeaderHelp label="K MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO chantier"]} /></div>
+              <div className="relative estimate-col--fo"><ColumnHeaderHelp label="Type FO" tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]} /></div>
+              <div className="relative estimate-col--fo"><ColumnHeaderHelp label="K FO" tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]} /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO atelier"]} /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO atelier"]} /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO atelier"]} /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO chantier"]} /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO chantier"]} /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO chantier"]} /></div>
             </>
           ) : (
             <>
               {columnVisibility.visibleColumns.has("supply_type") ? (
-                <div className="relative"><ColumnHeaderHelp label="Type FO" tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]} /></div>
+                <div className="relative estimate-col--fo"><ColumnHeaderHelp label="Type FO" tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]} /></div>
               ) : null}
               {columnVisibility.visibleColumns.has("k_fo") ? (
-                <div className="relative"><ColumnHeaderHelp label="K FO" tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]} /></div>
+                <div className="relative estimate-col--fo"><ColumnHeaderHelp label="K FO" tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]} /></div>
               ) : null}
-              <div className="relative"><ColumnHeaderHelp label="h MO" tooltip={COLUMN_HEADER_TOOLTIPS["h MO"]} /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO" tooltip={COLUMN_HEADER_TOOLTIPS["h MO"]} /></div>
               {columnVisibility.visibleColumns.has("h_mo_majoration") ? (
-                <div className="relative"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} /></div>
+                <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} /></div>
               ) : null}
               {columnVisibility.visibleColumns.has("labor_role") ? (
-                <div className="relative"><ColumnHeaderHelp label="Type MO" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO"]} /></div>
+                <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO"]} /></div>
               ) : null}
               {columnVisibility.visibleColumns.has("k_mo") ? (
-                <div className="relative"><ColumnHeaderHelp label="K MO" tooltip={COLUMN_HEADER_TOOLTIPS["K MO"]} /></div>
+                <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO" tooltip={COLUMN_HEADER_TOOLTIPS["K MO"]} /></div>
               ) : null}
             </>
           )}
-          <div className="relative"><ColumnHeaderHelp label="P.U." tooltip={COLUMN_HEADER_TOOLTIPS["P.U."]} /></div>
+          <div className="relative estimate-cell--pu-separator"><ColumnHeaderHelp label="P.U." tooltip={COLUMN_HEADER_TOOLTIPS["P.U."]} /></div>
           <div className="relative"><ColumnHeaderHelp label="Prix total" tooltip={COLUMN_HEADER_TOOLTIPS["Prix total"]} /></div>
           <div></div>
         </div>
@@ -2118,7 +2170,6 @@ export function EstimateEditorTable({
         />
         {hasVisibleRows ? (
           <div className="estimate-table__footer">
-            <div></div>
             <div className="font-semibold text-[var(--slate-800)]">Total</div>
             <div></div>
             <div></div>
@@ -2159,10 +2210,39 @@ export function EstimateEditorTable({
           role="menu"
           aria-label="Actions de section"
           style={{
-            left: `${sectionContextMenu.x}px`,
+            left: `${Math.min(sectionContextMenu.x, window.innerWidth - 240)}px`,
             top: `${sectionContextMenu.y}px`,
           }}
         >
+          <button
+            type="button"
+            className="estimate-supplier-comparison-context-menu__action"
+            role="menuitem"
+            onClick={() => {
+              const id = sectionContextMenu!.sectionId;
+              closeSectionContextMenu();
+              onAddLine(id);
+            }}
+            disabled={isReadOnly}
+          >
+            + Ligne
+          </button>
+          {itemById.get(sectionContextMenu.sectionId)?.parent_id == null && (
+            <button
+              type="button"
+              className="estimate-supplier-comparison-context-menu__action"
+              role="menuitem"
+              onClick={() => {
+                const id = sectionContextMenu!.sectionId;
+                closeSectionContextMenu();
+                onAddSection(id);
+              }}
+              disabled={isReadOnly}
+            >
+              + Sous-chapitre
+            </button>
+          )}
+          <div className="estimate-section-context-menu__separator" />
           <button
             type="button"
             className="estimate-supplier-comparison-context-menu__action"
@@ -2191,6 +2271,22 @@ export function EstimateEditorTable({
             onClick={handleOpenSaveAsAssemblyDialog}
           >
             Enregistrer comme assemblage
+          </button>
+          <div className="estimate-section-context-menu__separator" />
+          <button
+            type="button"
+            className="estimate-supplier-comparison-context-menu__action estimate-supplier-comparison-context-menu__action--danger"
+            role="menuitem"
+            onClick={() => {
+              const id = sectionContextMenu!.sectionId;
+              closeSectionContextMenu();
+              if (window.confirm("Êtes-vous sûr de vouloir supprimer ce chapitre et toutes ses lignes ?")) {
+                onDeleteItem(id);
+              }
+            }}
+            disabled={isReadOnly}
+          >
+            Supprimer la section
           </button>
         </div>
       ) : null}

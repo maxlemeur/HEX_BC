@@ -19,6 +19,12 @@ const STATUS_BADGE_CLASSNAME: Record<EstimateChecklistStatus, string> = {
   blocking: "border-rose-200 bg-rose-50 text-rose-700",
 };
 
+const COLLAPSED_BORDER_CLASSNAME: Record<EstimateChecklistStatus, string> = {
+  complete: "border-l-4 border-l-emerald-400",
+  warning: "border-l-4 border-l-orange-400",
+  blocking: "border-l-4 border-l-rose-400",
+};
+
 const PROGRESS_BAR_CLASSNAME: Record<EstimateChecklistStatus, string> = {
   complete: "bg-emerald-500",
   warning: "bg-orange-500",
@@ -46,15 +52,16 @@ export function EstimateChecklist({
   const statusBadgeClassName = STATUS_BADGE_CLASSNAME[checklist.status];
   const progressBarClassName = PROGRESS_BAR_CLASSNAME[checklist.status];
 
+  const collapsedBorderClassName = isCollapsed
+    ? COLLAPSED_BORDER_CLASSNAME[checklist.status]
+    : "";
+
   return (
-    <aside className="dashboard-card h-fit p-4">
+    <aside className={`dashboard-card h-fit p-4 ${collapsedBorderClassName}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]">
-            EST-142
-          </p>
           <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-            Checklist completude
+            Checklist complétude
           </h2>
         </div>
         <button
@@ -79,15 +86,19 @@ export function EstimateChecklist({
         </span>
       </div>
 
-      <div className="mt-2 h-2 w-full rounded-full bg-[var(--slate-200)]">
-        <div
-          className={`h-2 rounded-full transition-all ${progressBarClassName}`}
-          style={{ width: `${checklist.progressPercent}%` }}
-        />
-      </div>
-      <p className="mt-1 text-xs text-[var(--slate-500)]">
-        Progression globale: {checklist.progressPercent}%
-      </p>
+      {!isCollapsed ? (
+        <>
+          <div className="mt-2 h-2 w-full rounded-full bg-[var(--slate-200)]">
+            <div
+              className={`h-2 rounded-full transition-all ${progressBarClassName}`}
+              style={{ width: `${checklist.progressPercent}%` }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            Progression globale: {checklist.progressPercent}%
+          </p>
+        </>
+      ) : null}
 
       {!isCollapsed ? (
         <div className="mt-4 space-y-2">

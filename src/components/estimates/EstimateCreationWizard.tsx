@@ -36,6 +36,15 @@ const ROUNDING_OPTIONS = [
   { label: "100 EUR", mode: "nearest" as const, step: 10000 },
 ] as const;
 
+const PROJECT_FAMILY_OPTIONS = [
+  { value: "", label: "Non renseignee" },
+  { value: "Maintenance", label: "Maintenance" },
+  { value: "Renovation", label: "Renovation" },
+  { value: "Travaux neufs", label: "Travaux neufs" },
+  { value: "Mise en conformite", label: "Mise en conformite" },
+  { value: "Rehabilitation", label: "Rehabilitation" },
+] as const;
+
 const STEPS = [
   { label: "Projet", description: "Informations projet" },
   { label: "Paramètres", description: "Marge, TVA, arrondi" },
@@ -61,9 +70,11 @@ type WizardData = {
   roundingMode: "none" | "nearest" | "up" | "down";
   roundingStepCents: string;
   currency: string;
+  projectFamily: string;
   // Step 3
   creationMode: "blank" | "template";
   selectedTemplateId: string;
+  dpgfImportMode: "none" | "later";
 };
 
 type StepErrors = Record<string, string>;
@@ -94,8 +105,10 @@ function initialWizardData(): WizardData {
     roundingMode: "none",
     roundingStepCents: "1",
     currency: "EUR",
+    projectFamily: "",
     creationMode: "blank",
     selectedTemplateId: "",
+    dpgfImportMode: "none",
   };
 }
 
@@ -123,6 +136,12 @@ function clearDraft() {
   } catch {
     // ignore
   }
+}
+
+function buildProjectNotes(projectFamily: string) {
+  const family = projectFamily.trim();
+  if (!family) return null;
+  return `Famille Achat: ${family}`;
 }
 
 function formatDateLabel(isoValue: string) {
@@ -277,7 +296,11 @@ export function EstimateCreationWizard({
   );
   const [data, setData] = useState<WizardData>(() => {
     const draft = loadDraft();
-    return draft ?? initialWizardData();
+    if (!draft) return initialWizardData();
+    return {
+      ...initialWizardData(),
+      ...draft,
+    };
   });
   const [errors, setErrors] = useState<StepErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -315,6 +338,10 @@ export function EstimateCreationWizard({
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    saveDraft(data);
+  }, [data]);
 
   // Update helper
   const updateField = useCallback(
@@ -378,7 +405,6 @@ export function EstimateCreationWizard({
   function goNext() {
     if (!validateStep(currentStep)) return;
     setValidatedSteps((prev) => new Set(prev).add(currentStep));
-    saveDraft(data);
     setCurrentStep((prev) => Math.min(prev + 1, STEPS.length - 1));
   }
 
@@ -427,6 +453,7 @@ export function EstimateCreationWizard({
               ? Number(data.roundingStepCents)
               : undefined,
           currency: data.currency || undefined,
+          projectNotes: buildProjectNotes(data.projectFamily),
         });
       }
 
@@ -458,6 +485,7 @@ export function EstimateCreationWizard({
         title: null,
         dateDevis: todayISO(),
         validiteJours: DEFAULT_VALIDITE_JOURS,
+        projectNotes: buildProjectNotes(data.projectFamily),
       });
       clearDraft();
       onCreated(versionId);
@@ -701,6 +729,27 @@ export function EstimateCreationWizard({
             ))}
           </select>
         </div>
+
+        <div className="sm:col-span-2">
+          <label className="form-label" htmlFor="wiz-project-family">
+            Famille de projet
+          </label>
+          <select
+            id="wiz-project-family"
+            className="form-input form-select"
+            value={data.projectFamily}
+            onChange={(e) => updateField("projectFamily", e.target.value)}
+          >
+            {PROJECT_FAMILY_OPTIONS.map((option) => (
+              <option key={option.value || "__empty"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-2 text-xs text-[var(--slate-500)]">
+            Champ optionnel memorise dans les notes du projet lors de la creation.
+          </p>
+        </div>
       </div>
     );
   }
@@ -783,6 +832,44 @@ export function EstimateCreationWizard({
           </div>
         )}
 
+        <div className="rounded-lg border border-[var(--slate-200)] bg-white p-4">
+          <h3 className="text-sm font-semibold text-[var(--slate-700)]">
+            Import optionnel (DPGF)
+          </h3>
+          <p className="mt-2 text-sm text-[var(--slate-500)]">
+            Le chiffrage peut etre cree immediatement puis complete via un import DPGF dans l&apos;editeur.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              className={
+                data.dpgfImportMode === "none"
+                  ? "btn btn-primary btn-sm justify-center"
+                  : "btn btn-secondary btn-sm justify-center"
+              }
+              onClick={() => updateField("dpgfImportMode", "none")}
+            >
+              Sans import DPGF
+            </button>
+            <button
+              type="button"
+              className={
+                data.dpgfImportMode === "later"
+                  ? "btn btn-primary btn-sm justify-center"
+                  : "btn btn-secondary btn-sm justify-center"
+              }
+              onClick={() => updateField("dpgfImportMode", "later")}
+            >
+              Import DPGF plus tard
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-[var(--slate-500)]">
+            {data.dpgfImportMode === "later"
+              ? "L&apos;import DPGF sera traite apres creation de la version."
+              : "Aucun import DPGF planifie pour cette creation."}
+          </p>
+        </div>
+
         {/* Summary */}
         <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-[var(--slate-700)]">
@@ -827,6 +914,20 @@ export function EstimateCreationWizard({
                 {data.creationMode === "template"
                   ? "Depuis template"
                   : "Nouveau (vide)"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[var(--slate-500)]">Famille de projet</dt>
+              <dd className="font-medium">
+                {data.projectFamily || "Non renseignee"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[var(--slate-500)]">Import DPGF</dt>
+              <dd className="font-medium">
+                {data.dpgfImportMode === "later"
+                  ? "Planifie apres creation"
+                  : "Aucun import"}
               </dd>
             </div>
           </dl>

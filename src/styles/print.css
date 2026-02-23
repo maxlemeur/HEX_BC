@@ -1,0 +1,160 @@
+@page {
+  size: A4;
+  margin: 10mm;
+}
+
+.print-page-footer {
+  display: none;
+}
+
+.print-page-counter::after {
+  content: "";
+}
+
+.print-page-break-before {
+  break-before: page;
+  page-break-before: always;
+}
+
+.print-avoid-break-inside {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.print-portal-block {
+  border: 1px dashed var(--slate-300);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.8);
+  padding: 12px;
+}
+
+.print-portal-qr {
+  display: grid;
+  grid-template-columns: repeat(21, minmax(0, 1fr));
+  gap: 1px;
+  width: 84px;
+  min-width: 84px;
+  height: 84px;
+  border: 1px solid var(--slate-300);
+  padding: 4px;
+  border-radius: 6px;
+  background: white;
+}
+
+.print-portal-qr-cell {
+  background: transparent;
+}
+
+.print-portal-qr-cell--on {
+  background: #0f172a;
+}
+
+.print-portal-url {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media print {
+  body {
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  main {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+  }
+
+  main > div {
+    padding: 0 !important;
+    min-height: auto !important;
+  }
+
+  .dashboard-sidebar {
+    display: none !important;
+  }
+
+  .flex.min-h-screen {
+    display: block !important;
+  }
+
+  .min-h-screen {
+    min-height: auto !important;
+  }
+
+  .document-page {
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    min-height: 277mm !important;
+    height: auto !important;
+    padding: 12mm !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .document-page:last-of-type {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  tr,
+  td,
+  th {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-color-adjust {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .delivery-badge,
+  .delivery-badge-orange,
+  .sidebar-accent,
+  .table-head {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .table-filter-bar {
+    display: none !important;
+  }
+
+  .print-page-footer {
+    display: flex !important;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 4mm;
+    justify-content: flex-end;
+    padding: 0 12mm;
+    font-size: 10px;
+    color: #64748b;
+  }
+
+  .print-page-counter::after {
+    content: "Page " counter(page);
+  }
+
+  .print-portal-block {
+    background: white !important;
+  }
+}

@@ -46,6 +46,8 @@ export type VirtualizedItemRow = {
   kind: "item";
   item: EstimateItem;
   depth: number;
+  isLastChild: boolean;
+  parentIsLastChild?: boolean;
   unitValue: string;
   supplyTypeValue: string;
   qualityFlags: EstimateQualityFlagKey[];
@@ -107,14 +109,17 @@ export function useEstimateDndVirtualization({
     if (!shouldVirtualize) return [] as VirtualizedRow[];
 
     const rows: VirtualizedRow[] = [];
-    const walk = (parentId: string | null) => {
+    const walk = (parentId: string | null, parentIsLastChild?: boolean) => {
       const list = getVisibleItems(parentId);
-      list.forEach((item) => {
+      list.forEach((item, index) => {
+        const isLast = index === list.length - 1;
         rows.push({
           key: `item:${item.id}`,
           kind: "item",
           item,
           depth: depthMap.get(item.id) ?? 0,
+          isLastChild: isLast,
+          parentIsLastChild,
           unitValue: mergedUnitDrafts[item.id] ?? "",
           supplyTypeValue: mergedSupplyTypeDrafts[item.id] ?? "",
           qualityFlags: qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
@@ -131,7 +136,7 @@ export function useEstimateDndVirtualization({
         }
 
         if (item.item_type === "section") {
-          walk(item.id);
+          walk(item.id, isLast);
         }
       });
     };

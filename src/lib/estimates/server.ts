@@ -46,6 +46,8 @@ import type {
   CreateSuggestionRuleInput,
   DeleteEstimateItemInput,
   DuplicateEstimateSectionInput,
+  ImportEstimateSectionsInput,
+  ListEstimateImportSourcesQueryInput,
   PatchEstimateStatusInput,
   PatchEstimateVersionInput,
   ReorderEstimateItemsInput,
@@ -288,6 +290,71 @@ export type EstimateProjectDraftVersionItem = {
 
 export type ListEstimateProjectDraftVersionsResult = {
   items: EstimateProjectDraftVersionItem[];
+};
+
+type EstimateImportSourceProject = Pick<
+  EstimateProjectRow,
+  "id" | "tenant_id" | "user_id" | "name" | "is_archived"
+>;
+
+type EstimateImportSourceVersionRow = Pick<
+  EstimateVersionRow,
+  | "id"
+  | "project_id"
+  | "version_number"
+  | "status"
+  | "title"
+  | "updated_at"
+  | "total_ht_cents"
+> & {
+  estimate_projects: EstimateImportSourceProject | EstimateImportSourceProject[] | null;
+};
+
+export type EstimateImportSourceVersionItem = {
+  id: string;
+  project_id: string;
+  project_name: string;
+  version_number: number;
+  status: EstimateStatus;
+  title: string | null;
+  updated_at: string;
+  total_ht_cents: number;
+};
+
+export type ListEstimateImportSourcesResult = {
+  items: EstimateImportSourceVersionItem[];
+};
+
+export type EstimateImportSectionPreviewItem = {
+  id: string;
+  title: string;
+  line_count: number;
+  total_ht_cents: number;
+  position: number;
+};
+
+export type ListEstimateImportSectionsResult = {
+  source_version_id: string;
+  items: EstimateImportSectionPreviewItem[];
+};
+
+export type ImportEstimateSectionsResult = {
+  source_version_id: string;
+  target_version_id: string;
+  mode: ImportEstimateSectionsInput["mode"];
+  imported_sections_count: number;
+  imported_lines_count: number;
+  created_section_ids: string[];
+  created_line_ids: string[];
+  totals: {
+    total_ht_cents: number;
+    total_tax_cents: number;
+    total_ttc_cents: number;
+  };
+  version: {
+    id: string;
+    updated_at: string;
+  };
 };
 
 type EstimateVersionDetailsRow = EstimateVersionRow & {
@@ -1056,6 +1123,151 @@ function collectSectionSubtreeItems(
   return {
     rootSection,
     orderedSubtreeItems,
+  };
+}
+
+function normalizeSectionTitleKey(value: string | null | undefined) {
+  const normalized = toNullableText(value);
+  if (!normalized) return "section";
+  return normalized.toLowerCase();
+}
+
+function resolveImportedSectionTitle(input: {
+  sourceTitle: string | null | undefined;
+  usedTitleKeys: Set<string>;
+}) {
+  const fallbackTitle = "Section importee";
+  const baseTitle = toNullableText(input.sourceTitle) ?? fallbackTitle;
+  const baseKey = normalizeSectionTitleKey(baseTitle);
+
+  if (!input.usedTitleKeys.has(baseKey)) {
+    input.usedTitleKeys.add(baseKey);
+    return baseTitle;
+  }
+
+  const firstImportedCandidate = `${baseTitle} (import)`;
+  const firstImportedKey = normalizeSectionTitleKey(firstImportedCandidate);
+  if (!input.usedTitleKeys.has(firstImportedKey)) {
+    input.usedTitleKeys.add(firstImportedKey);
+    return firstImportedCandidate;
+  }
+
+  let suffix = 2;
+  while (suffix < 10_000) {
+    const candidate = `${baseTitle} (import ${suffix})`;
+    const candidateKey = normalizeSectionTitleKey(candidate);
+    if (!input.usedTitleKeys.has(candidateKey)) {
+      input.usedTitleKeys.add(candidateKey);
+      return candidate;
+    }
+    suffix += 1;
+  }
+
+  return firstImportedCandidate;
+}
+
+function buildImportedEstimateItemInsert(input: {
+  sourceItem: EstimateItemRow;
+  itemId: string;
+  tenantId: string;
+  targetVersionId: string;
+  parentId: string | null;
+  position: number;
+  title?: string;
+}): EstimateItemInsert {
+  return {
+    id: input.itemId,
+    tenant_id: input.tenantId,
+    version_id: input.targetVersionId,
+    parent_id: input.parentId,
+    item_type: input.sourceItem.item_type,
+    position: input.position,
+    title: input.title ?? input.sourceItem.title,
+    description: input.sourceItem.description,
+    quantity: input.sourceItem.quantity,
+    unit_price_ht_cents: input.sourceItem.unit_price_ht_cents,
+    tax_rate_bp: input.sourceItem.tax_rate_bp,
+    k_fo: input.sourceItem.k_fo,
+    h_mo: input.sourceItem.h_mo,
+    h_mo_majoration: input.sourceItem.h_mo_majoration ?? null,
+    k_mo: input.sourceItem.k_mo,
+    h_mo_atelier: input.sourceItem.h_mo_atelier ?? null,
+    k_mo_atelier: input.sourceItem.k_mo_atelier ?? null,
+    labor_role_atelier_id: input.sourceItem.labor_role_atelier_id ?? null,
+    h_mo_chantier: input.sourceItem.h_mo_chantier ?? null,
+    k_mo_chantier: input.sourceItem.k_mo_chantier ?? null,
+    labor_role_chantier_id: input.sourceItem.labor_role_chantier_id ?? null,
+    pu_ht_cents: input.sourceItem.pu_ht_cents,
+    labor_role_id: input.sourceItem.labor_role_id,
+    category_id: input.sourceItem.category_id,
+    supply_type_id: input.sourceItem.supply_type_id ?? null,
+    selected_supplier_price_id: input.sourceItem.selected_supplier_price_id ?? null,
+    line_total_ht_cents: input.sourceItem.line_total_ht_cents,
+    line_tax_cents: input.sourceItem.line_tax_cents,
+    line_total_ttc_cents: input.sourceItem.line_total_ttc_cents,
+  } satisfies EstimateItemInsert;
+}
+
+function buildImportedSubtreePayload(input: {
+  subtree: {
+    rootSection: EstimateItemRow;
+    orderedSubtreeItems: EstimateItemRow[];
+  };
+  tenantId: string;
+  targetVersionId: string;
+  rootPosition: number;
+  rootTitle: string;
+}) {
+  const newIdBySourceId = new Map<string, string>();
+  const createdSectionIds: string[] = [];
+  const createdLineIds: string[] = [];
+
+  input.subtree.orderedSubtreeItems.forEach((item) => {
+    newIdBySourceId.set(item.id, randomUUID());
+  });
+
+  const items = input.subtree.orderedSubtreeItems.map((sourceItem) => {
+    const newItemId = newIdBySourceId.get(sourceItem.id);
+    if (!newItemId) {
+      throw internalError("Impossible d'importer la section.");
+    }
+
+    const isRoot = sourceItem.id === input.subtree.rootSection.id;
+    const sourceParentId = sourceItem.parent_id ?? null;
+    const newParentId = isRoot
+      ? null
+      : sourceParentId
+        ? (newIdBySourceId.get(sourceParentId) ?? null)
+        : null;
+
+    if (!isRoot && sourceParentId && !newParentId) {
+      throw internalError("Impossible d'importer la section.");
+    }
+
+    const inserted = buildImportedEstimateItemInsert({
+      sourceItem,
+      itemId: newItemId,
+      tenantId: input.tenantId,
+      targetVersionId: input.targetVersionId,
+      parentId: newParentId,
+      position: isRoot ? input.rootPosition : sourceItem.position,
+      title: isRoot ? input.rootTitle : undefined,
+    });
+
+    if (sourceItem.item_type === "section") {
+      createdSectionIds.push(newItemId);
+    } else {
+      createdLineIds.push(newItemId);
+    }
+
+    return inserted;
+  });
+
+  return {
+    items,
+    created_section_ids: createdSectionIds,
+    created_line_ids: createdLineIds,
+    line_count: createdLineIds.length,
   };
 }
 
@@ -2384,6 +2596,126 @@ export async function listEstimateProjectDraftVersions(
   return { items };
 }
 
+export async function listEstimateImportSources(
+  query?: ListEstimateImportSourcesQueryInput
+): Promise<ListEstimateImportSourcesResult> {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+
+  let request = supabase
+    .from("estimate_versions")
+    .select(
+      "id, project_id, version_number, status, title, updated_at, total_ht_cents, estimate_projects!inner(id, tenant_id, user_id, name, is_archived)"
+    )
+    .eq("tenant_id", tenantId)
+    .eq("estimate_projects.tenant_id", tenantId)
+    .eq("estimate_projects.is_archived", false);
+
+  if (query?.exclude_version_id) {
+    request = request.neq("id", query.exclude_version_id);
+  }
+
+  if (!isTenantAdmin(context.tenantRole)) {
+    request = request.eq("estimate_projects.user_id", context.userId);
+  }
+
+  const { data, error } = await request
+    .order("updated_at", { ascending: false })
+    .order("version_number", { ascending: false });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger les devis sources pour l'import."
+    );
+  }
+
+  const rows = (data ?? []) as EstimateImportSourceVersionRow[];
+  const items = rows
+    .map((row): EstimateImportSourceVersionItem | null => {
+      const project = resolveEmbeddedOne(row.estimate_projects);
+      if (!project) return null;
+
+      const hasAccess = canAccessOwnerResource({
+        context,
+        resourceUserId: project.user_id,
+      });
+      if (!hasAccess) return null;
+
+      return {
+        id: row.id,
+        project_id: row.project_id,
+        project_name: project.name,
+        version_number: row.version_number,
+        status: row.status,
+        title: row.title,
+        updated_at: row.updated_at,
+        total_ht_cents: row.total_ht_cents ?? 0,
+      };
+    })
+    .filter((row): row is EstimateImportSourceVersionItem => row !== null);
+
+  return {
+    items,
+  };
+}
+
+export async function listEstimateImportSections(
+  sourceVersionId: string
+): Promise<ListEstimateImportSectionsResult> {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+  await getVersionAccessOrThrow(supabase, sourceVersionId, context);
+
+  const { data: sourceItemsData, error: sourceItemsError } = await supabase
+    .from("estimate_items")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .eq("version_id", sourceVersionId)
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (sourceItemsError) {
+    throw mapSupabaseError(
+      sourceItemsError,
+      "Impossible de charger les sections source."
+    );
+  }
+
+  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
+  const rootSections = sourceItems.filter(
+    (item) => item.item_type === "section" && item.parent_id === null
+  );
+
+  const items = rootSections
+    .map((section): EstimateImportSectionPreviewItem | null => {
+      const subtree = collectSectionSubtreeItems(section.id, sourceItems);
+      if (!subtree) return null;
+
+      const lineItems = subtree.orderedSubtreeItems.filter(
+        (item) => item.item_type === "line"
+      );
+
+      return {
+        id: section.id,
+        title: toNullableText(section.title) ?? "Section sans titre",
+        line_count: lineItems.length,
+        total_ht_cents: lineItems.reduce(
+          (sum, item) => sum + (item.line_total_ht_cents ?? 0),
+          0
+        ),
+        position: section.position,
+      };
+    })
+    .filter((section): section is EstimateImportSectionPreviewItem => section !== null)
+    .sort((left, right) => left.position - right.position);
+
+  return {
+    source_version_id: sourceVersionId,
+    items,
+  };
+}
+
 export async function listEstimateVersionVariants(
   versionId: string
 ): Promise<ListEstimateVersionVariantsResult> {
@@ -3479,6 +3811,237 @@ export async function duplicateSectionFromVersion(
     targetVersionId: input?.target_version_id ?? undefined,
     expectedSourceVersionId: sourceVersionId,
   });
+}
+
+export async function importSectionsFromVersion(
+  targetVersionId: string,
+  input: ImportEstimateSectionsInput
+): Promise<ImportEstimateSectionsResult> {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+
+  const { version: targetVersion } = await getVersionAccessOrThrow(
+    supabase,
+    targetVersionId,
+    context
+  );
+  assertDraftStatus(targetVersion.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId: targetVersion.id,
+    userId,
+  });
+
+  const { version: sourceVersion } = await getVersionAccessOrThrow(
+    supabase,
+    input.source_version_id,
+    context
+  );
+
+  const [{ data: sourceItemsData, error: sourceItemsError }, { data: targetItemsData, error: targetItemsError }] =
+    await Promise.all([
+      supabase
+        .from("estimate_items")
+        .select("*")
+        .eq("tenant_id", tenantId)
+        .eq("version_id", sourceVersion.id)
+        .order("position", { ascending: true })
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("estimate_items")
+        .select("*")
+        .eq("tenant_id", tenantId)
+        .eq("version_id", targetVersion.id)
+        .order("position", { ascending: true })
+        .order("created_at", { ascending: true }),
+    ]);
+
+  if (sourceItemsError) {
+    throw mapSupabaseError(
+      sourceItemsError,
+      "Impossible de charger les sections source."
+    );
+  }
+  if (targetItemsError) {
+    throw mapSupabaseError(
+      targetItemsError,
+      "Impossible de charger les sections cibles."
+    );
+  }
+
+  const sourceItems = (sourceItemsData ?? []) as EstimateItemRow[];
+  const targetItems = (targetItemsData ?? []) as EstimateItemRow[];
+  const sourceItemById = new Map(sourceItems.map((item) => [item.id, item]));
+
+  const selectedSectionIds = input.section_ids;
+  selectedSectionIds.forEach((sectionId) => {
+    const sectionItem = sourceItemById.get(sectionId);
+    if (!sectionItem || sectionItem.item_type !== "section") {
+      throw badRequest(
+        "section_ids contient un identifiant de section invalide."
+      );
+    }
+  });
+
+  const selectedSectionIdSet = new Set(selectedSectionIds);
+  const rootSelectedSectionIds = selectedSectionIds.filter((sectionId) => {
+    let parentId = sourceItemById.get(sectionId)?.parent_id ?? null;
+
+    while (parentId) {
+      if (selectedSectionIdSet.has(parentId)) {
+        return false;
+      }
+      parentId = sourceItemById.get(parentId)?.parent_id ?? null;
+    }
+
+    return true;
+  });
+
+  const targetRootSectionIdByTitleKey = new Map<string, string>();
+  const usedRootTitleKeys = new Set<string>();
+  targetItems.forEach((item) => {
+    if (item.item_type !== "section" || item.parent_id !== null) return;
+    const titleKey = normalizeSectionTitleKey(item.title);
+    usedRootTitleKeys.add(titleKey);
+    if (!targetRootSectionIdByTitleKey.has(titleKey)) {
+      targetRootSectionIdByTitleKey.set(titleKey, item.id);
+    }
+  });
+
+  const rootParentPositionKey = "__root__";
+  const highestPositionByParentKey = new Map<string, number>();
+  targetItems.forEach((item) => {
+    const parentKey = item.parent_id ?? rootParentPositionKey;
+    const current = highestPositionByParentKey.get(parentKey) ?? 0;
+    if (item.position > current) {
+      highestPositionByParentKey.set(parentKey, item.position);
+    }
+  });
+
+  const allocateNextPosition = (parentId: string | null) => {
+    const parentKey = parentId ?? rootParentPositionKey;
+    const nextPosition = (highestPositionByParentKey.get(parentKey) ?? 0) + 1;
+    highestPositionByParentKey.set(parentKey, nextPosition);
+    return nextPosition;
+  };
+
+  const importedItemsPayload: EstimateItemInsert[] = [];
+  const createdSectionIds: string[] = [];
+  const createdLineIds: string[] = [];
+  let importedLinesCount = 0;
+
+  for (const sourceSectionId of rootSelectedSectionIds) {
+    const subtree = collectSectionSubtreeItems(sourceSectionId, sourceItems);
+    if (!subtree) {
+      throw notFound("Section source introuvable.");
+    }
+
+    const sourceRootTitle =
+      toNullableText(subtree.rootSection.title) ?? "Section importee";
+    const sourceRootTitleKey = normalizeSectionTitleKey(sourceRootTitle);
+
+    if (input.mode === "merge") {
+      const existingTargetSectionId =
+        targetRootSectionIdByTitleKey.get(sourceRootTitleKey);
+
+      if (existingTargetSectionId) {
+        const sourceLines = subtree.orderedSubtreeItems.filter(
+          (item) => item.item_type === "line"
+        );
+
+        sourceLines.forEach((sourceLine) => {
+          const lineId = randomUUID();
+          importedItemsPayload.push(
+            buildImportedEstimateItemInsert({
+              sourceItem: sourceLine,
+              itemId: lineId,
+              tenantId,
+              targetVersionId: targetVersion.id,
+              parentId: existingTargetSectionId,
+              position: allocateNextPosition(existingTargetSectionId),
+            })
+          );
+          createdLineIds.push(lineId);
+        });
+
+        importedLinesCount += sourceLines.length;
+        continue;
+      }
+    }
+
+    const rootTitle =
+      input.mode === "append"
+        ? resolveImportedSectionTitle({
+            sourceTitle: sourceRootTitle,
+            usedTitleKeys: usedRootTitleKeys,
+          })
+        : sourceRootTitle;
+
+    const importedSubtree = buildImportedSubtreePayload({
+      subtree,
+      tenantId,
+      targetVersionId: targetVersion.id,
+      rootPosition: allocateNextPosition(null),
+      rootTitle,
+    });
+
+    importedItemsPayload.push(...importedSubtree.items);
+    createdSectionIds.push(...importedSubtree.created_section_ids);
+    createdLineIds.push(...importedSubtree.created_line_ids);
+    importedLinesCount += importedSubtree.line_count;
+
+    const createdRootSectionId = importedSubtree.created_section_ids[0];
+    if (createdRootSectionId) {
+      const rootTitleKey = normalizeSectionTitleKey(rootTitle);
+      usedRootTitleKeys.add(rootTitleKey);
+      if (!targetRootSectionIdByTitleKey.has(rootTitleKey)) {
+        targetRootSectionIdByTitleKey.set(rootTitleKey, createdRootSectionId);
+      }
+    }
+  }
+
+  if (importedItemsPayload.length > 0) {
+    const { error: insertError } = await supabase
+      .from("estimate_items")
+      .insert(importedItemsPayload);
+
+    if (insertError) {
+      throw mapSupabaseError(insertError, "Impossible d'importer les sections.");
+    }
+  }
+
+  const recalculateResult =
+    importedItemsPayload.length > 0
+      ? await recalculateEstimateVersionTotals({
+          supabase,
+          tenantId,
+          versionId: targetVersion.id,
+        })
+      : {
+          totals: {
+            total_ht_cents: targetVersion.total_ht_cents ?? 0,
+            total_tax_cents: targetVersion.total_tax_cents ?? 0,
+            total_ttc_cents: targetVersion.total_ttc_cents ?? 0,
+          },
+          version: await fetchEstimateVersionToken({
+            supabase,
+            tenantId,
+            versionId: targetVersion.id,
+          }),
+        };
+
+  return {
+    source_version_id: sourceVersion.id,
+    target_version_id: targetVersion.id,
+    mode: input.mode,
+    imported_sections_count: rootSelectedSectionIds.length,
+    imported_lines_count: importedLinesCount,
+    created_section_ids: createdSectionIds,
+    created_line_ids: createdLineIds,
+    totals: recalculateResult.totals,
+    version: recalculateResult.version,
+  };
 }
 
 export async function createEstimateVariant(versionId: string) {

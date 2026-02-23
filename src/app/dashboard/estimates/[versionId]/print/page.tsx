@@ -56,6 +56,20 @@ function sanitizeFilename(value: string): string {
     .replace(/^[_-]+|[_-]+$/g, "");
 }
 
+function resolveEstimatePortalUrl(versionId: string) {
+  const portalBaseUrl = process.env.NEXT_PUBLIC_ESTIMATE_PORTAL_BASE_URL?.trim();
+  if (!portalBaseUrl) return null;
+
+  try {
+    const normalized = portalBaseUrl.endsWith("/")
+      ? portalBaseUrl
+      : `${portalBaseUrl}/`;
+    return new URL(`estimates/${versionId}`, normalized).toString();
+  } catch {
+    return null;
+  }
+}
+
 function resolveProject(
   value: EstimateVersion["estimate_projects"]
 ) {
@@ -233,6 +247,7 @@ export default async function PrintEstimatePage({
     .filter(Boolean)
     .join("_");
   const printTitle = sanitizeFilename(rawTitle);
+  const estimatePortalUrl = resolveEstimatePortalUrl(versionId);
 
   return (
     <div className="min-h-screen bg-[var(--slate-100)] print:bg-white">
@@ -275,6 +290,7 @@ export default async function PrintEstimatePage({
           projectName={project?.name ?? "Projet"}
           projectClient={project?.client_name}
           projectReference={project?.reference}
+          portalUrl={estimatePortalUrl}
           versionNumber={version.version_number}
           dateDevis={version.date_devis}
           validiteJours={version.validite_jours}
@@ -289,6 +305,9 @@ export default async function PrintEstimatePage({
           supplyTypeLabelsById={supplyTypeLabelsById}
           items={items}
         />
+      </div>
+      <div className="print-page-footer" aria-hidden>
+        <span className="print-page-counter" />
       </div>
     </div>
   );

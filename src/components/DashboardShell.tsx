@@ -351,25 +351,31 @@ export function DashboardShell({
     "FEATURE_FLAGS_SIDEBAR_INDICATOR"
   );
 
-  const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    try {
-      return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
+  const [collapsed, setCollapsed] = useState(false);
+  const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true");
+    } catch {
+      setCollapsed(false);
+    } finally {
+      setHasLoadedCollapsedPreference(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedCollapsedPreference) {
+      return;
+    }
+
     try {
       localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed));
     } catch {
       // Ignore persistence failures to keep navigation usable.
     }
-  }, [collapsed]);
+  }, [collapsed, hasLoadedCollapsedPreference]);
 
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);

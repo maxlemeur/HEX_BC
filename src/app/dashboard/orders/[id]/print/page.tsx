@@ -229,6 +229,9 @@ export default async function OrderPrintPage({
         totalTtcCents={order.total_ttc_cents}
       />
       </div>
+      <div className="print-page-footer" aria-hidden>
+        <span className="print-page-counter" />
+      </div>
     </div>
   );
 }

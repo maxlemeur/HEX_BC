@@ -11,11 +11,13 @@ import { formatEUR } from "@/lib/money";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+type QrLikeCell = { id: string; enabled: boolean };
 
 export type EstimateDocumentProps = {
   projectName: string;
   projectClient?: string | null;
   projectReference?: string | null;
+  portalUrl?: string | null;
   versionNumber: number;
   dateDevis: string;
   validiteJours: number;
@@ -83,6 +85,78 @@ function formatCoefficient(value: number | null | undefined): string {
   }).format(normalized);
 }
 
+function hashText(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function buildQrLikeCells(value: string, size = 21): QrLikeCell[] {
+  const matrix = Array.from({ length: size }, () =>
+    Array.from({ length: size }, () => false)
+  );
+  const reserved = Array.from({ length: size }, () =>
+    Array.from({ length: size }, () => false)
+  );
+
+  const markReserved = (startX: number, startY: number, width: number, height: number) => {
+    for (let y = startY; y < startY + height; y += 1) {
+      for (let x = startX; x < startX + width; x += 1) {
+        if (x < 0 || y < 0 || x >= size || y >= size) continue;
+        reserved[y][x] = true;
+      }
+    }
+  };
+
+  const drawFinder = (originX: number, originY: number) => {
+    for (let y = 0; y < 7; y += 1) {
+      for (let x = 0; x < 7; x += 1) {
+        const px = originX + x;
+        const py = originY + y;
+        if (px < 0 || py < 0 || px >= size || py >= size) continue;
+        const isOuter = x === 0 || y === 0 || x === 6 || y === 6;
+        const isInner = x >= 2 && x <= 4 && y >= 2 && y <= 4;
+        matrix[py][px] = isOuter || isInner;
+      }
+    }
+    markReserved(originX - 1, originY - 1, 9, 9);
+  };
+
+  drawFinder(0, 0);
+  drawFinder(size - 7, 0);
+  drawFinder(0, size - 7);
+
+  for (let i = 8; i < size - 8; i += 1) {
+    const marker = i % 2 === 0;
+    matrix[6][i] = marker;
+    matrix[i][6] = marker;
+    reserved[6][i] = true;
+    reserved[i][6] = true;
+  }
+
+  let seed = hashText(value);
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      if (reserved[y][x]) continue;
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const randomBit = ((seed >>> 30) & 1) === 1;
+      const patternBit = ((x * 3 + y * 5 + (seed & 0x0f)) % 7) < 3;
+      matrix[y][x] = randomBit !== patternBit;
+    }
+  }
+
+  return matrix.flatMap((row, y) =>
+    row.map((enabled, x) => ({
+      id: `${x}-${y}`,
+      enabled,
+    }))
+  );
+}
+
 function formatLaborSplitLine(params: {
   hours: number | null;
   coefficient: number | null;
@@ -126,6 +200,7 @@ export function EstimateDocument({
   projectName,
   projectClient,
   projectReference,
+  portalUrl,
   versionNumber,
   dateDevis,
   validiteJours,
@@ -164,6 +239,7 @@ export function EstimateDocument({
   const taxLabel = taxEnabled ? `${formatPercent(taxRateBp)} %` : "";
   const footerAddress =
     `${COMPANY_INFO.address.street} ${COMPANY_INFO.address.postalCode} ${COMPANY_INFO.address.city}`;
+  const qrLikeCells = portalUrl ? buildQrLikeCells(portalUrl) : [];
 
   return (
     <div className="document-page relative mx-auto my-5 flex flex-col overflow-hidden bg-white px-[50px] pb-[50px] pt-[40px] shadow-2xl print:m-0 print:px-8 print:pb-8 print:pt-6 print:shadow-none">
@@ -461,6 +537,34 @@ export function EstimateDocument({
           </div>
         </div>
       </div>
+
+      {portalUrl ? (
+        <div className="print-portal-block print-avoid-break-inside mb-4 mt-1 flex items-center gap-3">
+          <div className="print-portal-qr" aria-hidden>
+            {qrLikeCells.map((cell) => (
+              <span
+                key={cell.id}
+                className={
+                  cell.enabled
+                    ? "print-portal-qr-cell print-portal-qr-cell--on"
+                    : "print-portal-qr-cell"
+                }
+              />
+            ))}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              Portail client du devis
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Ouvrez ce lien pour consulter la version partagee.
+            </p>
+            <p className="print-portal-url mt-2 text-[11px] font-medium text-slate-700">
+              {portalUrl}
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-auto border-t border-slate-200 pt-5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 print:pt-3">
         <p className="mb-1">Siege social : {footerAddress}</p>

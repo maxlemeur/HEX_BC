@@ -10,9 +10,9 @@ export type AutoSaveReason = "debounce" | "manual" | "retry";
 export type AutoSaveResult = "saved" | "noop" | "blocked" | "error";
 
 type SaveShortcutLikeEvent = {
-  key: string;
-  ctrlKey: boolean;
-  metaKey: boolean;
+  key?: string | null;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
 };
 
 export type UseAutoSaveOptions = {
@@ -34,7 +34,8 @@ export type UseAutoSaveResult = {
 };
 
 export function isSaveShortcutKey(event: SaveShortcutLikeEvent) {
-  return event.key.toLowerCase() === "s" && (event.ctrlKey || event.metaKey);
+  const normalizedKey = event.key?.toLowerCase();
+  return normalizedKey === "s" && Boolean(event.ctrlKey || event.metaKey);
 }
 
 export function shouldBlockBeforeUnload(

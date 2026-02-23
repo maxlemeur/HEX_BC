@@ -51,6 +51,7 @@ vi.mock("@/lib/money", () => ({
 
 // Lazy-import after mocks are wired
 import { EstimateCreationWizard } from "@/components/estimates/EstimateCreationWizard";
+import { createEstimate } from "@/lib/estimates/client";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -425,6 +426,55 @@ describe("EstimateCreationWizard", () => {
     expect(
       screen.queryByRole("button", { name: /Créer directement/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows project family selector on step 2 and carries it to summary", async () => {
+    const { user } = setup();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "Flow famille");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    const familySelect = screen.getByLabelText(/Famille de projet/) as HTMLSelectElement;
+    await user.selectOptions(familySelect, "Travaux neufs");
+    expect(familySelect.value).toBe("Travaux neufs");
+
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    expect(screen.getByText("Famille de projet")).toBeInTheDocument();
+    expect(screen.getByText("Travaux neufs")).toBeInTheDocument();
+  });
+
+  it("shows optional DPGF import mode and updates summary", async () => {
+    const { user } = setup();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "Flow DPGF");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    expect(screen.getByText("Import optionnel (DPGF)")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Import DPGF plus tard/ }));
+
+    expect(screen.getByText("Import DPGF")).toBeInTheDocument();
+    expect(screen.getByText("Planifie apres creation")).toBeInTheDocument();
+  });
+
+  it("injects project family note into createEstimate payload", async () => {
+    const { user, onCreated } = setup();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "Flow payload");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+    await user.selectOptions(screen.getByLabelText(/Famille de projet/), "Maintenance");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+    await user.click(screen.getByRole("button", { name: /Créer le chiffrage/ }));
+
+    await waitFor(() => {
+      expect(vi.mocked(createEstimate)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectNotes: "Famille Achat: Maintenance",
+        }),
+      );
+      expect(onCreated).toHaveBeenCalledWith("version-abc-123");
+    });
   });
 
   it("keeps accented labels for validity and summary copy", async () => {

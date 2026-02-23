@@ -7,6 +7,8 @@ import {
   createEstimateVariantSchema,
   createEstimateAssemblySchema,
   duplicateEstimateSectionSchema,
+  importEstimateSectionsSchema,
+  listEstimateImportSourcesQuerySchema,
   createMarginTierSchema,
   insertAssemblyIntoVersionSchema,
   listEstimateAssembliesQuerySchema,
@@ -665,6 +667,66 @@ describe("estimate assembly schemas", () => {
 
   it("accepts an empty duplicate section payload", () => {
     expect(duplicateEstimateSectionSchema.parse(undefined)).toEqual({});
+  });
+});
+
+describe("estimate import schemas", () => {
+  it("parses import payload using camelCase aliases", () => {
+    const parsed = importEstimateSectionsSchema.parse({
+      sourceVersionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      sectionIds: [
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      ],
+      mode: "merge",
+    });
+
+    expect(parsed).toEqual({
+      source_version_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      section_ids: [
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      ],
+      mode: "merge",
+    });
+  });
+
+  it("defaults mode to append when omitted", () => {
+    const parsed = importEstimateSectionsSchema.parse({
+      sourceVersionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      sectionIds: ["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
+    });
+
+    expect(parsed.mode).toBe("append");
+  });
+
+  it("rejects duplicate section ids", () => {
+    const parsed = importEstimateSectionsSchema.safeParse({
+      sourceVersionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      sectionIds: [
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      ],
+      mode: "append",
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("identifiants uniques")
+      )
+    ).toBe(true);
+  });
+
+  it("parses import source query with camelCase alias", () => {
+    const parsed = listEstimateImportSourcesQuerySchema.parse({
+      excludeVersionId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    });
+
+    expect(parsed).toEqual({
+      exclude_version_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    });
   });
 });
 
