@@ -544,9 +544,6 @@ export default function EstimatesPage() {
                   paginatedEstimates.map((estimate, index) => {
                     const isDuplicating = duplicatingId === estimate.versionId;
                     const title = estimate.title?.trim() || estimate.projectName?.trim() || "—";
-                    const projectMeta =
-                      estimate.projectReference?.trim() ||
-                      estimate.projectClient?.trim();
                     const expState = getExpirationState(estimate, new Date());
 
                     return (

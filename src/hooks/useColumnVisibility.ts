@@ -13,7 +13,7 @@ export type ColumnPreset = "essential" | "standard" | "full" | "custom";
 
 const PRESET_COLUMNS: Record<ColumnPreset, ColumnKey[]> = {
   essential: [],
-  standard: ["supply_type", "k_fo", "labor_role", "k_mo", "h_mo_majoration"],
+  standard: ["supply_type", "k_fo", "labor_role", "k_mo"],
   full: ["supply_type", "k_fo", "h_mo_majoration", "labor_role", "k_mo"],
   custom: [],
 };

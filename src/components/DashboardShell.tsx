@@ -351,17 +351,17 @@ export function DashboardShell({
     "FEATURE_FLAGS_SIDEBAR_INDICATOR"
   );
 
-  const [collapsed, setCollapsed] = useState(false);
-
-  // Sync from localStorage after hydration (avoids SSR mismatch)
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-      if (stored === "true") setCollapsed(true);
-    } catch {
-      // localStorage can be unavailable in restricted browsing contexts.
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
     }
-  }, []);
+    try {
+      return localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -372,6 +372,7 @@ export function DashboardShell({
   }, [collapsed]);
 
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
+  const closeMobile = useCallback(() => setMobileOpen(false), []);
 
   function isActive(href: string) {
     if (href === "/dashboard/orders") {
@@ -382,7 +383,31 @@ export function DashboardShell({
 
   return (
     <div className="flex min-h-screen bg-[var(--background)]">
+      {/* Mobile hamburger button */}
+      <button
+        type="button"
+        className="no-print fixed left-4 top-5 z-50 flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--brand-blue)] text-white shadow-lg md:hidden"
+        onClick={() => setMobileOpen(true)}
+        aria-label="Ouvrir le menu"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 6h16" />
+          <path d="M4 12h16" />
+          <path d="M4 18h16" />
+        </svg>
+      </button>
+
+      {/* Mobile overlay */}
+      {mobileOpen ? (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={closeMobile}
+          aria-hidden="true"
+        />
+      ) : null}
+
       <aside
+        data-mobile-open={mobileOpen ? "true" : undefined}
         className={`no-print dashboard-sidebar fixed left-0 top-0 z-40 flex h-screen flex-col${collapsed ? " dashboard-sidebar--collapsed" : ""}`}
       >
         <div className="flex h-20 items-center px-6 mt-2 sidebar-header">
@@ -457,6 +482,7 @@ export function DashboardShell({
                       className={`sidebar-nav-item ${active ? "active" : ""}`}
                       aria-current={active ? "page" : undefined}
                       title={collapsed ? item.label : undefined}
+                      onClick={closeMobile}
                     >
                       {item.icon}
                       <span>{item.label}</span>
@@ -499,7 +525,7 @@ export function DashboardShell({
             : "var(--sidebar-width)",
         }}
       >
-        <div className="min-h-screen px-8 py-8">{children}</div>
+        <div className="min-h-screen px-4 py-16 md:px-8 md:py-8">{children}</div>
       </main>
     </div>
   );

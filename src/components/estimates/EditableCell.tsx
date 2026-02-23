@@ -2,7 +2,6 @@
 
 import {
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -86,12 +85,6 @@ export function EditableCell<TCommitValue = string>({
   // Keep a local editing value so intermediate keystrokes are not clobbered
   // by the parent re-rendering with a converted (e.g. cents→euros) value.
   const [localEditingValue, setLocalEditingValue] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isEditing) {
-      setLocalEditingValue(null);
-    }
-  }, [isEditing]);
 
   const inputValue = isEditing && localEditingValue !== null
     ? localEditingValue

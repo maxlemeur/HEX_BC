@@ -7,6 +7,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FocusEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -173,23 +174,37 @@ const LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT = [
   SPREADSHEET_COLUMN_KEYS.total,
 ];
 
-const QUALITY_FLAG_CELL_TARGET: Partial<Record<EstimateQualityFlagKey, string>> = {
-  missing_price: SPREADSHEET_COLUMN_KEYS.unitPrice,
-  missing_quantity: SPREADSHEET_COLUMN_KEYS.quantity,
-  missing_labor_time: SPREADSHEET_COLUMN_KEYS.hMo,
-  missing_labor_role: SPREADSHEET_COLUMN_KEYS.laborRole,
-};
-
-const QUALITY_BADGE_CLASSNAMES: Record<EstimateQualityFlagKey, string> = {
-  missing_price: "border-rose-200 bg-rose-50 text-rose-700",
-  missing_quantity: "border-amber-200 bg-amber-50 text-amber-700",
-  missing_labor_time: "border-orange-200 bg-orange-50 text-orange-700",
-  missing_labor_role: "border-red-200 bg-red-50 text-red-700",
-  price_outlier: "border-orange-200 bg-orange-50 text-orange-700",
-  quantity_outlier: "border-orange-200 bg-orange-50 text-orange-700",
-  supplier_price_outdated: "border-amber-200 bg-amber-50 text-amber-700",
-  labor_split_incomplete: "border-orange-200 bg-orange-50 text-orange-700",
-};
+function getQualityFlagCellTarget(
+  flag: EstimateQualityFlagKey,
+  options: {
+    isLaborSplitEnabled: boolean;
+    isLaborRoleVisible: boolean;
+  }
+) {
+  switch (flag) {
+    case "missing_price":
+      return SPREADSHEET_COLUMN_KEYS.unitPrice;
+    case "missing_quantity":
+      return SPREADSHEET_COLUMN_KEYS.quantity;
+    case "missing_labor_time":
+      return options.isLaborSplitEnabled
+        ? SPREADSHEET_COLUMN_KEYS.hMoAtelier
+        : SPREADSHEET_COLUMN_KEYS.hMo;
+    case "missing_labor_role":
+      if (options.isLaborSplitEnabled) {
+        return SPREADSHEET_COLUMN_KEYS.laborRoleAtelier;
+      }
+      return options.isLaborRoleVisible
+        ? SPREADSHEET_COLUMN_KEYS.laborRole
+        : null;
+    case "labor_split_incomplete":
+      return options.isLaborSplitEnabled
+        ? SPREADSHEET_COLUMN_KEYS.hMoAtelier
+        : null;
+    default:
+      return null;
+  }
+}
 
 type SortableReturn = ReturnType<typeof useSortable>;
 type DragHandleProps = {
@@ -456,6 +471,8 @@ export type EstimateEditorRowProps = {
   isReadOnly: boolean;
   isLaborSplitEnabled: boolean;
   isSearchMatch?: boolean;
+  isLastChild?: boolean;
+  parentIsLastChild?: boolean;
 };
 
 export const EstimateEditorRow = memo(function EstimateEditorRow({
@@ -492,6 +509,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   isLaborSplitEnabled,
   visibleColumns,
   isSearchMatch,
+  isLastChild,
+  parentIsLastChild,
 }: EstimateEditorRowProps) {
   const {
     attributes,
@@ -512,8 +531,9 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     opacity: isDragging ? 0.65 : 1,
   };
 
-  const indentStyle = {
-    paddingLeft: `${depth * 36}px`,
+  const indentStyle: CSSProperties & { "--row-depth": string } = {
+    "--row-depth": String(depth),
+    paddingLeft: "calc(var(--tree-indent) * var(--row-depth))",
   };
 
   const titleCell: SpreadsheetCell = {
@@ -731,6 +751,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         className="estimate-row estimate-row--section"
         data-estimate-item-id={item.id}
         data-depth={depth}
+        data-is-last-child={isLastChild || undefined}
+        data-parent-is-last-child={parentIsLastChild || undefined}
         role="row"
         onContextMenu={(event) => {
           const target = event.target as HTMLElement;
@@ -749,7 +771,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           });
         }}
       >
-        <div className="estimate-cell estimate-cell--selection" />
         <div
           {...titleCellProps}
           onKeyDown={toCellKeyDownHandler(titleCellProps.onKeyDown)}
@@ -784,53 +805,53 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 onPatchItem(item.id, { title: nextTitle }, { persist: true });
               }}
             />
-            <div className="estimate-section-totals">
-              <span className="estimate-section-total-chip">
-                FO {formatEUR(sectionTotals?.foTotalCents ?? 0)}
-              </span>
-              {isLaborSplitEnabled ? (
-                <>
-                  <span className="estimate-section-total-chip">
-                    MO atelier {formatEUR(sectionTotals?.moAtelierTotalCents ?? 0)}
-                  </span>
-                  <span className="estimate-section-total-chip">
-                    MO chantier {formatEUR(sectionTotals?.moChantierTotalCents ?? 0)}
-                  </span>
-                </>
-              ) : (
-                <span className="estimate-section-total-chip">
-                  MO {formatEUR(sectionTotals?.moTotalCents ?? 0)}
-                </span>
-              )}
-              <span className="estimate-section-total-chip">
-                HT {formatEUR(sectionTotals?.totalHtCents ?? 0)}
-              </span>
-              <span className="estimate-section-total-chip">
-                TTC {formatEUR(sectionTotals?.totalTtcCents ?? 0)}
-              </span>
-              {supplyTypeEntries.map(([supplyTypeId, cents]) => {
-                const isUnassigned = supplyTypeId === UNASSIGNED_SUPPLY_TYPE_KEY;
-                const label = isUnassigned
-                  ? "Sans categorie FO"
-                  : (supplyTypeById.get(supplyTypeId)?.name ?? "Type inconnu");
-                return (
-                  <span
-                    key={`${item.id}:supply_type:${supplyTypeId}`}
-                    className={`estimate-section-total-chip${isUnassigned ? " estimate-section-total-chip--unassigned" : ""}`}
-                    title={
-                      isUnassigned
-                        ? "Ces lignes n'ont pas de type de fourniture assigne. Cliquez pour filtrer."
-                        : undefined
-                    }
-                  >
-                    {label} {formatEUR(cents)}
-                  </span>
-                );
-              })}
-            </div>
           </div>
         </div>
         <div className="estimate-cell estimate-cell--section-actions">
+          <div className="estimate-section-totals">
+            <span className="estimate-section-total-chip estimate-section-total-chip--fo">
+              FO {formatEUR(sectionTotals?.foTotalCents ?? 0)}
+            </span>
+            {isLaborSplitEnabled ? (
+              <>
+                <span className="estimate-section-total-chip estimate-section-total-chip--mo">
+                  MO atelier {formatEUR(sectionTotals?.moAtelierTotalCents ?? 0)}
+                </span>
+                <span className="estimate-section-total-chip estimate-section-total-chip--mo">
+                  MO chantier {formatEUR(sectionTotals?.moChantierTotalCents ?? 0)}
+                </span>
+              </>
+            ) : (
+              <span className="estimate-section-total-chip estimate-section-total-chip--mo">
+                MO {formatEUR(sectionTotals?.moTotalCents ?? 0)}
+              </span>
+            )}
+            <span className="estimate-section-total-chip">
+              HT {formatEUR(sectionTotals?.totalHtCents ?? 0)}
+            </span>
+            <span className="estimate-section-total-chip">
+              TTC {formatEUR(sectionTotals?.totalTtcCents ?? 0)}
+            </span>
+            {supplyTypeEntries.map(([supplyTypeId, cents]) => {
+              const isUnassigned = supplyTypeId === UNASSIGNED_SUPPLY_TYPE_KEY;
+              const label = isUnassigned
+                ? "Sans categorie FO"
+                : (supplyTypeById.get(supplyTypeId)?.name ?? "Type inconnu");
+              return (
+                <span
+                  key={`${item.id}:supply_type:${supplyTypeId}`}
+                  className={`estimate-section-total-chip${isUnassigned ? " estimate-section-total-chip--unassigned" : ""}`}
+                  title={
+                    isUnassigned
+                      ? "Ces lignes n'ont pas de type de fourniture assigne."
+                      : undefined
+                  }
+                >
+                  {label} {formatEUR(cents)}
+                </span>
+              );
+            })}
+          </div>
           <div className="estimate-row-actions">
             <button
               className="btn btn-ghost btn-sm"
@@ -1072,6 +1093,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       y: event.clientY,
     });
   };
+  const isLaborRoleVisible =
+    isLaborSplitEnabled || !visibleColumns || visibleColumns.has("labor_role");
 
   return (
     <div
@@ -1080,21 +1103,12 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       className={`estimate-row${isLineSelected ? " estimate-row--selected" : ""}${isSearchMatch ? " ring-2 ring-yellow-300 rounded" : ""}`}
       data-estimate-item-id={item.id}
       data-depth={depth}
+      data-is-last-child={isLastChild || undefined}
+      data-parent-is-last-child={parentIsLastChild || undefined}
       role="row"
       onMouseDown={handleRowModifierSelection}
       onContextMenu={handleLineContextMenu}
     >
-      <div className="estimate-cell estimate-cell--selection">
-        <input
-          type="checkbox"
-          className="estimate-line-checkbox"
-          checked={isLineSelected}
-          onClick={handleLineSelectionCheckboxClick}
-          readOnly
-          disabled={isReadOnly}
-          aria-label={`Sélectionner la ligne ${item.title || "sans titre"}`}
-        />
-      </div>
       <div
         {...titleCellProps}
         onKeyDown={toCellKeyDownHandler(titleCellProps.onKeyDown)}
@@ -1105,36 +1119,98 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         )}
         style={indentStyle}
       >
+        <input
+          type="checkbox"
+          className="estimate-line-checkbox"
+          checked={isLineSelected}
+          onClick={handleLineSelectionCheckboxClick}
+          readOnly
+          disabled={isReadOnly}
+          aria-label={`Sélectionner la ligne ${item.title || "sans titre"}`}
+        />
         <DragHandle
           listeners={listeners}
           attributes={attributes}
           disabled={isReadOnly || isDragDisabled}
         />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <input
-            className="estimate-input estimate-input--title"
-            ref={titleEditorProps.ref}
-            tabIndex={titleEditorProps.tabIndex}
-            value={item.title}
-            title={item.title}
-            disabled={isReadOnly}
-            placeholder="Obligatoire"
-            onFocus={handleLineTitleFocus}
-            onKeyDown={handleLineTitleKeyDown}
-            onChange={(event) =>
-              onPatchItem(item.id, { title: event.target.value }, { persist: false })
-            }
-            onBlur={handleLineTitleBlur}
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={showCatalogueSuggestions}
-            aria-controls={showCatalogueSuggestions ? catalogueListboxId : undefined}
-            aria-activedescendant={
-              showCatalogueSuggestions && catalogueSuggestions[activeCatalogueSuggestionIndex]
-                ? `${catalogueListboxId}-option-${activeCatalogueSuggestionIndex}`
-                : undefined
-            }
-          />
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <input
+              className="estimate-input estimate-input--title"
+              ref={titleEditorProps.ref}
+              tabIndex={titleEditorProps.tabIndex}
+              value={item.title}
+              title={item.title}
+              disabled={isReadOnly}
+              placeholder="Obligatoire"
+              onFocus={handleLineTitleFocus}
+              onKeyDown={handleLineTitleKeyDown}
+              onChange={(event) =>
+                onPatchItem(item.id, { title: event.target.value }, { persist: false })
+              }
+              onBlur={handleLineTitleBlur}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={showCatalogueSuggestions}
+              aria-controls={showCatalogueSuggestions ? catalogueListboxId : undefined}
+              aria-activedescendant={
+                showCatalogueSuggestions && catalogueSuggestions[activeCatalogueSuggestionIndex]
+                  ? `${catalogueListboxId}-option-${activeCatalogueSuggestionIndex}`
+                  : undefined
+              }
+            />
+            {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
+              <div className="estimate-quality-dots">
+                {qualityFlags.slice(0, 3).map((flag) => {
+                  const targetColumn = getQualityFlagCellTarget(flag, {
+                    isLaborSplitEnabled,
+                    isLaborRoleVisible,
+                  });
+                  const isClickable = Boolean(targetColumn);
+                  return (
+                    <span
+                      key={flag}
+                      className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
+                      title={
+                        ESTIMATE_QUALITY_FLAG_META[flag].label +
+                        (isClickable ? " — Cliquer pour aller au champ" : "")
+                      }
+                      role={isClickable ? "button" : undefined}
+                      onClick={
+                        targetColumn
+                          ? () => {
+                              const cellId = `${item.id}::${targetColumn}`;
+                              const el = document.querySelector<HTMLElement>(
+                                `[data-cell-id="${cellId}"]`
+                              );
+                              el?.focus();
+                            }
+                          : undefined
+                      }
+                    />
+                  );
+                })}
+                {qualityFlags.length > 3 ? (
+                  <span
+                    className="estimate-quality-overflow"
+                    title={qualityFlags
+                      .slice(3)
+                      .map((f) => ESTIMATE_QUALITY_FLAG_META[f].label)
+                      .join(", ")}
+                  >
+                    +{qualityFlags.length - 3}
+                  </span>
+                ) : null}
+                {dismissedOutlierBadges.map((flag) => (
+                  <span
+                    key={`dismissed:${flag}`}
+                    className="estimate-quality-dot estimate-quality-dot--dismissed"
+                    title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} (accepté)`}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
           {showCatalogueSuggestions ? (
             <div
               id={catalogueListboxId}
@@ -1225,47 +1301,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
               </span>
             </div>
           ) : null}
-          {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-1">
-              {qualityFlags.map((flag) => {
-                const targetColumn = QUALITY_FLAG_CELL_TARGET[flag];
-                const isClickable = Boolean(targetColumn);
-                return (
-                  <span
-                    key={flag}
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${QUALITY_BADGE_CLASSNAMES[flag]}${isClickable ? " cursor-pointer hover:opacity-80" : ""}`}
-                    title={
-                      ESTIMATE_QUALITY_FLAG_META[flag].description +
-                      (isClickable ? " — Cliquer pour aller au champ" : "")
-                    }
-                    role={isClickable ? "button" : undefined}
-                    onClick={
-                      isClickable
-                        ? () => {
-                            const cellId = `${item.id}::${targetColumn!}`;
-                            const el = document.querySelector<HTMLElement>(
-                              `[data-cell-id="${cellId}"]`
-                            );
-                            el?.focus();
-                          }
-                        : undefined
-                    }
-                  >
-                    {ESTIMATE_QUALITY_FLAG_META[flag].label}
-                  </span>
-                );
-              })}
-              {dismissedOutlierBadges.map((flag) => (
-                <span
-                  key={`dismissed:${flag}`}
-                  className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
-                  title={`${ESTIMATE_QUALITY_FLAG_META[flag].description} (accepte)`}
-                >
-                  {ESTIMATE_QUALITY_FLAG_META[flag].label} accepte
-                </span>
-              ))}
-            </div>
-          ) : null}
           {actionableOutlierFlags.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1">
               {actionableOutlierFlags.map((flag) => {
@@ -1282,7 +1317,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                     title={ESTIMATE_QUALITY_FLAG_META[flag].description}
                   >
                     {isDismissed
-                      ? `Reactiver ${ESTIMATE_QUALITY_FLAG_META[flag].label}`
+                      ? `Réactiver ${ESTIMATE_QUALITY_FLAG_META[flag].label}`
                       : `Accepter ${ESTIMATE_QUALITY_FLAG_META[flag].label}`}
                   </button>
                 );
@@ -1352,7 +1387,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         className={toCellClassName(
           navigation,
           unitPriceCell,
-          `estimate-cell estimate-editable-cell${
+          `estimate-cell estimate-editable-cell estimate-col--fo${
             priceOutlierActive ? " bg-orange-50 ring-1 ring-inset ring-orange-300" : ""
           }${!item.unit_price_ht_cents ? " estimate-cell--required-empty" : ""}`
         )}
@@ -1387,7 +1422,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         <div
           {...supplyTypeCellProps}
           onKeyDown={toCellKeyDownHandler(supplyTypeCellProps.onKeyDown)}
-          className={toCellClassName(navigation, supplyTypeCell, "estimate-cell")}
+          className={toCellClassName(navigation, supplyTypeCell, "estimate-cell estimate-col--fo")}
         >
           <input
             className="estimate-input"
@@ -1411,7 +1446,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         <div
           {...kFoCellProps}
           onKeyDown={toCellKeyDownHandler(kFoCellProps.onKeyDown)}
-          className={toCellClassName(navigation, kFoCell, "estimate-cell")}
+          className={toCellClassName(navigation, kFoCell, "estimate-cell estimate-col--fo")}
         >
           <input
             className="estimate-input"
@@ -1448,7 +1483,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           <div
             {...hMoMajorationCellProps}
             onKeyDown={toCellKeyDownHandler(hMoMajorationCellProps.onKeyDown)}
-            className={toCellClassName(navigation, hMoMajorationCell, "estimate-cell")}
+            className={toCellClassName(navigation, hMoMajorationCell, "estimate-cell estimate-col--mo")}
           >
             <input
               className="estimate-input"
@@ -1482,7 +1517,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           <div
             {...hMoAtelierCellProps}
             onKeyDown={toCellKeyDownHandler(hMoAtelierCellProps.onKeyDown)}
-            className={toCellClassName(navigation, hMoAtelierCell, "estimate-cell")}
+            className={toCellClassName(navigation, hMoAtelierCell, `estimate-cell estimate-col--mo${qualityFlags.includes("labor_split_incomplete") ? " estimate-cell--warning-empty" : ""}`)}
           >
             <input
               className="estimate-input"
@@ -1519,7 +1554,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             className={toCellClassName(
               navigation,
               laborRoleAtelierCell,
-              "estimate-cell"
+              "estimate-cell estimate-col--mo"
             )}
           >
             <select
@@ -1551,7 +1586,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           <div
             {...kMoAtelierCellProps}
             onKeyDown={toCellKeyDownHandler(kMoAtelierCellProps.onKeyDown)}
-            className={toCellClassName(navigation, kMoAtelierCell, "estimate-cell")}
+            className={toCellClassName(navigation, kMoAtelierCell, "estimate-cell estimate-col--mo")}
           >
             <input
               className="estimate-input"
@@ -1585,7 +1620,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           <div
             {...hMoChantierCellProps}
             onKeyDown={toCellKeyDownHandler(hMoChantierCellProps.onKeyDown)}
-            className={toCellClassName(navigation, hMoChantierCell, "estimate-cell")}
+            className={toCellClassName(navigation, hMoChantierCell, `estimate-cell estimate-col--mo${qualityFlags.includes("labor_split_incomplete") ? " estimate-cell--warning-empty" : ""}`)}
           >
             <input
               className="estimate-input"
@@ -1622,7 +1657,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             className={toCellClassName(
               navigation,
               laborRoleChantierCell,
-              "estimate-cell"
+              "estimate-cell estimate-col--mo"
             )}
           >
             <select
@@ -1654,7 +1689,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           <div
             {...kMoChantierCellProps}
             onKeyDown={toCellKeyDownHandler(kMoChantierCellProps.onKeyDown)}
-            className={toCellClassName(navigation, kMoChantierCell, "estimate-cell")}
+            className={toCellClassName(navigation, kMoChantierCell, "estimate-cell estimate-col--mo")}
           >
             <input
               className="estimate-input"
@@ -1691,7 +1726,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           <div
             {...hMoCellProps}
             onKeyDown={toCellKeyDownHandler(hMoCellProps.onKeyDown)}
-            className={toCellClassName(navigation, hMoCell, "estimate-cell")}
+            className={toCellClassName(navigation, hMoCell, `estimate-cell estimate-col--mo${qualityFlags.includes("missing_labor_time") ? " estimate-cell--warning-empty" : ""}`)}
           >
             <input
               className="estimate-input"
@@ -1726,7 +1761,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             <div
               {...hMoMajorationCellProps}
               onKeyDown={toCellKeyDownHandler(hMoMajorationCellProps.onKeyDown)}
-              className={toCellClassName(navigation, hMoMajorationCell, "estimate-cell")}
+              className={toCellClassName(navigation, hMoMajorationCell, "estimate-cell estimate-col--mo")}
             >
               <input
                 className="estimate-input"
@@ -1762,7 +1797,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             <div
               {...laborRoleCellProps}
               onKeyDown={toCellKeyDownHandler(laborRoleCellProps.onKeyDown)}
-              className={toCellClassName(navigation, laborRoleCell, "estimate-cell")}
+              className={toCellClassName(navigation, laborRoleCell, `estimate-cell estimate-col--mo${qualityFlags.includes("missing_labor_role") ? " estimate-cell--warning-empty" : ""}`)}
             >
               <select
                 className="estimate-input estimate-select"
@@ -1795,7 +1830,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             <div
               {...kMoCellProps}
               onKeyDown={toCellKeyDownHandler(kMoCellProps.onKeyDown)}
-              className={toCellClassName(navigation, kMoCell, "estimate-cell")}
+              className={toCellClassName(navigation, kMoCell, "estimate-cell estimate-col--mo")}
             >
               <input
                 className="estimate-input"
@@ -1835,7 +1870,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         className={toCellClassName(
           navigation,
           puCell,
-          "estimate-cell estimate-cell--readonly"
+          "estimate-cell estimate-cell--readonly estimate-cell--pu-separator"
         )}
       >
         <input
@@ -1863,14 +1898,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         <span>{formatEUR(lineTotal)}</span>
       </div>
       <div className="estimate-cell estimate-cell--actions">
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          onClick={() => onOpenSupplierComparisonPanel(item.id)}
-          title="Comparer les prix fournisseurs"
-        >
-          Comparer
-        </button>
         <details className="relative">
           <summary
             className="btn btn-ghost btn-sm cursor-pointer list-none select-none"
@@ -1883,6 +1910,13 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             </svg>
           </summary>
           <div className="absolute right-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl" style={{ minWidth: "140px" }}>
+            <button
+              className="btn btn-ghost btn-sm w-full justify-start"
+              type="button"
+              onClick={() => onOpenSupplierComparisonPanel(item.id)}
+            >
+              Comparer
+            </button>
             <button
               className="btn btn-danger btn-sm w-full justify-start"
               type="button"
