@@ -31,6 +31,31 @@ describe("header-row detection", () => {
     expect(detectHeaderRowIndex(matrix)).toBe(2);
   });
 
+  it("does not let dense data rows outrank sparse generic headers", () => {
+    const matrix = [
+      ["Export chantier"],
+      ["Column A", "", "Column C"],
+      ["alpha", "beta", "gamma"],
+      ["delta", "epsilon", "zeta"],
+    ];
+
+    expect(detectHeaderRowIndex(matrix)).toBe(1);
+  });
+
+  it("detects headers beyond long non-empty preambles", () => {
+    const preamble = Array.from({ length: 60 }, (_, index) => [
+      `Ligne meta ${index + 1}`,
+    ]);
+
+    const matrix = [
+      ...preamble,
+      ["Description", "Famille Achat", "QtE Atelier", "PU FO"],
+      ["Tube DN15", "Tube", 2, 10],
+    ];
+
+    expect(detectHeaderRowIndex(matrix)).toBe(60);
+  });
+
   it("resolves a manual header row when provided", () => {
     const matrix = [["Titre"], ["Description", "PU HT"], ["Tube DN15", "10"]];
     expect(resolveHeaderRowIndex(matrix, { headerRowNumber: 2 })).toBe(1);

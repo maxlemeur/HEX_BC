@@ -63,6 +63,7 @@ function scoreHeaderCandidate(row: unknown[], rowIndex: number): number {
   ).length;
 
   const numericLikeCount = nonEmpty.filter((cell) => isNumericLike(cell)).length;
+  const textLikeCount = nonEmptyCount - numericLikeCount;
   const uniqueCount = new Set(nonEmpty).size;
   const maxCellLength = nonEmpty.reduce(
     (max, cell) => Math.max(max, cell.length),
@@ -71,12 +72,23 @@ function scoreHeaderCandidate(row: unknown[], rowIndex: number): number {
 
   let score = 0;
 
-  score += Math.min(nonEmptyCount, 12) * 6;
+  // Keep row density helpful but not dominant; dense rows without header clues
+  // should not outrank a true (sometimes sparse) header row.
+  score += Math.min(nonEmptyCount, 12) * 2;
   score += (uniqueCount / nonEmptyCount) * 6;
-  score += keywordHits * 10;
-  score += (nonEmptyCount - numericLikeCount) * 2;
-  score -= numericLikeCount * 4;
-  score -= rowIndex * 0.25;
+  score += keywordHits * 12;
+  score += textLikeCount * 2;
+  score -= numericLikeCount * 6;
+  score -= Math.min(rowIndex, 40) * 0.1;
+
+  if (keywordHits === 0) {
+    // Dense rows with no header vocabulary are usually data rows.
+    score -= Math.max(0, nonEmptyCount - 2) * 4;
+
+    if (textLikeCount >= 3 && numericLikeCount === 0) {
+      score -= 6;
+    }
+  }
 
   if (keywordHits >= 2) {
     score += 8;
@@ -136,11 +148,10 @@ export function normalizeHeaderRowNumber(value: unknown): number | null {
 export function detectHeaderRowIndex(matrix: unknown[][]): number {
   if (matrix.length === 0) return 0;
 
-  const scanLimit = Math.min(matrix.length, 50);
   let bestIndex = -1;
   let bestScore = Number.NEGATIVE_INFINITY;
 
-  for (let rowIndex = 0; rowIndex < scanLimit; rowIndex += 1) {
+  for (let rowIndex = 0; rowIndex < matrix.length; rowIndex += 1) {
     const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
     const score = scoreHeaderCandidate(row, rowIndex);
     if (score > bestScore) {

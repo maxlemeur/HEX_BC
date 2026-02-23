@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createEstimate,
@@ -305,6 +305,7 @@ export function EstimateCreationWizard({
   const [errors, setErrors] = useState<StepErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const projectNameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Templates
   const [templates, setTemplates] = useState<EstimateTemplateSummary[]>([]);
@@ -342,6 +343,11 @@ export function EstimateCreationWizard({
   useEffect(() => {
     saveDraft(data);
   }, [data]);
+
+  useEffect(() => {
+    if (currentStep !== 0) return;
+    projectNameInputRef.current?.focus();
+  }, [currentStep]);
 
   // Update helper
   const updateField = useCallback(
@@ -529,11 +535,11 @@ export function EstimateCreationWizard({
           </label>
           <input
             id="wiz-project-name"
+            ref={projectNameInputRef}
             className={`form-input ${errors.projectName ? "border-[var(--error)]" : ""}`}
             placeholder="Nom du projet"
             value={data.projectName}
             onChange={(e) => updateField("projectName", e.target.value)}
-            autoFocus
           />
           {errors.projectName && (
             <p className="mt-1 text-sm text-[var(--error)]">{errors.projectName}</p>
