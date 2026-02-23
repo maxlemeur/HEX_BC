@@ -44,6 +44,25 @@ type DuplicatesSummary = {
   total_rows_impacted: number;
 };
 
+export function resolveSelectedImportId(
+  importsData: ImportListItem[],
+  importIdFromUrl: string | null,
+  currentImportId: string
+): string {
+  if (importsData.length === 0) return "";
+
+  if (importIdFromUrl) {
+    const matchFromUrl = importsData.find((item) => item.id === importIdFromUrl);
+    if (matchFromUrl) return matchFromUrl.id;
+    return importsData[0].id;
+  }
+
+  const currentMatch = importsData.find((item) => item.id === currentImportId);
+  if (currentMatch) return currentMatch.id;
+
+  return importsData[0].id;
+}
+
 const TARGET_FIELDS = [
   { value: "hex_code", label: "Code HEX", required: true },
   { value: "designation", label: "Designation", required: true },
@@ -184,12 +203,9 @@ export function MappingWizard() {
       setImports(importsData);
       setTemplates(mappingsData.templates ?? []);
 
-      // M-09: Pre-select from query param, or first import
-      if (importIdFromUrl && importsData.some((item) => item.id === importIdFromUrl)) {
-        setSelectedImportId(importIdFromUrl);
-      } else if (importsData.length > 0) {
-        setSelectedImportId((current) => current || importsData[0].id);
-      }
+      setSelectedImportId((current) =>
+        resolveSelectedImportId(importsData, importIdFromUrl, current)
+      );
     } catch (loadError) {
       setError(
         loadError instanceof Error

@@ -1,12 +1,12 @@
 import * as XLSX from "xlsx";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   detectHeaderRowIndex,
   normalizeHeaderRowNumber,
   resolveHeaderRowIndex,
 } from "./header-row";
-import { parseImportFile } from "./parser";
+import { parseImportFile, parseWorkbookMatrixWithTimeout } from "./parser";
 
 function createWorkbookFile(matrix: unknown[][]): File {
   const workbook = XLSX.utils.book_new();
@@ -87,5 +87,24 @@ describe("parseImportFile with header-row options", () => {
     const parsed = await parseImportFile(file, { headerRowNumber: 3 });
     expect(parsed.headers).toEqual(["Description", "Famille_Achat", "PU_FO"]);
     expect(parsed.rows).toHaveLength(2);
+  });
+
+  it("times out when workbook parsing does not complete in time", async () => {
+    vi.useFakeTimers();
+
+    const parsingPromise = parseWorkbookMatrixWithTimeout(
+      new ArrayBuffer(16),
+      250,
+      async () =>
+        new Promise(() => {
+          // keep pending on purpose
+        })
+    );
+
+    const rejection = expect(parsingPromise).rejects.toThrow("Delai de traitement depasse");
+    await vi.advanceTimersByTimeAsync(250);
+
+    await rejection;
+    vi.useRealTimers();
   });
 });
