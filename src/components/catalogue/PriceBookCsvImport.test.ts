@@ -1,6 +1,14 @@
 import { createElement } from "react";
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const parseFileMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/hooks/useFileParser", () => ({
+  useFileParser: () => ({
+    parseFile: parseFileMock,
+  }),
+}));
 
 import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
 
@@ -26,6 +34,33 @@ afterEach(() => {
 });
 
 describe("PriceBookCsvImport", () => {
+  beforeEach(() => {
+    parseFileMock.mockReset();
+  });
+
+  it("renders the guided assistant steps", async () => {
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        createElement(PriceBookCsvImport, {
+          onImported: vi.fn(),
+          lookups: TEST_LOOKUPS,
+        })
+      );
+    });
+
+    const treeText = renderer!.root
+      .findAll((node) => typeof node.type === "string")
+      .map(extractText)
+      .join(" ");
+
+    expect(treeText).toContain("Charger");
+    expect(treeText).toContain("Detection");
+    expect(treeText).toContain("Associer");
+    expect(treeText).toContain("Resoudre");
+    expect(treeText).toContain("Importer");
+  });
+
   it("generates a semicolon CSV template compatible with the importer", async () => {
     const createObjectURLMock = vi.fn<(object: Blob | MediaSource) => string>(
       () => "blob:price-book-template"
@@ -91,5 +126,159 @@ describe("PriceBookCsvImport", () => {
     expect(createdAnchors[0].href).toBe("blob:price-book-template");
     expect(anchorClickMock).toHaveBeenCalledTimes(1);
     expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:price-book-template");
+  });
+
+  it("displays detected profile and encoding after CSV analysis", async () => {
+    parseFileMock.mockResolvedValue({
+      mode: "worker",
+      parser: "csv",
+      detectedEncoding: "windows-1252",
+      rows: [
+        {
+          ID: "TUBE-INOX-28",
+          F1_nom: "CEDEO",
+          F1_prix: "10,00",
+        },
+      ],
+      rowLineNumbers: [2],
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        createElement(PriceBookCsvImport, {
+          onImported: vi.fn(),
+          lookups: TEST_LOOKUPS,
+        })
+      );
+    });
+
+    const fileInput = renderer!.root.findByProps({ id: "price-book-csv-input" });
+    await act(async () => {
+      fileInput.props.onChange({
+        target: {
+          files: [new File(["header"], "mm.csv", { type: "text/csv" })],
+        },
+      });
+    });
+
+    const analyzeButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => extractText(button).includes("Analyser"));
+
+    expect(analyzeButton).toBeDefined();
+
+    await act(async () => {
+      await analyzeButton!.props.onClick();
+    });
+
+    const treeText = renderer!.root.findAll((node) => typeof node.type === "string").map(extractText).join(" ");
+    expect(treeText).toContain("Format BDC detecte");
+    expect(treeText).toContain("Encodage: windows-1252");
+  });
+
+  it("exports correction CSV with expected columns for rows to fix", async () => {
+    parseFileMock.mockResolvedValue({
+      mode: "worker",
+      parser: "csv",
+      detectedEncoding: "utf-8",
+      rows: [
+        {
+          fournisseur: "INCONNU",
+          reference_produit: "TUBE-INOX-28",
+          prix_unitaire: "10,00",
+          devise: "EUR",
+        },
+      ],
+      rowLineNumbers: [2],
+    });
+
+    const createObjectURLMock = vi.fn<(object: Blob | MediaSource) => string>(
+      () => "blob:price-book-corrections"
+    );
+    const revokeObjectURLMock = vi.fn<(url: string) => void>();
+    URL.createObjectURL = createObjectURLMock;
+    URL.revokeObjectURL = revokeObjectURLMock;
+
+    const nativeCreateElement = document.createElement.bind(document);
+    const anchorClickMock = vi.fn();
+    const createdAnchors: HTMLAnchorElement[] = [];
+
+    vi.spyOn(document, "createElement").mockImplementation(
+      ((tagName: string) => {
+        const element = nativeCreateElement(tagName as keyof HTMLElementTagNameMap);
+        if (tagName.toLowerCase() === "a") {
+          const anchor = element as HTMLAnchorElement;
+          createdAnchors.push(anchor);
+          vi.spyOn(anchor, "click").mockImplementation(anchorClickMock);
+        }
+        return element;
+      }) as unknown as typeof document.createElement
+    );
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        createElement(PriceBookCsvImport, {
+          onImported: vi.fn(),
+          lookups: TEST_LOOKUPS,
+        })
+      );
+    });
+
+    const fileInput = renderer!.root.findByProps({ id: "price-book-csv-input" });
+    await act(async () => {
+      fileInput.props.onChange({
+        target: {
+          files: [new File(["header"], "unknown.csv", { type: "text/csv" })],
+        },
+      });
+    });
+
+    const analyzeButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => extractText(button).includes("Analyser"));
+
+    expect(analyzeButton).toBeDefined();
+
+    await act(async () => {
+      await analyzeButton!.props.onClick();
+    });
+
+    const treeText = renderer!.root
+      .findAll((node) => typeof node.type === "string")
+      .map(extractText)
+      .join(" ");
+    expect(treeText).toContain("Total detecte");
+    expect(treeText).toContain("Importables");
+    expect(treeText).toContain("Ignorees (hors perimetre)");
+    expect(treeText).toContain("A corriger");
+
+    const exportButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => extractText(button).includes("Exporter les corrections CSV"));
+
+    expect(exportButton).toBeDefined();
+
+    await act(async () => {
+      exportButton!.props.onClick();
+    });
+
+    expect(createObjectURLMock).toHaveBeenCalledTimes(1);
+    const csvBlob = createObjectURLMock.mock.calls[0][0];
+    expect(csvBlob).toBeInstanceOf(Blob);
+    const csvContent = await (csvBlob as Blob).text();
+
+    expect(csvContent).toContain(
+      "line_number;error_code;error_message;raw_supplier;raw_product;raw_price;suggested_fix"
+    );
+    expect(csvContent).toContain("SUPPLIER_UNKNOWN");
+    expect(csvContent).toContain("INCONNU");
+
+    expect(createdAnchors).toHaveLength(1);
+    expect(createdAnchors[0].download).toBe("prix_import_corrections.csv");
+    expect(createdAnchors[0].href).toBe("blob:price-book-corrections");
+    expect(anchorClickMock).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:price-book-corrections");
   });
 });

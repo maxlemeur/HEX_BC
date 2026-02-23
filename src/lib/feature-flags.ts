@@ -37,6 +37,18 @@ type ToggleFeatureFlagInput = TenantScopedInput & {
 const FEATURE_FLAGS_TABLE = "feature_flags";
 const featureFlagSelect = "tenant_id, flag_key, enabled, value";
 
+export const PRICE_IMPORT_GUIDED_ASSISTANT_FLAG = "PRICE_IMPORT_GUIDED_ASSISTANT";
+export const PRICE_IMPORT_BDC_PROFILE_FLAG = "PRICE_IMPORT_BDC_PROFILE";
+export const PRICE_IMPORT_CREATE_ASSIST_FLAG = "PRICE_IMPORT_CREATE_ASSIST";
+export const PRICE_IMPORT_MULTI_SUPPLIER_FLAG = "PRICE_IMPORT_MULTI_SUPPLIER";
+
+export const PRICE_IMPORT_FEATURE_FLAGS = [
+  PRICE_IMPORT_GUIDED_ASSISTANT_FLAG,
+  PRICE_IMPORT_BDC_PROFILE_FLAG,
+  PRICE_IMPORT_CREATE_ASSIST_FLAG,
+  PRICE_IMPORT_MULTI_SUPPLIER_FLAG,
+] as const;
+
 const tenantIdSchema = z.string().uuid("tenant_id invalide.");
 const userIdSchema = z.string().uuid("user_id invalide.");
 const normalizedFlagKeySchema = z

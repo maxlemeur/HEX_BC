@@ -5,6 +5,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import {
+  PRICE_IMPORT_FEATURE_FLAGS,
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
   isFeatureEnabled,
@@ -136,5 +137,16 @@ describe("getStalePriceDaysForTenant", () => {
       null
     );
     await expect(getStalePriceDaysForTenant(TENANT_ID)).resolves.toBe(90);
+  });
+});
+
+describe("price import feature flags", () => {
+  it("exposes the guided import rollout flag keys", () => {
+    expect(PRICE_IMPORT_FEATURE_FLAGS).toEqual([
+      "PRICE_IMPORT_GUIDED_ASSISTANT",
+      "PRICE_IMPORT_BDC_PROFILE",
+      "PRICE_IMPORT_CREATE_ASSIST",
+      "PRICE_IMPORT_MULTI_SUPPLIER",
+    ]);
   });
 });

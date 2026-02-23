@@ -138,7 +138,7 @@ export function PricesManager() {
     [products]
   );
 
-  useEffect(() => {
+  const loadLookups = useCallback(async () => {
     async function fetchAllLookupRows<T>(
       fetchPage: (from: number, to: number) => PromiseLike<{
         data: T[] | null;
@@ -151,7 +151,7 @@ export function PricesManager() {
       while (true) {
         const { data, error } = await fetchPage(offset, offset + LOOKUP_PAGE_SIZE - 1);
         if (error) {
-          throw new Error(error.message ?? "Impossible de charger les référentiels.");
+          throw new Error(error.message ?? "Impossible de charger les referentiels.");
         }
 
         const pageRows = data ?? [];
@@ -165,29 +165,34 @@ export function PricesManager() {
       }
     }
 
-    async function loadLookups() {
-      const [supplierRows, productRows] = await Promise.all([
-        fetchAllLookupRows<{ id: string; name: string }>((from, to) =>
+    const [supplierRows, productRows] = await Promise.all([
+      fetchAllLookupRows<{ id: string; name: string }>((from, to) =>
+        supabase
+          .from("suppliers")
+          .select("id, name")
+          .order("name")
+          .range(from, to)
+      ),
+      fetchAllLookupRows<{ id: string; designation: string; reference?: string | null }>(
+        (from, to) =>
           supabase
-            .from("suppliers")
-            .select("id, name")
-            .order("name")
+            .from("products")
+            .select("id, designation, reference")
+            .order("designation")
             .range(from, to)
-        ),
-        fetchAllLookupRows<{ id: string; designation: string; reference?: string | null }>(
-          (from, to) =>
-            supabase
-              .from("products")
-              .select("id, designation, reference")
-              .order("designation")
-              .range(from, to)
-        ),
-      ]);
-      setSuppliers(supplierRows);
-      setProducts(productRows);
-    }
-    void loadLookups();
+      ),
+    ]);
+    setSuppliers(supplierRows);
+    setProducts(productRows);
+    return {
+      suppliers: supplierRows,
+      products: productRows,
+    };
   }, [supabase]);
+
+  useEffect(() => {
+    void loadLookups();
+  }, [loadLookups]);
 
   // --- SWR data fetching ---
   const fetchPrices = useCallback(async () => {
@@ -486,7 +491,7 @@ export function PricesManager() {
                 Importer un fichier de prix (CSV)
               </h2>
               <p className="text-xs text-[var(--slate-500)]">
-                Importez vos prix depuis un fichier CSV en 3 étapes.
+                Importez vos prix depuis un fichier CSV avec un assistant guide en 5 etapes.
               </p>
             </div>
           </div>
@@ -508,6 +513,7 @@ export function PricesManager() {
           <div className="border-t border-[var(--slate-200)]">
             <PriceBookCsvImport
               onImported={() => void mutate()}
+              onLookupsUpdated={loadLookups}
               lookups={{ suppliers, products }}
             />
           </div>

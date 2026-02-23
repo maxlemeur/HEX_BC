@@ -10,12 +10,14 @@ import type {
   BulkCreateSupplierPricesInput,
   BulkUpsertMaterialIndicesInput,
   CatalogueListQueryInput,
+  CreateMissingPriceImportEntitiesInput,
   CreateCatalogueItemInput,
   CreateMaterialIndexInput,
   CreateSupplierPriceInput,
   IndicesListQueryInput,
   LinkMappedRowsInput,
   PricesListQueryInput,
+  ResolvePriceImportSuggestionsInput,
   UpdateCatalogueItemInput,
   UpdateMaterialIndexInput,
   UpdateSupplierPriceInput,
@@ -99,6 +101,18 @@ export type MaterialIndexRecord = {
   source?: string | null;
   metadata?: unknown;
   [key: string]: unknown;
+};
+
+export type PriceImportSuggestionMatch = {
+  id: string;
+  value: string;
+  confidence: number;
+};
+
+export type PriceImportSuggestion = {
+  type: "supplier" | "product";
+  input: string;
+  matches: PriceImportSuggestionMatch[];
 };
 
 export class CatalogueApiError extends Error {
@@ -283,6 +297,51 @@ function normalizeToken(value: unknown) {
   }
 
   return "";
+}
+
+function normalizeSuggestionToken(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function safeIlikeToken(value: string) {
+  return value.replace(/[%_,]/g, "");
+}
+
+function tokenize(value: string): Set<string> {
+  const normalized = normalizeSuggestionToken(value);
+  if (!normalized) return new Set();
+  return new Set(normalized.split(" ").filter(Boolean));
+}
+
+function scoreSuggestionMatch(source: string, candidate: string): number {
+  const sourceToken = normalizeSuggestionToken(source);
+  const candidateToken = normalizeSuggestionToken(candidate);
+
+  if (!sourceToken || !candidateToken) return 0;
+  if (sourceToken === candidateToken) return 1;
+  if (candidateToken.startsWith(sourceToken) || sourceToken.startsWith(candidateToken)) {
+    return 0.9;
+  }
+  if (candidateToken.includes(sourceToken) || sourceToken.includes(candidateToken)) {
+    return 0.8;
+  }
+
+  const sourceWords = tokenize(sourceToken);
+  const candidateWords = tokenize(candidateToken);
+  if (sourceWords.size === 0 || candidateWords.size === 0) return 0;
+
+  let overlap = 0;
+  sourceWords.forEach((word) => {
+    if (candidateWords.has(word)) overlap += 1;
+  });
+
+  const denominator = Math.max(sourceWords.size, candidateWords.size);
+  return overlap / denominator;
 }
 
 function extractMissingColumn(error: PostgrestError): string | null {
@@ -1440,5 +1499,189 @@ export async function bulkUpsertMaterialIndices(input: BulkUpsertMaterialIndices
   return {
     upserted_count: (upserted ?? []).length,
     mode: "fallback-upsert" as const,
+  };
+}
+
+export async function resolvePriceImportSuggestions(
+  input: ResolvePriceImportSuggestionsInput
+): Promise<{ suggestions: PriceImportSuggestion[] }> {
+  const { supabase } = await getAuthenticatedContext();
+  const suggestions: PriceImportSuggestion[] = [];
+
+  for (const supplierInput of input.unknownSuppliers) {
+    const token = safeIlikeToken(supplierInput);
+    if (!token) continue;
+
+    const { data, error } = await supabase
+      .from("suppliers")
+      .select("id, name")
+      .ilike("name", `%${token}%`)
+      .limit(10);
+
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de resoudre les fournisseurs inconnus.");
+    }
+
+    const matches = ((data ?? []) as Array<{ id: string; name: string }>)
+      .map((entry) => ({
+        id: entry.id,
+        value: entry.name,
+        confidence: scoreSuggestionMatch(supplierInput, entry.name),
+      }))
+      .filter((entry) => entry.confidence > 0.2)
+      .sort((left, right) => right.confidence - left.confidence)
+      .slice(0, 3);
+
+    suggestions.push({
+      type: "supplier",
+      input: supplierInput,
+      matches,
+    });
+  }
+
+  for (const productInput of input.unknownProducts) {
+    const token = safeIlikeToken(productInput);
+    if (!token) continue;
+
+    const { data, error } = await supabase
+      .from("products")
+      .select("id, reference, designation")
+      .or(`reference.ilike.%${token}%,designation.ilike.%${token}%`)
+      .limit(10);
+
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de resoudre les produits inconnus.");
+    }
+
+    const matches = ((data ?? []) as Array<{ id: string; reference?: string | null; designation: string }>)
+      .map((entry) => {
+        const reference = typeof entry.reference === "string" && entry.reference.trim() ? entry.reference : null;
+        const bestValue = reference ?? entry.designation;
+        const confidence = Math.max(
+          scoreSuggestionMatch(productInput, bestValue),
+          scoreSuggestionMatch(productInput, entry.designation)
+        );
+        return {
+          id: entry.id,
+          value: bestValue,
+          confidence,
+        };
+      })
+      .filter((entry) => entry.confidence > 0.2)
+      .sort((left, right) => right.confidence - left.confidence)
+      .slice(0, 3);
+
+    suggestions.push({
+      type: "product",
+      input: productInput,
+      matches,
+    });
+  }
+
+  return { suggestions };
+}
+
+export async function createMissingPriceImportEntities(
+  input: CreateMissingPriceImportEntitiesInput
+): Promise<{
+  createdSuppliers: Array<{ id: string; name: string }>;
+  createdProducts: Array<{ id: string; reference: string; designation: string }>;
+}> {
+  const { supabase } = await getAuthenticatedContext();
+
+  const createdSuppliers: Array<{ id: string; name: string }> = [];
+  const createdProducts: Array<{ id: string; reference: string; designation: string }> = [];
+
+  for (const supplierNameRaw of input.suppliersToCreate) {
+    const supplierName = supplierNameRaw.trim();
+    if (!supplierName) continue;
+
+    const { data: existingSuppliers, error: existingSuppliersError } = await supabase
+      .from("suppliers")
+      .select("id, name")
+      .ilike("name", supplierName)
+      .limit(5);
+
+    if (existingSuppliersError) {
+      throw mapSupabaseError(
+        existingSuppliersError,
+        "Impossible de verifier les fournisseurs existants."
+      );
+    }
+
+    const exactSupplier = ((existingSuppliers ?? []) as Array<{ id: string; name: string }>).find(
+      (supplier) => normalizeSuggestionToken(supplier.name) === normalizeSuggestionToken(supplierName)
+    );
+
+    if (exactSupplier) continue;
+
+    const { data: insertedSupplier, error: insertSupplierError } = await supabase
+      .from("suppliers")
+      .insert({
+        name: supplierName,
+        is_active: true,
+      })
+      .select("id, name")
+      .single();
+
+    if (insertSupplierError) {
+      throw mapSupabaseError(insertSupplierError, "Impossible de creer un fournisseur manquant.");
+    }
+
+    if (insertedSupplier) {
+      createdSuppliers.push(insertedSupplier as { id: string; name: string });
+    }
+  }
+
+  for (const productReferenceRaw of input.productsToCreate) {
+    const productReference = productReferenceRaw.trim();
+    if (!productReference) continue;
+
+    const { data: existingProducts, error: existingProductsError } = await supabase
+      .from("products")
+      .select("id, reference")
+      .ilike("reference", productReference)
+      .limit(5);
+
+    if (existingProductsError) {
+      throw mapSupabaseError(existingProductsError, "Impossible de verifier les produits existants.");
+    }
+
+    const exactProduct = ((existingProducts ?? []) as Array<{ id: string; reference?: string | null }>).find(
+      (product) =>
+        normalizeSuggestionToken(product.reference ?? "") ===
+        normalizeSuggestionToken(productReference)
+    );
+
+    if (exactProduct) continue;
+
+    const { data: insertedProduct, error: insertProductError } = await supabase
+      .from("products")
+      .insert({
+        reference: productReference,
+        designation: productReference,
+        unit_price_cents: 0,
+        tax_rate_bp: 2000,
+        is_active: true,
+      })
+      .select("id, reference, designation")
+      .single();
+
+    if (insertProductError) {
+      throw mapSupabaseError(insertProductError, "Impossible de creer un produit manquant.");
+    }
+
+    if (insertedProduct) {
+      createdProducts.push({
+        id: String((insertedProduct as { id: unknown }).id),
+        reference: String((insertedProduct as { reference: unknown }).reference),
+        designation: String((insertedProduct as { designation: unknown }).designation),
+      });
+    }
+  }
+
+  return {
+    createdSuppliers,
+    createdProducts,
   };
 }

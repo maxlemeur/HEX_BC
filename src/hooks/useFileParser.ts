@@ -5,6 +5,7 @@ import { useCallback } from "react";
 export type ParsedImportScalar = string | number | boolean | null;
 export type ParsedImportRow = Record<string, ParsedImportScalar>;
 export type ParserKind = "csv" | "xlsx";
+export type ParsedCsvEncoding = "utf-8" | "windows-1252";
 
 type ParseWorkerRequest = {
   requestId: string;
@@ -17,6 +18,7 @@ type ParseWorkerSuccessResponse = {
   ok: true;
   rows: ParsedImportRow[];
   rowLineNumbers?: number[];
+  detectedEncoding?: ParsedCsvEncoding;
 };
 
 type ParseWorkerErrorResponse = {
@@ -36,6 +38,7 @@ export type FileParseResult = {
   parser: ParserKind;
   rows: ParsedImportRow[];
   rowLineNumbers?: number[];
+  detectedEncoding?: ParsedCsvEncoding;
 };
 
 const CSV_EXTENSIONS = new Set(["csv"]);
@@ -88,7 +91,11 @@ function runWorkerParser(
   parser: ParserKind,
   buffer: ArrayBuffer,
   options?: ParseFileOptions
-): Promise<{ rows: ParsedImportRow[]; rowLineNumbers?: number[] }> {
+): Promise<{
+  rows: ParsedImportRow[];
+  rowLineNumbers?: number[];
+  detectedEncoding?: ParsedCsvEncoding;
+}> {
   return new Promise((resolve, reject) => {
     const worker = createParserWorker(parser);
     const requestId = buildRequestId();
@@ -117,6 +124,7 @@ function runWorkerParser(
         resolve({
           rows: response.rows,
           rowLineNumbers: response.rowLineNumbers,
+          detectedEncoding: response.detectedEncoding,
         });
         return;
       }
@@ -150,13 +158,18 @@ export function useFileParser() {
       }
 
       const buffer = await file.arrayBuffer();
-      const { rows, rowLineNumbers } = await runWorkerParser(parser, buffer, options);
+      const { rows, rowLineNumbers, detectedEncoding } = await runWorkerParser(
+        parser,
+        buffer,
+        options
+      );
 
       return {
         mode: "worker",
         parser,
         rows,
         rowLineNumbers,
+        detectedEncoding,
       };
     },
     []

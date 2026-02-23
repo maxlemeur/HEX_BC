@@ -14,6 +14,7 @@ type ParseWorkerSuccessResponse = {
   ok: true;
   rows: ParsedImportRow[];
   rowLineNumbers?: number[];
+  detectedEncoding: CsvDetectedEncoding;
 };
 
 type ParseWorkerErrorResponse = {
@@ -25,6 +26,9 @@ type ParseWorkerErrorResponse = {
 type ParseWorkerResponse = ParseWorkerSuccessResponse | ParseWorkerErrorResponse;
 
 const CANDIDATE_DELIMITERS = [",", ";", "\t", "|"];
+const REPLACEMENT_CHAR = "\uFFFD";
+
+export type CsvDetectedEncoding = "utf-8" | "windows-1252";
 
 function removeBom(value: string): string {
   return value.replace(/^\uFEFF/, "");
@@ -150,6 +154,51 @@ function parseCsvMatrix(rawText: string, delimiter: string): string[][] {
   return rows;
 }
 
+function countReplacementChars(value: string): number {
+  let count = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === REPLACEMENT_CHAR) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+export function decodeCsvBuffer(
+  buffer: ArrayBuffer
+): { text: string; detectedEncoding: CsvDetectedEncoding } {
+  const utf8Text = new TextDecoder("utf-8").decode(buffer);
+  const utf8ReplacementCount = countReplacementChars(utf8Text);
+
+  if (utf8ReplacementCount === 0) {
+    return {
+      text: utf8Text,
+      detectedEncoding: "utf-8",
+    };
+  }
+
+  try {
+    const cp1252Text = new TextDecoder("windows-1252").decode(buffer);
+    const cp1252ReplacementCount = countReplacementChars(cp1252Text);
+
+    if (cp1252ReplacementCount <= utf8ReplacementCount) {
+      return {
+        text: cp1252Text,
+        detectedEncoding: "windows-1252",
+      };
+    }
+  } catch {
+    // Browser/runtime does not support windows-1252; keep UTF-8 fallback.
+  }
+
+  return {
+    text: utf8Text,
+    detectedEncoding: "utf-8",
+  };
+}
+
 function toImportRows(
   matrix: string[][],
   headerRowNumber?: number | null
@@ -197,41 +246,44 @@ function postResponse(response: ParseWorkerResponse) {
   self.postMessage(response);
 }
 
-self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
-  const payload = event.data;
-  const requestId = payload?.requestId;
+if (typeof self !== "undefined") {
+  self.onmessage = (event: MessageEvent<ParseWorkerRequest>) => {
+    const payload = event.data;
+    const requestId = payload?.requestId;
 
-  if (!requestId || !(payload.buffer instanceof ArrayBuffer)) {
-    postResponse({
-      requestId: requestId ?? "unknown",
-      ok: false,
-      error: "Requete worker invalide.",
-    });
-    return;
-  }
+    if (!requestId || !(payload.buffer instanceof ArrayBuffer)) {
+      postResponse({
+        requestId: requestId ?? "unknown",
+        ok: false,
+        error: "Requete worker invalide.",
+      });
+      return;
+    }
 
-  try {
-    const text = new TextDecoder("utf-8").decode(payload.buffer);
-    const delimiter = detectDelimiter(text);
-    const matrix = parseCsvMatrix(text, delimiter);
-    const parsed = toImportRows(matrix, payload.headerRowNumber ?? null);
+    try {
+      const { text, detectedEncoding } = decodeCsvBuffer(payload.buffer);
+      const delimiter = detectDelimiter(text);
+      const matrix = parseCsvMatrix(text, delimiter);
+      const parsed = toImportRows(matrix, payload.headerRowNumber ?? null);
 
-    postResponse({
-      requestId,
-      ok: true,
-      rows: parsed.rows,
-      rowLineNumbers: parsed.rowLineNumbers,
-    });
-  } catch (error) {
-    postResponse({
-      requestId,
-      ok: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Le parsing CSV a echoue dans le worker.",
-    });
-  }
-};
+      postResponse({
+        requestId,
+        ok: true,
+        rows: parsed.rows,
+        rowLineNumbers: parsed.rowLineNumbers,
+        detectedEncoding,
+      });
+    } catch (error) {
+      postResponse({
+        requestId,
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Le parsing CSV a echoue dans le worker.",
+      });
+    }
+  };
+}
 
 export {};

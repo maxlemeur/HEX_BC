@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  detectPriceBookProfile,
   extractPriceBookSourceColumns,
   hasMinimumPriceBookMapping,
+  suggestPriceBookColumnMappingForProfile,
   suggestPriceBookColumnMapping,
   validatePriceBookRows,
   type CsvImportRow,
@@ -54,6 +56,27 @@ describe("price book csv import mapping suggestions", () => {
       product_id: "product_reference",
       unit_price: "unit_price",
     });
+  });
+
+  it("detects MM_BDC profile and applies default mapping", () => {
+    const sourceColumns = [
+      "Trust FO (/10)",
+      "ID",
+      "Materiau",
+      "F1_nom",
+      "F1_prix",
+      "F1_ref",
+      "F2_nom",
+      "F2_prix",
+    ];
+
+    const profile = detectPriceBookProfile(sourceColumns);
+    const mapping = suggestPriceBookColumnMappingForProfile(sourceColumns, profile);
+
+    expect(profile).toBe("mm_bdc");
+    expect(mapping.ID).toBe("product_reference");
+    expect(mapping.F1_nom).toBe("supplier_name");
+    expect(mapping.F1_prix).toBe("unit_price");
   });
 
   it("extracts source columns in first-seen order", () => {
@@ -114,6 +137,7 @@ describe("price book csv import validation with lookups", () => {
     expect(result.totalRows).toBe(2);
     expect(result.acceptedRows).toBe(2);
     expect(result.rejectedRowsCount).toBe(0);
+    expect(result.ignoredRowsCount).toBe(0);
     expect(result.acceptedItems[0]).toMatchObject({
       supplier_id: SUPPLIER_ID_1,
       product_id: PRODUCT_ID_1,
@@ -310,6 +334,7 @@ describe("price book csv import validation with lookups", () => {
 
     const result = await validatePriceBookRows(rows, mapping, {
       rowLineNumbers: [2, 5, 9],
+      autoFillSingleSupplier: false,
       lookups: TEST_LOOKUPS,
     });
 
@@ -324,11 +349,20 @@ describe("price book csv import validation with lookups", () => {
   });
 
   it("limits preview to 10 rows and emits chunked progress", async () => {
-    const rows: CsvImportRow[] = Array.from({ length: 501 }, () => ({
+    const rows: CsvImportRow[] = Array.from({ length: 501 }, (_, index) => ({
       fournisseur: "CEDEO",
-      ref: "TUBE-INOX-28",
+      ref: `TUBE-INOX-${index}`,
       prix: "1,00",
     }));
+
+    const lookups: PriceBookLookups = {
+      suppliers: TEST_LOOKUPS.suppliers,
+      products: rows.map((row, index) => ({
+        id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        reference: String(row.ref),
+        designation: String(row.ref),
+      })),
+    };
 
     const mapping: PriceBookColumnMapping = {
       fournisseur: "supplier_name",
@@ -340,7 +374,7 @@ describe("price book csv import validation with lookups", () => {
 
     const result = await validatePriceBookRows(rows, mapping, {
       chunkSize: 120,
-      lookups: TEST_LOOKUPS,
+      lookups,
       onProgress: (progress) => {
         progressEvents.push(progress.percentage);
       },
@@ -348,9 +382,83 @@ describe("price book csv import validation with lookups", () => {
 
     expect(result.acceptedRows).toBe(501);
     expect(result.rejectedRowsCount).toBe(0);
+    expect(result.ignoredRowsCount).toBe(0);
     expect(result.previewRows).toHaveLength(10);
     expect(progressEvents[0]).toBe(0);
     expect(progressEvents[progressEvents.length - 1]).toBe(100);
     expect(progressEvents.length).toBeGreaterThan(2);
+  });
+
+  it("normalizes mm_bdc alternatives and ignores rows without supplier price", async () => {
+    const rows: CsvImportRow[] = [
+      {
+        ID: "TUBE-INOX-28",
+        Materiau: "Tube inox",
+        Dimension: "DN15",
+        Caracteristique: "Soude",
+        F1_nom: "CEDEO",
+        F1_prix: "12,50",
+        F2_nom: "ARCUS",
+        F2_prix: "12,20",
+      },
+      {
+        ID: "CABLE-3G1.5",
+        Materiau: "Cable",
+        Dimension: "3G1.5",
+        Caracteristique: "Cuivre",
+        F1_nom: "",
+        F1_prix: "",
+      },
+    ];
+
+    const result = await validatePriceBookRows(
+      rows,
+      {
+        F1_nom: "supplier_name",
+        ID: "product_reference",
+        F1_prix: "unit_price",
+      },
+      {
+        profile: "mm_bdc",
+        lookups: TEST_LOOKUPS,
+        includeSupplierAlternatives: true,
+      }
+    );
+
+    expect(result.acceptedRows).toBe(2);
+    expect(result.rejectedRowsCount).toBe(0);
+    expect(result.ignoredRowsCount).toBe(1);
+    expect(result.ignoredRows[0]?.errorCode).toBe("NO_SUPPLIER_PRICE");
+  });
+
+  it("autofills supplier when one supplier is uniquely identifiable", async () => {
+    const rows: CsvImportRow[] = [
+      {
+        ID: "TUBE-INOX-28",
+        F1_nom: "CEDEO",
+        F1_prix: "10,00",
+      },
+      {
+        ID: "CABLE-3G1.5",
+        F1_nom: "",
+        F1_prix: "8,00",
+      },
+    ];
+
+    const result = await validatePriceBookRows(
+      rows,
+      {
+        F1_nom: "supplier_name",
+        ID: "product_reference",
+        F1_prix: "unit_price",
+      },
+      {
+        profile: "mm_bdc",
+        lookups: TEST_LOOKUPS,
+      }
+    );
+
+    expect(result.acceptedRows).toBe(2);
+    expect(result.autofilledSupplierCount).toBe(1);
   });
 });

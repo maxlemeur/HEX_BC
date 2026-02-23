@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 function Get-HexSuites {
   $all = @(
     "prices-page.ps1",
+    "prices-import-guided.ps1",
     "ti-140-epic.ps1",
     "est-101-keyboard.ps1",
     "est-102-inline-edit.ps1",
@@ -72,7 +73,8 @@ function Get-HexSuites {
       "ti-182-assemblies.ps1"
     )
     catalogue = @(
-      "prices-page.ps1"
+      "prices-page.ps1",
+      "prices-import-guided.ps1"
     )
     all = $all
   }

@@ -422,6 +422,30 @@ export const indicesActionSchema = z.discriminatedUnion("action", [
   bulkUpsertMaterialIndicesSchema,
 ]);
 
+const normalizedStringArraySchema = z
+  .array(z.string().trim().min(1))
+  .max(200)
+  .default([])
+  .transform((values) => {
+    const deduped = new Set<string>();
+    for (const value of values) {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      deduped.add(trimmed);
+    }
+    return Array.from(deduped);
+  });
+
+export const resolvePriceImportSuggestionsSchema = z.object({
+  unknownSuppliers: normalizedStringArraySchema,
+  unknownProducts: normalizedStringArraySchema,
+});
+
+export const createMissingPriceImportEntitiesSchema = z.object({
+  suppliersToCreate: normalizedStringArraySchema,
+  productsToCreate: normalizedStringArraySchema,
+});
+
 export type CatalogueActionInput = z.infer<typeof catalogueActionSchema>;
 export type PricesActionInput = z.infer<typeof pricesActionSchema>;
 export type IndicesActionInput = z.infer<typeof indicesActionSchema>;
@@ -444,3 +468,10 @@ export type BulkCreateSupplierPricesAtomicInput = z.infer<
 export type CreateMaterialIndexInput = z.infer<typeof createMaterialIndexSchema>["item"];
 export type UpdateMaterialIndexInput = z.infer<typeof updateMaterialIndexSchema>;
 export type BulkUpsertMaterialIndicesInput = z.infer<typeof bulkUpsertMaterialIndicesSchema>["items"];
+
+export type ResolvePriceImportSuggestionsInput = z.infer<
+  typeof resolvePriceImportSuggestionsSchema
+>;
+export type CreateMissingPriceImportEntitiesInput = z.infer<
+  typeof createMissingPriceImportEntitiesSchema
+>;
