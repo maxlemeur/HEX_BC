@@ -58,6 +58,10 @@ import {
   type SpreadsheetNavigationRow,
 } from "@/hooks/useSpreadsheetNavigation";
 import {
+  useColumnVisibility,
+  type ColumnKey,
+} from "@/hooks/useColumnVisibility";
+import {
   type EstimateQualityFlagCounts,
   type EstimateQualityFlagKey,
   type EstimateQualityFlagsByItemId,
@@ -625,6 +629,7 @@ export function EstimateEditorTable({
   onScrollToItemHandled,
   virtualization,
 }: EstimateEditorTableProps) {
+  const columnVisibility = useColumnVisibility();
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
   const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
   const [isAssemblyPickerOpen, setIsAssemblyPickerOpen] = useState(false);
@@ -692,6 +697,23 @@ export function EstimateEditorTable({
     laborRateById,
     isLaborSplitEnabled,
   });
+  const dynamicGridStyle = useMemo(() => {
+    if (isLaborSplitEnabled) return undefined; // labor split uses its own grid, not affected by column visibility
+    const cols: string[] = ["52px", "minmax(260px, 3fr)", "80px", "80px", "110px"]; // checkbox, designation, qty, unit, PR.FO
+    let minWidth = 52 + 260 + 80 + 80 + 110;
+    if (columnVisibility.visibleColumns.has("supply_type")) { cols.push("140px"); minWidth += 140; }
+    if (columnVisibility.visibleColumns.has("k_fo")) { cols.push("70px"); minWidth += 70; }
+    cols.push("80px"); minWidth += 80; // h MO (always visible)
+    if (columnVisibility.visibleColumns.has("h_mo_majoration")) { cols.push("130px"); minWidth += 130; }
+    if (columnVisibility.visibleColumns.has("labor_role")) { cols.push("130px"); minWidth += 130; }
+    if (columnVisibility.visibleColumns.has("k_mo")) { cols.push("80px"); minWidth += 80; }
+    cols.push("110px", "120px", "110px"); minWidth += 110 + 120 + 110; // P.U., Prix total, actions
+    return {
+      "--estimate-grid": cols.join(" "),
+      "--estimate-min-width": `${minWidth}px`,
+    } as React.CSSProperties;
+  }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
+
   const canReorder = !isReadOnly && qualityFilter === "all_lines";
   const availableSectionDuplicateTargets = useMemo(
     () =>
@@ -1497,7 +1519,7 @@ export function EstimateEditorTable({
       const parts: string[] = [];
       if (rule.category_id) {
         const category = categoryById.get(rule.category_id);
-        parts.push(`Type FO: ${category?.name ?? "Categorie inconnue"}`);
+        parts.push(`Type FO: ${category?.name ?? "Catégorie inconnue"}`);
       }
       const supplyTypeId = toSuggestionSupplyTypeId(rule);
       if (supplyTypeId) {
@@ -1625,14 +1647,38 @@ export function EstimateEditorTable({
     onScrollToItemHandled,
   });
 
+  const hiddenSpreadsheetColumnKeys = useMemo(() => {
+    if (isLaborSplitEnabled) return new Set<string>(); // labor split not affected
+    const hidden = new Set<string>();
+    const columnKeyToSpreadsheetKey: Record<ColumnKey, string> = {
+      supply_type: "supply_type",
+      k_fo: "k_fo",
+      h_mo_majoration: "h_mo_majoration",
+      labor_role: "labor_role",
+      k_mo: "k_mo",
+    };
+    for (const [colKey, ssKey] of Object.entries(columnKeyToSpreadsheetKey)) {
+      if (!columnVisibility.visibleColumns.has(colKey as ColumnKey)) {
+        hidden.add(ssKey);
+      }
+    }
+    return hidden;
+  }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
+
   const spreadsheetNavigationRows = useMemo(() => {
     if (!hasVisibleRows) return [] as SpreadsheetNavigationRow[];
 
-    return visibleItemsInOrder.map((item) => ({
-      rowId: item.id,
-      columnKeys: getSpreadsheetColumnKeys(item.item_type, isLaborSplitEnabled),
-    }));
-  }, [hasVisibleRows, isLaborSplitEnabled, visibleItemsInOrder]);
+    return visibleItemsInOrder.map((item) => {
+      const allKeys = getSpreadsheetColumnKeys(item.item_type, isLaborSplitEnabled);
+      if (hiddenSpreadsheetColumnKeys.size === 0) {
+        return { rowId: item.id, columnKeys: allKeys };
+      }
+      return {
+        rowId: item.id,
+        columnKeys: allKeys.filter((key) => !hiddenSpreadsheetColumnKeys.has(key)),
+      };
+    });
+  }, [hasVisibleRows, hiddenSpreadsheetColumnKeys, isLaborSplitEnabled, visibleItemsInOrder]);
 
   const spreadsheetNavigation = useSpreadsheetNavigation({
     rows: spreadsheetNavigationRows,
@@ -1696,12 +1742,14 @@ export function EstimateEditorTable({
           isOutlierActionPending={Boolean(outlierActionPendingByItemId[item.id])}
           isReadOnly={isReadOnly}
           isLaborSplitEnabled={isLaborSplitEnabled}
+          visibleColumns={isLaborSplitEnabled ? undefined : columnVisibility.visibleColumns}
         />
       );
     },
     [
       bestSupplierPriceIdByItemId,
       canReorder,
+      columnVisibility.visibleColumns,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
       handleOpenSectionContextMenu,
@@ -1854,6 +1902,9 @@ export function EstimateEditorTable({
           onOpenBulkSuggestDialog={onOpenBulkSuggestDialog}
           onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
           onAddRootSection={() => onAddSection(null)}
+          columnPreset={columnVisibility.preset}
+          columnPresetLabels={columnVisibility.presetLabels}
+          onColumnPresetChange={columnVisibility.setPreset}
         />
 
       {actionError && (
@@ -1877,6 +1928,7 @@ export function EstimateEditorTable({
 
       <div
         className={`estimate-table mt-6${isLaborSplitEnabled ? " estimate-table--labor-split" : ""}`}
+        style={dynamicGridStyle}
       >
         <div className="estimate-table__head">
           <div>
@@ -1886,35 +1938,47 @@ export function EstimateEditorTable({
               checked={allVisibleSelected}
               onChange={(event) => toggleAllVisibleLines(event.target.checked)}
               disabled={isReadOnly || visibleLineIdList.length === 0}
-              aria-label="Selectionner toutes les lignes visibles"
+              aria-label="Sélectionner toutes les lignes visibles"
             />
           </div>
-          <div>Designation</div>
-          <div>Qte</div>
-          <div>U</div>
-          <div>PR. FO</div>
-          <div>Type FO</div>
-          <div>K FO</div>
+          <div title="Désignation de l'article" className="cursor-help">Désignation</div>
+          <div title="Quantité" className="cursor-help">Qté</div>
+          <div title="Unité de mesure" className="cursor-help">U</div>
+          <div title="Prix unitaire fourniture" className="cursor-help">PR. FO</div>
           {isLaborSplitEnabled ? (
             <>
-              <div>Majoration MO (%)</div>
-              <div>h MO atelier</div>
-              <div>Type MO atelier</div>
-              <div>K MO atelier</div>
-              <div>h MO chantier</div>
-              <div>Type MO chantier</div>
-              <div>K MO chantier</div>
+              <div title="Type de fourniture" className="cursor-help">Type FO</div>
+              <div title="Coefficient fourniture" className="cursor-help">K FO</div>
+              <div title="Pourcentage de majoration main d'œuvre" className="cursor-help">Majoration MO (%)</div>
+              <div title="Heures main d'œuvre atelier" className="cursor-help">h MO atelier</div>
+              <div title="Type de main d'œuvre atelier" className="cursor-help">Type MO atelier</div>
+              <div title="Coefficient main d'œuvre atelier" className="cursor-help">K MO atelier</div>
+              <div title="Heures main d'œuvre chantier" className="cursor-help">h MO chantier</div>
+              <div title="Type de main d'œuvre chantier" className="cursor-help">Type MO chantier</div>
+              <div title="Coefficient main d'œuvre chantier" className="cursor-help">K MO chantier</div>
             </>
           ) : (
             <>
-              <div>h MO</div>
-              <div>Majoration MO (%)</div>
-              <div>Type MO</div>
-              <div>K MO</div>
+              {columnVisibility.visibleColumns.has("supply_type") ? (
+                <div title="Type de fourniture" className="cursor-help">Type FO</div>
+              ) : null}
+              {columnVisibility.visibleColumns.has("k_fo") ? (
+                <div title="Coefficient fourniture" className="cursor-help">K FO</div>
+              ) : null}
+              <div title="Heures main d'œuvre" className="cursor-help">h MO</div>
+              {columnVisibility.visibleColumns.has("h_mo_majoration") ? (
+                <div title="Pourcentage de majoration main d'œuvre" className="cursor-help">Majoration MO (%)</div>
+              ) : null}
+              {columnVisibility.visibleColumns.has("labor_role") ? (
+                <div title="Type de main d'œuvre" className="cursor-help">Type MO</div>
+              ) : null}
+              {columnVisibility.visibleColumns.has("k_mo") ? (
+                <div title="Coefficient main d'œuvre" className="cursor-help">K MO</div>
+              ) : null}
             </>
           )}
-          <div>P.U.</div>
-          <div>Prix total</div>
+          <div title="Prix unitaire HT calculé" className="cursor-help">P.U.</div>
+          <div title="Prix total HT de la ligne" className="cursor-help">Prix total</div>
           <div></div>
         </div>
         <EstimateEditorBody

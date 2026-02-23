@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
   ESTIMATE_QUALITY_FLAG_META,
@@ -15,6 +17,7 @@ import {
   useEstimateEditorMeta,
   useEstimateEditorState,
 } from "@/components/estimates/context/EstimateEditorContext";
+import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
 
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
@@ -54,6 +57,9 @@ type EstimateEditorToolbarProps = {
   onOpenBulkSuggestDialog: () => void;
   onOpenAssemblyPicker: () => void;
   onAddRootSection: () => void;
+  columnPreset: ColumnPreset;
+  columnPresetLabels: Record<ColumnPreset, string>;
+  onColumnPresetChange: (preset: ColumnPreset) => void;
 };
 
 const ROOT_KEY = "root";
@@ -103,97 +109,164 @@ export function EstimateEditorToolbar({
   onOpenBulkSuggestDialog,
   onOpenAssemblyPicker,
   onAddRootSection,
+  columnPreset,
+  columnPresetLabels,
+  onColumnPresetChange,
 }: EstimateEditorToolbarProps) {
   const state = useEstimateEditorState();
   const actions = useEstimateEditorActions();
   const meta = useEstimateEditorMeta();
 
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h2 className="text-lg font-semibold text-[var(--slate-800)]">Editeur du devis</h2>
-        <p className="mt-1 text-sm text-[var(--slate-500)]">
-          Organisez chapitres, sous-chapitres et lignes FO/MO.
-        </p>
-        <p className="mt-2 text-xs text-[var(--slate-500)]">
-          {qualityCounts.linesWithAnomaliesCount} ligne(s) avec anomalies sur{" "}
-          {qualityCounts.linesCount} ligne(s) ({qualityCounts.totalFlagsCount} flag(s))
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <label
-          className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
-          htmlFor="estimate-quality-filter"
-        >
-          Filtre qualite
-        </label>
-        <select
-          id="estimate-quality-filter"
-          className="estimate-input estimate-select"
-          style={{ width: "auto", minWidth: "260px" }}
-          value={qualityFilter}
-          onChange={(event) => onQualityFilterChange(parseEstimateQualityFilter(event.target.value))}
-        >
-          <option value="all_lines">Toutes les lignes ({qualityCounts.linesCount})</option>
-          <option value="with_anomalies">
-            Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
-          </option>
-          {ESTIMATE_QUALITY_FLAG_KEYS.map((flag) => (
-            <option key={flag} value={flag}>
-              {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
-            </option>
-          ))}
-        </select>
-        <div className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1">
-          <label
-            className="text-xs font-semibold uppercase tracking-[0.08em] text-orange-700"
-            htmlFor="estimate-outlier-method"
-          >
-            Outliers
-          </label>
-          <select
-            id="estimate-outlier-method"
-            className="estimate-input estimate-select"
-            style={{ width: "auto", minWidth: "104px" }}
-            value={outlierDetectionMethod}
-            disabled={meta.isReadOnly}
-            onChange={(event) => onOutlierDetectionMethodChange(parseOutlierMethod(event.target.value))}
-          >
-            <option value="iqr">IQR</option>
-            <option value="zscore">Z-score</option>
-          </select>
-          <input
-            className="estimate-input"
-            style={{ width: "92px" }}
-            type="number"
-            step="0.1"
-            min={0.1}
-            value={outlierThreshold}
-            disabled={meta.isReadOnly}
-            onChange={(event) => onOutlierThresholdChange(parseNumberInput(event.target.value))}
-            aria-label="Seuil de detection des outliers"
-          />
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--slate-800)]">Éditeur du devis</h2>
+          <p className="mt-1 text-sm text-[var(--slate-500)]">
+            Organisez chapitres, sous-chapitres et lignes FO/MO.
+          </p>
+          <p className="mt-2 text-xs text-[var(--slate-500)]">
+            {qualityCounts.linesWithAnomaliesCount} ligne(s) avec anomalies sur{" "}
+            {qualityCounts.linesCount} ligne(s) ({qualityCounts.totalFlagsCount} flag(s))
+          </p>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={() => void onUndo()}
+              disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
+              aria-label="Annuler la dernière action"
+            >
+              Undo
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={() => void onRedo()}
+              disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
+              aria-label="Rétablir la dernière action"
+            >
+              Redo
+            </button>
+          </div>
           <button
             className="btn btn-secondary btn-sm"
             type="button"
-            onClick={() => void onUndo()}
-            disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
-            aria-label="Annuler la derniere action"
+            onClick={onAddRootSection}
+            disabled={meta.isReadOnly}
           >
-            Undo
+            + Chapitre
           </button>
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={() => void onRedo()}
-            disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
-            aria-label="Retablir la derniere action"
-          >
-            Redo
-          </button>
-          <span className="text-xs text-[var(--slate-600)]">{state.selectedLineCount} selection(s)</span>
+          <details className="relative">
+            <summary className="btn btn-secondary btn-sm cursor-pointer list-none select-none">
+              Colonnes
+            </summary>
+            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-2 rounded-xl border border-[var(--slate-200)] bg-white p-3 shadow-xl" style={{ minWidth: "200px" }}>
+              {(Object.keys(columnPresetLabels) as ColumnPreset[]).map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  className={`btn btn-sm w-full text-left${columnPreset === preset ? " btn-primary" : " btn-secondary"}`}
+                  onClick={() => onColumnPresetChange(preset)}
+                >
+                  {columnPresetLabels[preset]}
+                </button>
+              ))}
+            </div>
+          </details>
+          <details className="relative">
+            <summary className="btn btn-secondary btn-sm cursor-pointer list-none select-none">
+              Outils avances
+            </summary>
+            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-[var(--slate-200)] bg-white p-4 shadow-xl" style={{ minWidth: "320px" }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <label
+                  className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+                  htmlFor="estimate-quality-filter"
+                >
+                  Filtre qualite
+                </label>
+                <select
+                  id="estimate-quality-filter"
+                  className="estimate-input estimate-select"
+                  style={{ width: "auto", minWidth: "260px" }}
+                  value={qualityFilter}
+                  onChange={(event) => onQualityFilterChange(parseEstimateQualityFilter(event.target.value))}
+                >
+                  <option value="all_lines">Toutes les lignes ({qualityCounts.linesCount})</option>
+                  <option value="with_anomalies">
+                    Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
+                  </option>
+                  {ESTIMATE_QUALITY_FLAG_KEYS.map((flag) => (
+                    <option key={flag} value={flag}>
+                      {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+                <label
+                  className="text-xs font-semibold uppercase tracking-[0.08em] text-orange-700"
+                  htmlFor="estimate-outlier-method"
+                >
+                  Outliers
+                </label>
+                <select
+                  id="estimate-outlier-method"
+                  className="estimate-input estimate-select"
+                  style={{ width: "auto", minWidth: "104px" }}
+                  value={outlierDetectionMethod}
+                  disabled={meta.isReadOnly}
+                  onChange={(event) => onOutlierDetectionMethodChange(parseOutlierMethod(event.target.value))}
+                >
+                  <option value="iqr">IQR</option>
+                  <option value="zscore">Z-score</option>
+                </select>
+                <input
+                  className="estimate-input"
+                  style={{ width: "92px" }}
+                  type="number"
+                  step="0.1"
+                  min={0.1}
+                  value={outlierThreshold}
+                  disabled={meta.isReadOnly}
+                  onChange={(event) => onOutlierThresholdChange(parseNumberInput(event.target.value))}
+                  aria-label="Seuil de detection des outliers"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {bulkSuggestionEligibleCount > 0 ? (
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={onOpenBulkSuggestDialog}
+                    disabled={meta.isReadOnly}
+                  >
+                    Suggestions ({bulkSuggestionEligibleCount})
+                  </button>
+                ) : null}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  type="button"
+                  onClick={onOpenAssemblyPicker}
+                  disabled={meta.isReadOnly}
+                >
+                  Assemblages
+                </button>
+              </div>
+            </div>
+          </details>
+          <KeyboardShortcutsButton />
+        </div>
+      </div>
+      {state.hasSelectedLines ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
+          <span className="text-xs font-semibold text-[var(--slate-700)]">
+            {state.selectedLineCount} sélection(s)
+          </span>
+          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
           <input
             className="estimate-input"
             style={{ width: "92px" }}
@@ -214,21 +287,12 @@ export function EstimateEditorToolbar({
           >
             Appliquer majoration
           </button>
-          <button
-            className="btn btn-danger btn-sm"
-            type="button"
-            onClick={() => void onBulkDeleteSelection()}
-            disabled={meta.isReadOnly || !state.hasSelectedLines}
-          >
-            Supprimer selection
-          </button>
-        </div>
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1">
+          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
           <label
             className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
             htmlFor="estimate-bulk-move-target"
           >
-            Deplacer
+            Déplacer
           </label>
           <select
             id="estimate-bulk-move-target"
@@ -252,13 +316,12 @@ export function EstimateEditorToolbar({
           >
             Appliquer
           </button>
-        </div>
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1">
+          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
           <label
             className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
             htmlFor="estimate-bulk-category"
           >
-            Categorie
+            Catégorie
           </label>
           <select
             id="estimate-bulk-category"
@@ -283,13 +346,12 @@ export function EstimateEditorToolbar({
           >
             Appliquer
           </button>
-        </div>
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-2 py-1">
+          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
           <label
             className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
             htmlFor="estimate-bulk-labor-role"
           >
-            Role MO
+            Rôle MO
           </label>
           <select
             id="estimate-bulk-labor-role"
@@ -315,34 +377,95 @@ export function EstimateEditorToolbar({
           >
             Appliquer
           </button>
-        </div>
-        {bulkSuggestionEligibleCount > 0 ? (
+          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
           <button
-            className="btn btn-secondary btn-sm"
+            className="btn btn-danger btn-sm"
             type="button"
-            onClick={onOpenBulkSuggestDialog}
-            disabled={meta.isReadOnly}
+            onClick={() => void onBulkDeleteSelection()}
+            disabled={meta.isReadOnly || !state.hasSelectedLines}
           >
-            Appliquer les suggestions ({bulkSuggestionEligibleCount})
+            Supprimer sélection
           </button>
-        ) : null}
-        <button
-          className="btn btn-secondary btn-sm"
-          type="button"
-          onClick={onOpenAssemblyPicker}
-          disabled={meta.isReadOnly}
-        >
-          Assemblages
-        </button>
-        <button
-          className="btn btn-secondary btn-sm"
-          type="button"
-          onClick={onAddRootSection}
-          disabled={meta.isReadOnly}
-        >
-          + Chapitre
-        </button>
-      </div>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+const KEYBOARD_SHORTCUTS = [
+  { keys: ["Ctrl", "S"], description: "Sauvegarder" },
+  { keys: ["Ctrl", "Z"], description: "Annuler (Undo)" },
+  { keys: ["Ctrl", "Shift", "Z"], description: "Refaire (Redo)" },
+  { keys: ["Ctrl", "Y"], description: "Refaire (Redo)" },
+  { keys: ["Ctrl", "A"], description: "Sélectionner toutes les lignes" },
+  { keys: ["Ctrl", "C"], description: "Copier les lignes sélectionnées" },
+  { keys: ["Delete"], description: "Supprimer les lignes sélectionnées" },
+  { keys: ["Escape"], description: "Désélectionner / Annuler l'édition" },
+  { keys: ["Tab"], description: "Cellule suivante" },
+  { keys: ["Shift", "Tab"], description: "Cellule précédente" },
+  { keys: ["Entrée"], description: "Valider et passer à la cellule suivante" },
+  { keys: ["\u2191", "\u2193"], description: "Navigation entre lignes" },
+];
+
+function KeyboardShortcutsButton() {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        className="btn btn-ghost btn-sm"
+        type="button"
+        onClick={() => setIsOpen(true)}
+        title="Raccourcis clavier"
+        aria-label="Raccourcis clavier"
+      >
+        ?
+      </button>
+
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsOpen(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[var(--slate-800)]">
+                Raccourcis clavier
+              </h3>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => setIsOpen(false)}
+                aria-label="Fermer"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+            <div className="space-y-2">
+              {KEYBOARD_SHORTCUTS.map(({ keys, description }) => (
+                <div
+                  key={keys.join("+")}
+                  className="flex items-center justify-between gap-4 rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--slate-50)]"
+                >
+                  <span className="text-[var(--slate-600)]">{description}</span>
+                  <span className="flex items-center gap-1">
+                    {keys.map((key) => (
+                      <kbd
+                        key={key}
+                        className="inline-flex min-w-[24px] items-center justify-center rounded-md border border-[var(--slate-300)] bg-[var(--slate-50)] px-1.5 py-0.5 text-xs font-medium text-[var(--slate-700)]"
+                      >
+                        {key}
+                      </kbd>
+                    ))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
