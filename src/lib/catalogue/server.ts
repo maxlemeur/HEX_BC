@@ -312,6 +312,10 @@ function safeIlikeToken(value: string) {
   return value.replace(/[%_,]/g, "");
 }
 
+function escapeIlikePattern(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 function tokenize(value: string): Set<string> {
   const normalized = normalizeSuggestionToken(value);
   if (!normalized) return new Set();
@@ -1595,11 +1599,12 @@ export async function createMissingPriceImportEntities(
   for (const supplierNameRaw of input.suppliersToCreate) {
     const supplierName = supplierNameRaw.trim();
     if (!supplierName) continue;
+    const escapedSupplierName = escapeIlikePattern(supplierName);
 
     const { data: existingSuppliers, error: existingSuppliersError } = await supabase
       .from("suppliers")
       .select("id, name")
-      .ilike("name", supplierName)
+      .ilike("name", escapedSupplierName)
       .limit(5);
 
     if (existingSuppliersError) {
@@ -1636,11 +1641,12 @@ export async function createMissingPriceImportEntities(
   for (const productReferenceRaw of input.productsToCreate) {
     const productReference = productReferenceRaw.trim();
     if (!productReference) continue;
+    const escapedProductReference = escapeIlikePattern(productReference);
 
     const { data: existingProducts, error: existingProductsError } = await supabase
       .from("products")
       .select("id, reference")
-      .ilike("reference", productReference)
+      .ilike("reference", escapedProductReference)
       .limit(5);
 
     if (existingProductsError) {

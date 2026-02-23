@@ -225,6 +225,22 @@ function coerceCellToString(value: CsvImportScalar): string {
   return "";
 }
 
+function readCellByHeader(row: CsvImportRow, header: string): string {
+  if (Object.prototype.hasOwnProperty.call(row, header)) {
+    return coerceCellToString(row[header]);
+  }
+
+  const normalizedHeader = normalizeHeaderToken(header);
+  if (!normalizedHeader) return "";
+
+  for (const [sourceColumn, value] of Object.entries(row)) {
+    if (normalizeHeaderToken(sourceColumn) !== normalizedHeader) continue;
+    return coerceCellToString(value);
+  }
+
+  return "";
+}
+
 function ensureCurrency(value: string): string {
   const normalized = value.trim().toUpperCase();
   return normalized || DEFAULT_CURRENCY;
@@ -449,8 +465,8 @@ function normalizeMMBdcSupplierNames(
 
   for (const row of rows) {
     for (const prefix of prefixes) {
-      const supplier = coerceCellToString(row[`${prefix}_nom`]);
-      const price = coerceCellToString(row[`${prefix}_prix`]);
+      const supplier = readCellByHeader(row, `${prefix}_nom`);
+      const price = readCellByHeader(row, `${prefix}_prix`);
       if (!price || !supplier) continue;
       supplierNames.add(supplier);
     }
@@ -505,22 +521,22 @@ function normalizeMMBdcRows(
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
     const lineNumber = resolveRowLineNumber(index, options.rowLineNumbers);
-    const productReference = coerceCellToString(row.ID);
+    const productReference = readCellByHeader(row, "ID");
     const productDesignation = joinNonEmpty([
-      coerceCellToString(row.Materiau),
-      coerceCellToString(row.Dimension),
-      coerceCellToString(row.Caracteristique),
-      coerceCellToString(row.Precision),
+      readCellByHeader(row, "Materiau"),
+      readCellByHeader(row, "Dimension"),
+      readCellByHeader(row, "Caracteristique"),
+      readCellByHeader(row, "Precision"),
     ]);
 
     let hasAtLeastOneSupplierPrice = false;
 
     for (const prefix of prefixes) {
-      const unitPrice = coerceCellToString(row[`${prefix}_prix`]);
+      const unitPrice = readCellByHeader(row, `${prefix}_prix`);
       if (!unitPrice) continue;
       hasAtLeastOneSupplierPrice = true;
 
-      const sourceSupplier = coerceCellToString(row[`${prefix}_nom`]);
+      const sourceSupplier = readCellByHeader(row, `${prefix}_nom`);
       const supplierName = sourceSupplier || (canAutofill ? singleSupplierName ?? "" : "");
       const autofilledSupplier = !sourceSupplier && !!supplierName && canAutofill;
 
@@ -535,7 +551,7 @@ function normalizeMMBdcRows(
           product_reference: productReference,
           product_designation: productDesignation,
           unit_price: unitPrice,
-          currency: coerceCellToString(row.Devise),
+          currency: readCellByHeader(row, "Devise"),
         },
         metadata: {
           supplierSource: prefix,

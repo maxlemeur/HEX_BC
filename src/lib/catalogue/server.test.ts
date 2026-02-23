@@ -7,6 +7,7 @@ vi.mock("@/lib/supabase/server", () => ({
 import {
   bulkCreateSupplierPricesAtomic,
   bulkUpsertMaterialIndices,
+  createMissingPriceImportEntities,
   linkMappedRowsToCatalogue,
 } from "@/lib/catalogue/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -34,6 +35,81 @@ function createAuthenticatedSupabaseBase() {
 describe("catalogue server regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("escapes ilike wildcard characters when checking missing suppliers/products", async () => {
+    const supplierIlikeCalls: Array<{ column: string; pattern: string }> = [];
+    const productIlikeCalls: Array<{ column: string; pattern: string }> = [];
+
+    const supplierInsertMock = vi.fn();
+    const productInsertMock = vi.fn();
+
+    const supabase = {
+      ...createAuthenticatedSupabaseBase(),
+      from: vi.fn((table: string) => {
+        if (table === "suppliers") {
+          return {
+            select: vi.fn(() => ({
+              ilike: vi.fn((column: string, pattern: string) => {
+                supplierIlikeCalls.push({ column, pattern });
+                return {
+                  limit: vi.fn().mockResolvedValue({
+                    data: [{ id: "supplier-existing", name: "ACME_100%" }],
+                    error: null,
+                  }),
+                };
+              }),
+            })),
+            insert: supplierInsertMock,
+          };
+        }
+
+        if (table === "products") {
+          return {
+            select: vi.fn(() => ({
+              ilike: vi.fn((column: string, pattern: string) => {
+                productIlikeCalls.push({ column, pattern });
+                return {
+                  limit: vi.fn().mockResolvedValue({
+                    data: [{ id: "product-existing", reference: "ABC_123%" }],
+                    error: null,
+                  }),
+                };
+              }),
+            })),
+            insert: productInsertMock,
+          };
+        }
+
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await createMissingPriceImportEntities({
+      suppliersToCreate: [" ACME_100% "],
+      productsToCreate: [" ABC_123% "],
+    });
+
+    expect(supplierIlikeCalls).toEqual([
+      {
+        column: "name",
+        pattern: "ACME\\_100\\%",
+      },
+    ]);
+    expect(productIlikeCalls).toEqual([
+      {
+        column: "reference",
+        pattern: "ABC\\_123\\%",
+      },
+    ]);
+    expect(supplierInsertMock).not.toHaveBeenCalled();
+    expect(productInsertMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      createdSuppliers: [],
+      createdProducts: [],
+    });
   });
 
   it("deduplicates created catalogue rows by reference during mapped-row linking", async () => {

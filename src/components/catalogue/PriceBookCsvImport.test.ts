@@ -3,11 +3,16 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from "rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const parseFileMock = vi.hoisted(() => vi.fn());
+const fetchApiMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/useFileParser", () => ({
   useFileParser: () => ({
     parseFile: parseFileMock,
   }),
+}));
+
+vi.mock("@/components/catalogue/api", () => ({
+  fetchApi: fetchApiMock,
 }));
 
 import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
@@ -36,6 +41,7 @@ afterEach(() => {
 describe("PriceBookCsvImport", () => {
   beforeEach(() => {
     parseFileMock.mockReset();
+    fetchApiMock.mockReset();
   });
 
   it("renders the guided assistant steps", async () => {
@@ -280,5 +286,91 @@ describe("PriceBookCsvImport", () => {
     expect(createdAnchors[0].href).toBe("blob:price-book-corrections");
     expect(anchorClickMock).toHaveBeenCalledTimes(1);
     expect(revokeObjectURLMock).toHaveBeenCalledWith("blob:price-book-corrections");
+  });
+
+  it("sends unknown products even when supplier issue appears first", async () => {
+    parseFileMock.mockResolvedValue({
+      mode: "worker",
+      parser: "csv",
+      detectedEncoding: "utf-8",
+      rows: [
+        {
+          fournisseur: "SUPPLIER-NEW",
+          reference_produit: "PRODUCT-NEW",
+          prix_unitaire: "10,00",
+          devise: "EUR",
+        },
+      ],
+      rowLineNumbers: [2],
+    });
+
+    fetchApiMock.mockResolvedValue({
+      createdSuppliers: [],
+      createdProducts: [],
+    });
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        createElement(PriceBookCsvImport, {
+          onImported: vi.fn(),
+          lookups: TEST_LOOKUPS,
+        })
+      );
+    });
+
+    const fileInput = renderer!.root.findByProps({ id: "price-book-csv-input" });
+    await act(async () => {
+      fileInput.props.onChange({
+        target: {
+          files: [new File(["header"], "unknown-both.csv", { type: "text/csv" })],
+        },
+      });
+    });
+
+    const analyzeButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => extractText(button).includes("Analyser"));
+
+    expect(analyzeButton).toBeDefined();
+
+    await act(async () => {
+      await analyzeButton!.props.onClick();
+    });
+
+    const countsText = renderer!.root
+      .findAll((node) => typeof node.type === "string")
+      .map(extractText)
+      .join(" ");
+    expect(countsText).toContain("Fournisseurs inconnus: 1 | Produits inconnus: 1");
+
+    const createMissingButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => extractText(button).includes("Creer les inconnus"));
+
+    expect(createMissingButton).toBeDefined();
+
+    await act(async () => {
+      await createMissingButton!.props.onClick();
+    });
+
+    expect(fetchApiMock).toHaveBeenCalledTimes(1);
+    expect(fetchApiMock).toHaveBeenCalledWith(
+      "/api/prices/import/create-missing",
+      expect.objectContaining({
+        method: "POST",
+      })
+    );
+
+    const body = JSON.parse(
+      String((fetchApiMock.mock.calls[0]?.[1] as { body?: string } | undefined)?.body ?? "{}")
+    );
+
+    expect(body).toEqual({
+      suppliersToCreate: ["SUPPLIER-NEW"],
+      productsToCreate: ["PRODUCT-NEW"],
+    });
   });
 });

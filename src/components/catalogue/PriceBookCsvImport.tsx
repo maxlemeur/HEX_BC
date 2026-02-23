@@ -182,7 +182,11 @@ export function PriceBookCsvImport({
     if (!validation) return [];
     return buildUniqueValues(
       validation.rejectedRows
-        .filter((row) => row.errorCode === "PRODUCT_UNKNOWN")
+        .filter(
+          (row) =>
+            row.errorCode === "PRODUCT_UNKNOWN" ||
+            row.issues.some((issue) => issue.code === "PRODUCT_UNKNOWN")
+        )
         .map((row) => row.rawProduct)
     );
   }, [validation]);

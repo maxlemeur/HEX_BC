@@ -431,6 +431,44 @@ describe("price book csv import validation with lookups", () => {
     expect(result.ignoredRows[0]?.errorCode).toBe("NO_SUPPLIER_PRICE");
   });
 
+  it("parses mm_bdc rows when headers are lowercase variants", async () => {
+    const rows: CsvImportRow[] = [
+      {
+        id: "TUBE-INOX-28",
+        materiau: "Tube inox",
+        dimension: "DN15",
+        caracteristique: "Soude",
+        f1_nom: "CEDEO",
+        f1_prix: "12,50",
+        devise: "EUR",
+      },
+    ];
+
+    const result = await validatePriceBookRows(
+      rows,
+      {
+        f1_nom: "supplier_name",
+        id: "product_reference",
+        f1_prix: "unit_price",
+      },
+      {
+        profile: "mm_bdc",
+        lookups: TEST_LOOKUPS,
+        includeSupplierAlternatives: true,
+      }
+    );
+
+    expect(result.acceptedRows).toBe(1);
+    expect(result.rejectedRowsCount).toBe(0);
+    expect(result.ignoredRowsCount).toBe(0);
+    expect(result.acceptedItems[0]).toMatchObject({
+      supplier_id: SUPPLIER_ID_1,
+      product_id: PRODUCT_ID_1,
+      unit_price_cents: 1250,
+      currency: "EUR",
+    });
+  });
+
   it("autofills supplier when one supplier is uniquely identifiable", async () => {
     const rows: CsvImportRow[] = [
       {
