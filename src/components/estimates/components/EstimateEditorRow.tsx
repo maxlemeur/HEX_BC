@@ -52,6 +52,7 @@ type ItemPatch = Partial<
   Pick<
     EstimateItem,
     | "title"
+    | "aid"
     | "description"
     | "quantity"
     | "unit_price_ht_cents"
@@ -121,6 +122,7 @@ type SuggestPricesResponse = {
 const CATALOGUE_SUGGESTIONS_DEBOUNCE_MS = 300;
 
 export const SPREADSHEET_COLUMN_KEYS = {
+  aid: "aid",
   title: "title",
   quantity: "quantity",
   unit: "unit",
@@ -141,8 +143,12 @@ export const SPREADSHEET_COLUMN_KEYS = {
   total: "line_total_ht",
 };
 
-const SECTION_SPREADSHEET_COLUMN_KEYS = [SPREADSHEET_COLUMN_KEYS.title];
+const SECTION_SPREADSHEET_COLUMN_KEYS = [
+  SPREADSHEET_COLUMN_KEYS.aid,
+  SPREADSHEET_COLUMN_KEYS.title,
+];
 const LINE_SPREADSHEET_COLUMN_KEYS = [
+  SPREADSHEET_COLUMN_KEYS.aid,
   SPREADSHEET_COLUMN_KEYS.title,
   SPREADSHEET_COLUMN_KEYS.quantity,
   SPREADSHEET_COLUMN_KEYS.unit,
@@ -157,6 +163,7 @@ const LINE_SPREADSHEET_COLUMN_KEYS = [
   SPREADSHEET_COLUMN_KEYS.total,
 ];
 const LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT = [
+  SPREADSHEET_COLUMN_KEYS.aid,
   SPREADSHEET_COLUMN_KEYS.title,
   SPREADSHEET_COLUMN_KEYS.quantity,
   SPREADSHEET_COLUMN_KEYS.unit,
@@ -288,6 +295,11 @@ function formatMajorationPercentInput(value: number | null | undefined) {
 
 function parseMajorationPercentToCoefficient(value: string) {
   return Math.max(parseNumberInput(value) / 100, 0);
+}
+
+function normalizeAidInput(value: string) {
+  const normalized = value.trim().toUpperCase();
+  return normalized.length > 0 ? normalized : null;
 }
 
 function formatNumberDisplay(
@@ -426,6 +438,7 @@ export type ColumnVisibilitySet = Set<"supply_type" | "k_fo" | "h_mo_majoration"
 export type EstimateEditorRowProps = {
   versionId: string;
   item: EstimateItem;
+  itemNumber?: string | null;
   depth: number;
   unitValue: string;
   supplyTypeValue: string;
@@ -464,6 +477,7 @@ export type EstimateEditorRowProps = {
   ) => void;
   onAddLine: (parentId: string | null) => void;
   onAddSection: (parentId: string | null) => void;
+  onConvertLineToSection: (lineId: string) => void;
   onLineSelectionInteraction: (interaction: MultiSelectItemInteraction) => void;
   sectionTotals: SectionTotals | null;
   isDragDisabled: boolean;
@@ -478,6 +492,7 @@ export type EstimateEditorRowProps = {
 export const EstimateEditorRow = memo(function EstimateEditorRow({
   versionId,
   item,
+  itemNumber,
   depth,
   unitValue,
   supplyTypeValue,
@@ -500,6 +515,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   onSupplyTypeCommit,
   onAddLine,
   onAddSection,
+  onConvertLineToSection,
   onToggleOutlierDismiss,
   onLineSelectionInteraction,
   sectionTotals,
@@ -536,6 +552,13 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     paddingLeft: "calc(var(--tree-indent) * var(--row-depth))",
   };
 
+  const aidCell: SpreadsheetCell = {
+    rowId: item.id,
+    columnKey: SPREADSHEET_COLUMN_KEYS.aid,
+  };
+  const aidCellProps = navigation.getCellProps(aidCell);
+  const aidEditorProps = navigation.getEditorProps<HTMLInputElement>(aidCell);
+  const aidValue = typeof item.aid === "string" ? item.aid : "";
   const titleCell: SpreadsheetCell = {
     rowId: item.id,
     columnKey: SPREADSHEET_COLUMN_KEYS.title,
@@ -772,7 +795,41 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         }}
       >
         <div
+          {...aidCellProps}
+          role="gridcell"
+          onKeyDown={toCellKeyDownHandler(aidCellProps.onKeyDown)}
+          className={toCellClassName(
+            navigation,
+            aidCell,
+            "estimate-cell estimate-cell--aid"
+          )}
+        >
+          <input
+            className="estimate-input estimate-input--aid"
+            ref={aidEditorProps.ref}
+            tabIndex={aidEditorProps.tabIndex}
+            value={aidValue}
+            title={aidValue}
+            disabled={isReadOnly}
+            placeholder="MT.TY.0001"
+            onFocus={aidEditorProps.onFocus}
+            onKeyDown={aidEditorProps.onKeyDown}
+            onChange={(event) =>
+              onPatchItem(item.id, { aid: event.target.value }, { persist: false })
+            }
+            onBlur={(event) => {
+              aidEditorProps.onBlur(event);
+              onPatchItem(
+                item.id,
+                { aid: normalizeAidInput(event.target.value) },
+                { persist: true }
+              );
+            }}
+          />
+        </div>
+        <div
           {...titleCellProps}
+          role="gridcell"
           onKeyDown={toCellKeyDownHandler(titleCellProps.onKeyDown)}
           className={toCellClassName(
             navigation,
@@ -807,6 +864,11 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             )}
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
+            {itemNumber ? (
+              <span className="font-mono text-[11px] font-semibold text-[var(--slate-500)]">
+                {itemNumber}
+              </span>
+            ) : null}
             <input
               className="estimate-input estimate-input--title"
               ref={titleEditorProps.ref}
@@ -1112,7 +1174,41 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       onContextMenu={handleLineContextMenu}
     >
       <div
+        {...aidCellProps}
+        role="gridcell"
+        onKeyDown={toCellKeyDownHandler(aidCellProps.onKeyDown)}
+        className={toCellClassName(
+          navigation,
+          aidCell,
+          "estimate-cell estimate-cell--aid"
+        )}
+      >
+        <input
+          className="estimate-input estimate-input--aid"
+          ref={aidEditorProps.ref}
+          tabIndex={aidEditorProps.tabIndex}
+          value={aidValue}
+          title={aidValue}
+          disabled={isReadOnly}
+          placeholder="MT.TY.0001"
+          onFocus={aidEditorProps.onFocus}
+          onKeyDown={aidEditorProps.onKeyDown}
+          onChange={(event) =>
+            onPatchItem(item.id, { aid: event.target.value }, { persist: false })
+          }
+          onBlur={(event) => {
+            aidEditorProps.onBlur(event);
+            onPatchItem(
+              item.id,
+              { aid: normalizeAidInput(event.target.value) },
+              { persist: true }
+            );
+          }}
+        />
+      </div>
+      <div
         {...titleCellProps}
+        role="gridcell"
         onKeyDown={toCellKeyDownHandler(titleCellProps.onKeyDown)}
         className={toCellClassName(
           navigation,
@@ -1136,6 +1232,11 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           disabled={isReadOnly || isDragDisabled}
         />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
+          {itemNumber ? (
+            <span className="font-mono text-[11px] font-semibold text-[var(--slate-500)]">
+              {itemNumber}
+            </span>
+          ) : null}
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <input
               className="estimate-input estimate-input--title"
@@ -1169,26 +1270,39 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                     isLaborRoleVisible,
                   });
                   const isClickable = Boolean(targetColumn);
+                  const focusTargetCell = () => {
+                    if (!targetColumn) return;
+                    const cellId = `${item.id}::${targetColumn}`;
+                    const el = document.querySelector<HTMLElement>(
+                      `[data-cell-id="${cellId}"]`
+                    );
+                    el?.focus();
+                  };
+
+                  if (isClickable) {
+                    return (
+                      <span
+                        key={flag}
+                        className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
+                        title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} — Cliquer pour aller au champ`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={focusTargetCell}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            focusTargetCell();
+                          }
+                        }}
+                      />
+                    );
+                  }
+
                   return (
                     <span
                       key={flag}
                       className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
-                      title={
-                        ESTIMATE_QUALITY_FLAG_META[flag].label +
-                        (isClickable ? " — Cliquer pour aller au champ" : "")
-                      }
-                      role={isClickable ? "button" : undefined}
-                      onClick={
-                        targetColumn
-                          ? () => {
-                              const cellId = `${item.id}::${targetColumn}`;
-                              const el = document.querySelector<HTMLElement>(
-                                `[data-cell-id="${cellId}"]`
-                              );
-                              el?.focus();
-                            }
-                          : undefined
-                      }
+                      title={ESTIMATE_QUALITY_FLAG_META[flag].label}
                     />
                   );
                 })}
@@ -1361,6 +1475,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       />
       <div
         {...unitCellProps}
+        role="gridcell"
         onKeyDown={toCellKeyDownHandler(unitCellProps.onKeyDown)}
         className={toCellClassName(navigation, unitCell, `estimate-cell${!unitValue.trim() ? " estimate-cell--required-empty" : ""}`)}
       >
@@ -1423,6 +1538,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       {(!visibleColumns || visibleColumns.has("supply_type") || isLaborSplitEnabled) ? (
         <div
           {...supplyTypeCellProps}
+          role="gridcell"
           onKeyDown={toCellKeyDownHandler(supplyTypeCellProps.onKeyDown)}
           className={toCellClassName(navigation, supplyTypeCell, "estimate-cell estimate-col--fo")}
         >
@@ -1447,6 +1563,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       {(!visibleColumns || visibleColumns.has("k_fo") || isLaborSplitEnabled) ? (
         <div
           {...kFoCellProps}
+          role="gridcell"
           onKeyDown={toCellKeyDownHandler(kFoCellProps.onKeyDown)}
           className={toCellClassName(navigation, kFoCell, "estimate-cell estimate-col--fo")}
         >
@@ -1484,6 +1601,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         <>
           <div
             {...hMoMajorationCellProps}
+            role="gridcell"
             onKeyDown={toCellKeyDownHandler(hMoMajorationCellProps.onKeyDown)}
             className={toCellClassName(navigation, hMoMajorationCell, "estimate-cell estimate-col--mo")}
           >
@@ -1518,6 +1636,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           </div>
           <div
             {...hMoAtelierCellProps}
+            role="gridcell"
             onKeyDown={toCellKeyDownHandler(hMoAtelierCellProps.onKeyDown)}
             className={toCellClassName(navigation, hMoAtelierCell, `estimate-cell estimate-col--mo${qualityFlags.includes("labor_split_incomplete") ? " estimate-cell--warning-empty" : ""}`)}
           >
@@ -1552,6 +1671,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           </div>
           <div
             {...laborRoleAtelierCellProps}
+            role="gridcell"
             onKeyDown={toCellKeyDownHandler(laborRoleAtelierCellProps.onKeyDown)}
             className={toCellClassName(
               navigation,
@@ -1587,6 +1707,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           </div>
           <div
             {...kMoAtelierCellProps}
+            role="gridcell"
             onKeyDown={toCellKeyDownHandler(kMoAtelierCellProps.onKeyDown)}
             className={toCellClassName(navigation, kMoAtelierCell, "estimate-cell estimate-col--mo")}
           >
@@ -1621,6 +1742,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           </div>
           <div
             {...hMoChantierCellProps}
+            role="gridcell"
             onKeyDown={toCellKeyDownHandler(hMoChantierCellProps.onKeyDown)}
             className={toCellClassName(navigation, hMoChantierCell, `estimate-cell estimate-col--mo${qualityFlags.includes("labor_split_incomplete") ? " estimate-cell--warning-empty" : ""}`)}
           >
@@ -1655,6 +1777,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           </div>
           <div
             {...laborRoleChantierCellProps}
+            role="gridcell"
             onKeyDown={toCellKeyDownHandler(laborRoleChantierCellProps.onKeyDown)}
             className={toCellClassName(
               navigation,
@@ -1690,6 +1813,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           </div>
           <div
             {...kMoChantierCellProps}
+            role="gridcell"
             onKeyDown={toCellKeyDownHandler(kMoChantierCellProps.onKeyDown)}
             className={toCellClassName(navigation, kMoChantierCell, "estimate-cell estimate-col--mo")}
           >
@@ -1727,6 +1851,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         <>
           <div
             {...hMoCellProps}
+            role="gridcell"
             onKeyDown={toCellKeyDownHandler(hMoCellProps.onKeyDown)}
             className={toCellClassName(navigation, hMoCell, `estimate-cell estimate-col--mo${qualityFlags.includes("missing_labor_time") ? " estimate-cell--warning-empty" : ""}`)}
           >
@@ -1762,6 +1887,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           {(!visibleColumns || visibleColumns.has("h_mo_majoration")) ? (
             <div
               {...hMoMajorationCellProps}
+              role="gridcell"
               onKeyDown={toCellKeyDownHandler(hMoMajorationCellProps.onKeyDown)}
               className={toCellClassName(navigation, hMoMajorationCell, "estimate-cell estimate-col--mo")}
             >
@@ -1798,6 +1924,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           {(!visibleColumns || visibleColumns.has("labor_role")) ? (
             <div
               {...laborRoleCellProps}
+              role="gridcell"
               onKeyDown={toCellKeyDownHandler(laborRoleCellProps.onKeyDown)}
               className={toCellClassName(navigation, laborRoleCell, `estimate-cell estimate-col--mo${qualityFlags.includes("missing_labor_role") ? " estimate-cell--warning-empty" : ""}`)}
             >
@@ -1831,6 +1958,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           {(!visibleColumns || visibleColumns.has("k_mo")) ? (
             <div
               {...kMoCellProps}
+              role="gridcell"
               onKeyDown={toCellKeyDownHandler(kMoCellProps.onKeyDown)}
               className={toCellClassName(navigation, kMoCell, "estimate-cell estimate-col--mo")}
             >
@@ -1868,6 +1996,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       )}
       <div
         {...puCellProps}
+        role="gridcell"
         onKeyDown={toCellKeyDownHandler(puCellProps.onKeyDown)}
         className={toCellClassName(
           navigation,
@@ -1890,6 +2019,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       </div>
       <div
         {...totalCellProps}
+        role="gridcell"
         onKeyDown={toCellKeyDownHandler(totalCellProps.onKeyDown)}
         className={toCellClassName(
           navigation,
@@ -1918,6 +2048,14 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
               onClick={() => onOpenSupplierComparisonPanel(item.id)}
             >
               Comparer
+            </button>
+            <button
+              className="btn btn-ghost btn-sm w-full justify-start"
+              type="button"
+              onClick={() => onConvertLineToSection(item.id)}
+              disabled={isReadOnly}
+            >
+              Convertir en section
             </button>
             <button
               className="btn btn-danger btn-sm w-full justify-start"
