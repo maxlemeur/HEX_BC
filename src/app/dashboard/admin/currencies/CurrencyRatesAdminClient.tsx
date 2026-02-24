@@ -199,8 +199,8 @@ function normalizeCreateOrUpdateInput(draft: CurrencyRateDraft) {
     from_currency: from,
     to_currency: to,
     rate,
-    effective_date: effectiveDate.length > 0 ? effectiveDate : null,
-    source: source.length > 0 ? source : null,
+    ...(effectiveDate.length > 0 ? { effective_date: effectiveDate } : {}),
+    ...(source.length > 0 ? { source } : {}),
     is_active: draft.is_active,
   };
 }
@@ -212,8 +212,8 @@ function normalizeUpdateInput(draft: CurrencyRateDraft) {
 
   return {
     rate,
-    effective_date: effectiveDate.length > 0 ? effectiveDate : null,
-    source: source.length > 0 ? source : null,
+    ...(effectiveDate.length > 0 ? { effective_date: effectiveDate } : {}),
+    ...(source.length > 0 ? { source } : {}),
     is_active: draft.is_active,
   };
 }
@@ -297,8 +297,8 @@ async function createCurrencyRate(payload: {
   from_currency: string;
   to_currency: string;
   rate: number;
-  effective_date: string | null;
-  source: string | null;
+  effective_date?: string;
+  source?: string;
   is_active: boolean;
 }) {
   const response = await fetch("/api/currency-rates", {
@@ -318,8 +318,8 @@ async function createCurrencyRate(payload: {
 async function updateCurrencyRate(input: {
   id: string;
   rate: number;
-  effective_date: string | null;
-  source: string | null;
+  effective_date?: string;
+  source?: string;
   is_active: boolean;
 }) {
   const response = await fetch(`/api/currency-rates/${encodeURIComponent(input.id)}`, {

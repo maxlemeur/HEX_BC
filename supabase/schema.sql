@@ -9042,7 +9042,6 @@ create table if not exists public.estimate_approvals (
     )
     or (
       status in ('approved', 'rejected')
-      and approved_by is not null
       and decided_at is not null
     )
   )
@@ -9150,12 +9149,27 @@ begin
           detail = format('status=%s is not supported', new.status);
     end if;
 
-    if new.approved_by is null or new.decided_at is null then
+    if new.decided_at is null then
       raise exception
         using
           errcode = '23514',
           message = 'ESTIMATE_APPROVAL_DECISION_INVALID',
-          detail = 'approved/rejected approvals must carry approved_by and decided_at.';
+          detail = 'approved/rejected approvals must carry decided_at.';
+    end if;
+
+    if new.approved_by is null then
+      if not (
+        old.status = new.status
+        and old.status in ('approved', 'rejected')
+        and old.approved_by is not null
+        and old.decided_at is not distinct from new.decided_at
+      ) then
+        raise exception
+          using
+            errcode = '23514',
+            message = 'ESTIMATE_APPROVAL_DECISION_INVALID',
+            detail = 'approved/rejected approvals must carry approved_by unless the approver profile was deleted.';
+      end if;
     end if;
   end if;
 

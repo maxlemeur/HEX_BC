@@ -38,7 +38,6 @@ type SupplyTypeLabel = Pick<
 >;
 type PrintPageProps = {
   params?: Promise<{ versionId: string }>;
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function formatPrintDate(dateStr: string): string {
@@ -83,7 +82,6 @@ function resolveProject(
 
 export default async function PrintEstimatePage({
   params,
-  searchParams,
 }: PrintPageProps) {
   if (!params) {
     notFound();
@@ -121,15 +119,7 @@ export default async function PrintEstimatePage({
 
   const version = versionResult.data as EstimateVersion;
   const items = itemsResult.data as EstimateItem[];
-  const query = (searchParams ? await searchParams : {}) ?? {};
-  const queryCurrencyRaw = query.currency;
-  const queryCurrencyValue = Array.isArray(queryCurrencyRaw)
-    ? queryCurrencyRaw[0]
-    : queryCurrencyRaw;
-  const selectedCurrency =
-    normalizeEstimateCurrency(queryCurrencyValue) ??
-    normalizeEstimateCurrency(version.currency) ??
-    "EUR";
+  const selectedCurrency = normalizeEstimateCurrency(version.currency) ?? "EUR";
   const project = resolveProject(version.estimate_projects);
   const isLaborSplitEnabled = await isFeatureEnabled(
     version.tenant_id,
