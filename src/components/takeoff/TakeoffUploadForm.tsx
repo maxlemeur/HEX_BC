@@ -101,6 +101,10 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFileFingerprint, setSelectedFileFingerprint] = useState("");
+  const [stableIdempotencyKey, setStableIdempotencyKey] = useState<string | null>(
+    null
+  );
   const [dragActive, setDragActive] = useState(false);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -131,18 +135,47 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
     setErrorMessage(null);
   }
 
+  function generateIdempotencyKey(file: File) {
+    if (globalThis.crypto?.randomUUID) {
+      return globalThis.crypto.randomUUID();
+    }
+
+    return `${Date.now()}-${file.name}-${file.size}-${file.lastModified}`;
+  }
+
+  function toFileFingerprint(file: File) {
+    return `${file.name}:${file.size}:${file.type}:${file.lastModified}`;
+  }
+
   function handleFileSelection(file: File | null) {
     resetTransientState();
 
     const validationMessage = validateTakeoffFile(file);
     if (validationMessage) {
       setSelectedFile(null);
+      setSelectedFileFingerprint("");
+      setStableIdempotencyKey(null);
       setErrorMessage(validationMessage);
       setAnnouncement(validationMessage);
       return;
     }
 
+    if (!file) {
+      setSelectedFile(null);
+      setSelectedFileFingerprint("");
+      setStableIdempotencyKey(null);
+      return;
+    }
+
+    const nextFingerprint = toFileFingerprint(file);
+    const shouldKeepExistingKey =
+      nextFingerprint === selectedFileFingerprint && stableIdempotencyKey;
+
     setSelectedFile(file);
+    setSelectedFileFingerprint(nextFingerprint);
+    setStableIdempotencyKey(
+      shouldKeepExistingKey ? stableIdempotencyKey : generateIdempotencyKey(file)
+    );
     setAnnouncement(file ? `Fichier ${file.name} selectionne.` : "");
   }
 
@@ -173,9 +206,12 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
     setErrorMessage(null);
     setAnnouncement("Envoi du fichier en cours.");
 
-    const idempotencyKey = globalThis.crypto?.randomUUID
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}-${selectedFile.name}`;
+    const idempotencyKey =
+      stableIdempotencyKey ?? generateIdempotencyKey(selectedFile);
+    if (!stableIdempotencyKey) {
+      setStableIdempotencyKey(idempotencyKey);
+      setSelectedFileFingerprint(toFileFingerprint(selectedFile));
+    }
 
     try {
       const job = await createTakeoffJob({

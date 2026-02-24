@@ -131,4 +131,37 @@ describe("TakeoffUploadForm", () => {
     expect(submitButton).toBeDisabled();
     expect(createTakeoffJobMock).not.toHaveBeenCalled();
   });
+
+  it("reuses the same idempotency key when retrying the same file", async () => {
+    const user = userEvent.setup();
+    const createTakeoffJobMock = vi.mocked(createTakeoffJob);
+
+    createTakeoffJobMock
+      .mockRejectedValueOnce(
+        new TakeoffApiError("Erreur reseau pendant l'envoi du fichier.", 0, null, "NETWORK_ERROR")
+      )
+      .mockRejectedValueOnce(
+        new TakeoffApiError("Erreur reseau pendant l'envoi du fichier.", 0, null, "NETWORK_ERROR")
+      );
+
+    render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
+
+    const fileInput = screen.getByLabelText("Fichier takeoff");
+    await user.upload(fileInput, makeCsvFile());
+
+    await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));
+    await screen.findByRole("alert");
+
+    await user.click(screen.getByRole("button", { name: /reessayer l'extraction/i }));
+
+    await waitFor(() => {
+      expect(createTakeoffJobMock).toHaveBeenCalledTimes(2);
+    });
+
+    const firstCallKey = createTakeoffJobMock.mock.calls[0]?.[0]?.idempotencyKey;
+    const secondCallKey = createTakeoffJobMock.mock.calls[1]?.[0]?.idempotencyKey;
+
+    expect(firstCallKey).toBeTruthy();
+    expect(secondCallKey).toBe(firstCallKey);
+  });
 });
