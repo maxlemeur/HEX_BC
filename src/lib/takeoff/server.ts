@@ -6,18 +6,20 @@ import {
   assertDraftStatus,
   getAuthenticatedContext,
 } from "@/lib/estimates/server";
+import { mapSupabaseError } from "@/lib/estimates/errors";
 import {
-  badRequest,
-  conflict,
-  mapSupabaseError,
-  notFound,
-  payloadTooLarge,
-  unprocessableEntity,
-} from "@/lib/estimates/errors";
+  TakeoffError,
+  TakeoffErrorCode,
+  toTakeoffError,
+} from "@/lib/takeoff/errors";
+import {
+  logTakeoffAuditEvent,
+  takeoffAuditMetadataBuilders,
+} from "@/lib/takeoff/audit";
 import { validateFileForUpload } from "@/lib/file-validation";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
-import type { Json } from "@/types/database";
+import type { TakeoffJobResponse, TakeoffLevel } from "@/lib/takeoff/types";
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
 const TAKEOFF_ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
@@ -27,11 +29,11 @@ const TAKEOFF_ALLOWED_MIME_TYPES = [
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
-const TAKEOFF_LEVEL = "A";
+const TAKEOFF_LEVEL: TakeoffLevel = "A";
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const takeoffJobResponseSchema = z.object({
+const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
   id: z.string().uuid(),
   status: z.string(),
   level: z.string(),
@@ -40,11 +42,11 @@ const takeoffJobResponseSchema = z.object({
   created_at: z.string(),
 });
 
-type TakeoffJobRow = z.infer<typeof takeoffJobResponseSchema> & {
+type TakeoffJobRow = TakeoffJobResponse & {
   source_file_path?: string | null;
 };
 
-export type TakeoffJobCreateResponse = z.infer<typeof takeoffJobResponseSchema>;
+export type TakeoffJobCreateResponse = TakeoffJobResponse;
 
 function isUuid(value: string) {
   return UUID_REGEX.test(value);
@@ -68,19 +70,21 @@ function normalizeIdempotencyKey(value: string | null | undefined) {
   const trimmed = value.trim();
 
   if (trimmed.length === 0) {
-    throw badRequest(
-      "La valeur de l'en-tete Idempotency-Key est invalide.",
-      undefined,
-      "IDEMPOTENCY_KEY_INVALID"
-    );
+    throw new TakeoffError({
+      status: 400,
+      code: TakeoffErrorCode.IDEMPOTENCY_KEY_INVALID,
+      message: "La valeur de l'en-tete Idempotency-Key est invalide.",
+      retryable: false,
+    });
   }
 
   if (trimmed.length > 255) {
-    throw unprocessableEntity(
-      "La valeur de l'en-tete Idempotency-Key est trop longue.",
-      undefined,
-      "IDEMPOTENCY_KEY_INVALID"
-    );
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.IDEMPOTENCY_KEY_INVALID,
+      message: "La valeur de l'en-tete Idempotency-Key est trop longue.",
+      retryable: false,
+    });
   }
 
   return trimmed;
@@ -134,42 +138,55 @@ function assertTakeoffFileIsValid(file: File) {
   if (validation.valid) return;
 
   if (validation.error.includes("depasse")) {
-    throw payloadTooLarge(
-      validation.error,
-      undefined,
-      "TAKEOFF_FILE_TOO_LARGE"
-    );
+    throw new TakeoffError({
+      status: 413,
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      message: validation.error,
+      retryable: false,
+    });
   }
 
   if (
     validation.error.includes("Extension") ||
     validation.error.includes("MIME")
   ) {
-    throw unprocessableEntity(
-      validation.error,
-      undefined,
-      "TAKEOFF_FILE_TYPE_INVALID"
-    );
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
+      message: validation.error,
+      retryable: false,
+    });
   }
 
-  throw badRequest(validation.error);
+  throw new TakeoffError({
+    status: 400,
+    code: TakeoffErrorCode.BAD_REQUEST,
+    message: validation.error,
+    retryable: false,
+  });
 }
 
 function parseEstimateVersionId(formData: FormData) {
   const value = formData.get("estimate_version_id");
 
   if (typeof value !== "string" || value.trim().length === 0) {
-    throw badRequest("Le champ estimate_version_id est requis.");
+    throw new TakeoffError({
+      status: 400,
+      code: TakeoffErrorCode.BAD_REQUEST,
+      message: "Le champ estimate_version_id est requis.",
+      retryable: false,
+    });
   }
 
   const estimateVersionId = value.trim();
 
   if (!isUuid(estimateVersionId)) {
-    throw unprocessableEntity(
-      "Le champ estimate_version_id doit etre un UUID valide.",
-      undefined,
-      "TAKEOFF_ESTIMATE_VERSION_ID_INVALID"
-    );
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.TAKEOFF_ESTIMATE_VERSION_ID_INVALID,
+      message: "Le champ estimate_version_id doit etre un UUID valide.",
+      retryable: false,
+    });
   }
 
   return estimateVersionId;
@@ -179,20 +196,26 @@ function parseTakeoffLevel(formData: FormData) {
   const value = formData.get("level");
 
   if (typeof value !== "string" || value.trim().length === 0) {
-    throw badRequest("Le champ level est requis.");
+    throw new TakeoffError({
+      status: 400,
+      code: TakeoffErrorCode.BAD_REQUEST,
+      message: "Le champ level est requis.",
+      retryable: false,
+    });
   }
 
   const normalized = value.trim().toUpperCase();
 
   if (normalized !== TAKEOFF_LEVEL) {
-    throw unprocessableEntity(
-      "Le niveau Takeoff supporte pour cet endpoint est uniquement 'A'.",
-      undefined,
-      "TAKEOFF_LEVEL_UNSUPPORTED"
-    );
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
+      message: "Le niveau Takeoff supporte pour cet endpoint est uniquement 'A'.",
+      retryable: false,
+    });
   }
 
-  return normalized;
+  return normalized as TakeoffLevel;
 }
 
 async function getTakeoffJobById(input: {
@@ -210,7 +233,14 @@ async function getTakeoffJobById(input: {
     .maybeSingle();
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de verifier l'idempotence du job.");
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de verifier l'idempotence du job."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.jobId,
+      }
+    );
   }
 
   return (data ?? null) as TakeoffJobRow | null;
@@ -231,7 +261,12 @@ async function assertEstimateVersionAccessibleAsDraft(input: {
     .single();
 
   if (error || !data) {
-    throw notFound("Version de chiffrage introuvable.");
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Version de chiffrage introuvable.",
+      retryable: false,
+    });
   }
 
   const estimateProjects = data.estimate_projects as
@@ -243,13 +278,23 @@ async function assertEstimateVersionAccessibleAsDraft(input: {
     : estimateProjects;
 
   if (!project || project.tenant_id !== input.tenantId) {
-    throw notFound("Version de chiffrage introuvable.");
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Version de chiffrage introuvable.",
+      retryable: false,
+    });
   }
 
   const canAccess =
     project.user_id === input.userId || input.tenantRole === "admin";
   if (!canAccess) {
-    throw notFound("Version de chiffrage introuvable.");
+    throw new TakeoffError({
+      status: 403,
+      code: TakeoffErrorCode.TAKEOFF_TENANT_UNAUTHORIZED,
+      message: "Acces interdit aux ressources de ce tenant.",
+      retryable: false,
+    });
   }
 
   assertDraftStatus(data.status);
@@ -291,146 +336,52 @@ async function removeCreatedJobIfPresent(input: {
   }
 }
 
-async function logTakeoffJobCreatedAudit(input: {
-  supabase: Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
-  tenantId: string;
-  userId: string;
-  job: TakeoffJobRow;
-  idempotencyKey: string | null;
-}) {
-  const afterData: Json = {
-    job_id: input.job.id,
-    tenant_id: input.tenantId,
-    user_id: input.userId,
-    level: input.job.level,
-    estimate_version_id: input.job.estimate_version_id,
-    source_file_name: input.job.source_file_name,
-    idempotency_key: input.idempotencyKey,
-  };
-
-  const { error } = await input.supabase.from("audit_logs").insert({
-    tenant_id: input.tenantId,
-    user_id: input.userId,
-    table_name: "takeoff_jobs",
-    record_id: input.job.id,
-    estimate_version_id: input.job.estimate_version_id,
-    action: "takeoff.job.created",
-    after_data: afterData,
-  });
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible d'enregistrer l'audit takeoff.");
-  }
-}
-
 export async function createTakeoffJobFromFormData(
   formData: FormData,
   input?: { idempotencyKey?: string | null }
 ): Promise<TakeoffJobCreateResponse> {
-  const idempotencyKey = normalizeIdempotencyKey(input?.idempotencyKey);
-  const fileEntry = formData.get("file");
+  let level: TakeoffLevel | undefined;
+  let jobId: string | undefined;
 
-  if (!(fileEntry instanceof File)) {
-    throw badRequest("Le champ file est requis.");
-  }
+  try {
+    const idempotencyKey = normalizeIdempotencyKey(input?.idempotencyKey);
+    const fileEntry = formData.get("file");
 
-  const file = fileEntry;
-  const estimateVersionId = parseEstimateVersionId(formData);
-  const level = parseTakeoffLevel(formData);
-
-  assertTakeoffFileIsValid(file);
-
-  const fileContentHash = toHexSha256(Buffer.from(await file.arrayBuffer()));
-  const payloadFingerprint = toHexSha256(
-    JSON.stringify({
-      estimate_version_id: estimateVersionId,
-      level,
-      file_name: file.name,
-      file_type: file.type,
-      file_size_bytes: file.size,
-      file_content_hash: fileContentHash,
-    })
-  );
-
-  const { supabase, tenantId, userId, tenantRole } = await getAuthenticatedContext();
-
-  const jobId = idempotencyKey
-    ? deriveDeterministicJobId(tenantId, idempotencyKey)
-    : randomUUID();
-
-  if (idempotencyKey) {
-    const existingJob = await getTakeoffJobById({
-      supabase,
-      tenantId,
-      jobId,
-    });
-
-    if (existingJob) {
-      const existingFingerprint = extractPayloadFingerprint(
-        existingJob.source_file_path
-      );
-
-      if (existingFingerprint === payloadFingerprint) {
-        return normalizeTakeoffJobRow(existingJob);
-      }
-
-      throw conflict(
-        "La cle d'idempotence est deja utilisee avec un payload different.",
-        {
-          job_id: existingJob.id,
-        },
-        "IDEMPOTENCY_KEY_REUSED"
-      );
+    if (!(fileEntry instanceof File)) {
+      throw new TakeoffError({
+        status: 400,
+        code: TakeoffErrorCode.TAKEOFF_FILE_REQUIRED,
+        message: "Le champ file est requis.",
+        retryable: false,
+      });
     }
-  }
 
-  await assertTakeoffEnabled(tenantId, { supabase });
-  await assertEstimateVersionAccessibleAsDraft({
-    supabase,
-    tenantId,
-    userId,
-    tenantRole,
-    estimateVersionId,
-  });
+    const file = fileEntry;
+    const estimateVersionId = parseEstimateVersionId(formData);
+    level = parseTakeoffLevel(formData);
 
-  const sourceFileName = file.name.trim().length > 0 ? file.name : "upload";
-  const sourceFilePath = `${tenantId}/${jobId}/${payloadFingerprint}-${sanitizeFilename(
-    sourceFileName
-  )}`;
+    assertTakeoffFileIsValid(file);
 
-  const { error: uploadError } = await supabase.storage
-    .from(TAKEOFF_FILES_BUCKET)
-    .upload(sourceFilePath, file, {
-      contentType: file.type,
-      upsert: Boolean(idempotencyKey),
-    });
+    const fileContentHash = toHexSha256(Buffer.from(await file.arrayBuffer()));
+    const payloadFingerprint = toHexSha256(
+      JSON.stringify({
+        estimate_version_id: estimateVersionId,
+        level,
+        file_name: file.name,
+        file_type: file.type,
+        file_size_bytes: file.size,
+        file_content_hash: fileContentHash,
+      })
+    );
 
-  if (uploadError) {
-    throw badRequest("Impossible de televerser le fichier takeoff.", uploadError);
-  }
+    const { supabase, tenantId, userId, tenantRole } =
+      await getAuthenticatedContext();
 
-  const { data: insertedJob, error: insertError } = await supabase
-    .from("takeoff_jobs" as never)
-    .insert({
-      id: jobId,
-      tenant_id: tenantId,
-      estimate_version_id: estimateVersionId,
-      level: TAKEOFF_LEVEL,
-      status: "pending",
-      source_file_name: sourceFileName,
-      source_file_path: sourceFilePath,
-      source_file_type: file.type,
-      source_file_size_bytes: file.size,
-      prompt_version: getTakeoffPromptVersion(TAKEOFF_LEVEL),
-      created_by: userId,
-    } as never)
-    .select(
-      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at" as never
-    )
-    .single();
+    jobId = idempotencyKey
+      ? deriveDeterministicJobId(tenantId, idempotencyKey)
+      : randomUUID();
 
-  if (insertError || !insertedJob) {
-    if (idempotencyKey && insertError?.code === "23505") {
+    if (idempotencyKey) {
       const existingJob = await getTakeoffJobById({
         supabase,
         tenantId,
@@ -445,6 +396,128 @@ export async function createTakeoffJobFromFormData(
         if (existingFingerprint === payloadFingerprint) {
           return normalizeTakeoffJobRow(existingJob);
         }
+
+        throw new TakeoffError({
+          status: 409,
+          code: TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED,
+          message:
+            "La cle d'idempotence est deja utilisee avec un payload different.",
+          details: {
+            job_id: existingJob.id,
+          },
+          retryable: false,
+          jobId: existingJob.id,
+          level,
+        });
+      }
+    }
+
+    await assertTakeoffEnabled(tenantId, { supabase });
+    await assertEstimateVersionAccessibleAsDraft({
+      supabase,
+      tenantId,
+      userId,
+      tenantRole,
+      estimateVersionId,
+    });
+
+    const sourceFileName = file.name.trim().length > 0 ? file.name : "upload";
+    const sourceFilePath = `${tenantId}/${jobId}/${payloadFingerprint}-${sanitizeFilename(
+      sourceFileName
+    )}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(TAKEOFF_FILES_BUCKET)
+      .upload(sourceFilePath, file, {
+        contentType: file.type,
+        upsert: Boolean(idempotencyKey),
+      });
+
+    if (uploadError) {
+      throw new TakeoffError({
+        status: 400,
+        code: TakeoffErrorCode.BAD_REQUEST,
+        message: "Impossible de televerser le fichier takeoff.",
+        details: uploadError,
+        retryable: false,
+        jobId,
+        level,
+      });
+    }
+
+    const { data: insertedJob, error: insertError } = await supabase
+      .from("takeoff_jobs" as never)
+      .insert({
+        id: jobId,
+        tenant_id: tenantId,
+        estimate_version_id: estimateVersionId,
+        level: TAKEOFF_LEVEL,
+        status: "pending",
+        source_file_name: sourceFileName,
+        source_file_path: sourceFilePath,
+        source_file_type: file.type,
+        source_file_size_bytes: file.size,
+        prompt_version: getTakeoffPromptVersion(TAKEOFF_LEVEL),
+        created_by: userId,
+      } as never)
+      .select(
+        "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at" as never
+      )
+      .single();
+
+    if (insertError || !insertedJob) {
+      if (idempotencyKey && insertError?.code === "23505") {
+        const existingJob = await getTakeoffJobById({
+          supabase,
+          tenantId,
+          jobId,
+        });
+
+        if (existingJob) {
+          const existingFingerprint = extractPayloadFingerprint(
+            existingJob.source_file_path
+          );
+
+          if (existingFingerprint === payloadFingerprint) {
+            return normalizeTakeoffJobRow(existingJob);
+          }
+
+          await removeUploadedFileIfPresent({
+            supabase,
+            storagePath: sourceFilePath,
+          });
+
+          throw new TakeoffError({
+            status: 409,
+            code: TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED,
+            message:
+              "La cle d'idempotence est deja utilisee avec un payload different.",
+            details: {
+              job_id: existingJob.id,
+            },
+            retryable: false,
+            jobId: existingJob.id,
+            level,
+          });
+        }
+
+        await removeUploadedFileIfPresent({
+          supabase,
+          storagePath: sourceFilePath,
+        });
+
+        throw new TakeoffError({
+          status: 404,
+          code: TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND,
+          message:
+            "Le job Takeoff associe a la cle d'idempotence est introuvable.",
+          details: {
+            reason: "IDEMPOTENCY_KEY_CONFLICT_WITHOUT_JOB",
+          },
+          retryable: false,
+          jobId,
+          level,
+        });
       }
 
       await removeUploadedFileIfPresent({
@@ -452,47 +525,70 @@ export async function createTakeoffJobFromFormData(
         storagePath: sourceFilePath,
       });
 
-      throw conflict(
-        "La cle d'idempotence est deja utilisee avec un payload different.",
-        undefined,
-        "IDEMPOTENCY_KEY_REUSED"
-      );
+      if (insertError) {
+        throw toTakeoffError(
+          mapSupabaseError(insertError, "Impossible de creer le job takeoff."),
+          {
+            fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+            retryable: false,
+            jobId,
+            level,
+          }
+        );
+      }
+
+      throw new TakeoffError({
+        status: 400,
+        code: TakeoffErrorCode.BAD_REQUEST,
+        message: "Impossible de creer le job takeoff.",
+        retryable: false,
+        jobId,
+        level,
+      });
     }
 
-    await removeUploadedFileIfPresent({
-      supabase,
-      storagePath: sourceFilePath,
-    });
+    const createdJob = insertedJob as TakeoffJobRow;
 
-    if (insertError) {
-      throw mapSupabaseError(insertError, "Impossible de creer le job takeoff.");
+    try {
+      const createdAuditMetadata =
+        takeoffAuditMetadataBuilders["takeoff.job.created"]({
+          level: TAKEOFF_LEVEL,
+          estimate_version_id: createdJob.estimate_version_id,
+          source_file_name: createdJob.source_file_name,
+          idempotency_key: idempotencyKey,
+        });
+
+      await logTakeoffAuditEvent({
+        supabase,
+        tenantId,
+        userId,
+        jobId: createdJob.id,
+        estimateVersionId: createdJob.estimate_version_id,
+        action: "takeoff.job.created",
+        metadata: createdAuditMetadata,
+        mode: "fail-hard",
+      });
+    } catch (error) {
+      await removeUploadedFileIfPresent({
+        supabase,
+        storagePath: sourceFilePath,
+      });
+      await removeCreatedJobIfPresent({
+        supabase,
+        tenantId,
+        jobId: createdJob.id,
+      });
+      throw error;
     }
 
-    throw badRequest("Impossible de creer le job takeoff.");
-  }
-
-  const createdJob = insertedJob as TakeoffJobRow;
-
-  try {
-    await logTakeoffJobCreatedAudit({
-      supabase,
-      tenantId,
-      userId,
-      job: createdJob,
-      idempotencyKey,
-    });
+    return normalizeTakeoffJobRow(createdJob);
   } catch (error) {
-    await removeUploadedFileIfPresent({
-      supabase,
-      storagePath: sourceFilePath,
+    throw toTakeoffError(error, {
+      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+      fallbackMessage: "Impossible de creer le job takeoff.",
+      retryable: false,
+      jobId,
+      level,
     });
-    await removeCreatedJobIfPresent({
-      supabase,
-      tenantId,
-      jobId: createdJob.id,
-    });
-    throw error;
   }
-
-  return normalizeTakeoffJobRow(createdJob);
 }

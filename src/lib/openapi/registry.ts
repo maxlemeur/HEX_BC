@@ -33,6 +33,7 @@ import {
   updateLaborRoleSchema,
   updateSuggestionRuleSchema,
 } from "@/lib/estimates/schemas";
+import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 export type OpenApiHttpMethod = "get" | "post" | "patch" | "delete";
 export type OpenApiSchemaIO = "input" | "output";
@@ -243,6 +244,8 @@ const idempotencyKeyHeaderSchema = z
   .trim()
   .min(1, "Idempotency-Key invalide.")
   .max(255, "Idempotency-Key invalide.");
+const takeoffLevelSchema = z.enum(["A", "B", "C"]);
+const takeoffErrorCodeSchema = z.nativeEnum(TakeoffErrorCode);
 
 export const apiErrorSchema = z.object({
   code: z.string(),
@@ -253,6 +256,20 @@ export const apiErrorSchema = z.object({
 export const apiFailureResponseSchema = z.object({
   ok: z.literal(false),
   error: apiErrorSchema,
+});
+
+export const takeoffApiErrorSchema = z.object({
+  code: takeoffErrorCodeSchema,
+  message: z.string(),
+  details: z.unknown().optional(),
+  retryable: z.boolean().optional(),
+  jobId: z.string().optional(),
+  level: takeoffLevelSchema.optional(),
+});
+
+export const apiTakeoffFailureResponseSchema = z.object({
+  ok: z.literal(false),
+  error: takeoffApiErrorSchema,
 });
 
 export const apiSuccessUnknownSchema = successEnvelopeSchema(z.unknown());
@@ -1120,6 +1137,16 @@ const apiTakeoffJobCreateSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobCreateResponse",
   takeoffJobCreateDataSchema
 );
+const takeoffApiErrorSchemaDefinition = schemaDefinition(
+  "TakeoffApiError",
+  takeoffApiErrorSchema,
+  "output"
+);
+const apiTakeoffFailureResponseSchemaDefinition = schemaDefinition(
+  "ApiTakeoffFailureResponse",
+  apiTakeoffFailureResponseSchema,
+  "output"
+);
 
 export const openApiSharedSchemaDefinitions = {
   apiError: schemaDefinition("ApiError", apiErrorSchema, "output"),
@@ -1143,6 +1170,8 @@ export const openApiSharedSchemaDefinitions = {
     apiPdfStatusResponseSchema,
     "output"
   ),
+  takeoffApiError: takeoffApiErrorSchemaDefinition,
+  apiTakeoffFailureResponse: apiTakeoffFailureResponseSchemaDefinition,
 };
 
 const versionIdPathParameter = pathParameter({
@@ -1560,12 +1589,57 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         "Job Takeoff cree avec succes.",
         apiTakeoffJobCreateSchemaDefinition
       ),
+      "400": {
+        description: "Requete invalide ou payload non conforme.",
+        contents: [
+          {
+            contentType: "application/json",
+            schema: apiTakeoffFailureResponseSchemaDefinition,
+          },
+        ],
+      },
+      "401": {
+        description: "Authentification requise.",
+        contents: [
+          {
+            contentType: "application/json",
+            schema: apiTakeoffFailureResponseSchemaDefinition,
+          },
+        ],
+      },
+      "403": {
+        description: "Acces interdit.",
+        contents: [
+          {
+            contentType: "application/json",
+            schema: apiTakeoffFailureResponseSchemaDefinition,
+          },
+        ],
+      },
+      "404": {
+        description: "Ressource introuvable.",
+        contents: [
+          {
+            contentType: "application/json",
+            schema: apiTakeoffFailureResponseSchemaDefinition,
+          },
+        ],
+      },
+      "409": {
+        description: "Conflit metier ou de concurrence.",
+        contents: [
+          {
+            contentType: "application/json",
+            schema: apiTakeoffFailureResponseSchemaDefinition,
+          },
+        ],
+      },
       "413": {
         description: "Fichier trop volumineux (maximum 10 Mo).",
         contents: [
           {
             contentType: "application/json",
-            schema: openApiSharedSchemaDefinitions.apiFailureResponse,
+            schema: apiTakeoffFailureResponseSchemaDefinition,
           },
         ],
       },
@@ -1575,7 +1649,16 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         contents: [
           {
             contentType: "application/json",
-            schema: openApiSharedSchemaDefinitions.apiFailureResponse,
+            schema: apiTakeoffFailureResponseSchemaDefinition,
+          },
+        ],
+      },
+      "500": {
+        description: "Erreur interne serveur.",
+        contents: [
+          {
+            contentType: "application/json",
+            schema: apiTakeoffFailureResponseSchemaDefinition,
           },
         ],
       },

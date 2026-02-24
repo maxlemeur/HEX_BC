@@ -1,22 +1,13 @@
-export type TakeoffLevel = "A" | "B" | "C";
+import type {
+  TakeoffApiError as TakeoffApiErrorShape,
+  TakeoffJobCreateInput as SharedTakeoffJobCreateInput,
+  TakeoffJobResponse as SharedTakeoffJobResponse,
+  TakeoffLevel as SharedTakeoffLevel,
+} from "@/lib/takeoff/types";
 
-export type TakeoffJobCreateResponse = {
-  id: string;
-  status: string;
-  level: TakeoffLevel | string;
-  source_file_name: string | null;
-  estimate_version_id: string;
-  created_at: string;
-};
-
-export type CreateTakeoffJobInput = {
-  estimateVersionId: string;
-  level: "A";
-  file: File;
-  idempotencyKey?: string;
-  onUploadProgress?: (progressPercent: number) => void;
-  signal?: AbortSignal;
-};
+export type TakeoffLevel = SharedTakeoffLevel;
+export type TakeoffJobCreateResponse = SharedTakeoffJobResponse;
+export type CreateTakeoffJobInput = SharedTakeoffJobCreateInput;
 
 type ApiEnvelope<T> = {
   ok?: boolean;
@@ -25,27 +16,41 @@ type ApiEnvelope<T> = {
     message?: string;
     code?: string;
     details?: unknown;
+    retryable?: boolean;
+    jobId?: string;
+    level?: TakeoffLevel | string;
   };
 };
 
 type JsonRecord = Record<string, unknown>;
+type TakeoffApiErrorMetadata = Pick<
+  TakeoffApiErrorShape,
+  "retryable" | "jobId" | "level"
+>;
 
 export class TakeoffApiError extends Error {
   readonly status: number;
   readonly details: unknown;
   readonly code: string | null;
+  readonly retryable: boolean;
+  readonly jobId: string | null;
+  readonly level: TakeoffLevel | string | null;
 
   constructor(
     message: string,
     status: number,
     details: unknown,
-    code: string | null
+    code: string | null,
+    metadata: TakeoffApiErrorMetadata = {}
   ) {
     super(message);
     this.name = "TakeoffApiError";
     this.status = status;
     this.details = details;
     this.code = code;
+    this.retryable = metadata.retryable ?? false;
+    this.jobId = metadata.jobId ?? null;
+    this.level = metadata.level ?? null;
   }
 }
 
@@ -113,6 +118,66 @@ function extractErrorDetails(payload: unknown): unknown {
   return null;
 }
 
+function extractErrorRetryable(payload: unknown): boolean {
+  if (!isRecord(payload)) return false;
+
+  if (isRecord(payload.error) && typeof payload.error.retryable === "boolean") {
+    return payload.error.retryable;
+  }
+
+  const details = extractErrorDetails(payload);
+  if (isRecord(details) && typeof details.retryable === "boolean") {
+    return details.retryable;
+  }
+
+  return false;
+}
+
+function extractErrorJobId(payload: unknown): string | undefined {
+  if (!isRecord(payload)) return undefined;
+
+  if (isRecord(payload.error)) {
+    const nested = toStringValue(payload.error.jobId);
+    if (nested) return nested;
+  }
+
+  const details = extractErrorDetails(payload);
+  if (isRecord(details)) {
+    const detailsJobId = toStringValue(details.jobId);
+    if (detailsJobId) return detailsJobId;
+
+    const detailsSnakeJobId = toStringValue(details.job_id);
+    if (detailsSnakeJobId) return detailsSnakeJobId;
+  }
+
+  return undefined;
+}
+
+function extractErrorLevel(payload: unknown): TakeoffLevel | string | undefined {
+  if (!isRecord(payload)) return undefined;
+
+  if (isRecord(payload.error)) {
+    const nested = toStringValue(payload.error.level);
+    if (nested) return nested;
+  }
+
+  const details = extractErrorDetails(payload);
+  if (isRecord(details)) {
+    const detailsLevel = toStringValue(details.level);
+    if (detailsLevel) return detailsLevel;
+  }
+
+  return undefined;
+}
+
+function buildErrorMetadata(payload: unknown): TakeoffApiErrorMetadata {
+  return {
+    retryable: extractErrorRetryable(payload),
+    jobId: extractErrorJobId(payload),
+    level: extractErrorLevel(payload),
+  };
+}
+
 function unwrapSuccessfulEnvelopePayload(
   payload: unknown,
   fallbackMessage: string
@@ -127,7 +192,8 @@ function unwrapSuccessfulEnvelopePayload(
       toErrorMessage(payload, fallbackMessage),
       200,
       extractErrorDetails(payload),
-      extractErrorCode(payload)
+      extractErrorCode(payload),
+      buildErrorMetadata(payload)
     );
   }
 
@@ -226,7 +292,8 @@ export async function createTakeoffJob(
             toErrorMessage(payload, "Impossible de creer le job takeoff."),
             xhr.status,
             extractErrorDetails(payload),
-            extractErrorCode(payload)
+            extractErrorCode(payload),
+            buildErrorMetadata(payload)
           )
         );
         return;
