@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import { TakeoffExchangeSchema, zodToGeminiJsonSchema } from "@/lib/takeoff/schemas";
 
@@ -227,5 +228,33 @@ describe("zodToGeminiJsonSchema", () => {
       expect.arrayContaining(["items", "warnings", "metadata"])
     );
     expect(jsonSchema).not.toHaveProperty("$schema");
+  });
+
+  it("preserves representable nullable-string constraints from transformed fields", () => {
+    const jsonSchema = zodToGeminiJsonSchema();
+    const properties = jsonSchema.properties as Record<string, unknown>;
+    const itemsSchema = properties.items as Record<string, unknown>;
+    const itemProperties = (itemsSchema.items as Record<string, unknown>)
+      .properties as Record<string, unknown>;
+    const tablesSchema = properties.tables as Record<string, unknown>;
+    const tableProperties = (tablesSchema.items as Record<string, unknown>)
+      .properties as Record<string, unknown>;
+
+    expect(itemProperties.category).toEqual({
+      anyOf: [{ type: "string" }, { type: "null" }],
+    });
+    expect(tableProperties.title).toEqual({
+      anyOf: [{ type: "string" }, { type: "null" }],
+    });
+  });
+
+  it("throws when a schema cannot be represented in JSON Schema", () => {
+    const nonRepresentableSchema = z.object({
+      issued_at: z.date(),
+    });
+
+    expect(() => zodToGeminiJsonSchema(nonRepresentableSchema)).toThrow(
+      /cannot be represented/i
+    );
   });
 });

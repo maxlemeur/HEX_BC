@@ -162,7 +162,8 @@ export function zodToGeminiJsonSchema(
 ): Record<string, unknown> {
   const jsonSchema = z.toJSONSchema(schema, {
     target: "draft-07",
-    unrepresentable: "any",
+    io: "input",
+    unrepresentable: "throw",
   });
 
   return sanitizeGeminiJsonSchema(jsonSchema) as Record<string, unknown>;
