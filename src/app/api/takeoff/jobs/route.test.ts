@@ -12,6 +12,7 @@ import { POST } from "@/app/api/takeoff/jobs/route";
 import { forbidden } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { TAKEOFF_PROMPT_VERSION_BY_LEVEL } from "@/lib/takeoff/prompts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -22,6 +23,7 @@ const UUID_REGEX =
 type SupabaseMockOptions = {
   estimateStatus?: "draft" | "sent" | "accepted" | "archived";
   missingEstimate?: boolean;
+  simulateInsertConflictAfterUpload?: boolean;
 };
 
 type TakeoffJobStoredRow = {
@@ -40,9 +42,13 @@ type TakeoffJobStoredRow = {
 };
 
 function createSupabaseMock(options: SupabaseMockOptions = {}) {
+  let currentEstimateStatus = options.estimateStatus ?? "draft";
+  let missingEstimate = options.missingEstimate ?? false;
+
   const state = {
     jobsById: new Map<string, TakeoffJobStoredRow>(),
     uploads: [] as string[],
+    removals: [] as string[],
     audits: [] as Array<Record<string, unknown>>,
   };
 
@@ -72,13 +78,13 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
   };
 
   estimateVersionsBuilder.eq.mockReturnValue(estimateVersionsBuilder);
-  estimateVersionsBuilder.single.mockResolvedValue(
-    options.missingEstimate
+  estimateVersionsBuilder.single.mockImplementation(async () =>
+    missingEstimate
       ? { data: null, error: { code: "PGRST116", message: "Not found" } }
       : {
           data: {
             id: ESTIMATE_VERSION_ID,
-            status: options.estimateStatus ?? "draft",
+            status: currentEstimateStatus,
             estimate_projects: {
               tenant_id: TENANT_ID,
               user_id: USER_ID,
@@ -119,6 +125,34 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       select: vi.fn(() => ({
         single: vi.fn(async () => {
           const payload = takeoffJobsInsertInput;
+
+          if (
+            options.simulateInsertConflictAfterUpload &&
+            !state.jobsById.has(payload.id)
+          ) {
+            state.jobsById.set(payload.id, {
+              id: payload.id,
+              tenant_id: payload.tenant_id,
+              estimate_version_id: payload.estimate_version_id,
+              level: payload.level,
+              status: "pending",
+              source_file_name: "other.csv",
+              source_file_path: `${payload.tenant_id}/${payload.id}/other-fingerprint-other.csv`,
+              source_file_type: "text/csv",
+              source_file_size_bytes: 1,
+              prompt_version: TAKEOFF_PROMPT_VERSION_BY_LEVEL.A,
+              created_by: USER_ID,
+              created_at: "2026-02-24T12:00:00.000Z",
+            });
+
+            return {
+              data: null,
+              error: {
+                code: "23505",
+                message: "duplicate key value violates unique constraint",
+              },
+            };
+          }
 
           if (state.jobsById.has(payload.id)) {
             return {
@@ -168,6 +202,14 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
 
   const supabase = {
     __state: state,
+    __controls: {
+      setEstimateStatus: (value: "draft" | "sent" | "accepted" | "archived") => {
+        currentEstimateStatus = value;
+      },
+      setMissingEstimate: (value: boolean) => {
+        missingEstimate = value;
+      },
+    },
     auth: {
       getUser: vi.fn().mockResolvedValue({
         data: {
@@ -191,7 +233,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
               return { data: { path }, error: null };
             }
           ),
-          remove: vi.fn(async () => ({ data: null, error: null })),
+          remove: vi.fn(async (paths: string[]) => {
+            state.removals.push(...paths);
+            return { data: null, error: null };
+          }),
         };
       }),
     },
@@ -295,6 +340,9 @@ describe("POST /api/takeoff/jobs", () => {
     expect(supabase.__state.uploads).toHaveLength(1);
     expect(supabase.__state.audits).toHaveLength(1);
     expect(supabase.__state.audits[0]?.action).toBe("takeoff.job.created");
+
+    const [storedJob] = [...supabase.__state.jobsById.values()];
+    expect(storedJob?.prompt_version).toBe(TAKEOFF_PROMPT_VERSION_BY_LEVEL.A);
   });
 
   it("returns 403 when takeoff feature flag is disabled", async () => {
@@ -461,6 +509,47 @@ describe("POST /api/takeoff/jobs", () => {
     expect(supabase.__state.audits).toHaveLength(1);
   });
 
+  it("returns existing job on idempotent retry even if preconditions changed", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const headers = { "idempotency-key": "same-key" };
+
+    const firstResponse = await POST(
+      buildTakeoffRequest({
+        headers,
+      })
+    );
+    const firstBody = (await firstResponse.json()) as {
+      ok: boolean;
+      data: { id: string };
+    };
+
+    supabase.__controls.setEstimateStatus("sent");
+    vi.mocked(assertTakeoffEnabled).mockRejectedValue(
+      forbidden(
+        "Le module Takeoff est desactive pour ce tenant.",
+        undefined,
+        "TAKEOFF_MODULE_DISABLED"
+      )
+    );
+
+    const secondResponse = await POST(
+      buildTakeoffRequest({
+        headers,
+      })
+    );
+    const secondBody = (await secondResponse.json()) as {
+      ok: boolean;
+      data: { id: string };
+    };
+
+    expect(firstResponse.status).toBe(201);
+    expect(secondResponse.status).toBe(201);
+    expect(secondBody.data.id).toBe(firstBody.data.id);
+    expect(assertTakeoffEnabled).toHaveBeenCalledTimes(1);
+  });
+
   it("returns 409 when idempotency key is reused with a different payload", async () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -488,5 +577,30 @@ describe("POST /api/takeoff/jobs", () => {
     expect(conflictResponse.status).toBe(409);
     expect(body.ok).toBe(false);
     expect(body.error?.code).toBe("IDEMPOTENCY_KEY_REUSED");
+  });
+
+  it("rolls back uploaded file when concurrent conflict reuses idempotency key", async () => {
+    const supabase = createSupabaseMock({
+      simulateInsertConflictAfterUpload: true,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      buildTakeoffRequest({
+        headers: { "idempotency-key": "same-key" },
+        fileContent: "designation;quantity;unit\nTube PVC;12;ml",
+      })
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
+
+    expect(response.status).toBe(409);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe("IDEMPOTENCY_KEY_REUSED");
+    expect(supabase.__state.uploads).toHaveLength(1);
+    expect(supabase.__state.removals).toHaveLength(1);
+    expect(supabase.__state.removals[0]).toBe(supabase.__state.uploads[0]);
   });
 });

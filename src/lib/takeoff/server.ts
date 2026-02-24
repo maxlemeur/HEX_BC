@@ -16,6 +16,7 @@ import {
 } from "@/lib/estimates/errors";
 import { validateFileForUpload } from "@/lib/file-validation";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import type { Json } from "@/types/database";
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
@@ -27,7 +28,6 @@ const TAKEOFF_ALLOWED_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
 const TAKEOFF_LEVEL = "A";
-const TAKEOFF_PROMPT_VERSION = "takeoff-a-v1";
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -354,15 +354,6 @@ export async function createTakeoffJobFromFormData(
 
   const { supabase, tenantId, userId, tenantRole } = await getAuthenticatedContext();
 
-  await assertTakeoffEnabled(tenantId, { supabase });
-  await assertEstimateVersionAccessibleAsDraft({
-    supabase,
-    tenantId,
-    userId,
-    tenantRole,
-    estimateVersionId,
-  });
-
   const jobId = idempotencyKey
     ? deriveDeterministicJobId(tenantId, idempotencyKey)
     : randomUUID();
@@ -393,6 +384,15 @@ export async function createTakeoffJobFromFormData(
     }
   }
 
+  await assertTakeoffEnabled(tenantId, { supabase });
+  await assertEstimateVersionAccessibleAsDraft({
+    supabase,
+    tenantId,
+    userId,
+    tenantRole,
+    estimateVersionId,
+  });
+
   const sourceFileName = file.name.trim().length > 0 ? file.name : "upload";
   const sourceFilePath = `${tenantId}/${jobId}/${payloadFingerprint}-${sanitizeFilename(
     sourceFileName
@@ -421,7 +421,7 @@ export async function createTakeoffJobFromFormData(
       source_file_path: sourceFilePath,
       source_file_type: file.type,
       source_file_size_bytes: file.size,
-      prompt_version: TAKEOFF_PROMPT_VERSION,
+      prompt_version: getTakeoffPromptVersion(TAKEOFF_LEVEL),
       created_by: userId,
     } as never)
     .select(
@@ -446,6 +446,11 @@ export async function createTakeoffJobFromFormData(
           return normalizeTakeoffJobRow(existingJob);
         }
       }
+
+      await removeUploadedFileIfPresent({
+        supabase,
+        storagePath: sourceFilePath,
+      });
 
       throw conflict(
         "La cle d'idempotence est deja utilisee avec un payload different.",
