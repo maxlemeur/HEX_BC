@@ -5,6 +5,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import {
+  ESTIMATE_EDITOR_VIRTUALIZATION_FEATURE_FLAGS,
   PRICE_IMPORT_FEATURE_FLAGS,
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
@@ -147,6 +148,15 @@ describe("price import feature flags", () => {
       "PRICE_IMPORT_BDC_PROFILE",
       "PRICE_IMPORT_CREATE_ASSIST",
       "PRICE_IMPORT_MULTI_SUPPLIER",
+    ]);
+  });
+});
+
+describe("estimate editor virtualization feature flags", () => {
+  it("exposes runtime virtualization rollout flag keys", () => {
+    expect(ESTIMATE_EDITOR_VIRTUALIZATION_FEATURE_FLAGS).toEqual([
+      "EST_264_EDITOR_VIRTUALIZATION_MODE",
+      "EST_264_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD",
     ]);
   });
 });

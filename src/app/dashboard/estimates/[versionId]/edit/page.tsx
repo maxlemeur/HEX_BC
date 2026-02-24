@@ -38,6 +38,7 @@ import {
 import { ExportDropdown } from "@/components/ExportDropdown";
 import { useUserContext } from "@/components/UserContext";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { useAutoSaveNavigationGuard } from "@/hooks/useAutoSaveNavigationGuard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useUndoRedo, type UndoRedoCommand } from "@/hooks/useUndoRedo";
 import {
@@ -79,7 +80,11 @@ import {
   type EstimateOutlierMethod,
 } from "@/lib/estimates/outlier-detection";
 import {
+  ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
+  ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
+  isEstimateEditorVirtualizationEnabled,
   resolveEstimateEditorVirtualizationConfig,
+  resolveEstimateEditorVirtualizationRuntimeConfig,
   type EstimateEditorVirtualizationRuntimeConfig,
 } from "@/lib/estimate-editor-virtualization";
 import {
@@ -309,6 +314,7 @@ const AUTOSAVE_BUFFER_STORAGE_PREFIX = "estimate:edit:autosave-buffer:";
 const BULK_AUTOSAVE_DEBOUNCE_MS = 2000;
 const BULK_AUTOSAVE_IMMEDIATE_FLUSH_UPDATES = 100;
 const BULK_SUGGEST_PROGRESS_THRESHOLD = 50;
+const PASTE_CREATE_BATCH_MAX_OPERATIONS = 100;
 const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
 const MAX_CASCADE_DISCOUNT_STEPS = 4;
 const LABOR_SPLIT_FIELD_KEYS = [
@@ -320,9 +326,11 @@ const LABOR_SPLIT_FIELD_KEYS = [
   "labor_role_chantier_id",
 ] as const;
 type LaborSplitFieldKey = (typeof LABOR_SPLIT_FIELD_KEYS)[number];
-const ESTIMATE_EDITOR_VIRTUALIZATION_CONFIG: EstimateEditorVirtualizationRuntimeConfig =
+const ESTIMATE_EDITOR_VIRTUALIZATION_ENV_CONFIG: EstimateEditorVirtualizationRuntimeConfig =
   resolveEstimateEditorVirtualizationConfig({
     enabled: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_ENABLED,
+    mode: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_MODE,
+    autoThreshold: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD,
     rowEstimate: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_ROW_ESTIMATE,
     overscan: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_OVERSCAN,
     maxHeight: process.env.NEXT_PUBLIC_ESTIMATE_EDITOR_VIRTUALIZATION_CONTAINER_HEIGHT,
@@ -1289,6 +1297,13 @@ export default function EditEstimatePage() {
   const resolvedVersionId = typeof versionId === "string" ? versionId : "";
   const { profile } = useUserContext();
   const { enabled: isLaborSplitEnabled } = useFeatureFlag(LABOR_SPLIT_FLAG_KEY);
+  const {
+    enabled: isVirtualizationModeFlagEnabled,
+    value: virtualizationModeFlagValue,
+  } = useFeatureFlag(ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY);
+  const { value: virtualizationAutoThresholdFlagValue } = useFeatureFlag(
+    ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY
+  );
 
   const [version, setVersion] = useState<EstimateVersionView | null>(null);
   const [settings, setSettings] = useState<EstimateSettingsState | null>(null);
@@ -1853,8 +1868,33 @@ export default function EditEstimatePage() {
       settings?.tax_rate_bp,
     ]
   );
-  const editorTableVirtualization: EstimateEditorVirtualizationConfig =
-    ESTIMATE_EDITOR_VIRTUALIZATION_CONFIG;
+  const editorTableVirtualization = useMemo<EstimateEditorVirtualizationConfig>(() => {
+    const runtimeConfig = resolveEstimateEditorVirtualizationRuntimeConfig({
+      baseConfig: ESTIMATE_EDITOR_VIRTUALIZATION_ENV_CONFIG,
+      modeFlag: {
+        enabled: isVirtualizationModeFlagEnabled,
+        value: virtualizationModeFlagValue,
+      },
+      autoThresholdFlag: {
+        value: virtualizationAutoThresholdFlagValue,
+      },
+    });
+    const enabled = isEstimateEditorVirtualizationEnabled(runtimeConfig, items.length);
+
+    return {
+      enabled,
+      rowEstimate: runtimeConfig.rowEstimate,
+      overscan: runtimeConfig.overscan,
+      ...(runtimeConfig.maxHeight !== undefined
+        ? { maxHeight: runtimeConfig.maxHeight }
+        : {}),
+    };
+  }, [
+    isVirtualizationModeFlagEnabled,
+    items.length,
+    virtualizationAutoThresholdFlagValue,
+    virtualizationModeFlagValue,
+  ]);
   const handleQualityFilterChange = useCallback(
     (nextFilter: EstimateQualityFilter) => {
       setQualityFilter(nextFilter);
@@ -3237,6 +3277,7 @@ export default function EditEstimatePage() {
   const {
     status: autoSaveStatus,
     statusLabel: autoSaveStatusLabel,
+    isSaving: isAutoSaveSaving,
     flushNow: flushAutoSaveNow,
     scheduleSave: scheduleAutoSave,
   } = useAutoSave({
@@ -3244,6 +3285,19 @@ export default function EditEstimatePage() {
     hasPendingChanges: hasPendingBufferedUpdates,
     debounceMs: BULK_AUTOSAVE_DEBOUNCE_MS,
     onSave: flushBufferedItemUpdates,
+  });
+
+  const handleBlockedNavigation = useCallback(() => {
+    setActionError(
+      "Des modifications locales sont en attente de sauvegarde automatique. Patientez la fin de la synchronisation avant de quitter cette page."
+    );
+  }, []);
+
+  useAutoSaveNavigationGuard({
+    enabled: Boolean(resolvedVersionId),
+    hasPendingChanges: hasPendingBufferedUpdates,
+    isSaving: isAutoSaveSaving,
+    onBlockedNavigation: handleBlockedNavigation,
   });
 
   const autoSaveStatusClassName = useMemo(() => {
@@ -5658,6 +5712,8 @@ export default function EditEstimatePage() {
           .reduce((max, item) => Math.max(max, item.position), 0) + 1;
 
       const createdItems: EstimateItem[] = [];
+      const createPayloads: EstimateItemInsertPayload[] = [];
+      let concurrencyToken = versionSnapshot.updated_at;
       try {
         for (const row of validRows) {
           const designation = row.designation?.trim() || "Nouvelle ligne";
@@ -5735,9 +5791,74 @@ export default function EditEstimatePage() {
             createPayload.labor_role_chantier_id = null;
           }
 
-          const created = await createEstimateItem(versionSnapshot.id, createPayload);
-          createdItems.push(created);
+          createPayloads.push(createPayload);
           nextPosition += 1;
+        }
+
+        for (
+          let startIndex = 0;
+          startIndex < createPayloads.length;
+          startIndex += PASTE_CREATE_BATCH_MAX_OPERATIONS
+        ) {
+          const payloadChunk = createPayloads.slice(
+            startIndex,
+            startIndex + PASTE_CREATE_BATCH_MAX_OPERATIONS
+          );
+          const batchResult = await batchEstimateOperations(
+            versionSnapshot.id,
+            concurrencyToken,
+            payloadChunk.map((payload) => ({
+              op: "create" as const,
+              data: payload,
+            }))
+          );
+
+          if (!batchResult.committed) {
+            const failedResult = batchResult.results.find(
+              (result) => result.status === "error"
+            );
+            throw new Error(
+              failedResult?.message ??
+                "Une operation de creation groupee a echoue."
+            );
+          }
+
+          const createdItemsByChunkIndex = new Map<number, EstimateItem>();
+          batchResult.results.forEach((result) => {
+            if (result.status !== "ok" || result.op !== "create") {
+              return;
+            }
+            if (!isRecord(result.data) || !isRecord(result.data.item)) {
+              return;
+            }
+            createdItemsByChunkIndex.set(
+              result.index,
+              result.data.item as EstimateItem
+            );
+          });
+
+          let chunkLastUpdatedAt: string | null = null;
+          for (let chunkIndex = 0; chunkIndex < payloadChunk.length; chunkIndex += 1) {
+            const createdItem = createdItemsByChunkIndex.get(chunkIndex);
+            if (!createdItem) {
+              throw new Error("Impossible de recuperer les lignes collees.");
+            }
+            createdItems.push(createdItem);
+            if (
+              typeof createdItem.updated_at === "string" &&
+              createdItem.updated_at.length > 0
+            ) {
+              chunkLastUpdatedAt = createdItem.updated_at;
+            }
+          }
+
+          const nextConcurrencyToken = chunkLastUpdatedAt;
+          if (!nextConcurrencyToken) {
+            throw new Error(
+              "Impossible de recuperer le jeton de version apres collage groupe."
+            );
+          }
+          concurrencyToken = nextConcurrencyToken;
         }
       } catch (error) {
         if (createdItems.length > 0) {
@@ -5757,6 +5878,7 @@ export default function EditEstimatePage() {
       const insertedIds = createdItems.map((item) => item.id);
       const mergedItems = [...snapshot, ...createdItems];
       setItems(mergedItems);
+      applyVersionToken(concurrencyToken);
 
       const currentOrderedIds = mergedItems
         .filter((item) => item.parent_id === targetParentId)
@@ -5926,6 +6048,7 @@ export default function EditEstimatePage() {
       reloadItems,
       settings,
       supplyTypeIdByLowerName,
+      applyVersionToken,
     ]
   );
 

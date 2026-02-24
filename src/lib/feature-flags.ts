@@ -4,6 +4,10 @@ import {
   DEFAULT_STALE_PRICE_DAYS,
   parseStalePriceDays,
 } from "@/lib/catalogue/stale-prices";
+import {
+  ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
+  ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
+} from "@/lib/estimate-editor-virtualization";
 import { badRequest, forbidden, mapSupabaseError } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
@@ -47,6 +51,11 @@ export const PRICE_IMPORT_FEATURE_FLAGS = [
   PRICE_IMPORT_BDC_PROFILE_FLAG,
   PRICE_IMPORT_CREATE_ASSIST_FLAG,
   PRICE_IMPORT_MULTI_SUPPLIER_FLAG,
+] as const;
+
+export const ESTIMATE_EDITOR_VIRTUALIZATION_FEATURE_FLAGS = [
+  ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY,
+  ESTIMATE_EDITOR_VIRTUALIZATION_AUTO_THRESHOLD_FLAG_KEY,
 ] as const;
 
 const tenantIdSchema = z.string().uuid("tenant_id invalide.");
