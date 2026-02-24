@@ -389,6 +389,42 @@ describe("price book csv import validation with lookups", () => {
     expect(progressEvents.length).toBeGreaterThan(2);
   });
 
+  it("does not overcount progress when duplicate candidates are ignored", async () => {
+    const rows: CsvImportRow[] = [
+      { fournisseur: "CEDEO", ref: "TUBE-INOX-28", prix: "10,00" },
+      { fournisseur: "CEDEO", ref: "TUBE-INOX-28", prix: "10,00" },
+    ];
+
+    const mapping: PriceBookColumnMapping = {
+      fournisseur: "supplier_name",
+      ref: "product_reference",
+      prix: "unit_price",
+    };
+
+    const progressEvents: Array<{ processed: number; total: number; percentage: number }> = [];
+
+    const result = await validatePriceBookRows(rows, mapping, {
+      chunkSize: 1,
+      lookups: TEST_LOOKUPS,
+      onProgress: (progress) => {
+        progressEvents.push(progress);
+      },
+    });
+
+    expect(result.totalRows).toBe(2);
+    expect(result.acceptedRows).toBe(1);
+    expect(result.ignoredRowsCount).toBe(1);
+    expect(result.ignoredRows[0]?.errorCode).toBe("DUPLICATE_CANDIDATE");
+    expect(progressEvents.length).toBeGreaterThan(0);
+    expect(progressEvents.every((event) => event.processed <= event.total)).toBe(true);
+    expect(Math.max(...progressEvents.map((event) => event.processed))).toBe(2);
+    expect(progressEvents[progressEvents.length - 1]).toMatchObject({
+      processed: 2,
+      total: 2,
+      percentage: 100,
+    });
+  });
+
   it("normalizes mm_bdc alternatives and ignores rows without supplier price", async () => {
     const rows: CsvImportRow[] = [
       {

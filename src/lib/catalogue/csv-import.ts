@@ -818,10 +818,11 @@ export async function validatePriceBookRows(
   const previewRows: PriceBookPreviewRow[] = [];
   const rejectedRows: PriceBookRejectedRow[] = [];
   const ignoredRows: PriceBookIgnoredRow[] = [...normalizedRows.ignoredRows];
+  const baseIgnoredRowsCount = ignoredRows.length;
   const dedupeKeys = new Set<string>();
   let duplicateCandidatesCount = 0;
 
-  const totalRows = normalizedRows.candidates.length + ignoredRows.length;
+  const totalRows = normalizedRows.candidates.length + baseIgnoredRowsCount;
 
   options.onProgress?.({
     processed: 0,
@@ -1025,7 +1026,7 @@ export async function validatePriceBookRows(
       });
     }
 
-    const processed = end + ignoredRows.length;
+    const processed = end + baseIgnoredRowsCount;
     options.onProgress?.({
       processed,
       total: totalRows,
