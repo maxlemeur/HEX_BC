@@ -70,18 +70,35 @@ alter table if exists public.takeoff_mapping_rules
 create index if not exists takeoff_mapping_rules_tenant_active_priority_idx
   on public.takeoff_mapping_rules (tenant_id, is_active, priority);
 
+drop trigger if exists set_takeoff_mapping_rules_updated_at on public.takeoff_mapping_rules;
+create trigger set_takeoff_mapping_rules_updated_at
+  before update on public.takeoff_mapping_rules
+  for each row execute procedure public.set_updated_at();
+
 alter table if exists public.takeoff_mapping_rules enable row level security;
 alter table if exists public.takeoff_mapping_rules force row level security;
 
 drop policy if exists "Current tenant can manage takeoff mapping rules" on public.takeoff_mapping_rules;
+drop policy if exists "Current tenant members can view takeoff mapping rules" on public.takeoff_mapping_rules;
+drop policy if exists "Current tenant admins can manage takeoff mapping rules" on public.takeoff_mapping_rules;
 
-create policy "Current tenant can manage takeoff mapping rules"
+create policy "Current tenant members can view takeoff mapping rules"
+  on public.takeoff_mapping_rules
+  for select
+  to authenticated
+  using (
+    tenant_id = (select public.current_tenant_id())
+  );
+
+create policy "Current tenant admins can manage takeoff mapping rules"
   on public.takeoff_mapping_rules
   for all
   to authenticated
   using (
     tenant_id = (select public.current_tenant_id())
+    and (select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role]))
   )
   with check (
     tenant_id = (select public.current_tenant_id())
+    and (select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role]))
   );
