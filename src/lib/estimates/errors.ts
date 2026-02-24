@@ -39,7 +39,7 @@ export type ApiFailureResponse = {
 };
 
 export class ApiError extends Error {
-  readonly status: 400 | 401 | 403 | 404 | 409 | 500;
+  readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500;
   readonly code: ApiErrorCode | string;
   readonly details?: unknown;
 
@@ -49,7 +49,7 @@ export class ApiError extends Error {
     message,
     details,
   }: {
-    status: 400 | 401 | 403 | 404 | 409 | 500;
+    status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500;
     code: ApiErrorCode | string;
     message: string;
     details?: unknown;
@@ -110,6 +110,32 @@ export function notFound(message: string, details?: unknown, code = "NOT_FOUND")
 export function conflict(message: string, details?: unknown, code = "CONFLICT") {
   return new ApiError({
     status: 409,
+    code,
+    message,
+    details,
+  });
+}
+
+export function payloadTooLarge(
+  message: string,
+  details?: unknown,
+  code = "PAYLOAD_TOO_LARGE"
+) {
+  return new ApiError({
+    status: 413,
+    code,
+    message,
+    details,
+  });
+}
+
+export function unprocessableEntity(
+  message: string,
+  details?: unknown,
+  code = "UNPROCESSABLE_ENTITY"
+) {
+  return new ApiError({
+    status: 422,
     code,
     message,
     details,

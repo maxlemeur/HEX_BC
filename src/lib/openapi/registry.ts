@@ -38,6 +38,7 @@ export type OpenApiHttpMethod = "get" | "post" | "patch" | "delete";
 export type OpenApiSchemaIO = "input" | "output";
 export type OpenApiContentType =
   | "application/json"
+  | "multipart/form-data"
   | "application/pdf"
   | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -57,7 +58,7 @@ export type OpenApiParameterDefinition = OpenApiSchemaDefinition & {
 export type OpenApiRequestBodyDefinition = OpenApiSchemaDefinition & {
   required?: boolean;
   description?: string;
-  contentType?: "application/json";
+  contentType?: "application/json" | "multipart/form-data";
 };
 
 export type OpenApiResponseHeaderDefinition = OpenApiSchemaDefinition & {
@@ -176,6 +177,20 @@ function jsonBody(input: {
   };
 }
 
+function multipartBody(input: {
+  name: string;
+  description: string;
+  schema: ZodTypeAny;
+  required?: boolean;
+}): OpenApiRequestBodyDefinition {
+  return {
+    contentType: "multipart/form-data",
+    required: input.required ?? true,
+    description: input.description,
+    ...schemaDefinition(input.name, input.schema, "input"),
+  };
+}
+
 function successEnvelopeSchema(dataSchema: ZodTypeAny) {
   return z.object({
     ok: z.literal(true),
@@ -223,6 +238,11 @@ const suggestPricesQuerySchema = z
 const changelogFormatQuerySchema = z.enum(["json", "pdf"]);
 const pdfFormatQuerySchema = z.enum(["json"]);
 const exportFormatQuerySchema = z.enum(["xlsx"]);
+const idempotencyKeyHeaderSchema = z
+  .string()
+  .trim()
+  .min(1, "Idempotency-Key invalide.")
+  .max(255, "Idempotency-Key invalide.");
 
 export const apiErrorSchema = z.object({
   code: z.string(),
@@ -936,6 +956,19 @@ const estimateAssemblyDataSchema = z.object({
 });
 
 const estimateBatchDataSchema = estimateBatchResultSchema;
+const takeoffJobCreateDataSchema = z.object({
+  id: uuidSchema,
+  status: z.string(),
+  level: z.literal("A"),
+  source_file_name: z.string().nullable(),
+  estimate_version_id: uuidSchema,
+  created_at: z.string(),
+});
+const takeoffJobCreateFormDataSchema = z.object({
+  file: z.any(),
+  estimate_version_id: uuidSchema,
+  level: z.literal("A"),
+});
 
 const apiEstimateListSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateListResponse",
@@ -1083,6 +1116,10 @@ const apiEstimateAssemblySchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateAssemblyResponse",
   estimateAssemblyDataSchema
 );
+const apiTakeoffJobCreateSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffJobCreateResponse",
+  takeoffJobCreateDataSchema
+);
 
 export const openApiSharedSchemaDefinitions = {
   apiError: schemaDefinition("ApiError", apiErrorSchema, "output"),
@@ -1158,6 +1195,14 @@ const ifMatchHeaderRequiredParameter = headerParameter({
   schemaName: "IfMatchRequiredHeaderParameter",
   schema: ifMatchHeaderSchema,
   required: true,
+});
+const idempotencyKeyHeaderParameter = headerParameter({
+  name: "Idempotency-Key",
+  description:
+    "Cle optionnelle d'idempotence pour dedupliquer les creations de jobs Takeoff.",
+  schemaName: "IdempotencyKeyHeaderParameter",
+  schema: idempotencyKeyHeaderSchema,
+  required: false,
 });
 
 const templatesSearchQueryParameter = queryParameter({
@@ -1489,12 +1534,53 @@ const insertAssemblyBody = jsonBody({
   schema: insertAssemblyIntoVersionBodySchema,
   required: false,
 });
+const createTakeoffJobBody = multipartBody({
+  name: "CreateTakeoffJobFormDataRequest",
+  description:
+    "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id` et `level=A`.",
+  schema: takeoffJobCreateFormDataSchema,
+});
 
 const apiOutlierStateSchemaDefinition =
   openApiSharedSchemaDefinitions.apiOutlierStateResponse;
 const apiPdfStatusSchemaDefinition = openApiSharedSchemaDefinitions.apiPdfStatusResponse;
 
 export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
+  {
+    method: "post",
+    path: "/api/takeoff/jobs",
+    summary: "Creer un job Takeoff",
+    description:
+      "Cree un job Takeoff niveau A a partir d'un upload CSV/XLS/XLSX et retourne le job pending.",
+    tags: ["Takeoff"],
+    parameters: [idempotencyKeyHeaderParameter],
+    requestBody: createTakeoffJobBody,
+    responses: {
+      "201": jsonResponse(
+        "Job Takeoff cree avec succes.",
+        apiTakeoffJobCreateSchemaDefinition
+      ),
+      "413": {
+        description: "Fichier trop volumineux (maximum 10 Mo).",
+        contents: [
+          {
+            contentType: "application/json",
+            schema: openApiSharedSchemaDefinitions.apiFailureResponse,
+          },
+        ],
+      },
+      "422": {
+        description:
+          "Validation metier echouee (niveau non supporte, format fichier ou UUID invalides).",
+        contents: [
+          {
+            contentType: "application/json",
+            schema: openApiSharedSchemaDefinitions.apiFailureResponse,
+          },
+        ],
+      },
+    },
+  },
   {
     method: "get",
     path: "/api/estimates",

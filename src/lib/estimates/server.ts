@@ -1692,7 +1692,7 @@ function canAccessOwnerResource(input: {
   );
 }
 
-async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
+export async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -2014,7 +2014,7 @@ async function getVersionAccessOrThrow(
   };
 }
 
-function assertDraftStatus(status: EstimateStatus) {
+export function assertDraftStatus(status: EstimateStatus) {
   if (status === "draft") return;
   throw forbidden("Cette version est en lecture seule.", undefined, "READ_ONLY");
 }
