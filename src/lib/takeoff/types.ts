@@ -19,15 +19,17 @@ export type TakeoffLevel = (typeof TAKEOFF_LEVELS)[number];
 
 export const TAKEOFF_JOB_STATUSES = [
   "pending",
-  "parsing",
+  "processing",
   "completed",
   "failed",
+  "canceled",
+  "applied",
 ] as const;
 export type TakeoffJobStatus = (typeof TAKEOFF_JOB_STATUSES)[number];
 
 export type TakeoffJobCreateInput = {
   estimateVersionId: string;
-  level: TakeoffLevel;
+  level: "A";
   file: File;
   idempotencyKey?: string;
   onUploadProgress?: (progressPercent: number) => void;
