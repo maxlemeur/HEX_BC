@@ -134,6 +134,23 @@ describe("createEstimateItemSchema", () => {
 
     expect(parsed.aid).toBeNull();
   });
+
+  it("accepts optional source provenance fields", () => {
+    const parsed = createEstimateItemSchema.parse({
+      item_type: "line",
+      source_provider: "takeoff",
+      source_job_id: ITEM_ID_1,
+      source_file_name: "quantif-niveau-a.csv",
+      source_page: 7,
+    });
+
+    expect(parsed).toMatchObject({
+      source_provider: "takeoff",
+      source_job_id: ITEM_ID_1,
+      source_file_name: "quantif-niveau-a.csv",
+      source_page: 7,
+    });
+  });
 });
 
 describe("patchEstimateVersionSchema", () => {

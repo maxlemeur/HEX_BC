@@ -256,6 +256,10 @@ const createSectionItemSchema = z.object({
   position: positiveIntegerSchema.optional(),
   title: requiredTextSchema.optional(),
   aid: optionalAidSchema.optional(),
+  source_provider: optionalNullableTextSchema.optional(),
+  source_job_id: nullableUuidSchema.optional(),
+  source_file_name: optionalNullableTextSchema.optional(),
+  source_page: z.union([positiveIntegerSchema, z.null()]).optional(),
 });
 
 const createLineItemSchema = z.object({
@@ -282,6 +286,10 @@ const createLineItemSchema = z.object({
   category_id: nullableUuidSchema.optional(),
   supply_type_id: nullableUuidSchema.optional(),
   selected_supplier_price_id: nullableUuidSchema.optional(),
+  source_provider: optionalNullableTextSchema.optional(),
+  source_job_id: nullableUuidSchema.optional(),
+  source_file_name: optionalNullableTextSchema.optional(),
+  source_page: z.union([positiveIntegerSchema, z.null()]).optional(),
 });
 
 export const createEstimateItemSchema = z.discriminatedUnion("item_type", [

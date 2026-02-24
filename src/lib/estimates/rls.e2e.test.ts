@@ -818,6 +818,10 @@ describe.runIf(RLS_E2E_ENABLED)("EST-261 RLS matrix E2E", () => {
         position: nextPosition(),
         title: nextSuffix("isolated-insert"),
         quantity: 1,
+        source_provider: "takeoff",
+        source_job_id: null,
+        source_file_name: "isolated-quantif.csv",
+        source_page: 1,
       })
       .select("id")
       .maybeSingle();

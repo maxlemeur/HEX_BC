@@ -87,6 +87,10 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   labor_role_chantier_id?: string | null;
   supply_type_id?: string | null;
   selected_supplier_price_id?: string | null;
+  source_provider?: string | null;
+  source_job_id?: string | null;
+  source_file_name?: string | null;
+  source_page?: number | null;
 };
 type EstimateItemInsert = Database["public"]["Tables"]["estimate_items"]["Insert"] & {
   h_mo_majoration?: number | null;
@@ -98,6 +102,10 @@ type EstimateItemInsert = Database["public"]["Tables"]["estimate_items"]["Insert
   labor_role_chantier_id?: string | null;
   supply_type_id?: string | null;
   selected_supplier_price_id?: string | null;
+  source_provider?: string | null;
+  source_job_id?: string | null;
+  source_file_name?: string | null;
+  source_page?: number | null;
 };
 type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update"] & {
   h_mo_majoration?: number | null;
@@ -109,6 +117,10 @@ type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update
   labor_role_chantier_id?: string | null;
   supply_type_id?: string | null;
   selected_supplier_price_id?: string | null;
+  source_provider?: string | null;
+  source_job_id?: string | null;
+  source_file_name?: string | null;
+  source_page?: number | null;
 };
 type LaborRoleInsert = Database["public"]["Tables"]["labor_roles"]["Insert"];
 type LaborRoleUpdate = Database["public"]["Tables"]["labor_roles"]["Update"];
@@ -1263,6 +1275,10 @@ function buildImportedEstimateItemInsert(input: {
     category_id: input.sourceItem.category_id,
     supply_type_id: input.sourceItem.supply_type_id ?? null,
     selected_supplier_price_id: input.sourceItem.selected_supplier_price_id ?? null,
+    source_provider: input.sourceItem.source_provider ?? null,
+    source_job_id: input.sourceItem.source_job_id ?? null,
+    source_file_name: input.sourceItem.source_file_name ?? null,
+    source_page: input.sourceItem.source_page ?? null,
     line_total_ht_cents: input.sourceItem.line_total_ht_cents,
     line_tax_cents: input.sourceItem.line_tax_cents,
     line_total_ttc_cents: input.sourceItem.line_total_ttc_cents,
@@ -3836,6 +3852,10 @@ async function duplicateSectionInternal(input: {
         category_id: item.category_id,
         supply_type_id: item.supply_type_id ?? null,
         selected_supplier_price_id: item.selected_supplier_price_id ?? null,
+        source_provider: item.source_provider ?? null,
+        source_job_id: item.source_job_id ?? null,
+        source_file_name: item.source_file_name ?? null,
+        source_page: item.source_page ?? null,
         line_total_ht_cents: item.line_total_ht_cents,
         line_tax_cents: item.line_tax_cents,
         line_total_ttc_cents: item.line_total_ttc_cents,
@@ -5892,6 +5912,10 @@ export async function createEstimateItem(
     aid,
     aidRegex,
   });
+  const sourceProvider = toNullableText(input.source_provider) ?? "manual";
+  const sourceJobId = input.source_job_id ?? null;
+  const sourceFileName = toNullableText(input.source_file_name);
+  const sourcePage = input.source_page ?? null;
 
   if (input.item_type === "section") {
     const title = input.title ?? (parentId ? "Nouveau sous-chapitre" : "Nouveau chapitre");
@@ -5906,6 +5930,10 @@ export async function createEstimateItem(
         position,
         title,
         aid,
+        source_provider: sourceProvider,
+        source_job_id: sourceJobId,
+        source_file_name: sourceFileName,
+        source_page: sourcePage,
       } as EstimateItemInsert)
       .select("*")
       .single();
@@ -6028,6 +6056,10 @@ export async function createEstimateItem(
       category_id: categoryId,
       supply_type_id: supplyTypeId,
       selected_supplier_price_id: selectedSupplierPriceId,
+      source_provider: sourceProvider,
+      source_job_id: sourceJobId,
+      source_file_name: sourceFileName,
+      source_page: sourcePage,
       line_total_ht_cents: lineValues.saleLineCents,
       line_tax_cents: lineValues.taxLineCents,
       line_total_ttc_cents: lineValues.ttcLineCents,

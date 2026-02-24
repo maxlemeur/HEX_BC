@@ -2402,10 +2402,14 @@ export async function bulkUpdateEstimateItems(
 function toCreateEstimateItemBody(
   item: Database["public"]["Tables"]["estimate_items"]["Insert"]
 ) {
-  const lineItem = item as typeof item & {
+  const itemWithSource = item as typeof item & {
     h_mo_majoration?: number | null;
     supply_type_id?: string | null;
     selected_supplier_price_id?: string | null;
+    source_provider?: string | null;
+    source_job_id?: string | null;
+    source_file_name?: string | null;
+    source_page?: number | null;
   };
 
   return item.item_type === "section"
@@ -2415,6 +2419,10 @@ function toCreateEstimateItemBody(
         position: item.position,
         title: item.title,
         aid: item.aid ?? null,
+        source_provider: itemWithSource.source_provider ?? null,
+        source_job_id: itemWithSource.source_job_id ?? null,
+        source_file_name: itemWithSource.source_file_name ?? null,
+        source_page: itemWithSource.source_page ?? null,
       }
     : {
         item_type: "line" as const,
@@ -2428,12 +2436,16 @@ function toCreateEstimateItemBody(
         tax_rate_bp: item.tax_rate_bp,
         k_fo: item.k_fo,
         h_mo: item.h_mo,
-        h_mo_majoration: lineItem.h_mo_majoration ?? null,
+        h_mo_majoration: itemWithSource.h_mo_majoration ?? null,
         k_mo: item.k_mo,
         labor_role_id: item.labor_role_id ?? null,
         category_id: item.category_id ?? null,
-        supply_type_id: lineItem.supply_type_id ?? null,
-        selected_supplier_price_id: lineItem.selected_supplier_price_id ?? null,
+        supply_type_id: itemWithSource.supply_type_id ?? null,
+        selected_supplier_price_id: itemWithSource.selected_supplier_price_id ?? null,
+        source_provider: itemWithSource.source_provider ?? null,
+        source_job_id: itemWithSource.source_job_id ?? null,
+        source_file_name: itemWithSource.source_file_name ?? null,
+        source_page: itemWithSource.source_page ?? null,
       };
 }
 

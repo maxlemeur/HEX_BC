@@ -314,6 +314,10 @@ describe("estimate client optimistic concurrency", () => {
       labor_role_id: null,
       category_id: null,
       supply_type_id: SUPPLY_TYPE_ID,
+      source_provider: "takeoff",
+      source_job_id: ITEM_ID,
+      source_file_name: "quantif-lot-01.pdf",
+      source_page: 3,
     } as Parameters<typeof createEstimateItem>[1]);
 
     const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
@@ -322,6 +326,10 @@ describe("estimate client optimistic concurrency", () => {
         item_type: "line",
         h_mo_majoration: 1.25,
         supply_type_id: SUPPLY_TYPE_ID,
+        source_provider: "takeoff",
+        source_job_id: ITEM_ID,
+        source_file_name: "quantif-lot-01.pdf",
+        source_page: 3,
       })
     );
   });

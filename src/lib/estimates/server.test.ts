@@ -1284,6 +1284,54 @@ function createCreateItemSupabaseMock() {
   };
 }
 
+describe("estimate item source provenance", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("defaults source_provider to manual when omitted", async () => {
+    const { supabase, estimateItemsInsert } = createCreateItemSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await createEstimateItem(VERSION_ID, {
+      item_type: "line",
+      position: 1,
+    });
+
+    expect(estimateItemsInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_provider: "manual",
+        source_job_id: null,
+        source_file_name: null,
+        source_page: null,
+      })
+    );
+  });
+
+  it("persists full takeoff provenance when provided", async () => {
+    const { supabase, estimateItemsInsert } = createCreateItemSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await createEstimateItem(VERSION_ID, {
+      item_type: "line",
+      position: 1,
+      source_provider: "takeoff",
+      source_job_id: ITEM_ID_2,
+      source_file_name: "quantif-lot-01.pdf",
+      source_page: 12,
+    });
+
+    expect(estimateItemsInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_provider: "takeoff",
+        source_job_id: ITEM_ID_2,
+        source_file_name: "quantif-lot-01.pdf",
+        source_page: 12,
+      })
+    );
+  });
+});
+
 describe("estimate owner resource scoping regressions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
