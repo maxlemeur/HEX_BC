@@ -522,11 +522,12 @@ select
   policy_name,
   command,
   position('bucket_id = ''plan-files''' in (using_expr || ' ' || with_check_expr)) > 0 as has_bucket_guard,
-  position('(storage.foldername(name))[1]' in (using_expr || ' ' || with_check_expr)) > 0 as has_tenant_segment_guard,
-  position('(storage.foldername(name))[2]' in (using_expr || ' ' || with_check_expr)) > 0 as has_plan_set_segment_guard,
-  position('(storage.foldername(name))[3]' in (using_expr || ' ' || with_check_expr)) > 0 as has_plan_file_segment_guard,
-  position('array_length(storage.foldername(name), 1)' in (using_expr || ' ' || with_check_expr)) > 0 as has_path_depth_guard,
-  position('storage.filename(name)' in (using_expr || ' ' || with_check_expr)) > 0 as has_filename_guard
+  position('(storage.foldername(objects.name))[1]' in (using_expr || ' ' || with_check_expr)) > 0 as has_tenant_segment_guard,
+  position('(storage.foldername(objects.name))[2]' in (using_expr || ' ' || with_check_expr)) > 0 as has_plan_set_segment_guard,
+  position('(storage.foldername(objects.name))[3]' in (using_expr || ' ' || with_check_expr)) > 0 as has_plan_file_segment_guard,
+  position('array_length(storage.foldername(objects.name), 1)' in (using_expr || ' ' || with_check_expr)) > 0 as has_path_depth_guard,
+  position('storage.filename(objects.name)' in (using_expr || ' ' || with_check_expr)) > 0 as has_filename_guard,
+  ((using_expr || ' ' || with_check_expr) ~* 'or\\s+not\\s+exists\\s*\\(') as has_orphan_cleanup_fallback
 from policy_exprs
 order by command, policy_name;
 
@@ -536,4 +537,5 @@ order by command, policy_name;
 -- - has_plan_set_segment_guard = true on all 4 policies
 -- - has_plan_file_segment_guard = true on all 4 policies
 -- - has_path_depth_guard = true on all 4 policies
+-- - has_orphan_cleanup_fallback = true on DELETE policy
 ```
