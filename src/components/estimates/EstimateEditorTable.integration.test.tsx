@@ -37,12 +37,14 @@ vi.mock("@/components/estimates/components/EstimateEditorBody", () => ({
 
 vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
   getSpreadsheetColumnKeys: () => ["title"],
-  EstimateEditorRow: ({ item, onPatchItem, onLineSelectionInteraction }: {
+  EstimateEditorRow: ({ item, estimateCurrency, onPatchItem, onLineSelectionInteraction }: {
     item: EstimateItem;
+    estimateCurrency: string;
     onPatchItem: (itemId: string, patch: { title: string }, options?: { persist?: boolean }) => void;
     onLineSelectionInteraction: (input: { id: string; ctrlKey?: boolean }) => void;
   }) => (
     <div data-estimate-item-id={item.id}>
+      <span>Currency {estimateCurrency}</span>
       <button
         type="button"
         onClick={() => onPatchItem(item.id, { title: "Edited line" }, { persist: true })}
@@ -110,13 +112,14 @@ function createItem(partial: Partial<EstimateItem>): EstimateItem {
   } as EstimateItem;
 }
 
-function renderEstimateEditorTable() {
+function renderEstimateEditorTable(options?: { currency?: "EUR" | "USD" | "GBP" }) {
   const onPatchItem = vi.fn();
   const onApplyBulkMajoration = vi.fn().mockResolvedValue(undefined);
 
   render(
     <EstimateEditorTable
       versionId="version-1"
+      currency={options?.currency ?? "EUR"}
       items={[
         createItem({
           id: "line-1",
@@ -251,5 +254,11 @@ describe("EstimateEditorTable integration", () => {
       expect(writeText).toHaveBeenCalledTimes(1);
     });
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("Tube acier"));
+  });
+
+  it("forwards active estimate currency to editor rows", () => {
+    renderEstimateEditorTable({ currency: "USD" });
+
+    expect(screen.getByText("Currency USD")).toBeInTheDocument();
   });
 });

@@ -17,7 +17,10 @@ import {
 import {
   type SectionTotals,
 } from "@/lib/estimate-calculations";
-import { formatEUR } from "@/lib/money";
+import {
+  formatCurrency,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
 import { PastePreviewDialog } from "@/components/estimates/PastePreviewDialog";
 import { EstimateEditorBody } from "@/components/estimates/components/EstimateEditorBody";
 import {
@@ -190,6 +193,7 @@ export type EstimateSectionDuplicateTarget = {
 
 type EstimateEditorTableProps = {
   versionId: string;
+  currency?: SupportedEstimateCurrency;
   items: EstimateItem[];
   categories: EstimateCategory[];
   supplyTypes: SupplyType[];
@@ -712,6 +716,7 @@ export function resolveEstimateTableShortcutScope(scope: EstimateTableShortcutSc
 }
 export function EstimateEditorTable({
   versionId,
+  currency = "EUR",
   items,
   categories,
   supplyTypes,
@@ -1737,6 +1742,7 @@ export function EstimateEditorTable({
       return (
         <EstimateEditorRow
           versionId={versionId}
+          estimateCurrency={currency}
           item={item}
           itemNumber={itemNumberById[item.id] ?? null}
           depth={depth}
@@ -1811,6 +1817,7 @@ export function EstimateEditorTable({
       normalizedSearchTerm,
       spreadsheetNavigation,
       supplyTypeById,
+      currency,
       versionId,
     ]
   );
@@ -2101,7 +2108,7 @@ export function EstimateEditorTable({
             <div></div>
             <div></div>
             <div className="text-right font-medium text-[var(--slate-700)]" title="Total Fournitures">
-              {formatEUR(grandTotals.foTotal)}
+              {formatCurrency(grandTotals.foTotal, currency)}
             </div>
             {isLaborSplitEnabled ? (
               <>
@@ -2114,7 +2121,7 @@ export function EstimateEditorTable({
                 {columnVisibility.visibleColumns.has("supply_type") ? <div></div> : null}
                 {columnVisibility.visibleColumns.has("k_fo") ? <div></div> : null}
                 <div className="text-right font-medium text-[var(--slate-700)]" title="Total Main d'œuvre">
-                  {formatEUR(grandTotals.moTotal)}
+                  {formatCurrency(grandTotals.moTotal, currency)}
                 </div>
                 {columnVisibility.visibleColumns.has("h_mo_majoration") ? <div></div> : null}
                 {columnVisibility.visibleColumns.has("labor_role") ? <div></div> : null}
@@ -2123,7 +2130,7 @@ export function EstimateEditorTable({
             )}
             <div></div>
             <div className="text-right font-semibold text-[var(--slate-900)]" title="Total HT">
-              {formatEUR(grandTotals.htTotal)}
+              {formatCurrency(grandTotals.htTotal, currency)}
             </div>
             <div></div>
           </div>

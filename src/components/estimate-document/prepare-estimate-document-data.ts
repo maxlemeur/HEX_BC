@@ -5,7 +5,11 @@ import {
 } from "@/lib/estimate-calculations";
 import { COMPANY_INFO } from "@/lib/company-info";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
-import { formatEUR } from "@/lib/money";
+import {
+  formatCurrency,
+  normalizeEstimateCurrency,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
 import type { Database } from "@/types/database";
 
 export type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -17,6 +21,7 @@ type PrepareEstimateDocumentDataInput = {
   marginMultiplier: number;
   discountCents: number;
   taxRateBp: number;
+  currency: string;
   isLaborSplitEnabled: boolean;
   laborRateById: Record<string, number>;
   validiteJours: number;
@@ -164,11 +169,14 @@ export function prepareEstimateDocumentData({
   marginMultiplier,
   discountCents,
   taxRateBp,
+  currency,
   isLaborSplitEnabled,
   laborRateById,
   validiteJours,
   portalUrl,
 }: PrepareEstimateDocumentDataInput): EstimateDocumentPreparedData {
+  const resolvedCurrency: SupportedEstimateCurrency =
+    normalizeEstimateCurrency(currency) ?? "EUR";
   const rows = buildRows(items);
   const numberingById = computeEstimateItemNumbering(items);
   const sectionTotalsById: Record<string, SectionTotals> = {};
@@ -190,7 +198,9 @@ export function prepareEstimateDocumentData({
 
   const taxEnabled = taxRateBp > 0;
   const discountLabel =
-    discountCents > 0 ? `-${formatEUR(discountCents)}` : formatEUR(0);
+    discountCents > 0
+      ? `-${formatCurrency(discountCents, resolvedCurrency)}`
+      : formatCurrency(0, resolvedCurrency);
   const validiteLabel = validiteJours > 0 ? `${validiteJours} jours` : "-";
   const taxLabel = taxEnabled ? `${formatPercent(taxRateBp)} %` : "";
   const footerAddress = `${COMPANY_INFO.address.street} ${COMPANY_INFO.address.postalCode} ${COMPANY_INFO.address.city}`;

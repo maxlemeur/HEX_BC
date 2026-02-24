@@ -703,6 +703,70 @@ describe("patchEstimateVersion optimistic concurrency", () => {
     });
   });
 
+  it("normalizes patch currency values to uppercase", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+      touchResult: {
+        data: {
+          id: VERSION_ID,
+          updated_at: NEXT_VERSION_UPDATED_AT,
+        },
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          currency: " usd ",
+        } as unknown as Parameters<typeof patchEstimateVersion>[1],
+        VERSION_UPDATED_AT
+      )
+    ).resolves.toEqual({
+      version: {
+        id: VERSION_ID,
+        updated_at: NEXT_VERSION_UPDATED_AT,
+      },
+    });
+
+    expect(supabase.__mocks.estimateVersionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currency: "USD",
+      })
+    );
+  });
+
+  it("rejects unsupported patch currency codes", async () => {
+    const supabase = createSupabaseMock({
+      rpcResult: {
+        data: 0,
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      patchEstimateVersion(
+        VERSION_ID,
+        {
+          currency: "JPY",
+        } as unknown as Parameters<typeof patchEstimateVersion>[1],
+        VERSION_UPDATED_AT
+      )
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "Devise invalide. Valeurs autorisees: EUR, USD, GBP.",
+    });
+  });
+
   it("persists discount mode, steps and global coefficient in patch payload", async () => {
     const supabase = createSupabaseMock({
       rpcResult: {
@@ -972,6 +1036,49 @@ describe("createEstimate payload", () => {
         global_coefficient: 1,
       })
     );
+  });
+
+  it("normalizes create currency values to uppercase", async () => {
+    const supabase = createCreateEstimateSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await createEstimate({
+      project: {
+        name: "Projet devise",
+      },
+      version: {
+        currency: " gbp ",
+      } as unknown as NonNullable<Parameters<typeof createEstimate>[0]["version"]>,
+    });
+
+    expect(supabase.__mocks.estimateVersionInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currency: "GBP",
+      })
+    );
+  });
+
+  it("rejects unsupported create currency codes", async () => {
+    const supabase = createCreateEstimateSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createEstimate({
+        project: {
+          name: "Projet invalide",
+        },
+        version: {
+          currency: "JPY",
+        } as unknown as NonNullable<Parameters<typeof createEstimate>[0]["version"]>,
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "Devise invalide. Valeurs autorisees: EUR, USD, GBP.",
+    });
+
+    expect(supabase.__mocks.estimateProjectInsert).not.toHaveBeenCalled();
+    expect(supabase.__mocks.estimateVersionInsert).not.toHaveBeenCalled();
   });
 });
 

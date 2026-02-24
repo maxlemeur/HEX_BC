@@ -11,7 +11,11 @@ import {
   type EstimateListItem,
   type EstimateStatus,
 } from "@/lib/estimates/client";
-import { formatEUR } from "@/lib/money";
+import {
+  formatCurrency as formatEstimateCurrency,
+  normalizeEstimateCurrency,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
 import { useTableFilter } from "@/components/TableFilterBar/useTableFilter";
 import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
@@ -21,6 +25,7 @@ import type { SortOption } from "@/components/TableFilterBar/types";
 
 const PAGE_SIZE = 20;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_CURRENCY: SupportedEstimateCurrency = "EUR";
 
 const DATE_RANGE_OPTIONS = [
   { value: "all", label: "Toutes les dates" },
@@ -75,6 +80,16 @@ function formatDate(dateStr: string | null) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const year = date.getFullYear();
   return `${day}/${month}/${year}`;
+}
+
+function formatCurrency(cents: number, currency: SupportedEstimateCurrency) {
+  return formatEstimateCurrency(cents, currency);
+}
+
+function resolveEstimateCurrency(estimate: EstimateListItem): SupportedEstimateCurrency {
+  const maybeCurrency = (estimate as EstimateListItem & { currency?: string | null })
+    .currency;
+  return normalizeEstimateCurrency(maybeCurrency) ?? DEFAULT_CURRENCY;
 }
 
 function parseStatusParam(param: string | null): EstimateStatus[] {
@@ -171,7 +186,21 @@ export default function EstimatesPage() {
   const metrics = useMemo(() => {
     const now = new Date();
     const nonArchived = rawEstimates.filter((e) => e.status !== "archived");
-    const totalHtEnCours = nonArchived.reduce((sum, e) => sum + e.totalHtCents, 0);
+    const totalHtByCurrencyMap = new Map<SupportedEstimateCurrency, number>();
+    nonArchived.forEach((estimate) => {
+      const currency = resolveEstimateCurrency(estimate);
+      totalHtByCurrencyMap.set(
+        currency,
+        (totalHtByCurrencyMap.get(currency) ?? 0) + estimate.totalHtCents
+      );
+    });
+    const totalHtByCurrency = Array.from(totalHtByCurrencyMap.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([currency, totalHtCents]) => ({
+        currency,
+        totalHtCents,
+      }));
+
     const acceptedCount = nonArchived.filter((e) => e.status === "accepted").length;
     const acceptanceRate = nonArchived.length > 0
       ? Math.round((acceptedCount / nonArchived.length) * 100)
@@ -183,7 +212,7 @@ export default function EstimatesPage() {
 
     return {
       total: rawEstimates.length,
-      totalHtEnCours,
+      totalHtByCurrency,
       acceptanceRate,
       expiringSoon,
     };
@@ -355,7 +384,22 @@ export default function EstimatesPage() {
           </div>
           <div className="dashboard-card px-4 py-3">
             <p className="text-xs font-medium text-[var(--slate-500)]">Total HT en cours</p>
-            <p className="mt-1 text-xl font-bold text-[var(--slate-800)]">{formatEUR(metrics.totalHtEnCours)}</p>
+            {metrics.totalHtByCurrency.length > 0 ? (
+              <div className="mt-1 space-y-0.5">
+                {metrics.totalHtByCurrency.map((bucket) => (
+                  <p
+                    key={`kpi-total-ht-${bucket.currency}`}
+                    className="font-mono text-lg font-bold leading-tight text-[var(--slate-800)]"
+                  >
+                    {formatCurrency(bucket.totalHtCents, bucket.currency)}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-xl font-bold text-[var(--slate-800)]">
+                {formatCurrency(0, DEFAULT_CURRENCY)}
+              </p>
+            )}
           </div>
           <div className="dashboard-card px-4 py-3">
             <p className="text-xs font-medium text-[var(--slate-500)]">Taux d&#39;acceptation</p>
@@ -498,6 +542,7 @@ export default function EstimatesPage() {
                   <th>Client</th>
                   <th>Version</th>
                   <th>Statut</th>
+                  <th>Devise</th>
                   <th className="text-right">Total HT vente</th>
                   <th>MAJ</th>
                   <th>Actions</th>
@@ -506,7 +551,7 @@ export default function EstimatesPage() {
               <tbody>
                 {paginatedEstimates.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center">
+                    <td colSpan={8} className="py-12 text-center">
                       {isLoading ? (
                         <div className="flex flex-col items-center gap-3">
                           <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
@@ -553,6 +598,7 @@ export default function EstimatesPage() {
                     const isDuplicating = duplicatingId === estimate.versionId;
                     const title = estimate.title?.trim() || estimate.projectName?.trim() || "—";
                     const expState = getExpirationState(estimate, new Date());
+                    const currency = resolveEstimateCurrency(estimate);
 
                     return (
                       <tr
@@ -603,8 +649,11 @@ export default function EstimatesPage() {
                             ) : null}
                           </div>
                         </td>
+                        <td className="font-mono text-xs font-semibold uppercase tracking-wide text-[var(--slate-600)]">
+                          {currency}
+                        </td>
                         <td className="text-right font-mono font-semibold text-[var(--slate-800)]">
-                          {formatEUR(estimate.totalHtCents)}
+                          {formatCurrency(estimate.totalHtCents, currency)}
                         </td>
                         <td className="text-sm text-[var(--slate-500)]">
                           {formatDate(estimate.updatedAt)}
@@ -679,6 +728,7 @@ export default function EstimatesPage() {
                   estimate.projectReference?.trim() ||
                   estimate.projectClient?.trim();
                 const mobileExpState = getExpirationState(estimate, new Date());
+                const currency = resolveEstimateCurrency(estimate);
 
                 return (
                   <div
@@ -721,7 +771,10 @@ export default function EstimatesPage() {
                     <div className="mt-3 flex items-center justify-between">
                       <div className="flex items-center gap-3 text-sm">
                         <span className="font-mono font-semibold text-[var(--slate-800)]">
-                          {formatEUR(estimate.totalHtCents)}
+                          {formatCurrency(estimate.totalHtCents, currency)}
+                        </span>
+                        <span className="rounded-full bg-[var(--slate-100)] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-[var(--slate-600)]">
+                          {currency}
                         </span>
                         <span className="text-[var(--slate-400)]">|</span>
                         <span className="text-[var(--slate-500)]">

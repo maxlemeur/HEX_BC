@@ -11,8 +11,11 @@ import {
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import { verifyEstimateSeal } from "@/lib/estimates/server";
+import { normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
+
+import { PrintCurrencySelect } from "./PrintCurrencySelect";
 
 type EstimateProject =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -35,7 +38,7 @@ type SupplyTypeLabel = Pick<
 >;
 type PrintPageProps = {
   params?: Promise<{ versionId: string }>;
-  searchParams?: Promise<Record<string, string>>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function formatPrintDate(dateStr: string): string {
@@ -80,6 +83,7 @@ function resolveProject(
 
 export default async function PrintEstimatePage({
   params,
+  searchParams,
 }: PrintPageProps) {
   if (!params) {
     notFound();
@@ -90,7 +94,7 @@ export default async function PrintEstimatePage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "tenant_id, version_number, status, seal_hash, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, estimate_projects ( name, reference, client_name )"
+      "tenant_id, version_number, status, seal_hash, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -117,6 +121,15 @@ export default async function PrintEstimatePage({
 
   const version = versionResult.data as EstimateVersion;
   const items = itemsResult.data as EstimateItem[];
+  const query = (searchParams ? await searchParams : {}) ?? {};
+  const queryCurrencyRaw = query.currency;
+  const queryCurrencyValue = Array.isArray(queryCurrencyRaw)
+    ? queryCurrencyRaw[0]
+    : queryCurrencyRaw;
+  const selectedCurrency =
+    normalizeEstimateCurrency(queryCurrencyValue) ??
+    normalizeEstimateCurrency(version.currency) ??
+    "EUR";
   const project = resolveProject(version.estimate_projects);
   const isLaborSplitEnabled = await isFeatureEnabled(
     version.tenant_id,
@@ -281,7 +294,10 @@ export default async function PrintEstimatePage({
             </span>
             <SealIntegrityBadge state={sealState} hashPrefix={sealHashPrefix} />
           </div>
-          <PrintButton />
+          <div className="flex items-center gap-3">
+            <PrintCurrencySelect currency={selectedCurrency} />
+            <PrintButton />
+          </div>
         </div>
       </div>
 
@@ -297,6 +313,7 @@ export default async function PrintEstimatePage({
           marginMultiplier={appliedMarginMultiplier}
           discountCents={discountCents}
           taxRateBp={version.tax_rate_bp}
+          currency={selectedCurrency}
           isLaborSplitEnabled={isLaborSplitEnabled}
           laborRateById={laborRateById}
           totalHtCents={totalHtCents}

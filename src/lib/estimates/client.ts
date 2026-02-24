@@ -36,6 +36,7 @@ const ESTIMATE_STATUS_VALUES: EstimateStatus[] = [
   "accepted",
   "archived",
 ];
+const ESTIMATE_CURRENCY_VALUES = ["EUR", "USD", "GBP"] as const;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -60,6 +61,7 @@ export type EstimateListItem = {
   title: string | null;
   updatedAt: string;
   totalHtCents: number;
+  currency: string;
   dateDevis: string | null;
   validiteJours: number | null;
 };
@@ -292,6 +294,7 @@ export type EstimateBatchOperationResult =
 export type EstimateBatchResult = {
   committed: boolean;
   results: EstimateBatchOperationResult[];
+  versionToken: EstimateVersionToken;
 };
 
 export type EstimateExportResult = {
@@ -606,6 +609,18 @@ function normalizeOutlierDismissedByItemId(
 
 function isEstimateStatus(value: string): value is EstimateStatus {
   return ESTIMATE_STATUS_VALUES.includes(value as EstimateStatus);
+}
+
+function normalizeEstimateCurrency(value: unknown): string | null {
+  const parsed = toStringValue(value);
+  if (!parsed) return null;
+
+  const normalized = parsed.toUpperCase();
+  if ((ESTIMATE_CURRENCY_VALUES as readonly string[]).includes(normalized)) {
+    return normalized;
+  }
+
+  return null;
 }
 
 function getRootPayload(payload: unknown): unknown {
@@ -1209,6 +1224,10 @@ function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
     toNumber(value.totalHtCents) ??
     toNumber(value.total_ht_cents) ??
     toNumber(value.total);
+  const currency =
+    normalizeEstimateCurrency(value.currency) ??
+    normalizeEstimateCurrency(value.currency_code) ??
+    "EUR";
 
   if (
     !projectId ||
@@ -1259,6 +1278,7 @@ function normalizeEstimateListItem(value: unknown): EstimateListItem | null {
     title,
     updatedAt,
     totalHtCents,
+    currency,
     dateDevis,
     validiteJours,
   };
@@ -2568,7 +2588,11 @@ function parseEstimateBatchOperationResult(
   };
 }
 
-function parseEstimateBatchResult(payload: unknown): EstimateBatchResult | null {
+function parseEstimateBatchResult(payload: unknown): {
+  committed: boolean;
+  results: EstimateBatchOperationResult[];
+  versionToken: EstimateVersionToken | null;
+} | null {
   const root = getRootPayload(payload);
   if (!isRecord(root)) return null;
 
@@ -2584,6 +2608,7 @@ function parseEstimateBatchResult(payload: unknown): EstimateBatchResult | null 
   return {
     committed,
     results,
+    versionToken: parseVersionToken(root),
   };
 }
 
@@ -2654,7 +2679,14 @@ export async function batchEstimateOperations(
     throw new Error("Impossible de recuperer le resultat des operations groupees.");
   }
 
-  return parsed;
+  return {
+    committed: parsed.committed,
+    results: parsed.results,
+    versionToken: parsed.versionToken ?? {
+      id: versionId,
+      updated_at: updatedAtToken,
+    },
+  };
 }
 
 export async function exportEstimate(

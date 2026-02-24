@@ -25,6 +25,7 @@ function Get-HexSuites {
     "ti-151-print.ps1",
     "ti-152-export.ps1",
     "ti-153-suggestions.ps1",
+    "est-027-multi-currency.ps1",
     "ti-141-db-rls.ps1",
     "ti-142-types.ps1",
     "dpgf-import-flow.ps1"
@@ -64,6 +65,7 @@ function Get-HexSuites {
     settings = @(
       "ti-146-parameters.ps1",
       "ti-153-suggestions.ps1",
+      "est-027-multi-currency.ps1",
       "ti-142-types.ps1"
     )
     security = @(

@@ -7,12 +7,16 @@ import {
   UNASSIGNED_SUPPLY_TYPE_KEY,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
-import { formatEUR } from "@/lib/money";
+import {
+  formatCurrency,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
 
 type EstimateDocumentTableRowsProps = {
   rows: EstimateDocumentRow[];
   numberingById: Record<string, string>;
   sectionTotalsById: Record<string, SectionTotals>;
+  currency: SupportedEstimateCurrency;
   isLaborSplitEnabled: boolean;
   laborRateById: Record<string, number>;
   supplyTypeLabelsById: Record<string, string>;
@@ -23,6 +27,7 @@ type EstimateDocumentSectionRowProps = {
   depth: number;
   numberingById: Record<string, string>;
   sectionTotalsById: Record<string, SectionTotals>;
+  currency: SupportedEstimateCurrency;
   isLaborSplitEnabled: boolean;
   supplyTypeLabelsById: Record<string, string>;
 };
@@ -31,6 +36,7 @@ type EstimateDocumentLineRowProps = {
   item: EstimateItem;
   depth: number;
   numberingById: Record<string, string>;
+  currency: SupportedEstimateCurrency;
   isLaborSplitEnabled: boolean;
   laborRateById: Record<string, number>;
   supplyTypeLabelsById: Record<string, string>;
@@ -62,9 +68,10 @@ function formatLaborSplitLine(params: {
   coefficient: number | null;
   laborRoleId: string | null;
   laborRateById: Record<string, number>;
+  currency: SupportedEstimateCurrency;
 }) {
   const rate = params.laborRoleId ? (params.laborRateById[params.laborRoleId] ?? 0) : 0;
-  return `${formatQuantity(params.hours)} h x K ${formatCoefficient(params.coefficient)} x ${formatEUR(rate)}/h`;
+  return `${formatQuantity(params.hours)} h x K ${formatCoefficient(params.coefficient)} x ${formatCurrency(rate, params.currency)}/h`;
 }
 
 function resolveTitle(item: EstimateItem) {
@@ -82,10 +89,12 @@ function EstimateDocumentSectionRow({
   depth,
   numberingById,
   sectionTotalsById,
+  currency,
   isLaborSplitEnabled,
   supplyTypeLabelsById,
 }: EstimateDocumentSectionRowProps) {
   const totals = sectionTotalsById[item.id] ?? EMPTY_SECTION_TOTALS;
+  const resolvedCurrency = currency;
 
   return (
     <tr className="bg-[var(--slate-50)] print-color-adjust">
@@ -104,27 +113,27 @@ function EstimateDocumentSectionRow({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-semibold normal-case tracking-normal text-[var(--slate-600)]">
             <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-              FO {formatEUR(totals.foTotalCents)}
+              FO {formatCurrency(totals.foTotalCents, resolvedCurrency)}
             </span>
             {isLaborSplitEnabled ? (
               <>
                 <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                  MO atelier {formatEUR(totals.moAtelierTotalCents)}
+                  MO atelier {formatCurrency(totals.moAtelierTotalCents, resolvedCurrency)}
                 </span>
                 <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                  MO chantier {formatEUR(totals.moChantierTotalCents)}
+                  MO chantier {formatCurrency(totals.moChantierTotalCents, resolvedCurrency)}
                 </span>
               </>
             ) : (
               <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-                MO {formatEUR(totals.moTotalCents)}
+                MO {formatCurrency(totals.moTotalCents, resolvedCurrency)}
               </span>
             )}
             <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-              HT {formatEUR(totals.totalHtCents)}
+              HT {formatCurrency(totals.totalHtCents, resolvedCurrency)}
             </span>
             <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5">
-              TTC {formatEUR(totals.totalTtcCents)}
+              TTC {formatCurrency(totals.totalTtcCents, resolvedCurrency)}
             </span>
             {Object.entries(totals.supplyTypeFoTotalsCents ?? {})
               .sort(([, left], [, right]) => right - left)
@@ -139,7 +148,7 @@ function EstimateDocumentSectionRow({
                     key={`${item.id}:print-supply-type:${supplyTypeId}`}
                     className="rounded-full border border-slate-200 bg-white px-2 py-0.5"
                   >
-                    {label} {formatEUR(cents)}
+                    {label} {formatCurrency(cents, resolvedCurrency)}
                   </span>
                 );
               })}
@@ -154,10 +163,13 @@ function EstimateDocumentLineRow({
   item,
   depth,
   numberingById,
+  currency,
   isLaborSplitEnabled,
   laborRateById,
   supplyTypeLabelsById,
 }: EstimateDocumentLineRowProps) {
+  const resolvedCurrency = currency;
+
   return (
     <tr>
       <td className="px-4 py-4 font-mono text-xs text-slate-700 print:px-2 print:py-2">
@@ -197,6 +209,7 @@ function EstimateDocumentLineRow({
                 coefficient: item.k_mo_atelier,
                 laborRoleId: item.labor_role_atelier_id,
                 laborRateById,
+                currency: resolvedCurrency,
               })}
             </div>
             <div>
@@ -206,6 +219,7 @@ function EstimateDocumentLineRow({
                 coefficient: item.k_mo_chantier,
                 laborRoleId: item.labor_role_chantier_id,
                 laborRateById,
+                currency: resolvedCurrency,
               })}
             </div>
             <div>
@@ -218,10 +232,10 @@ function EstimateDocumentLineRow({
         )}
       </td>
       <td className="w-28 px-3 py-4 text-right print:px-2 print:py-2">
-        {formatEUR(item.pu_ht_cents ?? 0)}
+        {formatCurrency(item.pu_ht_cents ?? 0, resolvedCurrency)}
       </td>
       <td className="w-32 px-4 py-4 text-right font-bold print:px-2 print:py-2">
-        {formatEUR(item.line_total_ht_cents ?? 0)}
+        {formatCurrency(item.line_total_ht_cents ?? 0, resolvedCurrency)}
       </td>
     </tr>
   );
@@ -231,6 +245,7 @@ export function EstimateDocumentTableRows({
   rows,
   numberingById,
   sectionTotalsById,
+  currency,
   isLaborSplitEnabled,
   laborRateById,
   supplyTypeLabelsById,
@@ -245,6 +260,7 @@ export function EstimateDocumentTableRows({
             depth={depth}
             numberingById={numberingById}
             sectionTotalsById={sectionTotalsById}
+            currency={currency}
             isLaborSplitEnabled={isLaborSplitEnabled}
             supplyTypeLabelsById={supplyTypeLabelsById}
           />
@@ -254,6 +270,7 @@ export function EstimateDocumentTableRows({
             item={item}
             depth={depth}
             numberingById={numberingById}
+            currency={currency}
             isLaborSplitEnabled={isLaborSplitEnabled}
             laborRateById={laborRateById}
             supplyTypeLabelsById={supplyTypeLabelsById}

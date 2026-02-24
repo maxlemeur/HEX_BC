@@ -23,6 +23,7 @@ import {
   updateEstimateAssemblySchema,
   updateEstimateItemSchema,
   updateMarginTierSchema,
+  wizardStep2Schema,
 } from "@/lib/estimates/schemas";
 
 const ITEM_ID_1 = "11111111-1111-4111-8111-111111111111";
@@ -86,6 +87,32 @@ describe("createEstimateSchema", () => {
         issue.message.includes("discount_steps doit etre vide en mode simple")
       )
     ).toBe(true);
+  });
+
+  it("accepts a supported estimate currency", () => {
+    const parsed = createEstimateSchema.parse({
+      project: {
+        name: "Projet A",
+      },
+      version: {
+        currency: "usd",
+      },
+    });
+
+    expect(parsed.version?.currency).toBe("USD");
+  });
+
+  it("rejects unsupported estimate currencies", () => {
+    const parsed = createEstimateSchema.safeParse({
+      project: {
+        name: "Projet A",
+      },
+      version: {
+        currency: "CHF",
+      },
+    });
+
+    expect(parsed.success).toBe(false);
   });
 });
 
@@ -189,6 +216,43 @@ describe("patchEstimateVersionSchema", () => {
         issue.message.includes("discount_steps doit etre vide en mode simple")
       )
     ).toBe(true);
+  });
+
+  it("rejects unsupported currency values", () => {
+    const parsed = patchEstimateVersionSchema.safeParse({
+      currency: "JPY",
+      updated_at: UPDATED_AT,
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe("wizardStep2Schema", () => {
+  const basePayload = {
+    dateDevis: "2026-02-21",
+    validiteJours: 30,
+    marginMode: "fixed" as const,
+    taxRateBp: 2000,
+    roundingMode: "none" as const,
+  };
+
+  it("accepts supported currencies", () => {
+    expect(
+      wizardStep2Schema.safeParse({
+        ...basePayload,
+        currency: "GBP",
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects unsupported currencies", () => {
+    expect(
+      wizardStep2Schema.safeParse({
+        ...basePayload,
+        currency: "CAD",
+      }).success
+    ).toBe(false);
   });
 });
 

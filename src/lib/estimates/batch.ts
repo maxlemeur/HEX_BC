@@ -36,6 +36,10 @@ export type EstimateBatchOperationResult =
 export type ExecuteEstimateBatchResult = {
   results: EstimateBatchOperationResult[];
   committed: boolean;
+  version: {
+    id: string;
+    updated_at: string;
+  };
 };
 
 export type ExecuteEstimateBatchOptions = {
@@ -43,6 +47,8 @@ export type ExecuteEstimateBatchOptions = {
   dryRun?: boolean;
   maxOperations?: number;
 };
+
+type EstimateBatchVersionToken = ExecuteEstimateBatchResult["version"];
 
 type RollbackAction = () => Promise<void>;
 type BatchCreateOperation = Extract<BatchOperationInput, { op: "create" }>;
@@ -414,6 +420,31 @@ async function logEstimateBatchAudit(
   throw mapSupabaseError(error, "Impossible d'ecrire l'audit du batch.");
 }
 
+async function resolveLatestBatchVersionToken(
+  versionId: string,
+  fallback: EstimateBatchVersionToken
+): Promise<EstimateBatchVersionToken> {
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase
+      .from("estimate_versions")
+      .select("id, updated_at")
+      .eq("id", versionId)
+      .single();
+
+    if (error || !data) {
+      return fallback;
+    }
+
+    return {
+      id: data.id,
+      updated_at: data.updated_at,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 export async function executeEstimateBatch(
   versionId: string,
   operations: BatchOperationInput[],
@@ -440,7 +471,15 @@ export async function executeEstimateBatch(
     throw badRequest("Jeton de concurrence manquant.");
   }
 
-  await bulkUpdateEstimateItems(versionId, [], concurrencyToken);
+  const tokenPrecheckResult = await bulkUpdateEstimateItems(
+    versionId,
+    [],
+    concurrencyToken
+  );
+  const versionToken: EstimateBatchVersionToken = {
+    id: tokenPrecheckResult.version.id,
+    updated_at: tokenPrecheckResult.version.updated_at,
+  };
 
   if (options.dryRun === true) {
     return {
@@ -453,6 +492,7 @@ export async function executeEstimateBatch(
           dry_run: true,
         },
       })),
+      version: versionToken,
     };
   }
 
@@ -491,6 +531,7 @@ export async function executeEstimateBatch(
       return {
         committed: false,
         results,
+        version: await resolveLatestBatchVersionToken(versionId, versionToken),
       };
     }
   }
@@ -504,5 +545,6 @@ export async function executeEstimateBatch(
   return {
     committed: true,
     results,
+    version: await resolveLatestBatchVersionToken(versionId, versionToken),
   };
 }

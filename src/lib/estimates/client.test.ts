@@ -9,6 +9,7 @@ import {
   deleteEstimateAssembly,
   duplicateEstimateSection,
   duplicateEstimateAssembly,
+  fetchEstimateList,
   fetchEstimateImportSources,
   fetchEstimateImportableSections,
   fetchEstimateAssemblies,
@@ -202,6 +203,10 @@ describe("estimate client optimistic concurrency", () => {
     });
     expect(result).toEqual({
       committed: true,
+      versionToken: {
+        id: VERSION_ID,
+        updated_at: UPDATED_AT,
+      },
       results: [
         {
           index: 0,
@@ -617,6 +622,61 @@ describe("estimate client optimistic concurrency", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(result).toBeNull();
+  });
+});
+
+describe("estimate client list parsing", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("normalizes list item currencies and defaults to EUR", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            items: [
+              {
+                project_id: PROJECT_ID,
+                project_name: "Projet A",
+                version_id: VERSION_ID,
+                version_number: 2,
+                status: "draft",
+                title: "V2",
+                updated_at: "2026-02-24T10:00:00.000Z",
+                total_ht_cents: 120000,
+                currency: " usd ",
+              },
+              {
+                project_id: "55555555-5555-4555-8555-555555555555",
+                project_name: "Projet B",
+                version_id: "66666666-6666-4666-8666-666666666666",
+                version_number: 1,
+                status: "sent",
+                title: "V1",
+                updated_at: "2026-02-24T09:00:00.000Z",
+                total_ht_cents: 32000,
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const items = await fetchEstimateList();
+
+    expect(items).toHaveLength(2);
+    expect(items[0]?.currency).toBe("USD");
+    expect(items[1]?.currency).toBe("EUR");
   });
 });
 

@@ -6,7 +6,11 @@ import {
   type EstimateItem,
 } from "@/components/estimate-document/prepare-estimate-document-data";
 import { COMPANY_INFO } from "@/lib/company-info";
-import { formatEUR } from "@/lib/money";
+import {
+  formatCurrency,
+  normalizeEstimateCurrency,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
 
 export type EstimateDocumentProps = {
   projectName: string;
@@ -19,6 +23,7 @@ export type EstimateDocumentProps = {
   marginMultiplier: number;
   discountCents: number;
   taxRateBp: number;
+  currency?: string | null;
   isLaborSplitEnabled: boolean;
   laborRateById: Record<string, number>;
   totalHtCents: number;
@@ -49,6 +54,7 @@ export function EstimateDocument({
   marginMultiplier,
   discountCents,
   taxRateBp,
+  currency,
   isLaborSplitEnabled,
   laborRateById,
   totalHtCents,
@@ -57,6 +63,9 @@ export function EstimateDocument({
   supplyTypeLabelsById,
   items,
 }: EstimateDocumentProps) {
+  const resolvedCurrency: SupportedEstimateCurrency =
+    normalizeEstimateCurrency(currency) ?? "EUR";
+
   const {
     rows,
     numberingById,
@@ -72,6 +81,7 @@ export function EstimateDocument({
     marginMultiplier,
     discountCents,
     taxRateBp,
+    currency: resolvedCurrency,
     isLaborSplitEnabled,
     laborRateById,
     validiteJours,
@@ -226,6 +236,7 @@ export function EstimateDocument({
               rows={rows}
               numberingById={numberingById}
               sectionTotalsById={sectionTotalsById}
+              currency={resolvedCurrency}
               isLaborSplitEnabled={isLaborSplitEnabled}
               laborRateById={laborRateById}
               supplyTypeLabelsById={supplyTypeLabelsById}
@@ -242,7 +253,7 @@ export function EstimateDocument({
                 Total HT
               </span>
               <span className="text-xl font-bold text-white">
-                {formatEUR(totalHtCents)}
+                {formatCurrency(totalHtCents, resolvedCurrency)}
               </span>
             </div>
             {taxEnabled ? (
@@ -251,7 +262,7 @@ export function EstimateDocument({
                   TVA
                 </span>
                 <span className="text-sm font-medium text-slate-600">
-                  {formatEUR(totalTaxCents)}
+                  {formatCurrency(totalTaxCents, resolvedCurrency)}
                 </span>
               </div>
             ) : null}
@@ -260,7 +271,7 @@ export function EstimateDocument({
                 Total TTC
               </span>
               <span className="text-sm font-semibold text-slate-600">
-                {formatEUR(totalTtcCents)}
+                {formatCurrency(totalTtcCents, resolvedCurrency)}
               </span>
             </div>
           </div>

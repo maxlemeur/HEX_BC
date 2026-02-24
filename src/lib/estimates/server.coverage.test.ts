@@ -195,6 +195,7 @@ describe("estimate server coverage additions", () => {
           title: "v2",
           updated_at: "2026-02-22T10:00:00.000Z",
           total_ht_cents: 2000,
+          currency: "EUR",
           estimate_projects: {
             id: "p1",
             name: "Projet 1",
@@ -211,6 +212,7 @@ describe("estimate server coverage additions", () => {
           title: "v1",
           updated_at: "2026-02-21T10:00:00.000Z",
           total_ht_cents: 1500,
+          currency: "USD",
           estimate_projects: {
             id: "p1",
             name: "Projet 1",
@@ -227,6 +229,7 @@ describe("estimate server coverage additions", () => {
           title: "v3",
           updated_at: "2026-02-22T09:00:00.000Z",
           total_ht_cents: 3000,
+          currency: "GBP",
           estimate_projects: {
             id: "p2",
             name: "Projet 2",
@@ -264,10 +267,12 @@ describe("estimate server coverage additions", () => {
     expect(result.items[0]).toMatchObject({
       project_id: "p1",
       version_id: "v2",
+      currency: "EUR",
     });
     expect(result.items[1]).toMatchObject({
       project_id: "p2",
       version_id: "v3",
+      currency: "GBP",
     });
     expect(estimateVersionsBuilder.eq).toHaveBeenCalledWith(
       "estimate_projects.user_id",

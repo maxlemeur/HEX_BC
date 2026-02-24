@@ -92,6 +92,11 @@ import {
   type ExportColumn,
 } from "@/lib/export";
 import {
+  formatCurrency,
+  normalizeEstimateCurrency,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
+import {
   batchEstimateOperations,
   acquireEstimateDraftLock,
   bulkUpdateEstimateItems,
@@ -317,6 +322,7 @@ const BULK_SUGGEST_PROGRESS_THRESHOLD = 50;
 const PASTE_CREATE_BATCH_MAX_OPERATIONS = 100;
 const LABOR_SPLIT_FLAG_KEY = "EST_031_LABOR_SPLIT";
 const MAX_CASCADE_DISCOUNT_STEPS = 4;
+const DEFAULT_ESTIMATE_CURRENCY: SupportedEstimateCurrency = "EUR";
 const LABOR_SPLIT_FIELD_KEYS = [
   "h_mo_atelier",
   "k_mo_atelier",
@@ -372,6 +378,10 @@ function normalizeCascadeDiscountSteps(steps: number[] | undefined): number[] {
   return (steps ?? [])
     .map((step) => clampCascadeDiscountStepBp(step))
     .slice(0, MAX_CASCADE_DISCOUNT_STEPS);
+}
+
+function resolveEstimateCurrency(value: string | null | undefined) {
+  return normalizeEstimateCurrency(value) ?? DEFAULT_ESTIMATE_CURRENCY;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -771,14 +781,17 @@ function normalizeSupplierComparisonsByItemId(
   return map;
 }
 
-function formatSupplierAlternativeCompact(alternative?: SupplierComparisonAlternative) {
+function formatSupplierAlternativeCompact(
+  alternative: SupplierComparisonAlternative | undefined,
+  estimateCurrency: SupportedEstimateCurrency
+) {
   if (!alternative) return "";
 
   const unitPriceCents =
     alternative.adjusted_unit_price_cents ?? alternative.unit_price_cents;
-  const currency = (toNonEmptyString(alternative.currency) ?? "EUR").toUpperCase();
+  const currency = resolveEstimateCurrency(alternative.currency ?? estimateCurrency);
   const priceLabel =
-    unitPriceCents === null ? "-" : `${(unitPriceCents / 100).toFixed(2)} ${currency}`;
+    unitPriceCents === null ? "-" : formatCurrency(unitPriceCents, currency);
   const supplierReference = toNonEmptyString(alternative.supplier_reference) ?? "-";
   const catalogueUrl = toNonEmptyString(alternative.catalogue_url) ?? "-";
   const updatedAt = formatSupplierComparisonDate(alternative.updated_at);
@@ -1559,6 +1572,7 @@ export default function EditEstimatePage() {
           title: versionRow.title ?? "",
           date_devis: versionRow.date_devis,
           validite_jours: versionRow.validite_jours,
+          currency: resolveEstimateCurrency(versionRow.currency),
           margin_multiplier: versionRow.margin_multiplier,
           margin_mode: versionRow.margin_mode ?? "fixed",
           margin_tiers: data.marginTiers ?? [],
@@ -2042,7 +2056,12 @@ export default function EditEstimatePage() {
     if (!restorableDraft) return;
 
     if (restorableDraft.settings) {
-      setSettings(restorableDraft.settings);
+      setSettings({
+        ...restorableDraft.settings,
+        currency: resolveEstimateCurrency(
+          (restorableDraft.settings as { currency?: string | null }).currency
+        ),
+      });
     }
     setItems(restorableDraft.items);
     clearConflictDraftFromSession(resolvedVersionId);
@@ -2521,6 +2540,7 @@ export default function EditEstimatePage() {
     (
       supplierComparisonsByItemId?: SupplierComparisonsByItemId
     ): EstimateLineExportRow[] => {
+      const estimateCurrency = settings?.currency ?? DEFAULT_ESTIMATE_CURRENCY;
       const resolveSectionPath = buildSectionPathResolver(items);
       const comparisonsByItemId =
         supplierComparisonsByItemId ?? new Map<string, SupplierComparisonAlternative[]>();
@@ -2554,9 +2574,18 @@ export default function EditEstimatePage() {
             quantity: item.quantity ?? "",
             unit_price_ht_cents: item.unit_price_ht_cents ?? "",
             supply_type: supplyTypeLabel,
-            supplier_1: formatSupplierAlternativeCompact(supplierAlternatives[0]),
-            supplier_2: formatSupplierAlternativeCompact(supplierAlternatives[1]),
-            supplier_3: formatSupplierAlternativeCompact(supplierAlternatives[2]),
+            supplier_1: formatSupplierAlternativeCompact(
+              supplierAlternatives[0],
+              estimateCurrency
+            ),
+            supplier_2: formatSupplierAlternativeCompact(
+              supplierAlternatives[1],
+              estimateCurrency
+            ),
+            supplier_3: formatSupplierAlternativeCompact(
+              supplierAlternatives[2],
+              estimateCurrency
+            ),
             k_fo: item.k_fo ?? "",
             h_mo: item.h_mo ?? "",
             h_mo_majoration_pct:
@@ -2578,7 +2607,7 @@ export default function EditEstimatePage() {
           };
         });
     },
-    [items, laborRoleById, qualityFlagsByItemId, supplyTypeById]
+    [items, laborRoleById, qualityFlagsByItemId, settings?.currency, supplyTypeById]
   );
 
   const lineExportColumns = useMemo(
@@ -3181,11 +3210,13 @@ export default function EditEstimatePage() {
       if (versionTotalsPatch) {
         const bulkResult = await bulkUpdateEstimateItems(
           versionSnapshot.id,
-          versionSnapshot.updated_at,
+          batchResult.versionToken.updated_at,
           [],
           versionTotalsPatch
         );
         nextVersionToken = bulkResult.versionToken.updated_at;
+      } else {
+        nextVersionToken = batchResult.versionToken.updated_at;
       }
 
       setTotalsOutOfSync(false);
@@ -3410,6 +3441,7 @@ export default function EditEstimatePage() {
       title: settings.title.trim() || null,
       date_devis: settings.date_devis,
       validite_jours: settings.validite_jours,
+      currency: settings.currency,
       margin_multiplier: totals.appliedMarginMultiplier,
       margin_mode: settings.margin_mode ?? "fixed",
       discount_bp: discountBp,
@@ -5713,7 +5745,7 @@ export default function EditEstimatePage() {
 
       const createdItems: EstimateItem[] = [];
       const createPayloads: EstimateItemInsertPayload[] = [];
-      let concurrencyToken = versionSnapshot.updated_at;
+      let nextVersionToken = versionSnapshot.updated_at;
       try {
         for (const row of validRows) {
           const designation = row.designation?.trim() || "Nouvelle ligne";
@@ -5806,7 +5838,7 @@ export default function EditEstimatePage() {
           );
           const batchResult = await batchEstimateOperations(
             versionSnapshot.id,
-            concurrencyToken,
+            nextVersionToken,
             payloadChunk.map((payload) => ({
               op: "create" as const,
               data: payload,
@@ -5822,6 +5854,7 @@ export default function EditEstimatePage() {
                 "Une operation de creation groupee a echoue."
             );
           }
+          nextVersionToken = batchResult.versionToken.updated_at;
 
           const createdItemsByChunkIndex = new Map<number, EstimateItem>();
           batchResult.results.forEach((result) => {
@@ -5837,28 +5870,13 @@ export default function EditEstimatePage() {
             );
           });
 
-          let chunkLastUpdatedAt: string | null = null;
           for (let chunkIndex = 0; chunkIndex < payloadChunk.length; chunkIndex += 1) {
             const createdItem = createdItemsByChunkIndex.get(chunkIndex);
             if (!createdItem) {
               throw new Error("Impossible de recuperer les lignes collees.");
             }
             createdItems.push(createdItem);
-            if (
-              typeof createdItem.updated_at === "string" &&
-              createdItem.updated_at.length > 0
-            ) {
-              chunkLastUpdatedAt = createdItem.updated_at;
-            }
           }
-
-          const nextConcurrencyToken = chunkLastUpdatedAt;
-          if (!nextConcurrencyToken) {
-            throw new Error(
-              "Impossible de recuperer le jeton de version apres collage groupe."
-            );
-          }
-          concurrencyToken = nextConcurrencyToken;
         }
       } catch (error) {
         if (createdItems.length > 0) {
@@ -5875,10 +5893,26 @@ export default function EditEstimatePage() {
         );
       }
 
+      if (nextVersionToken !== versionSnapshot.updated_at) {
+        setVersion((previous) =>
+          previous
+            ? {
+                ...previous,
+                updated_at: nextVersionToken,
+              }
+            : previous
+        );
+        if (versionRef.current) {
+          versionRef.current = {
+            ...versionRef.current,
+            updated_at: nextVersionToken,
+          };
+        }
+      }
+
       const insertedIds = createdItems.map((item) => item.id);
       const mergedItems = [...snapshot, ...createdItems];
       setItems(mergedItems);
-      applyVersionToken(concurrencyToken);
 
       const currentOrderedIds = mergedItems
         .filter((item) => item.parent_id === targetParentId)
@@ -6048,7 +6082,6 @@ export default function EditEstimatePage() {
       reloadItems,
       settings,
       supplyTypeIdByLowerName,
-      applyVersionToken,
     ]
   );
 
@@ -6290,6 +6323,7 @@ export default function EditEstimatePage() {
         totals?.appliedMarginMultiplier ?? editorTableBaseConfig.marginMultiplier,
       discountCents: editorTableBaseConfig.discountCents,
       taxRateBp: editorTableBaseConfig.taxRateBp,
+      currency: settings?.currency ?? DEFAULT_ESTIMATE_CURRENCY,
       laborRateById,
       isLaborSplitEnabled,
       isReadOnly: editorTableBaseConfig.isReadOnly,
@@ -6378,6 +6412,7 @@ export default function EditEstimatePage() {
       suggestionLearningState,
       bulkSuggestionEligibleCount,
       checklistScrollTargetItemId,
+      settings?.currency,
       totals?.appliedMarginMultiplier,
       version?.id,
       resolvedVersionId,

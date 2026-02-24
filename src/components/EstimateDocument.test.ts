@@ -3,7 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { EstimateDocument, type EstimateDocumentProps } from "@/components/EstimateDocument";
-import { formatEUR } from "@/lib/money";
+import {
+  formatCurrency,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
 import type { Database } from "@/types/database";
 
 vi.mock("next/image", () => ({
@@ -75,6 +78,7 @@ const BASE_PROPS: Omit<EstimateDocumentProps, "items"> = {
   marginMultiplier: 1,
   discountCents: 0,
   taxRateBp: 2000,
+  currency: "EUR",
   isLaborSplitEnabled: false,
   laborRateById: {},
   totalHtCents: 0,
@@ -98,6 +102,13 @@ function renderEstimateDocument(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function formatCurrencyForTest(
+  cents: number,
+  currency: SupportedEstimateCurrency
+) {
+  return formatCurrency(cents, currency);
 }
 
 function findTableRowMarkup(markup: string, token: string): string {
@@ -128,25 +139,29 @@ function expectSectionSummaryInRow(
   }
 ) {
   const labels = getSummaryLabels(rowMarkup);
-  expect(rowMarkup).toContain(`FO ${formatEUR(totals.foCents)}`);
+  expect(rowMarkup).toContain(`FO ${formatCurrency(totals.foCents, "EUR")}`);
   if (typeof totals.moCents === "number") {
     expect(labels).toContain("MO");
     expect(labels).not.toContain("MO atelier");
     expect(labels).not.toContain("MO chantier");
-    expect(rowMarkup).toContain(`MO ${formatEUR(totals.moCents)}`);
+    expect(rowMarkup).toContain(`MO ${formatCurrency(totals.moCents, "EUR")}`);
   }
   if (typeof totals.moAtelierCents === "number") {
     expect(labels).toContain("MO atelier");
     expect(labels).not.toContain("MO");
-    expect(rowMarkup).toContain(`MO atelier ${formatEUR(totals.moAtelierCents)}`);
+    expect(rowMarkup).toContain(
+      `MO atelier ${formatCurrency(totals.moAtelierCents, "EUR")}`
+    );
   }
   if (typeof totals.moChantierCents === "number") {
     expect(labels).toContain("MO chantier");
     expect(labels).not.toContain("MO");
-    expect(rowMarkup).toContain(`MO chantier ${formatEUR(totals.moChantierCents)}`);
+    expect(rowMarkup).toContain(
+      `MO chantier ${formatCurrency(totals.moChantierCents, "EUR")}`
+    );
   }
-  expect(rowMarkup).toContain(`HT ${formatEUR(totals.htCents)}`);
-  expect(rowMarkup).toContain(`TTC ${formatEUR(totals.ttcCents)}`);
+  expect(rowMarkup).toContain(`HT ${formatCurrency(totals.htCents, "EUR")}`);
+  expect(rowMarkup).toContain(`TTC ${formatCurrency(totals.ttcCents, "EUR")}`);
 }
 
 function expectSectionSummary(
@@ -409,5 +424,41 @@ describe("EstimateDocument - EST-121", () => {
     expect(parentSectionRow).toMatch(/>1<\/span>\s*<span>Section parent<\/span>/);
     expect(childSectionRow).toMatch(/>1\.1<\/span>\s*<span>Section enfant<\/span>/);
     expect(lineRow).toMatch(/>1\.1\.1<\/span>\s*<span>Ligne enfant<\/span>/);
+  });
+
+  it("formate les montants avec la devise du devis", () => {
+    const sectionId = "section-currency";
+    const items: EstimateItem[] = [
+      createSection({ id: sectionId, title: "Section devise", position: 1 }),
+      createEstimateItem({
+        id: "line-currency",
+        parent_id: sectionId,
+        title: "Ligne devise",
+        position: 1,
+        quantity: 1,
+        unit_price_ht_cents: 1000,
+        pu_ht_cents: 1250,
+        line_total_ht_cents: 1250,
+        line_tax_cents: 250,
+        line_total_ttc_cents: 1500,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+      }),
+    ];
+
+    const markup = renderEstimateDocument(items, {
+      currency: "USD",
+      marginMultiplier: 1,
+      discountCents: 100,
+      taxRateBp: 2000,
+      totalHtCents: 1250,
+      totalTaxCents: 250,
+      totalTtcCents: 1500,
+    });
+
+    expect(markup).toContain(formatCurrencyForTest(1250, "USD"));
+    expect(markup).toContain(formatCurrencyForTest(250, "USD"));
+    expect(markup).toContain(`-${formatCurrencyForTest(100, "USD")}`);
   });
 });

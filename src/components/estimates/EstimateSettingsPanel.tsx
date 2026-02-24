@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatEUR } from "@/lib/money";
+import {
+  SUPPORTED_ESTIMATE_CURRENCIES,
+  formatCurrency,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
 import type {
   DiscountStepTotal,
   EstimateTotals,
@@ -16,6 +20,7 @@ export type EstimateSettingsState = {
   title: string;
   date_devis: string;
   validite_jours: number;
+  currency: SupportedEstimateCurrency;
   margin_multiplier: number;
   margin_mode?: MarginMode;
   margin_tiers?: MarginTier[];
@@ -46,17 +51,23 @@ const MAX_CASCADE_STEPS = 4;
 const DEFAULT_CASCADE_STEP_BP = 500;
 const GLOSSARY_DISMISSED_STORAGE_KEY = "est-glossary-dismissed";
 
-const ROUNDING_OPTIONS = [
-  { label: "Aucun", mode: "none" as const, step: 1 },
-  { label: "1 EUR", mode: "nearest" as const, step: 100 },
-  { label: "10 EUR", mode: "nearest" as const, step: 1000 },
-  { label: "50 EUR", mode: "nearest" as const, step: 5000 },
-  { label: "100 EUR", mode: "nearest" as const, step: 10000 },
-];
+function getRoundingOptions(currency: SupportedEstimateCurrency) {
+  return [
+    { label: "Aucun", mode: "none" as const, step: 1 },
+    { label: `1 ${currency}`, mode: "nearest" as const, step: 100 },
+    { label: `10 ${currency}`, mode: "nearest" as const, step: 1000 },
+    { label: `50 ${currency}`, mode: "nearest" as const, step: 5000 },
+    { label: `100 ${currency}`, mode: "nearest" as const, step: 10000 },
+  ];
+}
 
-function getRoundingValue(mode: RoundingMode, step: number) {
+function getRoundingValue(
+  mode: RoundingMode,
+  step: number,
+  options: ReturnType<typeof getRoundingOptions>
+) {
   if (mode === "none") return "none";
-  const match = ROUNDING_OPTIONS.find(
+  const match = options.find(
     (option) => option.mode === mode && option.step === step
   );
   return match ? `${match.step}` : "none";
@@ -125,9 +136,11 @@ export function EstimateSettingsPanel({
 
   const taxEnabled = settings.tax_rate_bp > 0;
   const taxRatePercent = settings.tax_rate_bp / 100;
+  const roundingOptions = getRoundingOptions(settings.currency);
   const roundingValue = getRoundingValue(
     settings.rounding_mode,
-    settings.rounding_step_cents
+    settings.rounding_step_cents,
+    roundingOptions
   );
   const marginMode: MarginMode = settings.margin_mode ?? "fixed";
   const marginTiers = sortMarginTiers(settings.margin_tiers ?? []);
@@ -255,6 +268,29 @@ export function EstimateSettingsPanel({
             readOnly
           />
         </div>
+
+        <div>
+          <label className="form-label" htmlFor="estimate-currency">
+            Devise
+          </label>
+          <select
+            id="estimate-currency"
+            className="form-input form-select"
+            value={settings.currency}
+            disabled={isReadOnly}
+            onChange={(event) =>
+              onChange({
+                currency: event.target.value as SupportedEstimateCurrency,
+              })
+            }
+          >
+            {SUPPORTED_ESTIMATE_CURRENCIES.map((currency) => (
+              <option key={currency} value={currency}>
+                {currency}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="estimate-settings-grid mt-8 flex flex-col-reverse gap-6 lg:grid lg:grid-cols-3">
@@ -346,7 +382,10 @@ export function EstimateSettingsPanel({
                       key={`${tier.id ?? "tier"}-${tier.position ?? tier.threshold_cents}-${tier.threshold_cents}-${tier.multiplier}`}
                       className="estimate-summary__row"
                     >
-                      <span>A partir de {formatEUR(tier.threshold_cents)}</span>
+                      <span>
+                        A partir de{" "}
+                        {formatCurrency(tier.threshold_cents, settings.currency)}
+                      </span>
                       <strong>x{formatMarginMultiplier(tier.multiplier)}</strong>
                     </div>
                   ))}
@@ -395,7 +434,7 @@ export function EstimateSettingsPanel({
             {discountMode === "simple" ? (
               <div>
                 <label className="form-label" htmlFor="estimate-discount">
-                  Remise (EUR HT)
+                  Remise ({settings.currency} HT)
                 </label>
                 <input
                   id="estimate-discount"
@@ -482,7 +521,10 @@ export function EstimateSettingsPanel({
                         <div className="min-w-[170px] flex-1 rounded-md border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-600)]">
                           Total apres etape:{" "}
                           <strong>
-                            {formatEUR(getStepTotal(discountStepTotals[index]) ?? 0)}
+                            {formatCurrency(
+                              getStepTotal(discountStepTotals[index]) ?? 0,
+                              settings.currency
+                            )}
                           </strong>
                         </div>
                         <button
@@ -589,7 +631,7 @@ export function EstimateSettingsPanel({
                 });
               }}
             >
-              {ROUNDING_OPTIONS.map((option) => (
+              {roundingOptions.map((option) => (
                 <option
                   key={`${option.mode}-${option.step}`}
                   value={option.mode === "none" ? "none" : `${option.step}`}
@@ -611,11 +653,15 @@ export function EstimateSettingsPanel({
             <div className="estimate-summary__list">
               <div className="estimate-summary__row">
                 <span>Cout total</span>
-                <strong>{formatEUR(totals.costSubtotalCents)}</strong>
+                <strong>
+                  {formatCurrency(totals.costSubtotalCents, settings.currency)}
+                </strong>
               </div>
               <div className="estimate-summary__row">
                 <span>Vente HT</span>
-                <strong>{formatEUR(totals.saleSubtotalCents)}</strong>
+                <strong>
+                  {formatCurrency(totals.saleSubtotalCents, settings.currency)}
+                </strong>
               </div>
               <div className="estimate-summary__row">
                 <span>Marge appliquee</span>
@@ -625,23 +671,33 @@ export function EstimateSettingsPanel({
               </div>
               <div className="estimate-summary__row">
                 <span>Remise</span>
-                <strong>-{formatEUR(totals.discountCents)}</strong>
+                <strong>
+                  -{formatCurrency(totals.discountCents, settings.currency)}
+                </strong>
               </div>
               <div className="estimate-summary__row estimate-summary__row--bold">
                 <span>Total HT</span>
-                <strong>{formatEUR(totals.saleTotalCents)}</strong>
+                <strong>
+                  {formatCurrency(totals.saleTotalCents, settings.currency)}
+                </strong>
               </div>
               <div className="estimate-summary__row">
                 <span>TVA</span>
-                <strong>{formatEUR(totals.adjustedTaxCents)}</strong>
+                <strong>
+                  {formatCurrency(totals.adjustedTaxCents, settings.currency)}
+                </strong>
               </div>
               <div className="estimate-summary__row">
                 <span>Ajustement arrondi</span>
-                <strong>{formatEUR(totals.roundingAdjustmentCents)}</strong>
+                <strong>
+                  {formatCurrency(totals.roundingAdjustmentCents, settings.currency)}
+                </strong>
               </div>
               <div className="estimate-summary__row estimate-summary__row--total">
                 <span>Total TTC</span>
-                <strong>{formatEUR(totals.roundedTtcCents)}</strong>
+                <strong>
+                  {formatCurrency(totals.roundedTtcCents, settings.currency)}
+                </strong>
               </div>
             </div>
           ) : (

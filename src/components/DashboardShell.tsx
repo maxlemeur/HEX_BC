@@ -283,6 +283,29 @@ const NAV_GROUPS: NavGroup[] = [
         ),
       },
       {
+        href: "/dashboard/admin/currencies",
+        label: "Devises",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 5h12" />
+            <path d="M9 3v4" />
+            <path d="m16 9 4 4-4 4" />
+            <path d="M20 13H8" />
+            <path d="M4 19h9" />
+          </svg>
+        ),
+      },
+      {
         href: "/dashboard/admin/suggestion-learning",
         label: "Suggestion learning",
         icon: (

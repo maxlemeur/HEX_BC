@@ -1,5 +1,3 @@
-import * as XLSX from "xlsx";
-
 import { resolveHeaderRowIndex } from "./header-row";
 
 export type ImportSourceFormat = "json" | "csv" | "xlsx";

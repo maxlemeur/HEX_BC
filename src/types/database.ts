@@ -1197,6 +1197,45 @@ export type Database = {
         };
         Relationships: [];
       };
+      currency_rates: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          from_currency: string;
+          to_currency: string;
+          rate: number;
+          effective_date: string;
+          source: "manual" | "api";
+          is_active: boolean;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          from_currency: string;
+          to_currency: string;
+          rate: number;
+          effective_date?: string;
+          source?: "manual" | "api";
+          is_active?: boolean;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          from_currency?: string;
+          to_currency?: string;
+          rate?: number;
+          effective_date?: string;
+          source?: "manual" | "api";
+          is_active?: boolean;
+        };
+        Relationships: [];
+      };
       margin_tiers: {
         Row: {
           id: string;

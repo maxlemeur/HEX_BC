@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 const AID_TOO_LONG_ERROR_MESSAGE = "AID trop long.";
@@ -129,6 +130,10 @@ export const estimateRoundingModeSchema = z.enum([
 
 export const estimateMarginModeSchema = z.enum(["fixed", "tiered"]);
 export const estimateDiscountModeSchema = z.enum(["simple", "cascade"]);
+export const estimateCurrencySchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.trim().toUpperCase() : value),
+  z.enum(SUPPORTED_ESTIMATE_CURRENCIES)
+);
 
 export const estimateItemTypeSchema = z.enum(["section", "line"]);
 
@@ -139,7 +144,7 @@ const createEstimateVersionSchema = z
     validite_jours: positiveIntegerSchema.optional(),
     margin_multiplier: nonNegativeNumberSchema.optional(),
     margin_mode: estimateMarginModeSchema.optional(),
-    currency: z.string().trim().min(1, "Champ obligatoire.").max(16).optional(),
+    currency: estimateCurrencySchema.optional(),
     margin_bp: basisPointsSchema.optional(),
     discount_bp: basisPointsSchema.optional(),
     discount_mode: estimateDiscountModeSchema.optional(),
@@ -179,7 +184,7 @@ export const patchEstimateVersionSchema = z
     validite_jours: positiveIntegerSchema.optional(),
     margin_multiplier: nonNegativeNumberSchema.optional(),
     margin_mode: estimateMarginModeSchema.optional(),
-    currency: z.string().trim().min(1, "Champ obligatoire.").max(16).optional(),
+    currency: estimateCurrencySchema.optional(),
     margin_bp: basisPointsSchema.optional(),
     discount_bp: basisPointsSchema.optional(),
     discount_mode: estimateDiscountModeSchema.optional(),
@@ -1121,7 +1126,7 @@ export const wizardStep2Schema = z.object({
   taxRateBp: taxRateBpSchema,
   roundingMode: estimateRoundingModeSchema,
   roundingStepCents: positiveIntegerSchema.optional(),
-  currency: z.string().trim().min(1, "Champ obligatoire.").max(16).optional(),
+  currency: estimateCurrencySchema.optional(),
 });
 
 export const wizardStep3Schema = z.object({

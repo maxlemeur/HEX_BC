@@ -184,6 +184,7 @@ type EstimateListRow = Pick<
   | "updated_at"
   | "total_ht_cents"
   | "date_devis"
+  | "currency"
   | "validite_jours"
 > & {
   estimate_projects: EstimateListProject | EstimateListProject[] | null;
@@ -463,6 +464,7 @@ const DEFAULT_MARGIN_MODE: EstimateVersionRow["margin_mode"] = "fixed";
 const DEFAULT_DISCOUNT_MODE: EstimateVersionRow["discount_mode"] = "simple";
 const DEFAULT_GLOBAL_COEFFICIENT = 1;
 const DEFAULT_CURRENCY = "EUR";
+const SUPPORTED_ESTIMATE_CURRENCIES = ["EUR", "USD", "GBP"] as const;
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const DEFAULT_VERSION_TIMELINE_PAGE_SIZE = 20;
 const MAX_VERSION_TIMELINE_PAGE_SIZE = 100;
@@ -684,6 +686,33 @@ function assertEstimateItemAidFormat(input: {
   throw badRequest(
     `AID invalide. Format attendu: ${DEFAULT_ESTIMATE_ITEM_AID_REGEX_PATTERN}.`
   );
+}
+
+function normalizeEstimateCurrencyOrThrow(
+  value: string | null | undefined,
+  options?: {
+    fallback?: string;
+    fallbackOnInvalid?: boolean;
+  }
+) {
+  const normalized = value?.trim().toUpperCase() ?? "";
+
+  if (!normalized) {
+    if (options?.fallback) return options.fallback;
+    throw badRequest("Devise invalide. Valeurs autorisees: EUR, USD, GBP.");
+  }
+
+  if (
+    (SUPPORTED_ESTIMATE_CURRENCIES as readonly string[]).includes(normalized)
+  ) {
+    return normalized;
+  }
+
+  if (options?.fallback && options.fallbackOnInvalid === true) {
+    return options.fallback;
+  }
+
+  throw badRequest("Devise invalide. Valeurs autorisees: EUR, USD, GBP.");
 }
 
 function normalizeConcurrencyToken(token: string | null | undefined) {
@@ -2915,7 +2944,7 @@ export async function listLatestEstimates() {
   let query = supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)"
+      "id, project_id, version_number, status, title, updated_at, total_ht_cents, date_devis, currency, validite_jours, estimate_projects!inner(id, name, reference, client_name, is_archived)"
     )
     .eq("tenant_id", tenantId)
     .eq("estimate_projects.tenant_id", tenantId)
@@ -2948,6 +2977,7 @@ export async function listLatestEstimates() {
       updated_at: string;
       total_ht_cents: number;
       date_devis: string | null;
+      currency: string;
       validite_jours: number | null;
     }
   >();
@@ -2969,6 +2999,10 @@ export async function listLatestEstimates() {
       updated_at: row.updated_at,
       total_ht_cents: row.total_ht_cents,
       date_devis: row.date_devis ?? null,
+      currency: normalizeEstimateCurrencyOrThrow(row.currency, {
+        fallback: DEFAULT_CURRENCY,
+        fallbackOnInvalid: true,
+      }),
       validite_jours: row.validite_jours ?? null,
     });
   });
@@ -4139,6 +4173,12 @@ export async function promoteEstimateVariant(versionId: string) {
 
 export async function createEstimate(input: CreateEstimateInput) {
   const { supabase, userId, tenantId } = await getAuthenticatedContext();
+  const normalizedCurrency = normalizeEstimateCurrencyOrThrow(
+    input.version?.currency,
+    {
+      fallback: DEFAULT_CURRENCY,
+    }
+  );
 
   const { data: project, error: projectError } = await supabase
     .from("estimate_projects")
@@ -4171,7 +4211,7 @@ export async function createEstimate(input: CreateEstimateInput) {
     validite_jours: input.version?.validite_jours ?? DEFAULT_VALIDITE_JOURS,
     margin_multiplier: input.version?.margin_multiplier ?? DEFAULT_MARGIN_MULTIPLIER,
     margin_mode: input.version?.margin_mode ?? DEFAULT_MARGIN_MODE,
-    currency: input.version?.currency?.trim() || DEFAULT_CURRENCY,
+    currency: normalizedCurrency,
     margin_bp: input.version?.margin_bp ?? 0,
     discount_bp: input.version?.discount_bp ?? 0,
     discount_mode: input.version?.discount_mode ?? DEFAULT_DISCOUNT_MODE,
@@ -4979,7 +5019,7 @@ export async function patchEstimateVersion(
     payload.margin_mode = input.margin_mode;
   }
   if ("currency" in input && typeof input.currency === "string") {
-    payload.currency = input.currency.trim();
+    payload.currency = normalizeEstimateCurrencyOrThrow(input.currency);
   }
   if ("margin_bp" in input) {
     payload.margin_bp = input.margin_bp;

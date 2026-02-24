@@ -572,6 +572,7 @@ const estimateSupplierComparisonSchema = z.object({
 
 const estimateBatchResultSchema = z.object({
   committed: z.boolean(),
+  version: estimateVersionTokenSchema,
   results: z.array(
     z.union([
       z.object({

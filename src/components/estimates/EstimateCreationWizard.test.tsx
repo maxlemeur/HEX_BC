@@ -46,6 +46,7 @@ vi.mock("@/lib/estimates/margin-tiers", () => ({
 }));
 
 vi.mock("@/lib/money", () => ({
+  SUPPORTED_ESTIMATE_CURRENCIES: ["EUR", "USD", "GBP"],
   formatEUR: (cents: number) => `${(cents / 100).toFixed(2)} EUR`,
 }));
 

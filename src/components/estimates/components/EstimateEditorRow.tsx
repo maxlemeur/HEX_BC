@@ -33,7 +33,12 @@ import {
   ESTIMATE_OUTLIER_FLAG_KEYS,
   type EstimateOutlierFlagKey,
 } from "@/lib/estimates/outlier-detection";
-import { formatEUR, parseEuroToCents } from "@/lib/money";
+import {
+  formatCurrency,
+  normalizeEstimateCurrency,
+  parseCurrencyToCents,
+  type SupportedEstimateCurrency,
+} from "@/lib/money";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -339,6 +344,13 @@ function toAlternativeKindLabel(kind: SupplierAlternativeKind) {
   }
 }
 
+function resolveDisplayCurrency(
+  value: string | null | undefined,
+  fallback: SupportedEstimateCurrency
+) {
+  return normalizeEstimateCurrency(value) ?? fallback;
+}
+
 function toFiniteNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
@@ -437,6 +449,7 @@ export type ColumnVisibilitySet = Set<"supply_type" | "k_fo" | "h_mo_majoration"
 
 export type EstimateEditorRowProps = {
   versionId: string;
+  estimateCurrency: SupportedEstimateCurrency;
   item: EstimateItem;
   itemNumber?: string | null;
   depth: number;
@@ -491,6 +504,7 @@ export type EstimateEditorRowProps = {
 
 export const EstimateEditorRow = memo(function EstimateEditorRow({
   versionId,
+  estimateCurrency,
   item,
   itemNumber,
   depth,
@@ -902,11 +916,11 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 const label = isUnassigned
                   ? "Sans catégorie FO"
                   : (supplyTypeById.get(id)?.name ?? "Type inconnu");
-                return `${label} : ${formatEUR(cents)}`;
+                return `${label} : ${formatCurrency(cents, estimateCurrency)}`;
               }).join("\n")
             : undefined}
         >
-          FO {formatEUR(sectionTotals?.foTotalCents ?? 0)}
+          FO {formatCurrency(sectionTotals?.foTotalCents ?? 0, estimateCurrency)}
         </div>
         {isLaborSplitEnabled ? (
           <>
@@ -914,12 +928,14 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             <div />{/* k_fo */}
             <div />{/* h_mo_majoration */}
             <div className="estimate-section-total-cell estimate-section-total-cell--mo">
-              MO at. {formatEUR(sectionTotals?.moAtelierTotalCents ?? 0)}
+              MO at.{" "}
+              {formatCurrency(sectionTotals?.moAtelierTotalCents ?? 0, estimateCurrency)}
             </div>
             <div />{/* labor_role_atelier */}
             <div />{/* k_mo_atelier */}
             <div className="estimate-section-total-cell estimate-section-total-cell--mo">
-              MO ch. {formatEUR(sectionTotals?.moChantierTotalCents ?? 0)}
+              MO ch.{" "}
+              {formatCurrency(sectionTotals?.moChantierTotalCents ?? 0, estimateCurrency)}
             </div>
             <div />{/* labor_role_chantier */}
             <div />{/* k_mo_chantier */}
@@ -929,7 +945,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             {(!visibleColumns || visibleColumns.has("supply_type")) ? <div /> : null}
             {(!visibleColumns || visibleColumns.has("k_fo")) ? <div /> : null}
             <div className="estimate-section-total-cell estimate-section-total-cell--mo">
-              MO {formatEUR(sectionTotals?.moTotalCents ?? 0)}
+              MO {formatCurrency(sectionTotals?.moTotalCents ?? 0, estimateCurrency)}
             </div>
             {(!visibleColumns || visibleColumns.has("h_mo_majoration")) ? <div /> : null}
             {(!visibleColumns || visibleColumns.has("labor_role")) ? <div /> : null}
@@ -941,9 +957,9 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         {/* total HT */}
         <div
           className="estimate-section-total-cell estimate-section-total-cell--ht"
-          title={`TTC ${formatEUR(sectionTotals?.totalTtcCents ?? 0)}`}
+          title={`TTC ${formatCurrency(sectionTotals?.totalTtcCents ?? 0, estimateCurrency)}`}
         >
-          HT {formatEUR(sectionTotals?.totalHtCents ?? 0)}
+          HT {formatCurrency(sectionTotals?.totalHtCents ?? 0, estimateCurrency)}
         </div>
         {/* actions */}
         <div className="estimate-cell estimate-cell--actions">
@@ -1366,8 +1382,13 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                         {suggestion.supplier_name}
                       </span>
                       <span className="estimate-catalogue-suggestion__price">
-                        {formatEUR(suggestion.adjusted_unit_price_cents)}
-                        {suggestion.currency ? ` ${suggestion.currency}` : ""}
+                        {formatCurrency(
+                          suggestion.adjusted_unit_price_cents,
+                          resolveDisplayCurrency(
+                            suggestion.currency,
+                            estimateCurrency
+                          )
+                        )}
                       </span>
                     </div>
                     <div className="estimate-catalogue-suggestion__meta">
@@ -1397,7 +1418,13 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                         >
                           {toAlternativeKindLabel(alternative.kind)}: {alternative.supplier_name} |
                           {" "}
-                          {formatEUR(alternative.adjusted_unit_price_cents)} |
+                          {formatCurrency(
+                            alternative.adjusted_unit_price_cents,
+                            resolveDisplayCurrency(
+                              alternative.currency,
+                              estimateCurrency
+                            )
+                          )} |
                           {" "}
                           {formatCompactDate(alternative.updated_at)} |
                           {" "}
@@ -1523,14 +1550,20 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         onChange={(value) =>
           onPatchItem(
             item.id,
-            { unit_price_ht_cents: parseEuroToCents(value) ?? 0 },
+            {
+              unit_price_ht_cents:
+                parseCurrencyToCents(value, estimateCurrency) ?? 0,
+            },
             { persist: false }
           )
         }
         onCommit={(value) =>
           onPatchItem(
             item.id,
-            { unit_price_ht_cents: parseEuroToCents(value) ?? 0 },
+            {
+              unit_price_ht_cents:
+                parseCurrencyToCents(value, estimateCurrency) ?? 0,
+            },
             { persist: true }
           )
         }
@@ -2027,7 +2060,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           "estimate-cell estimate-cell--total estimate-cell--readonly"
         )}
       >
-        <span>{formatEUR(lineTotal)}</span>
+        <span>{formatCurrency(lineTotal, estimateCurrency)}</span>
       </div>
       <div className="estimate-cell estimate-cell--actions">
         <details className="relative">

@@ -218,6 +218,10 @@ describe("executeEstimateBatch", () => {
 
     expect(result).toEqual({
       committed: false,
+      version: {
+        id: VERSION_ID,
+        updated_at: UPDATED_AT,
+      },
       results: [
         {
           index: 0,
@@ -705,6 +709,10 @@ describe("executeEstimateBatch", () => {
 
     expect(result).toEqual({
       committed: true,
+      version: {
+        id: VERSION_ID,
+        updated_at: UPDATED_AT,
+      },
       results: [
         {
           index: 0,
