@@ -986,6 +986,232 @@ const takeoffJobCreateFormDataSchema = z.object({
   estimate_version_id: uuidSchema,
   level: z.literal("A"),
 });
+const takeoffMappingRuleMatchTypeSchema = z.enum(["exact", "contains", "regex"]);
+const takeoffMappingRuleRenameActionParamsSchema = z.object({
+  designation: z.string().trim().min(1, "La designation est requise."),
+});
+const takeoffMappingRuleSetPriceActionParamsSchema = z.object({
+  unit_price_cents: z
+    .number()
+    .int("Le prix doit etre un entier.")
+    .min(0, "Le prix doit etre positif."),
+});
+const takeoffMappingRuleSetCategoryActionParamsSchema = z.object({
+  category_id: uuidSchema,
+});
+const takeoffMappingRuleApplyAssemblyActionParamsSchema = z.object({
+  assembly_id: uuidSchema,
+});
+const takeoffMappingRuleSkipActionParamsSchema = z.object({});
+function validateTakeoffRegexPattern(
+  input: { match_type: "exact" | "contains" | "regex"; match_pattern: string },
+  ctx: z.RefinementCtx
+) {
+  if (input.match_type !== "regex") return;
+
+  try {
+    new RegExp(input.match_pattern);
+  } catch {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "match_pattern doit etre une regex valide quand match_type=regex.",
+      path: ["match_pattern"],
+    });
+  }
+}
+
+const takeoffMappingRuleSchema = z
+  .discriminatedUnion("action", [
+    z.object({
+      id: uuidSchema,
+      tenant_id: uuidSchema,
+      created_at: z.string(),
+      updated_at: z.string(),
+      created_by: uuidSchema.nullable(),
+      name: z.string().trim().min(1),
+      match_pattern: z.string().trim().min(1),
+      match_type: takeoffMappingRuleMatchTypeSchema,
+      action: z.literal("rename"),
+      action_params: takeoffMappingRuleRenameActionParamsSchema,
+      priority: z.number().int().min(0),
+      is_active: z.boolean(),
+    }),
+    z.object({
+      id: uuidSchema,
+      tenant_id: uuidSchema,
+      created_at: z.string(),
+      updated_at: z.string(),
+      created_by: uuidSchema.nullable(),
+      name: z.string().trim().min(1),
+      match_pattern: z.string().trim().min(1),
+      match_type: takeoffMappingRuleMatchTypeSchema,
+      action: z.literal("set_price"),
+      action_params: takeoffMappingRuleSetPriceActionParamsSchema,
+      priority: z.number().int().min(0),
+      is_active: z.boolean(),
+    }),
+    z.object({
+      id: uuidSchema,
+      tenant_id: uuidSchema,
+      created_at: z.string(),
+      updated_at: z.string(),
+      created_by: uuidSchema.nullable(),
+      name: z.string().trim().min(1),
+      match_pattern: z.string().trim().min(1),
+      match_type: takeoffMappingRuleMatchTypeSchema,
+      action: z.literal("set_category"),
+      action_params: takeoffMappingRuleSetCategoryActionParamsSchema,
+      priority: z.number().int().min(0),
+      is_active: z.boolean(),
+    }),
+    z.object({
+      id: uuidSchema,
+      tenant_id: uuidSchema,
+      created_at: z.string(),
+      updated_at: z.string(),
+      created_by: uuidSchema.nullable(),
+      name: z.string().trim().min(1),
+      match_pattern: z.string().trim().min(1),
+      match_type: takeoffMappingRuleMatchTypeSchema,
+      action: z.literal("apply_assembly"),
+      action_params: takeoffMappingRuleApplyAssemblyActionParamsSchema,
+      priority: z.number().int().min(0),
+      is_active: z.boolean(),
+    }),
+    z.object({
+      id: uuidSchema,
+      tenant_id: uuidSchema,
+      created_at: z.string(),
+      updated_at: z.string(),
+      created_by: uuidSchema.nullable(),
+      name: z.string().trim().min(1),
+      match_pattern: z.string().trim().min(1),
+      match_type: takeoffMappingRuleMatchTypeSchema,
+      action: z.literal("skip"),
+      action_params: takeoffMappingRuleSkipActionParamsSchema,
+      priority: z.number().int().min(0),
+      is_active: z.boolean(),
+    }),
+  ])
+  .superRefine((payload, ctx) => validateTakeoffRegexPattern(payload, ctx));
+const takeoffMappingRulesDataSchema = z.object({
+  mapping_rules: z.array(takeoffMappingRuleSchema),
+});
+const takeoffMappingRuleDataSchema = z.object({
+  mapping_rule: takeoffMappingRuleSchema,
+});
+const takeoffMappingRuleCreateCommonShape = {
+  name: z.string().trim().min(1, "Le nom est requis."),
+  match_pattern: z.string().trim().min(1, "Le pattern est requis."),
+  match_type: takeoffMappingRuleMatchTypeSchema,
+  priority: z
+    .number()
+    .int("La priorite doit etre un entier.")
+    .min(0, "La priorite doit etre positive.")
+    .optional(),
+  is_active: z.boolean().optional(),
+};
+
+const takeoffMappingRuleCreateSchema = z
+  .discriminatedUnion("action", [
+    z.object({
+      ...takeoffMappingRuleCreateCommonShape,
+      action: z.literal("rename"),
+      action_params: takeoffMappingRuleRenameActionParamsSchema,
+    }),
+    z.object({
+      ...takeoffMappingRuleCreateCommonShape,
+      action: z.literal("set_price"),
+      action_params: takeoffMappingRuleSetPriceActionParamsSchema,
+    }),
+    z.object({
+      ...takeoffMappingRuleCreateCommonShape,
+      action: z.literal("set_category"),
+      action_params: takeoffMappingRuleSetCategoryActionParamsSchema,
+    }),
+    z.object({
+      ...takeoffMappingRuleCreateCommonShape,
+      action: z.literal("apply_assembly"),
+      action_params: takeoffMappingRuleApplyAssemblyActionParamsSchema,
+    }),
+    z.object({
+      ...takeoffMappingRuleCreateCommonShape,
+      action: z.literal("skip"),
+      action_params: takeoffMappingRuleSkipActionParamsSchema.optional(),
+    }),
+  ])
+  .superRefine((payload, ctx) => validateTakeoffRegexPattern(payload, ctx));
+
+const takeoffMappingRulePatchCommonShape = {
+  name: z.string().trim().min(1, "Le nom est requis.").optional(),
+  match_pattern: z.string().trim().min(1, "Le pattern est requis.").optional(),
+  match_type: takeoffMappingRuleMatchTypeSchema.optional(),
+  priority: z
+    .number()
+    .int("La priorite doit etre un entier.")
+    .min(0, "La priorite doit etre positive.")
+    .optional(),
+  is_active: z.boolean().optional(),
+};
+
+const takeoffMappingRulePatchWithoutActionSchema = z
+  .object({
+    ...takeoffMappingRulePatchCommonShape,
+  })
+  .superRefine((payload, ctx) => {
+    if (Object.keys(payload).length > 0) return;
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Aucun champ de mise a jour fourni.",
+      path: [],
+    });
+  });
+
+const takeoffMappingRulePatchSchema = z
+  .union([
+    takeoffMappingRulePatchWithoutActionSchema,
+    z.object({
+      ...takeoffMappingRulePatchCommonShape,
+      action: z.literal("rename"),
+      action_params: takeoffMappingRuleRenameActionParamsSchema,
+    }),
+    z.object({
+      ...takeoffMappingRulePatchCommonShape,
+      action: z.literal("set_price"),
+      action_params: takeoffMappingRuleSetPriceActionParamsSchema,
+    }),
+    z.object({
+      ...takeoffMappingRulePatchCommonShape,
+      action: z.literal("set_category"),
+      action_params: takeoffMappingRuleSetCategoryActionParamsSchema,
+    }),
+    z.object({
+      ...takeoffMappingRulePatchCommonShape,
+      action: z.literal("apply_assembly"),
+      action_params: takeoffMappingRuleApplyAssemblyActionParamsSchema,
+    }),
+    z.object({
+      ...takeoffMappingRulePatchCommonShape,
+      action: z.literal("skip"),
+      action_params: takeoffMappingRuleSkipActionParamsSchema.optional(),
+    }),
+  ])
+  .superRefine((payload, ctx) => {
+    if (payload.match_type === "regex" && payload.match_pattern !== undefined) {
+      validateTakeoffRegexPattern(
+        {
+          match_type: payload.match_type,
+          match_pattern: payload.match_pattern,
+        },
+        ctx
+      );
+    }
+  });
+const takeoffMappingRuleDeleteDataSchema = z.object({
+  deleted: z.literal(true),
+  rule_id: uuidSchema,
+});
 
 const apiEstimateListSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateListResponse",
@@ -1137,6 +1363,18 @@ const apiTakeoffJobCreateSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobCreateResponse",
   takeoffJobCreateDataSchema
 );
+const apiTakeoffMappingRulesSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffMappingRulesResponse",
+  takeoffMappingRulesDataSchema
+);
+const apiTakeoffMappingRuleSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffMappingRuleResponse",
+  takeoffMappingRuleDataSchema
+);
+const apiTakeoffMappingRuleDeleteSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffMappingRuleDeleteResponse",
+  takeoffMappingRuleDeleteDataSchema
+);
 const takeoffApiErrorSchemaDefinition = schemaDefinition(
   "TakeoffApiError",
   takeoffApiErrorSchema,
@@ -1192,6 +1430,12 @@ const ruleIdPathParameter = pathParameter({
   name: "ruleId",
   description: "Identifiant UUID de la regle de suggestion.",
   schemaName: "RuleIdPathParameter",
+  schema: uuidSchema,
+});
+const takeoffRuleIdPathParameter = pathParameter({
+  name: "ruleId",
+  description: "Identifiant UUID de la regle de mapping Takeoff.",
+  schemaName: "TakeoffRuleIdPathParameter",
   schema: uuidSchema,
 });
 
@@ -1569,6 +1813,47 @@ const createTakeoffJobBody = multipartBody({
     "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id` et `level=A`.",
   schema: takeoffJobCreateFormDataSchema,
 });
+const createTakeoffMappingRuleBody = jsonBody({
+  name: "CreateTakeoffMappingRuleRequest",
+  description: "Creation d'une regle de mapping Takeoff.",
+  schema: takeoffMappingRuleCreateSchema,
+});
+const patchTakeoffMappingRuleBody = jsonBody({
+  name: "PatchTakeoffMappingRuleRequest",
+  description: "Mise a jour partielle d'une regle de mapping Takeoff.",
+  schema: takeoffMappingRulePatchSchema,
+});
+
+const mappingRulesErrorResponses: Record<string, OpenApiResponseDefinition> = {
+  "400": jsonResponse(
+    "Requete invalide ou payload non conforme.",
+    openApiSharedSchemaDefinitions.apiFailureResponse
+  ),
+  "401": jsonResponse(
+    "Authentification requise.",
+    openApiSharedSchemaDefinitions.apiFailureResponse
+  ),
+  "403": jsonResponse(
+    "Acces interdit.",
+    openApiSharedSchemaDefinitions.apiFailureResponse
+  ),
+  "404": jsonResponse(
+    "Ressource introuvable.",
+    openApiSharedSchemaDefinitions.apiFailureResponse
+  ),
+  "409": jsonResponse(
+    "Conflit metier ou de concurrence.",
+    openApiSharedSchemaDefinitions.apiFailureResponse
+  ),
+  "422": jsonResponse(
+    "Validation metier echouee.",
+    openApiSharedSchemaDefinitions.apiFailureResponse
+  ),
+  "500": jsonResponse(
+    "Erreur interne serveur.",
+    openApiSharedSchemaDefinitions.apiFailureResponse
+  ),
+};
 
 const apiOutlierStateSchemaDefinition =
   openApiSharedSchemaDefinitions.apiOutlierStateResponse;
@@ -1662,6 +1947,68 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
           },
         ],
       },
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/mapping-rules",
+    summary: "Lister les regles de mapping Takeoff",
+    description:
+      "Retourne les regles de mapping du tenant courant, triees par priorite puis date de creation.",
+    tags: ["Takeoff"],
+    responses: {
+      "200": jsonResponse(
+        "Regles de mapping retournees.",
+        apiTakeoffMappingRulesSchemaDefinition
+      ),
+      ...mappingRulesErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/mapping-rules",
+    summary: "Creer une regle de mapping Takeoff",
+    description:
+      "Cree une regle de mapping pour enrichir automatiquement les items extraits.",
+    tags: ["Takeoff"],
+    requestBody: createTakeoffMappingRuleBody,
+    responses: {
+      "201": jsonResponse(
+        "Regle de mapping creee.",
+        apiTakeoffMappingRuleSchemaDefinition
+      ),
+      ...mappingRulesErrorResponses,
+    },
+  },
+  {
+    method: "patch",
+    path: "/api/takeoff/mapping-rules/{ruleId}",
+    summary: "Modifier une regle de mapping Takeoff",
+    description: "Met a jour une regle de mapping existante.",
+    tags: ["Takeoff"],
+    parameters: [takeoffRuleIdPathParameter],
+    requestBody: patchTakeoffMappingRuleBody,
+    responses: {
+      "200": jsonResponse(
+        "Regle de mapping mise a jour.",
+        apiTakeoffMappingRuleSchemaDefinition
+      ),
+      ...mappingRulesErrorResponses,
+    },
+  },
+  {
+    method: "delete",
+    path: "/api/takeoff/mapping-rules/{ruleId}",
+    summary: "Supprimer une regle de mapping Takeoff",
+    description: "Supprime une regle de mapping existante.",
+    tags: ["Takeoff"],
+    parameters: [takeoffRuleIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Regle de mapping supprimee.",
+        apiTakeoffMappingRuleDeleteSchemaDefinition
+      ),
+      ...mappingRulesErrorResponses,
     },
   },
   {

@@ -136,6 +136,287 @@ export const TakeoffExchangeSchema = takeoffExchangeBaseSchema.superRefine(
   }
 );
 
+const takeoffMappingRuleNameSchema = requiredTextSchema.max(160, "Nom trop long.");
+
+const takeoffMappingRulePatternSchema = requiredTextSchema.max(500, "Pattern trop long.");
+
+const takeoffMappingRulePrioritySchema = nonNegativeIntegerSchema.max(
+  100000,
+  "Priorite trop elevee."
+);
+
+export const takeoffMappingRuleIdSchema = z.string().uuid("ruleId invalide.");
+
+export const takeoffMappingRuleMatchTypeSchema = z.enum([
+  "exact",
+  "contains",
+  "regex",
+]);
+
+export const takeoffMappingRuleActionSchema = z.enum([
+  "rename",
+  "set_price",
+  "set_category",
+  "apply_assembly",
+  "skip",
+]);
+
+const takeoffRenameActionParamsSchema = z
+  .object({
+    designation: requiredTextSchema.max(500, "Designation trop longue."),
+  })
+  .strict();
+
+const takeoffSetPriceActionParamsSchema = z
+  .object({
+    unit_price_cents: nonNegativeIntegerSchema,
+  })
+  .strict();
+
+const takeoffSetCategoryActionParamsSchema = z
+  .object({
+    category_id: z.string().uuid("category_id invalide."),
+  })
+  .strict();
+
+const takeoffApplyAssemblyActionParamsSchema = z
+  .object({
+    assembly_id: z.string().uuid("assembly_id invalide."),
+  })
+  .strict();
+
+const takeoffSkipActionParamsSchema = z.object({}).strict();
+
+function validateRegexMatchPattern(
+  input: { match_type: "exact" | "contains" | "regex"; match_pattern: string },
+  ctx: z.RefinementCtx
+) {
+  if (input.match_type !== "regex") return;
+
+  try {
+    // Validate user regex early to avoid runtime crashes in mapping engine.
+    new RegExp(input.match_pattern);
+  } catch {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "match_pattern doit etre une regex valide quand match_type=regex.",
+      path: ["match_pattern"],
+    });
+  }
+}
+
+export const takeoffMappingRuleActionConfigSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      action: z.literal("rename"),
+      action_params: takeoffRenameActionParamsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("set_price"),
+      action_params: takeoffSetPriceActionParamsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("set_category"),
+      action_params: takeoffSetCategoryActionParamsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("apply_assembly"),
+      action_params: takeoffApplyAssemblyActionParamsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("skip"),
+      action_params: takeoffSkipActionParamsSchema.optional().default({}),
+    })
+    .strict(),
+]);
+
+const takeoffMappingRuleCreateCommonShape = {
+  name: takeoffMappingRuleNameSchema,
+  match_pattern: takeoffMappingRulePatternSchema,
+  match_type: takeoffMappingRuleMatchTypeSchema,
+  priority: takeoffMappingRulePrioritySchema.optional(),
+  is_active: z.boolean().optional(),
+};
+
+export const createTakeoffMappingRuleSchema = z
+  .discriminatedUnion("action", [
+    z
+      .object({
+        ...takeoffMappingRuleCreateCommonShape,
+        action: z.literal("rename"),
+        action_params: takeoffRenameActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleCreateCommonShape,
+        action: z.literal("set_price"),
+        action_params: takeoffSetPriceActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleCreateCommonShape,
+        action: z.literal("set_category"),
+        action_params: takeoffSetCategoryActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleCreateCommonShape,
+        action: z.literal("apply_assembly"),
+        action_params: takeoffApplyAssemblyActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleCreateCommonShape,
+        action: z.literal("skip"),
+        action_params: takeoffSkipActionParamsSchema.optional().default({}),
+      })
+      .strict(),
+  ])
+  .superRefine((payload, ctx) => {
+    validateRegexMatchPattern(payload, ctx);
+  });
+
+const takeoffMappingRuleStoredCommonShape = {
+  id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  created_by: z.string().uuid().nullable(),
+  name: takeoffMappingRuleNameSchema,
+  match_pattern: takeoffMappingRulePatternSchema,
+  match_type: takeoffMappingRuleMatchTypeSchema,
+  priority: takeoffMappingRulePrioritySchema,
+  is_active: z.boolean(),
+};
+
+export const TakeoffMappingRuleSchema = z
+  .discriminatedUnion("action", [
+    z
+      .object({
+        ...takeoffMappingRuleStoredCommonShape,
+        action: z.literal("rename"),
+        action_params: takeoffRenameActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleStoredCommonShape,
+        action: z.literal("set_price"),
+        action_params: takeoffSetPriceActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleStoredCommonShape,
+        action: z.literal("set_category"),
+        action_params: takeoffSetCategoryActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleStoredCommonShape,
+        action: z.literal("apply_assembly"),
+        action_params: takeoffApplyAssemblyActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleStoredCommonShape,
+        action: z.literal("skip"),
+        action_params: takeoffSkipActionParamsSchema,
+      })
+      .strict(),
+  ])
+  .superRefine((payload, ctx) => {
+    validateRegexMatchPattern(payload, ctx);
+  });
+
+const takeoffMappingRuleUpdateCommonShape = {
+  name: takeoffMappingRuleNameSchema.optional(),
+  match_pattern: takeoffMappingRulePatternSchema.optional(),
+  match_type: takeoffMappingRuleMatchTypeSchema.optional(),
+  priority: takeoffMappingRulePrioritySchema.optional(),
+  is_active: z.boolean().optional(),
+};
+
+const updateTakeoffMappingRuleWithoutActionSchema = z
+  .object({
+    ...takeoffMappingRuleUpdateCommonShape,
+  })
+  .strict()
+  .superRefine((payload, ctx) => {
+    if (Object.keys(payload).length > 0) return;
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Aucun champ de mise a jour fourni.",
+      path: [],
+    });
+  });
+
+export const updateTakeoffMappingRuleSchema = z
+  .union([
+    updateTakeoffMappingRuleWithoutActionSchema,
+    z
+      .object({
+        ...takeoffMappingRuleUpdateCommonShape,
+        action: z.literal("rename"),
+        action_params: takeoffRenameActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleUpdateCommonShape,
+        action: z.literal("set_price"),
+        action_params: takeoffSetPriceActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleUpdateCommonShape,
+        action: z.literal("set_category"),
+        action_params: takeoffSetCategoryActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleUpdateCommonShape,
+        action: z.literal("apply_assembly"),
+        action_params: takeoffApplyAssemblyActionParamsSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...takeoffMappingRuleUpdateCommonShape,
+        action: z.literal("skip"),
+        action_params: takeoffSkipActionParamsSchema.optional().default({}),
+      })
+      .strict(),
+  ])
+  .superRefine((payload, ctx) => {
+    if (payload.match_type === "regex" && payload.match_pattern !== undefined) {
+      validateRegexMatchPattern(
+        {
+          match_type: payload.match_type,
+          match_pattern: payload.match_pattern,
+        },
+        ctx
+      );
+    }
+  });
+
 function sanitizeGeminiJsonSchema(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => sanitizeGeminiJsonSchema(item));
