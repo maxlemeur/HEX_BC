@@ -1,0 +1,231 @@
+import { describe, expect, it } from "vitest";
+
+import { TakeoffExchangeSchema, zodToGeminiJsonSchema } from "@/lib/takeoff/schemas";
+
+function createBasePayload(level: "A" | "B" | "C") {
+  return {
+    items: [
+      {
+        designation: "Porte coupe-feu",
+        quantity: 5,
+        unit: "u",
+      },
+    ],
+    warnings: [
+      {
+        code: "  qty_inferred  ",
+        message: "Quantite deduite d'un libelle ambigu.",
+        severity: "warning" as const,
+      },
+    ],
+    metadata: {
+      level,
+      prompt_version: "takeoff-a-v1",
+      file_type: "csv",
+      schema_version: "v1",
+    },
+  };
+}
+
+describe("TakeoffExchangeSchema", () => {
+  it("accepts a valid level A payload with optional tables", () => {
+    const payload = createBasePayload("A");
+
+    const parsed = TakeoffExchangeSchema.parse(payload);
+
+    expect(parsed.metadata.level).toBe("A");
+    expect(parsed.tables).toBeUndefined();
+    expect(parsed.warnings[0]?.code).toBe("QTY_INFERRED");
+  });
+
+  it("accepts a valid level B payload with required tables", () => {
+    const payload = {
+      ...createBasePayload("B"),
+      tables: [
+        {
+          page: 2,
+          title: "Tableau menuiseries",
+          headers: ["Designation", "Quantite", "Unite"],
+          rows: [
+            {
+              row_index: 0,
+              cells: ["Porte coupe-feu", "5", "u"],
+            },
+          ],
+        },
+      ],
+    };
+
+    const parsed = TakeoffExchangeSchema.parse(payload);
+
+    expect(parsed.metadata.level).toBe("B");
+    expect(parsed.tables).toHaveLength(1);
+  });
+
+  it("accepts a valid level C payload with global confidence and item evidence", () => {
+    const payload = {
+      ...createBasePayload("C"),
+      confidence: 0.82,
+      items: [
+        {
+          designation: "Fenetre aluminium",
+          quantity: 12,
+          unit: "u",
+          evidence: "Comptage visuel sur plan RDC et R+1.",
+        },
+      ],
+    };
+
+    const parsed = TakeoffExchangeSchema.parse(payload);
+
+    expect(parsed.metadata.level).toBe("C");
+    expect(parsed.confidence).toBe(0.82);
+    expect(parsed.items[0]?.evidence).toBeTruthy();
+  });
+
+  it("rejects level B payloads when tables is missing", () => {
+    const parsed = TakeoffExchangeSchema.safeParse(createBasePayload("B"));
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(parsed.error.issues.some((issue) => issue.path.join(".") === "tables")).toBe(true);
+  });
+
+  it("rejects level C payloads without global confidence", () => {
+    const payload = {
+      ...createBasePayload("C"),
+      items: [
+        {
+          designation: "Fenetre aluminium",
+          quantity: 12,
+          unit: "u",
+          evidence: "Comptage visuel sur plan RDC et R+1.",
+        },
+      ],
+    };
+    const parsed = TakeoffExchangeSchema.safeParse(payload);
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(parsed.error.issues.some((issue) => issue.path.join(".") === "confidence")).toBe(true);
+  });
+
+  it("rejects level C payloads without evidence on each item", () => {
+    const payload = {
+      ...createBasePayload("C"),
+      confidence: 0.62,
+      items: [
+        {
+          designation: "Fenetre aluminium",
+          quantity: 12,
+          unit: "u",
+        },
+      ],
+    };
+    const parsed = TakeoffExchangeSchema.safeParse(payload);
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(parsed.error.issues.some((issue) => issue.path.join(".") === "items.0.evidence")).toBe(
+      true
+    );
+  });
+
+  it("rejects quantity <= 0", () => {
+    const payload = {
+      ...createBasePayload("A"),
+      items: [
+        {
+          designation: "Porte coupe-feu",
+          quantity: 0,
+          unit: "u",
+        },
+      ],
+    };
+    const parsed = TakeoffExchangeSchema.safeParse(payload);
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects empty units", () => {
+    const payload = {
+      ...createBasePayload("A"),
+      items: [
+        {
+          designation: "Porte coupe-feu",
+          quantity: 1,
+          unit: "   ",
+        },
+      ],
+    };
+    const parsed = TakeoffExchangeSchema.safeParse(payload);
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects confidence outside [0, 1]", () => {
+    const payload = {
+      ...createBasePayload("C"),
+      confidence: 1.2,
+      items: [
+        {
+          designation: "Fenetre aluminium",
+          quantity: 12,
+          unit: "u",
+          evidence: "Comptage visuel sur plan RDC et R+1.",
+        },
+      ],
+    };
+    const parsed = TakeoffExchangeSchema.safeParse(payload);
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects unknown root fields in strict mode", () => {
+    const payload = {
+      ...createBasePayload("A"),
+      unexpected_field: true,
+    };
+    const parsed = TakeoffExchangeSchema.safeParse(payload);
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(parsed.error.issues.some((issue) => issue.code === "unrecognized_keys")).toBe(true);
+  });
+
+  it("rejects unknown item fields in strict mode", () => {
+    const payload = {
+      ...createBasePayload("A"),
+      items: [
+        {
+          designation: "Porte coupe-feu",
+          quantity: 5,
+          unit: "u",
+          unexpected_item_field: "x",
+        },
+      ],
+    };
+    const parsed = TakeoffExchangeSchema.safeParse(payload);
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(parsed.error.issues.some((issue) => issue.code === "unrecognized_keys")).toBe(true);
+  });
+});
+
+describe("zodToGeminiJsonSchema", () => {
+  it("returns a Gemini-compatible object schema", () => {
+    const jsonSchema = zodToGeminiJsonSchema();
+
+    expect(jsonSchema.type).toBe("object");
+    expect(jsonSchema.properties).toMatchObject({
+      items: expect.any(Object),
+      warnings: expect.any(Object),
+      metadata: expect.any(Object),
+    });
+    expect(jsonSchema.required).toEqual(
+      expect.arrayContaining(["items", "warnings", "metadata"])
+    );
+    expect(jsonSchema).not.toHaveProperty("$schema");
+  });
+});
