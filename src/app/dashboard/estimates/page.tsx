@@ -21,6 +21,7 @@ import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ResultCount } from "@/components/TableFilterBar/ResultCount";
 import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips";
+import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import type { SortOption } from "@/components/TableFilterBar/types";
 
 const PAGE_SIZE = 20;
@@ -155,6 +156,7 @@ export default function EstimatesPage() {
   const [selectedStatuses, setSelectedStatuses] = useState<EstimateStatus[]>(initialStatus);
   const [currentPage, setCurrentPage] = useState(initialPage);
   const [dateRange, setDateRange] = useState<DateRange>("all");
+  const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
 
   const fetchEstimates = useCallback(async () => fetchEstimateList(), []);
 
@@ -355,6 +357,11 @@ export default function EstimatesPage() {
           <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/assemblies" title="Groupes de lignes prédéfinis à insérer dans un chiffrage">
             Assemblages
           </Link>
+          {takeoffStatus === "ready" && isTakeoffEnabled ? (
+            <Link className="btn btn-secondary btn-lg" href="/dashboard/takeoff" title="Lancer le module Takeoff">
+              Takeoff
+            </Link>
+          ) : null}
           <Link className="btn btn-primary btn-lg" href="/dashboard/estimates/new">
             <svg
               xmlns="http://www.w3.org/2000/svg"

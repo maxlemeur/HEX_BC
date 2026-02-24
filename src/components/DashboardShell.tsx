@@ -3,10 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 
@@ -375,6 +376,30 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+const TAKEOFF_NAV_ITEM: NavGroup["items"][number] = {
+  href: "/dashboard/takeoff",
+  label: "Takeoff",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 20V8l8-4 8 4v12" />
+      <path d="M10 20v-6h4v6" />
+      <path d="M2 20h20" />
+      <path d="M8 10h.01" />
+      <path d="M16 10h.01" />
+    </svg>
+  ),
+};
+
 function buildInitials(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "..";
@@ -397,6 +422,7 @@ export function DashboardShell({
   const { enabled: isSidebarFlagIndicatorEnabled } = useFeatureFlag(
     "FEATURE_FLAGS_SIDEBAR_INDICATOR"
   );
+  const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
 
   const [collapsed, setCollapsed] = useState(false);
   const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);
@@ -426,6 +452,22 @@ export function DashboardShell({
 
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
+  const navGroups = useMemo(() => {
+    if (takeoffStatus !== "ready" || !isTakeoffEnabled) {
+      return NAV_GROUPS;
+    }
+
+    return NAV_GROUPS.map((group) => {
+      if (group.key !== "commercial") {
+        return group;
+      }
+
+      return {
+        ...group,
+        items: [...group.items, TAKEOFF_NAV_ITEM],
+      };
+    });
+  }, [isTakeoffEnabled, takeoffStatus]);
 
   function isActive(href: string) {
     if (href === "/dashboard/orders") {
@@ -518,8 +560,8 @@ export function DashboardShell({
           </button>
         </div>
 
-        <nav className="mt-4 flex-1 px-4" role="navigation" aria-label="Menu principal">
-          {NAV_GROUPS.map((group, i) => (
+        <nav className="mt-4 flex-1 px-4" aria-label="Menu principal">
+          {navGroups.map((group, i) => (
             <div
               key={group.key}
               className={`sidebar-nav-group${i === 0 ? " sidebar-nav-group--first" : ""}`}
