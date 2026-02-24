@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -25,6 +27,7 @@
 *.pem
 nul
 e2e/.auth.json
+e2e/.auth/
 .claude/skills/
 .agent/
 .agents/

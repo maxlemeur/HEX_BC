@@ -17,6 +17,9 @@ This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
   - Checks the Login form fields
 
 - `npm run e2e:auth` logs in and saves an auth state file for future tests.
+- `npm run e2e:pw:critical` runs the Playwright critical-path suite (`e2e/estimates/*`).
+- `npm run e2e:pw:headed` runs the same suite in headed mode.
+- `npm run e2e:pw:report` opens the generated Playwright HTML report.
 
 ## HEX ticket scripts
 
@@ -46,6 +49,10 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
   - `est-101-keyboard.ps1`
   - `est-102-inline-edit.ps1`
   - `est-103-multiselect.ps1`
+  - `est-104-clipboard.ps1`
+  - `est-105-autosave.ps1`
+  - `est-106-undo-redo.ps1`
+  - `est-030-supplier-comparison.ps1`
   - `ti-147-editor.ps1`
   - `est-164-catalogue-suggestions.ps1`
 - `lifecycle`:
@@ -69,6 +76,22 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
   - `dpgf-import-flow.ps1`
 - `all`:
   - full HEX coverage (including `ti-140-epic.ps1`)
+
+### Playwright matrix (EST-262 partial)
+
+- `e2e/estimates/full-lifecycle.spec.ts`
+  - Scenario 1: creation wizard + line edition + autosave
+  - Scenario 2: status transitions (`draft -> sent -> accepted`)
+  - Scenario 4: export XLSX + print page checks
+- `e2e/estimates/duplicate.spec.ts`
+  - Scenario 3: duplicate estimate + copied line verification
+- `e2e/estimates/import-dpgf.spec.ts`
+  - Scenario 5: DPGF import + mapping save + catalogue link flow
+
+Playwright config is in `playwright.config.ts` with:
+- automatic screenshots on failure (`screenshot: only-on-failure`),
+- HTML report output in `playwright-report/`,
+- CI artifact upload from `.github/workflows/e2e-playwright-critical.yml`.
 
 ### Runner options
 

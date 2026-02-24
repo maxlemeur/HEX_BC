@@ -18,6 +18,10 @@
     "e2e:hex:assemblies": "node ./e2e/run-ps1.mjs e2e/hex/run-all.ps1 -Suite assemblies",
     "e2e:hex:dpgf": "node ./e2e/run-ps1.mjs e2e/hex/run-all.ps1 -Suite dpgf",
     "e2e:run": "node ./e2e/run-ps1.mjs",
+    "e2e:pw": "playwright test",
+    "e2e:pw:critical": "playwright test e2e/estimates --project=chromium",
+    "e2e:pw:headed": "playwright test e2e/estimates --project=chromium --headed",
+    "e2e:pw:report": "playwright show-report playwright-report",
     "lint": "eslint . --max-warnings=0",
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",
     "validate-openapi": "node scripts/validate-openapi-runner.mjs",
@@ -47,6 +51,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

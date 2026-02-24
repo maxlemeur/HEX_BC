@@ -1,0 +1,66 @@
+import { defineConfig, devices } from "@playwright/test";
+
+const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
+
+function resolveWebServer() {
+  let parsedBaseUrl: URL;
+  try {
+    parsedBaseUrl = new URL(baseURL);
+  } catch {
+    return undefined;
+  }
+
+  const isLocalHost = ["localhost", "127.0.0.1"].includes(parsedBaseUrl.hostname);
+  if (!isLocalHost) {
+    return undefined;
+  }
+
+  const port = parsedBaseUrl.port || "3000";
+
+  return {
+    command: `npm run dev -- --port ${port}`,
+    url: baseURL,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  };
+}
+
+export default defineConfig({
+  testDir: "./e2e/estimates",
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 1 : 0,
+  workers: 1,
+  timeout: 90_000,
+  expect: {
+    timeout: 15_000,
+  },
+  reporter: process.env.CI
+    ? [["line"], ["html", { open: "never", outputFolder: "playwright-report" }]]
+    : [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
+  outputDir: "test-results/playwright",
+  use: {
+    baseURL,
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
+    headless: process.env.E2E_HEADED === "1" ? false : true,
+    actionTimeout: 15_000,
+    navigationTimeout: 45_000,
+  },
+  projects: [
+    {
+      name: "setup",
+      testMatch: /auth\.setup\.ts/,
+    },
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "e2e/.auth/playwright-user.json",
+      },
+      dependencies: ["setup"],
+    },
+  ],
+  webServer: resolveWebServer(),
+});
