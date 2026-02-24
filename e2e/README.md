@@ -20,6 +20,7 @@ This folder contains lightweight E2E checks powered by the `agent-browser` CLI.
 - `npm run e2e:pw:critical` runs the Playwright critical-path suite (`e2e/estimates/*`).
 - `npm run e2e:pw:headed` runs the same suite in headed mode.
 - `npm run e2e:pw:report` opens the generated Playwright HTML report.
+- `npm run e2e:rls` runs the EST-261 RLS matrix integration suite.
 
 ## HEX ticket scripts
 
@@ -93,6 +94,21 @@ Playwright config is in `playwright.config.ts` with:
 - HTML report output in `playwright-report/`,
 - CI artifact upload from `.github/workflows/e2e-playwright-critical.yml`.
 
+### RLS matrix (EST-261 partial)
+
+- `src/lib/estimates/rls.e2e.test.ts` validates a CRUD matrix (`SELECT/INSERT/UPDATE/DELETE`)
+  by role (`admin/engineer/viewer`) on:
+  - `estimate_versions`
+  - `estimate_items`
+  - `estimate_categories`
+  - `labor_roles`
+  - `estimate_suggestion_rules`
+  - `audit_logs`
+- Includes cross-tenant isolation assertions (non-member access must fail).
+- `portal_tokens` is probed and reported when absent from the current schema snapshot.
+- Requires `RLS_E2E=1` and dedicated account credentials (see env vars below).
+- CI blocking workflow: `.github/workflows/e2e-rls-matrix.yml`.
+
 ### Runner options
 
 List available suites:
@@ -118,8 +134,15 @@ npm run e2e:run -- e2e/hex/run-all.ps1 -Suite editor -ContinueOnFailure false
 - `E2E_AUTH_STATE` path for saved auth state (default: `e2e/.auth.json`)
 - `E2E_AUTH_CACHE` (default: `1` for HEX flows). Set `0`/`false`/`off`/`no` to disable cache and force UI login.
 - `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2` for `ti-141-db-rls.ps1` secondary account checks
+- `RLS_E2E=1` to enable `npm run e2e:rls`
+- `RLS_E2E_ADMIN_EMAIL` and `RLS_E2E_ADMIN_PASSWORD`
+- `RLS_E2E_ENGINEER_EMAIL` and `RLS_E2E_ENGINEER_PASSWORD`
+  - fallback: `E2E_LOGIN_EMAIL` and `E2E_LOGIN_PASSWORD`
+- `RLS_E2E_VIEWER_EMAIL` and `RLS_E2E_VIEWER_PASSWORD`
+  - fallback: `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2`
+- `SUPABASE_SERVICE_ROLE_KEY` for seeding/cleanup in the RLS matrix suite
 
-If `E2E_LOGIN_EMAIL_2` or `E2E_LOGIN_PASSWORD_2` is missing, `ti-141-db-rls.ps1` is reported as `SKIP` and does not fail the suite.
+If `E2E_LOGIN_EMAIL_2` or `E2E_LOGIN_PASSWORD_2` is missing, `ti-141-db-rls.ps1` now fails fast (no `SKIP` fallback).
 
 By default, session names are isolated per process (`e2e-$PID`, `e2e-auth-$PID`, `e2e-hex-$PID`) and HEX suite runs isolate each test with its own session. This avoids collisions when multiple devs run E2E in parallel.
 

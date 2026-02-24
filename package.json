@@ -22,6 +22,7 @@
     "e2e:pw:critical": "playwright test e2e/estimates --project=chromium",
     "e2e:pw:headed": "playwright test e2e/estimates --project=chromium --headed",
     "e2e:pw:report": "playwright show-report playwright-report",
+    "e2e:rls": "vitest run --project=node src/lib/estimates/rls.e2e.test.ts",
     "lint": "eslint . --max-warnings=0",
     "generate-openapi": "node --import tsx scripts/validate-openapi.ts --write",
     "validate-openapi": "node scripts/validate-openapi-runner.mjs",

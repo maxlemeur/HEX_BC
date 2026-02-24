@@ -29,8 +29,7 @@ $secondaryEmail = $env:E2E_LOGIN_EMAIL_2
 $secondaryPassword = $env:E2E_LOGIN_PASSWORD_2
 
 if (-not $secondaryEmail -or -not $secondaryPassword) {
-  Write-Host "TI-141 SKIP (missing E2E_LOGIN_EMAIL_2 / E2E_LOGIN_PASSWORD_2)"
-  return
+  throw "TI-141 requires E2E_LOGIN_EMAIL_2 and E2E_LOGIN_PASSWORD_2."
 }
 
 try {
