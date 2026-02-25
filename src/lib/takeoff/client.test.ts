@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  applyTakeoffJob,
   createTakeoffMappingRule,
   deleteTakeoffMappingRule,
   fetchTakeoffMappingRules,
@@ -42,6 +43,49 @@ const CREATE_INPUT = {
 const UPDATE_INPUT = {
   priority: 15,
   is_active: false,
+};
+
+const APPLY_PAYLOAD = {
+  strategy: "merge" as const,
+  target_section_id: "66666666-6666-4666-8666-666666666666",
+};
+
+const APPLY_RESPONSE = {
+  job: {
+    id: JOB_ID,
+    estimate_version_id: "88888888-8888-4888-8888-888888888888",
+    status: "applied",
+    level: "A",
+    source_file_name: "niveau-a.csv",
+    source_file_type: "text/csv",
+    source_file_size_bytes: 2048,
+    prompt_version: "takeoff-a-v1",
+    schema_version: "v1",
+    model: "gemini-2.5-flash",
+    thinking_level: "high",
+    media_resolution: null,
+    retry_count: 0,
+    error_code: null,
+    error_message: null,
+    next_retry_at: null,
+    last_error_at: null,
+    started_at: "2026-02-25T10:00:00.000Z",
+    completed_at: "2026-02-25T10:00:10.000Z",
+    created_at: "2026-02-25T09:59:00.000Z",
+    updated_at: "2026-02-25T10:00:10.000Z",
+    metrics: {
+      token_count: 120,
+      cost_cents: 4,
+      duration_ms: 10000,
+    },
+  },
+  summary: {
+    scope: "section" as const,
+    created_count: 1,
+    updated_count: 0,
+    ignored_count: 0,
+    created_ids: ["99999999-9999-4999-8999-999999999999"],
+  },
 };
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -169,6 +213,33 @@ describe("takeoff client mapping rules wrappers", () => {
       deleted: true,
       rule_id: RULE_ID,
     });
+  });
+
+  it("applies a takeoff job via POST and unwraps the API envelope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        data: APPLY_RESPONSE,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const complexJobId = `${JOB_ID}/segment`;
+    const result = await applyTakeoffJob(complexJobId, APPLY_PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/takeoff/jobs/${encodeURIComponent(complexJobId)}/apply`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+        }),
+      })
+    );
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual(APPLY_PAYLOAD);
+    expect(result).toEqual(APPLY_RESPONSE);
   });
 
   it("throws TakeoffApiError on non-2xx responses and preserves metadata", async () => {

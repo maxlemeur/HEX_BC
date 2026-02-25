@@ -27,6 +27,17 @@ export const TAKEOFF_JOB_STATUSES = [
 ] as const;
 export type TakeoffJobStatus = (typeof TAKEOFF_JOB_STATUSES)[number];
 
+export const TAKEOFF_APPLY_STRATEGIES = ["append", "replace", "merge"] as const;
+export type TakeoffApplyStrategy = (typeof TAKEOFF_APPLY_STRATEGIES)[number];
+
+export const TAKEOFF_APPLY_SCOPES = ["section", "version"] as const;
+export type TakeoffApplyScope = (typeof TAKEOFF_APPLY_SCOPES)[number];
+
+export type TakeoffApplyRequest = {
+  strategy: TakeoffApplyStrategy;
+  target_section_id?: string | null;
+};
+
 export type TakeoffJobCreateInput = {
   estimateVersionId: string;
   level: "A";
@@ -74,6 +85,14 @@ export type TakeoffJobSummary = {
   created_at: string;
   updated_at: string;
   metrics: TakeoffJobMetrics;
+};
+
+export type TakeoffApplySummary = {
+  scope: TakeoffApplyScope;
+  created_count: number;
+  updated_count: number;
+  ignored_count: number;
+  created_ids: string[];
 };
 
 export type TakeoffJobListResponse = {
@@ -166,6 +185,11 @@ export type TakeoffJobDetailResponse = {
 
 export type TakeoffJobActionResponse = {
   job: TakeoffJobSummary;
+};
+
+export type TakeoffApplyResponse = {
+  job: TakeoffJobSummary;
+  summary: TakeoffApplySummary;
 };
 
 export type TakeoffApiError = {

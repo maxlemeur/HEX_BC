@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import {
   assertDraftStatus,
+  bulkUpdateEstimateItems,
   getAuthenticatedContext,
 } from "@/lib/estimates/server";
 import {
@@ -26,24 +27,31 @@ import {
 import { validateFileForUpload } from "@/lib/file-validation";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
-import type {
-  CreateTakeoffMappingRuleInput,
-  TakeoffItemBatchPatchRequest,
-  TakeoffItemBatchPatchResponse,
-  TakeoffItemPatchResult,
-  TakeoffJobActionResponse,
-  TakeoffJobDetailResponse,
-  TakeoffJobItem,
-  TakeoffJobListResponse,
-  TakeoffJobResult,
-  TakeoffJobResponse,
-  TakeoffJobSummary,
-  TakeoffLevel,
-  TakeoffMappingRule,
-  TakeoffMappingRuleDeleteResponse,
-  TakeoffMappingRuleMutationResponse,
-  TakeoffMappingRulesListResponse,
-  UpdateTakeoffMappingRuleInput,
+import {
+  TAKEOFF_APPLY_SCOPES,
+  TAKEOFF_APPLY_STRATEGIES,
+  type CreateTakeoffMappingRuleInput,
+  type TakeoffApplyRequest,
+  type TakeoffApplyResponse,
+  type TakeoffApplyScope,
+  type TakeoffApplyStrategy,
+  type TakeoffApplySummary,
+  type TakeoffItemBatchPatchRequest,
+  type TakeoffItemBatchPatchResponse,
+  type TakeoffItemPatchResult,
+  type TakeoffJobActionResponse,
+  type TakeoffJobDetailResponse,
+  type TakeoffJobItem,
+  type TakeoffJobListResponse,
+  type TakeoffJobResult,
+  type TakeoffJobResponse,
+  type TakeoffJobSummary,
+  type TakeoffLevel,
+  type TakeoffMappingRule,
+  type TakeoffMappingRuleDeleteResponse,
+  type TakeoffMappingRuleMutationResponse,
+  type TakeoffMappingRulesListResponse,
+  type UpdateTakeoffMappingRuleInput,
 } from "@/lib/takeoff/types";
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
@@ -324,6 +332,30 @@ export const getTakeoffJobDetailsQuerySchema = z
     items_offset: optionalOffsetSearchParamSchema,
   })
   .strict();
+
+const takeoffApplyStrategySchema = z.enum(TAKEOFF_APPLY_STRATEGIES);
+
+export const takeoffApplyPayloadSchema: z.ZodType<TakeoffApplyRequest> = z
+  .object({
+    strategy: takeoffApplyStrategySchema,
+    target_section_id: z.string().uuid("target_section_id invalide.").nullable().optional(),
+  })
+  .strict();
+
+const takeoffApplyRpcSummarySchema = z
+  .object({
+    strategy: z.string().optional(),
+    scope: z.string().optional(),
+    created_items_count: z.number().int().nonnegative().optional(),
+    updated_items_count: z.number().int().nonnegative().optional(),
+    ignored_items_count: z.number().int().nonnegative().optional(),
+    created_item_ids: z.array(z.string()).optional(),
+    created_count: z.number().int().nonnegative().optional(),
+    updated_count: z.number().int().nonnegative().optional(),
+    ignored_count: z.number().int().nonnegative().optional(),
+    created_ids: z.array(z.string()).optional(),
+  })
+  .passthrough();
 
 export type ListTakeoffJobsQuery = z.infer<typeof listTakeoffJobsQuerySchema>;
 export type GetTakeoffJobDetailsQuery = z.infer<
@@ -613,6 +645,184 @@ function parseWithSchema<T>(schema: z.ZodType<T>, payload: unknown, message: str
   return parsed.data;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isTakeoffApplyScope(value: unknown): value is TakeoffApplyScope {
+  return (
+    typeof value === "string" &&
+    (TAKEOFF_APPLY_SCOPES as readonly string[]).includes(value)
+  );
+}
+
+type ApplyTakeoffRpcError = {
+  code?: string;
+  message?: string;
+  details?: string | null;
+  hint?: string | null;
+};
+
+type ApplyTakeoffRpcArgs = {
+  job_id: string;
+  strategy: TakeoffApplyStrategy;
+  target_section_id: string | null;
+};
+
+function isApplyTakeoffRpcSignatureMismatch(error: ApplyTakeoffRpcError) {
+  const normalizedMessage = (error.message ?? "").toLowerCase();
+  return (
+    error.code === "PGRST202" ||
+    normalizedMessage.includes("could not find the function public.apply_takeoff_job")
+  );
+}
+
+async function invokeApplyTakeoffRpc(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  args: ApplyTakeoffRpcArgs;
+}) {
+  const primaryAttempt = await input.supabase.rpc(
+    "apply_takeoff_job" as never,
+    {
+      p_job_id: input.args.job_id,
+      p_strategy: input.args.strategy,
+      p_target_section_id: input.args.target_section_id,
+    } as never
+  );
+
+  if (!primaryAttempt.error || !isApplyTakeoffRpcSignatureMismatch(primaryAttempt.error)) {
+    return primaryAttempt;
+  }
+
+  return input.supabase.rpc("apply_takeoff_job" as never, input.args as never);
+}
+
+function mapApplyTakeoffRpcError(
+  error: ApplyTakeoffRpcError,
+  input: { jobId: string }
+): TakeoffError {
+  const normalized = [
+    error.code ?? "",
+    error.message ?? "",
+    error.details ?? "",
+    error.hint ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const details = {
+    rpc: {
+      code: error.code ?? null,
+      message: error.message ?? null,
+      details: error.details ?? null,
+      hint: error.hint ?? null,
+    },
+  };
+
+  if (
+    error.code === "PGRST116" ||
+    normalized.includes("not found") ||
+    normalized.includes("introuvable")
+  ) {
+    return new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND,
+      message: "Job takeoff introuvable.",
+      details,
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  if (
+    error.code === "P0001" ||
+    error.code === "23505" ||
+    normalized.includes("conflict") ||
+    normalized.includes("already applied") ||
+    normalized.includes("deja applique") ||
+    normalized.includes("lock")
+  ) {
+    return new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "Conflit lors de l'application du job takeoff.",
+      details,
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  if (
+    error.code === "22P02" ||
+    error.code === "23503" ||
+    error.code === "23514" ||
+    normalized.includes("validation") ||
+    normalized.includes("invalid") ||
+    normalized.includes("invalide") ||
+    normalized.includes("uuid")
+  ) {
+    return new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.VALIDATION_ERROR,
+      message: "Le payload d'application takeoff est invalide.",
+      details,
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  return new TakeoffError({
+    status: 500,
+    code: TakeoffErrorCode.INTERNAL_ERROR,
+    message: "Erreur interne lors de l'application du job takeoff.",
+    details,
+    retryable: false,
+    jobId: input.jobId,
+  });
+}
+
+function normalizeTakeoffApplySummary(input: {
+  rpcData: unknown;
+  request: TakeoffApplyRequest;
+  jobId: string;
+}): TakeoffApplySummary {
+  const rpcRow = Array.isArray(input.rpcData) ? input.rpcData[0] : input.rpcData;
+  const summarySource =
+    isRecord(rpcRow) && isRecord(rpcRow.summary) ? rpcRow.summary : rpcRow;
+  const parsed = takeoffApplyRpcSummarySchema.safeParse(
+    isRecord(summarySource) ? summarySource : {}
+  );
+
+  if (!parsed.success) {
+    throw new TakeoffError({
+      status: 500,
+      code: TakeoffErrorCode.INTERNAL_ERROR,
+      message: "La reponse apply_takeoff_job est invalide.",
+      details: {
+        issues: toValidationIssues(parsed.error),
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  const row = parsed.data;
+  const createdItemsCount = row.created_items_count ?? row.created_count ?? 0;
+  const updatedItemsCount = row.updated_items_count ?? row.updated_count ?? 0;
+  const ignoredItemsCount = row.ignored_items_count ?? row.ignored_count ?? 0;
+
+  return {
+    scope: isTakeoffApplyScope(row.scope)
+      ? row.scope
+      : input.request.target_section_id
+        ? "section"
+        : "version",
+    created_count: createdItemsCount,
+    updated_count: updatedItemsCount,
+    ignored_count: ignoredItemsCount,
+    created_ids: row.created_ids ?? row.created_item_ids ?? [],
+  };
+}
+
 function normalizeTakeoffJobSummaryRow(row: unknown): TakeoffJobSummary {
   return parseWithSchema(
     takeoffJobSummarySchema,
@@ -698,6 +908,14 @@ export function parseGetTakeoffJobDetailsQuery(
     getTakeoffJobDetailsQuerySchema,
     payload,
     "Parametres de requete invalides."
+  );
+}
+
+export function parseApplyTakeoffPayload(payload: unknown): TakeoffApplyRequest {
+  return parseWithSchema(
+    takeoffApplyPayloadSchema,
+    payload,
+    "Payload d'application takeoff invalide."
   );
 }
 
@@ -1220,6 +1438,221 @@ export async function cancelTakeoffJob(jobId: string): Promise<TakeoffJobActionR
   return {
     job: normalizeTakeoffJobSummaryRow(updatedJob),
   };
+}
+
+async function assertTakeoffApplyDraftLockOwnership(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  estimateVersionId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_versions" as never)
+    .select("id, updated_at" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("id" as never, input.estimateVersionId as never)
+    .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        error,
+        "Impossible de verifier le verrou brouillon de la version cible."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  const row = (data ?? null) as { id: string; updated_at: string | null } | null;
+  if (!row) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Version de chiffrage introuvable.",
+      details: {
+        estimate_version_id: input.estimateVersionId,
+      },
+      retryable: false,
+    });
+  }
+
+  const concurrencyToken = row.updated_at;
+  if (!concurrencyToken) {
+    throw new TakeoffError({
+      status: 500,
+      code: TakeoffErrorCode.INTERNAL_ERROR,
+      message: "Jeton de concurrence introuvable pour la version de chiffrage.",
+      details: {
+        estimate_version_id: input.estimateVersionId,
+      },
+      retryable: false,
+    });
+  }
+
+  await bulkUpdateEstimateItems(input.estimateVersionId, [], concurrencyToken);
+}
+
+export async function applyTakeoffJob(
+  jobId: string,
+  body: unknown
+): Promise<TakeoffApplyResponse> {
+  let normalizedJobId: string | undefined;
+  let auditContext:
+    | {
+        supabase: AuthenticatedTakeoffContext["supabase"];
+        tenantId: string;
+        userId: string;
+        estimateVersionId: string;
+      }
+    | undefined;
+
+  try {
+    const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+    normalizedJobId = parseWithSchema(
+      takeoffJobIdSchema,
+      jobId,
+      "Identifiant job invalide."
+    );
+    const payload = parseApplyTakeoffPayload(body);
+
+    const jobRow = await getTakeoffJobDetailByIdOrThrow({
+      supabase,
+      tenantId,
+      jobId: normalizedJobId,
+    });
+
+    auditContext = {
+      supabase,
+      tenantId,
+      userId,
+      estimateVersionId: jobRow.estimate_version_id,
+    };
+
+    if (jobRow.status !== "completed") {
+      throw new TakeoffError({
+        status: 409,
+        code: TakeoffErrorCode.CONFLICT,
+        message: "Le job doit etre en statut completed pour etre applique.",
+        details: {
+          current_status: jobRow.status,
+          allowed_statuses: ["completed"],
+        },
+        retryable: false,
+        jobId: normalizedJobId,
+      });
+    }
+
+    await logTakeoffAuditEvent({
+      supabase,
+      tenantId,
+      userId,
+      jobId: normalizedJobId,
+      estimateVersionId: jobRow.estimate_version_id,
+      action: "takeoff.apply.started",
+      metadata: takeoffAuditMetadataBuilders["takeoff.apply.started"]({
+        estimate_version_id: jobRow.estimate_version_id,
+        selected_items_count: 0,
+      }),
+      mode: "non-blocking",
+    });
+
+    await assertTakeoffApplyDraftLockOwnership({
+      supabase,
+      tenantId,
+      estimateVersionId: jobRow.estimate_version_id,
+    });
+
+    const { data: rpcData, error: rpcError } = await invokeApplyTakeoffRpc({
+      supabase,
+      args: {
+        job_id: normalizedJobId,
+        strategy: payload.strategy,
+        target_section_id: payload.target_section_id ?? null,
+      },
+    });
+
+    if (rpcError) {
+      throw mapApplyTakeoffRpcError(rpcError, {
+        jobId: normalizedJobId,
+      });
+    }
+
+    const summary = normalizeTakeoffApplySummary({
+      rpcData,
+      request: payload,
+      jobId: normalizedJobId,
+    });
+
+    const updatedJobRow = await getTakeoffJobDetailByIdOrThrow({
+      supabase,
+      tenantId,
+      jobId: normalizedJobId,
+    });
+
+    if (updatedJobRow.status !== "applied") {
+      throw new TakeoffError({
+        status: 500,
+        code: TakeoffErrorCode.INTERNAL_ERROR,
+        message: "Le job takeoff n'est pas dans le statut attendu apres apply.",
+        details: {
+          expected_status: "applied",
+          current_status: updatedJobRow.status,
+        },
+        retryable: false,
+        jobId: normalizedJobId,
+      });
+    }
+
+    await logTakeoffAuditEvent({
+      supabase,
+      tenantId,
+      userId,
+      jobId: normalizedJobId,
+      estimateVersionId: jobRow.estimate_version_id,
+      action: "takeoff.apply.completed",
+      metadata: takeoffAuditMetadataBuilders["takeoff.apply.completed"]({
+        estimate_version_id: jobRow.estimate_version_id,
+        applied_items_count: summary.created_count + summary.updated_count,
+        excluded_items_count: summary.ignored_count,
+      }),
+      mode: "non-blocking",
+    });
+
+    return {
+      job: normalizeTakeoffJobSummaryRow(updatedJobRow),
+      summary,
+    };
+  } catch (error) {
+    const mappedError = toTakeoffError(error, {
+      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+      fallbackMessage: "Impossible d'appliquer le job takeoff.",
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+
+    if (auditContext && normalizedJobId) {
+      await logTakeoffAuditEvent({
+        supabase: auditContext.supabase,
+        tenantId: auditContext.tenantId,
+        userId: auditContext.userId,
+        jobId: normalizedJobId,
+        estimateVersionId: auditContext.estimateVersionId,
+        action: "takeoff.apply.failed",
+        metadata: takeoffAuditMetadataBuilders["takeoff.apply.failed"]({
+          estimate_version_id: auditContext.estimateVersionId,
+          error_code:
+            typeof mappedError.code === "string" ? mappedError.code : null,
+          error_message: mappedError.message,
+          retryable: mappedError.retryable,
+        }),
+        mode: "non-blocking",
+      });
+    }
+
+    throw mappedError;
+  }
 }
 
 async function assertEstimateVersionAccessibleAsDraft(input: {

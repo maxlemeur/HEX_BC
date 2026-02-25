@@ -4,9 +4,15 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  cancelTakeoffJob as cancelTakeoffJobApi,
+  TakeoffApplyWizard,
+  type TakeoffApplyStrategy,
+  type TakeoffApplyWizardSubmitPayload,
+} from "@/components/takeoff/TakeoffApplyWizard";
+import {
+  applyTakeoffJob,
+  cancelTakeoffJob,
   isTakeoffApiError,
-  retryTakeoffJob as retryTakeoffJobApi,
+  retryTakeoffJob,
 } from "@/lib/takeoff/client";
 import { useTakeoffJobPolling } from "@/lib/takeoff/use-takeoff-job-polling";
 import {
@@ -20,6 +26,16 @@ type TakeoffJobMonitorProps = {
 };
 
 type ActionState = "idle" | "loading" | "error";
+
+type ApplySuccessSummary = {
+  appliedAt: string;
+  versionId: string;
+  sectionLabel: string;
+  strategy: TakeoffApplyStrategy;
+  createdCount: number;
+  updatedCount: number;
+  ignoredCount: number;
+};
 
 const STATUS_CSS_MAP: Record<string, string> = {
   pending: "status-draft",
@@ -39,12 +55,22 @@ const STATUS_LABEL_MAP: Record<string, string> = {
   applied: "Applique",
 };
 
+const STRATEGY_LABEL_MAP: Record<TakeoffApplyStrategy, string> = {
+  append: "Append",
+  replace: "Replace",
+  merge: "Merge",
+};
+
 function getStatusCss(status: string) {
   return STATUS_CSS_MAP[status] ?? "status-draft";
 }
 
 function getStatusLabel(status: string) {
   return STATUS_LABEL_MAP[status] ?? status;
+}
+
+function getStrategyLabel(strategy: TakeoffApplyStrategy) {
+  return STRATEGY_LABEL_MAP[strategy] ?? strategy;
 }
 
 function formatFileSize(bytes: number | null) {
@@ -310,21 +336,23 @@ export default function TakeoffJobMonitor({
   const [retryState, setRetryState] = useState<ActionState>("idle");
   const [cancelState, setCancelState] = useState<ActionState>("idle");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [applyState, setApplyState] = useState<ActionState>("idle");
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const [isApplyWizardOpen, setIsApplyWizardOpen] = useState(false);
+  const [applySuccess, setApplySuccess] = useState<ApplySuccessSummary | null>(
+    null
+  );
 
   const handleRetry = useCallback(async () => {
     setRetryState("loading");
     setActionError(null);
     try {
-      await retryTakeoffJobApi(jobId);
+      await retryTakeoffJob(jobId);
       setRetryState("idle");
       refetch();
     } catch (err) {
       setRetryState("error");
-      setActionError(
-        isTakeoffApiError(err)
-          ? err.message
-          : "Impossible de relancer le job."
-      );
+      setActionError(isTakeoffApiError(err) ? err.message : "Impossible de relancer le job.");
     }
   }, [jobId, refetch]);
 
@@ -332,18 +360,62 @@ export default function TakeoffJobMonitor({
     setCancelState("loading");
     setActionError(null);
     try {
-      await cancelTakeoffJobApi(jobId);
+      await cancelTakeoffJob(jobId);
       setCancelState("idle");
       refetch();
     } catch (err) {
       setCancelState("error");
-      setActionError(
-        isTakeoffApiError(err)
-          ? err.message
-          : "Impossible d'annuler le job."
-      );
+      setActionError(isTakeoffApiError(err) ? err.message : "Impossible d'annuler le job.");
     }
   }, [jobId, refetch]);
+
+  const includedItemsCount = data?.items.data.filter((item) => !item.is_excluded).length ?? 0;
+  const excludedItemsCount = (data?.items.data.length ?? 0) - includedItemsCount;
+
+  const handleApplyWizardOpenChange = useCallback(
+    (open: boolean) => {
+      if (applyState === "loading") return;
+      setIsApplyWizardOpen(open);
+      if (open) {
+        setApplyError(null);
+      }
+    },
+    [applyState]
+  );
+
+  const handleApplyConfirm = useCallback(
+    async (payload: TakeoffApplyWizardSubmitPayload) => {
+      setApplyState("loading");
+      setApplyError(null);
+
+      try {
+        const response = await applyTakeoffJob(jobId, {
+          target_section_id: payload.targetSectionId,
+          strategy: payload.strategy,
+        });
+        setApplyState("idle");
+        setIsApplyWizardOpen(false);
+        setApplySuccess({
+          appliedAt: new Date().toISOString(),
+          versionId,
+          sectionLabel: payload.targetSectionLabel,
+          strategy: payload.strategy,
+          createdCount: response.summary.created_count,
+          updatedCount: response.summary.updated_count,
+          ignoredCount: response.summary.ignored_count,
+        });
+        refetch();
+      } catch (err) {
+        setApplyState("error");
+        setApplyError(
+          isTakeoffApiError(err)
+            ? err.message
+            : "Impossible d'appliquer les items takeoff au devis."
+        );
+      }
+    },
+    [jobId, refetch, versionId]
+  );
 
   // Fatal error (no data ever loaded)
   if (!data && error && !isPolling) {
@@ -368,6 +440,7 @@ export default function TakeoffJobMonitor({
   const isCompleted = status === "completed";
   const canRetry = isFailed && job.retry_count < TAKEOFF_JOB_MAX_RETRY_COUNT;
   const canCancel = isActive;
+  const canOpenApplyWizard = isCompleted && includedItemsCount > 0;
 
   return (
     <div className="animate-fade-in">
@@ -399,6 +472,24 @@ export default function TakeoffJobMonitor({
           <p className="text-sm text-[var(--error)]">{actionError}</p>
         </div>
       )}
+      {applySuccess && (
+        <div className="mt-4 rounded-md border border-[var(--success)]/30 bg-[var(--success-light)] p-3">
+          <p className="text-sm font-medium text-[var(--success)]">
+            Application au devis terminee.
+          </p>
+          <p className="mt-1 text-xs text-[var(--slate-600)]">
+            Version: {applySuccess.versionId} · Section: {applySuccess.sectionLabel} ·
+            Strategie: {getStrategyLabel(applySuccess.strategy)} · Crees:{" "}
+            {applySuccess.createdCount} · Maj: {applySuccess.updatedCount} · Ignores:{" "}
+            {applySuccess.ignoredCount} · {formatTimestamp(applySuccess.appliedAt)}
+          </p>
+        </div>
+      )}
+      {!isApplyWizardOpen && applyError && (
+        <div className="mt-4 rounded-md border border-[var(--error)] bg-[var(--error-light)] p-3">
+          <p className="text-sm text-[var(--error)]">{applyError}</p>
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap gap-3">
         {isCompleted && (
@@ -408,6 +499,21 @@ export default function TakeoffJobMonitor({
           >
             Voir les resultats
           </Link>
+        )}
+        {isCompleted && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={!canOpenApplyWizard || applyState === "loading"}
+            onClick={() => handleApplyWizardOpenChange(true)}
+          >
+            {applyState === "loading" ? "Application..." : "Appliquer au devis"}
+          </button>
+        )}
+        {isCompleted && !canOpenApplyWizard && (
+          <span className="self-center text-xs text-[var(--slate-500)]">
+            Aucun item inclus a appliquer.
+          </span>
         )}
 
         {canRetry && (
@@ -453,6 +559,17 @@ export default function TakeoffJobMonitor({
           Actualisation automatique en cours...
         </p>
       )}
+
+      <TakeoffApplyWizard
+        open={isApplyWizardOpen}
+        versionId={versionId}
+        includedCount={includedItemsCount}
+        excludedCount={excludedItemsCount}
+        isSubmitting={applyState === "loading"}
+        submitError={applyError}
+        onOpenChange={handleApplyWizardOpenChange}
+        onConfirm={handleApplyConfirm}
+      />
     </div>
   );
 }

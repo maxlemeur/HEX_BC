@@ -1085,6 +1085,25 @@ const takeoffJobDetailDataSchema = z.object({
 const takeoffJobActionDataSchema = z.object({
   job: takeoffJobSummarySchema,
 });
+const takeoffApplyStrategySchema = z.enum(["append", "replace", "merge"]);
+const takeoffJobApplyRequestSchema = z
+  .object({
+    strategy: takeoffApplyStrategySchema,
+    target_section_id: uuidSchema.nullable().optional(),
+  })
+  .strict();
+const takeoffApplyScopeSchema = z.enum(["section", "version"]);
+const takeoffJobApplySummarySchema = z.object({
+  scope: takeoffApplyScopeSchema,
+  created_count: z.number().int().min(0),
+  updated_count: z.number().int().min(0),
+  ignored_count: z.number().int().min(0),
+  created_ids: z.array(uuidSchema),
+});
+const takeoffJobApplyDataSchema = z.object({
+  job: takeoffJobSummarySchema,
+  summary: takeoffJobApplySummarySchema,
+});
 const takeoffMappingRuleMatchTypeSchema = z.enum(["exact", "contains", "regex"]);
 const takeoffMappingRuleRenameActionParamsSchema = z.object({
   designation: z.string().trim().min(1, "La designation est requise."),
@@ -1575,6 +1594,10 @@ const apiTakeoffJobDetailSchemaDefinition = successResponseSchemaDefinition(
 const apiTakeoffJobActionSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobActionResponse",
   takeoffJobActionDataSchema
+);
+const apiTakeoffJobApplySchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffJobApplyResponse",
+  takeoffJobApplyDataSchema
 );
 const apiTakeoffMappingRulesSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffMappingRulesResponse",
@@ -2129,6 +2152,12 @@ const createTakeoffJobBody = multipartBody({
     "FormData d'import Takeoff avec fichier source (`file`), `estimate_version_id` et `level=A`.",
   schema: takeoffJobCreateFormDataSchema,
 });
+const applyTakeoffJobBody = jsonBody({
+  name: "ApplyTakeoffJobRequest",
+  description:
+    "Payload d'application Takeoff (strategie et section cible optionnelle).",
+  schema: takeoffJobApplyRequestSchema,
+});
 const createTakeoffMappingRuleBody = jsonBody({
   name: "CreateTakeoffMappingRuleRequest",
   description: "Creation d'une regle de mapping Takeoff.",
@@ -2411,6 +2440,23 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Job takeoff annule.",
         apiTakeoffJobActionSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/apply",
+    summary: "Appliquer un job Takeoff",
+    description:
+      "Applique les items d'un job completed vers le chiffrage cible avec une strategie et une section optionnelle.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: applyTakeoffJobBody,
+    responses: {
+      "200": jsonResponse(
+        "Job takeoff applique.",
+        apiTakeoffJobApplySchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
     },
