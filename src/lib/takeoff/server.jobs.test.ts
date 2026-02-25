@@ -97,6 +97,12 @@ type SupabaseMockOptions = {
   jobs?: TakeoffJobStoredRow[];
   results?: TakeoffResultStoredRow[];
   items?: TakeoffItemStoredRow[];
+  auditInsertError?: {
+    code: string;
+    message: string;
+    details?: string | null;
+    hint?: string | null;
+  } | null;
 };
 
 function baseJob(
@@ -197,6 +203,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         created_at: "2026-02-25T10:03:30.000Z",
       }),
     ];
+  const auditInsertError = options.auditInsertError ?? null;
 
   const state = {
     jobsById: new Map(jobs.map((job) => [job.id, { ...job }])),
@@ -446,6 +453,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       if (table === "audit_logs") {
         return {
           insert: vi.fn(async (payload: Record<string, unknown>) => {
+            if (auditInsertError) {
+              return { data: null, error: auditInsertError };
+            }
+
             state.auditLogs.push(payload);
             return { data: null, error: null };
           }),
@@ -652,6 +663,49 @@ describe("takeoff job server helpers (TKF-009)", () => {
     });
   });
 
+  it("returns success when retry audit insert fails after status mutation", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          status: "failed",
+          retry_count: 1,
+          completed_at: "2026-02-25T08:00:00.000Z",
+        }),
+      ],
+      auditInsertError: {
+        code: "23505",
+        message: "duplicate key value violates unique constraint",
+        details: null,
+        hint: null,
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await retryTakeoffJob(JOB_ID);
+
+    expect(response.job.status).toBe("pending");
+    expect(response.job.retry_count).toBe(2);
+    expect(supabase.__state.jobsById.get(JOB_ID)?.status).toBe("pending");
+    expect(supabase.__state.auditLogs).toHaveLength(0);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Takeoff audit logging failed (non-blocking)",
+      expect.objectContaining({
+        action: "takeoff.job.retried",
+        tenantId: TENANT_ID,
+        jobId: JOB_ID,
+      })
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
   it("cancels pending jobs and logs audit event", async () => {
     const supabase = createSupabaseMock({
       jobs: [
@@ -677,6 +731,50 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(response.job.status).toBe("canceled");
     expect(supabase.__state.auditLogs).toHaveLength(1);
     expect(supabase.__state.auditLogs[0]?.action).toBe("takeoff.job.canceled");
+  });
+
+  it("returns success when cancel audit insert fails after status mutation", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          status: "pending",
+          retry_count: 0,
+          completed_at: null,
+          error_code: null,
+          error_message: null,
+        }),
+      ],
+      auditInsertError: {
+        code: "23505",
+        message: "duplicate key value violates unique constraint",
+        details: null,
+        hint: null,
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await cancelTakeoffJob(JOB_ID);
+
+    expect(response.job.status).toBe("canceled");
+    expect(supabase.__state.jobsById.get(JOB_ID)?.status).toBe("canceled");
+    expect(supabase.__state.auditLogs).toHaveLength(0);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Takeoff audit logging failed (non-blocking)",
+      expect.objectContaining({
+        action: "takeoff.job.canceled",
+        tenantId: TENANT_ID,
+        jobId: JOB_ID,
+      })
+    );
+
+    consoleErrorSpy.mockRestore();
   });
 
   it("returns conflict when canceling a terminal job", async () => {

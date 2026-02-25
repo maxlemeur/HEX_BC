@@ -1113,7 +1113,7 @@ export async function retryTakeoffJob(jobId: string): Promise<TakeoffJobActionRe
     estimateVersionId: updatedJob.estimate_version_id,
     action: "takeoff.job.retried",
     metadata: retriedAuditMetadata,
-    mode: "fail-hard",
+    mode: "non-blocking",
   });
 
   return {
@@ -1197,7 +1197,7 @@ export async function cancelTakeoffJob(jobId: string): Promise<TakeoffJobActionR
     estimateVersionId: updatedJob.estimate_version_id,
     action: "takeoff.job.canceled",
     metadata: canceledAuditMetadata,
-    mode: "fail-hard",
+    mode: "non-blocking",
   });
 
   return {

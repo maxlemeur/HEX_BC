@@ -30,6 +30,7 @@ type CallGeminiStructuredFn = <T>(
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
 const TAKEOFF_LEVEL_A = "A";
+const TAKEOFF_LEVEL_B = "B";
 const DEFAULT_GEMINI_TIMEOUT_MS = 60_000;
 const MAX_GEMINI_TIMEOUT_MS = 180_000;
 
@@ -106,11 +107,13 @@ type NormalizedTakeoffItemForInsert = {
   metadata: Record<string, unknown>;
 };
 
-type ProcessLevelAContext = {
+type ProcessLevelContext = {
   supabase: Supabase;
   tenantId: string | null;
   userId: string | null;
 };
+
+type ProcessableTakeoffLevel = typeof TAKEOFF_LEVEL_A | typeof TAKEOFF_LEVEL_B;
 
 const UNIT_SYNONYMS: Readonly<Record<string, readonly string[]>> = {
   m: ["m", "metre", "metres", "meter", "meters", "m."],
@@ -153,6 +156,14 @@ export type ProcessLevelAResult = {
   costCents: number;
   durationMs: number;
 };
+
+export type ProcessLevelBOptions = ProcessLevelAOptions;
+
+export type ProcessLevelBResult = ProcessLevelAResult & {
+  tablesCount: number;
+};
+
+type ProcessLevelInternalResult = ProcessLevelBResult;
 
 function toUnitToken(value: string) {
   return value
@@ -492,6 +503,95 @@ function parseTakeoffJobRow(data: unknown): TakeoffJobProcessingRow {
   };
 }
 
+async function fetchCurrentTakeoffJobStatus(input: {
+  supabase: Supabase;
+  job: Pick<TakeoffJobProcessingRow, "id" | "tenant_id">;
+}) {
+  const { data, error } = await input.supabase
+    .from("takeoff_jobs" as never)
+    .select("status" as never)
+    .eq("id" as never, input.job.id as never)
+    .eq("tenant_id" as never, input.job.tenant_id as never)
+    .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        error,
+        "Impossible de verifier le statut courant du job takeoff."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.job.id,
+        level: TAKEOFF_LEVEL_A,
+      }
+    );
+  }
+
+  if (!data || typeof data !== "object" || !("status" in data)) {
+    return null;
+  }
+
+  const status = (data as { status?: unknown }).status;
+  return typeof status === "string" ? status : null;
+}
+
+function buildProcessingStatusConflictError(input: {
+  jobId: string;
+  currentStatus: string | null;
+  operation: string;
+}) {
+  return new TakeoffError({
+    status: 409,
+    code: TakeoffErrorCode.CONFLICT,
+    message:
+      input.currentStatus === "canceled"
+        ? "Le job a ete annule pendant le traitement."
+        : "Le job n'est plus en cours de traitement.",
+    details: {
+      expected_status: "processing",
+      current_status: input.currentStatus,
+      operation: input.operation,
+    },
+    retryable: false,
+    jobId: input.jobId,
+    level: TAKEOFF_LEVEL_A,
+  });
+}
+
+async function clearResultsAfterCanceledTransition(input: {
+  supabase: Supabase;
+  job: TakeoffJobProcessingRow;
+  operation: string;
+}) {
+  try {
+    await clearPreviousResultsForJob({
+      supabase: input.supabase,
+      job: input.job,
+    });
+  } catch (cleanupError) {
+    console.error("Impossible de nettoyer les resultats apres annulation du job.", {
+      job_id: input.job.id,
+      operation: input.operation,
+      error: cleanupError,
+    });
+  }
+}
+
+function isCanceledDuringProcessingConflict(error: TakeoffError) {
+  if (error.code !== TakeoffErrorCode.CONFLICT) {
+    return false;
+  }
+
+  const details = error.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return false;
+  }
+
+  return (details as Record<string, unknown>).current_status === "canceled";
+}
+
 async function resolveContext(
   options: ProcessLevelAOptions
 ): Promise<ProcessLevelAContext> {
@@ -645,13 +745,14 @@ async function updateJobAsCompleted(input: {
       error_message: null,
     } as never)
     .eq("id" as never, input.job.id as never)
-    .eq("status" as never, "processing" as never);
+    .eq("status" as never, "processing" as never)
+    .select("id" as never);
 
   if (input.tenantId) {
     query = query.eq("tenant_id" as never, input.tenantId as never);
   }
 
-  const { error } = await query;
+  const { data, error } = await query.maybeSingle();
 
   if (error) {
     throw toTakeoffError(
@@ -664,6 +765,29 @@ async function updateJobAsCompleted(input: {
       }
     );
   }
+
+  if (data) {
+    return;
+  }
+
+  const currentStatus = await fetchCurrentTakeoffJobStatus({
+    supabase: input.supabase,
+    job: input.job,
+  });
+
+  if (currentStatus === "canceled") {
+    await clearResultsAfterCanceledTransition({
+      supabase: input.supabase,
+      job: input.job,
+      operation: "complete_job",
+    });
+  }
+
+  throw buildProcessingStatusConflictError({
+    jobId: input.job.id,
+    currentStatus,
+    operation: "complete_job",
+  });
 }
 
 async function updateJobAsFailed(input: {
@@ -824,6 +948,19 @@ async function persistTakeoffResultAndItems(input: {
   itemsCount: number;
   warningsCount: number;
 }> {
+  const statusBeforePersist = await fetchCurrentTakeoffJobStatus({
+    supabase: input.supabase,
+    job: input.job,
+  });
+
+  if (statusBeforePersist !== "processing") {
+    throw buildProcessingStatusConflictError({
+      jobId: input.job.id,
+      currentStatus: statusBeforePersist,
+      operation: "persist_results_before_write",
+    });
+  }
+
   await clearPreviousResultsForJob({
     supabase: input.supabase,
     job: input.job,
@@ -900,6 +1037,27 @@ async function persistTakeoffResultAndItems(input: {
         }
       );
     }
+  }
+
+  const statusAfterPersist = await fetchCurrentTakeoffJobStatus({
+    supabase: input.supabase,
+    job: input.job,
+  });
+
+  if (statusAfterPersist !== "processing") {
+    if (statusAfterPersist === "canceled") {
+      await clearResultsAfterCanceledTransition({
+        supabase: input.supabase,
+        job: input.job,
+        operation: "persist_results_after_write",
+      });
+    }
+
+    throw buildProcessingStatusConflictError({
+      jobId: input.job.id,
+      currentStatus: statusAfterPersist,
+      operation: "persist_results_after_write",
+    });
   }
 
   return {
@@ -1237,7 +1395,7 @@ export async function processLevelA(
       level: TAKEOFF_LEVEL_A,
     });
 
-    if (enteredProcessing && job) {
+    if (enteredProcessing && job && !isCanceledDuringProcessingConflict(mappedError)) {
       const completedAt = now();
       const durationMs = Math.max(0, completedAt.getTime() - processingStartedAt.getTime());
 

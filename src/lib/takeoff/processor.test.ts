@@ -94,6 +94,7 @@ type SupabaseMockOptions = {
     bytes: ArrayBuffer;
     mimeType: string;
   };
+  cancelOnResultInsert?: boolean;
 };
 
 type SupabaseMockState = {
@@ -252,6 +253,8 @@ function createTakeoffProcessorSupabaseMock(
       bytes: toArrayBuffer("designation,quantity,unit\nTube PVC,12,ml\nCable U1000,8,m"),
       mimeType: "text/csv",
     } satisfies { bytes: ArrayBuffer; mimeType: string });
+  const cancelOnResultInsert = options.cancelOnResultInsert ?? false;
+  let cancellationApplied = false;
 
   let resultIdSequence = 0;
 
@@ -449,6 +452,18 @@ function createTakeoffProcessorSupabaseMock(
         id: insertedId,
         ...payload,
       });
+
+      if (cancelOnResultInsert && !cancellationApplied && state.job.status === "processing") {
+        cancellationApplied = true;
+        state.job = {
+          ...state.job,
+          status: "canceled",
+          completed_at: FIXED_NOW.toISOString(),
+          error_code: null,
+          error_message: null,
+        };
+        state.statusTransitions.push("canceled");
+      }
       return insertedId;
     }
 
@@ -884,5 +899,59 @@ describe("processLevelA", () => {
       job_id: JOB_ID,
       result_id: mock.state.takeoffResults[0]?.id,
     });
+  });
+
+  it("stops persistence and preserves canceled status when cancellation happens mid-processing", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      cancelOnResultInsert: true,
+    });
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(
+        buildTakeoffExchange([
+          {
+            designation: "Tube PVC",
+            quantity: 12,
+            unit: "ml",
+            source_page: 1,
+            source_file: "niveau-a.csv",
+            confidence: 0.91,
+            evidence: "Tableau principal",
+          },
+        ])
+      )
+    );
+
+    await expect(
+      processLevelA(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "Le job a ete annule pendant le traitement.",
+      details: expect.objectContaining({
+        current_status: "canceled",
+        expected_status: "processing",
+      }),
+    });
+
+    expect([mock.state.initialStatus, ...mock.state.statusTransitions]).toEqual([
+      "pending",
+      "processing",
+      "canceled",
+    ]);
+    expect(mock.state.job.status).toBe("canceled");
+    expect(mock.state.takeoffResults).toHaveLength(0);
+    expect(mock.state.takeoffItems).toHaveLength(0);
+    expect(
+      mock.state.auditLogs.some((entry) => entry.action === "takeoff.job.failed")
+    ).toBe(false);
+    expect(
+      mock.state.auditLogs.some((entry) => entry.action === "takeoff.job.completed")
+    ).toBe(false);
   });
 });
