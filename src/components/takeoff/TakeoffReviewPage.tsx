@@ -72,6 +72,8 @@ const AUTO_SAVE_DEBOUNCE_MS = 500;
 const REVIEW_ITEMS_PAGE_SIZE = 200;
 const DEFAULT_COMPARE_THRESHOLD = 0.8;
 const CHERRY_PICK_EXCLUSION_REASON = "Cherry-pick diff TKF-032";
+const TAKEOFF_ITEM_PATCH_BATCH_MAX = 100;
+const TAKEOFF_JOBS_LIST_PAGE_MAX = 100;
 
 // ---------------------------------------------------------------------------
 // Exclusion reason modal
@@ -404,6 +406,7 @@ export default function TakeoffReviewPage({
   // ---- Compare candidates (same estimate version + same source file)
   useEffect(() => {
     let canceled = false;
+    const abortController = new AbortController();
 
     async function loadCompareCandidates() {
       if (!jobFileName) {
@@ -412,15 +415,32 @@ export default function TakeoffReviewPage({
       }
 
       try {
-        const response = await listTakeoffJobs({
-          estimate_version_id: versionId,
-          limit: 100,
-          offset: 0,
-        });
-        if (canceled) return;
+        const jobs: TakeoffJobSummary[] = [];
+        let nextOffset = 0;
+        let total = Number.POSITIVE_INFINITY;
+
+        while (nextOffset < total) {
+          const response = await listTakeoffJobs(
+            {
+              estimate_version_id: versionId,
+              limit: TAKEOFF_JOBS_LIST_PAGE_MAX,
+              offset: nextOffset,
+            },
+            { signal: abortController.signal }
+          );
+          if (canceled) return;
+
+          jobs.push(...response.jobs);
+          total = response.pagination.total;
+
+          if (response.jobs.length === 0) {
+            break;
+          }
+          nextOffset += response.jobs.length;
+        }
 
         const normalizedSourceFileName = jobFileName.trim().toLowerCase();
-        const filteredCandidates = response.jobs.filter((job) => {
+        const filteredCandidates = jobs.filter((job) => {
           if (job.id === jobId) return false;
           if (job.status !== "completed" && job.status !== "applied") return false;
           const candidateSourceFileName =
@@ -433,7 +453,7 @@ export default function TakeoffReviewPage({
 
         setCompareCandidates(filteredCandidates);
       } catch {
-        if (!canceled) {
+        if (!canceled && !abortController.signal.aborted) {
           setCompareCandidates([]);
         }
       }
@@ -443,6 +463,7 @@ export default function TakeoffReviewPage({
 
     return () => {
       canceled = true;
+      abortController.abort();
     };
   }, [jobFileName, jobId, versionId]);
 
@@ -755,12 +776,17 @@ export default function TakeoffReviewPage({
 
       setApplySelectionSubmitting(true);
       try {
-        const response = await patchTakeoffItems(jobId, { items: patchEntries });
-        applyPatchResults(response);
+        let failedCount = 0;
+        for (let index = 0; index < patchEntries.length; index += TAKEOFF_ITEM_PATCH_BATCH_MAX) {
+          const chunk = patchEntries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
+          const response = await patchTakeoffItems(jobId, { items: chunk });
+          applyPatchResults(response);
+          failedCount += response.failed;
+        }
 
-        if (response.failed > 0) {
+        if (failedCount > 0) {
           setApplySelectionError(
-            `${response.failed} item(s) n'ont pas pu etre mis a jour pendant le cherry-pick.`
+            `${failedCount} item(s) n'ont pas pu etre mis a jour pendant le cherry-pick.`
           );
           toast.warning({
             title: "Cherry-pick partiel",
@@ -825,6 +851,7 @@ export default function TakeoffReviewPage({
         await applyTakeoffJob(jobId, {
           strategy: payload.strategy,
           target_section_id: payload.targetSectionId,
+          overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
         });
         setApplyWizardOpen(false);
         toast.success({
@@ -1135,6 +1162,7 @@ export default function TakeoffReviewPage({
       {/* ---- Apply wizard ---- */}
       <TakeoffApplyWizard
         open={applyWizardOpen}
+        jobId={jobId}
         versionId={versionId}
         includedCount={includedItems.length}
         excludedCount={items.length - includedItems.length}

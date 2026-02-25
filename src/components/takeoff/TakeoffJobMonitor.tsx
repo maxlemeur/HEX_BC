@@ -498,6 +498,7 @@ export default function TakeoffJobMonitor({
         const response = await applyTakeoffJob(jobId, {
           target_section_id: payload.targetSectionId,
           strategy: payload.strategy,
+          overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
         });
         setApplyState("idle");
         setIsApplyWizardOpen(false);
@@ -670,6 +671,7 @@ export default function TakeoffJobMonitor({
 
       <TakeoffApplyWizard
         open={isApplyWizardOpen}
+        jobId={jobId}
         versionId={versionId}
         includedCount={includedItemsCount}
         excludedCount={excludedItemsCount}

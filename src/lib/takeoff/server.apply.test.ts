@@ -4,6 +4,7 @@ vi.mock("@/lib/estimates/server", () => ({
   assertDraftStatus: vi.fn(),
   bulkUpdateEstimateItems: vi.fn(),
   getAuthenticatedContext: vi.fn(),
+  insertAssemblyIntoVersion: vi.fn(),
 }));
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
@@ -13,6 +14,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
 import {
   bulkUpdateEstimateItems,
   getAuthenticatedContext,
+  insertAssemblyIntoVersion,
 } from "@/lib/estimates/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { applyTakeoffJob } from "@/lib/takeoff/server";
@@ -57,6 +59,17 @@ type StoredTakeoffJob = {
 
 type SupabaseMockOptions = {
   jobStatus?: string;
+  mappingRules?: Array<{
+    id: string;
+    name: string;
+    match_pattern: string;
+    match_type: "exact" | "contains" | "regex";
+    action: "rename" | "set_price" | "set_category" | "apply_assembly" | "skip";
+    action_params: Record<string, unknown>;
+    priority: number;
+    is_active: boolean;
+    created_at: string;
+  }>;
   rpcError?: {
     code?: string;
     message?: string;
@@ -102,6 +115,27 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
   const state = {
     job: baseJob({ status: options.jobStatus ?? "completed" }),
     auditActions: [] as string[],
+    takeoffItems: [
+      {
+        id: "88888888-8888-4888-8888-888888888888",
+        designation: "Tube PVC 100",
+        quantity: 12,
+        unit: "ml",
+        confidence: 0.9,
+        evidence: null,
+        source_file_name: "niveau-a.csv",
+        source_page: 1,
+        metadata: {},
+        is_excluded: false,
+        exclusion_reason: null,
+        is_verified: false,
+        verified_at: null,
+        verified_by: null,
+        created_at: "2026-02-25T11:58:00.000Z",
+        updated_at: "2026-02-25T11:58:00.000Z",
+      },
+    ],
+    mappingRules: options.mappingRules ?? [],
   };
 
   const supabase = {
@@ -166,6 +200,92 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         };
       }
 
+      if (table === "takeoff_items") {
+        return {
+          select: vi.fn((_columns?: string, opts?: { count?: "exact" }) => {
+            const filters: Record<string, string> = {};
+            const builder = {
+              eq: vi.fn((column: string, value: string) => {
+                filters[column] = value;
+                return builder;
+              }),
+              order: vi.fn(() => builder),
+              range: vi.fn(async (start: number, end: number) => {
+                const matchesTenant = !filters.tenant_id || filters.tenant_id === TENANT_ID;
+                const matchesJob = !filters.job_id || filters.job_id === JOB_ID;
+                const scoped = matchesTenant && matchesJob ? state.takeoffItems : [];
+
+                return {
+                  data: scoped.slice(start, end + 1).map((item) => ({ ...item })),
+                  count: opts?.count === "exact" ? scoped.length : null,
+                  error: null,
+                };
+              }),
+            };
+
+            return builder;
+          }),
+          update: vi.fn((payload: Record<string, unknown>) => {
+            const filters: Record<string, string> = {};
+            const builder = {
+              data: null,
+              error: null as null,
+              eq: vi.fn((column: string, value: string) => {
+                filters[column] = value;
+                if (filters.id && filters.job_id && filters.tenant_id) {
+                  state.takeoffItems = state.takeoffItems.map((item) =>
+                    item.id === filters.id
+                      ? {
+                          ...item,
+                          ...payload,
+                        }
+                      : item
+                  );
+                }
+                return builder;
+              }),
+            };
+            return builder;
+          }),
+        };
+      }
+
+      if (table === "takeoff_mapping_rules") {
+        return {
+          select: vi.fn(() => {
+            const filters: Record<string, unknown> = {};
+            const builder = {
+              eq: vi.fn((column: string, value: unknown) => {
+                filters[column] = value;
+                return builder;
+              }),
+              order: vi.fn(() => builder),
+              then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
+                resolve({
+                  data: state.mappingRules
+                    .filter((rule) => {
+                      if (filters.tenant_id && filters.tenant_id !== TENANT_ID) {
+                        return false;
+                      }
+                      if (filters.is_active !== undefined) {
+                        return rule.is_active === filters.is_active;
+                      }
+                      return true;
+                    })
+                    .map((rule) => ({
+                      ...rule,
+                      tenant_id: TENANT_ID,
+                      created_by: USER_ID,
+                      updated_at: rule.created_at,
+                    })),
+                  error: null,
+                }),
+            };
+            return builder;
+          }),
+        };
+      }
+
       if (table === "audit_logs") {
         return {
           insert: vi.fn(async (payload: Record<string, unknown>) => {
@@ -218,6 +338,7 @@ describe("applyTakeoffJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
+    vi.mocked(insertAssemblyIntoVersion).mockResolvedValue({} as never);
   });
 
   it("applies a completed job, runs lock precheck and returns job+summary", async () => {
@@ -305,6 +426,59 @@ describe("applyTakeoffJob", () => {
     expect(supabase.__state.auditActions).toEqual([
       "takeoff.apply.started",
       "takeoff.apply.failed",
+    ]);
+  });
+
+  it("applies mapping action apply_assembly and logs mapping audit entries", async () => {
+    const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const supabase = createSupabaseMock({
+      mappingRules: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Assemblage cloisons",
+          match_pattern: "tube pvc",
+          match_type: "contains",
+          action: "apply_assembly",
+          action_params: {
+            assembly_id: assemblyId,
+          },
+          priority: 1,
+          is_active: true,
+          created_at: "2026-02-25T09:00:00.000Z",
+        },
+      ],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    const response = await applyTakeoffJob(JOB_ID, {
+      strategy: "merge",
+      target_section_id: SECTION_ID,
+    });
+
+    expect(response.job.status).toBe("applied");
+    expect(insertAssemblyIntoVersion).toHaveBeenCalledTimes(1);
+    expect(insertAssemblyIntoVersion).toHaveBeenCalledWith({
+      assemblyId,
+      versionId: VERSION_ID,
+      afterItemId: SECTION_ID,
+    });
+    expect(supabase.__state.auditActions).toContain("takeoff.mapping.applied");
+    expect(supabase.__state.auditActions).toEqual([
+      "takeoff.apply.started",
+      "takeoff.mapping.applied",
+      "takeoff.apply.completed",
     ]);
   });
 });

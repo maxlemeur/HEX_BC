@@ -65,6 +65,7 @@ describe("takeoff audit helpers", () => {
       "takeoff.apply.started",
       "takeoff.apply.completed",
       "takeoff.apply.failed",
+      "takeoff.mapping.applied",
     ]);
   });
 
@@ -132,6 +133,24 @@ describe("takeoff audit helpers", () => {
       estimate_version_id: ESTIMATE_VERSION_ID,
       applied_items_count: 0,
       excluded_items_count: 0,
+    });
+  });
+
+  it("normalizes metadata for takeoff.mapping.applied", () => {
+    const metadata = takeoffAuditMetadataBuilders["takeoff.mapping.applied"]({
+      job_id: JOB_ID,
+      item_id: ITEM_ID,
+      rule_id: "  ",
+      action: "set_price",
+      estimate_item_id: "66666666-6666-4666-8666-666666666666",
+    });
+
+    expect(metadata).toEqual({
+      job_id: JOB_ID,
+      item_id: ITEM_ID,
+      rule_id: null,
+      action: "set_price",
+      estimate_item_id: "66666666-6666-4666-8666-666666666666",
     });
   });
 

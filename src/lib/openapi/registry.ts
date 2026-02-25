@@ -1097,10 +1097,67 @@ const takeoffJobActionDataSchema = z.object({
   job: takeoffJobSummarySchema,
 });
 const takeoffApplyStrategySchema = z.enum(["append", "replace", "merge"]);
+const takeoffApplyOverrideActionSchema = z.enum([
+  "rename",
+  "set_price",
+  "set_category",
+  "apply_assembly",
+  "skip",
+  "none",
+]);
+const takeoffApplyOverrideRenameParamsSchema = z.object({
+  designation: z.string().trim().min(1, "La designation est requise."),
+});
+const takeoffApplyOverrideSetPriceParamsSchema = z.object({
+  unit_price_cents: z
+    .number()
+    .int("Le prix doit etre un entier.")
+    .min(0, "Le prix doit etre positif."),
+});
+const takeoffApplyOverrideSetCategoryParamsSchema = z.object({
+  category_id: uuidSchema,
+});
+const takeoffApplyOverrideApplyAssemblyParamsSchema = z.object({
+  assembly_id: uuidSchema,
+});
+const takeoffApplyOverrideNoopParamsSchema = z.object({});
+const takeoffApplyOverrideSchema = z.discriminatedUnion("action", [
+  z.object({
+    item_id: uuidSchema,
+    action: z.literal("rename"),
+    action_params: takeoffApplyOverrideRenameParamsSchema,
+  }),
+  z.object({
+    item_id: uuidSchema,
+    action: z.literal("set_price"),
+    action_params: takeoffApplyOverrideSetPriceParamsSchema,
+  }),
+  z.object({
+    item_id: uuidSchema,
+    action: z.literal("set_category"),
+    action_params: takeoffApplyOverrideSetCategoryParamsSchema,
+  }),
+  z.object({
+    item_id: uuidSchema,
+    action: z.literal("apply_assembly"),
+    action_params: takeoffApplyOverrideApplyAssemblyParamsSchema,
+  }),
+  z.object({
+    item_id: uuidSchema,
+    action: z.literal("skip"),
+    action_params: takeoffApplyOverrideNoopParamsSchema.optional(),
+  }),
+  z.object({
+    item_id: uuidSchema,
+    action: z.literal("none"),
+    action_params: takeoffApplyOverrideNoopParamsSchema.optional(),
+  }),
+]);
 const takeoffJobApplyRequestSchema = z
   .object({
     strategy: takeoffApplyStrategySchema,
     target_section_id: uuidSchema.nullable().optional(),
+    overrides: z.array(takeoffApplyOverrideSchema).optional(),
   })
   .strict();
 const takeoffApplyScopeSchema = z.enum(["section", "version"]);
@@ -1114,6 +1171,41 @@ const takeoffJobApplySummarySchema = z.object({
 const takeoffJobApplyDataSchema = z.object({
   job: takeoffJobSummarySchema,
   summary: takeoffJobApplySummarySchema,
+});
+const takeoffPreviewConversionStateSchema = z.object({
+  designation: z.string(),
+  quantity: z.number(),
+  unit: z.string(),
+  is_excluded: z.boolean(),
+  category_id: uuidSchema.nullable(),
+  unit_price_cents: z.number().int().min(0).nullable(),
+  assembly_id: uuidSchema.nullable(),
+});
+const takeoffPreviewConversionSummarySchema = z.object({
+  total_count: z.number().int().min(0),
+  included_count: z.number().int().min(0),
+  transformed_count: z.number().int().min(0),
+  overridden_count: z.number().int().min(0),
+  excluded_by_mapping_count: z.number().int().min(0),
+  assembly_insertions_count: z.number().int().min(0),
+});
+const takeoffPreviewConversionItemSchema = z.object({
+  item_id: uuidSchema,
+  source_order: z.number().int().min(0),
+  rule_id: uuidSchema.nullable(),
+  rule_name: z.string().nullable(),
+  action: takeoffApplyOverrideActionSchema,
+  action_params: z.record(z.string(), z.unknown()),
+  applied_by: z.enum(["none", "rule", "override"]),
+  original: takeoffPreviewConversionStateSchema,
+  transformed: takeoffPreviewConversionStateSchema,
+});
+const takeoffPreviewConversionDataSchema = z.object({
+  job_id: uuidSchema,
+  strategy: takeoffApplyStrategySchema,
+  target_section_id: uuidSchema.nullable(),
+  summary: takeoffPreviewConversionSummarySchema,
+  items: z.array(takeoffPreviewConversionItemSchema),
 });
 const takeoffDiffMatchStrategySchema = z.enum([
   "designation_fuzzy",
@@ -1672,6 +1764,10 @@ const apiTakeoffJobActionSchemaDefinition = successResponseSchemaDefinition(
 const apiTakeoffJobApplySchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobApplyResponse",
   takeoffJobApplyDataSchema
+);
+const apiTakeoffPreviewConversionSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPreviewConversionResponse",
+  takeoffPreviewConversionDataSchema
 );
 const apiTakeoffJobCompareSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobCompareResponse",
@@ -2271,6 +2367,12 @@ const applyTakeoffJobBody = jsonBody({
     "Payload d'application Takeoff (strategie et section cible optionnelle).",
   schema: takeoffJobApplyRequestSchema,
 });
+const previewTakeoffConversionBody = jsonBody({
+  name: "PreviewTakeoffConversionRequest",
+  description:
+    "Payload de simulation de conversion mapping (meme contrat que l'apply final).",
+  schema: takeoffJobApplyRequestSchema,
+});
 const createTakeoffMappingRuleBody = jsonBody({
   name: "CreateTakeoffMappingRuleRequest",
   description: "Creation d'une regle de mapping Takeoff.",
@@ -2593,6 +2695,23 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Job takeoff applique.",
         apiTakeoffJobApplySchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/preview-conversion",
+    summary: "Simuler la conversion mapping d'un job Takeoff",
+    description:
+      "Calcule les transformations mapping (avant/apres) sans persister, avec support des overrides par item.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: previewTakeoffConversionBody,
+    responses: {
+      "200": jsonResponse(
+        "Preview de conversion retournee.",
+        apiTakeoffPreviewConversionSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
     },

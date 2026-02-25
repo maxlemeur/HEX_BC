@@ -7,10 +7,15 @@ import {
   TakeoffMetadataSchema,
   TakeoffTableSchema,
   TakeoffWarningSchema,
+  takeoffApplyRequestSchema,
+  takeoffMappingOverrideActionSchema,
+  takeoffMappingOverrideSchema,
+  takeoffMappingPreviewItemSchema,
   createTakeoffMappingRuleSchema,
   takeoffMappingRuleActionConfigSchema,
   takeoffMappingRuleActionSchema,
   takeoffMappingRuleMatchTypeSchema,
+  takeoffPreviewConversionResponseSchema,
   updateTakeoffMappingRuleSchema,
 } from "@/lib/takeoff/schemas";
 
@@ -35,10 +40,7 @@ export type TakeoffApplyStrategy = (typeof TAKEOFF_APPLY_STRATEGIES)[number];
 export const TAKEOFF_APPLY_SCOPES = ["section", "version"] as const;
 export type TakeoffApplyScope = (typeof TAKEOFF_APPLY_SCOPES)[number];
 
-export type TakeoffApplyRequest = {
-  strategy: TakeoffApplyStrategy;
-  target_section_id?: string | null;
-};
+export type TakeoffApplyRequest = z.infer<typeof takeoffApplyRequestSchema>;
 
 export type TakeoffJobCreateInput = {
   estimateVersionId: string;
@@ -236,6 +238,20 @@ export type TakeoffApplyResponse = {
   job: TakeoffJobSummary;
   summary: TakeoffApplySummary;
 };
+
+export type TakeoffPreviewConversionRequest = TakeoffApplyRequest;
+export type TakeoffMappingOverrideAction = z.infer<
+  typeof takeoffMappingOverrideActionSchema
+>;
+export type TakeoffMappingOverride = z.infer<typeof takeoffMappingOverrideSchema>;
+export type TakeoffMappingPreviewItem = z.infer<
+  typeof takeoffMappingPreviewItemSchema
+>;
+export type TakeoffPreviewConversionSummary =
+  z.infer<typeof takeoffPreviewConversionResponseSchema>["summary"];
+export type TakeoffPreviewConversionResponse = z.infer<
+  typeof takeoffPreviewConversionResponseSchema
+>;
 
 export const TAKEOFF_DIFF_MATCH_STRATEGIES = [
   "designation_fuzzy",

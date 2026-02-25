@@ -7,6 +7,7 @@ import {
   fetchTakeoffJobCompare,
   fetchTakeoffMappingRules,
   isTakeoffApiError,
+  previewTakeoffConversion,
   updateTakeoffMappingRule,
 } from "@/lib/takeoff/client";
 
@@ -49,6 +50,15 @@ const UPDATE_INPUT = {
 const APPLY_PAYLOAD = {
   strategy: "merge" as const,
   target_section_id: "66666666-6666-4666-8666-666666666666",
+  overrides: [
+    {
+      item_id: "77777777-7777-4777-8777-777777777777",
+      action: "set_price" as const,
+      action_params: {
+        unit_price_cents: 1299,
+      },
+    },
+  ],
 };
 
 const APPLY_RESPONSE = {
@@ -105,6 +115,51 @@ const COMPARE_RESPONSE = {
   removed: [],
   changed: [],
   unchanged: [],
+};
+
+const PREVIEW_RESPONSE = {
+  job_id: JOB_ID,
+  strategy: "merge" as const,
+  target_section_id: "66666666-6666-4666-8666-666666666666",
+  summary: {
+    total_count: 1,
+    included_count: 1,
+    transformed_count: 1,
+    overridden_count: 1,
+    excluded_by_mapping_count: 0,
+    assembly_insertions_count: 0,
+  },
+  items: [
+    {
+      item_id: "77777777-7777-4777-8777-777777777777",
+      source_order: 0,
+      rule_id: null,
+      rule_name: null,
+      action: "set_price" as const,
+      action_params: {
+        unit_price_cents: 1299,
+      },
+      applied_by: "override" as const,
+      original: {
+        designation: "Cable cuivre",
+        quantity: 10,
+        unit: "ml",
+        is_excluded: false,
+        category_id: null,
+        unit_price_cents: null,
+        assembly_id: null,
+      },
+      transformed: {
+        designation: "Cable cuivre",
+        quantity: 10,
+        unit: "ml",
+        is_excluded: false,
+        category_id: null,
+        unit_price_cents: 1299,
+        assembly_id: null,
+      },
+    },
+  ],
 };
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -285,6 +340,32 @@ describe("takeoff client mapping rules wrappers", () => {
       })
     );
     expect(result).toEqual(COMPARE_RESPONSE);
+  });
+
+  it("requests a conversion preview via POST", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        data: PREVIEW_RESPONSE,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await previewTakeoffConversion(JOB_ID, APPLY_PAYLOAD);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/takeoff/jobs/${JOB_ID}/preview-conversion`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+        }),
+      })
+    );
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual(APPLY_PAYLOAD);
+    expect(result).toEqual(PREVIEW_RESPONSE);
   });
 
   it("throws TakeoffApiError on non-2xx responses and preserves metadata", async () => {

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { TakeoffExchangeSchema, zodToGeminiJsonSchema } from "@/lib/takeoff/schemas";
+import {
+  TakeoffExchangeSchema,
+  takeoffApplyRequestSchema,
+  takeoffPreviewConversionResponseSchema,
+  zodToGeminiJsonSchema,
+} from "@/lib/takeoff/schemas";
 
 function createBasePayload(level: "A" | "B" | "C") {
   return {
@@ -256,5 +261,99 @@ describe("zodToGeminiJsonSchema", () => {
     expect(() => zodToGeminiJsonSchema(nonRepresentableSchema)).toThrow(
       /cannot be represented/i
     );
+  });
+});
+
+describe("takeoff apply mapping schemas", () => {
+  it("accepts apply payload with mapping overrides", () => {
+    const parsed = takeoffApplyRequestSchema.parse({
+      strategy: "merge",
+      target_section_id: "11111111-1111-4111-8111-111111111111",
+      overrides: [
+        {
+          item_id: "22222222-2222-4222-8222-222222222222",
+          action: "set_price",
+          action_params: {
+            unit_price_cents: 990,
+          },
+        },
+      ],
+    });
+
+    expect(parsed.strategy).toBe("merge");
+    expect(parsed.overrides).toHaveLength(1);
+  });
+
+  it("rejects duplicate override item_id values", () => {
+    const parsed = takeoffApplyRequestSchema.safeParse({
+      strategy: "append",
+      overrides: [
+        {
+          item_id: "33333333-3333-4333-8333-333333333333",
+          action: "skip",
+        },
+        {
+          item_id: "33333333-3333-4333-8333-333333333333",
+          action: "none",
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("item_id uniques")
+      )
+    ).toBe(true);
+  });
+
+  it("accepts preview conversion response payload", () => {
+    const parsed = takeoffPreviewConversionResponseSchema.parse({
+      job_id: "44444444-4444-4444-8444-444444444444",
+      strategy: "replace",
+      target_section_id: null,
+      summary: {
+        total_count: 1,
+        included_count: 1,
+        transformed_count: 1,
+        overridden_count: 0,
+        excluded_by_mapping_count: 0,
+        assembly_insertions_count: 0,
+      },
+      items: [
+        {
+          item_id: "55555555-5555-4555-8555-555555555555",
+          source_order: 0,
+          rule_id: null,
+          rule_name: null,
+          action: "rename",
+          action_params: {
+            designation: "Nouveau nom",
+          },
+          applied_by: "rule",
+          original: {
+            designation: "Ancien nom",
+            quantity: 2,
+            unit: "u",
+            is_excluded: false,
+            category_id: null,
+            unit_price_cents: null,
+            assembly_id: null,
+          },
+          transformed: {
+            designation: "Nouveau nom",
+            quantity: 2,
+            unit: "u",
+            is_excluded: false,
+            category_id: null,
+            unit_price_cents: null,
+            assembly_id: null,
+          },
+        },
+      ],
+    });
+
+    expect(parsed.items[0]?.action).toBe("rename");
   });
 });

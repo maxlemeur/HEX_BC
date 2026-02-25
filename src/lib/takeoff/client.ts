@@ -23,9 +23,12 @@ import type {
   TakeoffJobResponse as SharedTakeoffJobResponse,
   TakeoffLevel as SharedTakeoffLevel,
   TakeoffMappingRule as SharedTakeoffMappingRule,
+  TakeoffMappingOverride as SharedTakeoffMappingOverride,
   TakeoffMappingRuleDeleteResponse as SharedTakeoffMappingRuleDeleteResponse,
   TakeoffMappingRuleMutationResponse as SharedTakeoffMappingRuleMutationResponse,
   TakeoffMappingRulesListResponse as SharedTakeoffMappingRulesListResponse,
+  TakeoffPreviewConversionRequest as SharedTakeoffPreviewConversionRequest,
+  TakeoffPreviewConversionResponse as SharedTakeoffPreviewConversionResponse,
   UpdateTakeoffMappingRuleInput as SharedUpdateTakeoffMappingRuleInput,
 } from "@/lib/takeoff/types";
 
@@ -38,10 +41,13 @@ export type TakeoffJobActionResponse = SharedTakeoffJobActionResponse;
 export type TakeoffJobCompareResponse = SharedTakeoffJobCompareResponse;
 export type TakeoffApplyRequest = SharedTakeoffApplyRequest;
 export type TakeoffApplyResponse = SharedTakeoffApplyResponse;
+export type TakeoffPreviewConversionRequest = SharedTakeoffPreviewConversionRequest;
+export type TakeoffPreviewConversionResponse = SharedTakeoffPreviewConversionResponse;
 export type CreateTakeoffJobInput = SharedTakeoffJobCreateInput;
 export type TakeoffItemBatchPatchRequest = SharedTakeoffItemBatchPatchRequest;
 export type TakeoffItemBatchPatchResponse = SharedTakeoffItemBatchPatchResponse;
 export type TakeoffMappingRule = SharedTakeoffMappingRule;
+export type TakeoffMappingOverride = SharedTakeoffMappingOverride;
 export type CreateTakeoffMappingRuleInput = SharedCreateTakeoffMappingRuleInput;
 export type UpdateTakeoffMappingRuleInput = SharedUpdateTakeoffMappingRuleInput;
 export type TakeoffMappingRulesListResponse = SharedTakeoffMappingRulesListResponse;
@@ -593,6 +599,21 @@ export async function applyTakeoffJob(
       body: JSON.stringify(payload),
     },
     "Impossible d'appliquer le job takeoff."
+  );
+}
+
+export async function previewTakeoffConversion(
+  jobId: string,
+  payload: TakeoffPreviewConversionRequest
+): Promise<TakeoffPreviewConversionResponse> {
+  return requestTakeoffJson<TakeoffPreviewConversionResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/preview-conversion`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Impossible de calculer la preview de conversion takeoff."
   );
 }
 

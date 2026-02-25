@@ -17,6 +17,7 @@ vi.mock("@/lib/takeoff/client", () => ({
   listTakeoffJobs: vi.fn(),
   patchTakeoffItems: vi.fn(),
   applyTakeoffJob: vi.fn(),
+  previewTakeoffConversion: vi.fn(),
   isTakeoffApiError: vi.fn(() => false),
 }));
 

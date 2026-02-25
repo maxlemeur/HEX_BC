@@ -21,6 +21,7 @@ export const TAKEOFF_AUDIT_ACTIONS = [
   "takeoff.apply.started",
   "takeoff.apply.completed",
   "takeoff.apply.failed",
+  "takeoff.mapping.applied",
 ] as const;
 
 export type TakeoffAuditAction = (typeof TAKEOFF_AUDIT_ACTIONS)[number];
@@ -32,6 +33,7 @@ const nullableReasonSchema = z.string().trim().min(1).max(500).nullable();
 const nullableCodeSchema = z.string().trim().min(1).max(120).nullable();
 const nullableMessageSchema = z.string().trim().min(1).max(4000).nullable();
 const nullableNameSchema = z.string().trim().min(1).max(255).nullable();
+const nullableUuidSchema = z.string().uuid().nullable();
 
 const jsonSchema: z.ZodType<Json> = z.lazy(() =>
   z.union([
@@ -130,6 +132,21 @@ const takeoffAuditMetadataSchemas = {
       retryable: z.boolean().default(false),
     })
     .strict(),
+  "takeoff.mapping.applied": z
+    .object({
+      job_id: z.string().uuid(),
+      item_id: z.string().uuid(),
+      rule_id: nullableUuidSchema.default(null),
+      action: z.enum([
+        "rename",
+        "set_price",
+        "set_category",
+        "apply_assembly",
+        "skip",
+      ]),
+      estimate_item_id: nullableUuidSchema.default(null),
+    })
+    .strict(),
 } as const satisfies {
   [Action in TakeoffAuditAction]: z.ZodTypeAny;
 };
@@ -197,6 +214,13 @@ export type BuildTakeoffAuditMetadataInputByAction = {
     error_code?: string | null;
     error_message?: string | null;
     retryable?: boolean;
+  };
+  "takeoff.mapping.applied": {
+    job_id: string;
+    item_id: string;
+    rule_id?: string | null;
+    action: "rename" | "set_price" | "set_category" | "apply_assembly" | "skip";
+    estimate_item_id?: string | null;
   };
 };
 
@@ -289,6 +313,14 @@ export const takeoffAuditMetadataBuilders: TakeoffAuditMetadataBuilders = {
       error_code: normalizeNullableString(input.error_code),
       error_message: normalizeNullableString(input.error_message),
       retryable: input.retryable,
+    }),
+  "takeoff.mapping.applied": (input) =>
+    takeoffAuditMetadataSchemas["takeoff.mapping.applied"].parse({
+      job_id: input.job_id,
+      item_id: input.item_id,
+      rule_id: normalizeNullableString(input.rule_id),
+      action: input.action,
+      estimate_item_id: normalizeNullableString(input.estimate_item_id),
     }),
 };
 

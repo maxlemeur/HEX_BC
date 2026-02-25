@@ -417,6 +417,138 @@ export const updateTakeoffMappingRuleSchema = z
     }
   });
 
+export const takeoffMappingOverrideActionSchema = z.enum([
+  "rename",
+  "set_price",
+  "set_category",
+  "apply_assembly",
+  "skip",
+  "none",
+]);
+
+const takeoffMappingOverrideBaseShape = {
+  item_id: z.string().uuid("item_id invalide."),
+};
+
+export const takeoffMappingOverrideSchema = z.discriminatedUnion("action", [
+  z
+    .object({
+      ...takeoffMappingOverrideBaseShape,
+      action: z.literal("rename"),
+      action_params: takeoffRenameActionParamsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...takeoffMappingOverrideBaseShape,
+      action: z.literal("set_price"),
+      action_params: takeoffSetPriceActionParamsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...takeoffMappingOverrideBaseShape,
+      action: z.literal("set_category"),
+      action_params: takeoffSetCategoryActionParamsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...takeoffMappingOverrideBaseShape,
+      action: z.literal("apply_assembly"),
+      action_params: takeoffApplyAssemblyActionParamsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...takeoffMappingOverrideBaseShape,
+      action: z.literal("skip"),
+      action_params: takeoffSkipActionParamsSchema.optional().default({}),
+    })
+    .strict(),
+  z
+    .object({
+      ...takeoffMappingOverrideBaseShape,
+      action: z.literal("none"),
+      action_params: takeoffSkipActionParamsSchema.optional().default({}),
+    })
+    .strict(),
+]);
+
+const takeoffApplyStrategySchema = z.enum(["append", "replace", "merge"]);
+
+export const takeoffApplyRequestSchema = z
+  .object({
+    strategy: takeoffApplyStrategySchema,
+    target_section_id: z.string().uuid("target_section_id invalide.").nullable().optional(),
+    overrides: z.array(takeoffMappingOverrideSchema).optional(),
+  })
+  .strict()
+  .superRefine((payload, ctx) => {
+    if (!payload.overrides || payload.overrides.length === 0) {
+      return;
+    }
+
+    const seenIds = new Set<string>();
+    payload.overrides.forEach((override, index) => {
+      if (!seenIds.has(override.item_id)) {
+        seenIds.add(override.item_id);
+        return;
+      }
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "overrides doit contenir des item_id uniques.",
+        path: ["overrides", index, "item_id"],
+      });
+    });
+  });
+
+const takeoffMappingPreviewStateSchema = z
+  .object({
+    designation: requiredTextSchema.max(500, "Designation trop longue."),
+    quantity: positiveQuantitySchema,
+    unit: requiredTextSchema.max(64, "Unite trop longue."),
+    is_excluded: z.boolean(),
+    category_id: z.string().uuid("category_id invalide.").nullable(),
+    unit_price_cents: nonNegativeIntegerSchema.nullable(),
+    assembly_id: z.string().uuid("assembly_id invalide.").nullable(),
+  })
+  .strict();
+
+export const takeoffMappingPreviewItemSchema = z
+  .object({
+    item_id: z.string().uuid("item_id invalide."),
+    source_order: nonNegativeIntegerSchema,
+    rule_id: z.string().uuid("rule_id invalide.").nullable(),
+    rule_name: z.string().nullable(),
+    action: takeoffMappingOverrideActionSchema,
+    action_params: z.record(z.string(), z.unknown()),
+    applied_by: z.enum(["none", "rule", "override"]),
+    original: takeoffMappingPreviewStateSchema,
+    transformed: takeoffMappingPreviewStateSchema,
+  })
+  .strict();
+
+export const takeoffPreviewConversionResponseSchema = z
+  .object({
+    job_id: z.string().uuid("job_id invalide."),
+    strategy: takeoffApplyStrategySchema,
+    target_section_id: z.string().uuid("target_section_id invalide.").nullable(),
+    summary: z
+      .object({
+        total_count: nonNegativeIntegerSchema,
+        included_count: nonNegativeIntegerSchema,
+        transformed_count: nonNegativeIntegerSchema,
+        overridden_count: nonNegativeIntegerSchema,
+        excluded_by_mapping_count: nonNegativeIntegerSchema,
+        assembly_insertions_count: nonNegativeIntegerSchema,
+      })
+      .strict(),
+    items: z.array(takeoffMappingPreviewItemSchema),
+  })
+  .strict();
+
 function sanitizeGeminiJsonSchema(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => sanitizeGeminiJsonSchema(item));

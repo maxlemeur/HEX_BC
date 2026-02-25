@@ -51,6 +51,11 @@ vi.mock("@/components/takeoff/TakeoffApplyWizard", () => ({
       targetSectionId: string | null;
       targetSectionLabel: string;
       strategy: "append" | "replace" | "merge";
+      overrides: Array<{
+        item_id: string;
+        action: "rename" | "set_price" | "set_category" | "apply_assembly" | "skip" | "none";
+        action_params?: Record<string, unknown>;
+      }>;
     }) => Promise<void>;
     submitError: string | null;
   }) => (
@@ -62,6 +67,7 @@ vi.mock("@/components/takeoff/TakeoffApplyWizard", () => ({
             targetSectionId: null,
             targetSectionLabel: "Racine du devis",
             strategy: "append",
+            overrides: [],
           })
         }
       >
@@ -231,6 +237,7 @@ describe("TakeoffJobMonitor", () => {
         {
           target_section_id: null,
           strategy: "append",
+          overrides: undefined,
         }
       );
       expect(releaseEstimateDraftLockMock).toHaveBeenCalledWith(
