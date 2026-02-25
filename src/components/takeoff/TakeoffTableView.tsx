@@ -27,6 +27,7 @@ export type TakeoffTableViewProps = {
   onUpdateItem: (itemId: string, field: string, value: unknown) => void;
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
+  onSyncToItems?: (itemIds: string[]) => void;
 };
 
 type TableCardData = {
@@ -74,6 +75,7 @@ function TableCard({
   onUpdateItem,
   onExcludeItems,
   onIncludeItems,
+  onSyncToItems,
 }: {
   card: TableCardData;
   collapsed: boolean;
@@ -81,6 +83,7 @@ function TableCard({
   onUpdateItem: (itemId: string, field: string, value: unknown) => void;
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
+  onSyncToItems?: (itemIds: string[]) => void;
 }) {
   const { table, items: tableItems, tableIndex } = card;
   const title = table.title ?? `Table ${tableIndex + 1}`;
@@ -112,6 +115,11 @@ function TableCard({
     const ids = tableItems.filter((i) => i.is_excluded).map((i) => i.id);
     if (ids.length > 0) onIncludeItems(ids);
   }, [tableItems, onIncludeItems]);
+
+  const handleSyncTable = useCallback(() => {
+    if (!onSyncToItems) return;
+    onSyncToItems(tableItems.map((item) => item.id));
+  }, [onSyncToItems, tableItems]);
 
   return (
     <div
@@ -165,15 +173,25 @@ function TableCard({
           </div>
         </div>
 
-        {excluded ? (
-          <Button variant="secondary" size="sm" onClick={handleIncludeTable}>
-            Inclure
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleSyncTable}
+            disabled={!onSyncToItems || tableItems.length === 0}
+          >
+            Synchroniser items
           </Button>
-        ) : (
-          <Button variant="danger" size="sm" onClick={handleExcludeTable}>
-            Exclure
-          </Button>
-        )}
+          {excluded ? (
+            <Button variant="secondary" size="sm" onClick={handleIncludeTable}>
+              Inclure
+            </Button>
+          ) : (
+            <Button variant="danger" size="sm" onClick={handleExcludeTable}>
+              Exclure
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Card body */}
@@ -314,10 +332,12 @@ export function TakeoffTableView({
   onUpdateItem,
   onExcludeItems,
   onIncludeItems,
+  onSyncToItems,
 }: TakeoffTableViewProps) {
   // ---- Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [pageFilter, setPageFilter] = useState<string>("all");
+  const [tableFilter, setTableFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<InclusionStatusFilter>("all");
   const [collapsedCards, setCollapsedCards] = useState<Set<number>>(new Set());
 
@@ -342,6 +362,18 @@ export function TakeoffTableView({
     return Array.from(pages).sort((a, b) => a - b);
   }, [tables]);
 
+  // ---- Unique table options for filter
+  const allTableOptions = useMemo(() => {
+    return cards.map((card) => {
+      const title = card.table.title?.trim();
+      const suffix = title && title.length > 0 ? ` - ${title}` : "";
+      return {
+        value: String(card.tableIndex),
+        label: `Table ${card.tableIndex + 1}${suffix}`,
+      };
+    });
+  }, [cards]);
+
   // ---- Filter cards
   const filteredCards = useMemo(() => {
     let result = cards;
@@ -361,6 +393,12 @@ export function TakeoffTableView({
       result = result.filter((c) => c.table.page === pageNum);
     }
 
+    // Filter by table
+    if (tableFilter !== "all") {
+      const selectedTable = Number(tableFilter);
+      result = result.filter((c) => c.tableIndex === selectedTable);
+    }
+
     // Filter by status
     if (statusFilter === "included") {
       result = result.filter((c) => isTableIncluded(c.items));
@@ -373,7 +411,7 @@ export function TakeoffTableView({
     }
 
     return result;
-  }, [cards, searchQuery, pageFilter, statusFilter]);
+  }, [cards, searchQuery, pageFilter, tableFilter, statusFilter]);
 
   // ---- Group by page
   const groupedByPage = useMemo(() => {
@@ -426,6 +464,7 @@ export function TakeoffTableView({
         <input
           type="search"
           placeholder="Rechercher par titre..."
+          aria-label="Rechercher une table"
           className="h-9 w-64 rounded-lg border border-[var(--border)] bg-white px-3 text-sm focus:border-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
@@ -433,6 +472,7 @@ export function TakeoffTableView({
 
         {allPages.length > 1 && (
           <select
+            aria-label="Filtrer par page"
             className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
             value={pageFilter}
             onChange={(e) => setPageFilter(e.target.value)}
@@ -446,7 +486,24 @@ export function TakeoffTableView({
           </select>
         )}
 
+        {allTableOptions.length > 1 && (
+          <select
+            aria-label="Filtrer par table"
+            className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+            value={tableFilter}
+            onChange={(e) => setTableFilter(e.target.value)}
+          >
+            <option value="all">Toutes tables</option>
+            {allTableOptions.map((tableOption) => (
+              <option key={tableOption.value} value={tableOption.value}>
+                {tableOption.label}
+              </option>
+            ))}
+          </select>
+        )}
+
         <select
+          aria-label="Filtrer par statut"
           className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as InclusionStatusFilter)}
@@ -510,6 +567,7 @@ export function TakeoffTableView({
                   onUpdateItem={onUpdateItem}
                   onExcludeItems={onExcludeItems}
                   onIncludeItems={onIncludeItems}
+                  onSyncToItems={onSyncToItems}
                 />
               ))}
             </div>

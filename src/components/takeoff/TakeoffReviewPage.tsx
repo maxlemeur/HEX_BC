@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -80,13 +79,18 @@ function ExclusionReasonModal({
 }) {
   const [reason, setReason] = useState("");
   const canConfirm = reason.trim().length > 0;
-
-  useEffect(() => {
-    if (!open) setReason("");
-  }, [open]);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen) {
+        setReason("");
+      }
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange]
+  );
 
   return (
-    <Modal.Root open={open} onOpenChange={onOpenChange}>
+    <Modal.Root open={open} onOpenChange={handleOpenChange}>
       <Modal.Content>
         <Modal.Header>
           <Modal.Title>
@@ -456,6 +460,18 @@ export default function TakeoffReviewPage({
     []
   );
 
+  const handleSyncToItems = useCallback(
+    (itemIds: string[]) => {
+      setActiveTab("items");
+      toast.info({
+        title: "Synchronisation vers items",
+        description: `${itemIds.length} item(s) synchronise(s) dans la vue Items.`,
+        durationMs: 2500,
+      });
+    },
+    [setActiveTab, toast]
+  );
+
   const handleExclusionConfirm = useCallback(
     (reason: string) => {
       setItems((prev) =>
@@ -588,9 +604,15 @@ export default function TakeoffReviewPage({
 
       {/* ---- Tab bar ---- */}
       {hasTables && (
-        <div className="flex gap-1 border-b border-[var(--border)]">
+        <div
+          className="flex gap-1 border-b border-[var(--border)]"
+          role="tablist"
+          aria-label="Vues de review"
+        >
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === "tables"}
             className={`px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === "tables"
                 ? "border-b-2 border-[var(--info)] text-[var(--info)]"
@@ -602,6 +624,8 @@ export default function TakeoffReviewPage({
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === "items"}
             className={`px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === "items"
                 ? "border-b-2 border-[var(--info)] text-[var(--info)]"
@@ -622,6 +646,7 @@ export default function TakeoffReviewPage({
           onUpdateItem={updateItemField}
           onExcludeItems={handleExcludeItems}
           onIncludeItems={handleIncludeItems}
+          onSyncToItems={handleSyncToItems}
         />
       ) : (
         <TakeoffReviewTable

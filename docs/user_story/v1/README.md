@@ -68,7 +68,7 @@ Et **4 phases de livraison** progressives (MVP → Niveau B + Async → Niveau C
 | TKF-018 | Fini |
 | TKF-019 | A faire |
 | TKF-020 | A faire |
-| TKF-021 | A faire |
+| TKF-021 | Fini |
 | TKF-022 | A faire |
 | TKF-023 | A faire |
 | TKF-024 | A faire |
@@ -82,9 +82,9 @@ Et **4 phases de livraison** progressives (MVP → Niveau B + Async → Niveau C
 | TKF-032 | A faire |
 
 Resume:
-- Fini: 16/32
+- Fini: 17/32
 - Partiel: 1/32 (TKF-009)
-- A faire: 15/32
+- A faire: 14/32
 
 ---
 

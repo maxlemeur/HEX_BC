@@ -194,6 +194,36 @@ describe("TakeoffReviewPage", () => {
     expect(itemsTab).toBeDefined();
   });
 
+  it("switches from tables tab to items tab via query param update", async () => {
+    mockSearchParams = new URLSearchParams("view=tables");
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(
+      makeMockResponse(
+        [makeItem({ metadata: { table_index: 0, row_index: 0 } })],
+        {
+          level: "B",
+          tables: [
+            {
+              page: 1,
+              title: "Nomenclature",
+              headers: ["Designation", "Qte"],
+              rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
+            },
+          ],
+        }
+      )
+    );
+
+    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Rechercher par titre...")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Items (1)" }));
+
+    expect(mockReplace).toHaveBeenCalledWith("?view=items", { scroll: false });
+  });
+
   it("does not show tab bar when no tables", async () => {
     vi.mocked(fetchTakeoffJob).mockResolvedValue(
       makeMockResponse([makeItem()])
@@ -243,6 +273,41 @@ describe("TakeoffReviewPage", () => {
       });
       expect(applyBtn.getAttribute("disabled")).toBeNull();
     });
+  });
+
+  it("sync action in tables view navigates to items and shows toast", async () => {
+    mockSearchParams = new URLSearchParams("view=tables");
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(
+      makeMockResponse(
+        [makeItem({ metadata: { table_index: 0, row_index: 0 } })],
+        {
+          level: "B",
+          tables: [
+            {
+              page: 1,
+              title: "Nomenclature",
+              headers: ["Designation", "Qte"],
+              rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
+            },
+          ],
+        }
+      )
+    );
+
+    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Synchroniser items" })).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Synchroniser items" }));
+
+    expect(mockReplace).toHaveBeenLastCalledWith("?view=items", { scroll: false });
+    expect(mockToast.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Synchronisation vers items",
+      })
+    );
   });
 
   it("triggers auto-save after editing", async () => {

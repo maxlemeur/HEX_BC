@@ -27,7 +27,6 @@ type EstimateDocumentSectionRowProps = {
 type EstimateDocumentLineRowProps = {
   item: EstimateItem;
   depth: number;
-  numberingById: Record<string, string>;
   currency: SupportedEstimateCurrency;
 };
 
@@ -84,7 +83,6 @@ function EstimateDocumentSectionRow({
 function EstimateDocumentLineRow({
   item,
   depth,
-  numberingById,
   currency,
 }: EstimateDocumentLineRowProps) {
   const resolvedCurrency = currency;
@@ -138,7 +136,6 @@ export function EstimateDocumentTableRows({
             key={item.id}
             item={item}
             depth={depth}
-            numberingById={numberingById}
             currency={currency}
           />
         )

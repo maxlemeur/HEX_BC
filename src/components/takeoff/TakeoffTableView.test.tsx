@@ -20,7 +20,6 @@ import type { TakeoffTable } from "@/lib/takeoff/types";
 
 const ITEM_ID_1 = "44444444-4444-4444-8444-444444444444";
 const ITEM_ID_2 = "55555555-5555-4555-8555-555555555555";
-const ITEM_ID_3 = "66666666-6666-4666-8666-666666666666";
 
 function makeReviewItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
   return {
@@ -65,6 +64,7 @@ describe("TakeoffTableView", () => {
     onUpdateItem: vi.fn(),
     onExcludeItems: vi.fn(),
     onIncludeItems: vi.fn(),
+    onSyncToItems: vi.fn(),
   };
 
   beforeEach(() => {
@@ -211,6 +211,94 @@ describe("TakeoffTableView", () => {
 
     expect(screen.getByText("Nomenclature RDC")).toBeDefined();
     expect(screen.queryByText("Schedule Finitions")).toBeNull();
+  });
+
+  it("filters tables by page, table, and status", () => {
+    render(
+      <TakeoffTableView
+        tables={[
+          makeTable({ page: 1, title: "Table A" }),
+          makeTable({ page: 2, title: "Table B" }),
+        ]}
+        items={[
+          makeReviewItem({
+            id: ITEM_ID_1,
+            metadata: { table_index: 0, row_index: 0 },
+            is_excluded: true,
+            exclusion_reason: "hors scope",
+          }),
+          makeReviewItem({
+            id: ITEM_ID_2,
+            source_page: 2,
+            metadata: { table_index: 1, row_index: 0 },
+            is_excluded: false,
+          }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const pageFilter = screen.getByLabelText("Filtrer par page");
+    fireEvent.change(pageFilter, { target: { value: "2" } });
+
+    expect(screen.getByText("Table B")).toBeDefined();
+    expect(screen.queryByText("Table A")).toBeNull();
+
+    const tableFilter = screen.getByLabelText("Filtrer par table");
+    fireEvent.change(tableFilter, { target: { value: "1" } });
+
+    expect(screen.getByText("Table B")).toBeDefined();
+    expect(screen.queryByText("Table A")).toBeNull();
+
+    const statusFilter = screen.getByLabelText("Filtrer par statut");
+    fireEvent.change(statusFilter, { target: { value: "included" } });
+
+    expect(screen.getByText("Table B")).toBeDefined();
+    expect(screen.queryByText("Table A")).toBeNull();
+  });
+
+  it("calls onSyncToItems with table item IDs", () => {
+    render(
+      <TakeoffTableView
+        tables={[makeTable()]}
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
+          makeReviewItem({
+            id: ITEM_ID_2,
+            designation: "Parquet",
+            metadata: { table_index: 0, row_index: 1 },
+          }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Synchroniser items" }));
+    expect(defaultProps.onSyncToItems).toHaveBeenCalledWith([ITEM_ID_1, ITEM_ID_2]);
+  });
+
+  it("edits designation cell and propagates update callback", () => {
+    render(
+      <TakeoffTableView
+        tables={[makeTable()]}
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const designationInput = screen.getByLabelText("Designation - Carrelage 30x30");
+    fireEvent.change(designationInput, {
+      target: { value: "Carrelage antiderapant" },
+    });
+    fireEvent.blur(designationInput);
+
+    expect(defaultProps.onUpdateItem).toHaveBeenCalledWith(
+      ITEM_ID_1,
+      "designation",
+      "Carrelage antiderapant"
+    );
   });
 
   it("shows empty state when no tables", () => {
