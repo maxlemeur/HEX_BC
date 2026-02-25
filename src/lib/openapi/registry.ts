@@ -239,6 +239,15 @@ const suggestPricesQuerySchema = z
 const changelogFormatQuerySchema = z.enum(["json", "pdf"]);
 const pdfFormatQuerySchema = z.enum(["json"]);
 const exportFormatQuerySchema = z.enum(["xlsx"]);
+const takeoffPlanSetsLimitQuerySchema = z.number().int().min(1).max(100);
+const takeoffPlanFilesIncludeDownloadUrlQuerySchema = z.enum([
+  "0",
+  "1",
+  "true",
+  "false",
+]);
+const takeoffPlanFileContentTypeSchema = z.literal("application/pdf");
+const maxTakeoffPlanFileSizeBytes = 50 * 1024 * 1024;
 const idempotencyKeyHeaderSchema = z
   .string()
   .trim()
@@ -1212,6 +1221,108 @@ const takeoffMappingRuleDeleteDataSchema = z.object({
   deleted: z.literal(true),
   rule_id: uuidSchema,
 });
+const takeoffPlanSetSchema = z
+  .object({
+    id: uuidSchema,
+    tenant_id: uuidSchema,
+    estimate_version_id: uuidSchema,
+    name: z.string(),
+    description: z.string().nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    created_by: uuidSchema.nullable().optional(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    file_count: z.number().int().min(0).optional(),
+  })
+  .passthrough();
+const takeoffSignedUploadSchema = z
+  .object({
+    url: z.string().url(),
+    method: z.literal("PUT"),
+    path: z.string().trim().min(1),
+    token: z.string().trim().min(1).optional(),
+    expires_at: z.string().optional(),
+    expires_in_seconds: z.number().int().positive().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+  })
+  .passthrough();
+const takeoffPlanFileSchema = z
+  .object({
+    id: uuidSchema,
+    tenant_id: uuidSchema,
+    plan_set_id: uuidSchema,
+    file_path: z.string(),
+    file_name: z.string(),
+    file_type: z.string(),
+    file_size_bytes: z.number().int().min(0),
+    page_count: z.number().int().positive().nullable().optional(),
+    file_hash: z.string().nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    created_by: uuidSchema.nullable().optional(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    download_url: z.string().url().nullable().optional(),
+    download_url_expires_at: z.string().nullable().optional(),
+  })
+  .passthrough();
+const takeoffCleanupIssueSchema = z.object({
+  resource: z.enum(["metadata", "storage"]),
+  file_id: uuidSchema.optional(),
+  path: z.string().nullable().optional(),
+  message: z.string(),
+});
+const takeoffCleanupStatusSchema = z.object({
+  metadata_deleted: z.boolean(),
+  storage_cleanup_attempted: z.boolean(),
+  storage_deleted_count: z.number().int().min(0),
+  storage_failed_count: z.number().int().min(0),
+  errors: z.array(takeoffCleanupIssueSchema).optional(),
+});
+const takeoffPlanSetCreateSchema = z.object({
+  estimate_version_id: uuidSchema,
+  name: z.string().trim().min(1, "Le nom du set est requis.").max(255),
+  description: z.string().trim().max(2000).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+const takeoffPlanFileCreateSchema = z.object({
+  file_name: z.string().trim().min(1, "Le nom du fichier est requis.").max(255),
+  file_type: takeoffPlanFileContentTypeSchema,
+  file_size_bytes: z
+    .number()
+    .int("La taille du fichier doit etre un entier.")
+    .positive("La taille du fichier doit etre positive.")
+    .max(maxTakeoffPlanFileSizeBytes, "Le fichier depasse 50 Mo."),
+  page_count: z.number().int().positive().optional(),
+  file_hash: z.string().trim().min(1).max(255).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+const takeoffPlanSetsDataSchema = z.object({
+  plan_sets: z.array(takeoffPlanSetSchema),
+});
+const takeoffPlanSetDataSchema = z.object({
+  plan_set: takeoffPlanSetSchema,
+});
+const takeoffPlanSetDeleteDataSchema = z.object({
+  deleted: z.literal(true),
+  plan_set_id: uuidSchema,
+  cleanup: takeoffCleanupStatusSchema,
+});
+const takeoffPlanFilesDataSchema = z.object({
+  plan_files: z.array(takeoffPlanFileSchema),
+});
+const takeoffPlanFileDataSchema = z.object({
+  plan_file: takeoffPlanFileSchema,
+});
+const takeoffPlanFileSignedUploadDataSchema = z.object({
+  plan_file: takeoffPlanFileSchema,
+  signed_upload: takeoffSignedUploadSchema,
+});
+const takeoffPlanFileDeleteDataSchema = z.object({
+  deleted: z.literal(true),
+  plan_set_id: uuidSchema,
+  file_id: uuidSchema,
+  cleanup: takeoffCleanupStatusSchema,
+});
 
 const apiEstimateListSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateListResponse",
@@ -1375,6 +1486,35 @@ const apiTakeoffMappingRuleDeleteSchemaDefinition = successResponseSchemaDefinit
   "ApiTakeoffMappingRuleDeleteResponse",
   takeoffMappingRuleDeleteDataSchema
 );
+const apiTakeoffPlanSetsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPlanSetsResponse",
+  takeoffPlanSetsDataSchema
+);
+const apiTakeoffPlanSetSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPlanSetResponse",
+  takeoffPlanSetDataSchema
+);
+const apiTakeoffPlanSetDeleteSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPlanSetDeleteResponse",
+  takeoffPlanSetDeleteDataSchema
+);
+const apiTakeoffPlanFilesSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPlanFilesResponse",
+  takeoffPlanFilesDataSchema
+);
+const apiTakeoffPlanFileSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPlanFileResponse",
+  takeoffPlanFileDataSchema
+);
+const apiTakeoffPlanFileSignedUploadSchemaDefinition =
+  successResponseSchemaDefinition(
+    "ApiTakeoffPlanFileSignedUploadResponse",
+    takeoffPlanFileSignedUploadDataSchema
+  );
+const apiTakeoffPlanFileDeleteSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffPlanFileDeleteResponse",
+  takeoffPlanFileDeleteDataSchema
+);
 const takeoffApiErrorSchemaDefinition = schemaDefinition(
   "TakeoffApiError",
   takeoffApiErrorSchema,
@@ -1438,6 +1578,18 @@ const takeoffRuleIdPathParameter = pathParameter({
   schemaName: "TakeoffRuleIdPathParameter",
   schema: uuidSchema,
 });
+const takeoffPlanSetIdPathParameter = pathParameter({
+  name: "setId",
+  description: "Identifiant UUID du set de plans.",
+  schemaName: "TakeoffPlanSetIdPathParameter",
+  schema: uuidSchema,
+});
+const takeoffPlanFileIdPathParameter = pathParameter({
+  name: "fileId",
+  description: "Identifiant UUID du plan dans le set.",
+  schemaName: "TakeoffPlanFileIdPathParameter",
+  schema: uuidSchema,
+});
 
 const templateIdPathParameter = pathParameter({
   name: "templateId",
@@ -1475,6 +1627,27 @@ const idempotencyKeyHeaderParameter = headerParameter({
     "Cle optionnelle d'idempotence pour dedupliquer les creations de jobs Takeoff.",
   schemaName: "IdempotencyKeyHeaderParameter",
   schema: idempotencyKeyHeaderSchema,
+  required: false,
+});
+const takeoffPlanSetEstimateVersionIdQueryParameter = queryParameter({
+  name: "estimate_version_id",
+  description: "Filtrer les sets de plans par version de chiffrage.",
+  schemaName: "TakeoffPlanSetEstimateVersionIdQueryParameter",
+  schema: uuidSchema,
+  required: false,
+});
+const takeoffPlanSetLimitQueryParameter = queryParameter({
+  name: "limit",
+  description: "Nombre maximal de sets retournes (<= 100).",
+  schemaName: "TakeoffPlanSetLimitQueryParameter",
+  schema: takeoffPlanSetsLimitQuerySchema,
+  required: false,
+});
+const takeoffPlanFileIncludeDownloadUrlQueryParameter = queryParameter({
+  name: "include_download_url",
+  description: "Quand true, ajoute une URL signee de consultation.",
+  schemaName: "TakeoffPlanFileIncludeDownloadUrlQueryParameter",
+  schema: takeoffPlanFilesIncludeDownloadUrlQuerySchema,
   required: false,
 });
 
@@ -1823,6 +1996,17 @@ const patchTakeoffMappingRuleBody = jsonBody({
   description: "Mise a jour partielle d'une regle de mapping Takeoff.",
   schema: takeoffMappingRulePatchSchema,
 });
+const createTakeoffPlanSetBody = jsonBody({
+  name: "CreateTakeoffPlanSetRequest",
+  description: "Creation d'un set de plans rattache a une version de chiffrage.",
+  schema: takeoffPlanSetCreateSchema,
+});
+const createTakeoffPlanFileBody = jsonBody({
+  name: "CreateTakeoffPlanFileRequest",
+  description:
+    "Creation des metadonnees d'un PDF et generation d'un upload signe court terme.",
+  schema: takeoffPlanFileCreateSchema,
+});
 
 const mappingRulesErrorResponses: Record<string, OpenApiResponseDefinition> = {
   "400": jsonResponse(
@@ -1852,6 +2036,43 @@ const mappingRulesErrorResponses: Record<string, OpenApiResponseDefinition> = {
   "500": jsonResponse(
     "Erreur interne serveur.",
     openApiSharedSchemaDefinitions.apiFailureResponse
+  ),
+};
+const takeoffPlanErrorResponses: Record<string, OpenApiResponseDefinition> = {
+  "400": jsonResponse(
+    "Requete invalide ou payload non conforme.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "401": jsonResponse(
+    "Authentification requise.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "403": jsonResponse(
+    "Acces interdit.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "404": jsonResponse(
+    "Set de plans ou fichier introuvable.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "409": jsonResponse(
+    "Conflit metier ou de concurrence.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "422": jsonResponse(
+    "Validation metier echouee.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "500": jsonResponse(
+    "Erreur interne serveur.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+};
+const takeoffPlanUploadErrorResponses: Record<string, OpenApiResponseDefinition> = {
+  ...takeoffPlanErrorResponses,
+  "413": jsonResponse(
+    "Fichier trop volumineux (maximum 50 Mo).",
+    apiTakeoffFailureResponseSchemaDefinition
   ),
 };
 
@@ -2009,6 +2230,144 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
         apiTakeoffMappingRuleDeleteSchemaDefinition
       ),
       ...mappingRulesErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/plan-sets",
+    summary: "Lister les sets de plans Takeoff",
+    description:
+      "Retourne les sets de plans du tenant courant, avec filtres optionnels par version.",
+    tags: ["Takeoff"],
+    parameters: [
+      takeoffPlanSetEstimateVersionIdQueryParameter,
+      takeoffPlanSetLimitQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Sets de plans retournes.",
+        apiTakeoffPlanSetsSchemaDefinition
+      ),
+      ...takeoffPlanErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/plan-sets",
+    summary: "Creer un set de plans Takeoff",
+    description:
+      "Cree un set de plans pour une version de chiffrage accessible au tenant courant.",
+    tags: ["Takeoff"],
+    requestBody: createTakeoffPlanSetBody,
+    responses: {
+      "201": jsonResponse(
+        "Set de plans cree avec succes.",
+        apiTakeoffPlanSetSchemaDefinition
+      ),
+      ...takeoffPlanErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/plan-sets/{setId}",
+    summary: "Recuperer un set de plans Takeoff",
+    description: "Retourne le detail d'un set de plans et ses metadonnees.",
+    tags: ["Takeoff"],
+    parameters: [takeoffPlanSetIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Set de plans retourne.",
+        apiTakeoffPlanSetSchemaDefinition
+      ),
+      ...takeoffPlanErrorResponses,
+    },
+  },
+  {
+    method: "delete",
+    path: "/api/takeoff/plan-sets/{setId}",
+    summary: "Supprimer un set de plans Takeoff",
+    description:
+      "Supprime le set de plans, ses metadonnees et declenche le cleanup storage associe.",
+    tags: ["Takeoff"],
+    parameters: [takeoffPlanSetIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Set de plans supprime.",
+        apiTakeoffPlanSetDeleteSchemaDefinition
+      ),
+      ...takeoffPlanErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/plan-sets/{setId}/files",
+    summary: "Lister les plans d'un set",
+    description:
+      "Retourne les fichiers PDF attaches au set, avec URL signee optionnelle de consultation.",
+    tags: ["Takeoff"],
+    parameters: [
+      takeoffPlanSetIdPathParameter,
+      takeoffPlanFileIncludeDownloadUrlQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Fichiers du set retournes.",
+        apiTakeoffPlanFilesSchemaDefinition
+      ),
+      ...takeoffPlanErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/plan-sets/{setId}/files",
+    summary: "Creer un plan dans un set",
+    description:
+      "Cree les metadonnees d'un PDF et retourne les informations d'upload signe (path `{tenant_id}/{set_id}/{file_id}/{filename}`).",
+    tags: ["Takeoff"],
+    parameters: [takeoffPlanSetIdPathParameter],
+    requestBody: createTakeoffPlanFileBody,
+    responses: {
+      "201": jsonResponse(
+        "Plan cree avec upload signe.",
+        apiTakeoffPlanFileSignedUploadSchemaDefinition
+      ),
+      ...takeoffPlanUploadErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/plan-sets/{setId}/files/{fileId}",
+    summary: "Recuperer un plan d'un set",
+    description:
+      "Retourne les metadonnees d'un fichier PDF et, optionnellement, son URL signee de consultation.",
+    tags: ["Takeoff"],
+    parameters: [
+      takeoffPlanSetIdPathParameter,
+      takeoffPlanFileIdPathParameter,
+      takeoffPlanFileIncludeDownloadUrlQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Plan retourne.",
+        apiTakeoffPlanFileSchemaDefinition
+      ),
+      ...takeoffPlanErrorResponses,
+    },
+  },
+  {
+    method: "delete",
+    path: "/api/takeoff/plan-sets/{setId}/files/{fileId}",
+    summary: "Supprimer un plan d'un set",
+    description:
+      "Supprime les metadonnees du plan et execute le cleanup storage associe.",
+    tags: ["Takeoff"],
+    parameters: [takeoffPlanSetIdPathParameter, takeoffPlanFileIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Plan supprime.",
+        apiTakeoffPlanFileDeleteSchemaDefinition
+      ),
+      ...takeoffPlanErrorResponses,
     },
   },
   {
