@@ -27,6 +27,8 @@ export enum TakeoffErrorCode {
   AI_SCHEMA = "AI_SCHEMA",
   AI_SAFETY = "AI_SAFETY",
   AI_PROVIDER = "AI_PROVIDER",
+  TAKEOFF_JOB_NOT_RETRIABLE = "TAKEOFF_JOB_NOT_RETRIABLE",
+  TAKEOFF_JOB_NOT_CANCELABLE = "TAKEOFF_JOB_NOT_CANCELABLE",
 }
 
 type TakeoffErrorStatus = ApiError["status"];
@@ -285,7 +287,9 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
 
   if (
     code === TakeoffErrorCode.CONFLICT ||
-    code === TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED
+    code === TakeoffErrorCode.IDEMPOTENCY_KEY_REUSED ||
+    code === TakeoffErrorCode.TAKEOFF_JOB_NOT_RETRIABLE ||
+    code === TakeoffErrorCode.TAKEOFF_JOB_NOT_CANCELABLE
   ) {
     return 409;
   }
@@ -349,6 +353,14 @@ function getDefaultMessage(code: TakeoffErrorCode) {
 
   if (code === TakeoffErrorCode.TAKEOFF_FILE_REQUIRED) {
     return "Le champ file est requis.";
+  }
+
+  if (code === TakeoffErrorCode.TAKEOFF_JOB_NOT_RETRIABLE) {
+    return "Le job n'est pas dans un etat permettant la relance.";
+  }
+
+  if (code === TakeoffErrorCode.TAKEOFF_JOB_NOT_CANCELABLE) {
+    return "Le job n'est pas dans un etat permettant l'annulation.";
   }
 
   if (code === TakeoffErrorCode.INTERNAL_ERROR) {

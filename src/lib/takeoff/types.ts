@@ -175,3 +175,12 @@ export type TakeoffMappingRuleDeleteResponse = {
   deleted: true;
   rule_id: string;
 };
+
+export const TAKEOFF_JOB_MAX_RETRY_COUNT = 3;
+
+export const TAKEOFF_JOB_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "failed",
+  "canceled",
+  "applied",
+]);

@@ -1,7 +1,9 @@
 import type {
   CreateTakeoffMappingRuleInput as SharedCreateTakeoffMappingRuleInput,
   TakeoffApiError as TakeoffApiErrorShape,
+  TakeoffJobActionResponse as SharedTakeoffJobActionResponse,
   TakeoffJobCreateInput as SharedTakeoffJobCreateInput,
+  TakeoffJobDetailResponse as SharedTakeoffJobDetailResponse,
   TakeoffJobResponse as SharedTakeoffJobResponse,
   TakeoffLevel as SharedTakeoffLevel,
   TakeoffMappingRule as SharedTakeoffMappingRule,
@@ -13,6 +15,8 @@ import type {
 
 export type TakeoffLevel = SharedTakeoffLevel;
 export type TakeoffJobCreateResponse = SharedTakeoffJobResponse;
+export type TakeoffJobDetailResponse = SharedTakeoffJobDetailResponse;
+export type TakeoffJobActionResponse = SharedTakeoffJobActionResponse;
 export type CreateTakeoffJobInput = SharedTakeoffJobCreateInput;
 export type TakeoffMappingRule = SharedTakeoffMappingRule;
 export type CreateTakeoffMappingRuleInput = SharedCreateTakeoffMappingRuleInput;
@@ -452,4 +456,35 @@ export async function createTakeoffJob(
       );
     }
   });
+}
+
+export async function fetchTakeoffJob(
+  jobId: string,
+  options?: { signal?: AbortSignal }
+): Promise<TakeoffJobDetailResponse> {
+  return requestTakeoffJson<TakeoffJobDetailResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}`,
+    { method: "GET", signal: options?.signal },
+    "Impossible de recuperer les details du job takeoff."
+  );
+}
+
+export async function retryTakeoffJob(
+  jobId: string
+): Promise<TakeoffJobActionResponse> {
+  return requestTakeoffJson<TakeoffJobActionResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/retry`,
+    { method: "POST" },
+    "Impossible de relancer le job takeoff."
+  );
+}
+
+export async function cancelTakeoffJob(
+  jobId: string
+): Promise<TakeoffJobActionResponse> {
+  return requestTakeoffJson<TakeoffJobActionResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/cancel`,
+    { method: "POST" },
+    "Impossible d'annuler le job takeoff."
+  );
 }
