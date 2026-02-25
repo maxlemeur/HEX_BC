@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
+import { HubBreadcrumb } from "@/components/HubBreadcrumb";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { SortOption } from "@/components/TableFilterBar";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -214,6 +215,7 @@ export default function SuppliersPage() {
 
   return (
     <div className="animate-fade-in">
+      <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Fournisseurs" />
       {/* Page header */}
       <div className="page-header flex items-start justify-between gap-6">
         <div>

@@ -173,17 +173,17 @@ body {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
 }
 
-.admin-hub-card {
+.hub-card {
   display: flex;
   flex-direction: column;
   cursor: pointer;
   transition: box-shadow 0.2s ease, transform 0.15s ease;
 }
-.admin-hub-card:hover {
+.hub-card:hover {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
   transform: translateY(-2px);
 }
-.admin-hub-card:active {
+.hub-card:active {
   transform: translateY(0);
 }
 

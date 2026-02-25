@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
+import { HubBreadcrumb } from "@/components/HubBreadcrumb";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
@@ -170,6 +171,7 @@ export default function ProductsPage() {
 
   return (
     <div className="animate-fade-in">
+      <HubBreadcrumb hubHref="/dashboard/referentiel" hubLabel="Référentiel" currentLabel="Produits" />
       {/* Page header */}
       <div className="page-header flex items-start justify-between gap-6">
         <div>

@@ -30,7 +30,7 @@ export default async function AdminHubPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Link
             href="/dashboard/tenants"
-            className="dashboard-card admin-hub-card p-5 sm:col-span-1 lg:col-span-2"
+            className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
               <svg
@@ -58,7 +58,7 @@ export default async function AdminHubPage() {
 
           <Link
             href="/dashboard/admin/currencies"
-            className="dashboard-card admin-hub-card p-5 sm:col-span-1 lg:col-span-2"
+            className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
               <svg
@@ -95,7 +95,7 @@ export default async function AdminHubPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Link
             href="/dashboard/admin/suggestion-learning"
-            className="dashboard-card admin-hub-card p-5"
+            className="dashboard-card hub-card p-5"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
               <svg
@@ -124,7 +124,7 @@ export default async function AdminHubPage() {
 
           <Link
             href="/dashboard/admin/anomaly-history"
-            className="dashboard-card admin-hub-card p-5"
+            className="dashboard-card hub-card p-5"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
               <svg
@@ -153,7 +153,7 @@ export default async function AdminHubPage() {
 
           <Link
             href="/dashboard/admin/rules"
-            className="dashboard-card admin-hub-card p-5"
+            className="dashboard-card hub-card p-5"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
               <svg
@@ -183,7 +183,7 @@ export default async function AdminHubPage() {
 
           <Link
             href="/dashboard/admin/flags"
-            className="dashboard-card admin-hub-card p-5"
+            className="dashboard-card hub-card p-5"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
               <svg
@@ -220,7 +220,7 @@ export default async function AdminHubPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Link
               href="/dashboard/admin/takeoff/mapping-rules"
-              className="dashboard-card admin-hub-card p-5 sm:col-span-1 lg:col-span-2"
+              className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
                 <svg
