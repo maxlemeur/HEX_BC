@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PDFDocument } from "pdf-lib";
 
 import type { CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
-import { processLevelA, processLevelB } from "@/lib/takeoff/processor";
+import { processLevelA, processLevelB, processLevelC } from "@/lib/takeoff/processor";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -14,6 +15,8 @@ const DEFAULT_SOURCE_PATH =
   `${TENANT_ID}/${JOB_ID}/${"a".repeat(64)}-niveau-a.csv`;
 const DEFAULT_SOURCE_PATH_B =
   `${TENANT_ID}/${JOB_ID}/${"b".repeat(64)}-niveau-b.pdf`;
+const DEFAULT_SOURCE_PATH_C =
+  `${TENANT_ID}/${JOB_ID}/${"c".repeat(64)}-niveau-c.pdf`;
 
 type SupabaseError = {
   code: string;
@@ -92,6 +95,13 @@ type SupabaseMockOptions = {
   job?: Partial<TakeoffJobRow>;
   existingResults?: StoredTakeoffResultRow[];
   existingItems?: StoredTakeoffItemRow[];
+  featureFlags?: Record<string, string | null>;
+  planFile?: {
+    id: string;
+    file_path: string;
+    page_count: number | null;
+    metadata: Record<string, unknown>;
+  } | null;
   downloadFile?: {
     bytes: ArrayBuffer;
     mimeType: string;
@@ -105,6 +115,14 @@ type SupabaseMockState = {
   statusTransitions: string[];
   takeoffResults: StoredTakeoffResultRow[];
   takeoffItems: StoredTakeoffItemRow[];
+  featureFlags: Record<string, string | null>;
+  planFile: {
+    id: string;
+    tenant_id: string;
+    file_path: string;
+    page_count: number | null;
+    metadata: Record<string, unknown>;
+  } | null;
   auditLogs: AuditLogPayload[];
   downloadRequests: string[];
 };
@@ -120,6 +138,19 @@ function deepClone<T>(value: T): T {
 function toArrayBuffer(value: string): ArrayBuffer {
   const bytes = new TextEncoder().encode(value);
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+function viewToArrayBuffer(view: Uint8Array): ArrayBuffer {
+  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
+}
+
+async function createPdfArrayBuffer(pageCount: number): Promise<ArrayBuffer> {
+  const pdf = await PDFDocument.create();
+  for (let index = 0; index < pageCount; index += 1) {
+    pdf.addPage([595, 842]);
+  }
+  const bytes = await pdf.save();
+  return viewToArrayBuffer(bytes);
 }
 
 function buildTakeoffExchange(
@@ -247,6 +278,25 @@ function createTakeoffProcessorSupabaseMock(
       ? deepClone(options.existingResults)
       : [],
     takeoffItems: options.existingItems ? deepClone(options.existingItems) : [],
+    featureFlags: {
+      TAKEOFF_C_CHUNK_THRESHOLD_PAGES: "15",
+      TAKEOFF_C_CHUNK_SIZE_PAGES: "10",
+      TAKEOFF_C_CHUNK_OVERLAP_PAGES: "2",
+      TAKEOFF_C_MAX_PDF_PAGES: "200",
+      ...(options.featureFlags ?? {}),
+    },
+    planFile:
+      options.planFile === null
+        ? null
+        : options.planFile
+        ? {
+            id: options.planFile.id,
+            tenant_id: TENANT_ID,
+            file_path: options.planFile.file_path,
+            page_count: options.planFile.page_count,
+            metadata: deepClone(options.planFile.metadata),
+          }
+        : null,
     auditLogs: [],
     downloadRequests: [],
   };
@@ -494,6 +544,121 @@ function createTakeoffProcessorSupabaseMock(
     };
   }
 
+  function createFeatureFlagsSelectBuilder() {
+    const filters: Record<string, string> = {};
+
+    const builder = {
+      eq: vi.fn((column: string, value: string) => {
+        filters[column] = value;
+        return builder;
+      }),
+      maybeSingle: vi.fn(
+        async (): Promise<QueryResponse<{ enabled: boolean; value: string | null } | null>> => {
+          if (filters.tenant_id && filters.tenant_id !== TENANT_ID) {
+            return { data: null, error: null };
+          }
+
+          const flagKey = filters.flag_key;
+          if (!flagKey || !(flagKey in state.featureFlags)) {
+            return { data: null, error: null };
+          }
+
+          return {
+            data: {
+              enabled: true,
+              value: state.featureFlags[flagKey] ?? null,
+            },
+            error: null,
+          };
+        }
+      ),
+    };
+
+    return builder;
+  }
+
+  function createPlanFilesSelectBuilder() {
+    const filters: Record<string, string> = {};
+
+    const builder = {
+      eq: vi.fn((column: string, value: string) => {
+        filters[column] = value;
+        return builder;
+      }),
+      maybeSingle: vi.fn(
+        async (): Promise<
+          QueryResponse<{
+            id: string;
+            page_count: number | null;
+            metadata: Record<string, unknown>;
+          } | null>
+        > => {
+          if (!state.planFile) {
+            return { data: null, error: null };
+          }
+
+          if (filters.tenant_id && filters.tenant_id !== state.planFile.tenant_id) {
+            return { data: null, error: null };
+          }
+
+          if (filters.file_path && filters.file_path !== state.planFile.file_path) {
+            return { data: null, error: null };
+          }
+
+          return {
+            data: {
+              id: state.planFile.id,
+              page_count: state.planFile.page_count,
+              metadata: deepClone(state.planFile.metadata),
+            },
+            error: null,
+          };
+        }
+      ),
+    };
+
+    return builder;
+  }
+
+  function createPlanFilesUpdateBuilder(payload: {
+    page_count?: number;
+    metadata?: Record<string, unknown>;
+  }) {
+    const filters: Record<string, string> = {};
+
+    const then: QueryThen<null> = (onfulfilled, onrejected) => {
+      if (
+        state.planFile &&
+        (!filters.id || filters.id === state.planFile.id) &&
+        (!filters.tenant_id || filters.tenant_id === state.planFile.tenant_id)
+      ) {
+        state.planFile = {
+          ...state.planFile,
+          page_count:
+            typeof payload.page_count === "number"
+              ? payload.page_count
+              : state.planFile.page_count,
+          metadata:
+            payload.metadata && isRecord(payload.metadata)
+              ? deepClone(payload.metadata)
+              : state.planFile.metadata,
+        };
+      }
+
+      return Promise.resolve({ data: null, error: null }).then(onfulfilled, onrejected);
+    };
+
+    const builder = {
+      eq: vi.fn((column: string, value: string) => {
+        filters[column] = value;
+        return builder;
+      }),
+      then,
+    };
+
+    return builder;
+  }
+
   const supabase = {
     storage: {
       from: vi.fn((bucket: string) => {
@@ -573,6 +738,21 @@ function createTakeoffProcessorSupabaseMock(
               state.auditLogs.push(deepClone(payload));
               return { data: null, error: null };
             }
+          ),
+        };
+      }
+
+      if (table === "feature_flags") {
+        return {
+          select: vi.fn(() => createFeatureFlagsSelectBuilder()),
+        };
+      }
+
+      if (table === "plan_files") {
+        return {
+          select: vi.fn(() => createPlanFilesSelectBuilder()),
+          update: vi.fn((payload: { page_count?: number; metadata?: Record<string, unknown> }) =>
+            createPlanFilesUpdateBuilder(payload)
           ),
         };
       }
@@ -1358,5 +1538,230 @@ describe("processLevelB", () => {
         severity: "warning",
       })
     );
+  });
+});
+
+describe("processLevelC", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("chunks large PDFs, merges duplicates, and persists chunk metrics", async () => {
+    const pdfBytes = await createPdfArrayBuffer(24);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "C",
+        source_file_name: "niveau-c.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_C,
+        source_file_type: "application/pdf",
+      },
+      planFile: {
+        id: "99999999-9999-4999-8999-999999999999",
+        file_path: DEFAULT_SOURCE_PATH_C,
+        page_count: null,
+        metadata: {},
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+    });
+
+    const chunk1: TakeoffExchange = {
+      items: [
+        {
+          designation: "Canalisation cuivre",
+          quantity: 10,
+          unit: "ML",
+          source_page: 9,
+          source_file: "niveau-c.pdf",
+          confidence: 0.62,
+          evidence: "Chunk 1",
+        },
+      ],
+      warnings: [
+        {
+          code: "CHUNK_WARNING",
+          message: "Lecture partielle.",
+          severity: "warning",
+        },
+      ],
+      metadata: {
+        level: "C",
+        prompt_version: "takeoff-c-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.7,
+    };
+    const chunk2: TakeoffExchange = {
+      items: [
+        {
+          designation: "Canalisation cuivre",
+          quantity: 12,
+          unit: "ml",
+          source_page: 9,
+          source_file: "niveau-c.pdf",
+          confidence: 0.91,
+          evidence: "Chunk 2",
+        },
+        {
+          designation: "Support mural",
+          quantity: 8,
+          unit: "u",
+          source_page: 17,
+          source_file: "niveau-c.pdf",
+          confidence: 0.84,
+          evidence: "Chunk 2",
+        },
+      ],
+      warnings: [
+        {
+          code: "CHUNK_WARNING",
+          message: "Lecture partielle.",
+          severity: "warning",
+        },
+      ],
+      metadata: {
+        level: "C",
+        prompt_version: "takeoff-c-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.92,
+    };
+    const chunk3: TakeoffExchange = {
+      items: [
+        {
+          designation: "Ancrage",
+          quantity: 4,
+          unit: "u",
+          source_page: 23,
+          source_file: "niveau-c.pdf",
+          confidence: 0.8,
+          evidence: "Chunk 3",
+        },
+      ],
+      warnings: [],
+      metadata: {
+        level: "C",
+        prompt_version: "takeoff-c-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.75,
+    };
+
+    const callGemini = vi
+      .fn()
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunk1, {
+          tokenCount: 600,
+          costCents: 30,
+          durationMs: 1_000,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-c-v1",
+        })
+      )
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunk2, {
+          tokenCount: 700,
+          costCents: 35,
+          durationMs: 1_100,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-c-v1",
+        })
+      )
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunk3, {
+          tokenCount: 500,
+          costCents: 20,
+          durationMs: 900,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-c-v1",
+        })
+      );
+
+    const result = await processLevelC(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result).toMatchObject({
+      status: "completed",
+      pageCount: 24,
+      chunksCount: 3,
+      tokenCount: 1_800,
+      costCents: 85,
+      durationMs: 3_000,
+    });
+    expect(callGemini).toHaveBeenCalledTimes(3);
+    expect(mock.state.takeoffItems).toHaveLength(3);
+    expect(mock.state.takeoffItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          designation: "Canalisation cuivre",
+          quantity: 12,
+          confidence: 0.91,
+          evidence: "Chunk 1 | Chunk 2",
+        }),
+      ])
+    );
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      processing_mode: "pdf_vision_chunked",
+      page_count: 24,
+      chunks_count: 3,
+      deduplicated_items: 3,
+      duplicate_items: 1,
+    });
+    expect(mock.state.planFile).toMatchObject({
+      page_count: 24,
+      metadata: expect.objectContaining({
+        detected_page_count: 24,
+      }),
+    });
+  });
+
+  it("fails when PDF page count exceeds the tenant max limit", async () => {
+    const pdfBytes = await createPdfArrayBuffer(6);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "C",
+        source_file_name: "niveau-c-limit.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_C,
+        source_file_type: "application/pdf",
+      },
+      featureFlags: {
+        TAKEOFF_C_MAX_PDF_PAGES: "5",
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+    });
+    const callGemini = vi.fn();
+
+    await expect(
+      processLevelC(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      status: 413,
+      details: expect.objectContaining({
+        page_count: 6,
+        max_pdf_pages: 5,
+      }),
+    });
+
+    expect(callGemini).not.toHaveBeenCalled();
+    expect(mock.state.job.status).toBe("failed");
   });
 });

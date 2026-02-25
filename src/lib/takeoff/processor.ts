@@ -5,6 +5,13 @@ import { mapSupabaseError } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/estimates/server";
 import { resolveHeaderRowIndex } from "@/lib/imports/header-row";
 import {
+  buildPdfChunks,
+  createPdfChunkBytes,
+  getPdfPageCount,
+  mergeTakeoffChunkExchanges,
+  type TakeoffPdfChunk,
+} from "@/lib/takeoff/chunking";
+import {
   logTakeoffAuditEvent,
   takeoffAuditMetadataBuilders,
 } from "@/lib/takeoff/audit";
@@ -12,12 +19,14 @@ import {
   callGeminiStructured,
   type CallGeminiStructuredOptions,
   type CallGeminiStructuredResult,
+  type GeminiThinkingLevel,
 } from "@/lib/takeoff/gemini-client";
 import {
   TakeoffError,
   TakeoffErrorCode,
   toTakeoffError,
 } from "@/lib/takeoff/errors";
+import { getTakeoffChunkingConfigForTenant } from "@/lib/takeoff/feature-flags";
 import { getTakeoffLevelConfig, getTakeoffPrompt } from "@/lib/takeoff/prompts";
 import { TakeoffExchangeSchema, TakeoffWarningSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffExchange, TakeoffWarning } from "@/lib/takeoff/types";
@@ -31,6 +40,7 @@ type CallGeminiStructuredFn = <T>(
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
 const TAKEOFF_LEVEL_A = "A";
 const TAKEOFF_LEVEL_B = "B";
+const TAKEOFF_LEVEL_C = "C";
 const DEFAULT_GEMINI_TIMEOUT_MS = 60_000;
 const MAX_GEMINI_TIMEOUT_MS = 180_000;
 
@@ -113,7 +123,10 @@ type ProcessLevelContext = {
   userId: string | null;
 };
 
-type ProcessableTakeoffLevel = typeof TAKEOFF_LEVEL_A | typeof TAKEOFF_LEVEL_B;
+type ProcessableTakeoffLevel =
+  | typeof TAKEOFF_LEVEL_A
+  | typeof TAKEOFF_LEVEL_B
+  | typeof TAKEOFF_LEVEL_C;
 
 const UNIT_SYNONYMS: Readonly<Record<string, readonly string[]>> = {
   m: ["m", "metre", "metres", "meter", "meters", "m."],
@@ -158,12 +171,21 @@ export type ProcessLevelAResult = {
 };
 
 export type ProcessLevelBOptions = ProcessLevelAOptions;
+export type ProcessLevelCOptions = ProcessLevelAOptions;
 
 export type ProcessLevelBResult = ProcessLevelAResult & {
   tablesCount: number;
 };
 
-type ProcessLevelInternalResult = ProcessLevelBResult;
+export type ProcessLevelCResult = ProcessLevelBResult & {
+  chunksCount: number;
+  pageCount: number;
+};
+
+type ProcessLevelInternalResult = ProcessLevelBResult & {
+  chunksCount?: number;
+  pageCount?: number;
+};
 
 function toUnitToken(value: string) {
   return value
@@ -1253,6 +1275,310 @@ async function logFailedAuditEvent(input: {
   });
 }
 
+type LevelCChunkMetric = {
+  index: number;
+  start: number;
+  end: number;
+  token_count: number;
+  cost_cents: number;
+  duration_ms: number;
+  status: "success" | "failed";
+  error_code?: string;
+  error_message?: string;
+};
+
+type ProcessLevelCGeminiAggregate = {
+  normalizedExchange: TakeoffExchange;
+  itemsForInsert: NormalizedTakeoffItemForInsert[];
+  tokenCount: number;
+  costCents: number;
+  durationMs: number;
+  tablesCount: number;
+  pageCount: number;
+  chunksCount: number;
+  providerMeta: Record<string, unknown>;
+};
+
+function createChunkPromptSourceHint(input: {
+  fileName: string;
+  chunk: TakeoffPdfChunk;
+  totalChunks: number;
+}) {
+  return `${input.fileName} | chunk ${input.chunk.index + 1}/${input.totalChunks} | pages ${
+    input.chunk.startPage
+  }-${input.chunk.endPage}`;
+}
+
+async function upsertDetectedPlanFilePageCount(input: {
+  supabase: Supabase;
+  tenantId: string;
+  sourceFilePath: string | null;
+  pageCount: number;
+}) {
+  const sourceFilePath = normalizeNullableText(input.sourceFilePath);
+  if (!sourceFilePath) {
+    return;
+  }
+
+  const { data, error } = await input.supabase
+    .from("plan_files" as never)
+    .select("id, page_count, metadata" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("file_path" as never, sourceFilePath as never)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Impossible de lire le metadata plan_files pour page_count.", {
+      tenant_id: input.tenantId,
+      source_file_path: sourceFilePath,
+      error,
+    });
+    return;
+  }
+
+  if (!data || typeof data !== "object") {
+    return;
+  }
+
+  const row = data as {
+    id?: unknown;
+    page_count?: unknown;
+    metadata?: unknown;
+  };
+  const planFileId = typeof row.id === "string" ? row.id : null;
+  if (!planFileId) {
+    return;
+  }
+
+  const currentPageCount =
+    typeof row.page_count === "number" && Number.isInteger(row.page_count)
+      ? row.page_count
+      : null;
+  const existingMetadata =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+
+  const updatePayload: Record<string, unknown> = {
+    metadata: {
+      ...existingMetadata,
+      detected_page_count: input.pageCount,
+      detected_page_count_at: new Date().toISOString(),
+    },
+  };
+
+  if (currentPageCount !== input.pageCount) {
+    updatePayload.page_count = input.pageCount;
+  }
+
+  const { error: updateError } = await input.supabase
+    .from("plan_files" as never)
+    .update(updatePayload as never)
+    .eq("id" as never, planFileId as never)
+    .eq("tenant_id" as never, input.tenantId as never);
+
+  if (updateError) {
+    console.error("Impossible de persister page_count sur plan_files.", {
+      tenant_id: input.tenantId,
+      source_file_path: sourceFilePath,
+      page_count: input.pageCount,
+      error: updateError,
+    });
+  }
+}
+
+async function processLevelCGeminiChunks(input: {
+  supabase: Supabase;
+  job: TakeoffJobProcessingRow;
+  sourceFile: DownloadedTakeoffFile;
+  callGemini: CallGeminiStructuredFn;
+  schemaVersion: string;
+  model: string;
+  promptVersion: string;
+  thinkingLevel: GeminiThinkingLevel;
+}): Promise<ProcessLevelCGeminiAggregate> {
+  if (!isPdfMimeType(input.sourceFile.mimeType)) {
+    throw new TakeoffError({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
+      message: "Le processor Level C requiert un fichier PDF source.",
+      retryable: false,
+      jobId: input.job.id,
+      level: TAKEOFF_LEVEL_C,
+      details: {
+        file_type: input.sourceFile.mimeType,
+        source_file_name: input.sourceFile.fileName,
+      },
+    });
+  }
+
+  let pageCount: number;
+  try {
+    pageCount = await getPdfPageCount(input.sourceFile.bytes);
+  } catch (error) {
+    throw new TakeoffError({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
+      message: "Impossible de lire le nombre de pages du PDF source.",
+      retryable: false,
+      jobId: input.job.id,
+      level: TAKEOFF_LEVEL_C,
+      details: error,
+    });
+  }
+
+  const chunkingConfig = await getTakeoffChunkingConfigForTenant(input.job.tenant_id, {
+    supabase: input.supabase,
+  });
+
+  if (pageCount > chunkingConfig.maxPdfPages) {
+    throw new TakeoffError({
+      status: 413,
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      message: `Le PDF contient ${pageCount} pages et depasse la limite de ${chunkingConfig.maxPdfPages} pages.`,
+      retryable: false,
+      jobId: input.job.id,
+      level: TAKEOFF_LEVEL_C,
+      details: {
+        page_count: pageCount,
+        max_pdf_pages: chunkingConfig.maxPdfPages,
+      },
+    });
+  }
+
+  await upsertDetectedPlanFilePageCount({
+    supabase: input.supabase,
+    tenantId: input.job.tenant_id,
+    sourceFilePath: input.job.source_file_path,
+    pageCount,
+  });
+
+  const chunks = buildPdfChunks(pageCount, {
+    thresholdPages: chunkingConfig.thresholdPages,
+    chunkSizePages: chunkingConfig.chunkSizePages,
+    overlapPages: chunkingConfig.overlapPages,
+  });
+
+  const chunkExchanges: Array<{
+    chunk: TakeoffPdfChunk;
+    exchange: TakeoffExchange;
+  }> = [];
+  const chunkMetrics: LevelCChunkMetric[] = [];
+  let tokenCount = 0;
+  let costCents = 0;
+  let durationMs = 0;
+
+  for (const chunk of chunks) {
+    const chunkPrompt = getTakeoffPrompt(TAKEOFF_LEVEL_C, {
+      fileType: input.sourceFile.mimeType,
+      schemaVersion: input.schemaVersion,
+      sourceHint: createChunkPromptSourceHint({
+        fileName: input.sourceFile.fileName,
+        chunk,
+        totalChunks: chunks.length,
+      }),
+    });
+
+    try {
+      const chunkBytes = await createPdfChunkBytes({
+        bytes: input.sourceFile.bytes,
+        chunk,
+      });
+
+      const geminiResult = await input.callGemini<TakeoffExchange>({
+        prompt: chunkPrompt,
+        schema: TakeoffExchangeSchema,
+        files: [
+          {
+            data: Buffer.from(chunkBytes).toString("base64"),
+            mimeType: "application/pdf",
+          },
+        ],
+        thinkingLevel: input.thinkingLevel,
+        timeoutMs: resolveGeminiTimeoutMs(),
+        context: {
+          jobId: input.job.id,
+          tenantId: input.job.tenant_id,
+          level: TAKEOFF_LEVEL_C,
+          promptVersion: input.promptVersion,
+          model: input.model,
+        },
+      });
+
+      const parsedExchange = TakeoffExchangeSchema.parse(geminiResult.data);
+      chunkExchanges.push({
+        chunk,
+        exchange: parsedExchange,
+      });
+
+      tokenCount += geminiResult.tokenCount;
+      costCents += geminiResult.costCents;
+      durationMs += geminiResult.durationMs;
+      chunkMetrics.push({
+        index: chunk.index,
+        start: chunk.startPage,
+        end: chunk.endPage,
+        token_count: geminiResult.tokenCount,
+        cost_cents: geminiResult.costCents,
+        duration_ms: geminiResult.durationMs,
+        status: "success",
+      });
+    } catch (error) {
+      const mapped = toTakeoffError(error, {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        jobId: input.job.id,
+        level: TAKEOFF_LEVEL_C,
+      });
+
+      chunkMetrics.push({
+        index: chunk.index,
+        start: chunk.startPage,
+        end: chunk.endPage,
+        token_count: 0,
+        cost_cents: 0,
+        duration_ms: 0,
+        status: "failed",
+        error_code: mapped.code,
+        error_message: mapped.message,
+      });
+      throw mapped;
+    }
+  }
+
+  const merged = mergeTakeoffChunkExchanges(chunkExchanges);
+  const normalized = normalizeTakeoffExchange({
+    exchange: merged.exchange,
+    sourceFileName: normalizeNullableText(input.job.source_file_name),
+    parseWarnings: [],
+  });
+  const tablesCount = normalized.exchange.tables?.length ?? 0;
+
+  return {
+    normalizedExchange: normalized.exchange,
+    itemsForInsert: normalized.itemsForInsert,
+    tokenCount,
+    costCents,
+    durationMs,
+    tablesCount,
+    pageCount,
+    chunksCount: chunks.length,
+    providerMeta: {
+      file_type: input.sourceFile.mimeType,
+      source_file_name: input.sourceFile.fileName,
+      processing_mode: chunks.length > 1 ? "pdf_vision_chunked" : "pdf_vision",
+      page_count: pageCount,
+      chunks_count: chunks.length,
+      deduplicated_items: merged.deduplicatedItems,
+      duplicate_items: merged.duplicateItems,
+      chunking_config: {
+        threshold_pages: chunkingConfig.thresholdPages,
+        chunk_size_pages: chunkingConfig.chunkSizePages,
+        chunk_overlap_pages: chunkingConfig.overlapPages,
+        max_pdf_pages: chunkingConfig.maxPdfPages,
+      },
+      chunks: chunkMetrics,
+    },
+  };
+}
+
 type PreparedTakeoffLevelInput = {
   files: Array<{ data: string; mimeType: string }>;
   parseWarnings: TakeoffWarning[];
@@ -1260,12 +1586,14 @@ type PreparedTakeoffLevelInput = {
   providerMeta: Record<string, unknown>;
 };
 
+type PrepareableTakeoffLevel = typeof TAKEOFF_LEVEL_A | typeof TAKEOFF_LEVEL_B;
+
 function getProcessorLevelLabel(level: ProcessableTakeoffLevel) {
   return `Level ${level}`;
 }
 
 function prepareTakeoffLevelInput(input: {
-  level: ProcessableTakeoffLevel;
+  level: PrepareableTakeoffLevel;
   sourceFile: DownloadedTakeoffFile;
   jobId: string;
 }): PreparedTakeoffLevelInput {
@@ -1395,6 +1723,84 @@ async function processTakeoffLevel(
       job,
       level,
     });
+    const schemaVersion = normalizeNullableText(job.schema_version) ?? "v1";
+
+    if (level === TAKEOFF_LEVEL_C) {
+      const levelCResult = await processLevelCGeminiChunks({
+        supabase: context.supabase,
+        job,
+        sourceFile,
+        callGemini,
+        schemaVersion,
+        model: levelConfig.model,
+        promptVersion: levelConfig.promptVersion,
+        thinkingLevel: levelConfig.thinkingLevel,
+      });
+
+      const persisted = await persistTakeoffResultAndItems({
+        supabase: context.supabase,
+        job,
+        exchange: levelCResult.normalizedExchange,
+        itemsForInsert: levelCResult.itemsForInsert,
+        tokenCount: levelCResult.tokenCount,
+        costCents: levelCResult.costCents,
+        durationMs: levelCResult.durationMs,
+        rawResponse: null,
+        providerMeta: {
+          ...levelCResult.providerMeta,
+          model: levelConfig.model,
+          prompt_version: levelConfig.promptVersion,
+          thinking_level: levelConfig.thinkingLevel,
+          tables_count: levelCResult.tablesCount,
+        },
+        level,
+      });
+
+      const completedAt = now();
+      const totalDurationMs = Math.max(
+        levelCResult.durationMs,
+        completedAt.getTime() - processingStartedAt.getTime()
+      );
+
+      await updateJobAsCompleted({
+        supabase: context.supabase,
+        job,
+        tenantId: context.tenantId,
+        completedAtIso: completedAt.toISOString(),
+        tokenCount: levelCResult.tokenCount,
+        costCents: levelCResult.costCents,
+        durationMs: totalDurationMs,
+        model: levelConfig.model,
+        thinkingLevel: levelConfig.thinkingLevel,
+        promptVersion: levelConfig.promptVersion,
+        level,
+      });
+
+      await logCompletedAuditEvent({
+        supabase: context.supabase,
+        userId: actorUserId,
+        job,
+        resultId: persisted.resultId,
+        itemsCount: persisted.itemsCount,
+        warningsCount: persisted.warningsCount,
+        durationMs: totalDurationMs,
+      });
+
+      return {
+        jobId: job.id,
+        resultId: persisted.resultId,
+        status: "completed",
+        itemsCount: persisted.itemsCount,
+        warningsCount: persisted.warningsCount,
+        tokenCount: levelCResult.tokenCount,
+        costCents: levelCResult.costCents,
+        durationMs: totalDurationMs,
+        tablesCount: levelCResult.tablesCount,
+        chunksCount: levelCResult.chunksCount,
+        pageCount: levelCResult.pageCount,
+      };
+    }
+
     const preparedLevelInput = prepareTakeoffLevelInput({
       level,
       sourceFile,
@@ -1403,7 +1809,7 @@ async function processTakeoffLevel(
 
     const prompt = getTakeoffPrompt(level, {
       fileType: sourceFile.mimeType,
-      schemaVersion: normalizeNullableText(job.schema_version) ?? "v1",
+      schemaVersion,
       sourceHint: preparedLevelInput.sourceHint,
     });
 
@@ -1555,4 +1961,25 @@ export async function processLevelB(
   options: ProcessLevelBOptions = {}
 ): Promise<ProcessLevelBResult> {
   return processTakeoffLevel(TAKEOFF_LEVEL_B, jobId, options);
+}
+
+export async function processLevelC(
+  jobId: string,
+  options: ProcessLevelCOptions = {}
+): Promise<ProcessLevelCResult> {
+  const result = await processTakeoffLevel(TAKEOFF_LEVEL_C, jobId, options);
+
+  return {
+    jobId: result.jobId,
+    resultId: result.resultId,
+    status: result.status,
+    itemsCount: result.itemsCount,
+    warningsCount: result.warningsCount,
+    tokenCount: result.tokenCount,
+    costCents: result.costCents,
+    durationMs: result.durationMs,
+    tablesCount: result.tablesCount,
+    chunksCount: result.chunksCount ?? 1,
+    pageCount: result.pageCount ?? 0,
+  };
 }
