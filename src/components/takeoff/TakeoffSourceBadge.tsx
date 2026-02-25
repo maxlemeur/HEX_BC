@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePopover } from "@/hooks/usePopover";
 
 const NOT_AVAILABLE_LABEL = "Non disponible";
+const TAKEOFF_BADGE_PROVIDERS = new Set(["takeoff", "takeoff_gemini"]);
 
 type TakeoffSourceBadgeProps = {
   versionId: string;
@@ -82,7 +83,10 @@ export function TakeoffSourceBadge({
   const isOpen = isPinnedOpen || isHovered || isFocusWithin;
   const normalizedSourceProvider = toNonEmptyString(sourceProvider)?.toLowerCase();
 
-  if (normalizedSourceProvider !== "takeoff_gemini") {
+  if (
+    !normalizedSourceProvider ||
+    !TAKEOFF_BADGE_PROVIDERS.has(normalizedSourceProvider)
+  ) {
     return null;
   }
 

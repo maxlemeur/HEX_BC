@@ -9,6 +9,7 @@ import {
   createEstimate,
   createEstimateItem,
   insertAssemblyIntoVersion,
+  listEstimateItems,
   patchEstimateVersion,
   updateEstimateAssembly,
 } from "@/lib/estimates/server";
@@ -1284,6 +1285,154 @@ function createCreateItemSupabaseMock() {
   };
 }
 
+function createListEstimateItemsSupabaseMock() {
+  const tenantMembershipBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+  };
+  tenantMembershipBuilder.eq.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.order.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.limit.mockResolvedValue({
+    data: [
+      {
+        tenant_id: TENANT_ID,
+        role: "admin",
+        is_default: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    error: null,
+  });
+
+  const estimateVersionBuilder = {
+    eq: vi.fn(),
+    single: vi.fn(),
+  };
+  estimateVersionBuilder.eq.mockReturnValue(estimateVersionBuilder);
+  estimateVersionBuilder.single.mockResolvedValue({
+    data: {
+      id: VERSION_ID,
+      project_id: PROJECT_ID,
+      status: "draft",
+      margin_mode: "coefficient",
+      margin_multiplier: 1,
+      tax_rate_bp: 2000,
+      updated_at: VERSION_UPDATED_AT,
+      total_ht_cents: 0,
+      total_tax_cents: 0,
+      total_ttc_cents: 0,
+      parent_version_id: null,
+      variant_label: null,
+      estimate_projects: {
+        id: PROJECT_ID,
+        tenant_id: TENANT_ID,
+        user_id: OWNER_USER_ID,
+        name: "Project",
+        reference: null,
+        client_name: null,
+        notes: null,
+        is_archived: false,
+      },
+    },
+    error: null,
+  });
+
+  const estimateItemsBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+  };
+  estimateItemsBuilder.eq.mockReturnValue(estimateItemsBuilder);
+  estimateItemsBuilder.order.mockResolvedValue({
+    data: [
+      {
+        id: ITEM_ID_1,
+        source_provider: "takeoff",
+        source_job_id: ITEM_ID_1,
+      },
+      {
+        id: ITEM_ID_2,
+        source_provider: "takeoff",
+        source_job_id: ITEM_ID_2,
+      },
+      {
+        id: INSERTED_LINE_ID,
+        source_provider: "manual",
+        source_job_id: null,
+      },
+    ],
+    error: null,
+  });
+
+  const takeoffJobsBuilder = {
+    eq: vi.fn(),
+    in: vi.fn(),
+  };
+  takeoffJobsBuilder.eq.mockReturnValue(takeoffJobsBuilder);
+  takeoffJobsBuilder.in.mockResolvedValue({
+    data: [
+      {
+        id: ITEM_ID_1,
+        level: "A",
+        completed_at: "2026-02-25T09:45:00.000Z",
+        created_at: "2026-02-25T09:00:00.000Z",
+      },
+      {
+        id: ITEM_ID_2,
+        level: "B",
+        completed_at: null,
+        created_at: "2026-02-24T08:00:00.000Z",
+      },
+    ],
+    error: null,
+  });
+
+  const supabase = {
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user: {
+            id: USER_ID,
+          },
+        },
+        error: null,
+      }),
+    },
+    from: vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => tenantMembershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => estimateVersionBuilder),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => estimateItemsBuilder),
+        };
+      }
+
+      if (table === "takeoff_jobs") {
+        return {
+          select: vi.fn(() => takeoffJobsBuilder),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+  };
+
+  return {
+    supabase,
+    takeoffJobsIn: takeoffJobsBuilder.in,
+  };
+}
+
 describe("estimate item source provenance", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1328,6 +1477,29 @@ describe("estimate item source provenance", () => {
         source_file_name: "quantif-lot-01.pdf",
         source_page: 12,
       })
+    );
+  });
+
+  it("hydrates source level and extraction date from takeoff jobs", async () => {
+    const { supabase, takeoffJobsIn } = createListEstimateItemsSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await listEstimateItems(VERSION_ID);
+
+    expect(takeoffJobsIn).toHaveBeenCalledWith("id", [ITEM_ID_1, ITEM_ID_2]);
+    expect(result.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: ITEM_ID_1,
+          source_level: "A",
+          source_extracted_at: "2026-02-25T09:45:00.000Z",
+        }),
+        expect.objectContaining({
+          id: ITEM_ID_2,
+          source_level: "B",
+          source_extracted_at: "2026-02-24T08:00:00.000Z",
+        }),
+      ])
     );
   });
 });

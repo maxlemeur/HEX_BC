@@ -92,9 +92,14 @@ describe("TakeoffSourceBadge", () => {
     cleanup();
   });
 
-  it("renders the IA badge only when source_provider is takeoff_gemini", () => {
+  it("renders the IA badge for takeoff providers only", () => {
     renderBadge({ sourceProvider: "manual" });
     expect(getBadgeTrigger()).not.toBeInTheDocument();
+
+    cleanup();
+
+    renderBadge({ sourceProvider: "takeoff" });
+    expect(getBadgeTrigger()).toBeInTheDocument();
 
     cleanup();
 

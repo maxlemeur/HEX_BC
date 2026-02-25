@@ -92,6 +92,17 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   source_file_name?: string | null;
   source_page?: number | null;
 };
+type EstimateItemProvenanceFields = {
+  source_level?: string | null;
+  source_extracted_at?: string | null;
+};
+type EstimateItemWithProvenanceRow = EstimateItemRow & EstimateItemProvenanceFields;
+type TakeoffJobProvenanceRow = {
+  id: string;
+  level: string | null;
+  completed_at: string | null;
+  created_at: string | null;
+};
 type EstimateItemInsert = Database["public"]["Tables"]["estimate_items"]["Insert"] & {
   h_mo_majoration?: number | null;
   h_mo_atelier?: number | null;
@@ -1578,6 +1589,110 @@ function toNullableText(value: string | null | undefined): string | null {
   if (value === null || value === undefined) return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeTakeoffJobProvenanceRows(value: unknown): TakeoffJobProvenanceRow[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return null;
+      }
+
+      const record = entry as Record<string, unknown>;
+      const id = toNullableText(
+        typeof record.id === "string" ? record.id : null
+      );
+
+      if (!id) {
+        return null;
+      }
+
+      return {
+        id,
+        level: toNullableText(
+          typeof record.level === "string" ? record.level : null
+        ),
+        completed_at: toNullableText(
+          typeof record.completed_at === "string"
+            ? record.completed_at
+            : null
+        ),
+        created_at: toNullableText(
+          typeof record.created_at === "string" ? record.created_at : null
+        ),
+      } satisfies TakeoffJobProvenanceRow;
+    })
+    .filter((entry): entry is TakeoffJobProvenanceRow => entry !== null);
+}
+
+async function enrichEstimateItemsWithTakeoffProvenance(input: {
+  supabase: Supabase;
+  tenantId: string;
+  items: EstimateItemRow[];
+}): Promise<EstimateItemWithProvenanceRow[]> {
+  if (input.items.length === 0) {
+    return input.items;
+  }
+
+  const sourceJobIds = [...new Set(
+    input.items
+      .map((item) => toNullableText(item.source_job_id))
+      .filter((jobId): jobId is string => jobId !== null)
+  )];
+
+  if (sourceJobIds.length === 0) {
+    return input.items;
+  }
+
+  const { data, error } = await input.supabase
+    .from("takeoff_jobs" as never)
+    .select("id, level, completed_at, created_at" as never)
+    .eq("tenant_id", input.tenantId)
+    .in("id", sourceJobIds as never);
+
+  if (error) {
+    return input.items;
+  }
+
+  const takeoffJobs = normalizeTakeoffJobProvenanceRows(data);
+  if (takeoffJobs.length === 0) {
+    return input.items;
+  }
+
+  const takeoffJobById = new Map(
+    takeoffJobs.map((job) => [job.id, job] as const)
+  );
+
+  return input.items.map((item) => {
+    const sourceJobId = toNullableText(item.source_job_id);
+    if (!sourceJobId) {
+      return item;
+    }
+
+    const takeoffJob = takeoffJobById.get(sourceJobId);
+    if (!takeoffJob) {
+      return item;
+    }
+
+    const withProvenance = item as EstimateItemWithProvenanceRow;
+    const sourceLevel =
+      toNullableText(withProvenance.source_level) ??
+      toNullableText(takeoffJob.level);
+    const sourceExtractedAt =
+      toNullableText(withProvenance.source_extracted_at) ??
+      toNullableText(takeoffJob.completed_at) ??
+      toNullableText(takeoffJob.created_at);
+
+    return {
+      ...item,
+      source_level: sourceLevel,
+      source_extracted_at: sourceExtractedAt,
+    };
+  });
 }
 
 function escapeIlikeToken(value: string) {
@@ -4413,12 +4528,18 @@ export async function getEstimateVersionDetails(versionId: string) {
     );
   }
 
+  const items = await enrichEstimateItemsWithTakeoffProvenance({
+    supabase,
+    tenantId,
+    items: (itemsResult.data ?? []) as EstimateItemRow[],
+  });
+
   return {
     version: {
       ...version,
       estimate_projects: project,
     },
-    items: (itemsResult.data ?? []) as EstimateItemRow[],
+    items,
     categories: (categoriesResult.data ?? []) as EstimateCategoryRow[],
     supply_types: (supplyTypesResult.data ?? []) as SupplyTypeRow[],
     labor_roles: (laborRolesResult.data ?? []) as LaborRoleRow[],
@@ -4443,8 +4564,14 @@ export async function listEstimateItems(versionId: string) {
     throw mapSupabaseError(error, "Impossible de charger les lignes.");
   }
 
-  return {
+  const items = await enrichEstimateItemsWithTakeoffProvenance({
+    supabase,
+    tenantId,
     items: (data ?? []) as EstimateItemRow[],
+  });
+
+  return {
+    items,
   };
 }
 
