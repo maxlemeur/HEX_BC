@@ -19,12 +19,36 @@ type NavGroup = {
 
 const NAV_GROUPS: NavGroup[] = [
   {
-    key: "preparer",
-    label: "Préparer",
+    key: "chiffrages",
+    label: "Chiffrages",
     items: [
       {
+        href: "/dashboard/estimates",
+        label: "Chiffrages",
+        icon: (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect width="16" height="20" x="4" y="2" rx="2" />
+            <path d="M8 7h8" />
+            <path d="M8 11h2" />
+            <path d="M14 11h2" />
+            <path d="M8 15h2" />
+            <path d="M14 15h2" />
+          </svg>
+        ),
+      },
+      {
         href: "/dashboard/imports",
-        label: "Imports",
+        label: "Imports DPGF",
         icon: (
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -69,38 +93,8 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    key: "chiffrer",
-    label: "Chiffrer",
-    items: [
-      {
-        href: "/dashboard/estimates",
-        label: "Chiffrages",
-        icon: (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect width="16" height="20" x="4" y="2" rx="2" />
-            <path d="M8 7h8" />
-            <path d="M8 11h2" />
-            <path d="M14 11h2" />
-            <path d="M8 15h2" />
-            <path d="M14 15h2" />
-          </svg>
-        ),
-      },
-    ],
-  },
-  {
-    key: "commander",
-    label: "Commander",
+    key: "commandes",
+    label: "Commandes",
     items: [
       {
         href: "/dashboard/orders",
@@ -280,7 +274,7 @@ export function DashboardShell({
     }
 
     return NAV_GROUPS.map((group) => {
-      if (group.key === "preparer") {
+      if (group.key === "chiffrages") {
         return {
           ...group,
           items: [...group.items, TAKEOFF_NAV_ITEM],
