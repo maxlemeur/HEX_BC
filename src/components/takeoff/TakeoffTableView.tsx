@@ -34,6 +34,7 @@ type TableCardData = {
   tableIndex: number;
   table: TakeoffTable;
   items: ReviewItem[];
+  itemRowIndexById: Map<string, number>;
 };
 
 type InclusionStatusFilter = "all" | "included" | "excluded" | "mixed";
@@ -85,11 +86,15 @@ function TableCard({
   onIncludeItems: (itemIds: string[]) => void;
   onSyncToItems?: (itemIds: string[]) => void;
 }) {
-  const { table, items: tableItems, tableIndex } = card;
+  const { table, items: tableItems, tableIndex, itemRowIndexById } = card;
   const title = table.title ?? `Table ${tableIndex + 1}`;
   const health = getTableHealthBadge(tableItems);
   const excluded = isTableExcluded(tableItems);
   const anomalyCount = tableItems.filter((i) => detectAnomalies(i).length > 0).length;
+  const tableRowsByIndex = useMemo(
+    () => new Map(table.rows.map((row) => [row.row_index, row])),
+    [table.rows]
+  );
 
   // Spreadsheet navigation scoped to this card
   const navigationRows: SpreadsheetNavigationRow[] = useMemo(
@@ -211,12 +216,11 @@ function TableCard({
               {tableItems.map((item) => {
                 const anomalies = detectAnomalies(item);
                 const isExcluded = item.is_excluded;
-                // Map item's table row data from the table.rows array
-                const rowData = table.rows.find(
-                  (r) =>
-                    typeof item.metadata.row_index === "number" &&
-                    r.row_index === item.metadata.row_index
-                );
+                const rowIndex = itemRowIndexById.get(item.id);
+                const rowData =
+                  typeof rowIndex === "number"
+                    ? tableRowsByIndex.get(rowIndex)
+                    : undefined;
 
                 return (
                   <tr
@@ -343,13 +347,128 @@ export function TakeoffTableView({
 
   // ---- Build card data: associate items with tables
   const cards: TableCardData[] = useMemo(() => {
+    type AssignedItem = {
+      item: ReviewItem;
+      originalIndex: number;
+      rowIndex: number | null;
+    };
+
+    const assignedByTable = new Map<number, AssignedItem[]>();
+    const pendingByPage = new Map<number, AssignedItem[]>();
+
+    const addAssignedItem = (tableIndex: number, assignedItem: AssignedItem) => {
+      const current = assignedByTable.get(tableIndex);
+      if (current) {
+        current.push(assignedItem);
+      } else {
+        assignedByTable.set(tableIndex, [assignedItem]);
+      }
+    };
+
+    // First pass: use metadata mapping when available.
+    items.forEach((item, originalIndex) => {
+      const tableIndex =
+        typeof item.metadata.table_index === "number"
+          ? item.metadata.table_index
+          : null;
+      const rowIndex =
+        typeof item.metadata.row_index === "number"
+          ? item.metadata.row_index
+          : null;
+      const assignedItem: AssignedItem = {
+        item,
+        originalIndex,
+        rowIndex,
+      };
+
+      if (
+        typeof tableIndex === "number" &&
+        Number.isInteger(tableIndex) &&
+        tableIndex >= 0 &&
+        tableIndex < tables.length
+      ) {
+        addAssignedItem(tableIndex, assignedItem);
+        return;
+      }
+
+      if (item.source_page === null) {
+        return;
+      }
+
+      const pageItems = pendingByPage.get(item.source_page) ?? [];
+      pageItems.push(assignedItem);
+      pendingByPage.set(item.source_page, pageItems);
+    });
+
+    // Legacy fallback (items without table metadata):
+    // correlate by source_page and sequential row order for tables on that page.
+    pendingByPage.forEach((pageItems, page) => {
+      const tableIndexesOnPage = tables
+        .map((table, tableIndex) => ({ table, tableIndex }))
+        .filter(({ table }) => table.page === page)
+        .map(({ tableIndex }) => tableIndex);
+
+      if (tableIndexesOnPage.length === 0) {
+        return;
+      }
+
+      const rowSlots: Array<{ tableIndex: number; rowIndex: number | null }> = [];
+      tableIndexesOnPage.forEach((tableIndex) => {
+        const sortedRows = [...tables[tableIndex].rows].sort(
+          (a, b) => a.row_index - b.row_index
+        );
+        if (sortedRows.length === 0) {
+          rowSlots.push({ tableIndex, rowIndex: null });
+          return;
+        }
+        sortedRows.forEach((row) => {
+          rowSlots.push({ tableIndex, rowIndex: row.row_index });
+        });
+      });
+
+      const overflowTableIndex = tableIndexesOnPage[tableIndexesOnPage.length - 1];
+      pageItems.forEach((pageItem, itemOffset) => {
+        const rowSlot = rowSlots[itemOffset];
+        const resolvedTableIndex = rowSlot?.tableIndex ?? overflowTableIndex;
+        const resolvedRowIndex = pageItem.rowIndex ?? rowSlot?.rowIndex ?? null;
+        addAssignedItem(resolvedTableIndex, {
+          ...pageItem,
+          rowIndex: resolvedRowIndex,
+        });
+      });
+    });
+
     return tables.map((table, tableIndex) => {
-      const tableItems = items.filter(
-        (item) =>
-          typeof item.metadata.table_index === "number" &&
-          item.metadata.table_index === tableIndex
-      );
-      return { tableIndex, table, items: tableItems };
+      const tableItems = assignedByTable.get(tableIndex) ?? [];
+      const sortedItems = [...tableItems].sort((a, b) => {
+        const aHasRow = typeof a.rowIndex === "number";
+        const bHasRow = typeof b.rowIndex === "number";
+        if (aHasRow && bHasRow) {
+          const aRowIndex = a.rowIndex as number;
+          const bRowIndex = b.rowIndex as number;
+          if (aRowIndex !== bRowIndex) {
+            return aRowIndex - bRowIndex;
+          }
+        }
+        if (aHasRow !== bHasRow) {
+          return aHasRow ? -1 : 1;
+        }
+        return a.originalIndex - b.originalIndex;
+      });
+
+      const itemRowIndexById = new Map<string, number>();
+      sortedItems.forEach(({ item, rowIndex }) => {
+        if (typeof rowIndex === "number") {
+          itemRowIndexById.set(item.id, rowIndex);
+        }
+      });
+
+      return {
+        tableIndex,
+        table,
+        items: sortedItems.map(({ item }) => item),
+        itemRowIndexById,
+      };
     });
   }, [tables, items]);
 

@@ -20,6 +20,7 @@ import type { TakeoffTable } from "@/lib/takeoff/types";
 
 const ITEM_ID_1 = "44444444-4444-4444-8444-444444444444";
 const ITEM_ID_2 = "55555555-5555-4555-8555-555555555555";
+const ITEM_ID_3 = "66666666-6666-4666-8666-666666666666";
 
 function makeReviewItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
   return {
@@ -96,6 +97,33 @@ describe("TakeoffTableView", () => {
     expect(screen.getByText("Page 1")).toBeDefined();
     expect(screen.getByText("3 col")).toBeDefined();
     expect(screen.getByText("2 lignes")).toBeDefined();
+  });
+
+  it("keeps legacy items without table metadata visible by falling back to page/row order", () => {
+    render(
+      <TakeoffTableView
+        tables={[makeTable()]}
+        items={[
+          makeReviewItem({
+            id: ITEM_ID_1,
+            designation: "Legacy ligne 1",
+            metadata: { category: "legacy" },
+            source_page: 1,
+          }),
+          makeReviewItem({
+            id: ITEM_ID_2,
+            designation: "Legacy ligne 2",
+            metadata: { category: "legacy" },
+            source_page: 1,
+          }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    expect(screen.getByText("2 lignes")).toBeDefined();
+    expect(screen.getByLabelText("Designation - Legacy ligne 1")).toBeDefined();
+    expect(screen.getByLabelText("Designation - Legacy ligne 2")).toBeDefined();
   });
 
   it("groups tables by page with separators", () => {
@@ -275,6 +303,39 @@ describe("TakeoffTableView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Synchroniser items" }));
     expect(defaultProps.onSyncToItems).toHaveBeenCalledWith([ITEM_ID_1, ITEM_ID_2]);
+  });
+
+  it("sorts table items by row_index before bulk actions", () => {
+    render(
+      <TakeoffTableView
+        tables={[makeTable()]}
+        items={[
+          makeReviewItem({
+            id: ITEM_ID_2,
+            designation: "Row 1",
+            metadata: { table_index: 0, row_index: 1 },
+          }),
+          makeReviewItem({
+            id: ITEM_ID_1,
+            designation: "Row 0",
+            metadata: { table_index: 0, row_index: 0 },
+          }),
+          makeReviewItem({
+            id: ITEM_ID_3,
+            designation: "No row index",
+            metadata: { table_index: 0 },
+          }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Synchroniser items" }));
+    expect(defaultProps.onSyncToItems).toHaveBeenCalledWith([
+      ITEM_ID_1,
+      ITEM_ID_2,
+      ITEM_ID_3,
+    ]);
   });
 
   it("edits designation cell and propagates update callback", () => {
