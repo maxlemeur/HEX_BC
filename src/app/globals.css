@@ -1435,7 +1435,7 @@ body {
 }
 
 .estimate-table {
-  --estimate-grid: 160px minmax(320px, 3fr) 80px 100px 110px 140px 70px 80px 130px 130px 80px 110px 120px 50px;
+  --estimate-grid: minmax(320px, 3fr) 80px 80px 110px 140px 88px 80px 130px 130px 92px 110px 120px 50px;
   --tree-indent: 40px;
   --tree-line-w: 2px;
   --tree-color-d0: rgba(59, 130, 246, 0.5);
@@ -1446,7 +1446,7 @@ body {
 }
 
 .estimate-table--labor-split {
-  --estimate-grid: 160px minmax(320px, 3fr) 80px 100px 110px 140px 70px 100px 90px 140px 90px 90px 140px 90px 110px 120px 50px;
+  --estimate-grid: minmax(320px, 3fr) 80px 100px 110px 140px 70px 100px 90px 140px 90px 90px 140px 90px 110px 120px 50px;
 }
 
 .estimate-table__head {
@@ -1454,7 +1454,7 @@ body {
   grid-template-columns: var(--estimate-grid);
   background: var(--slate-50);
   border-bottom: 1px solid var(--slate-200);
-  min-width: var(--estimate-min-width, 1672px);
+  min-width: var(--estimate-min-width, 1530px);
   position: relative;
 }
 
@@ -1474,7 +1474,7 @@ body {
 .estimate-table__body {
   display: flex;
   flex-direction: column;
-  min-width: var(--estimate-min-width, 1672px);
+  min-width: var(--estimate-min-width, 1530px);
 }
 
 .estimate-table--labor-split .estimate-table__head,
@@ -1488,7 +1488,7 @@ body {
   grid-template-columns: var(--estimate-grid);
   background: var(--slate-50);
   border-top: 2px solid var(--slate-300);
-  min-width: var(--estimate-min-width, 1672px);
+  min-width: var(--estimate-min-width, 1530px);
 }
 
 .estimate-table__footer > div {
@@ -1504,11 +1504,10 @@ body {
 .estimate-row {
   display: grid;
   grid-template-columns: var(--estimate-grid);
-  align-items: center;
-  box-shadow: inset 0 -1px 0 var(--slate-100);
   border-left: 4px solid transparent;
   background: white;
   --row-bg: white;
+  position: relative;
 }
 
 .estimate-row .estimate-cell--designation {
@@ -1516,24 +1515,20 @@ body {
 }
 
 .estimate-row--selected {
-  background: rgba(30, 58, 95, 0.08);
+  background: #eef1f5;
   --row-bg: #eef1f5;
 }
 
 .estimate-row--section {
-  background: linear-gradient(135deg, rgba(37, 99, 195, 0.15) 0%, rgba(59, 130, 246, 0.08) 100%);
+  background: #cddcf3;
   border-left: 4px solid var(--blue-500, #3b82f6);
-  --row-bg: rgba(37, 99, 195, 0.12);
-}
-
-.estimate-row--section .estimate-cell--designation {
-  background: var(--row-bg);
+  --row-bg: #cddcf3;
 }
 
 .estimate-row--section[data-depth="1"] {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 197, 253, 0.08) 100%);
+  background: #dfe9f8;
   border-left: 4px solid var(--blue-300, #93c5fd);
-  --row-bg: rgba(59, 130, 246, 0.07);
+  --row-bg: #dfe9f8;
 }
 
 .estimate-row--section .estimate-input--title {
@@ -1548,21 +1543,69 @@ body {
   color: var(--slate-800);
 }
 
-/* Line rows inherit a subtle blue tint matching their parent sub-chapter */
+/* Line rows: odd = white, even = subtle blue tint for zebra striping */
 .estimate-row:not(.estimate-row--section):not(.estimate-row--suggestion) {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 197, 253, 0.03) 100%);
-  --row-bg: rgba(59, 130, 246, 0.04);
+  background: white;
+  --row-bg: white;
+}
+
+.estimate-row:not(.estimate-row--section):not(.estimate-row--suggestion):nth-child(even) {
+  background: #edf2fc;
+  --row-bg: #edf2fc;
 }
 
 /* Separator between top-level chapters */
-.estimate-row--section[data-depth="0"] + .estimate-row--section[data-depth="0"],
-.estimate-row:not(.estimate-row--section) + .estimate-row--section[data-depth="0"],
-.estimate-row--suggestion + .estimate-row--section[data-depth="0"] {
-  border-top: 2px solid var(--slate-200);
+/* ── Gradient row separators ─────────────────────────────────── */
+
+/* Base: subtle gradient separator between all rows */
+.estimate-row::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(to right, rgba(59, 130, 246, 0.18), rgba(147, 197, 253, 0.04));
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Tier 2 — Before a sub-chapter: medium separator */
+.estimate-row + .estimate-row--section[data-depth="1"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(to right, rgba(59, 130, 246, 0.35), rgba(147, 197, 253, 0.08));
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Tier 1 — Before a chapter: strongest separator */
+.estimate-row--section[data-depth="0"] + .estimate-row--section[data-depth="0"]::before,
+.estimate-row:not(.estimate-row--section) + .estimate-row--section[data-depth="0"]::before,
+.estimate-row--suggestion + .estimate-row--section[data-depth="0"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(to right, rgba(37, 99, 195, 0.6), rgba(59, 130, 246, 0.15));
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* No separator on suggestion rows */
+.estimate-row--suggestion::after {
+  display: none;
 }
 
 .estimate-row--suggestion {
-  background: rgba(30, 58, 95, 0.04);
+  background: #f6f7f9;
+  --row-bg: #f6f7f9;
 }
 
 .estimate-cell--required-empty {
@@ -1571,10 +1614,10 @@ body {
 
 .estimate-cell--required-empty .estimate-input,
 .estimate-cell--required-empty .editable-cell__display {
-  border-color: #dc2626;
-  border-width: 2px;
-  background: rgba(239, 68, 68, 0.12);
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+  border-color: transparent;
+  border-width: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .estimate-cell--warning-empty {
@@ -1583,10 +1626,10 @@ body {
 
 .estimate-cell--warning-empty .estimate-input,
 .estimate-cell--warning-empty .estimate-select {
-  border-color: #d97706;
-  border-width: 2px;
-  background: rgba(245, 158, 11, 0.12);
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
+  border-color: transparent;
+  border-width: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 /* Warning overrides FO/MO tint */
@@ -1731,9 +1774,16 @@ body {
 }
 
 .estimate-cell {
-  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
   font-size: 13px;
   color: var(--slate-700);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+}
+
+.estimate-cell--designation {
+  border-bottom-color: transparent;
 }
 
 .estimate-cell--focusable {
@@ -1755,15 +1805,15 @@ body {
 }
 
 .estimate-cell--designation {
-  display: flex;
-  align-items: center;
   gap: 8px;
+  border-bottom-color: transparent;
 }
 
 /* Section rows: disable sticky on designation so it doesn't overlap action chips */
 .estimate-row--section .estimate-cell--designation {
-  position: static;
-  z-index: auto;
+  position: relative;
+  left: auto;
+  z-index: 2;
   overflow: hidden;
 }
 
@@ -1830,15 +1880,17 @@ body {
 .estimate-section-hover-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
   max-width: 0;
   opacity: 0;
   overflow: hidden;
   transition: max-width 0.2s ease, opacity 0.15s ease;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
-.estimate-row--section:hover .estimate-section-hover-actions {
+.estimate-row--section .estimate-cell--designation:hover .estimate-section-hover-actions {
   max-width: 220px;
   opacity: 1;
 }
@@ -1888,6 +1940,25 @@ body {
 .estimate-line-checkbox {
   width: 16px;
   height: 16px;
+}
+
+/* Numeric cells: align values to the right */
+.estimate-col--fo,
+.estimate-col--mo {
+  justify-content: flex-end;
+}
+
+.estimate-col--fo .estimate-input,
+.estimate-col--mo .estimate-input,
+.estimate-input[type="number"] {
+  text-align: right;
+}
+
+.estimate-col--fo .editable-cell__display,
+.estimate-col--mo .editable-cell__display,
+.estimate-editable-cell:has(.estimate-input[type="number"]) .editable-cell__display {
+  text-align: right;
+  justify-content: flex-end;
 }
 
 /* FO (Fourniture) column tint */
@@ -1978,11 +2049,13 @@ body {
 .estimate-table__super-head {
   display: grid;
   grid-template-columns: var(--estimate-grid);
-  min-width: var(--estimate-min-width, 1512px);
+  min-width: var(--estimate-min-width, 1530px);
+  background: var(--slate-50);
+  border-bottom: 1px solid var(--slate-200);
 }
 
 .estimate-table--labor-split .estimate-table__super-head {
-  min-width: 1920px;
+  min-width: 2000px;
 }
 
 .estimate-super-head__group {
@@ -1994,6 +2067,10 @@ body {
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.estimate-super-head__spacer {
+  background: var(--slate-50);
 }
 
 .estimate-super-head__group--fo {
@@ -2286,13 +2363,13 @@ body {
 
 .estimate-input {
   width: 100%;
-  height: 34px;
+  height: 100%;
   padding: 0 10px;
-  border: 1px solid var(--slate-200);
-  border-radius: 10px;
+  border: none;
+  border-radius: 0;
   font-size: 13px;
   color: var(--slate-700);
-  background: white;
+  background: transparent;
 }
 
 /* Hide the browser datalist dropdown arrow for a cleaner look */
@@ -2304,9 +2381,9 @@ body {
 }
 
 .estimate-input:focus {
-  border-color: var(--brand-blue);
-  box-shadow: 0 0 0 2px rgba(30, 58, 95, 0.1);
+  background: rgba(59, 130, 246, 0.06);
   outline: none;
+  box-shadow: none;
 }
 
 .estimate-input--title {
@@ -2413,15 +2490,43 @@ body {
   cursor: not-allowed;
 }
 
-.estimate-cell--aid {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
-    "Courier New", monospace;
+.estimate-designation-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.estimate-input--aid {
-  font-family: inherit;
+.estimate-line-hover-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width 0.2s ease, opacity 0.15s ease;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.estimate-row:not(.estimate-row--section) .estimate-cell--designation:hover .estimate-line-hover-actions,
+.estimate-row:not(.estimate-row--section):focus-within .estimate-line-hover-actions {
+  max-width: 96px;
+  opacity: 1;
+}
+
+.estimate-aid-inline {
+  width: 104px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid rgba(30, 58, 95, 0.16);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: 11px;
+  color: var(--slate-600);
+  background: rgba(255, 255, 255, 0.7);
 }
 
 .estimate-catalogue-suggestions {
