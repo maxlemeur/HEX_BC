@@ -323,6 +323,159 @@ function buildTakeoffRequest(input?: {
   });
 }
 
+function buildTakeoffListRequest(query?: string) {
+  return new Request(
+    `http://localhost/api/takeoff/jobs${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+    }
+  );
+}
+
+describe("GET /api/takeoff/jobs", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns jobs list with filters and pagination", async () => {
+    const parsedQuery = {
+      estimate_version_id: ESTIMATE_VERSION_ID,
+      status: "failed",
+      level: "A",
+      period: "30d",
+      limit: 20,
+      offset: 0,
+    } as const;
+    const parseSpy = vi
+      .spyOn(takeoffServer, "parseListTakeoffJobsQuery")
+      .mockReturnValue(parsedQuery);
+    const listSpy = vi.spyOn(takeoffServer, "listTakeoffJobs").mockResolvedValue({
+      jobs: [
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          estimate_version_id: ESTIMATE_VERSION_ID,
+          status: "failed",
+          level: "A",
+          source_file_name: "niveau-a.csv",
+          source_file_type: "text/csv",
+          source_file_size_bytes: 1024,
+          prompt_version: "takeoff-a-v1",
+          schema_version: "v1",
+          model: "gemini-2.5-flash",
+          thinking_level: "high",
+          media_resolution: null,
+          retry_count: 1,
+          error_code: "AI_TIMEOUT",
+          error_message: "Timed out",
+          next_retry_at: null,
+          last_error_at: null,
+          started_at: null,
+          completed_at: null,
+          created_at: "2026-02-25T12:00:00.000Z",
+          updated_at: "2026-02-25T12:00:00.000Z",
+          items_count: 4,
+          metrics: {
+            token_count: 120,
+            cost_cents: 9,
+            duration_ms: 1200,
+          },
+        },
+      ],
+      counters: {
+        total: 5,
+        processing: 1,
+        completed: 2,
+        failed: 1,
+        canceled: 1,
+      },
+      pagination: {
+        limit: 20,
+        offset: 0,
+        total: 1,
+      },
+    });
+
+    const response = await GET(
+      buildTakeoffListRequest(
+        `estimate_version_id=${ESTIMATE_VERSION_ID}&status=failed&level=A&period=30d&limit=20&offset=0`
+      )
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: {
+        jobs: Array<{ id: string }>;
+        pagination: {
+          limit: number;
+          offset: number;
+          total: number;
+        };
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data?.jobs).toHaveLength(1);
+    expect(body.data?.jobs[0]?.id).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(parseSpy).toHaveBeenCalledWith({
+      estimate_version_id: ESTIMATE_VERSION_ID,
+      status: "failed",
+      level: "A",
+      period: "30d",
+      limit: "20",
+      offset: "0",
+    });
+    expect(listSpy).toHaveBeenCalledWith(parsedQuery);
+  });
+
+  it("returns 403 when takeoff module is disabled", async () => {
+    vi.spyOn(takeoffServer, "parseListTakeoffJobsQuery").mockReturnValue({});
+    vi.spyOn(takeoffServer, "listTakeoffJobs").mockRejectedValue(
+      new TakeoffError({
+        status: 403,
+        code: TakeoffErrorCode.TAKEOFF_MODULE_DISABLED,
+        message: "Le module Takeoff est desactive.",
+        retryable: false,
+      })
+    );
+
+    const response = await GET(buildTakeoffListRequest());
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
+
+    expect(response.status).toBe(403);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe(TakeoffErrorCode.TAKEOFF_MODULE_DISABLED);
+  });
+
+  it("returns 404 when list query targets an unknown estimate version", async () => {
+    vi.spyOn(takeoffServer, "parseListTakeoffJobsQuery").mockReturnValue({
+      estimate_version_id: ESTIMATE_VERSION_ID,
+    });
+    vi.spyOn(takeoffServer, "listTakeoffJobs").mockRejectedValue(
+      new TakeoffError({
+        status: 404,
+        code: TakeoffErrorCode.NOT_FOUND,
+        message: "Version introuvable.",
+        retryable: false,
+      })
+    );
+
+    const response = await GET(
+      buildTakeoffListRequest(`estimate_version_id=${ESTIMATE_VERSION_ID}`)
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
+
+    expect(response.status).toBe(404);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe(TakeoffErrorCode.NOT_FOUND);
+  });
+});
+
 describe("POST /api/takeoff/jobs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
