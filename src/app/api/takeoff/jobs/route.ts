@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { badRequest, ok, toErrorResponse } from "@/lib/estimates/errors";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import {
   createTakeoffJobFromFormData,
   listTakeoffJobs,
@@ -42,6 +43,18 @@ export async function POST(request: Request) {
     const data = await createTakeoffJobFromFormData(formData, {
       idempotencyKey: request.headers.get("idempotency-key"),
     });
+
+    const triggerResult = await triggerTakeoffJobProcessing({
+      jobId: data.id,
+      trigger: "create",
+    });
+
+    if (!triggerResult.triggered) {
+      console.error("Takeoff job created but async processing trigger failed.", {
+        jobId: data.id,
+        correlationId: triggerResult.correlationId,
+      });
+    }
 
     return ok(data, 201);
   } catch (error) {

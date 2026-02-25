@@ -8,9 +8,18 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
 }));
 
+vi.mock("@/lib/takeoff/edge-trigger", () => ({
+  triggerTakeoffJobProcessing: vi.fn().mockResolvedValue({
+    triggered: true,
+    correlationId: "00000000-0000-4000-8000-000000000000",
+    statusCode: 202,
+  }),
+}));
+
 import { POST } from "@/app/api/takeoff/jobs/route";
 import { forbidden } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { TAKEOFF_PROMPT_VERSION_BY_LEVEL } from "@/lib/takeoff/prompts";
 
@@ -316,6 +325,11 @@ describe("POST /api/takeoff/jobs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
+    vi.mocked(triggerTakeoffJobProcessing).mockResolvedValue({
+      triggered: true,
+      correlationId: "00000000-0000-4000-8000-000000000000",
+      statusCode: 202,
+    });
   });
 
   it("creates a pending takeoff job and writes an audit event", async () => {
@@ -340,6 +354,12 @@ describe("POST /api/takeoff/jobs", () => {
     expect(supabase.__state.uploads).toHaveLength(1);
     expect(supabase.__state.audits).toHaveLength(1);
     expect(supabase.__state.audits[0]?.action).toBe("takeoff.job.created");
+    expect(triggerTakeoffJobProcessing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: expect.stringMatching(UUID_REGEX),
+        trigger: "create",
+      })
+    );
 
     const [storedJob] = [...supabase.__state.jobsById.values()];
     expect(storedJob?.prompt_version).toBe(TAKEOFF_PROMPT_VERSION_BY_LEVEL.A);
@@ -507,6 +527,7 @@ describe("POST /api/takeoff/jobs", () => {
     expect(supabase.__state.jobsById.size).toBe(1);
     expect(supabase.__state.uploads).toHaveLength(1);
     expect(supabase.__state.audits).toHaveLength(1);
+    expect(triggerTakeoffJobProcessing).toHaveBeenCalledTimes(2);
   });
 
   it("returns existing job on idempotent retry even if preconditions changed", async () => {
@@ -602,5 +623,35 @@ describe("POST /api/takeoff/jobs", () => {
     expect(supabase.__state.uploads).toHaveLength(1);
     expect(supabase.__state.removals).toHaveLength(1);
     expect(supabase.__state.removals[0]).toBe(supabase.__state.uploads[0]);
+  });
+
+  it("returns 201 even when edge trigger fails", async () => {
+    const supabase = createSupabaseMock();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(triggerTakeoffJobProcessing).mockResolvedValue({
+      triggered: false,
+      correlationId: "11111111-1111-4111-8111-111111111111",
+      statusCode: null,
+    });
+
+    const response = await POST(buildTakeoffRequest());
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: { id: string; status: string };
+    };
+
+    expect(response.status).toBe(201);
+    expect(body.ok).toBe(true);
+    expect(body.data?.status).toBe("pending");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Takeoff job created but async processing trigger failed.",
+      expect.objectContaining({
+        jobId: expect.any(String),
+        correlationId: "11111111-1111-4111-8111-111111111111",
+      })
+    );
+
+    consoleErrorSpy.mockRestore();
   });
 });
