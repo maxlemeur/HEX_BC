@@ -30,6 +30,7 @@ import { getTakeoffChunkingConfigForTenant } from "@/lib/takeoff/feature-flags";
 import { getTakeoffLevelConfig, getTakeoffPrompt } from "@/lib/takeoff/prompts";
 import { TakeoffExchangeSchema, TakeoffWarningSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffExchange, TakeoffWarning } from "@/lib/takeoff/types";
+import { toUnitToken } from "@/lib/takeoff/units";
 
 type Supabase = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
 
@@ -186,16 +187,6 @@ type ProcessLevelInternalResult = ProcessLevelBResult & {
   chunksCount?: number;
   pageCount?: number;
 };
-
-function toUnitToken(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/²/g, "2")
-    .replace(/³/g, "3")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-}
 
 function normalizeNullableText(value: string | null | undefined) {
   if (typeof value !== "string") return null;
@@ -1309,6 +1300,25 @@ function createChunkPromptSourceHint(input: {
   }-${input.chunk.endPage}`;
 }
 
+function remapChunkLocalPagesToAbsolute(input: {
+  chunk: TakeoffPdfChunk;
+  exchange: TakeoffExchange;
+}): TakeoffExchange {
+  const pageOffset = input.chunk.startPage - 1;
+
+  return {
+    ...input.exchange,
+    items: input.exchange.items.map((item) => ({
+      ...item,
+      source_page: item.source_page === undefined ? undefined : item.source_page + pageOffset,
+    })),
+    tables: input.exchange.tables?.map((table) => ({
+      ...table,
+      page: table.page + pageOffset,
+    })),
+  };
+}
+
 async function upsertDetectedPlanFilePageCount(input: {
   supabase: Supabase;
   tenantId: string;
@@ -1506,7 +1516,10 @@ async function processLevelCGeminiChunks(input: {
       const parsedExchange = TakeoffExchangeSchema.parse(geminiResult.data);
       chunkExchanges.push({
         chunk,
-        exchange: parsedExchange,
+        exchange: remapChunkLocalPagesToAbsolute({
+          chunk,
+          exchange: parsedExchange,
+        }),
       });
 
       tokenCount += geminiResult.tokenCount;

@@ -1,6 +1,7 @@
 import { PDFDocument } from "pdf-lib";
 
 import type { TakeoffExchange } from "@/lib/takeoff/types";
+import { toUnitToken } from "@/lib/takeoff/units";
 
 export type TakeoffPdfChunk = {
   index: number;
@@ -71,7 +72,7 @@ function dedupeWarnings(warnings: TakeoffExchange["warnings"]) {
 
 function buildItemKey(item: TakeoffExchange["items"][number]) {
   const designation = normalizeTextToken(item.designation);
-  const unit = normalizeTextToken(item.unit);
+  const unit = toUnitToken(item.unit);
   const sourcePage = item.source_page ?? 0;
   return `${designation}::${unit}::${sourcePage}`;
 }
