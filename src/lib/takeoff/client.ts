@@ -1,6 +1,8 @@
 import type {
   CreateTakeoffMappingRuleInput as SharedCreateTakeoffMappingRuleInput,
   TakeoffApiError as TakeoffApiErrorShape,
+  TakeoffItemBatchPatchRequest as SharedTakeoffItemBatchPatchRequest,
+  TakeoffItemBatchPatchResponse as SharedTakeoffItemBatchPatchResponse,
   TakeoffJobActionResponse as SharedTakeoffJobActionResponse,
   TakeoffJobCreateInput as SharedTakeoffJobCreateInput,
   TakeoffJobDetailResponse as SharedTakeoffJobDetailResponse,
@@ -18,6 +20,8 @@ export type TakeoffJobCreateResponse = SharedTakeoffJobResponse;
 export type TakeoffJobDetailResponse = SharedTakeoffJobDetailResponse;
 export type TakeoffJobActionResponse = SharedTakeoffJobActionResponse;
 export type CreateTakeoffJobInput = SharedTakeoffJobCreateInput;
+export type TakeoffItemBatchPatchRequest = SharedTakeoffItemBatchPatchRequest;
+export type TakeoffItemBatchPatchResponse = SharedTakeoffItemBatchPatchResponse;
 export type TakeoffMappingRule = SharedTakeoffMappingRule;
 export type CreateTakeoffMappingRuleInput = SharedCreateTakeoffMappingRuleInput;
 export type UpdateTakeoffMappingRuleInput = SharedUpdateTakeoffMappingRuleInput;
@@ -486,5 +490,20 @@ export async function cancelTakeoffJob(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/cancel`,
     { method: "POST" },
     "Impossible d'annuler le job takeoff."
+  );
+}
+
+export async function patchTakeoffItems(
+  jobId: string,
+  request: TakeoffItemBatchPatchRequest
+): Promise<TakeoffItemBatchPatchResponse> {
+  return requestTakeoffJson<TakeoffItemBatchPatchResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/items`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+    "Impossible de mettre a jour les items takeoff."
   );
 }

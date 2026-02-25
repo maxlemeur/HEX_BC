@@ -67,6 +67,8 @@ export type TakeoffJobSummary = {
   retry_count: number;
   error_code: string | null;
   error_message: string | null;
+  next_retry_at: string | null;
+  last_error_at: string | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -109,11 +111,44 @@ export type TakeoffJobItem = {
   source_page: number | null;
   metadata: Record<string, unknown>;
   is_excluded: boolean;
+  exclusion_reason: string | null;
   is_verified: boolean;
   verified_at: string | null;
   verified_by: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type TakeoffItemPatchField = {
+  designation?: string;
+  quantity?: number;
+  unit?: string;
+  is_excluded?: boolean;
+  exclusion_reason?: string | null;
+  is_verified?: boolean;
+};
+
+export type TakeoffItemPatchEntry = {
+  item_id: string;
+  updated_at: string;
+  fields: TakeoffItemPatchField;
+};
+
+export type TakeoffItemBatchPatchRequest = {
+  items: TakeoffItemPatchEntry[];
+};
+
+export type TakeoffItemPatchResult = {
+  item_id: string;
+  success: boolean;
+  item?: TakeoffJobItem;
+  error?: string;
+};
+
+export type TakeoffItemBatchPatchResponse = {
+  results: TakeoffItemPatchResult[];
+  succeeded: number;
+  failed: number;
 };
 
 export type TakeoffJobDetailResponse = {
@@ -177,6 +212,34 @@ export type TakeoffMappingRuleDeleteResponse = {
 };
 
 export const TAKEOFF_JOB_MAX_RETRY_COUNT = 3;
+
+export type TakeoffJobAttemptOutcomeStatus =
+  | "completed"
+  | "failed_retryable"
+  | "failed_terminal"
+  | "in_progress"
+  | "noop_terminal"
+  | "canceled";
+
+export type TakeoffJobAttemptTrigger = "create" | "retry" | "manual";
+
+export type TakeoffJobAttemptOutcome = {
+  job_id: string;
+  tenant_id: string | null;
+  level: string | null;
+  status: TakeoffJobAttemptOutcomeStatus;
+  trigger: TakeoffJobAttemptTrigger;
+  retry_count: number;
+  attempt: number;
+  retryable: boolean;
+  should_retry: boolean;
+  next_retry_in_seconds: number | null;
+  next_retry_at: string | null;
+  duration_ms: number;
+  error_code: string | null;
+  error_message: string | null;
+  correlation_id: string;
+};
 
 export const TAKEOFF_JOB_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   "completed",

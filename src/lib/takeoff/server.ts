@@ -28,6 +28,9 @@ import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import type {
   CreateTakeoffMappingRuleInput,
+  TakeoffItemBatchPatchRequest,
+  TakeoffItemBatchPatchResponse,
+  TakeoffItemPatchResult,
   TakeoffJobActionResponse,
   TakeoffJobDetailResponse,
   TakeoffJobItem,
@@ -90,6 +93,8 @@ const TAKEOFF_JOB_LIST_SELECT = [
   "thinking_level",
   "media_resolution",
   "retry_count",
+  "next_retry_at",
+  "last_error_at",
   "token_count",
   "cost_cents",
   "duration_ms",
@@ -130,6 +135,7 @@ const TAKEOFF_ITEMS_SELECT = [
   "source_page",
   "metadata",
   "is_excluded",
+  "exclusion_reason",
   "is_verified",
   "verified_at",
   "verified_by",
@@ -229,6 +235,8 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     retry_count: z.number().int().nonnegative(),
     error_code: z.string().nullable(),
     error_message: z.string().nullable(),
+    next_retry_at: z.string().nullable().optional(),
+    last_error_at: z.string().nullable().optional(),
     started_at: z.string().nullable(),
     completed_at: z.string().nullable(),
     created_at: z.string(),
@@ -253,6 +261,8 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     retry_count: row.retry_count,
     error_code: row.error_code,
     error_message: row.error_message,
+    next_retry_at: row.next_retry_at ?? null,
+    last_error_at: row.last_error_at ?? null,
     started_at: row.started_at,
     completed_at: row.completed_at,
     created_at: row.created_at,
@@ -290,6 +300,7 @@ const takeoffJobItemSchema: z.ZodType<TakeoffJobItem> = z.object({
   source_page: z.number().int().positive().nullable(),
   metadata: jsonRecordSchema,
   is_excluded: z.boolean(),
+  exclusion_reason: z.string().nullable(),
   is_verified: z.boolean(),
   verified_at: z.string().nullable(),
   verified_by: z.string().uuid().nullable(),
@@ -347,6 +358,8 @@ type TakeoffJobDetailRow = {
   thinking_level: string | null;
   media_resolution: string | null;
   retry_count: number | null;
+  next_retry_at: string | null;
+  last_error_at: string | null;
   token_count: number | null;
   cost_cents: number | null;
   duration_ms: number | null;
@@ -370,6 +383,7 @@ type TakeoffItemRow = {
   source_page: number | null;
   metadata: unknown;
   is_excluded: boolean;
+  exclusion_reason: string | null;
   is_verified: boolean;
   verified_at: string | null;
   verified_by: string | null;
@@ -1059,6 +1073,8 @@ export async function retryTakeoffJob(jobId: string): Promise<TakeoffJobActionRe
     .update({
       status: "pending",
       retry_count: retryCount + 1,
+      next_retry_at: null,
+      last_error_at: null,
       started_at: null,
       completed_at: null,
       token_count: null,
@@ -1149,6 +1165,7 @@ export async function cancelTakeoffJob(jobId: string): Promise<TakeoffJobActionR
     .update({
       status: "canceled",
       completed_at: completedAt,
+      next_retry_at: null,
       error_code: null,
       error_message: null,
     } as never)
@@ -1550,6 +1567,279 @@ export async function createTakeoffJobFromFormData(
       level,
     });
   }
+}
+
+const TAKEOFF_ITEM_BATCH_MAX = 100;
+
+const takeoffItemPatchFieldSchema = z
+  .object({
+    designation: z.string().trim().min(1, "designation ne peut pas etre vide.").max(500).optional(),
+    quantity: z.number().finite().positive("quantity doit etre > 0.").optional(),
+    unit: z.string().trim().min(1, "unit ne peut pas etre vide.").max(64).optional(),
+    is_excluded: z.boolean().optional(),
+    exclusion_reason: z.string().trim().min(1).max(500).nullable().optional(),
+    is_verified: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (fields) => Object.keys(fields).length > 0,
+    { message: "Au moins un champ de mise a jour est requis." }
+  )
+  .refine(
+    (fields) => {
+      if (fields.is_excluded === true && !fields.exclusion_reason) {
+        return false;
+      }
+      return true;
+    },
+    { message: "exclusion_reason est obligatoire quand is_excluded = true." }
+  );
+
+export const takeoffItemBatchPatchSchema = z
+  .object({
+    items: z
+      .array(
+        z.object({
+          item_id: z.string().uuid("item_id invalide."),
+          updated_at: z.string().min(1, "updated_at est requis."),
+          fields: takeoffItemPatchFieldSchema,
+        })
+      )
+      .min(1, "Au moins un item est requis.")
+      .max(TAKEOFF_ITEM_BATCH_MAX, `Maximum ${TAKEOFF_ITEM_BATCH_MAX} items par batch.`),
+  })
+  .strict();
+
+export async function batchUpdateTakeoffItems(
+  jobId: string,
+  body: unknown
+): Promise<TakeoffItemBatchPatchResponse> {
+  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const request = parseWithSchema(
+    takeoffItemBatchPatchSchema,
+    body,
+    "Payload de mise a jour invalide."
+  ) as TakeoffItemBatchPatchRequest;
+
+  // Verify job exists, same tenant, status completed
+  const jobRow = await getTakeoffJobDetailByIdOrThrow({
+    supabase,
+    tenantId,
+    jobId: normalizedJobId,
+  });
+
+  if (jobRow.status !== "completed") {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "Le job doit etre en statut completed pour modifier les items.",
+      details: {
+        current_status: jobRow.status,
+        allowed_statuses: ["completed"],
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const results: TakeoffItemPatchResult[] = [];
+
+  for (const entry of request.items) {
+    try {
+      // Fetch current item
+      const { data: currentItem, error: fetchError } = await supabase
+        .from("takeoff_items" as never)
+        .select(TAKEOFF_ITEMS_SELECT as never)
+        .eq("id" as never, entry.item_id as never)
+        .eq("job_id" as never, normalizedJobId as never)
+        .eq("tenant_id" as never, tenantId as never)
+        .maybeSingle();
+
+      if (fetchError) {
+        results.push({
+          item_id: entry.item_id,
+          success: false,
+          error: "Impossible de charger l'item.",
+        });
+        continue;
+      }
+
+      if (!currentItem) {
+        results.push({
+          item_id: entry.item_id,
+          success: false,
+          error: "Item introuvable.",
+        });
+        continue;
+      }
+
+      const typedItem = currentItem as TakeoffItemRow;
+
+      // OCC check
+      if (typedItem.updated_at !== entry.updated_at) {
+        results.push({
+          item_id: entry.item_id,
+          success: false,
+          error: "Conflit de concurrence: l'item a ete modifie depuis votre derniere lecture.",
+        });
+        continue;
+      }
+
+      // Build update payload
+      const updatePayload: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      const auditFields: Array<{
+        field: string;
+        previous: unknown;
+        next: unknown;
+      }> = [];
+
+      if (entry.fields.designation !== undefined) {
+        auditFields.push({
+          field: "designation",
+          previous: typedItem.designation,
+          next: entry.fields.designation,
+        });
+        updatePayload.designation = entry.fields.designation;
+      }
+
+      if (entry.fields.quantity !== undefined) {
+        auditFields.push({
+          field: "quantity",
+          previous: typedItem.quantity,
+          next: entry.fields.quantity,
+        });
+        updatePayload.quantity = entry.fields.quantity;
+      }
+
+      if (entry.fields.unit !== undefined) {
+        auditFields.push({
+          field: "unit",
+          previous: typedItem.unit,
+          next: entry.fields.unit,
+        });
+        updatePayload.unit = entry.fields.unit;
+      }
+
+      if (entry.fields.is_excluded !== undefined) {
+        auditFields.push({
+          field: "is_excluded",
+          previous: typedItem.is_excluded,
+          next: entry.fields.is_excluded,
+        });
+        updatePayload.is_excluded = entry.fields.is_excluded;
+
+        if (entry.fields.is_excluded) {
+          updatePayload.exclusion_reason =
+            entry.fields.exclusion_reason ?? null;
+        } else {
+          updatePayload.exclusion_reason = null;
+        }
+      } else if (entry.fields.exclusion_reason !== undefined) {
+        updatePayload.exclusion_reason = entry.fields.exclusion_reason;
+      }
+
+      if (entry.fields.is_verified !== undefined) {
+        auditFields.push({
+          field: "is_verified",
+          previous: typedItem.is_verified,
+          next: entry.fields.is_verified,
+        });
+        updatePayload.is_verified = entry.fields.is_verified;
+
+        if (entry.fields.is_verified) {
+          updatePayload.verified_at = new Date().toISOString();
+          updatePayload.verified_by = userId;
+        } else {
+          updatePayload.verified_at = null;
+          updatePayload.verified_by = null;
+        }
+      }
+
+      // Execute update
+      const { data: updatedData, error: updateError } = await supabase
+        .from("takeoff_items" as never)
+        .update(updatePayload as never)
+        .eq("id" as never, entry.item_id as never)
+        .eq("job_id" as never, normalizedJobId as never)
+        .eq("tenant_id" as never, tenantId as never)
+        .select(TAKEOFF_ITEMS_SELECT as never)
+        .maybeSingle();
+
+      if (updateError || !updatedData) {
+        results.push({
+          item_id: entry.item_id,
+          success: false,
+          error: "Impossible de mettre a jour l'item.",
+        });
+        continue;
+      }
+
+      const updatedItem = normalizeTakeoffItemRow(updatedData as TakeoffItemRow);
+
+      // Audit events (non-blocking)
+      for (const audit of auditFields) {
+        if (audit.field === "is_excluded" && audit.next === true) {
+          logTakeoffAuditEvent({
+            supabase,
+            tenantId,
+            userId,
+            jobId: normalizedJobId,
+            estimateVersionId: jobRow.estimate_version_id,
+            action: "takeoff.item.excluded",
+            metadata: takeoffAuditMetadataBuilders["takeoff.item.excluded"]({
+              item_id: entry.item_id,
+              reason: entry.fields.exclusion_reason ?? null,
+            }),
+            tableName: "takeoff_items",
+            mode: "non-blocking",
+          });
+        } else {
+          logTakeoffAuditEvent({
+            supabase,
+            tenantId,
+            userId,
+            jobId: normalizedJobId,
+            estimateVersionId: jobRow.estimate_version_id,
+            action: "takeoff.item.modified",
+            metadata: takeoffAuditMetadataBuilders["takeoff.item.modified"]({
+              item_id: entry.item_id,
+              field: audit.field,
+              previous_value: audit.previous as null,
+              next_value: audit.next as null,
+            }),
+            tableName: "takeoff_items",
+            mode: "non-blocking",
+          });
+        }
+      }
+
+      results.push({
+        item_id: entry.item_id,
+        success: true,
+        item: updatedItem,
+      });
+    } catch {
+      results.push({
+        item_id: entry.item_id,
+        success: false,
+        error: "Erreur interne lors de la mise a jour de l'item.",
+      });
+    }
+  }
+
+  return {
+    results,
+    succeeded: results.filter((r) => r.success).length,
+    failed: results.filter((r) => !r.success).length,
+  };
 }
 
 export async function listTakeoffMappingRules(): Promise<TakeoffMappingRulesListResponse> {
