@@ -88,6 +88,14 @@ function renderCard(
   };
 }
 
+/** Get the accordion toggle button (the one with aria-expanded). */
+function getToggleButton() {
+  const buttons = screen.getAllByRole("button");
+  const toggle = buttons.find((btn) => btn.hasAttribute("aria-expanded"));
+  if (!toggle) throw new Error("Toggle button not found");
+  return toggle;
+}
+
 describe("PlanSetCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -114,7 +122,7 @@ describe("PlanSetCard", () => {
 
     renderCard();
 
-    const toggle = screen.getByRole("button", { name: /Plans Archi/i });
+    const toggle = getToggleButton();
     expect(toggle).toHaveAttribute("aria-expanded", "false");
 
     await user.click(toggle);
@@ -132,7 +140,7 @@ describe("PlanSetCard", () => {
 
     renderCard();
 
-    const toggle = screen.getByRole("button", { name: /Plans Archi/i });
+    const toggle = getToggleButton();
     await user.click(toggle); // expand
     await user.click(toggle); // collapse
 
@@ -185,7 +193,7 @@ describe("PlanSetCard", () => {
     renderCard(makePlanSet(), vi.fn(), onFilesChanged);
 
     // Expand card
-    await user.click(screen.getByRole("button", { name: /Plans Archi/i }));
+    await user.click(getToggleButton());
 
     await waitFor(() => {
       expect(screen.getByText("plan-01.pdf")).toBeInTheDocument();
@@ -221,7 +229,7 @@ describe("PlanSetCard", () => {
 
     renderCard();
 
-    await user.click(screen.getByRole("button", { name: /Plans Archi/i }));
+    await user.click(getToggleButton());
 
     await waitFor(() => {
       expect(

@@ -4,7 +4,7 @@ import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlanCenter } from "@/components/takeoff/PlanCenter";
-import type { CreatePlanSetInput, PlanSetListItem } from "@/lib/takeoff/types";
+import type { PlanSetListItem } from "@/lib/takeoff/types";
 
 vi.mock("@/lib/takeoff/client", () => ({
   isTakeoffApiError: (e: unknown) =>
