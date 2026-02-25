@@ -48,7 +48,7 @@ type ProcessTakeoffJobPayload = {
   trigger?: "create" | "retry" | "manual";
 };
 
-const REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 240_000;
 const SELF_INVOKE_TIMEOUT_MS = 7_500;
 
 type RuntimeConfig = {
@@ -56,7 +56,6 @@ type RuntimeConfig = {
   serviceRoleKey: string;
   workerUrl: string;
   workerSecret: string;
-  geminiApiKey: string;
 };
 
 type BaseRuntimeConfig = {
@@ -156,14 +155,10 @@ async function resolveRuntimeConfig(): Promise<RuntimeConfigResolution> {
   const workerSecret =
     readEnv("TAKEOFF_WORKER_SECRET") ??
     (await fetchVaultSecret(base.config, "TAKEOFF_WORKER_SECRET"));
-  const geminiApiKey =
-    readEnv("GEMINI_API_KEY") ??
-    (await fetchVaultSecret(base.config, "GEMINI_API_KEY"));
 
   const missing = [
     !workerUrl ? "TAKEOFF_WORKER_URL" : null,
     !workerSecret ? "TAKEOFF_WORKER_SECRET" : null,
-    !geminiApiKey ? "GEMINI_API_KEY" : null,
   ].filter((name): name is string => Boolean(name));
 
   if (missing.length > 0) {
@@ -180,7 +175,6 @@ async function resolveRuntimeConfig(): Promise<RuntimeConfigResolution> {
       serviceRoleKey: base.config.serviceRoleKey,
       workerUrl: workerUrl ?? "",
       workerSecret: workerSecret ?? "",
-      geminiApiKey: geminiApiKey ?? "",
     },
   };
 }

@@ -243,6 +243,49 @@ describe("processTakeoffJobAttempt", () => {
     expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
   });
 
+  it("does not schedule retry from stale persisted retryable error codes", async () => {
+    const { repository } = createWorkerRepository({
+      id: JOB_ID,
+      tenant_id: TENANT_ID,
+      level: "A",
+      status: "failed",
+      retry_count: 1,
+      error_code: TakeoffErrorCode.AI_TIMEOUT,
+      error_message: "Timed out during previous attempt",
+      created_by: null,
+      next_retry_at: null,
+      last_error_at: FIXED_NOW.toISOString(),
+    });
+
+    const processLevelAFn = vi.fn(async () => {
+      throw new TakeoffError({
+        code: TakeoffErrorCode.INTERNAL_ERROR,
+        message: "Unable to bootstrap processor dependencies.",
+        retryable: false,
+        jobId: JOB_ID,
+        level: "A",
+      });
+    });
+
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    const outcome = await processTakeoffJobAttempt(JOB_ID, {
+      correlationId: CORRELATION_ID,
+      trigger: "retry",
+      repository,
+      processLevelAFn,
+      now: () => FIXED_NOW,
+      logger,
+    });
+
+    expect(outcome.status).toBe("failed_terminal");
+    expect(outcome.should_retry).toBe(false);
+    expect(repository.scheduleRetry).not.toHaveBeenCalled();
+    expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledTimes(1);
+  });
+
   it("returns in_progress when concurrent trigger sees processing status", async () => {
     const { repository } = createWorkerRepository({
       id: JOB_ID,

@@ -116,16 +116,6 @@ function getRetryBackoffSeconds(retryCount: number) {
   return TAKEOFF_RETRY_BACKOFF_SECONDS[clamped];
 }
 
-function isRetryableTakeoffErrorCode(errorCode: string | null) {
-  if (!errorCode) return false;
-
-  return (
-    errorCode === TakeoffErrorCode.AI_RATE_LIMIT ||
-    errorCode === TakeoffErrorCode.AI_TIMEOUT ||
-    errorCode === TakeoffErrorCode.AI_PROVIDER
-  );
-}
-
 function sanitizeRetryCount(value: number | null | undefined) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     return 0;
@@ -450,7 +440,6 @@ export async function processTakeoffJobAttempt(
     const mappedError = toTakeoffError(error, {
       fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
       fallbackMessage: "Le traitement async du job takeoff a echoue.",
-      retryable: false,
       jobId: job.id,
       level:
         job.level === "A" || job.level === "B" || job.level === "C"
@@ -518,8 +507,7 @@ export async function processTakeoffJobAttempt(
       });
     }
 
-    const retryable =
-      mappedError.retryable || isRetryableTakeoffErrorCode(current.error_code ?? null);
+    const retryable = mappedError.retryable;
     const shouldRetry = current.status === "failed" && retryable && currentRetryCount < TAKEOFF_RETRY_MAX;
 
     if (shouldRetry) {
