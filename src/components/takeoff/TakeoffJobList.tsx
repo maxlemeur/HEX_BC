@@ -417,6 +417,27 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                       job.status === "pending" || job.status === "processing";
                     const reviewEnabled =
                       job.status === "completed" || job.status === "applied";
+                    const compareCandidate = jobs.find((candidate) => {
+                      if (candidate.id === job.id) return false;
+                      if (
+                        candidate.status !== "completed" &&
+                        candidate.status !== "applied"
+                      ) {
+                        return false;
+                      }
+
+                      const candidateFileName =
+                        candidate.source_file_name?.trim().toLowerCase() ?? "";
+                      const currentFileName =
+                        job.source_file_name?.trim().toLowerCase() ?? "";
+
+                      return (
+                        candidateFileName.length > 0 &&
+                        candidateFileName === currentFileName
+                      );
+                    });
+                    const compareEnabled =
+                      reviewEnabled && compareCandidate !== undefined;
 
                     return (
                       <tr key={job.id}>
@@ -452,6 +473,16 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                                 className="btn btn-secondary btn-sm"
                               >
                                 Review
+                              </Link>
+                            ) : null}
+                            {compareEnabled ? (
+                              <Link
+                                href={`/dashboard/estimates/${versionId}/takeoff/${job.id}/review?view=compare&compareWith=${encodeURIComponent(
+                                  compareCandidate.id
+                                )}`}
+                                className="btn btn-secondary btn-sm"
+                              >
+                                Comparer
                               </Link>
                             ) : null}
                             <button

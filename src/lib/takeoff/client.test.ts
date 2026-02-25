@@ -4,6 +4,7 @@ import {
   applyTakeoffJob,
   createTakeoffMappingRule,
   deleteTakeoffMappingRule,
+  fetchTakeoffJobCompare,
   fetchTakeoffMappingRules,
   isTakeoffApiError,
   updateTakeoffMappingRule,
@@ -86,6 +87,24 @@ const APPLY_RESPONSE = {
     ignored_count: 0,
     created_ids: ["99999999-9999-4999-8999-999999999999"],
   },
+};
+
+const COMPARE_RESPONSE = {
+  base_job_id: JOB_ID,
+  other_job_id: "77777777-7777-4777-8777-777777777777",
+  threshold: 0.8,
+  summary: {
+    added: 1,
+    removed: 0,
+    changed: 2,
+    unchanged: 3,
+    total_base: 5,
+    total_other: 6,
+  },
+  added: [],
+  removed: [],
+  changed: [],
+  unchanged: [],
 };
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -240,6 +259,32 @@ describe("takeoff client mapping rules wrappers", () => {
     const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
     expect(JSON.parse(String(requestInit.body))).toEqual(APPLY_PAYLOAD);
     expect(result).toEqual(APPLY_RESPONSE);
+  });
+
+  it("fetches a job comparison via GET", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        data: COMPARE_RESPONSE,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchTakeoffJobCompare(JOB_ID, {
+      withJobId: COMPARE_RESPONSE.other_job_id,
+      threshold: 0.8,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/takeoff/jobs/${JOB_ID}/compare?with=${encodeURIComponent(
+        COMPARE_RESPONSE.other_job_id
+      )}&threshold=0.8`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(result).toEqual(COMPARE_RESPONSE);
   });
 
   it("throws TakeoffApiError on non-2xx responses and preserves metadata", async () => {

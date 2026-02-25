@@ -189,6 +189,7 @@ export type TakeoffItemPatchField = {
   is_excluded?: boolean;
   exclusion_reason?: string | null;
   is_verified?: boolean;
+  evidence?: string | null;
 };
 
 export type TakeoffItemPatchEntry = {
@@ -234,6 +235,84 @@ export type TakeoffJobActionResponse = {
 export type TakeoffApplyResponse = {
   job: TakeoffJobSummary;
   summary: TakeoffApplySummary;
+};
+
+export const TAKEOFF_DIFF_MATCH_STRATEGIES = [
+  "designation_fuzzy",
+  "designation_plus_page_fuzzy",
+] as const;
+export type TakeoffDiffMatchStrategy =
+  (typeof TAKEOFF_DIFF_MATCH_STRATEGIES)[number];
+
+export type TakeoffDiffField = {
+  field:
+    | "designation"
+    | "quantity"
+    | "unit"
+    | "source_page"
+    | "confidence"
+    | "evidence";
+  label: string;
+  kind: "text" | "number";
+  before_value: string | number | null;
+  after_value: string | number | null;
+};
+
+export type TakeoffDiffAddedEntry = {
+  key: string;
+  change_type: "added";
+  other_item: TakeoffJobItem;
+};
+
+export type TakeoffDiffRemovedEntry = {
+  key: string;
+  change_type: "removed";
+  base_item: TakeoffJobItem;
+};
+
+export type TakeoffDiffChangedEntry = {
+  key: string;
+  change_type: "changed";
+  base_item: TakeoffJobItem;
+  other_item: TakeoffJobItem;
+  match_score: number;
+  match_strategy: TakeoffDiffMatchStrategy;
+  delta: TakeoffDiffField[];
+};
+
+export type TakeoffDiffUnchangedEntry = {
+  key: string;
+  change_type: "unchanged";
+  base_item: TakeoffJobItem;
+  other_item: TakeoffJobItem;
+  match_score: number;
+  match_strategy: TakeoffDiffMatchStrategy;
+};
+
+export type TakeoffDiffEntry =
+  | TakeoffDiffAddedEntry
+  | TakeoffDiffRemovedEntry
+  | TakeoffDiffChangedEntry
+  | TakeoffDiffUnchangedEntry;
+
+export type TakeoffJobCompareSummary = {
+  added: number;
+  removed: number;
+  changed: number;
+  unchanged: number;
+  total_base: number;
+  total_other: number;
+};
+
+export type TakeoffJobCompareResponse = {
+  base_job_id: string;
+  other_job_id: string;
+  threshold: number;
+  summary: TakeoffJobCompareSummary;
+  added: TakeoffDiffAddedEntry[];
+  removed: TakeoffDiffRemovedEntry[];
+  changed: TakeoffDiffChangedEntry[];
+  unchanged: TakeoffDiffUnchangedEntry[];
 };
 
 export type TakeoffApiError = {

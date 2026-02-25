@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -13,6 +14,9 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
+import { EvidencePanel } from "@/components/takeoff/EvidencePanel";
+import TakeoffDiffView from "@/components/takeoff/TakeoffDiffView";
 import TakeoffReviewTable, {
   detectAnomalies,
   hasBlockingAnomaly,
@@ -24,13 +28,18 @@ import {
 } from "@/components/takeoff/TakeoffApplyWizard";
 import {
   applyTakeoffJob,
+  fetchTakeoffJobCompare,
   fetchTakeoffJob,
   isTakeoffApiError,
+  listTakeoffJobs,
   patchTakeoffItems,
 } from "@/lib/takeoff/client";
 import type {
+  TakeoffItemBatchPatchResponse,
   TakeoffItemPatchEntry,
+  TakeoffJobCompareResponse,
   TakeoffJobItem,
+  TakeoffJobSummary,
   TakeoffTable,
 } from "@/lib/takeoff/types";
 
@@ -53,7 +62,7 @@ type TakeoffReviewPageProps = {
   versionId: string;
 };
 
-type ViewTab = "tables" | "items";
+type ViewTab = "tables" | "items" | "compare";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,6 +70,8 @@ type ViewTab = "tables" | "items";
 
 const AUTO_SAVE_DEBOUNCE_MS = 500;
 const REVIEW_ITEMS_PAGE_SIZE = 200;
+const DEFAULT_COMPARE_THRESHOLD = 0.8;
+const CHERRY_PICK_EXCLUSION_REASON = "Cherry-pick diff TKF-032";
 
 // ---------------------------------------------------------------------------
 // Exclusion reason modal
@@ -118,7 +129,7 @@ function ExclusionReasonModal({
             disabled={!canConfirm}
             onClick={() => {
               onConfirm(reason.trim());
-              onOpenChange(false);
+              handleOpenChange(false);
             }}
           >
             Exclure
@@ -136,15 +147,29 @@ function ExclusionReasonModal({
 function SummaryStatsBar({
   items,
   tablesCount,
+  jobLevel,
 }: {
   items: ReviewItem[];
   tablesCount: number;
+  jobLevel: string | null;
 }) {
   const total = items.length;
   const included = items.filter((i) => !i.is_excluded).length;
   const excluded = items.filter((i) => i.is_excluded).length;
   const verified = items.filter((i) => i.is_verified).length;
   const withAnomalies = items.filter((i) => detectAnomalies(i).length > 0).length;
+
+  // Level C extras
+  const isLevelC = jobLevel === "C";
+  const evidenceCount = isLevelC
+    ? items.filter((i) => !!i.evidence).length
+    : 0;
+  const evidencePct = isLevelC && total > 0
+    ? Math.round((evidenceCount / total) * 100)
+    : 0;
+  const lowConfidenceCount = isLevelC
+    ? items.filter((i) => i.confidence !== null && i.confidence < 0.5).length
+    : 0;
 
   return (
     <div className="flex flex-wrap gap-4 rounded-lg border border-[var(--border)] bg-[var(--slate-50)] px-4 py-3 text-sm">
@@ -174,6 +199,22 @@ function SummaryStatsBar({
         <span className="font-medium text-[var(--warning)]">{withAnomalies}</span>{" "}
         <span className="text-[var(--slate-500)]">Anomalies</span>
       </span>
+
+      {/* Level C extras */}
+      {isLevelC && (
+        <>
+          <span className="border-l border-[var(--border)] pl-4">
+            <span className="font-medium text-[var(--slate-800)]">{evidencePct}%</span>{" "}
+            <span className="text-[var(--slate-500)]">Couverture evidence</span>
+          </span>
+          {lowConfidenceCount > 0 && (
+            <span>
+              <span className="font-medium text-[var(--danger)]">{lowConfidenceCount}</span>{" "}
+              <span className="text-[var(--slate-500)]">Confiance faible</span>
+            </span>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -192,13 +233,60 @@ export default function TakeoffReviewPage({
 
   // ---- Tab state from URL
   const viewParam = searchParams.get("view");
+  const compareWithParam = searchParams.get("compareWith");
+  const thresholdParam = searchParams.get("threshold");
   const activeTab: ViewTab =
-    viewParam === "tables" || viewParam === "items" ? viewParam : "items";
+    viewParam === "tables" || viewParam === "items" || viewParam === "compare"
+      ? viewParam
+      : "items";
+
+  const compareWithJobId = useMemo(() => {
+    if (!compareWithParam) return null;
+    const trimmed = compareWithParam.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }, [compareWithParam]);
+
+  const compareThreshold = useMemo(() => {
+    if (!thresholdParam) return DEFAULT_COMPARE_THRESHOLD;
+    const parsed = Number(thresholdParam);
+    if (!Number.isFinite(parsed)) return DEFAULT_COMPARE_THRESHOLD;
+    if (parsed < 0.5) return 0.5;
+    if (parsed > 0.99) return 0.99;
+    return Number(parsed.toFixed(2));
+  }, [thresholdParam]);
 
   const setActiveTab = useCallback(
     (tab: ViewTab) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("view", tab);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const setCompareWithJobId = useCallback(
+    (otherJobId: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (otherJobId) {
+        params.set("compareWith", otherJobId);
+      } else {
+        params.delete("compareWith");
+      }
+      if (!params.get("view")) {
+        params.set("view", "compare");
+      }
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const setCompareThreshold = useCallback(
+    (nextThreshold: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("threshold", String(Number(nextThreshold.toFixed(2))));
+      if (!params.get("view")) {
+        params.set("view", "compare");
+      }
       router.replace(`?${params.toString()}`, { scroll: false });
     },
     [router, searchParams]
@@ -211,6 +299,14 @@ export default function TakeoffReviewPage({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [jobFileName, setJobFileName] = useState<string | null>(null);
   const [jobLevel, setJobLevel] = useState<string | null>(null);
+  const [globalConfidence, setGlobalConfidence] = useState<number | null>(null);
+  const [evidencePanelItemId, setEvidencePanelItemId] = useState<string | null>(null);
+  const [compareCandidates, setCompareCandidates] = useState<TakeoffJobSummary[]>([]);
+  const [compareData, setCompareData] = useState<TakeoffJobCompareResponse | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+  const [applySelectionSubmitting, setApplySelectionSubmitting] = useState(false);
+  const [applySelectionError, setApplySelectionError] = useState<string | null>(null);
 
   // ---- Exclusion modal state
   const [exclusionModalOpen, setExclusionModalOpen] = useState(false);
@@ -262,6 +358,7 @@ export default function TakeoffReviewPage({
 
         setJobFileName(firstPage.job.source_file_name);
         setJobLevel(firstPage.job.level);
+        setGlobalConfidence(firstPage.result?.confidence ?? null);
 
         // Extract tables from result if available
         const resultTables = firstPage.result?.tables;
@@ -304,6 +401,99 @@ export default function TakeoffReviewPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
+  // ---- Compare candidates (same estimate version + same source file)
+  useEffect(() => {
+    let canceled = false;
+
+    async function loadCompareCandidates() {
+      if (!jobFileName) {
+        setCompareCandidates([]);
+        return;
+      }
+
+      try {
+        const response = await listTakeoffJobs({
+          estimate_version_id: versionId,
+          limit: 100,
+          offset: 0,
+        });
+        if (canceled) return;
+
+        const normalizedSourceFileName = jobFileName.trim().toLowerCase();
+        const filteredCandidates = response.jobs.filter((job) => {
+          if (job.id === jobId) return false;
+          if (job.status !== "completed" && job.status !== "applied") return false;
+          const candidateSourceFileName =
+            job.source_file_name?.trim().toLowerCase() ?? "";
+          return (
+            candidateSourceFileName.length > 0 &&
+            candidateSourceFileName === normalizedSourceFileName
+          );
+        });
+
+        setCompareCandidates(filteredCandidates);
+      } catch {
+        if (!canceled) {
+          setCompareCandidates([]);
+        }
+      }
+    }
+
+    loadCompareCandidates();
+
+    return () => {
+      canceled = true;
+    };
+  }, [jobFileName, jobId, versionId]);
+
+  // ---- Compare loading
+  useEffect(() => {
+    if (!compareWithJobId) {
+      setCompareLoading(false);
+      setCompareError(null);
+      setCompareData(null);
+      return;
+    }
+
+    let canceled = false;
+    const abortController = new AbortController();
+
+    async function loadCompare() {
+      try {
+        setCompareLoading(true);
+        setCompareError(null);
+
+        const response = await fetchTakeoffJobCompare(jobId, {
+          withJobId: compareWithJobId!,
+          threshold: compareThreshold,
+          signal: abortController.signal,
+        });
+
+        if (canceled) return;
+        setCompareData(response);
+      } catch (error) {
+        if (canceled || abortController.signal.aborted) return;
+        setCompareData(null);
+        setCompareError(
+          isTakeoffApiError(error)
+            ? error.message
+            : "Impossible de comparer les deux jobs."
+        );
+      } finally {
+        if (!canceled) {
+          setCompareLoading(false);
+        }
+      }
+    }
+
+    loadCompare();
+
+    return () => {
+      canceled = true;
+      abortController.abort();
+    };
+  }, [compareThreshold, compareWithJobId, jobId]);
+
   // ---- Item update helpers
   const updateItemField = useCallback(
     (itemId: string, field: string, value: unknown) => {
@@ -311,6 +501,34 @@ export default function TakeoffReviewPage({
         prev.map((item) => {
           if (item.id !== itemId) return item;
           return { ...item, [field]: value, _dirty: true, _error: null };
+        })
+      );
+    },
+    []
+  );
+
+  const applyPatchResults = useCallback(
+    (response: TakeoffItemBatchPatchResponse) => {
+      setItems((prev) =>
+        prev.map((item) => {
+          const result = response.results.find((entry) => entry.item_id === item.id);
+          if (!result) return item;
+
+          if (result.success && result.item) {
+            return {
+              ...result.item,
+              _dirty: false,
+              _saving: false,
+              _error: null,
+            };
+          }
+
+          return {
+            ...item,
+            _dirty: false,
+            _saving: false,
+            _error: result.error ?? "Erreur inconnue.",
+          };
         })
       );
     },
@@ -343,6 +561,7 @@ export default function TakeoffReviewPage({
         fields.exclusion_reason = item.exclusion_reason;
       }
       fields.is_verified = item.is_verified;
+      fields.evidence = item.evidence;
 
       return {
         item_id: item.id,
@@ -353,29 +572,7 @@ export default function TakeoffReviewPage({
 
     try {
       const response = await patchTakeoffItems(jobId, { items: patchEntries });
-
-      setItems((prev) =>
-        prev.map((item) => {
-          const result = response.results.find((r) => r.item_id === item.id);
-          if (!result) return item;
-
-          if (result.success && result.item) {
-            return {
-              ...result.item,
-              _dirty: false,
-              _saving: false,
-              _error: null,
-            };
-          }
-
-          return {
-            ...item,
-            _dirty: false,
-            _saving: false,
-            _error: result.error ?? "Erreur inconnue.",
-          };
-        })
-      );
+      applyPatchResults(response);
 
       if (response.failed > 0) {
         toast.warning({
@@ -408,7 +605,7 @@ export default function TakeoffReviewPage({
     } finally {
       savingRef.current = false;
     }
-  }, [items, jobId, toast]);
+  }, [applyPatchResults, items, jobId, toast]);
 
   // Trigger auto-save debounce when items change
   const hasDirty = items.some((i) => i._dirty);
@@ -472,6 +669,125 @@ export default function TakeoffReviewPage({
     [setActiveTab, toast]
   );
 
+  // ---- Evidence panel handlers
+  const handleOpenEvidencePanel = useCallback((itemId: string) => {
+    setEvidencePanelItemId(itemId);
+  }, []);
+
+  const handleCloseEvidencePanel = useCallback(() => {
+    setEvidencePanelItemId(null);
+  }, []);
+
+  const handleEvidenceNavigate = useCallback(
+    (direction: "prev" | "next") => {
+      if (!evidencePanelItemId) return;
+      const currentIndex = items.findIndex((i) => i.id === evidencePanelItemId);
+      if (currentIndex === -1) return;
+      const nextIndex = direction === "prev" ? currentIndex - 1 : currentIndex + 1;
+      if (nextIndex >= 0 && nextIndex < items.length) {
+        setEvidencePanelItemId(items[nextIndex].id);
+      }
+    },
+    [evidencePanelItemId, items]
+  );
+
+  const handleUpdateEvidence = useCallback(
+    (itemId: string, evidence: string | null) => {
+      updateItemField(itemId, "evidence", evidence);
+    },
+    [updateItemField]
+  );
+
+  const handleMarkVerified = useCallback(
+    (itemId: string) => {
+      updateItemField(itemId, "is_verified", true);
+    },
+    [updateItemField]
+  );
+
+  const handleApplyDiffSelection = useCallback(
+    async (selectedBaseItemIds: string[]) => {
+      setApplySelectionError(null);
+
+      const hasPendingSave = items.some((item) => item._dirty || item._saving);
+      if (hasPendingSave) {
+        setApplySelectionError(
+          "Finalisez d'abord les modifications en cours avant d'appliquer un cherry-pick."
+        );
+        return;
+      }
+
+      const selectedIdSet = new Set(selectedBaseItemIds);
+      const patchEntries: TakeoffItemPatchEntry[] = [];
+
+      for (const item of items) {
+        const shouldBeIncluded = selectedIdSet.has(item.id);
+        const nextIsExcluded = !shouldBeIncluded;
+        const nextExclusionReason = nextIsExcluded
+          ? CHERRY_PICK_EXCLUSION_REASON
+          : null;
+
+        const exclusionChanged =
+          item.is_excluded !== nextIsExcluded ||
+          item.exclusion_reason !== nextExclusionReason;
+
+        if (!exclusionChanged) {
+          continue;
+        }
+
+        patchEntries.push({
+          item_id: item.id,
+          updated_at: item.updated_at,
+          fields: {
+            is_excluded: nextIsExcluded,
+            exclusion_reason: nextExclusionReason,
+          },
+        });
+      }
+
+      if (patchEntries.length === 0) {
+        toast.info({
+          title: "Aucun changement a appliquer",
+          description: "La selection correspond deja a l'etat actuel du job.",
+        });
+        return;
+      }
+
+      setApplySelectionSubmitting(true);
+      try {
+        const response = await patchTakeoffItems(jobId, { items: patchEntries });
+        applyPatchResults(response);
+
+        if (response.failed > 0) {
+          setApplySelectionError(
+            `${response.failed} item(s) n'ont pas pu etre mis a jour pendant le cherry-pick.`
+          );
+          toast.warning({
+            title: "Cherry-pick partiel",
+            description: "Certains items n'ont pas pu etre synchronises.",
+          });
+        } else {
+          toast.success({
+            title: "Cherry-pick applique",
+            description: `${selectedBaseItemIds.length} item(s) gardes pour l'apply.`,
+          });
+        }
+      } catch (error) {
+        const message = isTakeoffApiError(error)
+          ? error.message
+          : "Impossible d'appliquer la selection cherry-pick.";
+        setApplySelectionError(message);
+        toast.error({
+          title: "Erreur cherry-pick",
+          description: message,
+        });
+      } finally {
+        setApplySelectionSubmitting(false);
+      }
+    },
+    [applyPatchResults, items, jobId, toast]
+  );
+
   const handleExclusionConfirm = useCallback(
     (reason: string) => {
       setItems((prev) =>
@@ -530,6 +846,9 @@ export default function TakeoffReviewPage({
   // ---- Table count
   const tablesCount = tables.length;
   const hasTables = tablesCount > 0;
+  const hasCompareTab = compareCandidates.length > 0 || compareWithJobId !== null;
+  const selectedCompareCandidate =
+    compareCandidates.find((job) => job.id === compareWithJobId) ?? null;
 
   // ---- Loading state
   if (loading) {
@@ -599,29 +918,36 @@ export default function TakeoffReviewPage({
         </Link>
       </div>
 
+      {/* ---- Confidence header (Level C only) ---- */}
+      {jobLevel === "C" && (
+        <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
+      )}
+
       {/* ---- Summary stats ---- */}
-      <SummaryStatsBar items={items} tablesCount={tablesCount} />
+      <SummaryStatsBar items={items} tablesCount={tablesCount} jobLevel={jobLevel} />
 
       {/* ---- Tab bar ---- */}
-      {hasTables && (
+      {(hasTables || hasCompareTab) && (
         <div
           className="flex gap-1 border-b border-[var(--border)]"
           role="tablist"
           aria-label="Vues de review"
         >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "tables"}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === "tables"
-                ? "border-b-2 border-[var(--info)] text-[var(--info)]"
-                : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
-            }`}
-            onClick={() => setActiveTab("tables")}
-          >
-            Tables
-          </button>
+          {hasTables ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "tables"}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === "tables"
+                  ? "border-b-2 border-[var(--info)] text-[var(--info)]"
+                  : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+              }`}
+              onClick={() => setActiveTab("tables")}
+            >
+              Tables
+            </button>
+          ) : null}
           <button
             type="button"
             role="tab"
@@ -635,11 +961,111 @@ export default function TakeoffReviewPage({
           >
             Items ({items.length})
           </button>
+          {hasCompareTab ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "compare"}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === "compare"
+                  ? "border-b-2 border-[var(--info)] text-[var(--info)]"
+                  : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+              }`}
+              onClick={() => setActiveTab("compare")}
+            >
+              Comparaison
+            </button>
+          ) : null}
         </div>
       )}
 
       {/* ---- Content area ---- */}
-      {activeTab === "tables" && hasTables ? (
+      {activeTab === "compare" ? (
+        <div className="space-y-4">
+          <section className="dashboard-card p-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label
+                  className="form-label"
+                  htmlFor="takeoff-compare-job-select"
+                >
+                  Job a comparer
+                </label>
+                <select
+                  id="takeoff-compare-job-select"
+                  className="form-input form-select form-input--sm"
+                  value={compareWithJobId ?? ""}
+                  onChange={(event) => {
+                    const nextValue = event.target.value.trim();
+                    setCompareWithJobId(nextValue.length > 0 ? nextValue : null);
+                  }}
+                >
+                  <option value="">Selectionner un job</option>
+                  {selectedCompareCandidate === null && compareWithJobId ? (
+                    <option value={compareWithJobId}>
+                      Job {compareWithJobId}
+                    </option>
+                  ) : null}
+                  {compareCandidates.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.source_file_name ?? "Fichier inconnu"} ·{" "}
+                      {new Date(candidate.created_at).toLocaleString("fr-FR")} ·{" "}
+                      {candidate.status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label
+                  className="form-label"
+                  htmlFor="takeoff-compare-threshold-select"
+                >
+                  Seuil fuzzy
+                </label>
+                <select
+                  id="takeoff-compare-threshold-select"
+                  className="form-input form-select form-input--sm"
+                  value={String(compareThreshold)}
+                  onChange={(event) => {
+                    const nextValue = Number(event.target.value);
+                    if (!Number.isFinite(nextValue)) return;
+                    setCompareThreshold(nextValue);
+                  }}
+                >
+                  <option value="0.7">0.70</option>
+                  <option value="0.75">0.75</option>
+                  <option value="0.8">0.80</option>
+                  <option value="0.85">0.85</option>
+                  <option value="0.9">0.90</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          {compareLoading ? (
+            <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+              Chargement de la comparaison...
+            </section>
+          ) : compareError ? (
+            <section className="dashboard-card p-6 text-sm text-[var(--danger)]">
+              {compareError}
+            </section>
+          ) : compareData ? (
+            <TakeoffDiffView
+              key={`${compareData.base_job_id}:${compareData.other_job_id}:${compareData.threshold}`}
+              compare={compareData}
+              onApplySelection={handleApplyDiffSelection}
+              isApplyingSelection={applySelectionSubmitting}
+              applySelectionError={applySelectionError}
+            />
+          ) : (
+            <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+              Selectionnez un autre job pour afficher le diff.
+            </section>
+          )}
+        </div>
+      ) : activeTab === "tables" && hasTables ? (
         <TakeoffTableView
           tables={tables}
           items={items}
@@ -654,6 +1080,7 @@ export default function TakeoffReviewPage({
           onUpdateItem={updateItemField}
           onExcludeItems={handleExcludeItems}
           onIncludeItems={handleIncludeItems}
+          onOpenEvidencePanel={handleOpenEvidencePanel}
         />
       )}
 
@@ -716,6 +1143,25 @@ export default function TakeoffReviewPage({
         onOpenChange={setApplyWizardOpen}
         onConfirm={handleApplyConfirm}
       />
+
+      {/* ---- Evidence panel ---- */}
+      {evidencePanelItemId != null && (() => {
+        const panelItem = items.find((i) => i.id === evidencePanelItemId);
+        if (!panelItem) return null;
+        const panelIndex = items.findIndex((i) => i.id === evidencePanelItemId);
+        return (
+          <EvidencePanel
+            key={panelItem.id}
+            item={panelItem}
+            itemIndex={panelIndex}
+            totalItems={items.length}
+            onClose={handleCloseEvidencePanel}
+            onNavigate={handleEvidenceNavigate}
+            onUpdateEvidence={handleUpdateEvidence}
+            onMarkVerified={handleMarkVerified}
+          />
+        );
+      })()}
     </div>
   );
 }

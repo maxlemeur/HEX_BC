@@ -24,9 +24,10 @@ export type TakeoffReviewTableProps = {
   onUpdateItem: (itemId: string, field: string, value: unknown) => void;
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
+  onOpenEvidencePanel?: (itemId: string) => void;
 };
 
-type AnomalyType =
+export type AnomalyType =
   | "low_confidence"
   | "missing_evidence"
   | "zero_quantity"
@@ -34,7 +35,8 @@ type AnomalyType =
 
 type InclusionFilter = "all" | "included" | "excluded";
 type AnomalyFilter = "all" | "with_anomalies" | "without_anomalies";
-type SortField = "designation" | "quantity" | "category";
+type ConfidenceFilter = "all" | "high" | "medium" | "low" | "missing";
+type SortField = "designation" | "quantity" | "category" | "confidence";
 type SortDirection = "asc" | "desc";
 
 // ---------------------------------------------------------------------------
@@ -43,7 +45,7 @@ type SortDirection = "asc" | "desc";
 
 const EDITABLE_COLUMNS = ["designation", "quantity", "unit"] as const;
 
-const ANOMALY_LABELS: Record<AnomalyType, string> = {
+export const ANOMALY_LABELS: Record<AnomalyType, string> = {
   low_confidence: "Confiance faible (< 50%)",
   missing_evidence: "Aucune evidence/source",
   zero_quantity: "Quantite nulle ou negative",
@@ -90,6 +92,62 @@ function ConfidenceBadge({ confidence }: { confidence: number | null }) {
     <Badge variant={variant} size="sm">
       {pct}%
     </Badge>
+  );
+}
+
+function ClickableConfidenceBadge({
+  confidence,
+  hasEvidence,
+  onClick,
+}: {
+  confidence: number | null;
+  hasEvidence: boolean;
+  onClick?: () => void;
+}) {
+  const pct = confidence !== null ? Math.round(confidence * 100) : null;
+  const barColor =
+    pct === null
+      ? "var(--slate-300)"
+      : pct >= 80
+        ? "var(--success)"
+        : pct >= 50
+          ? "var(--warning)"
+          : "var(--danger)";
+  const barWidth = pct !== null ? `${pct}%` : "0%";
+  const tooltip = pct !== null
+    ? `Confiance: ${pct}% — Cliquer pour voir l'evidence`
+    : "Confiance non evaluee — Cliquer pour voir l'evidence";
+
+  return (
+    <button
+      type="button"
+      className="group flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors hover:bg-[var(--slate-100)]"
+      onClick={onClick}
+      title={tooltip}
+    >
+      <ConfidenceBadge confidence={confidence} />
+      {/* Mini confidence bar */}
+      <div className="h-1.5 w-8 overflow-hidden rounded-full bg-[var(--slate-100)]">
+        <div
+          className="h-full rounded-full transition-all duration-300"
+          style={{ width: barWidth, backgroundColor: barColor }}
+        />
+      </div>
+      {/* Evidence icon */}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        className={`h-3.5 w-3.5 ${hasEvidence ? "text-[var(--info)]" : "text-[var(--slate-300)]"}`}
+        aria-label={hasEvidence ? "Evidence disponible" : "Pas d'evidence"}
+      >
+        <path
+          fillRule="evenodd"
+          d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z"
+          clipRule="evenodd"
+        />
+      </svg>
+    </button>
   );
 }
 
@@ -164,11 +222,13 @@ export default function TakeoffReviewTable({
   onUpdateItem,
   onExcludeItems,
   onIncludeItems,
+  onOpenEvidencePanel,
 }: TakeoffReviewTableProps) {
   // ---- Filter/sort state
   const [searchQuery, setSearchQuery] = useState("");
   const [inclusionFilter, setInclusionFilter] = useState<InclusionFilter>("all");
   const [anomalyFilter, setAnomalyFilter] = useState<AnomalyFilter>("all");
+  const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
   const [sortField, setSortField] = useState<SortField>("designation");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [pageFilter, setPageFilter] = useState<string>("all");
@@ -259,6 +319,17 @@ export default function TakeoffReviewTable({
       result = result.filter((i) => detectAnomalies(i).length === 0);
     }
 
+    // Confidence filter
+    if (confidenceFilter === "high") {
+      result = result.filter((i) => i.confidence !== null && i.confidence >= 0.8);
+    } else if (confidenceFilter === "medium") {
+      result = result.filter((i) => i.confidence !== null && i.confidence >= 0.5 && i.confidence < 0.8);
+    } else if (confidenceFilter === "low") {
+      result = result.filter((i) => i.confidence !== null && i.confidence < 0.5);
+    } else if (confidenceFilter === "missing") {
+      result = result.filter((i) => i.confidence === null);
+    }
+
     // Sort
     result = [...result].sort((a, b) => {
       let cmp = 0;
@@ -270,12 +341,14 @@ export default function TakeoffReviewTable({
         const ca = (typeof a.metadata.category === "string" ? a.metadata.category : "") as string;
         const cb = (typeof b.metadata.category === "string" ? b.metadata.category : "") as string;
         cmp = ca.localeCompare(cb, "fr");
+      } else if (sortField === "confidence") {
+        cmp = (a.confidence ?? 0) - (b.confidence ?? 0);
       }
       return sortDirection === "asc" ? cmp : -cmp;
     });
 
     return result;
-  }, [items, searchQuery, inclusionFilter, categoryFilter, pageFilter, tableFilter, anomalyFilter, sortField, sortDirection]);
+  }, [items, searchQuery, inclusionFilter, categoryFilter, pageFilter, tableFilter, anomalyFilter, confidenceFilter, sortField, sortDirection]);
 
   // ---- Spreadsheet navigation
   const navigationRows: SpreadsheetNavigationRow[] = useMemo(
@@ -449,6 +522,19 @@ export default function TakeoffReviewTable({
           <option value="without_anomalies">Sans anomalies</option>
         </select>
 
+        {/* Confidence filter */}
+        <select
+          className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+          value={confidenceFilter}
+          onChange={(e) => setConfidenceFilter(e.target.value as ConfidenceFilter)}
+        >
+          <option value="all">Toute confiance</option>
+          <option value="high">Fiable (&gt;80%)</option>
+          <option value="medium">A verifier (50-80%)</option>
+          <option value="low">Problematique (&lt;50%)</option>
+          <option value="missing">Non evaluee</option>
+        </select>
+
         {/* Sort */}
         <select
           className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
@@ -458,6 +544,7 @@ export default function TakeoffReviewTable({
           <option value="designation">Tri: Designation</option>
           <option value="quantity">Tri: Quantite</option>
           <option value="category">Tri: Categorie</option>
+          <option value="confidence">Tri: Confiance</option>
         </select>
         <button
           type="button"
@@ -664,7 +751,15 @@ export default function TakeoffReviewTable({
 
                     {/* Confidence */}
                     <td>
-                      <ConfidenceBadge confidence={item.confidence} />
+                      {onOpenEvidencePanel ? (
+                        <ClickableConfidenceBadge
+                          confidence={item.confidence}
+                          hasEvidence={!!item.evidence}
+                          onClick={() => onOpenEvidencePanel(item.id)}
+                        />
+                      ) : (
+                        <ConfidenceBadge confidence={item.confidence} />
+                      )}
                     </td>
 
                     {/* Anomalies */}

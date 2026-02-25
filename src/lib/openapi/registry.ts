@@ -245,6 +245,7 @@ const takeoffJobsOffsetQuerySchema = z.number().int().min(0).max(10000);
 const takeoffJobsPeriodQuerySchema = z.enum(["7d", "30d", "90d"]);
 const takeoffJobItemsLimitQuerySchema = z.number().int().min(1).max(200);
 const takeoffJobItemsOffsetQuerySchema = z.number().int().min(0).max(10000);
+const takeoffCompareThresholdQuerySchema = z.number().min(0.5).max(0.99);
 const takeoffPlanFilesIncludeDownloadUrlQuerySchema = z.enum([
   "0",
   "1",
@@ -1114,6 +1115,69 @@ const takeoffJobApplyDataSchema = z.object({
   job: takeoffJobSummarySchema,
   summary: takeoffJobApplySummarySchema,
 });
+const takeoffDiffMatchStrategySchema = z.enum([
+  "designation_fuzzy",
+  "designation_plus_page_fuzzy",
+]);
+const takeoffDiffFieldSchema = z.object({
+  field: z.enum([
+    "designation",
+    "quantity",
+    "unit",
+    "source_page",
+    "confidence",
+    "evidence",
+  ]),
+  label: z.string(),
+  kind: z.enum(["text", "number"]),
+  before_value: z.union([z.string(), z.number(), z.null()]),
+  after_value: z.union([z.string(), z.number(), z.null()]),
+});
+const takeoffDiffAddedEntrySchema = z.object({
+  key: z.string(),
+  change_type: z.literal("added"),
+  other_item: takeoffJobItemSchema,
+});
+const takeoffDiffRemovedEntrySchema = z.object({
+  key: z.string(),
+  change_type: z.literal("removed"),
+  base_item: takeoffJobItemSchema,
+});
+const takeoffDiffChangedEntrySchema = z.object({
+  key: z.string(),
+  change_type: z.literal("changed"),
+  base_item: takeoffJobItemSchema,
+  other_item: takeoffJobItemSchema,
+  match_score: z.number(),
+  match_strategy: takeoffDiffMatchStrategySchema,
+  delta: z.array(takeoffDiffFieldSchema),
+});
+const takeoffDiffUnchangedEntrySchema = z.object({
+  key: z.string(),
+  change_type: z.literal("unchanged"),
+  base_item: takeoffJobItemSchema,
+  other_item: takeoffJobItemSchema,
+  match_score: z.number(),
+  match_strategy: takeoffDiffMatchStrategySchema,
+});
+const takeoffJobCompareSummarySchema = z.object({
+  added: z.number().int().min(0),
+  removed: z.number().int().min(0),
+  changed: z.number().int().min(0),
+  unchanged: z.number().int().min(0),
+  total_base: z.number().int().min(0),
+  total_other: z.number().int().min(0),
+});
+const takeoffJobCompareDataSchema = z.object({
+  base_job_id: uuidSchema,
+  other_job_id: uuidSchema,
+  threshold: z.number().min(0).max(1),
+  summary: takeoffJobCompareSummarySchema,
+  added: z.array(takeoffDiffAddedEntrySchema),
+  removed: z.array(takeoffDiffRemovedEntrySchema),
+  changed: z.array(takeoffDiffChangedEntrySchema),
+  unchanged: z.array(takeoffDiffUnchangedEntrySchema),
+});
 const takeoffMappingRuleMatchTypeSchema = z.enum(["exact", "contains", "regex"]);
 const takeoffMappingRuleRenameActionParamsSchema = z.object({
   designation: z.string().trim().min(1, "La designation est requise."),
@@ -1609,6 +1673,10 @@ const apiTakeoffJobApplySchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobApplyResponse",
   takeoffJobApplyDataSchema
 );
+const apiTakeoffJobCompareSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffJobCompareResponse",
+  takeoffJobCompareDataSchema
+);
 const apiTakeoffMappingRulesSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffMappingRulesResponse",
   takeoffMappingRulesDataSchema
@@ -1845,6 +1913,20 @@ const takeoffJobItemsOffsetQueryParameter = queryParameter({
   description: "Position de depart pour la pagination des items d'un job.",
   schemaName: "TakeoffJobItemsOffsetQueryParameter",
   schema: takeoffJobItemsOffsetQuerySchema,
+  required: false,
+});
+const takeoffCompareWithQueryParameter = queryParameter({
+  name: "with",
+  description: "Identifiant UUID de l'autre job takeoff a comparer.",
+  schemaName: "TakeoffCompareWithQueryParameter",
+  schema: uuidSchema,
+  required: true,
+});
+const takeoffCompareThresholdQueryParameter = queryParameter({
+  name: "threshold",
+  description: "Seuil fuzzy de matching (entre 0.5 et 0.99, defaut 0.8).",
+  schemaName: "TakeoffCompareThresholdQueryParameter",
+  schema: takeoffCompareThresholdQuerySchema,
   required: false,
 });
 
@@ -2442,6 +2524,26 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Detail du job takeoff retourne.",
         apiTakeoffJobDetailSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/compare",
+    summary: "Comparer deux jobs Takeoff",
+    description:
+      "Compare le job courant avec un autre job du meme document et retourne les deltas (ajoutes, supprimes, modifies, inchanges).",
+    tags: ["Takeoff"],
+    parameters: [
+      takeoffJobIdPathParameter,
+      takeoffCompareWithQueryParameter,
+      takeoffCompareThresholdQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Comparaison des jobs takeoff retournee.",
+        apiTakeoffJobCompareSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
     },

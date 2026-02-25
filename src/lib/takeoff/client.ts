@@ -14,6 +14,7 @@ import type {
   TakeoffApplyResponse as SharedTakeoffApplyResponse,
   TakeoffItemBatchPatchRequest as SharedTakeoffItemBatchPatchRequest,
   TakeoffItemBatchPatchResponse as SharedTakeoffItemBatchPatchResponse,
+  TakeoffJobCompareResponse as SharedTakeoffJobCompareResponse,
   TakeoffJobActionResponse as SharedTakeoffJobActionResponse,
   TakeoffJobCreateInput as SharedTakeoffJobCreateInput,
   TakeoffJobDetailResponse as SharedTakeoffJobDetailResponse,
@@ -34,6 +35,7 @@ export type TakeoffJobDetailResponse = SharedTakeoffJobDetailResponse;
 export type TakeoffJobListQuery = SharedTakeoffJobListQuery;
 export type TakeoffJobListResponse = SharedTakeoffJobListResponse;
 export type TakeoffJobActionResponse = SharedTakeoffJobActionResponse;
+export type TakeoffJobCompareResponse = SharedTakeoffJobCompareResponse;
 export type TakeoffApplyRequest = SharedTakeoffApplyRequest;
 export type TakeoffApplyResponse = SharedTakeoffApplyResponse;
 export type CreateTakeoffJobInput = SharedTakeoffJobCreateInput;
@@ -506,6 +508,28 @@ export async function fetchTakeoffJob(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}${query ? `?${query}` : ""}`,
     { method: "GET", signal: options?.signal },
     "Impossible de recuperer les details du job takeoff."
+  );
+}
+
+export async function fetchTakeoffJobCompare(
+  jobId: string,
+  input: {
+    withJobId: string;
+    threshold?: number;
+    signal?: AbortSignal;
+  }
+): Promise<TakeoffJobCompareResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("with", input.withJobId);
+
+  if (typeof input.threshold === "number" && Number.isFinite(input.threshold)) {
+    searchParams.set("threshold", String(input.threshold));
+  }
+
+  return requestTakeoffJson<TakeoffJobCompareResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/compare?${searchParams.toString()}`,
+    { method: "GET", signal: input.signal },
+    "Impossible de comparer les jobs takeoff."
   );
 }
 

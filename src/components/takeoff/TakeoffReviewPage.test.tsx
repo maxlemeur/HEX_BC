@@ -13,6 +13,8 @@ vi.mock("next/navigation", () => ({
 // Mock client functions
 vi.mock("@/lib/takeoff/client", () => ({
   fetchTakeoffJob: vi.fn(),
+  fetchTakeoffJobCompare: vi.fn(),
+  listTakeoffJobs: vi.fn(),
   patchTakeoffItems: vi.fn(),
   applyTakeoffJob: vi.fn(),
   isTakeoffApiError: vi.fn(() => false),
@@ -32,7 +34,12 @@ vi.mock("@/components/ui/Toast", () => ({
 }));
 
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
-import { fetchTakeoffJob, patchTakeoffItems } from "@/lib/takeoff/client";
+import {
+  fetchTakeoffJob,
+  fetchTakeoffJobCompare,
+  listTakeoffJobs,
+  patchTakeoffItems,
+} from "@/lib/takeoff/client";
 import type { TakeoffJobDetailResponse, TakeoffJobItem } from "@/lib/takeoff/types";
 
 const JOB_ID = "33333333-3333-4333-8333-333333333333";
@@ -118,6 +125,38 @@ describe("TakeoffReviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSearchParams = new URLSearchParams();
+    vi.mocked(listTakeoffJobs).mockResolvedValue({
+      jobs: [],
+      counters: {
+        total: 0,
+        processing: 0,
+        completed: 0,
+        failed: 0,
+        canceled: 0,
+      },
+      pagination: {
+        limit: 20,
+        offset: 0,
+        total: 0,
+      },
+    });
+    vi.mocked(fetchTakeoffJobCompare).mockResolvedValue({
+      base_job_id: JOB_ID,
+      other_job_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      threshold: 0.8,
+      summary: {
+        added: 0,
+        removed: 0,
+        changed: 0,
+        unchanged: 0,
+        total_base: 0,
+        total_other: 0,
+      },
+      added: [],
+      removed: [],
+      changed: [],
+      unchanged: [],
+    });
   });
 
   afterEach(() => {
@@ -409,5 +448,86 @@ describe("TakeoffReviewPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Exclure 1 item")).toBeDefined();
     });
+  });
+
+  it("loads compare tab and renders diff view", async () => {
+    mockSearchParams = new URLSearchParams(
+      "view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8"
+    );
+
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(
+      makeMockResponse([makeItem()], { level: "A" })
+    );
+    vi.mocked(listTakeoffJobs).mockResolvedValue({
+      jobs: [
+        {
+          ...makeMockResponse([makeItem()]).job,
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          source_file_name: "niveau-a.csv",
+          status: "completed",
+        },
+      ],
+      counters: {
+        total: 1,
+        processing: 0,
+        completed: 1,
+        failed: 0,
+        canceled: 0,
+      },
+      pagination: {
+        limit: 20,
+        offset: 0,
+        total: 1,
+      },
+    });
+    vi.mocked(fetchTakeoffJobCompare).mockResolvedValue({
+      base_job_id: JOB_ID,
+      other_job_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      threshold: 0.8,
+      summary: {
+        added: 1,
+        removed: 0,
+        changed: 0,
+        unchanged: 1,
+        total_base: 1,
+        total_other: 2,
+      },
+      added: [
+        {
+          key: "added:1",
+          change_type: "added",
+          other_item: makeItem({
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            designation: "Vis",
+          }),
+        },
+      ],
+      removed: [],
+      changed: [],
+      unchanged: [
+        {
+          key: "unchanged:1",
+          change_type: "unchanged",
+          base_item: makeItem(),
+          other_item: makeItem({
+            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          }),
+          match_score: 1,
+          match_strategy: "designation_fuzzy",
+        },
+      ],
+    });
+
+    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Resume des changements")).toBeDefined();
+    });
+    expect(fetchTakeoffJobCompare).toHaveBeenCalledWith(
+      JOB_ID,
+      expect.objectContaining({
+        withJobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      })
+    );
   });
 });

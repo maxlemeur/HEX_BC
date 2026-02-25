@@ -43,6 +43,7 @@ import {
   type TakeoffItemBatchPatchResponse,
   type TakeoffItemPatchResult,
   type TakeoffJobActionResponse,
+  type TakeoffJobCompareResponse,
   type TakeoffJobDetailResponse,
   type TakeoffJobItem,
   type TakeoffJobListResponse,
@@ -58,6 +59,12 @@ import {
   type TakeoffMappingRulesListResponse,
   type UpdateTakeoffMappingRuleInput,
 } from "@/lib/takeoff/types";
+import {
+  TAKEOFF_COMPARE_DEFAULT_THRESHOLD,
+  TAKEOFF_COMPARE_MAX_THRESHOLD,
+  TAKEOFF_COMPARE_MIN_THRESHOLD,
+  buildTakeoffDiff,
+} from "@/lib/takeoff/diff";
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
 const TAKEOFF_ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
@@ -243,6 +250,38 @@ const optionalItemsLimitSearchParamSchema = z.preprocess(
     .optional()
 );
 
+const requiredUuidSearchParamSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.string().uuid("Parametre UUID invalide.")
+);
+
+const optionalCompareThresholdSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "number") return value;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : value;
+  },
+  z
+    .number()
+    .min(
+      TAKEOFF_COMPARE_MIN_THRESHOLD,
+      `threshold doit etre >= ${TAKEOFF_COMPARE_MIN_THRESHOLD}.`
+    )
+    .max(
+      TAKEOFF_COMPARE_MAX_THRESHOLD,
+      `threshold doit etre <= ${TAKEOFF_COMPARE_MAX_THRESHOLD}.`
+    )
+    .optional()
+);
+
 const optionalOffsetSearchParamSchema = z.preprocess(
   (value) => {
     if (value === undefined || value === null) return undefined;
@@ -378,6 +417,13 @@ export const getTakeoffJobDetailsQuerySchema = z
   })
   .strict();
 
+export const compareTakeoffJobsQuerySchema = z
+  .object({
+    with: requiredUuidSearchParamSchema,
+    threshold: optionalCompareThresholdSearchParamSchema,
+  })
+  .strict();
+
 const takeoffApplyStrategySchema = z.enum(TAKEOFF_APPLY_STRATEGIES);
 
 export const takeoffApplyPayloadSchema: z.ZodType<TakeoffApplyRequest> = z
@@ -406,6 +452,7 @@ export type ListTakeoffJobsQuery = z.infer<typeof listTakeoffJobsQuerySchema>;
 export type GetTakeoffJobDetailsQuery = z.infer<
   typeof getTakeoffJobDetailsQuerySchema
 >;
+export type CompareTakeoffJobsQuery = z.infer<typeof compareTakeoffJobsQuerySchema>;
 
 const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
   id: z.string().uuid(),
@@ -956,6 +1003,16 @@ export function parseGetTakeoffJobDetailsQuery(
   );
 }
 
+export function parseCompareTakeoffJobsQuery(
+  payload: unknown
+): CompareTakeoffJobsQuery {
+  return parseWithSchema(
+    compareTakeoffJobsQuerySchema,
+    payload,
+    "Parametres de comparaison invalides."
+  );
+}
+
 export function parseApplyTakeoffPayload(payload: unknown): TakeoffApplyRequest {
   return parseWithSchema(
     takeoffApplyPayloadSchema,
@@ -1180,6 +1237,36 @@ async function listTakeoffItemsByJobId(input: {
     data: normalizeTakeoffItemRows((data ?? []) as TakeoffItemRow[]),
     total: count ?? 0,
   };
+}
+
+async function listAllTakeoffItemsByJobId(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  jobId: string;
+}): Promise<TakeoffJobItem[]> {
+  const items: TakeoffJobItem[] = [];
+  let offset = 0;
+
+  while (true) {
+    const page = await listTakeoffItemsByJobId({
+      ...input,
+      limit: MAX_TAKEOFF_JOB_ITEMS_LIMIT,
+      offset,
+    });
+
+    if (page.data.length === 0) {
+      break;
+    }
+
+    items.push(...page.data);
+    offset += page.data.length;
+
+    if (items.length >= page.total) {
+      break;
+    }
+  }
+
+  return items;
 }
 
 function resolveTakeoffJobsPeriodStart(
@@ -1456,6 +1543,116 @@ export async function getTakeoffJobDetails(
         total: items.total,
       },
     },
+  };
+}
+
+function normalizeSourceFileNameForCompare(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed.toLowerCase() : null;
+}
+
+export async function compareTakeoffJobs(
+  baseJobId: string,
+  input: CompareTakeoffJobsQuery
+): Promise<TakeoffJobCompareResponse> {
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const normalizedBaseJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    baseJobId,
+    "Identifiant job invalide."
+  );
+  const normalizedOtherJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    input.with,
+    "Parametre with invalide."
+  );
+  const threshold = input.threshold ?? TAKEOFF_COMPARE_DEFAULT_THRESHOLD;
+
+  if (normalizedBaseJobId === normalizedOtherJobId) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "La comparaison doit cibler deux jobs differents.",
+      details: {
+        base_job_id: normalizedBaseJobId,
+        other_job_id: normalizedOtherJobId,
+      },
+      retryable: false,
+      jobId: normalizedBaseJobId,
+    });
+  }
+
+  const [baseJob, otherJob] = await Promise.all([
+    getTakeoffJobDetailByIdOrThrow({
+      supabase,
+      tenantId,
+      jobId: normalizedBaseJobId,
+    }),
+    getTakeoffJobDetailByIdOrThrow({
+      supabase,
+      tenantId,
+      jobId: normalizedOtherJobId,
+    }),
+  ]);
+
+  const baseSourceFileName = normalizeSourceFileNameForCompare(baseJob.source_file_name);
+  const otherSourceFileName = normalizeSourceFileNameForCompare(
+    otherJob.source_file_name
+  );
+
+  if (
+    baseJob.estimate_version_id !== otherJob.estimate_version_id ||
+    !baseSourceFileName ||
+    !otherSourceFileName ||
+    baseSourceFileName !== otherSourceFileName
+  ) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message:
+        "Les jobs selectionnes ne correspondent pas au meme document (version + fichier source).",
+      details: {
+        base_job_id: normalizedBaseJobId,
+        other_job_id: normalizedOtherJobId,
+        base_estimate_version_id: baseJob.estimate_version_id,
+        other_estimate_version_id: otherJob.estimate_version_id,
+        base_source_file_name: baseJob.source_file_name,
+        other_source_file_name: otherJob.source_file_name,
+      },
+      retryable: false,
+      jobId: normalizedBaseJobId,
+    });
+  }
+
+  const [baseItems, otherItems] = await Promise.all([
+    listAllTakeoffItemsByJobId({
+      supabase,
+      tenantId,
+      jobId: normalizedBaseJobId,
+    }),
+    listAllTakeoffItemsByJobId({
+      supabase,
+      tenantId,
+      jobId: normalizedOtherJobId,
+    }),
+  ]);
+
+  const diff = buildTakeoffDiff({
+    baseItems,
+    otherItems,
+    threshold,
+  });
+
+  return {
+    base_job_id: normalizedBaseJobId,
+    other_job_id: normalizedOtherJobId,
+    threshold: diff.threshold,
+    summary: diff.summary,
+    added: diff.added,
+    removed: diff.removed,
+    changed: diff.changed,
+    unchanged: diff.unchanged,
   };
 }
 
@@ -2243,6 +2440,7 @@ const takeoffItemPatchFieldSchema = z
     is_excluded: z.boolean().optional(),
     exclusion_reason: z.string().trim().min(1).max(500).nullable().optional(),
     is_verified: z.boolean().optional(),
+    evidence: z.string().trim().min(1).max(2000).nullable().optional(),
   })
   .strict()
   .refine(

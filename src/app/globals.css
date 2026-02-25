@@ -586,6 +586,24 @@ body {
   animation: slideIn 0.3s ease forwards;
 }
 
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideOutRight {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(100%); }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.25s ease-out forwards;
+}
+
+.animate-slide-out-right {
+  animation: slideOutRight 0.2s ease-in forwards;
+}
+
 /* Staggered animation delays */
 .stagger-1 { animation-delay: 0.05s; }
 .stagger-2 { animation-delay: 0.1s; }
@@ -1948,8 +1966,6 @@ body {
   justify-content: flex-end;
 }
 
-.estimate-col--fo .estimate-input,
-.estimate-col--mo .estimate-input,
 .estimate-input[type="number"] {
   text-align: right;
 }
@@ -2365,7 +2381,7 @@ body {
 
 .estimate-input {
   width: 100%;
-  height: 100%;
+  height: 34px;
   padding: 0 10px;
   border: none;
   border-radius: 0;
