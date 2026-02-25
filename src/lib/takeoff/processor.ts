@@ -432,6 +432,31 @@ function parseTakeoffWorkbook(input: {
   return { sheets, warnings };
 }
 
+/**
+ * Build a lookup that maps (source_page, item_index_within_page) → { table_index, row_index }
+ * for Level B exchanges. Items are correlated to tables by matching source_page to table.page
+ * and their sequential position within that page to the table row order.
+ */
+function buildLevelBTableMapping(tables: TakeoffExchange["tables"]) {
+  if (!tables || tables.length === 0) return null;
+
+  // Track cumulative item counter per page to correlate sequential items
+  const pageItemCounters = new Map<number, number>();
+  // Map: "page:itemIndexInPage" → { table_index, row_index }
+  const mapping = new Map<string, { table_index: number; row_index: number }>();
+
+  tables.forEach((table, tableIndex) => {
+    const pageItemsBefore = pageItemCounters.get(table.page) ?? 0;
+    table.rows.forEach((row, rowOffset) => {
+      const key = `${table.page}:${pageItemsBefore + rowOffset}`;
+      mapping.set(key, { table_index: tableIndex, row_index: row.row_index });
+    });
+    pageItemCounters.set(table.page, pageItemsBefore + table.rows.length);
+  });
+
+  return { mapping, pageItemCounters: new Map<number, number>() };
+}
+
 function normalizeTakeoffExchange(input: {
   exchange: TakeoffExchange;
   sourceFileName: string | null;
@@ -443,6 +468,13 @@ function normalizeTakeoffExchange(input: {
   const extraWarnings: TakeoffWarning[] = [...input.parseWarnings];
   const normalizedExchangeItems: TakeoffExchange["items"] = [];
   const itemsForInsert: NormalizedTakeoffItemForInsert[] = [];
+
+  const isLevelB = input.exchange.metadata.level === "B";
+  const tableMapping = isLevelB
+    ? buildLevelBTableMapping(input.exchange.tables)
+    : null;
+  // Runtime counter per page for matching items to table rows
+  const pageItemCounters = new Map<number, number>();
 
   input.exchange.items.forEach((item, index) => {
     const sourceFileName =
@@ -463,6 +495,18 @@ function normalizeTakeoffExchange(input: {
       source_file: sourceFileName ?? undefined,
     };
 
+    // Level B: resolve table_index / row_index from page position
+    let tableMeta: { table_index: number; row_index: number } | undefined;
+    if (tableMapping && normalizedItem.source_page != null) {
+      const page = normalizedItem.source_page;
+      const posInPage = pageItemCounters.get(page) ?? 0;
+      pageItemCounters.set(page, posInPage + 1);
+      const found = tableMapping.mapping.get(`${page}:${posInPage}`);
+      if (found) {
+        tableMeta = found;
+      }
+    }
+
     normalizedExchangeItems.push(normalizedItem);
     itemsForInsert.push({
       designation: normalizedItem.designation,
@@ -477,6 +521,9 @@ function normalizeTakeoffExchange(input: {
         original_unit: item.unit,
         normalized_unit: normalizedItem.unit,
         source_file: sourceFileName,
+        ...(tableMeta != null
+          ? { table_index: tableMeta.table_index, row_index: tableMeta.row_index }
+          : {}),
       },
     });
   });

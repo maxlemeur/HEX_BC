@@ -2,9 +2,9 @@ import { notFound } from "next/navigation";
 
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import TakeoffReviewTable from "@/components/takeoff/TakeoffReviewTable";
+import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
 
-export default async function TakeoffReviewPage({
+export default async function TakeoffReviewServerPage({
   params,
 }: Readonly<{
   params: Promise<{ versionId: string; jobId: string }>;
@@ -21,5 +21,5 @@ export default async function TakeoffReviewPage({
     notFound();
   }
 
-  return <TakeoffReviewTable jobId={jobId} versionId={versionId} />;
+  return <TakeoffReviewPage jobId={jobId} versionId={versionId} />;
 }
