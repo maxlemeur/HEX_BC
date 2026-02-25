@@ -7776,6 +7776,117 @@
           }
         }
       }
+    },
+    "/api/takeoff/stats": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Consulter les metriques agregees des jobs Takeoff",
+        "description": "Retourne les KPI admin de consommation et fiabilite des jobs Takeoff avec filtres de periode et niveau.",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "description": "Filtrer les jobs takeoff sur une periode relative (7d, 30d, 90d).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobsPeriodQueryParameter"
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "description": "Filtrer les jobs takeoff par niveau A/B/C.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobLevelQueryParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metriques takeoff retournees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffMetricsStatsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job takeoff introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -8011,7 +8122,8 @@
               "TAKEOFF_LEVEL_C_INVALID_SCHEMA",
               "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
               "TAKEOFF_JOB_NOT_RETRIABLE",
-              "TAKEOFF_JOB_NOT_CANCELABLE"
+              "TAKEOFF_JOB_NOT_CANCELABLE",
+              "TAKEOFF_APPLY_GUARD_FAILED"
             ]
           },
           "message": {
@@ -8079,7 +8191,8 @@
                   "TAKEOFF_LEVEL_C_INVALID_SCHEMA",
                   "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
                   "TAKEOFF_JOB_NOT_RETRIABLE",
-                  "TAKEOFF_JOB_NOT_CANCELABLE"
+                  "TAKEOFF_JOB_NOT_CANCELABLE",
+                  "TAKEOFF_APPLY_GUARD_FAILED"
                 ]
               },
               "message": {
@@ -23300,6 +23413,404 @@
               "plan_set_id",
               "file_id",
               "cleanup"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiTakeoffMetricsStatsResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "generatedAt": {
+                "type": "string"
+              },
+              "period": {
+                "type": "string",
+                "enum": [
+                  "7d",
+                  "30d",
+                  "90d"
+                ]
+              },
+              "kpis": {
+                "type": "object",
+                "properties": {
+                  "totalJobs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "completedJobs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "failedJobs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "canceledJobs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "appliedJobs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "successRate": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "avgDurationMs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "totalCostCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "avgCostCentsPerJob": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "avgConfidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "avgItemsPerJob": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "totalJobs",
+                  "completedJobs",
+                  "failedJobs",
+                  "canceledJobs",
+                  "appliedJobs",
+                  "successRate",
+                  "avgDurationMs",
+                  "totalCostCents",
+                  "avgCostCentsPerJob",
+                  "avgConfidence",
+                  "avgItemsPerJob"
+                ],
+                "additionalProperties": false
+              },
+              "trend": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "createdCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "failedCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "createdCount",
+                    "failedCount"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "costByLevel": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "level": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "totalCostCents": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "totalTokens": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "jobCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "failedCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "avgDurationMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "failureRate": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "avgItemsPerJob": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "level",
+                    "totalCostCents",
+                    "totalTokens",
+                    "jobCount",
+                    "failedCount",
+                    "avgDurationMs",
+                    "failureRate",
+                    "avgItemsPerJob"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "tokenBreakdown": {
+                "type": "object",
+                "properties": {
+                  "inputTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reasoningTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "outputTokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "inputTokens",
+                  "reasoningTokens",
+                  "outputTokens"
+                ],
+                "additionalProperties": false
+              },
+              "topErrors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "errorCode": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "lastOccurrence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "errorCode",
+                    "count",
+                    "lastOccurrence"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "reliability": {
+                "type": "object",
+                "properties": {
+                  "timedOutCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "budgetExceededCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "totalRunMetrics": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "retriedJobs": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "retriedThenCompleted": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "retrySuccessRate": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "timedOutCount",
+                  "budgetExceededCount",
+                  "totalRunMetrics",
+                  "retriedJobs",
+                  "retriedThenCompleted",
+                  "retrySuccessRate"
+                ],
+                "additionalProperties": false
+              },
+              "recentJobs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "processing",
+                        "completed",
+                        "failed",
+                        "canceled",
+                        "applied"
+                      ]
+                    },
+                    "level": {
+                      "type": "string",
+                      "enum": [
+                        "A",
+                        "B",
+                        "C"
+                      ]
+                    },
+                    "model": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "durationMs": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "costCents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "confidence": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "errorCode": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "status",
+                    "level",
+                    "model",
+                    "durationMs",
+                    "costCents",
+                    "confidence",
+                    "errorCode",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "generatedAt",
+              "period",
+              "kpis",
+              "trend",
+              "costByLevel",
+              "tokenBreakdown",
+              "topErrors",
+              "reliability",
+              "recentJobs"
             ],
             "additionalProperties": false
           }

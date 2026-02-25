@@ -247,6 +247,34 @@ export default async function AdminHubPage() {
                 Règles de correspondance pour le module Takeoff
               </p>
             </Link>
+
+            <Link
+              href="/dashboard/admin/takeoff/metrics"
+              className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--brand-blue)"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 3v18h18" />
+                  <path d="m7 12 4-4 4 4 4-4" />
+                </svg>
+              </div>
+              <h3 className="mt-3 font-semibold text-slate-900">
+                Metriques takeoff
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Observabilite des jobs, couts et performances
+              </p>
+            </Link>
           </div>
         </section>
       ) : null}

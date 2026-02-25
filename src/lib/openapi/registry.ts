@@ -1270,6 +1270,75 @@ const takeoffJobCompareDataSchema = z.object({
   changed: z.array(takeoffDiffChangedEntrySchema),
   unchanged: z.array(takeoffDiffUnchangedEntrySchema),
 });
+const takeoffMetricsKpisSchema = z.object({
+  totalJobs: z.number().int().min(0),
+  completedJobs: z.number().int().min(0),
+  failedJobs: z.number().int().min(0),
+  canceledJobs: z.number().int().min(0),
+  appliedJobs: z.number().int().min(0),
+  successRate: z.number().min(0),
+  avgDurationMs: z.number().int().min(0),
+  totalCostCents: z.number().int().min(0),
+  avgCostCentsPerJob: z.number().int().min(0),
+  avgConfidence: z.number().min(0).max(1),
+  avgItemsPerJob: z.number().min(0),
+});
+const takeoffMetricsTrendPointSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  createdCount: z.number().int().min(0),
+  failedCount: z.number().int().min(0),
+});
+const takeoffMetricsCostByLevelSchema = z.object({
+  level: z.string().min(1),
+  totalCostCents: z.number().int().min(0),
+  totalTokens: z.number().int().min(0),
+  jobCount: z.number().int().min(0),
+  failedCount: z.number().int().min(0),
+  avgDurationMs: z.number().int().min(0),
+  failureRate: z.number().min(0),
+  avgItemsPerJob: z.number().min(0),
+});
+const takeoffMetricsTokenBreakdownSchema = z.object({
+  inputTokens: z.number().int().min(0),
+  reasoningTokens: z.number().int().min(0),
+  outputTokens: z.number().int().min(0),
+});
+const takeoffMetricsErrorEntrySchema = z.object({
+  errorCode: z.string(),
+  count: z.number().int().min(0),
+  lastOccurrence: z.string(),
+});
+const takeoffMetricsReliabilitySchema = z.object({
+  timedOutCount: z.number().int().min(0),
+  budgetExceededCount: z.number().int().min(0),
+  totalRunMetrics: z.number().int().min(0),
+  retriedJobs: z.number().int().min(0),
+  retriedThenCompleted: z.number().int().min(0),
+  retrySuccessRate: z.number().min(0),
+});
+const takeoffMetricsRecentJobSchema = z.object({
+  id: uuidSchema,
+  status: takeoffJobStatusSchema,
+  level: takeoffLevelSchema,
+  model: z.string().nullable(),
+  durationMs: z.number().int().nullable(),
+  costCents: z.number().int().nullable(),
+  confidence: z.number().min(0).max(1).nullable(),
+  errorCode: z.string().nullable(),
+  createdAt: z.string(),
+});
+const takeoffMetricsDataSchema = z.object({
+  generatedAt: z.string(),
+  period: takeoffJobsPeriodQuerySchema,
+  kpis: takeoffMetricsKpisSchema,
+  trend: z.array(takeoffMetricsTrendPointSchema),
+  costByLevel: z.array(takeoffMetricsCostByLevelSchema),
+  tokenBreakdown: takeoffMetricsTokenBreakdownSchema,
+  topErrors: z.array(takeoffMetricsErrorEntrySchema),
+  reliability: takeoffMetricsReliabilitySchema,
+  recentJobs: z.array(takeoffMetricsRecentJobSchema),
+});
 const takeoffMappingRuleMatchTypeSchema = z.enum(["exact", "contains", "regex"]);
 const takeoffMappingRuleRenameActionParamsSchema = z.object({
   designation: z.string().trim().min(1, "La designation est requise."),
@@ -1772,6 +1841,10 @@ const apiTakeoffPreviewConversionSchemaDefinition = successResponseSchemaDefinit
 const apiTakeoffJobCompareSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobCompareResponse",
   takeoffJobCompareDataSchema
+);
+const apiTakeoffMetricsStatsSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffMetricsStatsResponse",
+  takeoffMetricsDataSchema
 );
 const apiTakeoffMappingRulesSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffMappingRulesResponse",
@@ -2606,6 +2679,22 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Jobs takeoff retournes.",
         apiTakeoffJobListSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/stats",
+    summary: "Consulter les metriques agregees des jobs Takeoff",
+    description:
+      "Retourne les KPI admin de consommation et fiabilite des jobs Takeoff avec filtres de periode et niveau.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobsPeriodQueryParameter, takeoffJobLevelQueryParameter],
+    responses: {
+      "200": jsonResponse(
+        "Metriques takeoff retournees.",
+        apiTakeoffMetricsStatsSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
     },
