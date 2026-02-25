@@ -312,6 +312,58 @@ function buildPlanFileStoragePath(input: {
   return `${input.tenantId}/${input.setId}/${input.fileId}/${input.fileName}`;
 }
 
+function getStorageErrorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+
+  const status = (error as { status?: unknown }).status;
+  if (typeof status === "number" && Number.isFinite(status)) {
+    return status;
+  }
+
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  if (typeof statusCode === "string") {
+    const parsed = Number.parseInt(statusCode, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function isMissingStorageObjectError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const status = getStorageErrorStatus(error);
+  if (status !== 400 && status !== 404) {
+    return false;
+  }
+
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "string") {
+    const normalizedCode = code.toLowerCase();
+    if (normalizedCode.includes("not_found") || normalizedCode.includes("nosuchkey")) {
+      return true;
+    }
+  }
+
+  const message = (error as { message?: unknown }).message;
+  if (typeof message !== "string") {
+    return false;
+  }
+
+  const normalizedMessage = message.toLowerCase();
+  return (
+    normalizedMessage.includes("not found") ||
+    normalizedMessage.includes("does not exist") ||
+    normalizedMessage.includes("no such")
+  );
+}
+
 function normalizePlanSetRow(row: unknown): PlanSet {
   return parseWithSchema(
     planSetRowSchema,
@@ -949,6 +1001,15 @@ export async function getPlanFileDetail(input: {
     .createSignedUrl(planFile.file_path, PLAN_FILE_DOWNLOAD_SIGNED_URL_TTL_SECONDS, {
       download: planFile.file_name,
     });
+
+  if (signedError && isMissingStorageObjectError(signedError)) {
+    return {
+      plan_file: {
+        ...planFile,
+        download_url: null,
+      },
+    };
+  }
 
   if (signedError || !signedData?.signedUrl) {
     throw internalError(

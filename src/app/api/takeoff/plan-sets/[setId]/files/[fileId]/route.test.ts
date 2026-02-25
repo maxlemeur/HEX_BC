@@ -8,7 +8,7 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
 }));
 
-import { DELETE } from "@/app/api/takeoff/plan-sets/[setId]/files/[fileId]/route";
+import { DELETE, GET } from "@/app/api/takeoff/plan-sets/[setId]/files/[fileId]/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
@@ -51,6 +51,7 @@ type SupabaseMockOptions = {
   planSets?: PlanSetStoredRow[];
   planFiles?: PlanFileStoredRow[];
   hasMembership?: boolean;
+  signedDownloadBehavior?: "success" | "missing";
 };
 
 function basePlanSet(input?: Partial<PlanSetStoredRow>): PlanSetStoredRow {
@@ -100,9 +101,11 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       (options.planFiles ?? [basePlanFile()]).map((row) => [row.id, row])
     ),
     storageRemovals: [] as string[],
+    signedDownloadPaths: [] as string[],
   };
 
   const hasMembership = options.hasMembership ?? true;
+  const signedDownloadBehavior = options.signedDownloadBehavior ?? "success";
   const membershipBuilder = {
     eq: vi.fn(),
     order: vi.fn(),
@@ -277,6 +280,28 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         }
 
         return {
+          createSignedUrl: vi.fn(async (path: string) => {
+            state.signedDownloadPaths.push(path);
+
+            if (signedDownloadBehavior === "missing") {
+              return {
+                data: null,
+                error: {
+                  message: "Object not found",
+                  status: 404,
+                  statusCode: "404",
+                  code: "NoSuchKey",
+                },
+              };
+            }
+
+            return {
+              data: {
+                signedUrl: `https://signed.local/${encodeURIComponent(path)}`,
+              },
+              error: null,
+            };
+          }),
           remove: vi.fn(async (paths: string[]) => {
             state.storageRemovals.push(...paths);
             return { data: null, error: null };
@@ -327,6 +352,65 @@ describe("/api/takeoff/plan-sets/[setId]/files/[fileId]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
+  });
+
+  it("GET returns a signed download URL when requested", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await GET(
+      new Request(
+        `http://localhost/api/takeoff/plan-sets/${SET_ID}/files/${FILE_ID}?include_download_url=true`,
+        {
+          method: "GET",
+        }
+      ),
+      makeParams()
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: {
+        plan_file?: {
+          download_url?: string | null;
+        };
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data?.plan_file?.download_url).toContain("https://signed.local/");
+    expect(supabase.__state.signedDownloadPaths).toContain(
+      `${TENANT_ID}/${SET_ID}/${FILE_ID}/rdc.pdf`
+    );
+  });
+
+  it("GET keeps metadata available when the storage object is not uploaded yet", async () => {
+    const supabase = createSupabaseMock({
+      signedDownloadBehavior: "missing",
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await GET(
+      new Request(
+        `http://localhost/api/takeoff/plan-sets/${SET_ID}/files/${FILE_ID}?include_download_url=true`,
+        {
+          method: "GET",
+        }
+      ),
+      makeParams()
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: {
+        plan_file?: {
+          download_url?: string | null;
+        };
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data?.plan_file?.download_url).toBeNull();
   });
 
   it("DELETE removes the file and associated storage object", async () => {
