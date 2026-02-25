@@ -434,11 +434,11 @@ export function PurchaseOrderDocument({
         <table className="w-full">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
-              <th className="px-6 py-4 print:px-4 print:py-2">Designation</th>
-              <th className="w-20 px-3 py-4 text-center print:px-2 print:py-2">Qte</th>
-              <th className="w-28 px-3 py-4 text-right print:px-2 print:py-2">P.U. HT</th>
-              <th className="w-32 px-4 py-4 text-right print:px-2 print:py-2">Total HT</th>
-              {editable && <th className="px-4 py-4 w-12"></th>}
+              <th className="px-6 py-4 align-middle whitespace-nowrap print:px-4 print:py-2">Designation</th>
+              <th className="w-20 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">Qte</th>
+              <th className="w-28 px-3 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">P.U. HT</th>
+              <th className="w-32 px-4 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">Total HT</th>
+              {editable && <th className="w-12 px-4 py-4 align-middle"></th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-sm print:text-slate-900">
@@ -620,4 +620,3 @@ export function PurchaseOrderDocument({
     </div>
   );
 }
-

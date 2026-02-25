@@ -1998,6 +1998,7 @@ body {
   font-size: 14px;
   color: var(--slate-800);
   text-align: right;
+  justify-content: flex-end;
 }
 
 .estimate-cell--actions {
@@ -2151,6 +2152,7 @@ body {
   position: fixed;
   z-index: 70;
   min-width: 220px;
+  max-width: calc(100vw - 16px);
   border: 1px solid var(--slate-200);
   border-radius: 12px;
   background: white;

@@ -140,7 +140,6 @@ type SuggestPricesResponse = {
 const CATALOGUE_SUGGESTIONS_DEBOUNCE_MS = 300;
 
 export const SPREADSHEET_COLUMN_KEYS = {
-  aid: "aid",
   title: "title",
   quantity: "quantity",
   unit: "unit",
@@ -162,11 +161,9 @@ export const SPREADSHEET_COLUMN_KEYS = {
 };
 
 const SECTION_SPREADSHEET_COLUMN_KEYS = [
-  SPREADSHEET_COLUMN_KEYS.aid,
   SPREADSHEET_COLUMN_KEYS.title,
 ];
 const LINE_SPREADSHEET_COLUMN_KEYS = [
-  SPREADSHEET_COLUMN_KEYS.aid,
   SPREADSHEET_COLUMN_KEYS.title,
   SPREADSHEET_COLUMN_KEYS.quantity,
   SPREADSHEET_COLUMN_KEYS.unit,
@@ -181,7 +178,6 @@ const LINE_SPREADSHEET_COLUMN_KEYS = [
   SPREADSHEET_COLUMN_KEYS.total,
 ];
 const LINE_SPREADSHEET_COLUMN_KEYS_LABOR_SPLIT = [
-  SPREADSHEET_COLUMN_KEYS.aid,
   SPREADSHEET_COLUMN_KEYS.title,
   SPREADSHEET_COLUMN_KEYS.quantity,
   SPREADSHEET_COLUMN_KEYS.unit,
@@ -610,13 +606,11 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     paddingLeft: "calc(var(--tree-indent) * var(--row-depth))",
   };
 
-  const aidCell: SpreadsheetCell = {
-    rowId: item.id,
-    columnKey: SPREADSHEET_COLUMN_KEYS.aid,
-  };
-  const aidCellProps = navigation.getCellProps(aidCell);
-  const aidEditorProps = navigation.getEditorProps<HTMLInputElement>(aidCell);
   const aidValue = typeof item.aid === "string" ? item.aid : "";
+  const normalizedAidValue = aidValue.trim();
+  const [isAidEditorRequested, setIsAidEditorRequested] = useState(false);
+  const aidInputRef = useRef<HTMLInputElement | null>(null);
+  const isAidEditorVisible = normalizedAidValue.length > 0 || isAidEditorRequested;
   const titleCell: SpreadsheetCell = {
     rowId: item.id,
     columnKey: SPREADSHEET_COLUMN_KEYS.title,
@@ -819,6 +813,49 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     ]
   );
 
+  const handleRevealAidEditor = useCallback(() => {
+    if (isReadOnly) return;
+    setIsAidEditorRequested(true);
+    window.requestAnimationFrame(() => {
+      aidInputRef.current?.focus();
+    });
+  }, [isReadOnly]);
+
+  const handleAidFocus = useCallback(() => {
+    setIsAidEditorRequested(true);
+  }, []);
+
+  const handleAidBlur = useCallback(
+    (event: FocusEvent<HTMLInputElement>) => {
+      const nextAid = normalizeAidInput(event.target.value);
+      onPatchItem(item.id, { aid: nextAid }, { persist: true });
+      if (!nextAid) {
+        setIsAidEditorRequested(false);
+      }
+    },
+    [item.id, onPatchItem]
+  );
+
+  const renderAidInput = () => {
+    if (!isAidEditorVisible) return null;
+
+    return (
+      <input
+        ref={aidInputRef}
+        className="estimate-input estimate-aid-inline"
+        value={aidValue}
+        title={aidValue || "AID"}
+        disabled={isReadOnly}
+        placeholder="AID"
+        onFocus={handleAidFocus}
+        onChange={(event) =>
+          onPatchItem(item.id, { aid: event.target.value }, { persist: false })
+        }
+        onBlur={handleAidBlur}
+      />
+    );
+  };
+
   if (item.item_type === "section") {
     const supplyTypeTotals = sectionTotals?.supplyTypeFoTotalsCents ?? {};
     const supplyTypeEntries = Object.entries(supplyTypeTotals).sort(
@@ -853,39 +890,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         }}
       >
         <div
-          {...aidCellProps}
-          role="gridcell"
-          onKeyDown={toCellKeyDownHandler(aidCellProps.onKeyDown)}
-          className={toCellClassName(
-            navigation,
-            aidCell,
-            "estimate-cell estimate-cell--aid"
-          )}
-        >
-          <input
-            className="estimate-input estimate-input--aid"
-            ref={aidEditorProps.ref}
-            tabIndex={aidEditorProps.tabIndex}
-            value={aidValue}
-            title={aidValue}
-            disabled={isReadOnly}
-            placeholder="MT.TY.0001"
-            onFocus={aidEditorProps.onFocus}
-            onKeyDown={aidEditorProps.onKeyDown}
-            onChange={(event) =>
-              onPatchItem(item.id, { aid: event.target.value }, { persist: false })
-            }
-            onBlur={(event) => {
-              aidEditorProps.onBlur(event);
-              onPatchItem(
-                item.id,
-                { aid: normalizeAidInput(event.target.value) },
-                { persist: true }
-              );
-            }}
-          />
-        </div>
-        <div
           {...titleCellProps}
           role="gridcell"
           onKeyDown={toCellKeyDownHandler(titleCellProps.onKeyDown)}
@@ -901,6 +905,36 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             attributes={attributes}
             disabled={isReadOnly || isDragDisabled}
           />
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="estimate-designation-meta">
+              {itemNumber ? (
+                <span className="font-mono text-[11px] font-semibold text-[var(--slate-500)]">
+                  {itemNumber}
+                </span>
+              ) : null}
+              {renderAidInput()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <input
+                className="estimate-input estimate-input--title"
+                ref={titleEditorProps.ref}
+                tabIndex={titleEditorProps.tabIndex}
+                value={item.title}
+                title={item.title}
+                disabled={isReadOnly}
+                onFocus={titleEditorProps.onFocus}
+                onKeyDown={titleEditorProps.onKeyDown}
+                onChange={(event) =>
+                  onPatchItem(item.id, { title: event.target.value }, { persist: false })
+                }
+                onBlur={(event) => {
+                  titleEditorProps.onBlur(event);
+                  const nextTitle = event.target.value.trim() || "Sans titre";
+                  onPatchItem(item.id, { title: nextTitle }, { persist: true });
+                }}
+              />
+            </div>
+          </div>
           <div className="estimate-section-hover-actions">
             <button
               className="estimate-section-hover-btn"
@@ -920,31 +954,16 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 + Sous-chap
               </button>
             )}
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            {itemNumber ? (
-              <span className="font-mono text-[11px] font-semibold text-[var(--slate-500)]">
-                {itemNumber}
-              </span>
+            {!isAidEditorVisible ? (
+              <button
+                className="estimate-section-hover-btn"
+                type="button"
+                onClick={handleRevealAidEditor}
+                disabled={isReadOnly}
+              >
+                + AID
+              </button>
             ) : null}
-            <input
-              className="estimate-input estimate-input--title"
-              ref={titleEditorProps.ref}
-              tabIndex={titleEditorProps.tabIndex}
-              value={item.title}
-              title={item.title}
-              disabled={isReadOnly}
-              onFocus={titleEditorProps.onFocus}
-              onKeyDown={titleEditorProps.onKeyDown}
-              onChange={(event) =>
-                onPatchItem(item.id, { title: event.target.value }, { persist: false })
-              }
-              onBlur={(event) => {
-                titleEditorProps.onBlur(event);
-                const nextTitle = event.target.value.trim() || "Sans titre";
-                onPatchItem(item.id, { title: nextTitle }, { persist: true });
-              }}
-            />
           </div>
         </div>
         {/* qty */}
@@ -1013,7 +1032,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             onClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
               onOpenSectionContextMenu(item.id, {
-                x: rect.left,
+                x: rect.right,
                 y: rect.bottom + 4,
               });
             }}
@@ -1246,39 +1265,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       onContextMenu={handleLineContextMenu}
     >
       <div
-        {...aidCellProps}
-        role="gridcell"
-        onKeyDown={toCellKeyDownHandler(aidCellProps.onKeyDown)}
-        className={toCellClassName(
-          navigation,
-          aidCell,
-          "estimate-cell estimate-cell--aid"
-        )}
-      >
-        <input
-          className="estimate-input estimate-input--aid"
-          ref={aidEditorProps.ref}
-          tabIndex={aidEditorProps.tabIndex}
-          value={aidValue}
-          title={aidValue}
-          disabled={isReadOnly}
-          placeholder="MT.TY.0001"
-          onFocus={aidEditorProps.onFocus}
-          onKeyDown={aidEditorProps.onKeyDown}
-          onChange={(event) =>
-            onPatchItem(item.id, { aid: event.target.value }, { persist: false })
-          }
-          onBlur={(event) => {
-            aidEditorProps.onBlur(event);
-            onPatchItem(
-              item.id,
-              { aid: normalizeAidInput(event.target.value) },
-              { persist: true }
-            );
-          }}
-        />
-      </div>
-      <div
         {...titleCellProps}
         role="gridcell"
         onKeyDown={toCellKeyDownHandler(titleCellProps.onKeyDown)}
@@ -1303,12 +1289,10 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           attributes={attributes}
           disabled={isReadOnly || isDragDisabled}
         />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          {itemNumber ? (
-            <span className="font-mono text-[11px] font-semibold text-[var(--slate-500)]">
-              {itemNumber}
-            </span>
-          ) : null}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="estimate-designation-meta">
+            {renderAidInput()}
+          </div>
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <input
               className="estimate-input estimate-input--title"
@@ -1531,9 +1515,21 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 );
               })}
             </div>
+            ) : null}
+          </div>
+          {!isAidEditorVisible ? (
+            <div className="estimate-line-hover-actions">
+              <button
+                className="estimate-section-hover-btn"
+                type="button"
+                onClick={handleRevealAidEditor}
+                disabled={isReadOnly}
+              >
+                + AID
+              </button>
+            </div>
           ) : null}
         </div>
-      </div>
       <EditableCell
         cell={quantityCell}
         navigation={navigation}

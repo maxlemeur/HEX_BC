@@ -8,7 +8,7 @@ type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 
 type SectionContextMenuState = {
   sectionId: string;
-  x: number;
+  right: number;
   y: number;
 };
 
@@ -80,14 +80,17 @@ export function useEstimateSectionDialogs({
       const item = itemById.get(sectionId);
       if (!item || item.item_type !== "section") return;
 
-      const menuWidth = 300;
       const menuHeight = 280;
-      const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
-      const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
+      const vw = document.documentElement.clientWidth;
+      const vh = window.innerHeight;
+      // position.x is the right edge of the trigger (button right edge or clientX)
+      // Align menu right edge to position.x, clamped so it stays within the viewport
+      const right = Math.max(8, vw - position.x);
+      const y = Math.max(8, Math.min(position.y, vh - menuHeight - 8));
 
       setSectionContextMenu({
         sectionId,
-        x,
+        right,
         y,
       });
     },

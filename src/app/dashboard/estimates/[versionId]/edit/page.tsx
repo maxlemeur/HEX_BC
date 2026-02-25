@@ -6360,6 +6360,21 @@ export default function EditEstimatePage() {
       onScrollToItemHandled: handleChecklistScrollHandled,
       virtualization: editorTableVirtualization,
       searchBarPortalTarget: searchBarPortalRef,
+      headerRight: (
+        <div className="flex items-start gap-4">
+          <div className="shrink-0">
+            <EstimateChecklist
+              checklist={checklist}
+              isCollapsed={isChecklistCollapsed}
+              onToggleCollapsed={() =>
+                setIsChecklistCollapsed((previous) => !previous)
+              }
+              onCriterionClick={handleChecklistCriterionClick}
+            />
+          </div>
+          <div ref={setSearchBarPortalNode} className="shrink-0" />
+        </div>
+      ),
     }),
     [
       actionError,
@@ -6412,6 +6427,10 @@ export default function EditEstimatePage() {
       suggestionLearningState,
       bulkSuggestionEligibleCount,
       checklistScrollTargetItemId,
+      checklist,
+      isChecklistCollapsed,
+      handleChecklistCriterionClick,
+      setSearchBarPortalNode,
       settings?.currency,
       totals?.appliedMarginMultiplier,
       version?.id,
@@ -6813,21 +6832,6 @@ export default function EditEstimatePage() {
           >
             Éditeur
           </button>
-        </div>
-        <div className="ml-auto flex items-start gap-4">
-          <div className="shrink-0">
-            <EstimateChecklist
-              checklist={checklist}
-              isCollapsed={isChecklistCollapsed}
-              onToggleCollapsed={() =>
-                setIsChecklistCollapsed((previous) => !previous)
-              }
-              onCriterionClick={handleChecklistCriterionClick}
-            />
-          </div>
-          {activeTab === "editor" ? (
-            <div ref={setSearchBarPortalNode} className="shrink-0" />
-          ) : null}
         </div>
       </div>
 

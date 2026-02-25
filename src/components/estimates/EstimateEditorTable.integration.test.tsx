@@ -200,6 +200,7 @@ describe("EstimateEditorTable integration", () => {
   let writeText: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    localStorage.clear();
     writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -260,5 +261,23 @@ describe("EstimateEditorTable integration", () => {
     renderEstimateEditorTable({ currency: "USD" });
 
     expect(screen.getByText("Currency USD")).toBeInTheDocument();
+  });
+
+  it("renders super-header spacers and nowrap/wrap header labels", () => {
+    localStorage.setItem("est-col-vis", "full");
+    renderEstimateEditorTable();
+
+    const superHead = document.querySelector(".estimate-table__super-head");
+    expect(superHead).toBeInTheDocument();
+    expect(
+      superHead?.querySelectorAll(".estimate-super-head__spacer")
+    ).toHaveLength(2);
+
+    expect(screen.getByText("K FO").closest("span")).toHaveClass(
+      "whitespace-nowrap"
+    );
+    expect(screen.getByText("Majoration MO (%)").closest("span")).toHaveClass(
+      "whitespace-normal"
+    );
   });
 });

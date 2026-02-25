@@ -276,6 +276,7 @@ type EstimateEditorTableProps = {
   scrollToItemId?: string | null;
   onScrollToItemHandled?: () => void;
   virtualization?: EstimateVirtualizationConfig;
+  headerRight?: React.ReactNode;
 };
 
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
@@ -771,6 +772,7 @@ export function EstimateEditorTable({
   onScrollToItemHandled,
   virtualization,
   searchBarPortalTarget,
+  headerRight,
 }: EstimateEditorTableProps) {
   const columnVisibility = useColumnVisibility();
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
@@ -831,14 +833,14 @@ export function EstimateEditorTable({
   });
   const dynamicGridStyle = useMemo(() => {
     if (isLaborSplitEnabled) return undefined; // labor split uses its own grid, not affected by column visibility
-    const cols: string[] = ["160px", "minmax(320px, 3fr)", "80px", "80px", "110px"]; // AID, designation, qty, unit, PR.FO
-    let minWidth = 160 + 320 + 80 + 80 + 110;
+    const cols: string[] = ["minmax(320px, 3fr)", "80px", "80px", "110px"]; // designation, qty, unit, PR.FO
+    let minWidth = 320 + 80 + 80 + 110;
     if (columnVisibility.visibleColumns.has("supply_type")) { cols.push("140px"); minWidth += 140; }
-    if (columnVisibility.visibleColumns.has("k_fo")) { cols.push("70px"); minWidth += 70; }
+    if (columnVisibility.visibleColumns.has("k_fo")) { cols.push("88px"); minWidth += 88; }
     cols.push("80px"); minWidth += 80; // h MO (always visible)
     if (columnVisibility.visibleColumns.has("h_mo_majoration")) { cols.push("130px"); minWidth += 130; }
     if (columnVisibility.visibleColumns.has("labor_role")) { cols.push("130px"); minWidth += 130; }
-    if (columnVisibility.visibleColumns.has("k_mo")) { cols.push("80px"); minWidth += 80; }
+    if (columnVisibility.visibleColumns.has("k_mo")) { cols.push("92px"); minWidth += 92; }
     cols.push("110px", "120px", "50px"); minWidth += 110 + 120 + 50; // P.U., Prix total, actions
     return {
       "--estimate-grid": cols.join(" "),
@@ -848,9 +850,9 @@ export function EstimateEditorTable({
 
   // Compute super-header FO/MO group spans for the grid
   const superHeaderSpans = useMemo(() => {
-    const foStart = 5; // PR.FO is always column 5 (after AID, designation, qty, unit)
+    const foStart = 4; // PR.FO is always column 4 (after designation, qty, unit)
     if (isLaborSplitEnabled) {
-      return { foStart, foSpan: 3, moStart: 8, moSpan: 7, puStart: 15 };
+      return { foStart, foSpan: 3, moStart: 7, moSpan: 7, puStart: 14 };
     }
     const foSpan =
       1 +
@@ -1943,7 +1945,10 @@ export function EstimateEditorTable({
 
   return (
     <EstimateEditorProvider value={estimateEditorContextValue}>
-      <div ref={tableCardRef} className="dashboard-card p-6">
+      <div ref={tableCardRef}>
+      <div className="dashboard-card p-6">
+        <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
         <EstimateEditorToolbar
           qualityCounts={qualityCounts}
           qualityFilter={qualityFilter}
@@ -1981,6 +1986,11 @@ export function EstimateEditorTable({
           onToggleColumn={columnVisibility.toggleColumn}
           searchBarPortalTarget={searchBarPortalTarget}
         />
+        </div>
+        {headerRight && (
+          <div className="shrink-0">{headerRight}</div>
+        )}
+        </div>
 
       {actionError && (
         <div className="alert alert-error mt-4">
@@ -2001,14 +2011,19 @@ export function EstimateEditorTable({
         </div>
       )}
 
-      <div className="estimate-table-scroll mt-6 overflow-x-auto">
+      </div>
+
+      <div className="estimate-table-scroll mt-2 overflow-x-auto">
       <div
         className={`estimate-table${isLaborSplitEnabled ? " estimate-table--labor-split" : ""}`}
         style={dynamicGridStyle}
       >
         {/* Super-header: FO / MO column group labels */}
         <div className="estimate-table__super-head" aria-hidden="true">
-          <div style={{ gridColumn: `1 / span 4` }} />
+          <div
+            className="estimate-super-head__spacer"
+            style={{ gridColumn: "1 / span 3" }}
+          />
           <div
             className="estimate-super-head__group estimate-super-head__group--fo"
             style={{ gridColumn: `${superHeaderSpans.foStart} / span ${superHeaderSpans.foSpan}` }}
@@ -2021,15 +2036,12 @@ export function EstimateEditorTable({
           >
             Main d&apos;oeuvre
           </div>
-          <div style={{ gridColumn: `${superHeaderSpans.puStart} / span 3` }} />
+          <div
+            className="estimate-super-head__spacer"
+            style={{ gridColumn: `${superHeaderSpans.puStart} / span 3` }}
+          />
         </div>
         <div className="estimate-table__head">
-          <div className="relative">
-            <ColumnHeaderHelp
-              label="AID"
-              tooltip="Identifiant article (filtre rapide via la recherche en haut)"
-            />
-          </div>
           <div className="relative flex items-center gap-2">
             <input
               type="checkbox"
@@ -2048,13 +2060,13 @@ export function EstimateEditorTable({
             <>
               <div className="relative estimate-col--fo"><ColumnHeaderHelp label="Type FO" tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]} /></div>
               <div className="relative estimate-col--fo"><ColumnHeaderHelp label="K FO" tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]} /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO atelier"]} /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO atelier"]} /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO atelier"]} /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO chantier"]} /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO chantier"]} /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO chantier"]} /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} allowWrap /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO atelier"]} allowWrap /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO atelier"]} allowWrap /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO atelier"]} allowWrap /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO chantier"]} allowWrap /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO chantier"]} allowWrap /></div>
+              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO chantier"]} allowWrap /></div>
             </>
           ) : (
             <>
@@ -2066,7 +2078,7 @@ export function EstimateEditorTable({
               ) : null}
               <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO" tooltip={COLUMN_HEADER_TOOLTIPS["h MO"]} /></div>
               {columnVisibility.visibleColumns.has("h_mo_majoration") ? (
-                <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} /></div>
+                <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} allowWrap /></div>
               ) : null}
               {columnVisibility.visibleColumns.has("labor_role") ? (
                 <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO"]} /></div>
@@ -2103,7 +2115,6 @@ export function EstimateEditorTable({
         />
         {hasVisibleRows ? (
           <div className="estimate-table__footer">
-            <div></div>
             <div className="font-semibold text-[var(--slate-800)]">Total</div>
             <div></div>
             <div></div>
@@ -2144,7 +2155,7 @@ export function EstimateEditorTable({
           role="menu"
           aria-label="Actions de section"
           style={{
-            left: `${Math.min(sectionContextMenu.x, window.innerWidth - 240)}px`,
+            right: `${sectionContextMenu.right}px`,
             top: `${sectionContextMenu.y}px`,
           }}
         >

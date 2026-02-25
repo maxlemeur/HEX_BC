@@ -26,13 +26,23 @@ export const COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
 type ColumnHeaderHelpProps = {
   label: string;
   tooltip: string;
+  allowWrap?: boolean;
 };
 
-export function ColumnHeaderHelp({ label, tooltip }: ColumnHeaderHelpProps) {
+export function ColumnHeaderHelp({
+  label,
+  tooltip,
+  allowWrap = false,
+}: ColumnHeaderHelpProps) {
   const { isOpen, toggle, setContainerRef } = usePopover();
 
   return (
-    <span className="inline-flex items-center gap-1" ref={setContainerRef}>
+    <span
+      className={`inline-flex items-center gap-1 ${
+        allowWrap ? "whitespace-normal" : "whitespace-nowrap"
+      }`}
+      ref={setContainerRef}
+    >
       {label}
       <button
         className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[var(--slate-300)] text-[10px] leading-none text-[var(--slate-500)] hover:bg-[var(--slate-100)]"
