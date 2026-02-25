@@ -11,7 +11,7 @@ import { TAKEOFF_JOB_TERMINAL_STATUSES } from "@/lib/takeoff/types";
 
 const BASE_POLL_INTERVAL_MS = 2_000;
 const MAX_POLL_INTERVAL_MS = 30_000;
-const PERMANENT_ERROR_STATUSES = new Set([403, 404]);
+const PERMANENT_ERROR_STATUSES = new Set([401, 403, 404]);
 
 type UseTakeoffJobPollingResult = {
   data: TakeoffJobDetailResponse | null;

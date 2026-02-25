@@ -164,6 +164,8 @@ function FatalError({
       ? "Job introuvable"
       : errorStatus === 403
         ? "Acces refuse"
+        : errorStatus === 401
+          ? "Session expiree"
         : "Erreur";
   const message =
     errorMessage ?? "Une erreur est survenue lors du chargement du job.";
@@ -401,7 +403,7 @@ export default function TakeoffJobMonitor({
       <div className="mt-4 flex flex-wrap gap-3">
         {isCompleted && (
           <Link
-            href={`/dashboard/estimates/${versionId}/takeoff/${jobId}/review`}
+            href={`/dashboard/estimates/${versionId}`}
             className="btn btn-primary btn-sm"
           >
             Voir les resultats
@@ -436,12 +438,14 @@ export default function TakeoffJobMonitor({
           </button>
         )}
 
-        <Link
-          href={`/dashboard/estimates/${versionId}`}
-          className="btn btn-secondary btn-sm"
-        >
-          Retour au chiffrage
-        </Link>
+        {!isCompleted && (
+          <Link
+            href={`/dashboard/estimates/${versionId}`}
+            className="btn btn-secondary btn-sm"
+          >
+            Retour au chiffrage
+          </Link>
+        )}
       </div>
 
       {isPolling && (
