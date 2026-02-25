@@ -20,6 +20,7 @@ import {
   type SectionTotals,
 } from "@/lib/estimate-calculations";
 import { EditableCell } from "@/components/estimates/EditableCell";
+import { TakeoffSourceBadge } from "@/components/takeoff/TakeoffSourceBadge";
 import { type MultiSelectItemInteraction } from "@/hooks/useMultiSelect";
 import {
   type SpreadsheetCell,
@@ -41,7 +42,19 @@ import {
 } from "@/lib/money";
 import type { Database } from "@/types/database";
 
-type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"] & {
+  source_provider?: string | null;
+  source_job_id?: string | null;
+  source_file_name?: string | null;
+  source_page?: number | null;
+  source_level?: string | null;
+  takeoff_level?: string | null;
+  source_extracted_at?: string | null;
+  source_extraction_date?: string | null;
+  extraction_date?: string | null;
+  extracted_at?: string | null;
+  source_metadata?: unknown;
+};
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
 type LaborSplitItemFields = {
@@ -359,6 +372,37 @@ function toNonEmptyString(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function readSourceMetadataText(
+  item: EstimateItem,
+  keys: string[]
+) {
+  const itemRecord = item as Record<string, unknown>;
+
+  for (const key of keys) {
+    const directValue = toNonEmptyString(itemRecord[key]);
+    if (directValue) {
+      return directValue;
+    }
+  }
+
+  const sourceMetadata = itemRecord.source_metadata;
+  if (
+    typeof sourceMetadata === "object" &&
+    sourceMetadata !== null &&
+    !Array.isArray(sourceMetadata)
+  ) {
+    const metadataRecord = sourceMetadata as Record<string, unknown>;
+    for (const key of keys) {
+      const metadataValue = toNonEmptyString(metadataRecord[key]);
+      if (metadataValue) {
+        return metadataValue;
+      }
+    }
+  }
+
+  return null;
 }
 
 function readLaborSplitFields(
@@ -1175,6 +1219,18 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   };
   const isLaborRoleVisible =
     isLaborSplitEnabled || !visibleColumns || visibleColumns.has("labor_role");
+  const sourceLevel = readSourceMetadataText(item, [
+    "source_level",
+    "takeoff_level",
+    "level",
+  ]);
+  const sourceExtractedAt = readSourceMetadataText(item, [
+    "source_extracted_at",
+    "source_extraction_date",
+    "takeoff_extracted_at",
+    "extracted_at",
+    "extraction_date",
+  ]);
 
   return (
     <div
@@ -1277,6 +1333,15 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                   ? `${catalogueListboxId}-option-${activeCatalogueSuggestionIndex}`
                   : undefined
               }
+            />
+            <TakeoffSourceBadge
+              versionId={versionId}
+              sourceProvider={item.source_provider}
+              sourceJobId={item.source_job_id}
+              sourceFileName={item.source_file_name}
+              sourcePage={item.source_page}
+              sourceLevel={sourceLevel}
+              extractedAt={sourceExtractedAt}
             />
             {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
               <div className="estimate-quality-dots">
