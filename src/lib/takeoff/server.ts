@@ -2203,14 +2203,24 @@ export async function batchUpdateTakeoffItems(
         .eq("id" as never, entry.item_id as never)
         .eq("job_id" as never, normalizedJobId as never)
         .eq("tenant_id" as never, tenantId as never)
+        .eq("updated_at" as never, entry.updated_at as never)
         .select(TAKEOFF_ITEMS_SELECT as never)
         .maybeSingle();
 
-      if (updateError || !updatedData) {
+      if (updateError) {
         results.push({
           item_id: entry.item_id,
           success: false,
           error: "Impossible de mettre a jour l'item.",
+        });
+        continue;
+      }
+
+      if (!updatedData) {
+        results.push({
+          item_id: entry.item_id,
+          success: false,
+          error: "Conflit de concurrence: l'item a ete modifie depuis votre derniere lecture.",
         });
         continue;
       }

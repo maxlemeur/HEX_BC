@@ -24,7 +24,6 @@ import {
   patchTakeoffItems,
 } from "@/lib/takeoff/client";
 import type {
-  TakeoffItemBatchPatchRequest,
   TakeoffItemPatchEntry,
   TakeoffJobItem,
 } from "@/lib/takeoff/types";
@@ -60,6 +59,7 @@ type SortDirection = "asc" | "desc";
 // ---------------------------------------------------------------------------
 
 const AUTO_SAVE_DEBOUNCE_MS = 500;
+const REVIEW_ITEMS_PAGE_SIZE = 200;
 
 const EDITABLE_COLUMNS = ["designation", "quantity", "unit"] as const;
 
@@ -325,15 +325,41 @@ export default function TakeoffReviewTable({
   // ---- Fetch data
   useEffect(() => {
     let canceled = false;
+    const abortController = new AbortController();
     async function load() {
       try {
         setLoading(true);
         setLoadError(null);
-        const response = await fetchTakeoffJob(jobId);
+
+        const firstPage = await fetchTakeoffJob(jobId, {
+          signal: abortController.signal,
+          itemsLimit: REVIEW_ITEMS_PAGE_SIZE,
+          itemsOffset: 0,
+        });
         if (canceled) return;
-        setJobFileName(response.job.source_file_name);
+
+        const allItems: TakeoffJobItem[] = [...firstPage.items.data];
+        const totalItems = firstPage.items.pagination.total;
+        let nextOffset =
+          firstPage.items.pagination.offset + firstPage.items.data.length;
+
+        while (allItems.length < totalItems) {
+          const page = await fetchTakeoffJob(jobId, {
+            signal: abortController.signal,
+            itemsLimit: REVIEW_ITEMS_PAGE_SIZE,
+            itemsOffset: nextOffset,
+          });
+          if (canceled) return;
+          if (page.items.data.length === 0) {
+            break;
+          }
+          allItems.push(...page.items.data);
+          nextOffset += page.items.data.length;
+        }
+
+        setJobFileName(firstPage.job.source_file_name);
         setItems(
-          response.items.data.map((item) => ({
+          allItems.map((item) => ({
             ...item,
             _dirty: false,
             _saving: false,
@@ -341,7 +367,7 @@ export default function TakeoffReviewTable({
           }))
         );
       } catch (err) {
-        if (canceled) return;
+        if (canceled || abortController.signal.aborted) return;
         setLoadError(
           isTakeoffApiError(err) ? err.message : "Impossible de charger les items."
         );
@@ -352,6 +378,7 @@ export default function TakeoffReviewTable({
     load();
     return () => {
       canceled = true;
+      abortController.abort();
     };
   }, [jobId]);
 
@@ -492,6 +519,7 @@ export default function TakeoffReviewTable({
 
           return {
             ...item,
+            _dirty: false,
             _saving: false,
             _error: result.error ?? "Erreur inconnue.",
           };
@@ -513,7 +541,12 @@ export default function TakeoffReviewTable({
       setItems((prev) =>
         prev.map((item) =>
           item._saving
-            ? { ...item, _saving: false, _error: "Echec de sauvegarde." }
+            ? {
+                ...item,
+                _dirty: false,
+                _saving: false,
+                _error: "Echec de sauvegarde.",
+              }
             : item
         )
       );
@@ -667,8 +700,10 @@ export default function TakeoffReviewTable({
   const includedItems = items.filter((i) => !i.is_excluded);
   const hasIncluded = includedItems.length > 0;
   const hasDirtyOrSaving = items.some((i) => i._dirty || i._saving);
+  const hasSaveErrors = items.some((i) => i._error !== null);
   const hasBlockingAnomalies = includedItems.some(hasBlockingAnomaly);
-  const isApplyReady = hasIncluded && !hasDirtyOrSaving && !hasBlockingAnomalies;
+  const isApplyReady =
+    hasIncluded && !hasDirtyOrSaving && !hasSaveErrors && !hasBlockingAnomalies;
 
   const selectedCount = selectedIds.size;
   const filteredSelectedCount = filteredItems.filter((i) =>
@@ -1086,6 +1121,11 @@ export default function TakeoffReviewTable({
             <span className="flex items-center gap-2 text-[var(--slate-500)]">
               {!hasIncluded && "Aucun item inclus."}
               {hasIncluded && hasDirtyOrSaving && "Sauvegarde en cours..."}
+              {hasIncluded &&
+                !hasDirtyOrSaving &&
+                !hasBlockingAnomalies &&
+                hasSaveErrors &&
+                "Des erreurs de sauvegarde persistent. Corrigez les lignes en erreur puis modifiez-les pour relancer la sauvegarde."}
               {hasIncluded && !hasDirtyOrSaving && hasBlockingAnomalies && (
                 "Anomalies bloquantes sur les items inclus (designation vide ou quantite invalide)."
               )}

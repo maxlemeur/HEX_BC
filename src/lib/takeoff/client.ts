@@ -468,10 +468,19 @@ export async function createTakeoffJob(
 
 export async function fetchTakeoffJob(
   jobId: string,
-  options?: { signal?: AbortSignal }
+  options?: { signal?: AbortSignal; itemsLimit?: number; itemsOffset?: number }
 ): Promise<TakeoffJobDetailResponse> {
+  const searchParams = new URLSearchParams();
+  if (typeof options?.itemsLimit === "number") {
+    searchParams.set("items_limit", String(options.itemsLimit));
+  }
+  if (typeof options?.itemsOffset === "number") {
+    searchParams.set("items_offset", String(options.itemsOffset));
+  }
+  const query = searchParams.toString();
+
   return requestTakeoffJson<TakeoffJobDetailResponse>(
-    `/api/takeoff/jobs/${encodeURIComponent(jobId)}`,
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}${query ? `?${query}` : ""}`,
     { method: "GET", signal: options?.signal },
     "Impossible de recuperer les details du job takeoff."
   );
