@@ -338,14 +338,14 @@ describe("GET /api/takeoff/jobs", () => {
   });
 
   it("returns jobs list with filters and pagination", async () => {
-    const parsedQuery = {
+    const parsedQuery: takeoffServer.ListTakeoffJobsQuery = {
       estimate_version_id: ESTIMATE_VERSION_ID,
       status: "failed",
       level: "A",
       period: "30d",
       limit: 20,
       offset: 0,
-    } as const;
+    };
     const parseSpy = vi
       .spyOn(takeoffServer, "parseListTakeoffJobsQuery")
       .mockReturnValue(parsedQuery);

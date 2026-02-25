@@ -86,6 +86,7 @@ type TakeoffItemStoredRow = {
   source_page: number | null;
   metadata: Record<string, unknown>;
   is_excluded: boolean;
+  exclusion_reason: string | null;
   is_verified: boolean;
   verified_at: string | null;
   verified_by: string | null;
@@ -179,6 +180,7 @@ function baseItem(
     source_page: input.source_page ?? 1,
     metadata: input.metadata ?? {},
     is_excluded: input.is_excluded ?? false,
+    exclusion_reason: input.exclusion_reason ?? null,
     is_verified: input.is_verified ?? false,
     verified_at: input.verified_at ?? null,
     verified_by: input.verified_by ?? null,
