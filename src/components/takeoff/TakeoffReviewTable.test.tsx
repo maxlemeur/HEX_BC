@@ -243,4 +243,147 @@ describe("TakeoffReviewTable (controlled)", () => {
     }
     expect(hasTableFilter).toBe(true);
   });
+
+  it("filters by confidence: high (>=80%)", () => {
+    render(
+      <TakeoffReviewTable
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, confidence: 0.9, designation: "High" }),
+          makeReviewItem({ id: ITEM_ID_2, confidence: 0.3, designation: "Low" }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const allOptions = document.querySelectorAll("option");
+    let confidenceSelect: HTMLSelectElement | null = null;
+    for (const option of allOptions) {
+      if (option.textContent?.includes("Fiable")) {
+        confidenceSelect = option.closest("select");
+        break;
+      }
+    }
+    expect(confidenceSelect).not.toBeNull();
+    fireEvent.change(confidenceSelect!, { target: { value: "high" } });
+
+    expect(screen.getByText("High")).toBeDefined();
+    expect(screen.queryByText("Low")).toBeNull();
+  });
+
+  it("filters by confidence: low (<50%)", () => {
+    render(
+      <TakeoffReviewTable
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, confidence: 0.9, designation: "High" }),
+          makeReviewItem({ id: ITEM_ID_2, confidence: 0.3, designation: "Low" }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const allOptions = document.querySelectorAll("option");
+    let confidenceSelect: HTMLSelectElement | null = null;
+    for (const option of allOptions) {
+      if (option.textContent?.includes("Problematique")) {
+        confidenceSelect = option.closest("select");
+        break;
+      }
+    }
+    expect(confidenceSelect).not.toBeNull();
+    fireEvent.change(confidenceSelect!, { target: { value: "low" } });
+
+    expect(screen.queryByText("High")).toBeNull();
+    expect(screen.getByText("Low")).toBeDefined();
+  });
+
+  it("filters by confidence: missing (null)", () => {
+    render(
+      <TakeoffReviewTable
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, confidence: 0.9, designation: "Scored" }),
+          makeReviewItem({ id: ITEM_ID_2, confidence: null, designation: "Unscored" }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const allOptions = document.querySelectorAll("option");
+    let confidenceSelect: HTMLSelectElement | null = null;
+    for (const option of allOptions) {
+      if (option.textContent?.includes("Non evaluee")) {
+        confidenceSelect = option.closest("select");
+        break;
+      }
+    }
+    expect(confidenceSelect).not.toBeNull();
+    fireEvent.change(confidenceSelect!, { target: { value: "missing" } });
+
+    expect(screen.queryByText("Scored")).toBeNull();
+    expect(screen.getByText("Unscored")).toBeDefined();
+  });
+
+  it("sorts by confidence", () => {
+    render(
+      <TakeoffReviewTable
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, confidence: 0.9, designation: "High" }),
+          makeReviewItem({ id: ITEM_ID_2, confidence: 0.3, designation: "Low" }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const allOptions = document.querySelectorAll("option");
+    let sortSelect: HTMLSelectElement | null = null;
+    for (const option of allOptions) {
+      if (option.textContent?.trim() === "Tri: Confiance") {
+        sortSelect = option.closest("select");
+        break;
+      }
+    }
+    expect(sortSelect).not.toBeNull();
+    fireEvent.change(sortSelect!, { target: { value: "confidence" } });
+
+    const rows = screen.getAllByRole("row").slice(1);
+    const firstRow = rows[0]?.textContent ?? "";
+    expect(firstRow).toContain("Low");
+  });
+
+  it("renders clickable confidence badge when onOpenEvidencePanel provided", () => {
+    const onOpenEvidencePanel = vi.fn();
+    render(
+      <TakeoffReviewTable
+        items={[makeReviewItem()]}
+        {...defaultProps}
+        onOpenEvidencePanel={onOpenEvidencePanel}
+      />
+    );
+
+    // Find the confidence button (wrapping the badge)
+    const confidenceBtn = screen.getAllByRole("button").find(
+      (btn) => btn.getAttribute("title")?.includes("Confiance")
+    );
+    expect(confidenceBtn).toBeDefined();
+    fireEvent.click(confidenceBtn!);
+
+    expect(onOpenEvidencePanel).toHaveBeenCalledWith(ITEM_ID_1);
+  });
+
+  it("renders simple badge when onOpenEvidencePanel not provided", () => {
+    render(
+      <TakeoffReviewTable
+        items={[makeReviewItem()]}
+        {...defaultProps}
+      />
+    );
+
+    // No clickable confidence button
+    const confidenceBtn = screen.getAllByRole("button").find(
+      (btn) => btn.getAttribute("title")?.includes("Confiance")
+    );
+    expect(confidenceBtn).toBeUndefined();
+
+    // Badge still renders
+    expect(screen.getByText("85%")).toBeDefined();
+  });
 });
