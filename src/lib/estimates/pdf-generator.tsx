@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
     color: "#334155",
   },
   colDesignation: {
-    width: "40%",
+    width: "62%",
     paddingRight: 4,
   },
   colQty: {
@@ -235,18 +235,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingRight: 4,
   },
-  colFo: {
-    width: "14%",
-    textAlign: "left",
-    paddingRight: 4,
-  },
-  colMo: {
-    width: "12%",
-    textAlign: "right",
-    paddingRight: 4,
-  },
   colPrice: {
-    width: "14%",
+    width: "18%",
     textAlign: "right",
   },
   totalsCard: {
@@ -741,10 +731,6 @@ function buildPdfDocument(input: {
           </View>
           <View style={styles.metaColumn}>
             <View style={styles.metaRow}>
-              <Text>Marge</Text>
-              <Text>x{input.version.margin_multiplier.toFixed(2)}</Text>
-            </View>
-            <View style={styles.metaRow}>
               <Text>TVA</Text>
               <Text>{formatPercent(input.version.tax_rate_bp)} %</Text>
             </View>
@@ -756,8 +742,6 @@ function buildPdfDocument(input: {
             <Text style={styles.colDesignation}>Designation</Text>
             <Text style={styles.colQty}>Qte</Text>
             <Text style={styles.colUnit}>U</Text>
-            <Text style={styles.colFo}>Type FO</Text>
-            <Text style={styles.colMo}>Maj MO</Text>
             <Text style={styles.colPrice}>Total HT</Text>
           </View>
 
@@ -772,8 +756,6 @@ function buildPdfDocument(input: {
                   <Text style={styles.colDesignation}>{indentedTitle}</Text>
                   <Text style={styles.colQty}>-</Text>
                   <Text style={styles.colUnit}>-</Text>
-                  <Text style={styles.colFo}>-</Text>
-                  <Text style={styles.colMo}>-</Text>
                   <Text style={styles.colPrice}>-</Text>
                 </View>
               );
@@ -784,8 +766,6 @@ function buildPdfDocument(input: {
                 <Text style={styles.colDesignation}>{indentedTitle}</Text>
                 <Text style={styles.colQty}>{formatQuantity(item.quantity)}</Text>
                 <Text style={styles.colUnit}>{item.description?.trim() || "-"}</Text>
-                <Text style={styles.colFo}>{item.supply_type_id ? "Classe" : "Non classe"}</Text>
-                <Text style={styles.colMo}>{`${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 }).format((item.h_mo_majoration ?? 1) * 100)} %`}</Text>
                 <Text style={styles.colPrice}>{formatEUR(item.line_total_ht_cents ?? 0)}</Text>
               </View>
             );

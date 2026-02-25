@@ -84,7 +84,6 @@ const BASE_PROPS: Omit<EstimateDocumentProps, "items"> = {
   totalHtCents: 0,
   totalTaxCents: 0,
   totalTtcCents: 0,
-  supplyTypeLabelsById: {},
 };
 
 function renderEstimateDocument(
@@ -121,59 +120,24 @@ function findTableRowMarkup(markup: string, token: string): string {
   return matches[0] ?? "";
 }
 
-function getSummaryLabels(rowMarkup: string): string[] {
-  return Array.from(
-    rowMarkup.matchAll(/>(FO|MO atelier|MO chantier|MO|HT|TTC)\s[^<]+</g)
-  ).map((entry) => entry[1]);
-}
-
 function expectSectionSummaryInRow(
   rowMarkup: string,
   totals: {
-    foCents: number;
-    moCents?: number;
-    moAtelierCents?: number;
-    moChantierCents?: number;
     htCents: number;
-    ttcCents: number;
   }
 ) {
-  const labels = getSummaryLabels(rowMarkup);
-  expect(rowMarkup).toContain(`FO ${formatCurrency(totals.foCents, "EUR")}`);
-  if (typeof totals.moCents === "number") {
-    expect(labels).toContain("MO");
-    expect(labels).not.toContain("MO atelier");
-    expect(labels).not.toContain("MO chantier");
-    expect(rowMarkup).toContain(`MO ${formatCurrency(totals.moCents, "EUR")}`);
-  }
-  if (typeof totals.moAtelierCents === "number") {
-    expect(labels).toContain("MO atelier");
-    expect(labels).not.toContain("MO");
-    expect(rowMarkup).toContain(
-      `MO atelier ${formatCurrency(totals.moAtelierCents, "EUR")}`
-    );
-  }
-  if (typeof totals.moChantierCents === "number") {
-    expect(labels).toContain("MO chantier");
-    expect(labels).not.toContain("MO");
-    expect(rowMarkup).toContain(
-      `MO chantier ${formatCurrency(totals.moChantierCents, "EUR")}`
-    );
-  }
-  expect(rowMarkup).toContain(`HT ${formatCurrency(totals.htCents, "EUR")}`);
-  expect(rowMarkup).toContain(`TTC ${formatCurrency(totals.ttcCents, "EUR")}`);
+  expect(rowMarkup).toContain(formatCurrency(totals.htCents, "EUR"));
+  expect(rowMarkup).not.toContain("FO ");
+  expect(rowMarkup).not.toContain("MO ");
+  expect(rowMarkup).not.toContain("TTC ");
+  expect(rowMarkup).not.toContain("HT ");
 }
 
 function expectSectionSummary(
   markup: string,
   sectionTitle: string,
   totals: {
-    foCents: number;
-    moCents?: number;
-    moAtelierCents?: number;
-    moChantierCents?: number;
     htCents: number;
-    ttcCents: number;
   }
 ) {
   const rowMarkup = findTableRowMarkup(markup, sectionTitle);
@@ -181,7 +145,7 @@ function expectSectionSummary(
 }
 
 describe("EstimateDocument - EST-121", () => {
-  it("affiche FO/MO/HT/TTC d'une section avec remise proportionnelle", () => {
+  it("affiche le total HT d'une section avec remise proportionnelle", () => {
     const sectionId = "section-target";
     const items: EstimateItem[] = [
       createSection({ id: sectionId, title: "Section cible", position: 1 }),
@@ -219,44 +183,11 @@ describe("EstimateDocument - EST-121", () => {
     });
 
     expectSectionSummary(markup, "Section cible", {
-      foCents: 3600,
-      moCents: 2700,
       htCents: 6300,
-      ttcCents: 7560,
     });
     expectSectionSummary(markup, "Section autre", {
-      foCents: 2700,
-      moCents: 0,
       htCents: 2700,
-      ttcCents: 3240,
     });
-  });
-
-  it("affiche les libelles de type FO quand le mapping est fourni", () => {
-    const sectionId = "section-type";
-    const items: EstimateItem[] = [
-      createSection({ id: sectionId, title: "Section type", position: 1 }),
-      createEstimateItem({
-        id: "line-type",
-        parent_id: sectionId,
-        title: "Ligne type",
-        position: 1,
-        quantity: 1,
-        unit_price_ht_cents: 1000,
-        k_fo: 1,
-        h_mo: 0,
-        k_mo: 1,
-        supply_type_id: "supply-a",
-      }),
-    ];
-
-    const markup = renderEstimateDocument(items, {
-      supplyTypeLabelsById: {
-        "supply-a": "Pompe",
-      },
-    });
-
-    expect(markup).toContain("Pompe");
   });
 
   it("inclut les lignes des sous-sections dans le total de la section parente", () => {
@@ -301,20 +232,14 @@ describe("EstimateDocument - EST-121", () => {
     });
 
     expectSectionSummary(markup, "Section parent", {
-      foCents: 1500,
-      moCents: 0,
       htCents: 1500,
-      ttcCents: 1800,
     });
     expectSectionSummary(markup, "Sous-section", {
-      foCents: 500,
-      moCents: 0,
       htCents: 500,
-      ttcCents: 600,
     });
   });
 
-  it("affiche FO/MO/HT/TTC a zero pour une section vide", () => {
+  it("affiche HT a zero pour une section vide", () => {
     const emptySectionId = "section-empty";
     const otherSectionId = "section-other";
     const items: EstimateItem[] = [
@@ -340,10 +265,7 @@ describe("EstimateDocument - EST-121", () => {
     });
 
     expectSectionSummary(markup, "Section vide", {
-      foCents: 0,
-      moCents: 0,
       htCents: 0,
-      ttcCents: 0,
     });
   });
 
@@ -384,17 +306,11 @@ describe("EstimateDocument - EST-121", () => {
     });
 
     expectSectionSummary(markup, "Section split", {
-      foCents: 1000,
-      moAtelierCents: 500,
-      moChantierCents: 600,
       htCents: 2100,
-      ttcCents: 2520,
     });
 
     const lineRowMarkup = findTableRowMarkup(markup, "Ligne split");
-    expect(lineRowMarkup).toContain("Atelier:");
-    expect(lineRowMarkup).toContain("Chantier:");
-    expect(lineRowMarkup).toContain("Maj:");
+    expect(lineRowMarkup).not.toContain("Maj:");
   });
 
   it("affiche une numerotation hierarchique calculee a la volee", () => {
@@ -423,7 +339,8 @@ describe("EstimateDocument - EST-121", () => {
 
     expect(parentSectionRow).toMatch(/>1<\/span>\s*<span>Section parent<\/span>/);
     expect(childSectionRow).toMatch(/>1\.1<\/span>\s*<span>Section enfant<\/span>/);
-    expect(lineRow).toMatch(/>1\.1\.1<\/span>\s*<span>Ligne enfant<\/span>/);
+    expect(lineRow).toContain("Ligne enfant");
+    expect(lineRow).not.toContain("1.1.1");
   });
 
   it("formate les montants avec la devise du devis", () => {
@@ -460,5 +377,24 @@ describe("EstimateDocument - EST-121", () => {
     expect(markup).toContain(formatCurrencyForTest(1250, "USD"));
     expect(markup).toContain(formatCurrencyForTest(250, "USD"));
     expect(markup).toContain(`-${formatCurrencyForTest(100, "USD")}`);
+  });
+
+  it("applique nowrap et align-middle sur les entetes courts", () => {
+    const markup = renderEstimateDocument([]);
+
+    expect(markup).toMatch(
+      /<th class="[^"]*align-middle[^"]*whitespace-nowrap[^"]*">Designation<\/th>/
+    );
+    expect(markup).toMatch(
+      /<th class="[^"]*align-middle[^"]*whitespace-nowrap[^"]*">P\.U\. HT<\/th>/
+    );
+  });
+
+  it("masque les informations internes cote client", () => {
+    const markup = renderEstimateDocument([]);
+
+    expect(markup).not.toContain("AID");
+    expect(markup).not.toContain("Type FO");
+    expect(markup).not.toContain("Marge");
   });
 });

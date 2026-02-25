@@ -32,10 +32,6 @@ type LaborRoleRate = Pick<
   Database["public"]["Tables"]["labor_roles"]["Row"],
   "id" | "hourly_rate_cents"
 >;
-type SupplyTypeLabel = Pick<
-  Database["public"]["Tables"]["supply_types"]["Row"],
-  "id" | "name"
->;
 type PrintPageProps = {
   params?: Promise<{ versionId: string }>;
 };
@@ -138,7 +134,6 @@ export default async function PrintEstimatePage({
     )
   );
   const laborRateById: Record<string, number> = {};
-  const supplyTypeLabelsById: Record<string, string> = {};
 
   if (laborRoleIds.length > 0) {
     const laborRolesResult = await supabase
@@ -154,20 +149,6 @@ export default async function PrintEstimatePage({
       laborRateById[role.id] = role.hourly_rate_cents ?? 0;
     });
   }
-
-  const supplyTypesResult = await supabase
-    .from("supply_types")
-    .select("id, name")
-    .eq("tenant_id", version.tenant_id)
-    .order("name", { ascending: true });
-
-  if (supplyTypesResult.error) {
-    notFound();
-  }
-
-  ((supplyTypesResult.data ?? []) as SupplyTypeLabel[]).forEach((supplyType) => {
-    supplyTypeLabelsById[supplyType.id] = supplyType.name;
-  });
 
   const lineItemsForTotals = items
     .filter((item) => item.item_type === "line")
@@ -309,7 +290,6 @@ export default async function PrintEstimatePage({
           totalHtCents={totalHtCents}
           totalTaxCents={totalTaxCents}
           totalTtcCents={totalTtcCents}
-          supplyTypeLabelsById={supplyTypeLabelsById}
           items={items}
         />
       </div>

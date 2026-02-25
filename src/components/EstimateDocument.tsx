@@ -29,7 +29,6 @@ export type EstimateDocumentProps = {
   totalHtCents: number;
   totalTaxCents: number;
   totalTtcCents: number;
-  supplyTypeLabelsById: Record<string, string>;
   items: EstimateItem[];
 };
 
@@ -60,7 +59,6 @@ export function EstimateDocument({
   totalHtCents,
   totalTaxCents,
   totalTtcCents,
-  supplyTypeLabelsById,
   items,
 }: EstimateDocumentProps) {
   const resolvedCurrency: SupportedEstimateCurrency =
@@ -184,12 +182,6 @@ export function EstimateDocument({
           </h4>
           <div className="space-y-3 text-sm text-slate-600">
             <div className="flex items-center justify-between gap-4">
-              <span>Marge</span>
-              <span className="font-semibold text-slate-700">
-                x{marginMultiplier.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-4">
               <span>Remise</span>
               <span className="font-semibold text-slate-700">
                 {discountLabel}
@@ -209,37 +201,27 @@ export function EstimateDocument({
         <table className="w-full">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
-              <th className="w-40 px-4 py-4 print:px-2 print:py-2">AID</th>
-              <th className="px-6 py-4 print:px-4 print:py-2">Designation</th>
-              <th className="w-20 px-3 py-4 text-center print:px-2 print:py-2">
+              <th className="px-6 py-4 align-middle whitespace-nowrap print:px-4 print:py-2">Designation</th>
+              <th className="w-20 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">
                 Qte
               </th>
-              <th className="w-16 px-3 py-4 text-center print:px-2 print:py-2">
+              <th className="w-16 px-3 py-4 text-center align-middle whitespace-nowrap print:px-2 print:py-2">
                 U
               </th>
-              <th className="w-32 px-3 py-4 text-left print:px-2 print:py-2">
-                Type FO
-              </th>
-              <th className="w-24 px-3 py-4 text-center print:px-2 print:py-2">
-                {isLaborSplitEnabled ? "MO atelier / chantier" : "Majoration MO"}
-              </th>
-              <th className="w-28 px-3 py-4 text-right print:px-2 print:py-2">
+              <th className="w-28 px-3 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">
                 P.U. HT
               </th>
-              <th className="w-32 px-4 py-4 text-right print:px-2 print:py-2">
+              <th className="w-32 px-4 py-4 text-right align-middle whitespace-nowrap print:px-2 print:py-2">
                 Total HT
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 text-sm print:text-slate-900">
+          <tbody className="divide-y divide-[var(--slate-300)] text-sm print:text-slate-900">
             <EstimateDocumentTableRows
               rows={rows}
               numberingById={numberingById}
               sectionTotalsById={sectionTotalsById}
               currency={resolvedCurrency}
-              isLaborSplitEnabled={isLaborSplitEnabled}
-              laborRateById={laborRateById}
-              supplyTypeLabelsById={supplyTypeLabelsById}
             />
           </tbody>
         </table>
