@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
-import { processLevelA } from "@/lib/takeoff/processor";
+import { processLevelA, processLevelB } from "@/lib/takeoff/processor";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -12,6 +12,8 @@ const JOB_ID = "44444444-4444-4444-8444-444444444444";
 const FIXED_NOW = new Date("2026-02-25T10:00:00.000Z");
 const DEFAULT_SOURCE_PATH =
   `${TENANT_ID}/${JOB_ID}/${"a".repeat(64)}-niveau-a.csv`;
+const DEFAULT_SOURCE_PATH_B =
+  `${TENANT_ID}/${JOB_ID}/${"b".repeat(64)}-niveau-b.pdf`;
 
 type SupabaseError = {
   code: string;
@@ -122,7 +124,8 @@ function toArrayBuffer(value: string): ArrayBuffer {
 
 function buildTakeoffExchange(
   items: TakeoffExchange["items"],
-  warnings: TakeoffExchange["warnings"] = []
+  warnings: TakeoffExchange["warnings"] = [],
+  metadataOverrides: Partial<TakeoffExchange["metadata"]> = {}
 ): TakeoffExchange {
   return {
     items,
@@ -145,6 +148,7 @@ function buildTakeoffExchange(
       prompt_version: "takeoff-a-v1",
       file_type: "text/csv",
       schema_version: "v1",
+      ...metadataOverrides,
     },
     confidence: 0.92,
   };
@@ -953,5 +957,345 @@ describe("processLevelA", () => {
     expect(
       mock.state.auditLogs.some((entry) => entry.action === "takeoff.job.completed")
     ).toBe(false);
+  });
+});
+
+describe("processLevelB", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("completes a PDF job and persists tables metadata and metrics", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "niveau-b.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: toArrayBuffer("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj"),
+        mimeType: "application/pdf",
+      },
+    });
+
+    const exchange = buildTakeoffExchange(
+      [
+        {
+          designation: "Canalisation cuivre",
+          quantity: 16,
+          unit: "ml",
+          source_page: 2,
+          source_file: "niveau-b.pdf",
+          confidence: 0.9,
+          evidence: "Tableau plomberie",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(exchange, {
+        tokenCount: 5_200,
+        costCents: 154,
+        durationMs: 3_800,
+        model: "gemini-2.5-pro",
+        promptVersion: "takeoff-b-v1",
+      })
+    );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result).toMatchObject({
+      jobId: JOB_ID,
+      status: "completed",
+      itemsCount: 1,
+      warningsCount: 0,
+      tablesCount: 1,
+      tokenCount: 5_200,
+      costCents: 154,
+      durationMs: 3_800,
+    });
+
+    expect(callGemini).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [expect.objectContaining({ mimeType: "application/pdf" })],
+        context: expect.objectContaining({
+          level: "B",
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-b-v1",
+        }),
+      })
+    );
+
+    expect(mock.state.job.status).toBe("completed");
+    expect(mock.state.job.token_count).toBe(5_200);
+    expect(mock.state.job.cost_cents).toBe(154);
+    expect(mock.state.job.duration_ms).toBe(3_800);
+
+    expect(mock.state.takeoffResults).toHaveLength(1);
+    expect(mock.state.takeoffResults[0]).toMatchObject({
+      token_count: 5_200,
+      cost_cents: 154,
+      duration_ms: 3_800,
+    });
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      file_type: "application/pdf",
+      source_file_name: "niveau-b.pdf",
+      processing_mode: "pdf_vision",
+      tables_count: 1,
+      model: "gemini-2.5-pro",
+      prompt_version: "takeoff-b-v1",
+    });
+    expect(mock.state.takeoffResults[0]?.tables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          page: 1,
+          headers: ["designation", "quantity", "unit"],
+        }),
+      ])
+    );
+  });
+
+  it("supports multi-page table extraction and keeps source page metadata", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "planning.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: toArrayBuffer("%PDF-1.7\nmulti-page"),
+        mimeType: "application/pdf",
+      },
+    });
+
+    const exchange = buildTakeoffExchange(
+      [
+        {
+          designation: "Cheminement principal",
+          quantity: 10,
+          unit: "m",
+          source_page: 1,
+          source_file: "planning.pdf",
+          confidence: 0.87,
+          evidence: "Schedule R+1",
+        },
+        {
+          designation: "Support mural",
+          quantity: 24,
+          unit: "u",
+          source_page: 4,
+          source_file: "planning.pdf",
+          confidence: 0.84,
+          evidence: "Schedule sous-sol",
+        },
+      ],
+      [
+        {
+          code: "TABLE_PARTIAL",
+          message: "Tableau tronque sur la page 4.",
+          severity: "warning",
+          table_index: 1,
+        },
+      ],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+    exchange.tables = [
+      {
+        page: 1,
+        title: "Schedule R+1",
+        headers: ["designation", "quantity", "unit"],
+        rows: [
+          { row_index: 0, cells: ["Cheminement principal", "10", "m"] },
+          { row_index: 1, cells: ["Cheminement secondaire", "6", "m"] },
+        ],
+      },
+      {
+        page: 4,
+        title: "Schedule Sous-sol",
+        headers: ["designation", "quantity", "unit"],
+        rows: [{ row_index: 0, cells: ["Support mural", "24", "u"] }],
+      },
+    ];
+
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(exchange, {
+        model: "gemini-2.5-pro",
+        promptVersion: "takeoff-b-v1",
+      })
+    );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.tablesCount).toBe(2);
+    expect(result.warningsCount).toBe(1);
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      tables_count: 2,
+    });
+    expect(mock.state.takeoffResults[0]?.tables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ page: 1, title: "Schedule R+1" }),
+        expect.objectContaining({ page: 4, title: "Schedule Sous-sol" }),
+      ])
+    );
+    expect(mock.state.takeoffItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ designation: "Cheminement principal", source_page: 1 }),
+        expect.objectContaining({ designation: "Support mural", source_page: 4 }),
+      ])
+    );
+  });
+
+  it("fails with snapshot when Gemini response is invalid for level B schema", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "invalid.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: toArrayBuffer("%PDF-1.7\ninvalid"),
+        mimeType: "application/pdf",
+      },
+    });
+
+    const invalidPayload = {
+      items: [
+        {
+          designation: "Poste incomplet",
+          quantity: 1,
+          unit: "u",
+        },
+      ],
+      warnings: [],
+      metadata: {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.61,
+    } as unknown as TakeoffExchange;
+
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(invalidPayload, {
+        model: "gemini-2.5-pro",
+        promptVersion: "takeoff-b-v1",
+      })
+    );
+
+    await expect(
+      processLevelB(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.VALIDATION_ERROR,
+      retryable: false,
+      details: expect.objectContaining({
+        level: "B",
+      }),
+    });
+
+    expect([mock.state.initialStatus, ...mock.state.statusTransitions]).toEqual([
+      "pending",
+      "processing",
+      "failed",
+    ]);
+    expect(mock.state.job.status).toBe("failed");
+    expect(mock.state.job.error_code).toBe(TakeoffErrorCode.VALIDATION_ERROR);
+    expect(mock.state.job.error_message).toBe("Payload invalide.");
+    expect(mock.state.takeoffResults).toHaveLength(1);
+    expect(mock.state.takeoffResults[0]?.raw_response).toEqual(
+      expect.objectContaining({
+        issues: expect.any(Array),
+      })
+    );
+  });
+
+  it("stores raw Gemini timeout details and marks the job as retryable failure", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "timeout.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: toArrayBuffer("%PDF-1.7\ntimeout"),
+        mimeType: "application/pdf",
+      },
+    });
+
+    const timeoutError = new TakeoffError({
+      code: TakeoffErrorCode.AI_TIMEOUT,
+      message: "Gemini timeout",
+      retryable: true,
+      details: {
+        provider_details: {
+          provider_status: 504,
+          provider_code: "ETIMEDOUT",
+        },
+      },
+      level: "B",
+      jobId: JOB_ID,
+    });
+    const callGemini = vi.fn().mockRejectedValue(timeoutError);
+
+    await expect(
+      processLevelB(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.AI_TIMEOUT,
+      retryable: true,
+      details: expect.objectContaining({
+        level: "B",
+      }),
+    });
+
+    expect(mock.state.job.status).toBe("failed");
+    expect(mock.state.job.error_code).toBe(TakeoffErrorCode.AI_TIMEOUT);
+    expect(mock.state.takeoffResults).toHaveLength(1);
+    expect(mock.state.takeoffResults[0]?.raw_response).toEqual({
+      provider_status: 504,
+      provider_code: "ETIMEDOUT",
+    });
+    expect(mock.state.takeoffResults[0]?.warnings).toContainEqual(
+      expect.objectContaining({
+        code: "PROCESSING_FAILED",
+        severity: "warning",
+      })
+    );
   });
 });

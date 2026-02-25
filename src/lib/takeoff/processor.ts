@@ -475,7 +475,12 @@ function inferMimeTypeFromFilename(fileName: string) {
     return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   }
   if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (lower.endsWith(".pdf")) return "application/pdf";
   return "application/octet-stream";
+}
+
+function isPdfMimeType(mimeType: string) {
+  return mimeType.trim().toLowerCase() === "application/pdf";
 }
 
 function getFileNameFromStoragePath(path: string, fallback: string) {
@@ -506,6 +511,7 @@ function parseTakeoffJobRow(data: unknown): TakeoffJobProcessingRow {
 async function fetchCurrentTakeoffJobStatus(input: {
   supabase: Supabase;
   job: Pick<TakeoffJobProcessingRow, "id" | "tenant_id">;
+  level: ProcessableTakeoffLevel;
 }) {
   const { data, error } = await input.supabase
     .from("takeoff_jobs" as never)
@@ -524,7 +530,7 @@ async function fetchCurrentTakeoffJobStatus(input: {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
         jobId: input.job.id,
-        level: TAKEOFF_LEVEL_A,
+        level: input.level,
       }
     );
   }
@@ -541,6 +547,7 @@ function buildProcessingStatusConflictError(input: {
   jobId: string;
   currentStatus: string | null;
   operation: string;
+  level: ProcessableTakeoffLevel;
 }) {
   return new TakeoffError({
     status: 409,
@@ -556,7 +563,7 @@ function buildProcessingStatusConflictError(input: {
     },
     retryable: false,
     jobId: input.jobId,
-    level: TAKEOFF_LEVEL_A,
+    level: input.level,
   });
 }
 
@@ -564,11 +571,13 @@ async function clearResultsAfterCanceledTransition(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
   operation: string;
+  level: ProcessableTakeoffLevel;
 }) {
   try {
     await clearPreviousResultsForJob({
       supabase: input.supabase,
       job: input.job,
+      level: input.level,
     });
   } catch (cleanupError) {
     console.error("Impossible de nettoyer les resultats apres annulation du job.", {
@@ -594,7 +603,7 @@ function isCanceledDuringProcessingConflict(error: TakeoffError) {
 
 async function resolveContext(
   options: ProcessLevelAOptions
-): Promise<ProcessLevelAContext> {
+): Promise<ProcessLevelContext> {
   if (options.supabase) {
     return {
       supabase: options.supabase,
@@ -615,6 +624,7 @@ async function getTakeoffJobForProcessing(input: {
   supabase: Supabase;
   jobId: string;
   tenantId: string | null;
+  level: ProcessableTakeoffLevel;
 }): Promise<TakeoffJobProcessingRow> {
   let query = input.supabase
     .from("takeoff_jobs" as never)
@@ -634,7 +644,7 @@ async function getTakeoffJobForProcessing(input: {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
         jobId: input.jobId,
-        level: TAKEOFF_LEVEL_A,
+        level: input.level,
       }
     );
   }
@@ -645,7 +655,7 @@ async function getTakeoffJobForProcessing(input: {
       message: "Job takeoff introuvable.",
       retryable: false,
       jobId: input.jobId,
-      level: TAKEOFF_LEVEL_A,
+      level: input.level,
     });
   }
 
@@ -660,6 +670,7 @@ async function markJobAsProcessing(input: {
   model: string;
   thinkingLevel: string;
   promptVersion: string;
+  level: ProcessableTakeoffLevel;
 }): Promise<TakeoffJobProcessingRow> {
   const retryCount =
     input.job.status === "failed" ? input.job.retry_count + 1 : input.job.retry_count;
@@ -697,7 +708,7 @@ async function markJobAsProcessing(input: {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
         jobId: input.job.id,
-        level: TAKEOFF_LEVEL_A,
+        level: input.level,
       }
     );
   }
@@ -711,7 +722,7 @@ async function markJobAsProcessing(input: {
       },
       retryable: false,
       jobId: input.job.id,
-      level: TAKEOFF_LEVEL_A,
+      level: input.level,
     });
   }
 
@@ -729,6 +740,7 @@ async function updateJobAsCompleted(input: {
   model: string;
   thinkingLevel: string;
   promptVersion: string;
+  level: ProcessableTakeoffLevel;
 }) {
   let query = input.supabase
     .from("takeoff_jobs" as never)
@@ -761,7 +773,7 @@ async function updateJobAsCompleted(input: {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
         jobId: input.job.id,
-        level: TAKEOFF_LEVEL_A,
+        level: input.level,
       }
     );
   }
@@ -773,6 +785,7 @@ async function updateJobAsCompleted(input: {
   const currentStatus = await fetchCurrentTakeoffJobStatus({
     supabase: input.supabase,
     job: input.job,
+    level: input.level,
   });
 
   if (currentStatus === "canceled") {
@@ -780,6 +793,7 @@ async function updateJobAsCompleted(input: {
       supabase: input.supabase,
       job: input.job,
       operation: "complete_job",
+      level: input.level,
     });
   }
 
@@ -787,6 +801,7 @@ async function updateJobAsCompleted(input: {
     jobId: input.job.id,
     currentStatus,
     operation: "complete_job",
+    level: input.level,
   });
 }
 
@@ -828,6 +843,7 @@ async function updateJobAsFailed(input: {
 async function downloadTakeoffSourceFile(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
+  level: ProcessableTakeoffLevel;
 }): Promise<DownloadedTakeoffFile> {
   const sourcePath = normalizeNullableText(input.job.source_file_path);
   if (!sourcePath) {
@@ -836,7 +852,7 @@ async function downloadTakeoffSourceFile(input: {
       message: "Le job takeoff ne reference aucun fichier source.",
       retryable: false,
       jobId: input.job.id,
-      level: TAKEOFF_LEVEL_A,
+      level: input.level,
     });
   }
 
@@ -857,7 +873,7 @@ async function downloadTakeoffSourceFile(input: {
       details: error ?? { message: "Fichier source introuvable." },
       retryable: false,
       jobId: input.job.id,
-      level: TAKEOFF_LEVEL_A,
+      level: input.level,
     });
   }
 
@@ -868,7 +884,7 @@ async function downloadTakeoffSourceFile(input: {
       message: "Le fichier source takeoff est vide.",
       retryable: false,
       jobId: input.job.id,
-      level: TAKEOFF_LEVEL_A,
+      level: input.level,
     });
   }
 
@@ -889,6 +905,7 @@ async function downloadTakeoffSourceFile(input: {
 async function clearPreviousResultsForJob(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
+  level: ProcessableTakeoffLevel;
 }) {
   const { error: deleteItemsError } = await input.supabase
     .from("takeoff_items" as never)
@@ -906,7 +923,7 @@ async function clearPreviousResultsForJob(input: {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
         jobId: input.job.id,
-        level: TAKEOFF_LEVEL_A,
+        level: input.level,
       }
     );
   }
@@ -927,7 +944,7 @@ async function clearPreviousResultsForJob(input: {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
         jobId: input.job.id,
-        level: TAKEOFF_LEVEL_A,
+        level: input.level,
       }
     );
   }
@@ -943,6 +960,7 @@ async function persistTakeoffResultAndItems(input: {
   durationMs: number;
   rawResponse: unknown;
   providerMeta: Record<string, unknown>;
+  level: ProcessableTakeoffLevel;
 }): Promise<{
   resultId: string;
   itemsCount: number;
@@ -951,6 +969,7 @@ async function persistTakeoffResultAndItems(input: {
   const statusBeforePersist = await fetchCurrentTakeoffJobStatus({
     supabase: input.supabase,
     job: input.job,
+    level: input.level,
   });
 
   if (statusBeforePersist !== "processing") {
@@ -958,12 +977,14 @@ async function persistTakeoffResultAndItems(input: {
       jobId: input.job.id,
       currentStatus: statusBeforePersist,
       operation: "persist_results_before_write",
+      level: input.level,
     });
   }
 
   await clearPreviousResultsForJob({
     supabase: input.supabase,
     job: input.job,
+    level: input.level,
   });
 
   const { data: insertedResult, error: insertResultError } = await input.supabase
@@ -999,7 +1020,7 @@ async function persistTakeoffResultAndItems(input: {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
         jobId: input.job.id,
-        level: TAKEOFF_LEVEL_A,
+        level: input.level,
       }
     );
   }
@@ -1033,7 +1054,7 @@ async function persistTakeoffResultAndItems(input: {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
           retryable: false,
           jobId: input.job.id,
-          level: TAKEOFF_LEVEL_A,
+          level: input.level,
         }
       );
     }
@@ -1042,6 +1063,7 @@ async function persistTakeoffResultAndItems(input: {
   const statusAfterPersist = await fetchCurrentTakeoffJobStatus({
     supabase: input.supabase,
     job: input.job,
+    level: input.level,
   });
 
   if (statusAfterPersist !== "processing") {
@@ -1050,6 +1072,7 @@ async function persistTakeoffResultAndItems(input: {
         supabase: input.supabase,
         job: input.job,
         operation: "persist_results_after_write",
+        level: input.level,
       });
     }
 
@@ -1057,6 +1080,7 @@ async function persistTakeoffResultAndItems(input: {
       jobId: input.job.id,
       currentStatus: statusAfterPersist,
       operation: "persist_results_after_write",
+      level: input.level,
     });
   }
 
@@ -1094,6 +1118,7 @@ async function persistFailureSnapshotIfNeeded(input: {
   model: string;
   promptVersion: string;
   thinkingLevel: string;
+  level: ProcessableTakeoffLevel;
 }) {
   const rawResponse = extractRawResponseFromTakeoffError(input.error);
   if (rawResponse === undefined || rawResponse === null) {
@@ -1104,6 +1129,7 @@ async function persistFailureSnapshotIfNeeded(input: {
     await clearPreviousResultsForJob({
       supabase: input.supabase,
       job: input.job,
+      level: input.level,
     });
 
     await input.supabase.from("takeoff_results" as never).insert({
@@ -1226,24 +1252,99 @@ async function logFailedAuditEvent(input: {
   });
 }
 
-export async function processLevelA(
+type PreparedTakeoffLevelInput = {
+  files: Array<{ data: string; mimeType: string }>;
+  parseWarnings: TakeoffWarning[];
+  sourceHint: string;
+  providerMeta: Record<string, unknown>;
+};
+
+function getProcessorLevelLabel(level: ProcessableTakeoffLevel) {
+  return `Level ${level}`;
+}
+
+function prepareTakeoffLevelInput(input: {
+  level: ProcessableTakeoffLevel;
+  sourceFile: DownloadedTakeoffFile;
+  jobId: string;
+}): PreparedTakeoffLevelInput {
+  if (input.level === TAKEOFF_LEVEL_A) {
+    const parsedWorkbook = parseTakeoffWorkbook({
+      bytes: input.sourceFile.bytes,
+      fileName: input.sourceFile.fileName,
+    });
+
+    return {
+      files: parsedWorkbook.sheets.map((sheet) => ({
+        data: Buffer.from(sheet.csvText, "utf8").toString("base64"),
+        mimeType: "text/csv",
+      })),
+      parseWarnings: parsedWorkbook.warnings,
+      sourceHint: buildPromptSourceHint(input.sourceFile.fileName, parsedWorkbook.sheets),
+      providerMeta: {
+        file_type: input.sourceFile.mimeType,
+        source_file_name: input.sourceFile.fileName,
+        sheet_count: parsedWorkbook.sheets.length,
+        sheets: parsedWorkbook.sheets.map((sheet) => ({
+          name: sheet.sheetName,
+          header_row_index: sheet.headerRowIndex,
+          rows: sheet.rows.length,
+          columns: sheet.headers.length,
+        })),
+      },
+    };
+  }
+
+  if (!isPdfMimeType(input.sourceFile.mimeType)) {
+    throw new TakeoffError({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
+      message: "Le processor Level B requiert un fichier PDF source.",
+      retryable: false,
+      jobId: input.jobId,
+      level: input.level,
+      details: {
+        file_type: input.sourceFile.mimeType,
+        source_file_name: input.sourceFile.fileName,
+      },
+    });
+  }
+
+  return {
+    files: [
+      {
+        data: Buffer.from(input.sourceFile.bytes).toString("base64"),
+        mimeType: "application/pdf",
+      },
+    ],
+    parseWarnings: [],
+    sourceHint: input.sourceFile.fileName,
+    providerMeta: {
+      file_type: input.sourceFile.mimeType,
+      source_file_name: input.sourceFile.fileName,
+      processing_mode: "pdf_vision",
+    },
+  };
+}
+
+async function processTakeoffLevel(
+  level: ProcessableTakeoffLevel,
   jobId: string,
   options: ProcessLevelAOptions = {}
-): Promise<ProcessLevelAResult> {
+): Promise<ProcessLevelInternalResult> {
   const normalizedJobId = jobId.trim();
   if (normalizedJobId.length === 0) {
     throw new TakeoffError({
       code: TakeoffErrorCode.BAD_REQUEST,
       message: "jobId est requis.",
       retryable: false,
-      level: TAKEOFF_LEVEL_A,
+      level,
     });
   }
 
   const context = await resolveContext(options);
   const callGemini = options.callGemini ?? callGeminiStructured;
   const now = options.now ?? (() => new Date());
-  const levelConfig = getTakeoffLevelConfig(TAKEOFF_LEVEL_A);
+  const levelConfig = getTakeoffLevelConfig(level);
   const processingStartedAt = now();
 
   let job: TakeoffJobProcessingRow | null = null;
@@ -1254,15 +1355,18 @@ export async function processLevelA(
       supabase: context.supabase,
       jobId: normalizedJobId,
       tenantId: context.tenantId,
+      level,
     });
 
-    if (job.level !== TAKEOFF_LEVEL_A) {
+    if (job.level !== level) {
       throw new TakeoffError({
         code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
-        message: "Le processor Level A ne peut traiter que les jobs de niveau A.",
+        message: `Le processor ${getProcessorLevelLabel(
+          level
+        )} ne peut traiter que les jobs de niveau ${level}.`,
         retryable: false,
         jobId: normalizedJobId,
-        level: TAKEOFF_LEVEL_A,
+        level,
       });
     }
 
@@ -1274,6 +1378,7 @@ export async function processLevelA(
       model: levelConfig.model,
       thinkingLevel: levelConfig.thinkingLevel,
       promptVersion: levelConfig.promptVersion,
+      level,
     });
     enteredProcessing = true;
 
@@ -1287,31 +1392,30 @@ export async function processLevelA(
     const sourceFile = await downloadTakeoffSourceFile({
       supabase: context.supabase,
       job,
+      level,
     });
-    const parsedWorkbook = parseTakeoffWorkbook({
-      bytes: sourceFile.bytes,
-      fileName: sourceFile.fileName,
+    const preparedLevelInput = prepareTakeoffLevelInput({
+      level,
+      sourceFile,
+      jobId: job.id,
     });
 
-    const prompt = getTakeoffPrompt(TAKEOFF_LEVEL_A, {
+    const prompt = getTakeoffPrompt(level, {
       fileType: sourceFile.mimeType,
       schemaVersion: normalizeNullableText(job.schema_version) ?? "v1",
-      sourceHint: buildPromptSourceHint(sourceFile.fileName, parsedWorkbook.sheets),
+      sourceHint: preparedLevelInput.sourceHint,
     });
 
     const geminiResult = await callGemini<TakeoffExchange>({
       prompt,
       schema: TakeoffExchangeSchema,
-      files: parsedWorkbook.sheets.map((sheet) => ({
-        data: Buffer.from(sheet.csvText, "utf8").toString("base64"),
-        mimeType: "text/csv",
-      })),
+      files: preparedLevelInput.files,
       thinkingLevel: levelConfig.thinkingLevel,
       timeoutMs: resolveGeminiTimeoutMs(),
       context: {
         jobId: job.id,
         tenantId: job.tenant_id,
-        level: TAKEOFF_LEVEL_A,
+        level,
         promptVersion: levelConfig.promptVersion,
         model: levelConfig.model,
       },
@@ -1321,8 +1425,9 @@ export async function processLevelA(
     const normalized = normalizeTakeoffExchange({
       exchange: strictExchange,
       sourceFileName: normalizeNullableText(job.source_file_name),
-      parseWarnings: parsedWorkbook.warnings,
+      parseWarnings: preparedLevelInput.parseWarnings,
     });
+    const tablesCount = normalized.exchange.tables?.length ?? 0;
 
     const persisted = await persistTakeoffResultAndItems({
       supabase: context.supabase,
@@ -1334,19 +1439,13 @@ export async function processLevelA(
       durationMs: geminiResult.durationMs,
       rawResponse: null,
       providerMeta: {
+        ...preparedLevelInput.providerMeta,
         model: geminiResult.model,
         prompt_version: geminiResult.promptVersion,
         thinking_level: levelConfig.thinkingLevel,
-        file_type: sourceFile.mimeType,
-        source_file_name: sourceFile.fileName,
-        sheet_count: parsedWorkbook.sheets.length,
-        sheets: parsedWorkbook.sheets.map((sheet) => ({
-          name: sheet.sheetName,
-          header_row_index: sheet.headerRowIndex,
-          rows: sheet.rows.length,
-          columns: sheet.headers.length,
-        })),
+        tables_count: tablesCount,
       },
+      level,
     });
 
     const completedAt = now();
@@ -1366,6 +1465,7 @@ export async function processLevelA(
       model: geminiResult.model,
       thinkingLevel: levelConfig.thinkingLevel,
       promptVersion: geminiResult.promptVersion,
+      level,
     });
 
     await logCompletedAuditEvent({
@@ -1387,12 +1487,13 @@ export async function processLevelA(
       tokenCount: geminiResult.tokenCount,
       costCents: geminiResult.costCents,
       durationMs: totalDurationMs,
+      tablesCount,
     };
   } catch (error) {
     const mappedError = toTakeoffError(error, {
       fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
       jobId: normalizedJobId,
-      level: TAKEOFF_LEVEL_A,
+      level,
     });
 
     if (enteredProcessing && job && !isCanceledDuringProcessingConflict(mappedError)) {
@@ -1407,6 +1508,7 @@ export async function processLevelA(
         model: levelConfig.model,
         promptVersion: levelConfig.promptVersion,
         thinkingLevel: levelConfig.thinkingLevel,
+        level,
       });
 
       await updateJobAsFailed({
@@ -1428,4 +1530,28 @@ export async function processLevelA(
 
     throw mappedError;
   }
+}
+
+export async function processLevelA(
+  jobId: string,
+  options: ProcessLevelAOptions = {}
+): Promise<ProcessLevelAResult> {
+  const result = await processTakeoffLevel(TAKEOFF_LEVEL_A, jobId, options);
+  return {
+    jobId: result.jobId,
+    resultId: result.resultId,
+    status: result.status,
+    itemsCount: result.itemsCount,
+    warningsCount: result.warningsCount,
+    tokenCount: result.tokenCount,
+    costCents: result.costCents,
+    durationMs: result.durationMs,
+  };
+}
+
+export async function processLevelB(
+  jobId: string,
+  options: ProcessLevelBOptions = {}
+): Promise<ProcessLevelBResult> {
+  return processTakeoffLevel(TAKEOFF_LEVEL_B, jobId, options);
 }
