@@ -240,6 +240,10 @@ const changelogFormatQuerySchema = z.enum(["json", "pdf"]);
 const pdfFormatQuerySchema = z.enum(["json"]);
 const exportFormatQuerySchema = z.enum(["xlsx"]);
 const takeoffPlanSetsLimitQuerySchema = z.number().int().min(1).max(100);
+const takeoffJobsLimitQuerySchema = z.number().int().min(1).max(100);
+const takeoffJobsOffsetQuerySchema = z.number().int().min(0).max(10000);
+const takeoffJobItemsLimitQuerySchema = z.number().int().min(1).max(200);
+const takeoffJobItemsOffsetQuerySchema = z.number().int().min(0).max(10000);
 const takeoffPlanFilesIncludeDownloadUrlQuerySchema = z.enum([
   "0",
   "1",
@@ -254,6 +258,14 @@ const idempotencyKeyHeaderSchema = z
   .min(1, "Idempotency-Key invalide.")
   .max(255, "Idempotency-Key invalide.");
 const takeoffLevelSchema = z.enum(["A", "B", "C"]);
+const takeoffJobStatusSchema = z.enum([
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+  "canceled",
+  "applied",
+]);
 const takeoffErrorCodeSchema = z.nativeEnum(TakeoffErrorCode);
 
 export const apiErrorSchema = z.object({
@@ -995,6 +1007,84 @@ const takeoffJobCreateFormDataSchema = z.object({
   estimate_version_id: uuidSchema,
   level: z.literal("A"),
 });
+const takeoffJobMetricsSchema = z.object({
+  token_count: z.number().int().nullable(),
+  cost_cents: z.number().int().nullable(),
+  duration_ms: z.number().int().nullable(),
+});
+const takeoffJobSummarySchema = z.object({
+  id: uuidSchema,
+  estimate_version_id: uuidSchema,
+  status: takeoffJobStatusSchema,
+  level: takeoffLevelSchema,
+  source_file_name: z.string().nullable(),
+  source_file_type: z.string().nullable(),
+  source_file_size_bytes: z.number().int().nullable(),
+  prompt_version: z.string().nullable(),
+  schema_version: z.string().nullable(),
+  model: z.string().nullable(),
+  thinking_level: z.string().nullable(),
+  media_resolution: z.string().nullable(),
+  retry_count: z.number().int().min(0),
+  error_code: z.string().nullable(),
+  error_message: z.string().nullable(),
+  started_at: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  metrics: takeoffJobMetricsSchema,
+});
+const takeoffJobPaginationSchema = z.object({
+  limit: z.number().int().min(1),
+  offset: z.number().int().min(0),
+  total: z.number().int().min(0),
+});
+const takeoffJobListDataSchema = z.object({
+  jobs: z.array(takeoffJobSummarySchema),
+  pagination: takeoffJobPaginationSchema,
+});
+const takeoffJobResultSchema = z.object({
+  id: uuidSchema,
+  extracted_json: z.unknown(),
+  warnings: z.array(z.unknown()),
+  tables: z.array(z.unknown()),
+  provider_meta: z.record(z.string(), z.unknown()),
+  raw_response: z.unknown().nullable(),
+  confidence: z.number().nullable(),
+  token_count: z.number().int().nullable(),
+  cost_cents: z.number().int().nullable(),
+  duration_ms: z.number().int().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+const takeoffJobItemSchema = z.object({
+  id: uuidSchema,
+  designation: z.string(),
+  quantity: z.number(),
+  unit: z.string(),
+  confidence: z.number().nullable(),
+  evidence: z.string().nullable(),
+  source_file_name: z.string().nullable(),
+  source_page: z.number().int().nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+  is_excluded: z.boolean(),
+  is_verified: z.boolean(),
+  verified_at: z.string().nullable(),
+  verified_by: uuidSchema.nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+const takeoffJobDetailDataSchema = z.object({
+  job: takeoffJobSummarySchema,
+  result: takeoffJobResultSchema.nullable(),
+  items: z.object({
+    data: z.array(takeoffJobItemSchema),
+    pagination: takeoffJobPaginationSchema,
+  }),
+});
+const takeoffJobActionDataSchema = z.object({
+  job: takeoffJobSummarySchema,
+});
 const takeoffMappingRuleMatchTypeSchema = z.enum(["exact", "contains", "regex"]);
 const takeoffMappingRuleRenameActionParamsSchema = z.object({
   designation: z.string().trim().min(1, "La designation est requise."),
@@ -1474,6 +1564,18 @@ const apiTakeoffJobCreateSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobCreateResponse",
   takeoffJobCreateDataSchema
 );
+const apiTakeoffJobListSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffJobListResponse",
+  takeoffJobListDataSchema
+);
+const apiTakeoffJobDetailSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffJobDetailResponse",
+  takeoffJobDetailDataSchema
+);
+const apiTakeoffJobActionSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffJobActionResponse",
+  takeoffJobActionDataSchema
+);
 const apiTakeoffMappingRulesSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffMappingRulesResponse",
   takeoffMappingRulesDataSchema
@@ -1590,6 +1692,12 @@ const takeoffPlanFileIdPathParameter = pathParameter({
   schemaName: "TakeoffPlanFileIdPathParameter",
   schema: uuidSchema,
 });
+const takeoffJobIdPathParameter = pathParameter({
+  name: "jobId",
+  description: "Identifiant UUID du job takeoff.",
+  schemaName: "TakeoffJobIdPathParameter",
+  schema: uuidSchema,
+});
 
 const templateIdPathParameter = pathParameter({
   name: "templateId",
@@ -1648,6 +1756,41 @@ const takeoffPlanFileIncludeDownloadUrlQueryParameter = queryParameter({
   description: "Quand true, ajoute une URL signee de consultation.",
   schemaName: "TakeoffPlanFileIncludeDownloadUrlQueryParameter",
   schema: takeoffPlanFilesIncludeDownloadUrlQuerySchema,
+  required: false,
+});
+const takeoffJobEstimateVersionIdQueryParameter = queryParameter({
+  name: "estimate_version_id",
+  description: "Filtrer les jobs takeoff par version de chiffrage.",
+  schemaName: "TakeoffJobEstimateVersionIdQueryParameter",
+  schema: uuidSchema,
+  required: false,
+});
+const takeoffJobsLimitQueryParameter = queryParameter({
+  name: "limit",
+  description: "Nombre maximal de jobs retournes (<= 100).",
+  schemaName: "TakeoffJobsLimitQueryParameter",
+  schema: takeoffJobsLimitQuerySchema,
+  required: false,
+});
+const takeoffJobsOffsetQueryParameter = queryParameter({
+  name: "offset",
+  description: "Position de depart pour la pagination des jobs.",
+  schemaName: "TakeoffJobsOffsetQueryParameter",
+  schema: takeoffJobsOffsetQuerySchema,
+  required: false,
+});
+const takeoffJobItemsLimitQueryParameter = queryParameter({
+  name: "items_limit",
+  description: "Nombre maximal d'items du job retournes (<= 200).",
+  schemaName: "TakeoffJobItemsLimitQueryParameter",
+  schema: takeoffJobItemsLimitQuerySchema,
+  required: false,
+});
+const takeoffJobItemsOffsetQueryParameter = queryParameter({
+  name: "items_offset",
+  description: "Position de depart pour la pagination des items d'un job.",
+  schemaName: "TakeoffJobItemsOffsetQueryParameter",
+  schema: takeoffJobItemsOffsetQuerySchema,
   required: false,
 });
 
@@ -2075,6 +2218,36 @@ const takeoffPlanUploadErrorResponses: Record<string, OpenApiResponseDefinition>
     apiTakeoffFailureResponseSchemaDefinition
   ),
 };
+const takeoffJobsErrorResponses: Record<string, OpenApiResponseDefinition> = {
+  "400": jsonResponse(
+    "Requete invalide ou payload non conforme.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "401": jsonResponse(
+    "Authentification requise.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "403": jsonResponse(
+    "Acces interdit.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "404": jsonResponse(
+    "Job takeoff introuvable.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "409": jsonResponse(
+    "Conflit metier ou de concurrence.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "422": jsonResponse(
+    "Validation metier echouee.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+  "500": jsonResponse(
+    "Erreur interne serveur.",
+    apiTakeoffFailureResponseSchemaDefinition
+  ),
+};
 
 const apiOutlierStateSchemaDefinition =
   openApiSharedSchemaDefinitions.apiOutlierStateResponse;
@@ -2168,6 +2341,78 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
           },
         ],
       },
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs",
+    summary: "Lister les jobs Takeoff",
+    description:
+      "Retourne les jobs takeoff du tenant courant, avec filtre optionnel par version de chiffrage et pagination.",
+    tags: ["Takeoff"],
+    parameters: [
+      takeoffJobEstimateVersionIdQueryParameter,
+      takeoffJobsLimitQueryParameter,
+      takeoffJobsOffsetQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Jobs takeoff retournes.",
+        apiTakeoffJobListSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}",
+    summary: "Recuperer le detail d'un job Takeoff",
+    description:
+      "Retourne le job, son resultat d'extraction et ses items avec pagination explicite.",
+    tags: ["Takeoff"],
+    parameters: [
+      takeoffJobIdPathParameter,
+      takeoffJobItemsLimitQueryParameter,
+      takeoffJobItemsOffsetQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Detail du job takeoff retourne.",
+        apiTakeoffJobDetailSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/retry",
+    summary: "Relancer un job Takeoff echoue",
+    description:
+      "Relance un job en echec si la limite de retry n'est pas atteinte et si le delai de backoff est ecoule.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Job takeoff relance.",
+        apiTakeoffJobActionSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/cancel",
+    summary: "Annuler un job Takeoff",
+    description:
+      "Annule un job en cours (pending ou processing) et le bascule en statut canceled.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Job takeoff annule.",
+        apiTakeoffJobActionSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
     },
   },
   {
