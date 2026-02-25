@@ -226,4 +226,67 @@ describe("MappingRulesManager", () => {
     ).toBe(true);
     expect(await screen.findByText("Ordre des priorites enregistre.")).toBeInTheDocument();
   });
+
+  it("keeps unsaved priority drafts when list revalidates", async () => {
+    const user = userEvent.setup();
+    renderManager();
+
+    const priorityInput = (await screen.findByLabelText(
+      "Priorite de Renommer PVC"
+    )) as HTMLInputElement;
+    await user.clear(priorityInput);
+    await user.type(priorityInput, "77");
+    expect(priorityInput.value).toBe("77");
+
+    await user.click(screen.getByRole("button", { name: "Actualiser" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(fetchTakeoffMappingRules)).toHaveBeenCalledTimes(2);
+    });
+    expect(priorityInput.value).toBe("77");
+  });
+
+  it("does not rollback applied priorities when refresh fails after successful writes", async () => {
+    const user = userEvent.setup();
+    let fetchCallCount = 0;
+    vi.mocked(fetchTakeoffMappingRules).mockImplementation(async () => {
+      fetchCallCount += 1;
+      if (fetchCallCount >= 2) {
+        throw new Error("Refresh failed");
+      }
+      return [...rulesState];
+    });
+
+    renderManager();
+
+    const priorityInput = await screen.findByLabelText("Priorite de Renommer PVC");
+    await user.clear(priorityInput);
+    await user.type(priorityInput, "35");
+    await user.click(screen.getByRole("button", { name: "Enregistrer l'ordre" }));
+
+    await waitFor(() => {
+      expect(
+        vi
+          .mocked(updateTakeoffMappingRule)
+          .mock.calls.some(
+            (call) => call[0] === RULE_A_ID && (call[1] as { priority?: number }).priority === 35
+          )
+      ).toBe(true);
+    });
+
+    const ruleAPriorityCalls = vi
+      .mocked(updateTakeoffMappingRule)
+      .mock.calls.filter(
+        (call) => call[0] === RULE_A_ID && typeof (call[1] as { priority?: number }).priority === "number"
+      )
+      .map((call) => (call[1] as { priority?: number }).priority);
+
+    expect(ruleAPriorityCalls).toEqual([35]);
+    expect(
+      await screen.findByText(/Ordre des priorites enregistre/)
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Impossible de sauvegarder l'ordre des priorites.")
+    ).not.toBeInTheDocument();
+  });
 });

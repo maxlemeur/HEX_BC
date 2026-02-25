@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 
 import {
@@ -120,12 +120,20 @@ export function MappingRulesManager() {
   const [priorityDraftById, setPriorityDraftById] = useState<Record<string, string>>(
     {}
   );
+  const [priorityDirtyById, setPriorityDirtyById] = useState<Record<string, boolean>>(
+    {}
+  );
   const [priorityErrorById, setPriorityErrorById] = useState<Record<string, string>>(
     {}
   );
   const [deletingRule, setDeletingRule] = useState<TakeoffMappingRule | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const priorityDirtyByIdRef = useRef<Record<string, boolean>>({});
+
+  useEffect(() => {
+    priorityDirtyByIdRef.current = priorityDirtyById;
+  }, [priorityDirtyById]);
 
   const {
     data: rules = EMPTY_RULES,
@@ -165,12 +173,76 @@ export function MappingRulesManager() {
   }, [rules]);
 
   useEffect(() => {
-    const nextDrafts: Record<string, string> = {};
-    sortedRules.forEach((rule) => {
-      nextDrafts[rule.id] = String(rule.priority);
+    setPriorityDraftById((previousDrafts) => {
+      const nextDrafts: Record<string, string> = {};
+
+      sortedRules.forEach((rule) => {
+        const hasDraft = Object.prototype.hasOwnProperty.call(
+          previousDrafts,
+          rule.id
+        );
+        const keepDraft = hasDraft && priorityDirtyByIdRef.current[rule.id];
+
+        nextDrafts[rule.id] = keepDraft
+          ? previousDrafts[rule.id] ?? String(rule.priority)
+          : String(rule.priority);
+      });
+
+      const previousKeys = Object.keys(previousDrafts);
+      const nextKeys = Object.keys(nextDrafts);
+      if (previousKeys.length === nextKeys.length) {
+        const unchanged = nextKeys.every(
+          (key) => previousDrafts[key] === nextDrafts[key]
+        );
+        if (unchanged) {
+          return previousDrafts;
+        }
+      }
+
+      return nextDrafts;
     });
-    setPriorityDraftById(nextDrafts);
-    setPriorityErrorById({});
+
+    setPriorityDirtyById((previousDirty) => {
+      const nextDirty: Record<string, boolean> = {};
+      sortedRules.forEach((rule) => {
+        if (previousDirty[rule.id]) {
+          nextDirty[rule.id] = true;
+        }
+      });
+
+      const previousKeys = Object.keys(previousDirty);
+      const nextKeys = Object.keys(nextDirty);
+      if (previousKeys.length === nextKeys.length) {
+        const unchanged = nextKeys.every((key) => previousDirty[key] === nextDirty[key]);
+        if (unchanged) {
+          return previousDirty;
+        }
+      }
+
+      return nextDirty;
+    });
+
+    setPriorityErrorById((previousErrors) => {
+      const nextErrors: Record<string, string> = {};
+      sortedRules.forEach((rule) => {
+        if (previousErrors[rule.id]) {
+          nextErrors[rule.id] = previousErrors[rule.id] as string;
+        }
+      });
+
+      const previousKeys = Object.keys(previousErrors);
+      const nextKeys = Object.keys(nextErrors);
+      if (previousKeys.length === nextKeys.length) {
+        const unchanged = nextKeys.every(
+          (key) => previousErrors[key] === nextErrors[key]
+        );
+        if (unchanged) {
+          return previousErrors;
+        }
+      }
+
+      return nextErrors;
+    });
   }, [sortedRules]);
 
   const filteredRules = useMemo(() => {
@@ -321,9 +393,38 @@ export function MappingRulesManager() {
         });
       }
 
-      setSuccessMessage("Ordre des priorites enregistre.");
-      await mutate();
-    } catch (error) {
+      setPriorityDraftById((previousDrafts) => {
+        const nextDrafts = { ...previousDrafts };
+        updates.forEach((update) => {
+          nextDrafts[update.id] = String(update.nextPriority);
+        });
+        return nextDrafts;
+      });
+      setPriorityDirtyById((previousDirty) => {
+        const nextDirty = { ...previousDirty };
+        updates.forEach((update) => {
+          delete nextDirty[update.id];
+        });
+        return nextDirty;
+      });
+      setPriorityErrorById((previousErrors) => {
+        const nextErrors = { ...previousErrors };
+        updates.forEach((update) => {
+          delete nextErrors[update.id];
+        });
+        return nextErrors;
+      });
+
+      try {
+        await mutate();
+        setSuccessMessage("Ordre des priorites enregistre.");
+      } catch {
+        setActionError(null);
+        setSuccessMessage(
+          "Ordre des priorites enregistre. Impossible d'actualiser la liste pour le moment."
+        );
+      }
+    } catch (writeError) {
       await Promise.allSettled(
         appliedUpdates.map((update) =>
           updateTakeoffMappingRule(update.id, {
@@ -331,9 +432,13 @@ export function MappingRulesManager() {
           })
         )
       );
-      await mutate();
+      await mutate().catch(() => undefined);
+      setSuccessMessage(null);
       setActionError(
-        toErrorMessage(error, "Impossible de sauvegarder l'ordre des priorites.")
+        toErrorMessage(
+          writeError,
+          "Impossible de sauvegarder l'ordre des priorites."
+        )
       );
     } finally {
       setIsReordering(false);
@@ -396,7 +501,7 @@ export function MappingRulesManager() {
         </div>
       </header>
 
-      {rulesLoadError ? (
+      {rulesLoadError && rules.length === 0 ? (
         <div className="alert alert-error">
           {toErrorMessage(rulesLoadError, "Impossible de charger les regles de mapping.")}
         </div>
@@ -502,6 +607,10 @@ export function MappingRulesManager() {
                                 setPriorityDraftById((previous) => ({
                                   ...previous,
                                   [rule.id]: event.target.value,
+                                }));
+                                setPriorityDirtyById((previous) => ({
+                                  ...previous,
+                                  [rule.id]: true,
                                 }));
                                 setPriorityErrorById((previous) => {
                                   if (!previous[rule.id]) return previous;

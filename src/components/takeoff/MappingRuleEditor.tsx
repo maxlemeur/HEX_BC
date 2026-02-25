@@ -176,7 +176,10 @@ function toInitialFormState(
 
 function validateFormState(
   state: MappingRuleEditorFormState,
-  assemblies: EstimateAssemblySummary[]
+  assemblies: EstimateAssemblySummary[],
+  options: {
+    allowAssemblyIdOutsideLoadedList?: string | null;
+  } = {}
 ): MappingRuleEditorErrors {
   const errors: MappingRuleEditorErrors = {};
 
@@ -230,13 +233,16 @@ function validateFormState(
 
   if (state.action === "apply_assembly") {
     const normalizedAssemblyId = state.applyAssemblyId.trim();
+    const allowedAssemblyId =
+      options.allowAssemblyIdOutsideLoadedList?.trim() ?? null;
     if (!normalizedAssemblyId) {
       errors.applyAssemblyId = "Selectionnez un assemblage valide.";
     } else if (!UUID_PATTERN.test(normalizedAssemblyId)) {
       errors.applyAssemblyId = "UUID d'assemblage invalide.";
     } else if (
       assemblies.length > 0 &&
-      !assemblies.some((assembly) => assembly.id === normalizedAssemblyId)
+      !assemblies.some((assembly) => assembly.id === normalizedAssemblyId) &&
+      normalizedAssemblyId !== allowedAssemblyId
     ) {
       errors.applyAssemblyId =
         "L'assemblage selectionne est introuvable dans la liste chargee.";
@@ -439,6 +445,13 @@ export function MappingRuleEditor({
     () => evaluatePreview(state.matchType, state.matchPattern, state.previewDesignation),
     [state.matchPattern, state.matchType, state.previewDesignation]
   );
+  const selectedAssemblyMissing = useMemo(() => {
+    if (state.action !== "apply_assembly") return false;
+    const normalizedAssemblyId = state.applyAssemblyId.trim();
+    if (!normalizedAssemblyId) return false;
+
+    return !assemblies.some((assembly) => assembly.id === normalizedAssemblyId);
+  }, [assemblies, state.action, state.applyAssemblyId]);
 
   const previewClassName = (() => {
     if (previewResult.state === "match") return "text-emerald-700";
@@ -459,7 +472,13 @@ export function MappingRuleEditor({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const nextErrors = validateFormState(state, assemblies);
+    const allowedAssemblyId =
+      mode === "edit" && initialRule?.action === "apply_assembly"
+        ? initialRule.action_params.assembly_id
+        : null;
+    const nextErrors = validateFormState(state, assemblies, {
+      allowAssemblyIdOutsideLoadedList: allowedAssemblyId,
+    });
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
       return;
@@ -724,13 +743,20 @@ export function MappingRuleEditor({
                 setField("applyAssemblyId", event.target.value);
                 clearError("applyAssemblyId");
               }}
-              disabled={isSubmitting || assemblies.length === 0}
+              disabled={
+                isSubmitting || (assemblies.length === 0 && !selectedAssemblyMissing)
+              }
             >
               <option value="">
                 {assemblies.length === 0
                   ? "Aucun assemblage disponible"
                   : "Selectionner un assemblage"}
               </option>
+              {selectedAssemblyMissing ? (
+                <option value={state.applyAssemblyId}>
+                  Assemblage existant ({state.applyAssemblyId})
+                </option>
+              ) : null}
               {assemblies.map((assembly) => (
                 <option key={assembly.id} value={assembly.id}>
                   {assembly.name} ({assembly.itemCount} ligne(s))
