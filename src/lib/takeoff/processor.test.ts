@@ -85,6 +85,27 @@ type StoredTakeoffItemRow = {
   metadata: Record<string, unknown>;
 };
 
+type StoredTakeoffRunMetricRow = {
+  tenant_id: string;
+  job_id: string;
+  result_id: string | null;
+  level: string;
+  provider: string;
+  model: string;
+  chunk_index: number;
+  chunk_start_page: number;
+  chunk_end_page: number;
+  input_tokens: number;
+  reasoning_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_cents: number;
+  duration_ms: number;
+  timed_out: boolean;
+  budget_exceeded: boolean;
+  metadata: Record<string, unknown>;
+};
+
 type AuditLogPayload = {
   action: string;
   after_data: Record<string, unknown>;
@@ -95,6 +116,7 @@ type SupabaseMockOptions = {
   job?: Partial<TakeoffJobRow>;
   existingResults?: StoredTakeoffResultRow[];
   existingItems?: StoredTakeoffItemRow[];
+  existingRunMetrics?: StoredTakeoffRunMetricRow[];
   featureFlags?: Record<string, string | null>;
   planFile?: {
     id: string;
@@ -115,6 +137,7 @@ type SupabaseMockState = {
   statusTransitions: string[];
   takeoffResults: StoredTakeoffResultRow[];
   takeoffItems: StoredTakeoffItemRow[];
+  takeoffRunMetrics: StoredTakeoffRunMetricRow[];
   featureFlags: Record<string, string | null>;
   planFile: {
     id: string;
@@ -189,9 +212,16 @@ function buildGeminiResult(
   exchange: TakeoffExchange,
   overrides: Partial<CallGeminiStructuredResult<TakeoffExchange>> = {}
 ): CallGeminiStructuredResult<TakeoffExchange> {
+  const tokenCount = overrides.tokenCount ?? 1_400;
   return {
     data: exchange,
-    tokenCount: overrides.tokenCount ?? 1_400,
+    tokenCount,
+    tokenUsage: overrides.tokenUsage ?? {
+      inputTokens: tokenCount,
+      reasoningTokens: 0,
+      outputTokens: 0,
+      totalTokens: tokenCount,
+    },
     costCents: overrides.costCents ?? 42,
     durationMs: overrides.durationMs ?? 1_800,
     model: overrides.model ?? "gemini-2.5-flash",
@@ -278,11 +308,17 @@ function createTakeoffProcessorSupabaseMock(
       ? deepClone(options.existingResults)
       : [],
     takeoffItems: options.existingItems ? deepClone(options.existingItems) : [],
+    takeoffRunMetrics: options.existingRunMetrics
+      ? deepClone(options.existingRunMetrics)
+      : [],
     featureFlags: {
       TAKEOFF_C_CHUNK_THRESHOLD_PAGES: "15",
       TAKEOFF_C_CHUNK_SIZE_PAGES: "10",
       TAKEOFF_C_CHUNK_OVERLAP_PAGES: "2",
       TAKEOFF_C_MAX_PDF_PAGES: "200",
+      TAKEOFF_C_TIMEOUT_MS: "120000",
+      TAKEOFF_C_MAX_TOTAL_TOKENS: "250000",
+      TAKEOFF_C_MAX_COST_CENTS: "2000",
       ...(options.featureFlags ?? {}),
     },
     planFile:
@@ -493,6 +529,38 @@ function createTakeoffProcessorSupabaseMock(
     return builder;
   }
 
+  function createTakeoffRunMetricsDeleteBuilder() {
+    const filters: Record<string, string> = {};
+
+    const then: QueryThen<null> = (onfulfilled, onrejected) => {
+      state.takeoffRunMetrics = state.takeoffRunMetrics.filter((metric) => {
+        if (filters.tenant_id && metric.tenant_id !== filters.tenant_id) {
+          return true;
+        }
+        if (filters.job_id && metric.job_id !== filters.job_id) {
+          return true;
+        }
+
+        return false;
+      });
+
+      return Promise.resolve({ data: null, error: null }).then(
+        onfulfilled,
+        onrejected
+      );
+    };
+
+    const builder = {
+      eq: vi.fn((column: string, value: string) => {
+        filters[column] = value;
+        return builder;
+      }),
+      then,
+    };
+
+    return builder;
+  }
+
   function createTakeoffResultsInsertBuilder(payload: Omit<StoredTakeoffResultRow, "id">) {
     let insertedId: string | null = null;
 
@@ -540,6 +608,20 @@ function createTakeoffProcessorSupabaseMock(
           })
         ),
       })),
+      then,
+    };
+  }
+
+  function createTakeoffRunMetricsInsertBuilder(payload: StoredTakeoffRunMetricRow[]) {
+    const then: QueryThen<null> = (onfulfilled, onrejected) => {
+      state.takeoffRunMetrics.push(...deepClone(payload));
+      return Promise.resolve({ data: null, error: null }).then(
+        onfulfilled,
+        onrejected
+      );
+    };
+
+    return {
       then,
     };
   }
@@ -727,6 +809,15 @@ function createTakeoffProcessorSupabaseMock(
           delete: vi.fn(() => createTakeoffResultsDeleteBuilder()),
           insert: vi.fn((payload: Omit<StoredTakeoffResultRow, "id">) =>
             createTakeoffResultsInsertBuilder(deepClone(payload))
+          ),
+        };
+      }
+
+      if (table === "takeoff_run_metrics") {
+        return {
+          delete: vi.fn(() => createTakeoffRunMetricsDeleteBuilder()),
+          insert: vi.fn((payload: StoredTakeoffRunMetricRow[]) =>
+            createTakeoffRunMetricsInsertBuilder(deepClone(payload))
           ),
         };
       }
@@ -1697,6 +1788,12 @@ describe("processLevelC", () => {
       tokenCount: 1_800,
       costCents: 85,
       durationMs: 3_000,
+      metricsSummary: {
+        inputTokens: 1_800,
+        reasoningTokens: 0,
+        outputTokens: 0,
+        totalTokens: 1_800,
+      },
     });
     expect(callGemini).toHaveBeenCalledTimes(3);
     expect(mock.state.takeoffItems).toHaveLength(3);
@@ -1723,6 +1820,23 @@ describe("processLevelC", () => {
         detected_page_count: 24,
       }),
     });
+    expect(mock.state.takeoffRunMetrics).toHaveLength(3);
+    expect(mock.state.takeoffRunMetrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tenant_id: TENANT_ID,
+          job_id: JOB_ID,
+          level: "C",
+          chunk_index: 0,
+          input_tokens: 600,
+          reasoning_tokens: 0,
+          output_tokens: 0,
+          total_tokens: 600,
+          timed_out: false,
+          budget_exceeded: false,
+        }),
+      ])
+    );
   });
 
   it("fails when PDF page count exceeds the tenant max limit", async () => {
@@ -1763,5 +1877,196 @@ describe("processLevelC", () => {
 
     expect(callGemini).not.toHaveBeenCalled();
     expect(mock.state.job.status).toBe("failed");
+  });
+
+  it("fails with TAKEOFF_LEVEL_C_INVALID_SCHEMA when Gemini payload is invalid", async () => {
+    const pdfBytes = await createPdfArrayBuffer(8);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "C",
+        source_file_name: "niveau-c-invalid.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_C,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+    });
+
+    const invalidExchange = {
+      items: [
+        {
+          designation: "Canalisation",
+          quantity: 4,
+          unit: "ml",
+          source_page: 2,
+          source_file: "niveau-c-invalid.pdf",
+          confidence: 0.7,
+        },
+      ],
+      warnings: [],
+      metadata: {
+        level: "C",
+        prompt_version: "takeoff-c-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.6,
+    } as unknown as TakeoffExchange;
+
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(invalidExchange, {
+        tokenCount: 400,
+        costCents: 25,
+        durationMs: 900,
+        model: "gemini-2.5-pro",
+        promptVersion: "takeoff-c-v1",
+      })
+    );
+
+    await expect(
+      processLevelC(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA,
+      retryable: false,
+    });
+
+    expect(mock.state.job.status).toBe("failed");
+    expect(mock.state.job.error_code).toBe(TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA);
+    expect(mock.state.takeoffRunMetrics).toHaveLength(1);
+    expect(mock.state.takeoffRunMetrics[0]).toMatchObject({
+      chunk_index: 0,
+      timed_out: false,
+      budget_exceeded: false,
+    });
+  });
+
+  it("fails with TAKEOFF_LEVEL_C_TIMEOUT and stores timed_out chunk metric", async () => {
+    const pdfBytes = await createPdfArrayBuffer(8);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "C",
+        source_file_name: "niveau-c-timeout.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_C,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+    });
+
+    const callGemini = vi.fn().mockRejectedValue(
+      new TakeoffError({
+        code: TakeoffErrorCode.AI_TIMEOUT,
+        message: "Gemini timeout",
+        retryable: true,
+        jobId: JOB_ID,
+        level: "C",
+      })
+    );
+
+    await expect(
+      processLevelC(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT,
+    });
+
+    expect(mock.state.job.status).toBe("failed");
+    expect(mock.state.job.error_code).toBe(TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT);
+    expect(mock.state.takeoffRunMetrics).toHaveLength(1);
+    expect(mock.state.takeoffRunMetrics[0]).toMatchObject({
+      chunk_index: 0,
+      timed_out: true,
+      budget_exceeded: false,
+    });
+  });
+
+  it("fails with TAKEOFF_LEVEL_C_BUDGET_EXCEEDED when token budget is exceeded", async () => {
+    const pdfBytes = await createPdfArrayBuffer(8);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "C",
+        source_file_name: "niveau-c-budget.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_C,
+        source_file_type: "application/pdf",
+      },
+      featureFlags: {
+        TAKEOFF_C_MAX_TOTAL_TOKENS: "1000",
+        TAKEOFF_C_MAX_COST_CENTS: "2000",
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+    });
+
+    const validExchange: TakeoffExchange = {
+      items: [
+        {
+          designation: "Support",
+          quantity: 3,
+          unit: "u",
+          source_page: 1,
+          source_file: "niveau-c-budget.pdf",
+          confidence: 0.88,
+          evidence: "Comptage visuel.",
+        },
+      ],
+      warnings: [],
+      metadata: {
+        level: "C",
+        prompt_version: "takeoff-c-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.85,
+    };
+
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(validExchange, {
+        tokenCount: 1_200,
+        costCents: 40,
+        durationMs: 900,
+        model: "gemini-2.5-pro",
+        promptVersion: "takeoff-c-v1",
+      })
+    );
+
+    await expect(
+      processLevelC(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
+      retryable: false,
+    });
+
+    expect(mock.state.job.status).toBe("failed");
+    expect(mock.state.job.error_code).toBe(TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED);
+    expect(mock.state.takeoffRunMetrics).toHaveLength(1);
+    expect(mock.state.takeoffRunMetrics[0]).toMatchObject({
+      chunk_index: 0,
+      total_tokens: 1_200,
+      budget_exceeded: true,
+      timed_out: false,
+    });
   });
 });

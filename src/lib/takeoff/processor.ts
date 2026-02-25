@@ -19,6 +19,7 @@ import {
   callGeminiStructured,
   type CallGeminiStructuredOptions,
   type CallGeminiStructuredResult,
+  type GeminiTokenUsageBreakdown,
   type GeminiThinkingLevel,
 } from "@/lib/takeoff/gemini-client";
 import {
@@ -26,7 +27,7 @@ import {
   TakeoffErrorCode,
   toTakeoffError,
 } from "@/lib/takeoff/errors";
-import { getTakeoffChunkingConfigForTenant } from "@/lib/takeoff/feature-flags";
+import { getTakeoffLevelCProcessingConfigForTenant } from "@/lib/takeoff/feature-flags";
 import { getTakeoffLevelConfig, getTakeoffPrompt } from "@/lib/takeoff/prompts";
 import { TakeoffExchangeSchema, TakeoffWarningSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffExchange, TakeoffWarning } from "@/lib/takeoff/types";
@@ -178,14 +179,23 @@ export type ProcessLevelBResult = ProcessLevelAResult & {
   tablesCount: number;
 };
 
+export type ProcessLevelCMetricsSummary = {
+  inputTokens: number;
+  reasoningTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
 export type ProcessLevelCResult = ProcessLevelBResult & {
   chunksCount: number;
   pageCount: number;
+  metricsSummary?: ProcessLevelCMetricsSummary;
 };
 
 type ProcessLevelInternalResult = ProcessLevelBResult & {
   chunksCount?: number;
   pageCount?: number;
+  metricsSummary?: ProcessLevelCMetricsSummary;
 };
 
 function normalizeNullableText(value: string | null | undefined) {
@@ -921,6 +931,27 @@ async function clearPreviousResultsForJob(input: {
   job: TakeoffJobProcessingRow;
   level: ProcessableTakeoffLevel;
 }) {
+  const { error: deleteMetricsError } = await input.supabase
+    .from("takeoff_run_metrics" as never)
+    .delete()
+    .eq("tenant_id" as never, input.job.tenant_id as never)
+    .eq("job_id" as never, input.job.id as never);
+
+  if (deleteMetricsError) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        deleteMetricsError,
+        "Impossible de nettoyer les metriques takeoff precedentes."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.job.id,
+        level: input.level,
+      }
+    );
+  }
+
   const { error: deleteItemsError } = await input.supabase
     .from("takeoff_items" as never)
     .delete()
@@ -1270,23 +1301,48 @@ type LevelCChunkMetric = {
   index: number;
   start: number;
   end: number;
+  input_tokens: number;
+  reasoning_tokens: number;
+  output_tokens: number;
   token_count: number;
   cost_cents: number;
   duration_ms: number;
+  model: string;
+  timed_out: boolean;
+  budget_exceeded: boolean;
   status: "success" | "failed";
   error_code?: string;
   error_message?: string;
+};
+
+type LevelCChunkMetricPersistenceHint = {
+  errorDetails?: unknown;
+  sourceFileName: string;
+};
+
+type LevelCChunkMetricWriteInput = {
+  supabase: Supabase;
+  job: TakeoffJobProcessingRow;
+  metrics: LevelCChunkMetric[];
+  resultId?: string | null;
+  hint: LevelCChunkMetricPersistenceHint;
+};
+
+type LevelCProcessingError = TakeoffError & {
+  levelCChunkMetrics?: LevelCChunkMetric[];
 };
 
 type ProcessLevelCGeminiAggregate = {
   normalizedExchange: TakeoffExchange;
   itemsForInsert: NormalizedTakeoffItemForInsert[];
   tokenCount: number;
+  tokenUsage: ProcessLevelCMetricsSummary;
   costCents: number;
   durationMs: number;
   tablesCount: number;
   pageCount: number;
   chunksCount: number;
+  chunkMetrics: LevelCChunkMetric[];
   providerMeta: Record<string, unknown>;
 };
 
@@ -1397,6 +1453,167 @@ async function upsertDetectedPlanFilePageCount(input: {
   }
 }
 
+function cloneLevelCChunkMetrics(metrics: LevelCChunkMetric[]) {
+  return metrics.map((metric) => ({ ...metric }));
+}
+
+function isLevelCChunkMetric(value: unknown): value is LevelCChunkMetric {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.index === "number" &&
+    typeof record.start === "number" &&
+    typeof record.end === "number" &&
+    typeof record.input_tokens === "number" &&
+    typeof record.reasoning_tokens === "number" &&
+    typeof record.output_tokens === "number" &&
+    typeof record.token_count === "number" &&
+    typeof record.cost_cents === "number" &&
+    typeof record.duration_ms === "number" &&
+    typeof record.model === "string" &&
+    typeof record.timed_out === "boolean" &&
+    typeof record.budget_exceeded === "boolean" &&
+    (record.status === "success" || record.status === "failed")
+  );
+}
+
+function extractLevelCChunkMetricsFromError(error: unknown): LevelCChunkMetric[] {
+  if (!error || typeof error !== "object" || Array.isArray(error)) {
+    return [];
+  }
+
+  const record = error as { levelCChunkMetrics?: unknown };
+  if (!Array.isArray(record.levelCChunkMetrics)) {
+    return [];
+  }
+
+  const metrics = record.levelCChunkMetrics.filter(isLevelCChunkMetric);
+  return cloneLevelCChunkMetrics(metrics);
+}
+
+function mapToLevelCNormalizedError(input: {
+  error: unknown;
+  jobId: string;
+  chunkMetrics: LevelCChunkMetric[];
+}): TakeoffError {
+  const mapped = toTakeoffError(input.error, {
+    fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+    jobId: input.jobId,
+    level: TAKEOFF_LEVEL_C,
+  });
+
+  let normalized = mapped;
+  if (mapped.code === TakeoffErrorCode.AI_TIMEOUT) {
+    normalized = new TakeoffError({
+      code: TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT,
+      status: 500,
+      message: mapped.message,
+      details: mapped.details,
+      retryable: mapped.retryable,
+      jobId: input.jobId,
+      level: TAKEOFF_LEVEL_C,
+    });
+  } else if (
+    mapped.code === TakeoffErrorCode.AI_SCHEMA ||
+    mapped.code === TakeoffErrorCode.VALIDATION_ERROR
+  ) {
+    normalized = new TakeoffError({
+      code: TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA,
+      status: 422,
+      message: mapped.message,
+      details: mapped.details,
+      retryable: false,
+      jobId: input.jobId,
+      level: TAKEOFF_LEVEL_C,
+    });
+  }
+
+  const enriched = normalized as LevelCProcessingError;
+  enriched.levelCChunkMetrics = cloneLevelCChunkMetrics(input.chunkMetrics);
+  return enriched;
+}
+
+function logLevelCChunkMetric(input: {
+  job: TakeoffJobProcessingRow;
+  metric: LevelCChunkMetric;
+}) {
+  const payload = {
+    job_id: input.job.id,
+    tenant_id: input.job.tenant_id,
+    level: TAKEOFF_LEVEL_C,
+    chunk_index: input.metric.index,
+    chunk_start_page: input.metric.start,
+    chunk_end_page: input.metric.end,
+    model: input.metric.model,
+    input_tokens: input.metric.input_tokens,
+    reasoning_tokens: input.metric.reasoning_tokens,
+    output_tokens: input.metric.output_tokens,
+    total_tokens: input.metric.token_count,
+    cost_cents: input.metric.cost_cents,
+    duration_ms: input.metric.duration_ms,
+    timed_out: input.metric.timed_out,
+    budget_exceeded: input.metric.budget_exceeded,
+    status: input.metric.status,
+    error_code: input.metric.error_code ?? null,
+  };
+
+  if (input.metric.status === "failed") {
+    console.error("takeoff.level_c.chunk", payload);
+    return;
+  }
+
+  console.info("takeoff.level_c.chunk", payload);
+}
+
+async function persistLevelCRunMetrics(input: LevelCChunkMetricWriteInput) {
+  if (input.metrics.length === 0) {
+    return;
+  }
+
+  const payload = input.metrics.map((metric) => ({
+    tenant_id: input.job.tenant_id,
+    job_id: input.job.id,
+    result_id: input.resultId ?? null,
+    level: TAKEOFF_LEVEL_C,
+    provider: "gemini",
+    model: metric.model,
+    chunk_index: metric.index,
+    chunk_start_page: metric.start,
+    chunk_end_page: metric.end,
+    input_tokens: metric.input_tokens,
+    reasoning_tokens: metric.reasoning_tokens,
+    output_tokens: metric.output_tokens,
+    total_tokens: metric.token_count,
+    cost_cents: metric.cost_cents,
+    duration_ms: metric.duration_ms,
+    timed_out: metric.timed_out,
+    budget_exceeded: metric.budget_exceeded,
+    metadata: {
+      status: metric.status,
+      source_file_name: input.hint.sourceFileName,
+      error_code: metric.error_code ?? null,
+      error_message: metric.error_message ?? null,
+      error_details: input.hint.errorDetails ?? null,
+    },
+  }));
+
+  const { error } = await input.supabase
+    .from("takeoff_run_metrics" as never)
+    .insert(payload as never);
+
+  if (error) {
+    console.error("Impossible de persister les metriques takeoff_run_metrics.", {
+      job_id: input.job.id,
+      tenant_id: input.job.tenant_id,
+      metrics_count: input.metrics.length,
+      error,
+    });
+  }
+}
+
 async function processLevelCGeminiChunks(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
@@ -1435,21 +1652,24 @@ async function processLevelCGeminiChunks(input: {
     });
   }
 
-  const chunkingConfig = await getTakeoffChunkingConfigForTenant(input.job.tenant_id, {
-    supabase: input.supabase,
-  });
+  const levelCProcessingConfig = await getTakeoffLevelCProcessingConfigForTenant(
+    input.job.tenant_id,
+    {
+      supabase: input.supabase,
+    }
+  );
 
-  if (pageCount > chunkingConfig.maxPdfPages) {
+  if (pageCount > levelCProcessingConfig.maxPdfPages) {
     throw new TakeoffError({
       status: 413,
       code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
-      message: `Le PDF contient ${pageCount} pages et depasse la limite de ${chunkingConfig.maxPdfPages} pages.`,
+      message: `Le PDF contient ${pageCount} pages et depasse la limite de ${levelCProcessingConfig.maxPdfPages} pages.`,
       retryable: false,
       jobId: input.job.id,
       level: TAKEOFF_LEVEL_C,
       details: {
         page_count: pageCount,
-        max_pdf_pages: chunkingConfig.maxPdfPages,
+        max_pdf_pages: levelCProcessingConfig.maxPdfPages,
       },
     });
   }
@@ -1462,9 +1682,9 @@ async function processLevelCGeminiChunks(input: {
   });
 
   const chunks = buildPdfChunks(pageCount, {
-    thresholdPages: chunkingConfig.thresholdPages,
-    chunkSizePages: chunkingConfig.chunkSizePages,
-    overlapPages: chunkingConfig.overlapPages,
+    thresholdPages: levelCProcessingConfig.thresholdPages,
+    chunkSizePages: levelCProcessingConfig.chunkSizePages,
+    overlapPages: levelCProcessingConfig.overlapPages,
   });
 
   const chunkExchanges: Array<{
@@ -1472,7 +1692,12 @@ async function processLevelCGeminiChunks(input: {
     exchange: TakeoffExchange;
   }> = [];
   const chunkMetrics: LevelCChunkMetric[] = [];
-  let tokenCount = 0;
+  const tokenUsage: ProcessLevelCMetricsSummary = {
+    inputTokens: 0,
+    reasoningTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+  };
   let costCents = 0;
   let durationMs = 0;
 
@@ -1503,7 +1728,7 @@ async function processLevelCGeminiChunks(input: {
           },
         ],
         thinkingLevel: input.thinkingLevel,
-        timeoutMs: resolveGeminiTimeoutMs(),
+        timeoutMs: levelCProcessingConfig.timeoutMs,
         context: {
           jobId: input.job.id,
           tenantId: input.job.tenant_id,
@@ -1522,37 +1747,114 @@ async function processLevelCGeminiChunks(input: {
         }),
       });
 
-      tokenCount += geminiResult.tokenCount;
+      const chunkTokenUsage: GeminiTokenUsageBreakdown = geminiResult.tokenUsage;
+      tokenUsage.inputTokens += chunkTokenUsage.inputTokens;
+      tokenUsage.reasoningTokens += chunkTokenUsage.reasoningTokens;
+      tokenUsage.outputTokens += chunkTokenUsage.outputTokens;
+      tokenUsage.totalTokens += chunkTokenUsage.totalTokens;
+
       costCents += geminiResult.costCents;
       durationMs += geminiResult.durationMs;
-      chunkMetrics.push({
+
+      const tokenBudgetExceeded = tokenUsage.totalTokens > levelCProcessingConfig.maxTotalTokens;
+      const costBudgetExceeded = costCents > levelCProcessingConfig.maxCostCents;
+      const isBudgetExceeded = tokenBudgetExceeded || costBudgetExceeded;
+
+      const metric: LevelCChunkMetric = {
         index: chunk.index,
         start: chunk.startPage,
         end: chunk.endPage,
-        token_count: geminiResult.tokenCount,
+        input_tokens: chunkTokenUsage.inputTokens,
+        reasoning_tokens: chunkTokenUsage.reasoningTokens,
+        output_tokens: chunkTokenUsage.outputTokens,
+        token_count: chunkTokenUsage.totalTokens,
         cost_cents: geminiResult.costCents,
         duration_ms: geminiResult.durationMs,
-        status: "success",
-      });
-    } catch (error) {
-      const mapped = toTakeoffError(error, {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        jobId: input.job.id,
-        level: TAKEOFF_LEVEL_C,
+        model: geminiResult.model,
+        timed_out: false,
+        budget_exceeded: isBudgetExceeded,
+        status: isBudgetExceeded ? "failed" : "success",
+        error_code: isBudgetExceeded
+          ? TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED
+          : undefined,
+        error_message: isBudgetExceeded
+          ? "Le budget Level C configure est depasse."
+          : undefined,
+      };
+      chunkMetrics.push(metric);
+      logLevelCChunkMetric({
+        job: input.job,
+        metric,
       });
 
-      chunkMetrics.push({
-        index: chunk.index,
-        start: chunk.startPage,
-        end: chunk.endPage,
-        token_count: 0,
-        cost_cents: 0,
-        duration_ms: 0,
-        status: "failed",
-        error_code: mapped.code,
-        error_message: mapped.message,
+      if (isBudgetExceeded) {
+        throw new TakeoffError({
+          code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
+          status: 422,
+          message: "Le budget Level C configure est depasse.",
+          retryable: false,
+          jobId: input.job.id,
+          level: TAKEOFF_LEVEL_C,
+          details: {
+            chunk_index: chunk.index,
+            chunk_start_page: chunk.startPage,
+            chunk_end_page: chunk.endPage,
+            consumed: {
+              input_tokens: tokenUsage.inputTokens,
+              reasoning_tokens: tokenUsage.reasoningTokens,
+              output_tokens: tokenUsage.outputTokens,
+              total_tokens: tokenUsage.totalTokens,
+              cost_cents: costCents,
+            },
+            budget: {
+              max_total_tokens: levelCProcessingConfig.maxTotalTokens,
+              max_cost_cents: levelCProcessingConfig.maxCostCents,
+            },
+            exceeded: {
+              total_tokens: tokenBudgetExceeded,
+              cost_cents: costBudgetExceeded,
+            },
+          },
+        });
+      }
+    } catch (error) {
+      const normalized = mapToLevelCNormalizedError({
+        error,
+        jobId: input.job.id,
+        chunkMetrics,
       });
-      throw mapped;
+
+      const alreadyTracked = chunkMetrics.some((metric) => metric.index === chunk.index);
+      if (!alreadyTracked) {
+        const fallbackMetric: LevelCChunkMetric = {
+          index: chunk.index,
+          start: chunk.startPage,
+          end: chunk.endPage,
+          input_tokens: 0,
+          reasoning_tokens: 0,
+          output_tokens: 0,
+          token_count: 0,
+          cost_cents: 0,
+          duration_ms: 0,
+          model: input.model,
+          timed_out: normalized.code === TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT,
+          budget_exceeded:
+            normalized.code === TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
+          status: "failed",
+          error_code: normalized.code,
+          error_message: normalized.message,
+        };
+        chunkMetrics.push(fallbackMetric);
+        logLevelCChunkMetric({
+          job: input.job,
+          metric: fallbackMetric,
+        });
+      }
+
+      (normalized as LevelCProcessingError).levelCChunkMetrics = cloneLevelCChunkMetrics(
+        chunkMetrics
+      );
+      throw normalized;
     }
   }
 
@@ -1567,12 +1869,14 @@ async function processLevelCGeminiChunks(input: {
   return {
     normalizedExchange: normalized.exchange,
     itemsForInsert: normalized.itemsForInsert,
-    tokenCount,
+    tokenCount: tokenUsage.totalTokens,
+    tokenUsage,
     costCents,
     durationMs,
     tablesCount,
     pageCount,
     chunksCount: chunks.length,
+    chunkMetrics,
     providerMeta: {
       file_type: input.sourceFile.mimeType,
       source_file_name: input.sourceFile.fileName,
@@ -1582,10 +1886,21 @@ async function processLevelCGeminiChunks(input: {
       deduplicated_items: merged.deduplicatedItems,
       duplicate_items: merged.duplicateItems,
       chunking_config: {
-        threshold_pages: chunkingConfig.thresholdPages,
-        chunk_size_pages: chunkingConfig.chunkSizePages,
-        chunk_overlap_pages: chunkingConfig.overlapPages,
-        max_pdf_pages: chunkingConfig.maxPdfPages,
+        threshold_pages: levelCProcessingConfig.thresholdPages,
+        chunk_size_pages: levelCProcessingConfig.chunkSizePages,
+        chunk_overlap_pages: levelCProcessingConfig.overlapPages,
+        max_pdf_pages: levelCProcessingConfig.maxPdfPages,
+      },
+      runtime_config: {
+        timeout_ms: levelCProcessingConfig.timeoutMs,
+        max_total_tokens: levelCProcessingConfig.maxTotalTokens,
+        max_cost_cents: levelCProcessingConfig.maxCostCents,
+      },
+      token_usage: {
+        input_tokens: tokenUsage.inputTokens,
+        reasoning_tokens: tokenUsage.reasoningTokens,
+        output_tokens: tokenUsage.outputTokens,
+        total_tokens: tokenUsage.totalTokens,
       },
       chunks: chunkMetrics,
     },
@@ -1691,6 +2006,8 @@ async function processTakeoffLevel(
 
   let job: TakeoffJobProcessingRow | null = null;
   let enteredProcessing = false;
+  let levelCChunkMetrics: LevelCChunkMetric[] = [];
+  let levelCSourceFileName: string | null = null;
 
   try {
     job = await getTakeoffJobForProcessing({
@@ -1736,6 +2053,9 @@ async function processTakeoffLevel(
       job,
       level,
     });
+    if (level === TAKEOFF_LEVEL_C) {
+      levelCSourceFileName = sourceFile.fileName;
+    }
     const schemaVersion = normalizeNullableText(job.schema_version) ?? "v1";
 
     if (level === TAKEOFF_LEVEL_C) {
@@ -1749,6 +2069,7 @@ async function processTakeoffLevel(
         promptVersion: levelConfig.promptVersion,
         thinkingLevel: levelConfig.thinkingLevel,
       });
+      levelCChunkMetrics = cloneLevelCChunkMetrics(levelCResult.chunkMetrics);
 
       const persisted = await persistTakeoffResultAndItems({
         supabase: context.supabase,
@@ -1767,6 +2088,16 @@ async function processTakeoffLevel(
           tables_count: levelCResult.tablesCount,
         },
         level,
+      });
+
+      await persistLevelCRunMetrics({
+        supabase: context.supabase,
+        job,
+        resultId: persisted.resultId,
+        metrics: levelCResult.chunkMetrics,
+        hint: {
+          sourceFileName: sourceFile.fileName,
+        },
       });
 
       const completedAt = now();
@@ -1811,6 +2142,7 @@ async function processTakeoffLevel(
         tablesCount: levelCResult.tablesCount,
         chunksCount: levelCResult.chunksCount,
         pageCount: levelCResult.pageCount,
+        metricsSummary: levelCResult.tokenUsage,
       };
     }
 
@@ -1910,6 +2242,13 @@ async function processTakeoffLevel(
       tablesCount,
     };
   } catch (error) {
+    const levelCChunkMetricsFromError =
+      level === TAKEOFF_LEVEL_C ? extractLevelCChunkMetricsFromError(error) : [];
+    const chunkMetricsToPersist =
+      levelCChunkMetricsFromError.length > 0
+        ? levelCChunkMetricsFromError
+        : cloneLevelCChunkMetrics(levelCChunkMetrics);
+
     const mappedError = toTakeoffError(error, {
       fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
       jobId: normalizedJobId,
@@ -1939,6 +2278,21 @@ async function processTakeoffLevel(
         durationMs,
         error: mappedError,
       });
+
+      if (level === TAKEOFF_LEVEL_C && chunkMetricsToPersist.length > 0) {
+        await persistLevelCRunMetrics({
+          supabase: context.supabase,
+          job,
+          metrics: chunkMetricsToPersist,
+          hint: {
+            sourceFileName:
+              levelCSourceFileName ??
+              normalizeNullableText(job.source_file_name) ??
+              "unknown",
+            errorDetails: mappedError.details,
+          },
+        });
+      }
 
       await logFailedAuditEvent({
         supabase: context.supabase,
@@ -1994,5 +2348,6 @@ export async function processLevelC(
     tablesCount: result.tablesCount,
     chunksCount: result.chunksCount ?? 1,
     pageCount: result.pageCount ?? 0,
+    metricsSummary: result.metricsSummary,
   };
 }

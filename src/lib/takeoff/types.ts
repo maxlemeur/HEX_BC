@@ -140,6 +140,29 @@ export type TakeoffJobResult = {
   updated_at: string;
 };
 
+export type TakeoffRunMetric = {
+  id: string;
+  created_at: string;
+  tenant_id: string;
+  job_id: string;
+  result_id: string | null;
+  level: TakeoffLevel | string;
+  provider: string;
+  model: string;
+  chunk_index: number;
+  chunk_start_page: number;
+  chunk_end_page: number;
+  input_tokens: number;
+  reasoning_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_cents: number;
+  duration_ms: number;
+  timed_out: boolean;
+  budget_exceeded: boolean;
+  metadata: Record<string, unknown>;
+};
+
 export type TakeoffJobItem = {
   id: string;
   designation: string;

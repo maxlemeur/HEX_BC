@@ -52,6 +52,12 @@ describe("callGeminiStructured", () => {
 
     expect(result.data.items).toHaveLength(1);
     expect(result.tokenCount).toBe(100_000);
+    expect(result.tokenUsage).toEqual({
+      inputTokens: 50_000,
+      reasoningTokens: 0,
+      outputTokens: 50_000,
+      totalTokens: 100_000,
+    });
     expect(result.costCents).toBeGreaterThan(0);
     expect(result.model).toBe("gemini-2.5-pro");
     expect(result.promptVersion).toBe("takeoff-a-v1");
@@ -60,10 +66,46 @@ describe("callGeminiStructured", () => {
         job_id: "job-1",
         tenant_id: "tenant-1",
         level: "A",
+        input_token_count: 50_000,
+        reasoning_token_count: 0,
+        output_token_count: 50_000,
         token_count: 100_000,
         status: "success",
       })
     );
+  });
+
+  it("captures reasoning token usage when provided by Gemini", async () => {
+    const result = await callGeminiStructured(
+      {
+        prompt: "Extract with reasoning",
+        schema: TestSchema,
+        context: {
+          level: "C",
+          model: "gemini-2.5-pro",
+        },
+      },
+      {
+        invoke: vi.fn().mockResolvedValue({
+          text: JSON.stringify({
+            items: [{ designation: "Gaine", quantity: 2, unit: "ml" }],
+          }),
+          usage: {
+            promptTokenCount: 200,
+            thoughtsTokenCount: 50,
+            candidatesTokenCount: 100,
+          },
+        }),
+      }
+    );
+
+    expect(result.tokenUsage).toEqual({
+      inputTokens: 200,
+      reasoningTokens: 50,
+      outputTokens: 100,
+      totalTokens: 350,
+    });
+    expect(result.tokenCount).toBe(350);
   });
 
   it("retries with exponential backoff then succeeds", async () => {

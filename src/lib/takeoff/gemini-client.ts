@@ -14,6 +14,7 @@ const GEMINI_API_BASE_URL =
 
 type GeminiTokenUsage = {
   promptTokenCount?: number;
+  thoughtsTokenCount?: number;
   candidatesTokenCount?: number;
   totalTokenCount?: number;
 };
@@ -30,6 +31,9 @@ type GeminiCallLoggerPayload = {
   tenant_id: string | null;
   level: TakeoffMetadata["level"] | null;
   duration_ms: number;
+  input_token_count: number;
+  reasoning_token_count: number;
+  output_token_count: number;
   token_count: number;
   cost_cents: number;
   status: "success" | "retry" | "failed";
@@ -83,10 +87,18 @@ export type CallGeminiStructuredOptions<T> = {
 export type CallGeminiStructuredResult<T> = {
   data: T;
   tokenCount: number;
+  tokenUsage: GeminiTokenUsageBreakdown;
   costCents: number;
   durationMs: number;
   model: string;
   promptVersion: string;
+};
+
+export type GeminiTokenUsageBreakdown = {
+  inputTokens: number;
+  reasoningTokens: number;
+  outputTokens: number;
+  totalTokens: number;
 };
 
 function resolveTimeoutMs(timeoutMs?: number) {
@@ -162,6 +174,10 @@ function extractUsage(payload: Record<string, unknown>): GeminiTokenUsage {
     promptTokenCount:
       typeof usageMetadata.promptTokenCount === "number"
         ? usageMetadata.promptTokenCount
+        : undefined,
+    thoughtsTokenCount:
+      typeof usageMetadata.thoughtsTokenCount === "number"
+        ? usageMetadata.thoughtsTokenCount
         : undefined,
     candidatesTokenCount:
       typeof usageMetadata.candidatesTokenCount === "number"
@@ -288,14 +304,23 @@ async function invokeGeminiApi(input: {
   }
 }
 
-function toTokenCount(usage: GeminiTokenUsage) {
-  if (typeof usage.totalTokenCount === "number") {
-    return usage.totalTokenCount;
-  }
+function toTokenUsageBreakdown(usage: GeminiTokenUsage): GeminiTokenUsageBreakdown {
+  const inputTokens = Math.max(0, usage.promptTokenCount ?? 0);
+  const reasoningTokens = Math.max(0, usage.thoughtsTokenCount ?? 0);
+  const outputTokens = Math.max(0, usage.candidatesTokenCount ?? 0);
+  const totalTokens = Math.max(
+    0,
+    typeof usage.totalTokenCount === "number"
+      ? usage.totalTokenCount
+      : inputTokens + reasoningTokens + outputTokens
+  );
 
-  const prompt = usage.promptTokenCount ?? 0;
-  const candidate = usage.candidatesTokenCount ?? 0;
-  return prompt + candidate;
+  return {
+    inputTokens,
+    reasoningTokens,
+    outputTokens,
+    totalTokens,
+  };
 }
 
 function estimateCostCents(model: string, usage: GeminiTokenUsage) {
@@ -392,7 +417,8 @@ export async function callGeminiStructured<T>(
       }
 
       const data = options.schema.parse(parsed);
-      const tokenCount = toTokenCount(providerResult.usage);
+      const tokenUsage = toTokenUsageBreakdown(providerResult.usage);
+      const tokenCount = tokenUsage.totalTokens;
       const costCents = estimateCostCents(model, providerResult.usage);
       const durationMs = now() - startedAt;
 
@@ -401,6 +427,9 @@ export async function callGeminiStructured<T>(
         tenant_id: options.context?.tenantId ?? null,
         level: options.context?.level ?? null,
         duration_ms: durationMs,
+        input_token_count: tokenUsage.inputTokens,
+        reasoning_token_count: tokenUsage.reasoningTokens,
+        output_token_count: tokenUsage.outputTokens,
         token_count: tokenCount,
         cost_cents: costCents,
         status: "success",
@@ -412,6 +441,7 @@ export async function callGeminiStructured<T>(
       return {
         data,
         tokenCount,
+        tokenUsage,
         costCents,
         durationMs,
         model,
@@ -427,6 +457,9 @@ export async function callGeminiStructured<T>(
         tenant_id: options.context?.tenantId ?? null,
         level: options.context?.level ?? null,
         duration_ms: durationMs,
+        input_token_count: 0,
+        reasoning_token_count: 0,
+        output_token_count: 0,
         token_count: 0,
         cost_cents: 0,
         status: shouldRetry ? "retry" : "failed",

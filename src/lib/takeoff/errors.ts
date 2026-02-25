@@ -27,6 +27,9 @@ export enum TakeoffErrorCode {
   AI_SCHEMA = "AI_SCHEMA",
   AI_SAFETY = "AI_SAFETY",
   AI_PROVIDER = "AI_PROVIDER",
+  TAKEOFF_LEVEL_C_TIMEOUT = "TAKEOFF_LEVEL_C_TIMEOUT",
+  TAKEOFF_LEVEL_C_INVALID_SCHEMA = "TAKEOFF_LEVEL_C_INVALID_SCHEMA",
+  TAKEOFF_LEVEL_C_BUDGET_EXCEEDED = "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
   TAKEOFF_JOB_NOT_RETRIABLE = "TAKEOFF_JOB_NOT_RETRIABLE",
   TAKEOFF_JOB_NOT_CANCELABLE = "TAKEOFF_JOB_NOT_CANCELABLE",
 }
@@ -303,9 +306,15 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
     code === TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID ||
     code === TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED ||
     code === TakeoffErrorCode.TAKEOFF_ESTIMATE_VERSION_ID_INVALID ||
-    code === TakeoffErrorCode.AI_SCHEMA
+    code === TakeoffErrorCode.AI_SCHEMA ||
+    code === TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA ||
+    code === TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED
   ) {
     return 422;
+  }
+
+  if (code === TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT) {
+    return 500;
   }
 
   if (code === TakeoffErrorCode.IDEMPOTENCY_KEY_INVALID) {
@@ -343,6 +352,18 @@ function getDefaultMessage(code: TakeoffErrorCode) {
     return "Le fournisseur IA a retourne une erreur.";
   }
 
+  if (code === TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT) {
+    return "Le delai de traitement Level C est depasse.";
+  }
+
+  if (code === TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA) {
+    return "La sortie Level C ne respecte pas le schema attendu.";
+  }
+
+  if (code === TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED) {
+    return "Le budget Level C configure est depasse.";
+  }
+
   if (code === TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND) {
     return "Le job Takeoff est introuvable.";
   }
@@ -374,7 +395,8 @@ function defaultRetryable(code: TakeoffErrorCode) {
   return (
     code === TakeoffErrorCode.AI_RATE_LIMIT ||
     code === TakeoffErrorCode.AI_TIMEOUT ||
-    code === TakeoffErrorCode.AI_PROVIDER
+    code === TakeoffErrorCode.AI_PROVIDER ||
+    code === TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT
   );
 }
 

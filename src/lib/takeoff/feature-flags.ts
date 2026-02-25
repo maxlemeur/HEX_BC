@@ -3,14 +3,22 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { forbidden } from "@/lib/estimates/errors";
 import { getFeatureFlagValueForTenant, isFeatureEnabled } from "@/lib/feature-flags";
 import {
+  TAKEOFF_C_MAX_COST_CENTS_DEFAULT,
+  TAKEOFF_C_MAX_COST_CENTS_FLAG_KEY,
   TAKEOFF_C_CHUNK_OVERLAP_PAGES_DEFAULT,
   TAKEOFF_C_CHUNK_OVERLAP_PAGES_FLAG_KEY,
   TAKEOFF_C_CHUNK_SIZE_PAGES_DEFAULT,
   TAKEOFF_C_CHUNK_SIZE_PAGES_FLAG_KEY,
   TAKEOFF_C_CHUNK_THRESHOLD_PAGES_DEFAULT,
   TAKEOFF_C_CHUNK_THRESHOLD_PAGES_FLAG_KEY,
+  TAKEOFF_C_MAX_TOTAL_TOKENS_DEFAULT,
+  TAKEOFF_C_MAX_TOTAL_TOKENS_FLAG_KEY,
   TAKEOFF_C_MAX_PDF_PAGES_DEFAULT,
   TAKEOFF_C_MAX_PDF_PAGES_FLAG_KEY,
+  TAKEOFF_C_TIMEOUT_MS_DEFAULT,
+  TAKEOFF_C_TIMEOUT_MS_FLAG_KEY,
+  TAKEOFF_C_TIMEOUT_MS_MAX,
+  TAKEOFF_C_TIMEOUT_MS_MIN,
   TAKEOFF_MODULE_ENABLED_FLAG_KEY,
 } from "@/lib/takeoff/constants";
 import type { Database } from "@/types/database";
@@ -22,6 +30,12 @@ export type TakeoffChunkingConfig = {
   chunkSizePages: number;
   overlapPages: number;
   maxPdfPages: number;
+};
+
+export type TakeoffLevelCProcessingConfig = TakeoffChunkingConfig & {
+  timeoutMs: number;
+  maxTotalTokens: number;
+  maxCostCents: number;
 };
 
 function parsePositiveIntegerOrFallback(value: string | null, fallback: number) {
@@ -42,6 +56,47 @@ function parseNonNegativeIntegerOrFallback(value: string | null, fallback: numbe
   return normalized;
 }
 
+function parseChunkingConfig(input: {
+  thresholdRaw: string | null;
+  chunkSizeRaw: string | null;
+  overlapRaw: string | null;
+  maxPagesRaw: string | null;
+}): TakeoffChunkingConfig {
+  const thresholdPages = parsePositiveIntegerOrFallback(
+    input.thresholdRaw,
+    TAKEOFF_C_CHUNK_THRESHOLD_PAGES_DEFAULT
+  );
+  const chunkSizePages = parsePositiveIntegerOrFallback(
+    input.chunkSizeRaw,
+    TAKEOFF_C_CHUNK_SIZE_PAGES_DEFAULT
+  );
+  const maxPdfPages = parsePositiveIntegerOrFallback(
+    input.maxPagesRaw,
+    TAKEOFF_C_MAX_PDF_PAGES_DEFAULT
+  );
+  const overlapCandidate = parseNonNegativeIntegerOrFallback(
+    input.overlapRaw,
+    TAKEOFF_C_CHUNK_OVERLAP_PAGES_DEFAULT
+  );
+  const overlapPages = Math.max(0, Math.min(overlapCandidate, chunkSizePages - 1));
+
+  return {
+    thresholdPages,
+    chunkSizePages,
+    overlapPages,
+    maxPdfPages,
+  };
+}
+
+function resolvePositiveIntegerFromFlagOrEnv(
+  flagValue: string | null,
+  envVarKey: string,
+  fallback: number
+) {
+  const envFallback = parsePositiveIntegerOrFallback(process.env[envVarKey] ?? null, fallback);
+  return parsePositiveIntegerOrFallback(flagValue, envFallback);
+}
+
 export async function isTakeoffEnabled(
   tenantId: string,
   input?: { supabase?: Supabase }
@@ -60,29 +115,68 @@ export async function getTakeoffChunkingConfigForTenant(
     getFeatureFlagValueForTenant(tenantId, TAKEOFF_C_MAX_PDF_PAGES_FLAG_KEY, input),
   ]);
 
-  const thresholdPages = parsePositiveIntegerOrFallback(
+  return parseChunkingConfig({
     thresholdRaw,
-    TAKEOFF_C_CHUNK_THRESHOLD_PAGES_DEFAULT
-  );
-  const chunkSizePages = parsePositiveIntegerOrFallback(
     chunkSizeRaw,
-    TAKEOFF_C_CHUNK_SIZE_PAGES_DEFAULT
-  );
-  const maxPdfPages = parsePositiveIntegerOrFallback(
-    maxPagesRaw,
-    TAKEOFF_C_MAX_PDF_PAGES_DEFAULT
-  );
-  const overlapCandidate = parseNonNegativeIntegerOrFallback(
     overlapRaw,
-    TAKEOFF_C_CHUNK_OVERLAP_PAGES_DEFAULT
+    maxPagesRaw,
+  });
+}
+
+export async function getTakeoffLevelCProcessingConfigForTenant(
+  tenantId: string,
+  input?: { supabase?: Supabase }
+): Promise<TakeoffLevelCProcessingConfig> {
+  const [
+    thresholdRaw,
+    chunkSizeRaw,
+    overlapRaw,
+    maxPagesRaw,
+    timeoutRaw,
+    maxTotalTokensRaw,
+    maxCostCentsRaw,
+  ] = await Promise.all([
+    getFeatureFlagValueForTenant(tenantId, TAKEOFF_C_CHUNK_THRESHOLD_PAGES_FLAG_KEY, input),
+    getFeatureFlagValueForTenant(tenantId, TAKEOFF_C_CHUNK_SIZE_PAGES_FLAG_KEY, input),
+    getFeatureFlagValueForTenant(tenantId, TAKEOFF_C_CHUNK_OVERLAP_PAGES_FLAG_KEY, input),
+    getFeatureFlagValueForTenant(tenantId, TAKEOFF_C_MAX_PDF_PAGES_FLAG_KEY, input),
+    getFeatureFlagValueForTenant(tenantId, TAKEOFF_C_TIMEOUT_MS_FLAG_KEY, input),
+    getFeatureFlagValueForTenant(tenantId, TAKEOFF_C_MAX_TOTAL_TOKENS_FLAG_KEY, input),
+    getFeatureFlagValueForTenant(tenantId, TAKEOFF_C_MAX_COST_CENTS_FLAG_KEY, input),
+  ]);
+
+  const chunkingConfig = parseChunkingConfig({
+    thresholdRaw,
+    chunkSizeRaw,
+    overlapRaw,
+    maxPagesRaw,
+  });
+
+  const timeoutCandidate = resolvePositiveIntegerFromFlagOrEnv(
+    timeoutRaw,
+    "TAKEOFF_LEVEL_C_TIMEOUT_MS",
+    TAKEOFF_C_TIMEOUT_MS_DEFAULT
   );
-  const overlapPages = Math.max(0, Math.min(overlapCandidate, chunkSizePages - 1));
+  const timeoutMinMs = Math.max(TAKEOFF_C_TIMEOUT_MS_MIN, 120_000);
+  const timeoutMaxMs = Math.max(timeoutMinMs, TAKEOFF_C_TIMEOUT_MS_MAX);
+  const timeoutMs = Math.max(timeoutMinMs, Math.min(timeoutCandidate, timeoutMaxMs));
+
+  const maxTotalTokens = resolvePositiveIntegerFromFlagOrEnv(
+    maxTotalTokensRaw,
+    "TAKEOFF_LEVEL_C_MAX_TOTAL_TOKENS",
+    TAKEOFF_C_MAX_TOTAL_TOKENS_DEFAULT
+  );
+  const maxCostCents = resolvePositiveIntegerFromFlagOrEnv(
+    maxCostCentsRaw,
+    "TAKEOFF_LEVEL_C_MAX_COST_CENTS",
+    TAKEOFF_C_MAX_COST_CENTS_DEFAULT
+  );
 
   return {
-    thresholdPages,
-    chunkSizePages,
-    overlapPages,
-    maxPdfPages,
+    ...chunkingConfig,
+    timeoutMs,
+    maxTotalTokens,
+    maxCostCents,
   };
 }
 
