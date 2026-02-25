@@ -400,6 +400,29 @@ const TAKEOFF_NAV_ITEM: NavGroup["items"][number] = {
   ),
 };
 
+const TAKEOFF_MAPPING_RULES_NAV_ITEM: NavGroup["items"][number] = {
+  href: "/dashboard/admin/takeoff/mapping-rules",
+  label: "Mapping takeoff",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m3 8 4-4 4 4" />
+      <path d="m13 16 4 4 4-4" />
+      <path d="M7 4v8h10" />
+      <path d="M17 20v-8H7" />
+    </svg>
+  ),
+};
+
 function buildInitials(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "..";
@@ -458,14 +481,21 @@ export function DashboardShell({
     }
 
     return NAV_GROUPS.map((group) => {
-      if (group.key !== "commercial") {
-        return group;
+      if (group.key === "commercial") {
+        return {
+          ...group,
+          items: [...group.items, TAKEOFF_NAV_ITEM],
+        };
       }
 
-      return {
-        ...group,
-        items: [...group.items, TAKEOFF_NAV_ITEM],
-      };
+      if (group.key === "administration") {
+        return {
+          ...group,
+          items: [...group.items, TAKEOFF_MAPPING_RULES_NAV_ITEM],
+        };
+      }
+
+      return group;
     });
   }, [isTakeoffEnabled, takeoffStatus]);
 

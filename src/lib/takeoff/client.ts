@@ -1,13 +1,27 @@
 import type {
+  CreateTakeoffMappingRuleInput as SharedCreateTakeoffMappingRuleInput,
   TakeoffApiError as TakeoffApiErrorShape,
   TakeoffJobCreateInput as SharedTakeoffJobCreateInput,
   TakeoffJobResponse as SharedTakeoffJobResponse,
   TakeoffLevel as SharedTakeoffLevel,
+  TakeoffMappingRule as SharedTakeoffMappingRule,
+  TakeoffMappingRuleDeleteResponse as SharedTakeoffMappingRuleDeleteResponse,
+  TakeoffMappingRuleMutationResponse as SharedTakeoffMappingRuleMutationResponse,
+  TakeoffMappingRulesListResponse as SharedTakeoffMappingRulesListResponse,
+  UpdateTakeoffMappingRuleInput as SharedUpdateTakeoffMappingRuleInput,
 } from "@/lib/takeoff/types";
 
 export type TakeoffLevel = SharedTakeoffLevel;
 export type TakeoffJobCreateResponse = SharedTakeoffJobResponse;
 export type CreateTakeoffJobInput = SharedTakeoffJobCreateInput;
+export type TakeoffMappingRule = SharedTakeoffMappingRule;
+export type CreateTakeoffMappingRuleInput = SharedCreateTakeoffMappingRuleInput;
+export type UpdateTakeoffMappingRuleInput = SharedUpdateTakeoffMappingRuleInput;
+export type TakeoffMappingRulesListResponse = SharedTakeoffMappingRulesListResponse;
+export type TakeoffMappingRuleMutationResponse =
+  SharedTakeoffMappingRuleMutationResponse;
+export type TakeoffMappingRuleDeleteResponse =
+  SharedTakeoffMappingRuleDeleteResponse;
 
 type ApiEnvelope<T> = {
   ok?: boolean;
@@ -209,6 +223,99 @@ function normalizeProgress(value: number) {
   if (value <= 0) return 0;
   if (value >= 100) return 100;
   return Math.round(value);
+}
+
+async function readJsonPayload(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function requestTakeoffJson<T>(
+  path: string,
+  init: RequestInit,
+  fallbackMessage: string
+): Promise<T> {
+  const response = await fetch(path, {
+    credentials: "same-origin",
+    ...init,
+  });
+  const payload = await readJsonPayload(response);
+
+  if (!response.ok) {
+    throw new TakeoffApiError(
+      toErrorMessage(payload, fallbackMessage),
+      response.status,
+      extractErrorDetails(payload),
+      extractErrorCode(payload),
+      buildErrorMetadata(payload)
+    );
+  }
+
+  return unwrapSuccessfulEnvelopePayload(payload, fallbackMessage) as T;
+}
+
+export async function fetchTakeoffMappingRules(): Promise<TakeoffMappingRule[]> {
+  const response = await requestTakeoffJson<TakeoffMappingRulesListResponse>(
+    "/api/takeoff/mapping-rules",
+    {
+      method: "GET",
+    },
+    "Impossible de recuperer les regles de mapping takeoff."
+  );
+
+  return response.mapping_rules;
+}
+
+export async function createTakeoffMappingRule(
+  input: CreateTakeoffMappingRuleInput
+): Promise<TakeoffMappingRule> {
+  const response = await requestTakeoffJson<TakeoffMappingRuleMutationResponse>(
+    "/api/takeoff/mapping-rules",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    },
+    "Impossible de creer la regle de mapping takeoff."
+  );
+
+  return response.mapping_rule;
+}
+
+export async function updateTakeoffMappingRule(
+  ruleId: string,
+  input: UpdateTakeoffMappingRuleInput
+): Promise<TakeoffMappingRule> {
+  const response = await requestTakeoffJson<TakeoffMappingRuleMutationResponse>(
+    `/api/takeoff/mapping-rules/${encodeURIComponent(ruleId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    },
+    "Impossible de mettre a jour la regle de mapping takeoff."
+  );
+
+  return response.mapping_rule;
+}
+
+export async function deleteTakeoffMappingRule(
+  ruleId: string
+): Promise<TakeoffMappingRuleDeleteResponse> {
+  return requestTakeoffJson<TakeoffMappingRuleDeleteResponse>(
+    `/api/takeoff/mapping-rules/${encodeURIComponent(ruleId)}`,
+    {
+      method: "DELETE",
+    },
+    "Impossible de supprimer la regle de mapping takeoff."
+  );
 }
 
 export async function createTakeoffJob(
