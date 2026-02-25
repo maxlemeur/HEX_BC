@@ -2112,6 +2112,44 @@ function buildTakeoffItemPreApplyPatches(
     .filter((entry): entry is TakeoffItemPreApplyPatch => Boolean(entry));
 }
 
+function buildTakeoffItemPreApplyRollbackPatches(input: {
+  previewItems: TakeoffMappingPreviewItem[];
+  patches: TakeoffItemPreApplyPatch[];
+}): TakeoffItemPreApplyPatch[] {
+  const previewByItemId = new Map(
+    input.previewItems.map((previewItem) => [previewItem.item_id, previewItem])
+  );
+  const rollbackTimestamp = new Date().toISOString();
+
+  return input.patches
+    .map((patch) => {
+      const previewItem = previewByItemId.get(patch.item_id);
+      if (!previewItem) {
+        return null;
+      }
+
+      const rollbackPayload: TakeoffItemPreApplyPatch["payload"] = {
+        updated_at: rollbackTimestamp,
+      };
+
+      if ("designation" in patch.payload) {
+        rollbackPayload.designation = previewItem.original.designation;
+      }
+      if ("is_excluded" in patch.payload) {
+        rollbackPayload.is_excluded = previewItem.original.is_excluded;
+      }
+      if ("exclusion_reason" in patch.payload) {
+        rollbackPayload.exclusion_reason = null;
+      }
+
+      return {
+        item_id: patch.item_id,
+        payload: rollbackPayload,
+      } satisfies TakeoffItemPreApplyPatch;
+    })
+    .filter((entry): entry is TakeoffItemPreApplyPatch => Boolean(entry));
+}
+
 async function applyTakeoffItemPreApplyPatches(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
@@ -2136,6 +2174,27 @@ async function applyTakeoffItemPreApplyPatches(input: {
         }
       );
     }
+  }
+}
+
+async function rollbackTakeoffItemPreApplyPatches(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  jobId: string;
+  patches: TakeoffItemPreApplyPatch[];
+}) {
+  if (input.patches.length === 0) {
+    return;
+  }
+
+  try {
+    await applyTakeoffItemPreApplyPatches(input);
+  } catch (error) {
+    console.error("Failed to rollback takeoff item pre-apply patches", {
+      tenantId: input.tenantId,
+      jobId: input.jobId,
+      error,
+    });
   }
 }
 
@@ -2353,12 +2412,21 @@ async function applyAssemblyInsertionsFromMapping(input: {
     )
     .sort((left, right) => left.source_order - right.source_order);
 
+  let afterItemId = input.targetSectionId;
   for (const item of assemblyItems) {
-    await insertAssemblyIntoVersion({
+    const inserted = await insertAssemblyIntoVersion({
       assemblyId: item.transformed.assembly_id!,
       versionId: input.estimateVersionId,
-      afterItemId: input.targetSectionId,
+      afterItemId,
     });
+
+    const insertedItems = Array.isArray(inserted?.items) ? inserted.items : [];
+    const nextAnchorId =
+      insertedItems.find((insertedItem) => insertedItem.item_type === "section")?.id ??
+      insertedItems[0]?.id;
+    if (nextAnchorId) {
+      afterItemId = nextAnchorId;
+    }
   }
 }
 
@@ -2453,14 +2521,6 @@ export async function applyTakeoffJob(
       request: payload,
     });
 
-    const preApplyItemPatches = buildTakeoffItemPreApplyPatches(mappingPreview.items);
-    await applyTakeoffItemPreApplyPatches({
-      supabase,
-      tenantId,
-      jobId: normalizedJobId,
-      patches: preApplyItemPatches,
-    });
-
     await logTakeoffAuditEvent({
       supabase,
       tenantId,
@@ -2481,19 +2541,45 @@ export async function applyTakeoffJob(
       estimateVersionId: jobRow.estimate_version_id,
     });
 
-    const { data: rpcData, error: rpcError } = await invokeApplyTakeoffRpc({
-      supabase,
-      args: {
-        job_id: normalizedJobId,
-        strategy: payload.strategy,
-        target_section_id: payload.target_section_id ?? null,
-      },
+    const preApplyItemPatches = buildTakeoffItemPreApplyPatches(mappingPreview.items);
+    const preApplyItemRollbackPatches = buildTakeoffItemPreApplyRollbackPatches({
+      previewItems: mappingPreview.items,
+      patches: preApplyItemPatches,
     });
+    let rpcData: unknown;
 
-    if (rpcError) {
-      throw mapApplyTakeoffRpcError(rpcError, {
+    try {
+      await applyTakeoffItemPreApplyPatches({
+        supabase,
+        tenantId,
         jobId: normalizedJobId,
+        patches: preApplyItemPatches,
       });
+
+      const rpcAttempt = await invokeApplyTakeoffRpc({
+        supabase,
+        args: {
+          job_id: normalizedJobId,
+          strategy: payload.strategy,
+          target_section_id: payload.target_section_id ?? null,
+        },
+      });
+
+      if (rpcAttempt.error) {
+        throw mapApplyTakeoffRpcError(rpcAttempt.error, {
+          jobId: normalizedJobId,
+        });
+      }
+
+      rpcData = rpcAttempt.data;
+    } catch (error) {
+      await rollbackTakeoffItemPreApplyPatches({
+        supabase,
+        tenantId,
+        jobId: normalizedJobId,
+        patches: preApplyItemRollbackPatches,
+      });
+      throw error;
     }
 
     const summary = normalizeTakeoffApplySummary({

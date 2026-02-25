@@ -25,6 +25,8 @@ const JOB_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const SECTION_ID = "55555555-5555-4555-8555-555555555555";
 const CREATED_ITEM_ID = "77777777-7777-4777-8777-777777777777";
+const TAKEOFF_ITEM_ID_1 = "88888888-8888-4888-8888-888888888888";
+const TAKEOFF_ITEM_ID_2 = "99999999-9999-4999-8999-999999999999";
 const VERSION_UPDATED_AT = "2026-02-25T12:00:00.000Z";
 
 type StoredTakeoffJob = {
@@ -57,8 +59,28 @@ type StoredTakeoffJob = {
   created_by: string | null;
 };
 
+type StoredTakeoffItem = {
+  id: string;
+  designation: string;
+  quantity: number;
+  unit: string;
+  confidence: number | null;
+  evidence: string | null;
+  source_file_name: string | null;
+  source_page: number | null;
+  metadata: Record<string, unknown>;
+  is_excluded: boolean;
+  exclusion_reason: string | null;
+  is_verified: boolean;
+  verified_at: string | null;
+  verified_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type SupabaseMockOptions = {
   jobStatus?: string;
+  takeoffItems?: StoredTakeoffItem[];
   mappingRules?: Array<{
     id: string;
     name: string;
@@ -111,30 +133,35 @@ function baseJob(overrides: Partial<StoredTakeoffJob> = {}): StoredTakeoffJob {
   };
 }
 
+function baseTakeoffItem(overrides: Partial<StoredTakeoffItem> = {}): StoredTakeoffItem {
+  return {
+    id: TAKEOFF_ITEM_ID_1,
+    designation: "Tube PVC 100",
+    quantity: 12,
+    unit: "ml",
+    confidence: 0.9,
+    evidence: null,
+    source_file_name: "niveau-a.csv",
+    source_page: 1,
+    metadata: {},
+    is_excluded: false,
+    exclusion_reason: null,
+    is_verified: false,
+    verified_at: null,
+    verified_by: null,
+    created_at: "2026-02-25T11:58:00.000Z",
+    updated_at: "2026-02-25T11:58:00.000Z",
+    ...overrides,
+  };
+}
+
 function createSupabaseMock(options: SupabaseMockOptions = {}) {
   const state = {
     job: baseJob({ status: options.jobStatus ?? "completed" }),
     auditActions: [] as string[],
-    takeoffItems: [
-      {
-        id: "88888888-8888-4888-8888-888888888888",
-        designation: "Tube PVC 100",
-        quantity: 12,
-        unit: "ml",
-        confidence: 0.9,
-        evidence: null,
-        source_file_name: "niveau-a.csv",
-        source_page: 1,
-        metadata: {},
-        is_excluded: false,
-        exclusion_reason: null,
-        is_verified: false,
-        verified_at: null,
-        verified_by: null,
-        created_at: "2026-02-25T11:58:00.000Z",
-        updated_at: "2026-02-25T11:58:00.000Z",
-      },
-    ],
+    takeoffItems:
+      options.takeoffItems?.map((item) => ({ ...item })) ?? [baseTakeoffItem()],
+    takeoffItemUpdateAppliedCount: 0,
     mappingRules: options.mappingRules ?? [],
   };
 
@@ -233,6 +260,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
               eq: vi.fn((column: string, value: string) => {
                 filters[column] = value;
                 if (filters.id && filters.job_id && filters.tenant_id) {
+                  state.takeoffItemUpdateAppliedCount += 1;
                   state.takeoffItems = state.takeoffItems.map((item) =>
                     item.id === filters.id
                       ? {
@@ -429,6 +457,69 @@ describe("applyTakeoffJob", () => {
     ]);
   });
 
+  it("rolls back takeoff item pre-apply patches when apply RPC fails", async () => {
+    const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const supabase = createSupabaseMock({
+      mappingRules: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Assemblage cloisons",
+          match_pattern: "tube pvc",
+          match_type: "contains",
+          action: "apply_assembly",
+          action_params: {
+            assembly_id: assemblyId,
+          },
+          priority: 1,
+          is_active: true,
+          created_at: "2026-02-25T09:00:00.000Z",
+        },
+      ],
+      rpcError: {
+        code: "P0001",
+        message: "APPLY_CONFLICT",
+        details: "already applied",
+        hint: null,
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    await expect(
+      applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+    });
+
+    expect(supabase.__state.takeoffItems[0]).toMatchObject({
+      id: TAKEOFF_ITEM_ID_1,
+      designation: "Tube PVC 100",
+      is_excluded: false,
+      exclusion_reason: null,
+    });
+    expect(supabase.__state.takeoffItemUpdateAppliedCount).toBe(2);
+    expect(supabase.__state.auditActions).toEqual([
+      "takeoff.apply.started",
+      "takeoff.apply.failed",
+    ]);
+  });
+
   it("applies mapping action apply_assembly and logs mapping audit entries", async () => {
     const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const supabase = createSupabaseMock({
@@ -480,5 +571,78 @@ describe("applyTakeoffJob", () => {
       "takeoff.mapping.applied",
       "takeoff.apply.completed",
     ]);
+  });
+
+  it("preserves apply_assembly insertion order by chaining anchor ids", async () => {
+    const assemblyId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const insertedSectionId1 = "6cbe3a2a-41fd-4b98-8f02-3aa31a81f401";
+    const insertedSectionId2 = "fd93367e-9069-4a54-b0ea-0d2229cc2115";
+    const supabase = createSupabaseMock({
+      takeoffItems: [
+        baseTakeoffItem({
+          id: TAKEOFF_ITEM_ID_1,
+          designation: "Tube PVC 100",
+          source_page: 1,
+        }),
+        baseTakeoffItem({
+          id: TAKEOFF_ITEM_ID_2,
+          designation: "Tube PVC 200",
+          source_page: 2,
+        }),
+      ],
+      mappingRules: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          name: "Assemblage cloisons",
+          match_pattern: "tube pvc",
+          match_type: "contains",
+          action: "apply_assembly",
+          action_params: {
+            assembly_id: assemblyId,
+          },
+          priority: 1,
+          is_active: true,
+          created_at: "2026-02-25T09:00:00.000Z",
+        },
+      ],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+    vi.mocked(insertAssemblyIntoVersion)
+      .mockResolvedValueOnce({
+        items: [{ id: insertedSectionId1, item_type: "section" }],
+      } as never)
+      .mockResolvedValueOnce({
+        items: [{ id: insertedSectionId2, item_type: "section" }],
+      } as never);
+
+    const response = await applyTakeoffJob(JOB_ID, {
+      strategy: "merge",
+      target_section_id: SECTION_ID,
+    });
+
+    expect(response.job.status).toBe("applied");
+    expect(insertAssemblyIntoVersion).toHaveBeenCalledTimes(2);
+    expect(insertAssemblyIntoVersion).toHaveBeenNthCalledWith(1, {
+      assemblyId,
+      versionId: VERSION_ID,
+      afterItemId: SECTION_ID,
+    });
+    expect(insertAssemblyIntoVersion).toHaveBeenNthCalledWith(2, {
+      assemblyId,
+      versionId: VERSION_ID,
+      afterItemId: insertedSectionId1,
+    });
   });
 });
