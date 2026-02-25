@@ -16,7 +16,9 @@ vi.mock("@/lib/takeoff/client", async () => {
   };
 });
 
-import TakeoffJobList from "@/components/takeoff/TakeoffJobList";
+import TakeoffJobList, {
+  resolveTakeoffJobsRefreshInterval,
+} from "@/components/takeoff/TakeoffJobList";
 import {
   TakeoffApiError,
   cancelTakeoffJob,
@@ -94,6 +96,7 @@ describe("TakeoffJobList", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -223,5 +226,77 @@ describe("TakeoffJobList", () => {
 
     expect(await screen.findByText("Acces refuse")).toBeInTheDocument();
     expect(screen.getByText("Acces interdit.")).toBeInTheDocument();
+  });
+
+  it("caps pagination at backend offset ceiling", async () => {
+    vi.mocked(listTakeoffJobs).mockImplementation(async (query) => {
+      const offset = query?.offset ?? 0;
+      const limit = query?.limit ?? 20;
+
+      if (offset > 10_000) {
+        throw new Error("Offset exceeds backend limit");
+      }
+
+      return createResponse(
+        [createJob({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })],
+        {
+          total: 2_000_000,
+          limit,
+          offset,
+        }
+      );
+    });
+
+    const user = userEvent.setup();
+    renderTakeoffJobList();
+
+    expect((await screen.findAllByText("niveau-a.csv")).length).toBeGreaterThan(0);
+
+    await user.selectOptions(screen.getByLabelText("Page size"), "100");
+
+    for (let index = 0; index < 160; index += 1) {
+      const nextButton = screen.getByRole("button", { name: "Suivant" });
+      if ((nextButton as HTMLButtonElement).disabled) {
+        break;
+      }
+      await user.click(nextButton);
+    }
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Suivant" })
+      ).toBeDisabled();
+    });
+    expect(screen.getByText("Page 101 / 101")).toBeInTheDocument();
+
+    const calledOffsets = vi
+      .mocked(listTakeoffJobs)
+      .mock.calls.map(([query]) => query?.offset ?? 0);
+    const maxOffset = Math.max(...calledOffsets);
+    expect(maxOffset).toBe(10_000);
+  });
+
+  it("returns no polling interval when no in-flight jobs are present", () => {
+    expect(
+      resolveTakeoffJobsRefreshInterval({
+        counters: { processing: 0 },
+        jobs: [{ status: "completed" }],
+      })
+    ).toBe(0);
+  });
+
+  it("returns polling interval when jobs are in-flight", () => {
+    expect(
+      resolveTakeoffJobsRefreshInterval({
+        counters: { processing: 1 },
+        jobs: [{ status: "completed" }],
+      })
+    ).toBe(20_000);
+    expect(
+      resolveTakeoffJobsRefreshInterval({
+        counters: { processing: 0 },
+        jobs: [{ status: "pending" }],
+      })
+    ).toBe(20_000);
   });
 });

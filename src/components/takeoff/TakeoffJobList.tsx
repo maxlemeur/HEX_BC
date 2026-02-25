@@ -50,6 +50,8 @@ const PERIOD_FILTER_OPTIONS: Array<{ value: PeriodFilterValue; label: string }> 
   { value: "90d", label: "90 jours" },
 ];
 
+const TAKEOFF_MAX_LIST_OFFSET = 10_000;
+const TAKEOFF_LIST_REFRESH_INTERVAL_MS = 20_000;
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const STATUS_CSS_MAP: Record<string, string> = {
   pending: "status-draft",
@@ -110,6 +112,25 @@ function resolveErrorTitle(status: number | null) {
   return "Erreur de chargement";
 }
 
+type TakeoffJobListRefreshPayload = {
+  counters?: { processing?: number };
+  jobs?: Array<{ status: string }>;
+};
+
+export function resolveTakeoffJobsRefreshInterval(
+  latestData?: TakeoffJobListRefreshPayload
+) {
+  if (!latestData) return 0;
+
+  const hasProcessingJobs = (latestData.counters?.processing ?? 0) > 0;
+  const hasVisiblePendingJobs =
+    latestData.jobs?.some((job) => job.status === "pending") ?? false;
+
+  return hasProcessingJobs || hasVisiblePendingJobs
+    ? TAKEOFF_LIST_REFRESH_INTERVAL_MS
+    : 0;
+}
+
 function CounterCard({ label, value }: { label: string; value: number }) {
   return (
     <article className="rounded-xl border border-[var(--slate-200)] bg-white p-3 shadow-sm">
@@ -147,9 +168,12 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingActions, setPendingActions] = useState<Record<string, ActionKind>>({});
+  const maxNavigablePagesByOffset =
+    Math.floor(TAKEOFF_MAX_LIST_OFFSET / pageSize) + 1;
+  const requestPage = Math.min(currentPage, maxNavigablePagesByOffset);
 
   const listQuery = useMemo(() => {
-    const offset = (currentPage - 1) * pageSize;
+    const offset = (requestPage - 1) * pageSize;
     return {
       estimate_version_id: versionId,
       status: statusFilter === "all" ? undefined : statusFilter,
@@ -158,7 +182,14 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
       limit: pageSize,
       offset,
     };
-  }, [currentPage, levelFilter, pageSize, periodFilter, statusFilter, versionId]);
+  }, [
+    requestPage,
+    levelFilter,
+    pageSize,
+    periodFilter,
+    statusFilter,
+    versionId,
+  ]);
 
   const swrKey = useMemo(
     () => [
@@ -182,21 +213,28 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
 
   const fetchJobs = useCallback(() => listTakeoffJobs(listQuery), [listQuery]);
 
+  const computeRefreshInterval = useCallback(resolveTakeoffJobsRefreshInterval, []);
+
   const { data, error, isLoading, isValidating, mutate } = useSWR(swrKey, fetchJobs, {
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
-    refreshInterval: 20_000,
+    refreshInterval: computeRefreshInterval,
     keepPreviousData: true,
   });
 
   const totalJobs = data?.pagination.total ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize));
+  const totalPagesByData = Math.max(1, Math.ceil(totalJobs / pageSize));
+  const totalPages = Math.max(
+    1,
+    Math.min(totalPagesByData, maxNavigablePagesByOffset)
+  );
+  const effectivePage = Math.min(currentPage, totalPages);
 
   useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
+    if (currentPage !== effectivePage) {
+      setCurrentPage(effectivePage);
     }
-  }, [currentPage, totalPages]);
+  }, [currentPage, effectivePage]);
 
   const handleAction = useCallback(
     async (jobId: string, action: ActionKind) => {
@@ -480,18 +518,18 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
-                disabled={currentPage <= 1}
+                disabled={effectivePage <= 1}
               >
                 Precedent
               </button>
               <span className="text-sm text-[var(--slate-600)]">
-                Page {currentPage} / {totalPages}
+                Page {effectivePage} / {totalPages}
               </span>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => setCurrentPage((value) => Math.min(totalPages, value + 1))}
-                disabled={currentPage >= totalPages}
+                disabled={effectivePage >= totalPages}
               >
                 Suivant
               </button>
