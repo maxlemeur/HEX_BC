@@ -108,6 +108,34 @@ describe("callGeminiStructured", () => {
     expect(result.tokenCount).toBe(350);
   });
 
+  it("honors explicit timeout values above 180 seconds", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        items: [{ designation: "Tube cuivre", quantity: 12, unit: "ml" }],
+      }),
+      usage: {
+        totalTokenCount: 1200,
+      },
+    });
+
+    await callGeminiStructured(
+      {
+        prompt: "Extract",
+        schema: TestSchema,
+        timeoutMs: 300_000,
+      },
+      {
+        invoke,
+      }
+    );
+
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeoutMs: 300_000,
+      })
+    );
+  });
+
   it("retries with exponential backoff then succeeds", async () => {
     const invoke = vi
       .fn()

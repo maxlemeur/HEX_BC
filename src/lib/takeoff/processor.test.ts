@@ -129,6 +129,8 @@ type SupabaseMockOptions = {
     mimeType: string;
   };
   cancelOnResultInsert?: boolean;
+  failCompletedJobUpdate?: boolean;
+  failRunMetricsDeleteWhenNonEmpty?: boolean;
 };
 
 type SupabaseMockState = {
@@ -344,6 +346,9 @@ function createTakeoffProcessorSupabaseMock(
       mimeType: "text/csv",
     } satisfies { bytes: ArrayBuffer; mimeType: string });
   const cancelOnResultInsert = options.cancelOnResultInsert ?? false;
+  const failCompletedJobUpdate = options.failCompletedJobUpdate ?? false;
+  const failRunMetricsDeleteWhenNonEmpty =
+    options.failRunMetricsDeleteWhenNonEmpty ?? false;
   let cancellationApplied = false;
 
   let resultIdSequence = 0;
@@ -404,6 +409,22 @@ function createTakeoffProcessorSupabaseMock(
     let executed = false;
 
     function execute(withRow: boolean) {
+      if (failCompletedJobUpdate && payload.status === "completed") {
+        const simulatedError = {
+          code: "PGRST301",
+          message: "Simulated completion update failure",
+        };
+
+        if (withRow) {
+          return {
+            data: null,
+            error: simulatedError,
+          } as QueryResponse<TakeoffJobRow | null>;
+        }
+
+        return { data: null, error: simulatedError } as QueryResponse<null>;
+      }
+
       const canUpdate = matchesJobFilters(filters, statusFilter);
 
       if (!executed && canUpdate) {
@@ -533,6 +554,16 @@ function createTakeoffProcessorSupabaseMock(
     const filters: Record<string, string> = {};
 
     const then: QueryThen<null> = (onfulfilled, onrejected) => {
+      if (failRunMetricsDeleteWhenNonEmpty && state.takeoffRunMetrics.length > 0) {
+        return Promise.resolve({
+          data: null,
+          error: {
+            code: "PGRST301",
+            message: "Simulated run metrics delete failure",
+          },
+        }).then(onfulfilled, onrejected);
+      }
+
       state.takeoffRunMetrics = state.takeoffRunMetrics.filter((metric) => {
         if (filters.tenant_id && metric.tenant_id !== filters.tenant_id) {
           return true;
@@ -1837,6 +1868,76 @@ describe("processLevelC", () => {
         }),
       ])
     );
+  });
+
+  it("does not duplicate chunk metrics when completion update fails after initial metric persist", async () => {
+    const pdfBytes = await createPdfArrayBuffer(8);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "C",
+        source_file_name: "niveau-c-no-duplicate-metrics.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_C,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+      failCompletedJobUpdate: true,
+      failRunMetricsDeleteWhenNonEmpty: true,
+    });
+
+    const validExchange: TakeoffExchange = {
+      items: [
+        {
+          designation: "Support",
+          quantity: 3,
+          unit: "u",
+          source_page: 1,
+          source_file: "niveau-c-no-duplicate-metrics.pdf",
+          confidence: 0.88,
+          evidence: "Comptage visuel.",
+        },
+      ],
+      warnings: [],
+      metadata: {
+        level: "C",
+        prompt_version: "takeoff-c-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.85,
+    };
+
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(validExchange, {
+        tokenCount: 900,
+        costCents: 40,
+        durationMs: 900,
+        model: "gemini-2.5-pro",
+        promptVersion: "takeoff-c-v1",
+      })
+    );
+
+    await expect(
+      processLevelC(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toBeInstanceOf(TakeoffError);
+
+    expect(mock.state.takeoffRunMetrics).toHaveLength(1);
+    expect(mock.state.takeoffRunMetrics[0]).toMatchObject({
+      chunk_index: 0,
+      total_tokens: 900,
+      result_id: mock.state.takeoffResults[0]?.id,
+    });
+    expect(
+      mock.state.takeoffRunMetrics.filter((metric) => metric.result_id === null)
+    ).toHaveLength(0);
   });
 
   it("fails when PDF page count exceeds the tenant max limit", async () => {

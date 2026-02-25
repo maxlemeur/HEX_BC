@@ -1164,11 +1164,13 @@ async function persistFailureSnapshotIfNeeded(input: {
   promptVersion: string;
   thinkingLevel: string;
   level: ProcessableTakeoffLevel;
-}) {
+}): Promise<boolean> {
   const rawResponse = extractRawResponseFromTakeoffError(input.error);
   if (rawResponse === undefined || rawResponse === null) {
-    return;
+    return false;
   }
+
+  let clearedPreviousResults = false;
 
   try {
     await clearPreviousResultsForJob({
@@ -1176,6 +1178,7 @@ async function persistFailureSnapshotIfNeeded(input: {
       job: input.job,
       level: input.level,
     });
+    clearedPreviousResults = true;
 
     await input.supabase.from("takeoff_results" as never).insert({
       tenant_id: input.job.tenant_id,
@@ -1207,6 +1210,8 @@ async function persistFailureSnapshotIfNeeded(input: {
       error: snapshotError,
     });
   }
+
+  return clearedPreviousResults;
 }
 
 function buildPromptSourceHint(fileName: string, sheets: ParsedTakeoffSheet[]) {
@@ -2007,6 +2012,7 @@ async function processTakeoffLevel(
   let job: TakeoffJobProcessingRow | null = null;
   let enteredProcessing = false;
   let levelCChunkMetrics: LevelCChunkMetric[] = [];
+  let levelCRunMetricsPersisted = false;
   let levelCSourceFileName: string | null = null;
 
   try {
@@ -2099,6 +2105,7 @@ async function processTakeoffLevel(
           sourceFileName: sourceFile.fileName,
         },
       });
+      levelCRunMetricsPersisted = true;
 
       const completedAt = now();
       const totalDurationMs = Math.max(
@@ -2259,7 +2266,7 @@ async function processTakeoffLevel(
       const completedAt = now();
       const durationMs = Math.max(0, completedAt.getTime() - processingStartedAt.getTime());
 
-      await persistFailureSnapshotIfNeeded({
+      const failureSnapshotClearedResults = await persistFailureSnapshotIfNeeded({
         supabase: context.supabase,
         job,
         error: mappedError,
@@ -2279,7 +2286,11 @@ async function processTakeoffLevel(
         error: mappedError,
       });
 
-      if (level === TAKEOFF_LEVEL_C && chunkMetricsToPersist.length > 0) {
+      if (
+        level === TAKEOFF_LEVEL_C &&
+        (!levelCRunMetricsPersisted || failureSnapshotClearedResults) &&
+        chunkMetricsToPersist.length > 0
+      ) {
         await persistLevelCRunMetrics({
           supabase: context.supabase,
           job,

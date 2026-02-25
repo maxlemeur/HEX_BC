@@ -6,7 +6,6 @@ import { zodToGeminiJsonSchema } from "@/lib/takeoff/schemas";
 
 const DEFAULT_MODEL = "gemini-2.5-pro";
 const DEFAULT_TIMEOUT_MS = 60_000;
-const MAX_TIMEOUT_MS = 180_000;
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 250;
 const GEMINI_API_BASE_URL =
@@ -106,8 +105,7 @@ function resolveTimeoutMs(timeoutMs?: number) {
     return DEFAULT_TIMEOUT_MS;
   }
 
-  const normalized = Math.trunc(timeoutMs);
-  return Math.min(normalized, MAX_TIMEOUT_MS);
+  return Math.trunc(timeoutMs);
 }
 
 function resolveMaxRetries(maxRetries?: number) {
