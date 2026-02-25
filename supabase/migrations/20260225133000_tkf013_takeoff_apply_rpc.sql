@@ -158,6 +158,13 @@ begin
   ) on commit drop;
 
   if v_strategy = 'replace' then
+    if not exists (
+      select 1
+      from _takeoff_apply_source src
+    ) then
+      raise exception 'APPLY_NO_INCLUDABLE_ITEMS';
+    end if;
+
     if p_target_section_id is null then
       v_scope := 'version';
 

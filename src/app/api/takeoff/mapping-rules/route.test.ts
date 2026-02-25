@@ -201,7 +201,9 @@ describe("/api/takeoff/mapping-rules", () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    const response = await GET();
+    const response = await GET(
+      new Request("http://localhost/api/takeoff/mapping-rules")
+    );
     const body = (await response.json()) as {
       ok: boolean;
       data?: {
@@ -258,7 +260,9 @@ describe("/api/takeoff/mapping-rules", () => {
     const supabase = createSupabaseMock({ tenantRole: "viewer" });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    const response = await GET();
+    const response = await GET(
+      new Request("http://localhost/api/takeoff/mapping-rules")
+    );
     const body = (await response.json()) as {
       ok: boolean;
       error?: {

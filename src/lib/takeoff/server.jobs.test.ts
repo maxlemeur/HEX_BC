@@ -228,7 +228,14 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
   }
 
   function createTakeoffJobsSelectBuilder() {
-    const filters: { id?: string; tenant_id?: string; estimate_version_id?: string } = {};
+    const filters: {
+      id?: string;
+      tenant_id?: string;
+      estimate_version_id?: string;
+      status?: string;
+      level?: string;
+      created_at_gte?: string;
+    } = {};
     let range: { start: number; end: number } | null = null;
 
     const builder = {
@@ -236,9 +243,17 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         if (
           column === "id" ||
           column === "tenant_id" ||
-          column === "estimate_version_id"
+          column === "estimate_version_id" ||
+          column === "status" ||
+          column === "level"
         ) {
           filters[column] = value;
+        }
+        return builder;
+      }),
+      gte: vi.fn((column: string, value: string) => {
+        if (column === "created_at") {
+          filters.created_at_gte = value;
         }
         return builder;
       }),
@@ -255,6 +270,14 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
           if (
             filters.estimate_version_id &&
             row.estimate_version_id !== filters.estimate_version_id
+          ) {
+            return false;
+          }
+          if (filters.status && row.status !== filters.status) return false;
+          if (filters.level && row.level !== filters.level) return false;
+          if (
+            filters.created_at_gte &&
+            row.created_at.localeCompare(filters.created_at_gte) < 0
           ) {
             return false;
           }
@@ -280,6 +303,14 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
             if (
               filters.estimate_version_id &&
               row.estimate_version_id !== filters.estimate_version_id
+            ) {
+              return false;
+            }
+            if (filters.status && row.status !== filters.status) return false;
+            if (filters.level && row.level !== filters.level) return false;
+            if (
+              filters.created_at_gte &&
+              row.created_at.localeCompare(filters.created_at_gte) < 0
             ) {
               return false;
             }
@@ -524,12 +555,86 @@ describe("takeoff job server helpers (TKF-009)", () => {
 
     expect(response.jobs).toHaveLength(1);
     expect(response.jobs[0]?.id).toBe(JOB_ID);
+    expect(response.jobs[0]?.items_count).toBe(2);
     expect(response.jobs[0]?.metrics.token_count).toBe(400);
+    expect(response.counters).toEqual({
+      total: 1,
+      processing: 0,
+      completed: 0,
+      failed: 1,
+      canceled: 0,
+    });
     expect(response.pagination).toEqual({
       limit: 10,
       offset: 0,
       total: 1,
     });
+  });
+
+  it("filters jobs by status level and period while keeping status counters scoped by base filters", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-25T12:00:00.000Z"));
+
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          id: JOB_ID,
+          status: "failed",
+          level: "A",
+          created_at: "2026-02-24T10:00:00.000Z",
+        }),
+        baseJob({
+          id: JOB_ID_2,
+          status: "processing",
+          level: "A",
+          error_code: null,
+          error_message: null,
+          completed_at: null,
+          created_at: "2026-02-22T10:00:00.000Z",
+        }),
+        baseJob({
+          id: "77777777-7777-4777-8777-777777777771",
+          status: "completed",
+          level: "B",
+          error_code: null,
+          error_message: null,
+          created_at: "2026-02-21T10:00:00.000Z",
+        }),
+        baseJob({
+          id: "77777777-7777-4777-8777-777777777772",
+          status: "canceled",
+          level: "A",
+          error_code: "USER_CANCELED",
+          created_at: "2026-01-01T10:00:00.000Z",
+        }),
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await listTakeoffJobs({
+      status: "failed",
+      level: "A",
+      period: "30d",
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(response.jobs).toHaveLength(1);
+    expect(response.jobs[0]?.id).toBe(JOB_ID);
+    expect(response.counters).toEqual({
+      total: 2,
+      processing: 1,
+      completed: 0,
+      failed: 1,
+      canceled: 0,
+    });
+    expect(response.pagination.total).toBe(1);
   });
 
   it("returns job detail with paginated items and result", async () => {

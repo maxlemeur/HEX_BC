@@ -141,6 +141,42 @@ begin
 end;
 $$;
 
+create or replace function public.guard_estimate_approvals_insert()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.status = 'pending' then
+    if new.approved_by is not null or new.decided_at is not null then
+      raise exception
+        using
+          errcode = '23514',
+          message = 'ESTIMATE_APPROVAL_PENDING_INVALID',
+          detail = 'pending approvals cannot carry approved_by/decided_at.';
+    end if;
+  else
+    if new.status not in ('approved', 'rejected') then
+      raise exception
+        using
+          errcode = '22023',
+          message = 'ESTIMATE_APPROVAL_STATUS_INVALID',
+          detail = format('status=%s is not supported', new.status);
+    end if;
+
+    if new.decided_at is null or new.approved_by is null then
+      raise exception
+        using
+          errcode = '23514',
+          message = 'ESTIMATE_APPROVAL_DECISION_INVALID',
+          detail = 'approved/rejected approvals must carry approved_by and decided_at on insert.';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
 create or replace function public.guard_estimate_approvals_update()
 returns trigger
 language plpgsql
@@ -224,6 +260,11 @@ drop trigger if exists set_estimate_approvals_tenant_id on public.estimate_appro
 create trigger set_estimate_approvals_tenant_id
   before insert or update on public.estimate_approvals
   for each row execute procedure public.assign_estimate_approvals_tenant_id();
+
+drop trigger if exists guard_estimate_approvals_insert_trigger on public.estimate_approvals;
+create trigger guard_estimate_approvals_insert_trigger
+  before insert on public.estimate_approvals
+  for each row execute procedure public.guard_estimate_approvals_insert();
 
 drop trigger if exists guard_estimate_approvals_update_trigger on public.estimate_approvals;
 create trigger guard_estimate_approvals_update_trigger

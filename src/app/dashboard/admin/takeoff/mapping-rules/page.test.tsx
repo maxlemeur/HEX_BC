@@ -23,9 +23,8 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   isTakeoffEnabled: isTakeoffEnabledMock,
 }));
 
-import AdminTakeoffMappingRulesPage, {
-  renderAdminTakeoffMappingRulesPage,
-} from "@/app/dashboard/admin/takeoff/mapping-rules/page";
+import AdminTakeoffMappingRulesPage from "@/app/dashboard/admin/takeoff/mapping-rules/page";
+import { renderAdminTakeoffMappingRulesPage } from "@/app/dashboard/admin/takeoff/mapping-rules/page-content";
 
 const REDIRECT_ERROR = new Error("NEXT_REDIRECT");
 

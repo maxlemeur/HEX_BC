@@ -16,12 +16,14 @@ vi.mock("@/lib/takeoff/edge-trigger", () => ({
   }),
 }));
 
-import { POST } from "@/app/api/takeoff/jobs/route";
+import { GET, POST } from "@/app/api/takeoff/jobs/route";
 import { forbidden } from "@/lib/estimates/errors";
+import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { TAKEOFF_PROMPT_VERSION_BY_LEVEL } from "@/lib/takeoff/prompts";
+import * as takeoffServer from "@/lib/takeoff/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";

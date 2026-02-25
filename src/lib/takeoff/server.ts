@@ -30,6 +30,9 @@ import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import {
   TAKEOFF_APPLY_SCOPES,
   TAKEOFF_APPLY_STRATEGIES,
+  TAKEOFF_JOB_LIST_PERIODS,
+  TAKEOFF_JOB_STATUSES,
+  TAKEOFF_LEVELS,
   type CreateTakeoffMappingRuleInput,
   type TakeoffApplyRequest,
   type TakeoffApplyResponse,
@@ -44,8 +47,10 @@ import {
   type TakeoffJobItem,
   type TakeoffJobListResponse,
   type TakeoffJobResult,
+  type TakeoffJobStatusCounters,
   type TakeoffJobResponse,
   type TakeoffJobSummary,
+  type TakeoffJobListPeriod,
   type TakeoffLevel,
   type TakeoffMappingRule,
   type TakeoffMappingRuleDeleteResponse,
@@ -85,6 +90,11 @@ const MAX_TAKEOFF_JOBS_LIST_LIMIT = 100;
 const DEFAULT_TAKEOFF_JOB_ITEMS_LIMIT = 50;
 const MAX_TAKEOFF_JOB_ITEMS_LIMIT = 200;
 const MAX_TAKEOFF_JOB_ITEMS_OFFSET = 10_000;
+const TAKEOFF_JOB_LIST_PERIOD_DAYS: Record<TakeoffJobListPeriod, number> = {
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+};
 const TAKEOFF_RETRY_MAX = 3;
 const TAKEOFF_RETRY_BACKOFF_SECONDS = [5, 15, 45] as const;
 const TAKEOFF_JOB_LIST_SELECT = [
@@ -159,6 +169,36 @@ const optionalUuidSearchParamSchema = z.preprocess(
     return trimmed.length > 0 ? trimmed : undefined;
   },
   z.string().uuid("estimate_version_id invalide.").optional()
+);
+
+const optionalStatusSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.enum(TAKEOFF_JOB_STATUSES).optional()
+);
+
+const optionalLevelSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.enum(TAKEOFF_LEVELS).optional()
+);
+
+const optionalPeriodSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.enum(TAKEOFF_JOB_LIST_PERIODS).optional()
 );
 
 const optionalLimitSearchParamSchema = z.preprocess(
@@ -249,6 +289,7 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     completed_at: z.string().nullable(),
     created_at: z.string(),
     updated_at: z.string(),
+    items_count: z.number().int().nonnegative().nullable().optional(),
     token_count: z.number().int().nonnegative().nullable(),
     cost_cents: z.number().int().nonnegative().nullable(),
     duration_ms: z.number().int().nonnegative().nullable(),
@@ -275,6 +316,7 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     completed_at: row.completed_at,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    items_count: row.items_count ?? null,
     metrics: {
       token_count: row.token_count,
       cost_cents: row.cost_cents,
@@ -321,6 +363,9 @@ export const takeoffJobIdSchema = z.string().uuid("jobId invalide.");
 export const listTakeoffJobsQuerySchema = z
   .object({
     estimate_version_id: optionalUuidSearchParamSchema,
+    status: optionalStatusSearchParamSchema,
+    level: optionalLevelSearchParamSchema,
+    period: optionalPeriodSearchParamSchema,
     limit: optionalLimitSearchParamSchema,
     offset: optionalOffsetSearchParamSchema,
   })
@@ -1137,6 +1182,166 @@ async function listTakeoffItemsByJobId(input: {
   };
 }
 
+function resolveTakeoffJobsPeriodStart(
+  period: ListTakeoffJobsQuery["period"]
+): string | null {
+  if (!period) return null;
+  const periodDays = TAKEOFF_JOB_LIST_PERIOD_DAYS[period];
+  if (!periodDays) return null;
+  return new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000).toISOString();
+}
+
+type TakeoffJobsListFilterQuery = {
+  eq: (column: string, value: string) => TakeoffJobsListFilterQuery;
+  gte: (column: string, value: string) => TakeoffJobsListFilterQuery;
+};
+
+function applyTakeoffJobsListFilters<TQuery extends TakeoffJobsListFilterQuery>(
+  query: TQuery,
+  input: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "status" | "level" | "period">
+): TQuery {
+  let scopedQuery = query;
+
+  if (input.estimate_version_id) {
+    scopedQuery = scopedQuery.eq(
+      "estimate_version_id",
+      input.estimate_version_id
+    ) as TQuery;
+  }
+
+  if (input.status) {
+    scopedQuery = scopedQuery.eq("status", input.status) as TQuery;
+  }
+
+  if (input.level) {
+    scopedQuery = scopedQuery.eq("level", input.level) as TQuery;
+  }
+
+  const periodStart = resolveTakeoffJobsPeriodStart(input.period);
+  if (periodStart) {
+    scopedQuery = scopedQuery.gte("created_at", periodStart) as TQuery;
+  }
+
+  return scopedQuery;
+}
+
+type TakeoffJobsCounterStatus = Exclude<keyof TakeoffJobStatusCounters, "total">;
+
+async function countTakeoffJobs(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "level" | "period">;
+  status?: TakeoffJobsCounterStatus;
+}): Promise<number> {
+  const query = applyTakeoffJobsListFilters(
+    input.supabase
+      .from("takeoff_jobs" as never)
+      .select("id" as never, { count: "exact", head: true })
+      .eq("tenant_id" as never, input.tenantId as never),
+    {
+      estimate_version_id: input.filters.estimate_version_id,
+      level: input.filters.level,
+      period: input.filters.period,
+      status: input.status,
+    }
+  );
+
+  const { count, error } = await query;
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de calculer les compteurs de jobs takeoff."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return count ?? 0;
+}
+
+async function buildTakeoffJobsStatusCounters(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "level" | "period">;
+}): Promise<TakeoffJobStatusCounters> {
+  const [total, processing, completed, failed, canceled] = await Promise.all([
+    countTakeoffJobs({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      filters: input.filters,
+    }),
+    countTakeoffJobs({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      filters: input.filters,
+      status: "processing",
+    }),
+    countTakeoffJobs({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      filters: input.filters,
+      status: "completed",
+    }),
+    countTakeoffJobs({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      filters: input.filters,
+      status: "failed",
+    }),
+    countTakeoffJobs({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      filters: input.filters,
+      status: "canceled",
+    }),
+  ]);
+
+  return {
+    total,
+    processing,
+    completed,
+    failed,
+    canceled,
+  };
+}
+
+async function listTakeoffItemCountsByJobId(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  jobIds: string[];
+}): Promise<Map<string, number>> {
+  if (input.jobIds.length === 0) {
+    return new Map();
+  }
+
+  const entries = await Promise.all(
+    input.jobIds.map(async (jobId) => {
+      const { count, error } = await input.supabase
+        .from("takeoff_items" as never)
+        .select("id" as never, { count: "exact", head: true })
+        .eq("tenant_id" as never, input.tenantId as never)
+        .eq("job_id" as never, jobId as never);
+
+      if (error) {
+        throw toTakeoffError(
+          mapSupabaseError(error, "Impossible de compter les items du job takeoff."),
+          {
+            fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+            retryable: false,
+            jobId,
+          }
+        );
+      }
+
+      return [jobId, count ?? 0] as const;
+    })
+  );
+
+  return new Map(entries);
+}
+
 export async function listTakeoffJobs(
   input: ListTakeoffJobsQuery
 ): Promise<TakeoffJobListResponse> {
@@ -1145,21 +1350,35 @@ export async function listTakeoffJobs(
   const offset = input.offset ?? 0;
   const rangeEnd = offset + limit - 1;
 
-  let query = supabase
-    .from("takeoff_jobs" as never)
-    .select(TAKEOFF_JOB_LIST_SELECT as never, { count: "exact" })
-    .eq("tenant_id" as never, tenantId as never)
+  const countersPromise = buildTakeoffJobsStatusCounters({
+    supabase,
+    tenantId,
+    filters: {
+      estimate_version_id: input.estimate_version_id,
+      level: input.level,
+      period: input.period,
+    },
+  });
+
+  const query = applyTakeoffJobsListFilters(
+    supabase
+      .from("takeoff_jobs" as never)
+      .select(TAKEOFF_JOB_LIST_SELECT as never, { count: "exact" })
+      .eq("tenant_id" as never, tenantId as never),
+    {
+      estimate_version_id: input.estimate_version_id,
+      status: input.status,
+      level: input.level,
+      period: input.period,
+    }
+  )
     .order("created_at" as never, { ascending: false })
     .range(offset as never, rangeEnd as never);
 
-  if (input.estimate_version_id) {
-    query = query.eq(
-      "estimate_version_id" as never,
-      input.estimate_version_id as never
-    );
-  }
-
-  const { data, count, error } = await query;
+  const [{ data, count, error }, counters] = await Promise.all([
+    query,
+    countersPromise,
+  ]);
 
   if (error) {
     throw toTakeoffError(
@@ -1171,8 +1390,20 @@ export async function listTakeoffJobs(
     );
   }
 
+  const jobs = normalizeTakeoffJobSummaryRows((data ?? []) as TakeoffJobDetailRow[]);
+  const uniqueJobIds = Array.from(new Set(jobs.map((job) => job.id)));
+  const itemCountByJobId = await listTakeoffItemCountsByJobId({
+    supabase,
+    tenantId,
+    jobIds: uniqueJobIds,
+  });
+
   return {
-    jobs: normalizeTakeoffJobSummaryRows((data ?? []) as TakeoffJobDetailRow[]),
+    jobs: jobs.map((job) => ({
+      ...job,
+      items_count: itemCountByJobId.get(job.id) ?? 0,
+    })),
+    counters,
     pagination: {
       limit,
       offset,

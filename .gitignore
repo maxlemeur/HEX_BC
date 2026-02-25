@@ -35,6 +35,7 @@ skills/
 .codex/
 .windsurf/
 supabase/.temp/
+docs/old_gemini_chiffrage/
 
 # debug
 npm-debug.log*

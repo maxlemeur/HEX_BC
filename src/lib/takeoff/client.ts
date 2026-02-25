@@ -1,5 +1,14 @@
 import type {
+  CreatePlanSetInput as SharedCreatePlanSetInput,
   CreateTakeoffMappingRuleInput as SharedCreateTakeoffMappingRuleInput,
+  PlanFileCreateResponse as SharedPlanFileCreateResponse,
+  PlanFileDeleteResponse as SharedPlanFileDeleteResponse,
+  PlanFilesListResponse as SharedPlanFilesListResponse,
+  PlanSetDeleteResponse as SharedPlanSetDeleteResponse,
+  PlanSetListItem as SharedPlanSetListItem,
+  PlanSetMutationResponse as SharedPlanSetMutationResponse,
+  PlanSetsListResponse as SharedPlanSetsListResponse,
+  RegisterPlanFileInput as SharedRegisterPlanFileInput,
   TakeoffApiError as TakeoffApiErrorShape,
   TakeoffApplyRequest as SharedTakeoffApplyRequest,
   TakeoffApplyResponse as SharedTakeoffApplyResponse,
@@ -8,6 +17,8 @@ import type {
   TakeoffJobActionResponse as SharedTakeoffJobActionResponse,
   TakeoffJobCreateInput as SharedTakeoffJobCreateInput,
   TakeoffJobDetailResponse as SharedTakeoffJobDetailResponse,
+  TakeoffJobListQuery as SharedTakeoffJobListQuery,
+  TakeoffJobListResponse as SharedTakeoffJobListResponse,
   TakeoffJobResponse as SharedTakeoffJobResponse,
   TakeoffLevel as SharedTakeoffLevel,
   TakeoffMappingRule as SharedTakeoffMappingRule,
@@ -20,6 +31,8 @@ import type {
 export type TakeoffLevel = SharedTakeoffLevel;
 export type TakeoffJobCreateResponse = SharedTakeoffJobResponse;
 export type TakeoffJobDetailResponse = SharedTakeoffJobDetailResponse;
+export type TakeoffJobListQuery = SharedTakeoffJobListQuery;
+export type TakeoffJobListResponse = SharedTakeoffJobListResponse;
 export type TakeoffJobActionResponse = SharedTakeoffJobActionResponse;
 export type TakeoffApplyRequest = SharedTakeoffApplyRequest;
 export type TakeoffApplyResponse = SharedTakeoffApplyResponse;
@@ -34,6 +47,16 @@ export type TakeoffMappingRuleMutationResponse =
   SharedTakeoffMappingRuleMutationResponse;
 export type TakeoffMappingRuleDeleteResponse =
   SharedTakeoffMappingRuleDeleteResponse;
+
+export type CreatePlanSetInput = SharedCreatePlanSetInput;
+export type RegisterPlanFileInput = SharedRegisterPlanFileInput;
+export type PlanSetListItem = SharedPlanSetListItem;
+export type PlanSetsListResponse = SharedPlanSetsListResponse;
+export type PlanFilesListResponse = SharedPlanFilesListResponse;
+export type PlanSetMutationResponse = SharedPlanSetMutationResponse;
+export type PlanSetDeleteResponse = SharedPlanSetDeleteResponse;
+export type PlanFileCreateResponse = SharedPlanFileCreateResponse;
+export type PlanFileDeleteResponse = SharedPlanFileDeleteResponse;
 
 type ApiEnvelope<T> = {
   ok?: boolean;
@@ -486,6 +509,34 @@ export async function fetchTakeoffJob(
   );
 }
 
+export async function listTakeoffJobs(
+  query: TakeoffJobListQuery = {},
+  options?: { signal?: AbortSignal }
+): Promise<TakeoffJobListResponse> {
+  const searchParams = new URLSearchParams();
+  const estimateVersionId = query.estimate_version_id?.trim();
+  const status = query.status?.trim();
+  const level = query.level?.trim();
+  const period = query.period?.trim();
+
+  if (estimateVersionId) searchParams.set("estimate_version_id", estimateVersionId);
+  if (status) searchParams.set("status", status);
+  if (level) searchParams.set("level", level);
+  if (period) searchParams.set("period", period);
+  if (typeof query.limit === "number") searchParams.set("limit", String(query.limit));
+  if (typeof query.offset === "number") searchParams.set("offset", String(query.offset));
+
+  const requestPath = searchParams.size
+    ? `/api/takeoff/jobs?${searchParams.toString()}`
+    : "/api/takeoff/jobs";
+
+  return requestTakeoffJson<TakeoffJobListResponse>(
+    requestPath,
+    { method: "GET", signal: options?.signal },
+    "Impossible de lister les jobs takeoff."
+  );
+}
+
 export async function retryTakeoffJob(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {
@@ -534,4 +585,173 @@ export async function patchTakeoffItems(
     },
     "Impossible de mettre a jour les items takeoff."
   );
+}
+
+/* ─── Plan Center API ─── */
+
+export async function fetchPlanSets(
+  versionId: string
+): Promise<PlanSetListItem[]> {
+  const response = await requestTakeoffJson<PlanSetsListResponse>(
+    `/api/takeoff/plan-sets?estimate_version_id=${encodeURIComponent(versionId)}`,
+    { method: "GET" },
+    "Impossible de recuperer les jeux de plans."
+  );
+  return response.plan_sets;
+}
+
+export async function createPlanSet(
+  input: CreatePlanSetInput
+): Promise<PlanSetListItem> {
+  const response = await requestTakeoffJson<PlanSetMutationResponse>(
+    "/api/takeoff/plan-sets",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    "Impossible de creer le jeu de plans."
+  );
+  return { ...response.plan_set, file_count: response.plan_set.file_count ?? 0 };
+}
+
+export async function deletePlanSet(
+  setId: string
+): Promise<PlanSetDeleteResponse> {
+  return requestTakeoffJson<PlanSetDeleteResponse>(
+    `/api/takeoff/plan-sets/${encodeURIComponent(setId)}`,
+    { method: "DELETE" },
+    "Impossible de supprimer le jeu de plans."
+  );
+}
+
+export async function fetchPlanFiles(
+  setId: string
+): Promise<SharedPlanFilesListResponse["plan_files"]> {
+  const response = await requestTakeoffJson<PlanFilesListResponse>(
+    `/api/takeoff/plan-sets/${encodeURIComponent(setId)}/files`,
+    { method: "GET" },
+    "Impossible de recuperer les fichiers de plan."
+  );
+  return response.plan_files;
+}
+
+export async function registerPlanFile(
+  setId: string,
+  input: RegisterPlanFileInput
+): Promise<PlanFileCreateResponse> {
+  return requestTakeoffJson<PlanFileCreateResponse>(
+    `/api/takeoff/plan-sets/${encodeURIComponent(setId)}/files`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    "Impossible d'enregistrer le fichier de plan."
+  );
+}
+
+export async function deletePlanFile(
+  setId: string,
+  fileId: string
+): Promise<PlanFileDeleteResponse> {
+  return requestTakeoffJson<PlanFileDeleteResponse>(
+    `/api/takeoff/plan-sets/${encodeURIComponent(setId)}/files/${encodeURIComponent(fileId)}`,
+    { method: "DELETE" },
+    "Impossible de supprimer le fichier de plan."
+  );
+}
+
+export function uploadFileToSignedUrl(
+  file: File,
+  url: string,
+  onProgress?: (percent: number) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+
+    const rejectOnce = (error: TakeoffApiError) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
+    const resolveOnce = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
+    const cleanupAbortListener = (() => {
+      if (!signal) return () => undefined;
+
+      const handleAbort = () => xhr.abort();
+
+      if (signal.aborted) {
+        rejectOnce(new TakeoffApiError("Upload annule.", 0, null, "ABORTED"));
+        return () => undefined;
+      }
+
+      signal.addEventListener("abort", handleAbort, { once: true });
+      return () => signal.removeEventListener("abort", handleAbort);
+    })();
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable || !onProgress) return;
+      const progress = normalizeProgress((event.loaded / event.total) * 100);
+      onProgress(progress);
+    };
+
+    xhr.onerror = () => {
+      cleanupAbortListener();
+      rejectOnce(
+        new TakeoffApiError(
+          "Erreur reseau pendant l'upload du fichier.",
+          xhr.status || 0,
+          null,
+          "NETWORK_ERROR"
+        )
+      );
+    };
+
+    xhr.onabort = () => {
+      cleanupAbortListener();
+      rejectOnce(new TakeoffApiError("Upload annule.", 0, null, "ABORTED"));
+    };
+
+    xhr.onload = () => {
+      cleanupAbortListener();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolveOnce();
+      } else {
+        rejectOnce(
+          new TakeoffApiError(
+            "Echec de l'upload vers le stockage.",
+            xhr.status,
+            null,
+            "STORAGE_UPLOAD_FAILED"
+          )
+        );
+      }
+    };
+
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", file.type || "application/pdf");
+
+    try {
+      xhr.send(file);
+    } catch (error) {
+      cleanupAbortListener();
+      rejectOnce(
+        new TakeoffApiError(
+          "Impossible de demarrer l'upload du fichier.",
+          0,
+          error,
+          "UPLOAD_INIT_FAILED"
+        )
+      );
+    }
+  });
 }

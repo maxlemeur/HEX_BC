@@ -242,6 +242,7 @@ const exportFormatQuerySchema = z.enum(["xlsx"]);
 const takeoffPlanSetsLimitQuerySchema = z.number().int().min(1).max(100);
 const takeoffJobsLimitQuerySchema = z.number().int().min(1).max(100);
 const takeoffJobsOffsetQuerySchema = z.number().int().min(0).max(10000);
+const takeoffJobsPeriodQuerySchema = z.enum(["7d", "30d", "90d"]);
 const takeoffJobItemsLimitQuerySchema = z.number().int().min(1).max(200);
 const takeoffJobItemsOffsetQuerySchema = z.number().int().min(0).max(10000);
 const takeoffPlanFilesIncludeDownloadUrlQuerySchema = z.enum([
@@ -1032,6 +1033,7 @@ const takeoffJobSummarySchema = z.object({
   completed_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  items_count: z.number().int().min(0).nullable().optional(),
   metrics: takeoffJobMetricsSchema,
 });
 const takeoffJobPaginationSchema = z.object({
@@ -1039,8 +1041,16 @@ const takeoffJobPaginationSchema = z.object({
   offset: z.number().int().min(0),
   total: z.number().int().min(0),
 });
+const takeoffJobStatusCountersSchema = z.object({
+  total: z.number().int().min(0),
+  processing: z.number().int().min(0),
+  completed: z.number().int().min(0),
+  failed: z.number().int().min(0),
+  canceled: z.number().int().min(0),
+});
 const takeoffJobListDataSchema = z.object({
   jobs: z.array(takeoffJobSummarySchema),
+  counters: takeoffJobStatusCountersSchema,
   pagination: takeoffJobPaginationSchema,
 });
 const takeoffJobResultSchema = z.object({
@@ -1788,6 +1798,27 @@ const takeoffJobEstimateVersionIdQueryParameter = queryParameter({
   schema: uuidSchema,
   required: false,
 });
+const takeoffJobStatusQueryParameter = queryParameter({
+  name: "status",
+  description: "Filtrer les jobs takeoff par statut.",
+  schemaName: "TakeoffJobStatusQueryParameter",
+  schema: takeoffJobStatusSchema,
+  required: false,
+});
+const takeoffJobLevelQueryParameter = queryParameter({
+  name: "level",
+  description: "Filtrer les jobs takeoff par niveau A/B/C.",
+  schemaName: "TakeoffJobLevelQueryParameter",
+  schema: takeoffLevelSchema,
+  required: false,
+});
+const takeoffJobsPeriodQueryParameter = queryParameter({
+  name: "period",
+  description: "Filtrer les jobs takeoff sur une periode relative (7d, 30d, 90d).",
+  schemaName: "TakeoffJobsPeriodQueryParameter",
+  schema: takeoffJobsPeriodQuerySchema,
+  required: false,
+});
 const takeoffJobsLimitQueryParameter = queryParameter({
   name: "limit",
   description: "Nombre maximal de jobs retournes (<= 100).",
@@ -2377,10 +2408,13 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs",
     summary: "Lister les jobs Takeoff",
     description:
-      "Retourne les jobs takeoff du tenant courant, avec filtre optionnel par version de chiffrage et pagination.",
+      "Retourne les jobs takeoff du tenant courant avec filtres (version, statut, niveau, periode), compteurs par statut et pagination.",
     tags: ["Takeoff"],
     parameters: [
       takeoffJobEstimateVersionIdQueryParameter,
+      takeoffJobStatusQueryParameter,
+      takeoffJobLevelQueryParameter,
+      takeoffJobsPeriodQueryParameter,
       takeoffJobsLimitQueryParameter,
       takeoffJobsOffsetQueryParameter,
     ],

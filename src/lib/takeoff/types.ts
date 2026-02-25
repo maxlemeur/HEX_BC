@@ -26,6 +26,8 @@ export const TAKEOFF_JOB_STATUSES = [
   "applied",
 ] as const;
 export type TakeoffJobStatus = (typeof TAKEOFF_JOB_STATUSES)[number];
+export const TAKEOFF_JOB_LIST_PERIODS = ["7d", "30d", "90d"] as const;
+export type TakeoffJobListPeriod = (typeof TAKEOFF_JOB_LIST_PERIODS)[number];
 
 export const TAKEOFF_APPLY_STRATEGIES = ["append", "replace", "merge"] as const;
 export type TakeoffApplyStrategy = (typeof TAKEOFF_APPLY_STRATEGIES)[number];
@@ -84,7 +86,25 @@ export type TakeoffJobSummary = {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+  items_count?: number | null;
   metrics: TakeoffJobMetrics;
+};
+
+export type TakeoffJobStatusCounters = {
+  total: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  canceled: number;
+};
+
+export type TakeoffJobListQuery = {
+  estimate_version_id?: string;
+  status?: TakeoffJobStatus;
+  level?: TakeoffLevel;
+  period?: TakeoffJobListPeriod;
+  limit?: number;
+  offset?: number;
 };
 
 export type TakeoffApplySummary = {
@@ -97,6 +117,7 @@ export type TakeoffApplySummary = {
 
 export type TakeoffJobListResponse = {
   jobs: TakeoffJobSummary[];
+  counters: TakeoffJobStatusCounters;
   pagination: {
     limit: number;
     offset: number;
@@ -271,3 +292,81 @@ export const TAKEOFF_JOB_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   "canceled",
   "applied",
 ]);
+
+/* ─── Plan Center types ─── */
+
+export type PlanSetListItem = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  tenant_id: string;
+  estimate_version_id: string;
+  name: string;
+  description: string | null;
+  metadata: Record<string, unknown>;
+  created_by: string | null;
+  file_count: number;
+};
+
+export type PlanFileListItem = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  tenant_id: string;
+  plan_set_id: string;
+  file_path: string;
+  file_name: string;
+  file_type: string;
+  file_size_bytes: number;
+  page_count: number | null;
+  file_hash: string | null;
+  metadata: Record<string, unknown>;
+  created_by: string | null;
+  download_url?: string | null;
+};
+
+export type PlanSetsListResponse = {
+  plan_sets: PlanSetListItem[];
+};
+
+export type PlanFilesListResponse = {
+  plan_files: PlanFileListItem[];
+};
+
+export type PlanSetMutationResponse = {
+  plan_set: PlanSetListItem;
+};
+
+export type PlanSetDeleteResponse = {
+  deleted: true;
+  plan_set_id: string;
+};
+
+export type PlanFileCreateResponse = {
+  plan_file: PlanFileListItem;
+  signed_upload: {
+    url: string;
+    method: "PUT";
+    path: string;
+    token: string;
+    expires_in_seconds: number;
+  };
+};
+
+export type PlanFileDeleteResponse = {
+  deleted: true;
+  plan_set_id: string;
+  file_id: string;
+};
+
+export type CreatePlanSetInput = {
+  estimate_version_id: string;
+  name: string;
+  description?: string | null;
+};
+
+export type RegisterPlanFileInput = {
+  file_name: string;
+  file_type: string;
+  file_size_bytes: number;
+};

@@ -47,7 +47,7 @@ async function parseJsonBody(request: Request): Promise<unknown> {
   }
 }
 
-export async function GET(_request?: Request) {
+export async function GET(_request: Request) {
   void _request;
 
   try {
