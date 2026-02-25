@@ -34,6 +34,28 @@ vi.mock("@/components/ui/Toast", () => ({
   useToast: () => mockToast,
 }));
 
+vi.mock("@/components/UserContext", () => ({
+  useUserContext: () => ({
+    userEmail: "admin@example.com",
+    tenantId: "22222222-2222-4222-8222-222222222222",
+    profile: {
+      role: "admin",
+      tenant_role: "admin",
+    },
+    setProfile: vi.fn(),
+  }),
+}));
+
+vi.mock("@/hooks/useFeatureFlag", () => ({
+  useFeatureFlag: () => ({
+    enabled: false,
+    value: null,
+    isLoading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
+}));
+
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
 import {
   fetchTakeoffJob,

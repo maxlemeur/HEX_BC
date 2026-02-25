@@ -88,6 +88,13 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
   - Scenario 3: duplicate estimate + copied line verification
 - `e2e/estimates/import-dpgf.spec.ts`
   - Scenario 5: DPGF import + mapping save + catalogue link flow
+- `e2e/estimates/takeoff-guard.spec.ts`
+  - TKF-025: guard apply blocks unverified low-confidence items on Level C
+  - Verify items then retry apply (guard passes)
+  - Level A bypass (no guard)
+  - Admin override with justification
+  - Excluded items do not trigger guard
+  - Requires `SUPABASE_SERVICE_ROLE_KEY` for DB seeding
 
 Playwright config is in `playwright.config.ts` with:
 - automatic screenshots on failure (`screenshot: only-on-failure`),

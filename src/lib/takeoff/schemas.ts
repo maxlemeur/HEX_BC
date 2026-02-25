@@ -482,9 +482,32 @@ export const takeoffApplyRequestSchema = z
     strategy: takeoffApplyStrategySchema,
     target_section_id: z.string().uuid("target_section_id invalide.").nullable().optional(),
     overrides: z.array(takeoffMappingOverrideSchema).optional(),
+    override: z.boolean().optional(),
+    override_justification: z
+      .string()
+      .trim()
+      .min(10, "Justification trop courte (min 10 caracteres).")
+      .max(500, "Justification trop longue.")
+      .optional(),
   })
   .strict()
   .superRefine((payload, ctx) => {
+    if (payload.override === true && !payload.override_justification) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "override_justification est obligatoire quand override=true.",
+        path: ["override_justification"],
+      });
+    }
+
+    if (payload.override !== true && payload.override_justification) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "override_justification ne peut etre fourni que si override=true.",
+        path: ["override_justification"],
+      });
+    }
+
     if (!payload.overrides || payload.overrides.length === 0) {
       return;
     }

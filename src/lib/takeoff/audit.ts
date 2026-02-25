@@ -19,6 +19,7 @@ export const TAKEOFF_AUDIT_ACTIONS = [
   "takeoff.item.excluded",
   "takeoff.item.modified",
   "takeoff.apply.started",
+  "takeoff.apply.override",
   "takeoff.apply.completed",
   "takeoff.apply.failed",
   "takeoff.mapping.applied",
@@ -117,6 +118,15 @@ const takeoffAuditMetadataSchemas = {
       selected_items_count: nonNegativeIntSchema.default(0),
     })
     .strict(),
+  "takeoff.apply.override": z
+    .object({
+      estimate_version_id: z.string().uuid(),
+      threshold: z.number().min(0).max(1),
+      blocked_item_ids: z.array(z.string().uuid()),
+      blocked_items_count: nonNegativeIntSchema.default(0),
+      justification: z.string().trim().min(10).max(500),
+    })
+    .strict(),
   "takeoff.apply.completed": z
     .object({
       estimate_version_id: z.string().uuid(),
@@ -203,6 +213,13 @@ export type BuildTakeoffAuditMetadataInputByAction = {
   "takeoff.apply.started": {
     estimate_version_id: string;
     selected_items_count?: number;
+  };
+  "takeoff.apply.override": {
+    estimate_version_id: string;
+    threshold: number;
+    blocked_item_ids: string[];
+    blocked_items_count?: number;
+    justification: string;
   };
   "takeoff.apply.completed": {
     estimate_version_id: string;
@@ -300,6 +317,15 @@ export const takeoffAuditMetadataBuilders: TakeoffAuditMetadataBuilders = {
     takeoffAuditMetadataSchemas["takeoff.apply.started"].parse({
       estimate_version_id: input.estimate_version_id,
       selected_items_count: input.selected_items_count,
+    }),
+  "takeoff.apply.override": (input) =>
+    takeoffAuditMetadataSchemas["takeoff.apply.override"].parse({
+      estimate_version_id: input.estimate_version_id,
+      threshold: input.threshold,
+      blocked_item_ids: input.blocked_item_ids,
+      blocked_items_count:
+        input.blocked_items_count ?? input.blocked_item_ids.length,
+      justification: input.justification,
     }),
   "takeoff.apply.completed": (input) =>
     takeoffAuditMetadataSchemas["takeoff.apply.completed"].parse({

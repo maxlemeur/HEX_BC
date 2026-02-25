@@ -63,6 +63,7 @@ describe("takeoff audit helpers", () => {
       "takeoff.item.excluded",
       "takeoff.item.modified",
       "takeoff.apply.started",
+      "takeoff.apply.override",
       "takeoff.apply.completed",
       "takeoff.apply.failed",
       "takeoff.mapping.applied",
@@ -133,6 +134,23 @@ describe("takeoff audit helpers", () => {
       estimate_version_id: ESTIMATE_VERSION_ID,
       applied_items_count: 0,
       excluded_items_count: 0,
+    });
+  });
+
+  it("normalizes metadata for takeoff.apply.override", () => {
+    const metadata = takeoffAuditMetadataBuilders["takeoff.apply.override"]({
+      estimate_version_id: ESTIMATE_VERSION_ID,
+      threshold: 0.5,
+      blocked_item_ids: [ITEM_ID],
+      justification: "  Validation manuelle du lot  ",
+    });
+
+    expect(metadata).toEqual({
+      estimate_version_id: ESTIMATE_VERSION_ID,
+      threshold: 0.5,
+      blocked_item_ids: [ITEM_ID],
+      blocked_items_count: 1,
+      justification: "Validation manuelle du lot",
     });
   });
 

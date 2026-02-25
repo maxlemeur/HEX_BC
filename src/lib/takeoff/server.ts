@@ -20,6 +20,7 @@ import {
   TakeoffErrorCode,
   toTakeoffError,
 } from "@/lib/takeoff/errors";
+import { checkApplyGuard } from "@/lib/takeoff/guards";
 import {
   TakeoffMappingRuleSchema,
   takeoffApplyRequestSchema,
@@ -30,7 +31,10 @@ import {
   takeoffAuditMetadataBuilders,
 } from "@/lib/takeoff/audit";
 import { validateFileForUpload } from "@/lib/file-validation";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import {
+  assertTakeoffEnabled,
+  getTakeoffLowConfidenceThresholdForTenant,
+} from "@/lib/takeoff/feature-flags";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { computeTakeoffMappingPreview } from "@/lib/takeoff/mapping-engine";
 import {
@@ -734,6 +738,14 @@ function assertTakeoffMappingRulesAdminRole(tenantRole: string) {
 
   throw forbidden(
     "Seul un administrateur peut gerer les regles de mapping takeoff."
+  );
+}
+
+function assertTakeoffApplyOverrideAdminRole(tenantRole: string) {
+  if (tenantRole === TAKEOFF_TENANT_ADMIN_ROLE) return;
+
+  throw forbidden(
+    "Seul un administrateur peut forcer l'application des items non verifies."
   );
 }
 
@@ -2479,7 +2491,8 @@ export async function applyTakeoffJob(
     | undefined;
 
   try {
-    const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+    const { supabase, tenantId, userId, tenantRole } =
+      await getAuthenticatedTakeoffContext();
     normalizedJobId = parseWithSchema(
       takeoffJobIdSchema,
       jobId,
@@ -2520,6 +2533,84 @@ export async function applyTakeoffJob(
       jobId: normalizedJobId,
       request: payload,
     });
+
+    // Guard: Level C requires low-confidence items to be verified
+    if (jobRow.level === "C") {
+      const lowConfidenceThreshold = await getTakeoffLowConfidenceThresholdForTenant(
+        tenantId,
+        { supabase }
+      );
+      const { data: guardItems, error: guardItemsError } = await supabase
+        .from("takeoff_items" as never)
+        .select("id, designation, confidence, is_verified, is_excluded" as never)
+        .eq("tenant_id" as never, tenantId as never)
+        .eq("job_id" as never, normalizedJobId as never);
+
+      if (guardItemsError) {
+        throw toTakeoffError(
+          mapSupabaseError(guardItemsError, "Impossible de verifier les items pour le guard."),
+          { jobId: normalizedJobId }
+        );
+      }
+
+      const guardResult = checkApplyGuard(
+        guardItems as Array<{
+          id: string;
+          designation: string;
+          confidence: number | null;
+          is_verified: boolean;
+          is_excluded: boolean;
+        }>,
+        lowConfidenceThreshold
+      );
+
+      if (!guardResult.passed) {
+        if (payload.override === true) {
+          assertTakeoffApplyOverrideAdminRole(tenantRole);
+          const overrideJustification = payload.override_justification?.trim();
+
+          if (!overrideJustification) {
+            throw new TakeoffError({
+              status: 422,
+              code: TakeoffErrorCode.BAD_REQUEST,
+              message:
+                "override_justification est obligatoire pour un override admin.",
+              retryable: false,
+              jobId: normalizedJobId,
+            });
+          }
+
+          await logTakeoffAuditEvent({
+            supabase,
+            tenantId,
+            userId,
+            jobId: normalizedJobId,
+            estimateVersionId: jobRow.estimate_version_id,
+            action: "takeoff.apply.override",
+            metadata: takeoffAuditMetadataBuilders["takeoff.apply.override"]({
+              estimate_version_id: jobRow.estimate_version_id,
+              threshold: guardResult.threshold,
+              blocked_item_ids: guardResult.blocked_items.map((i) => i.item_id),
+              blocked_items_count: guardResult.blocked_items.length,
+              justification: overrideJustification,
+            }),
+            mode: "non-blocking",
+          });
+        } else {
+          throw new TakeoffError({
+            code: TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED,
+            status: 422,
+            details: {
+              blocked_items: guardResult.blocked_items,
+              medium_items: guardResult.medium_items,
+              threshold: guardResult.threshold,
+            },
+            retryable: false,
+            jobId: normalizedJobId,
+          });
+        }
+      }
+    }
 
     await logTakeoffAuditEvent({
       supabase,

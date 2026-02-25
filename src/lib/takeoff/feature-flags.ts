@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { forbidden } from "@/lib/estimates/errors";
 import { getFeatureFlagValueForTenant, isFeatureEnabled } from "@/lib/feature-flags";
+import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
 import {
   TAKEOFF_C_MAX_COST_CENTS_DEFAULT,
   TAKEOFF_C_MAX_COST_CENTS_FLAG_KEY,
@@ -15,6 +16,7 @@ import {
   TAKEOFF_C_MAX_TOTAL_TOKENS_FLAG_KEY,
   TAKEOFF_C_MAX_PDF_PAGES_DEFAULT,
   TAKEOFF_C_MAX_PDF_PAGES_FLAG_KEY,
+  TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY,
   TAKEOFF_C_TIMEOUT_MS_DEFAULT,
   TAKEOFF_C_TIMEOUT_MS_FLAG_KEY,
   TAKEOFF_C_TIMEOUT_MS_MAX,
@@ -54,6 +56,14 @@ function parseNonNegativeIntegerOrFallback(value: string | null, fallback: numbe
   const normalized = Math.trunc(parsed);
   if (normalized < 0) return fallback;
   return normalized;
+}
+
+function parseConfidenceThresholdOrFallback(value: string | null, fallback: number) {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed < 0 || parsed > 1) return fallback;
+  return parsed;
 }
 
 function parseChunkingConfig(input: {
@@ -178,6 +188,22 @@ export async function getTakeoffLevelCProcessingConfigForTenant(
     maxTotalTokens,
     maxCostCents,
   };
+}
+
+export async function getTakeoffLowConfidenceThresholdForTenant(
+  tenantId: string,
+  input?: { supabase?: Supabase }
+): Promise<number> {
+  const thresholdRaw = await getFeatureFlagValueForTenant(
+    tenantId,
+    TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY,
+    input
+  );
+
+  return parseConfidenceThresholdOrFallback(
+    thresholdRaw,
+    DEFAULT_LOW_CONFIDENCE_THRESHOLD
+  );
 }
 
 export async function assertTakeoffEnabled(

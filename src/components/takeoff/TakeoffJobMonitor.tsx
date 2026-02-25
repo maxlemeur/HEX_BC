@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { useUserContext } from "@/components/UserContext";
 import {
   TakeoffApplyWizard,
   type TakeoffApplyStrategy,
@@ -20,11 +21,14 @@ import {
   isTakeoffApiError,
   retryTakeoffJob,
 } from "@/lib/takeoff/client";
+import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
+import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
 import { useTakeoffJobPolling } from "@/lib/takeoff/use-takeoff-job-polling";
 import {
   TAKEOFF_JOB_MAX_RETRY_COUNT,
   type TakeoffJobSummary,
 } from "@/lib/takeoff/types";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
 type TakeoffJobMonitorProps = {
   jobId: string;
@@ -132,6 +136,14 @@ function resolveLockedByOtherMessage(holderName: string | null | undefined) {
   const normalizedHolder = holderName?.trim() ?? "";
   const holder = normalizedHolder.length > 0 ? normalizedHolder : "un autre utilisateur";
   return `La version cible est verrouillee par ${holder}.`;
+}
+
+function parseLowConfidenceThreshold(value: string | null): number {
+  if (!value) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  if (parsed < 0 || parsed > 1) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  return parsed;
 }
 
 type EnsureApplyDraftLockResult = {
@@ -423,6 +435,14 @@ export default function TakeoffJobMonitor({
   jobId,
   versionId,
 }: TakeoffJobMonitorProps) {
+  const { profile } = useUserContext();
+  const isAdmin = profile?.tenant_role === "admin";
+  const { value: lowConfidenceThresholdRaw } = useFeatureFlag(
+    TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY
+  );
+  const lowConfidenceThreshold = parseLowConfidenceThreshold(
+    lowConfidenceThresholdRaw
+  );
   const { data, error, errorStatus, isPolling, refetch } =
     useTakeoffJobPolling(jobId);
 
@@ -499,6 +519,8 @@ export default function TakeoffJobMonitor({
           target_section_id: payload.targetSectionId,
           strategy: payload.strategy,
           overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
+          override: payload.override,
+          override_justification: payload.overrideJustification,
         });
         setApplyState("idle");
         setIsApplyWizardOpen(false);
@@ -679,6 +701,10 @@ export default function TakeoffJobMonitor({
         submitError={applyError}
         onOpenChange={handleApplyWizardOpenChange}
         onConfirm={handleApplyConfirm}
+        items={data?.items.data}
+        jobLevel={data?.job.level ?? null}
+        confidenceThreshold={lowConfidenceThreshold}
+        isAdmin={isAdmin}
       />
     </div>
   );

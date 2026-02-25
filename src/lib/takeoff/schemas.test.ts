@@ -308,6 +308,36 @@ describe("takeoff apply mapping schemas", () => {
     ).toBe(true);
   });
 
+  it("requires override_justification when override is enabled", () => {
+    const parsed = takeoffApplyRequestSchema.safeParse({
+      strategy: "append",
+      override: true,
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("override_justification est obligatoire")
+      )
+    ).toBe(true);
+  });
+
+  it("rejects override_justification without override=true", () => {
+    const parsed = takeoffApplyRequestSchema.safeParse({
+      strategy: "append",
+      override_justification: "Validation manuelle",
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("override_justification ne peut etre fourni")
+      )
+    ).toBe(true);
+  });
+
   it("accepts preview conversion response payload", () => {
     const parsed = takeoffPreviewConversionResponseSchema.parse({
       job_id: "44444444-4444-4444-8444-444444444444",

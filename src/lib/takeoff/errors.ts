@@ -32,6 +32,7 @@ export enum TakeoffErrorCode {
   TAKEOFF_LEVEL_C_BUDGET_EXCEEDED = "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
   TAKEOFF_JOB_NOT_RETRIABLE = "TAKEOFF_JOB_NOT_RETRIABLE",
   TAKEOFF_JOB_NOT_CANCELABLE = "TAKEOFF_JOB_NOT_CANCELABLE",
+  TAKEOFF_APPLY_GUARD_FAILED = "TAKEOFF_APPLY_GUARD_FAILED",
 }
 
 type TakeoffErrorStatus = ApiError["status"];
@@ -308,7 +309,8 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
     code === TakeoffErrorCode.TAKEOFF_ESTIMATE_VERSION_ID_INVALID ||
     code === TakeoffErrorCode.AI_SCHEMA ||
     code === TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA ||
-    code === TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED
+    code === TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED ||
+    code === TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED
   ) {
     return 422;
   }
@@ -382,6 +384,10 @@ function getDefaultMessage(code: TakeoffErrorCode) {
 
   if (code === TakeoffErrorCode.TAKEOFF_JOB_NOT_CANCELABLE) {
     return "Le job n'est pas dans un etat permettant l'annulation.";
+  }
+
+  if (code === TakeoffErrorCode.TAKEOFF_APPLY_GUARD_FAILED) {
+    return "Des items a faible confiance n'ont pas ete verifies. Verifiez-les ou utilisez un override admin.";
   }
 
   if (code === TakeoffErrorCode.INTERNAL_ERROR) {

@@ -9,6 +9,12 @@ import {
   type TakeoffMappingOverride,
   type TakeoffPreviewConversionResponse,
 } from "@/lib/takeoff/client";
+import {
+  checkApplyGuard,
+  DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+  type ApplyGuardResult,
+} from "@/lib/takeoff/guards";
+import type { TakeoffJobItem } from "@/lib/takeoff/types";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -28,6 +34,8 @@ export type TakeoffApplyWizardSubmitPayload = {
   targetSectionLabel: string;
   strategy: TakeoffApplyStrategy;
   overrides: TakeoffMappingOverride[];
+  override?: boolean;
+  overrideJustification?: string;
 };
 
 type TakeoffApplyWizardProps = {
@@ -40,6 +48,12 @@ type TakeoffApplyWizardProps = {
   submitError: string | null;
   onOpenChange: (open: boolean) => void;
   onConfirm: (payload: TakeoffApplyWizardSubmitPayload) => Promise<void>;
+  items?: TakeoffJobItem[];
+  jobLevel?: string | null;
+  confidenceThreshold?: number;
+  isAdmin?: boolean;
+  onVerifyItems?: (itemIds: string[]) => Promise<void>;
+  onReturnToReview?: () => void;
 };
 
 const ROOT_SECTION_VALUE = "__takeoff_root_section__";
@@ -236,6 +250,207 @@ function buildOverrideFromAction(input: {
   };
 }
 
+function confidenceColor(confidence: number | null): string {
+  if (confidence === null) return "text-[var(--danger)]";
+  if (confidence < 0.3) return "text-[var(--danger)]";
+  if (confidence < 0.5) return "text-[var(--warning)]";
+  if (confidence < 0.8) return "text-[var(--info)]";
+  return "text-[var(--success)]";
+}
+
+function formatConfidencePercent(confidence: number | null): string {
+  if (confidence === null) return "N/A";
+  return `${Math.round(confidence * 100)}%`;
+}
+
+// ---------------------------------------------------------------------------
+// Guard Panel sub-component
+// ---------------------------------------------------------------------------
+
+function GuardPanel({
+  guardResult,
+  items,
+  isAdmin,
+  isVerifying,
+  overrideJustification,
+  onVerifyAll,
+  onVerifyItem,
+  onReturnToReview,
+  onOverrideJustificationChange,
+  onOverrideConfirm,
+}: {
+  guardResult: ApplyGuardResult;
+  items: TakeoffJobItem[];
+  isAdmin: boolean;
+  isVerifying: boolean;
+  overrideJustification: string;
+  onVerifyAll: () => void;
+  onVerifyItem: (itemId: string) => void;
+  onReturnToReview?: () => void;
+  onOverrideJustificationChange: (value: string) => void;
+  onOverrideConfirm: () => void;
+}) {
+  const totalIncluded = items.filter((i) => !i.is_excluded).length;
+  const verifiedCount = items.filter((i) => !i.is_excluded && i.is_verified).length;
+  const progressPercent =
+    totalIncluded > 0 ? Math.round((verifiedCount / totalIncluded) * 100) : 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Banner */}
+      <div className="rounded-xl border border-[var(--warning)] bg-amber-50 p-4">
+        <p className="flex items-center gap-2 text-sm font-semibold text-[var(--warning)]">
+          <span aria-hidden="true">&#9888;</span> Verification requise
+        </p>
+        <p className="mt-2 text-sm text-[var(--slate-700)]">
+          {guardResult.blocked_items.length} item(s) ont une confiance faible
+          (&lt;{Math.round(guardResult.threshold * 100)}%) et n&apos;ont pas encore
+          ete verifies. L&apos;IA n&apos;est pas certaine de ces donnees — une
+          verification humaine est obligatoire avant application.
+        </p>
+        {onReturnToReview && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm mt-3"
+            onClick={onReturnToReview}
+            disabled={isVerifying}
+          >
+            Retour a la revue
+          </button>
+        )}
+      </div>
+
+      {/* Progress bar */}
+      <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-3">
+        <div className="flex items-center justify-between text-xs text-[var(--slate-700)]">
+          <span>Progression des verifications</span>
+          <span className="font-semibold">
+            {verifiedCount}/{totalIncluded} verifies
+          </span>
+        </div>
+        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[var(--slate-200)]">
+          <div
+            className="h-full rounded-full bg-[var(--success)] transition-all duration-300"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Batch verify button */}
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm w-full"
+        onClick={onVerifyAll}
+        disabled={isVerifying || guardResult.blocked_items.length === 0}
+      >
+        {isVerifying
+          ? "Verification en cours..."
+          : `Tout verifier (${guardResult.blocked_items.length} item(s))`}
+      </button>
+
+      {/* Blocked items table */}
+      <div className="max-h-[200px] overflow-auto rounded-xl border border-[var(--slate-200)]">
+        <table className="min-w-full text-sm">
+          <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-600)]">
+            <tr>
+              <th className="px-3 py-2">Designation</th>
+              <th className="px-3 py-2 text-center">Confiance</th>
+              <th className="px-3 py-2 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {guardResult.blocked_items.map((blocked) => (
+              <tr
+                key={blocked.item_id}
+                className="border-t border-[var(--slate-200)]"
+              >
+                <td className="px-3 py-2 text-[var(--slate-800)]">
+                  {blocked.designation}
+                </td>
+                <td
+                  className={`px-3 py-2 text-center font-semibold ${confidenceColor(blocked.confidence)}`}
+                >
+                  {formatConfidencePercent(blocked.confidence)}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onVerifyItem(blocked.item_id)}
+                    disabled={isVerifying}
+                  >
+                    Verifier
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Medium confidence warning */}
+      {guardResult.medium_items.length > 0 && (
+        <div className="rounded-xl border border-[var(--info)] bg-blue-50 p-3">
+          <p className="text-xs font-semibold text-[var(--info)]">
+            Items confiance moyenne (non bloquants)
+          </p>
+          <p className="mt-1 text-xs text-[var(--slate-600)]">
+            {guardResult.medium_items.length} item(s) ont une confiance moyenne
+            (50-80%). Verification recommandee mais non obligatoire.
+          </p>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-[var(--info)]">
+              Voir les items ({guardResult.medium_items.length})
+            </summary>
+            <ul className="mt-1 space-y-1 text-xs text-[var(--slate-600)]">
+              {guardResult.medium_items.map((medium) => (
+                <li key={medium.item_id} className="flex items-center justify-between">
+                  <span>{medium.designation}</span>
+                  <span className={`font-semibold ${confidenceColor(medium.confidence)}`}>
+                    {formatConfidencePercent(medium.confidence)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      )}
+
+      {/* Admin override section */}
+      {isAdmin && (
+        <div className="rounded-xl border border-[var(--danger)] bg-red-50 p-4">
+          <p className="text-xs font-semibold text-[var(--danger)]">
+            Override administrateur
+          </p>
+          <p className="mt-1 text-xs text-[var(--slate-600)]">
+            Appliquer malgre les items non verifies. Une justification est obligatoire
+            et sera enregistree dans le journal d&apos;audit.
+          </p>
+          <textarea
+            className="form-input mt-2 w-full text-sm"
+            rows={2}
+            placeholder="Justification (min 10 caracteres)..."
+            value={overrideJustification}
+            onChange={(e) => onOverrideJustificationChange(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-sm mt-2 border-[var(--danger)] bg-[var(--danger)] text-white hover:opacity-90"
+            onClick={onOverrideConfirm}
+            disabled={isVerifying || overrideJustification.trim().length < 10}
+          >
+            Appliquer malgre les items non verifies
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main wizard component
+// ---------------------------------------------------------------------------
+
 export function TakeoffApplyWizard({
   open,
   jobId,
@@ -246,6 +461,12 @@ export function TakeoffApplyWizard({
   submitError,
   onOpenChange,
   onConfirm,
+  items: externalItems,
+  jobLevel,
+  confidenceThreshold,
+  isAdmin = false,
+  onVerifyItems,
+  onReturnToReview,
 }: TakeoffApplyWizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
   const [targetSectionId, setTargetSectionId] = useState<string | null>(null);
@@ -261,9 +482,31 @@ export function TakeoffApplyWizard({
     useState<Record<string, TakeoffMappingOverride>>({});
   const overridesRef = useRef<Record<string, TakeoffMappingOverride>>({});
 
+  // Guard state
+  const [guardResult, setGuardResult] = useState<ApplyGuardResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [overrideJustification, setOverrideJustification] = useState("");
+
+  const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  const isLevelC = jobLevel === "C";
+  const hasGuardItems = !!externalItems && externalItems.length > 0;
+
   useEffect(() => {
     overridesRef.current = overridesByItemId;
   }, [overridesByItemId]);
+
+  // Re-run guard whenever items change (e.g. after batch verify)
+  useEffect(() => {
+    if (!isLevelC || !hasGuardItems || step !== 4) {
+      setGuardResult(null);
+      return;
+    }
+    const result = checkApplyGuard(externalItems!, threshold);
+    setGuardResult(result);
+  }, [isLevelC, hasGuardItems, externalItems, threshold, step]);
+
+  const guardBlocking =
+    isLevelC && guardResult !== null && !guardResult.passed;
 
   const refreshPreview = useCallback(
     async (overridesSnapshot: Record<string, TakeoffMappingOverride>) => {
@@ -309,6 +552,8 @@ export function TakeoffApplyWizard({
       setPreviewData(null);
       setPreviewError(null);
       setOverridesByItemId({});
+      setGuardResult(null);
+      setOverrideJustification("");
 
       try {
         const estimateItems = await fetchEstimateItemsForVersion(versionId);
@@ -360,7 +605,11 @@ export function TakeoffApplyWizard({
   const canProceed = step < 4;
   const canGoBack = step > 1;
   const canConfirm =
-    includedCount > 0 && !isSubmitting && hasPreviewReady && step === 4;
+    includedCount > 0 &&
+    !isSubmitting &&
+    hasPreviewReady &&
+    step === 4 &&
+    !guardBlocking;
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (isSubmitting && !nextOpen) return;
@@ -381,6 +630,42 @@ export function TakeoffApplyWizard({
       overrides: serializedOverrides,
     });
   };
+
+  const handleOverrideConfirm = async () => {
+    if (!isAdmin || overrideJustification.trim().length < 10) return;
+
+    await onConfirm({
+      targetSectionId,
+      targetSectionLabel: selectedSectionLabel,
+      strategy,
+      overrides: serializedOverrides,
+      override: true,
+      overrideJustification: overrideJustification.trim(),
+    });
+  };
+
+  const handleVerifyAll = useCallback(async () => {
+    if (!onVerifyItems || !guardResult) return;
+    setIsVerifying(true);
+    try {
+      await onVerifyItems(guardResult.blocked_items.map((i) => i.item_id));
+    } finally {
+      setIsVerifying(false);
+    }
+  }, [onVerifyItems, guardResult]);
+
+  const handleVerifyItem = useCallback(
+    async (itemId: string) => {
+      if (!onVerifyItems) return;
+      setIsVerifying(true);
+      try {
+        await onVerifyItems([itemId]);
+      } finally {
+        setIsVerifying(false);
+      }
+    },
+    [onVerifyItems]
+  );
 
   const handleOverrideActionChange = (
     item: TakeoffPreviewConversionResponse["items"][number],
@@ -680,23 +965,58 @@ export function TakeoffApplyWizard({
 
           {step === 4 && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm">
-                <p className="font-semibold text-[var(--slate-800)]">Recapitulatif</p>
-                <p className="mt-2 text-[var(--slate-700)]">Version: {versionId}</p>
-                <p className="mt-1 text-[var(--slate-700)]">Section: {selectedSectionLabel}</p>
-                <p className="mt-1 text-[var(--slate-700)]">
-                  Strategie: {strategy} - {strategyDescription(strategy)}
-                </p>
-                <p className="mt-1 text-[var(--slate-700)]">
-                  Items inclus: <strong>{includedCount}</strong>
-                </p>
-                <p className="mt-1 text-[var(--slate-700)]">
-                  Items exclus: <strong>{excludedCount}</strong>
-                </p>
-                <p className="mt-1 text-[var(--slate-700)]">
-                  Overrides envoyes: <strong>{serializedOverrides.length}</strong>
-                </p>
-              </div>
+              {/* Guard panel — shown when Level C has blocked items */}
+              {guardBlocking && guardResult && externalItems && (
+                <GuardPanel
+                  guardResult={guardResult}
+                  items={externalItems}
+                  isAdmin={isAdmin}
+                  isVerifying={isVerifying}
+                  overrideJustification={overrideJustification}
+                  onVerifyAll={() => void handleVerifyAll()}
+                  onVerifyItem={(id) => void handleVerifyItem(id)}
+                  onReturnToReview={onReturnToReview}
+                  onOverrideJustificationChange={setOverrideJustification}
+                  onOverrideConfirm={() => void handleOverrideConfirm()}
+                />
+              )}
+
+              {/* Medium-only warning when guard passed but medium items exist */}
+              {isLevelC &&
+                guardResult &&
+                guardResult.passed &&
+                guardResult.medium_items.length > 0 && (
+                  <div className="rounded-xl border border-[var(--info)] bg-blue-50 p-3">
+                    <p className="text-xs font-semibold text-[var(--info)]">
+                      Items confiance moyenne (non bloquants)
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--slate-600)]">
+                      {guardResult.medium_items.length} item(s) ont une confiance
+                      moyenne (50-80%). Verification recommandee mais non obligatoire.
+                    </p>
+                  </div>
+                )}
+
+              {/* Standard recap — shown when no guard blocking */}
+              {!guardBlocking && (
+                <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm">
+                  <p className="font-semibold text-[var(--slate-800)]">Recapitulatif</p>
+                  <p className="mt-2 text-[var(--slate-700)]">Version: {versionId}</p>
+                  <p className="mt-1 text-[var(--slate-700)]">Section: {selectedSectionLabel}</p>
+                  <p className="mt-1 text-[var(--slate-700)]">
+                    Strategie: {strategy} - {strategyDescription(strategy)}
+                  </p>
+                  <p className="mt-1 text-[var(--slate-700)]">
+                    Items inclus: <strong>{includedCount}</strong>
+                  </p>
+                  <p className="mt-1 text-[var(--slate-700)]">
+                    Items exclus: <strong>{excludedCount}</strong>
+                  </p>
+                  <p className="mt-1 text-[var(--slate-700)]">
+                    Overrides envoyes: <strong>{serializedOverrides.length}</strong>
+                  </p>
+                </div>
+              )}
 
               {includedCount === 0 && (
                 <div className="alert alert-info">
@@ -704,7 +1024,7 @@ export function TakeoffApplyWizard({
                 </div>
               )}
 
-              {!hasPreviewReady && (
+              {!hasPreviewReady && !guardBlocking && (
                 <div className="alert alert-error">
                   Une preview valide est requise avant confirmation.
                 </div>

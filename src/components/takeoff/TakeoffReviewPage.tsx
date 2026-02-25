@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
+import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { EvidencePanel } from "@/components/takeoff/EvidencePanel";
 import TakeoffDiffView from "@/components/takeoff/TakeoffDiffView";
@@ -34,6 +35,11 @@ import {
   listTakeoffJobs,
   patchTakeoffItems,
 } from "@/lib/takeoff/client";
+import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
+import {
+  checkApplyGuard,
+  DEFAULT_LOW_CONFIDENCE_THRESHOLD,
+} from "@/lib/takeoff/guards";
 import type {
   TakeoffItemBatchPatchResponse,
   TakeoffItemPatchEntry,
@@ -42,6 +48,7 @@ import type {
   TakeoffJobSummary,
   TakeoffTable,
 } from "@/lib/takeoff/types";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -74,6 +81,14 @@ const DEFAULT_COMPARE_THRESHOLD = 0.8;
 const CHERRY_PICK_EXCLUSION_REASON = "Cherry-pick diff TKF-032";
 const TAKEOFF_ITEM_PATCH_BATCH_MAX = 100;
 const TAKEOFF_JOBS_LIST_PAGE_MAX = 100;
+
+function parseLowConfidenceThreshold(value: string | null): number {
+  if (!value) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  if (parsed < 0 || parsed > 1) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
+  return parsed;
+}
 
 // ---------------------------------------------------------------------------
 // Exclusion reason modal
@@ -232,6 +247,15 @@ export default function TakeoffReviewPage({
   const toast = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { profile } = useUserContext();
+  const isAdmin = profile?.tenant_role === "admin";
+  const { value: lowConfidenceThresholdRaw } = useFeatureFlag(
+    TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY
+  );
+  const lowConfidenceThreshold = useMemo(
+    () => parseLowConfidenceThreshold(lowConfidenceThresholdRaw),
+    [lowConfidenceThresholdRaw]
+  );
 
   // ---- Tab state from URL
   const viewParam = searchParams.get("view");
@@ -839,8 +863,17 @@ export default function TakeoffReviewPage({
   const hasDirtyOrSaving = items.some((i) => i._dirty || i._saving);
   const hasSaveErrors = items.some((i) => i._error !== null);
   const hasBlockingAnomalies = includedItems.some(hasBlockingAnomaly);
+  const guardResult = useMemo(() => {
+    if (jobLevel !== "C") return null;
+    return checkApplyGuard(includedItems, lowConfidenceThreshold);
+  }, [includedItems, jobLevel, lowConfidenceThreshold]);
+  const hasGuardBlocks = guardResult !== null && !guardResult.passed;
   const isApplyReady =
-    hasIncluded && !hasDirtyOrSaving && !hasSaveErrors && !hasBlockingAnomalies;
+    hasIncluded &&
+    !hasDirtyOrSaving &&
+    !hasSaveErrors &&
+    !hasBlockingAnomalies &&
+    !hasGuardBlocks;
 
   // ---- Apply handler
   const handleApplyConfirm = useCallback(
@@ -852,6 +885,8 @@ export default function TakeoffReviewPage({
           strategy: payload.strategy,
           target_section_id: payload.targetSectionId,
           overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
+          override: payload.override,
+          override_justification: payload.overrideJustification,
         });
         setApplyWizardOpen(false);
         toast.success({
@@ -868,6 +903,37 @@ export default function TakeoffReviewPage({
       }
     },
     [jobId, versionId, includedItems.length, toast, router]
+  );
+
+  // ---- Batch verify handler for guard panel
+  const handleWizardVerifyItems = useCallback(
+    async (itemIds: string[]) => {
+      const entries: TakeoffItemPatchEntry[] = itemIds.reduce<TakeoffItemPatchEntry[]>(
+        (acc, id) => {
+          const item = items.find((i) => i.id === id);
+          if (!item) return acc;
+          acc.push({
+            item_id: id,
+            updated_at: item.updated_at,
+            fields: { is_verified: true },
+          });
+          return acc;
+        },
+        []
+      );
+
+      if (entries.length === 0) return;
+
+      const response = await patchTakeoffItems(jobId, { items: entries });
+      setItems((prev) =>
+        prev.map((item) => {
+          const result = response.results.find((r) => r.item_id === item.id);
+          if (!result || !result.success || !result.item) return item;
+          return { ...result.item, _dirty: false, _saving: false, _error: null };
+        })
+      );
+    },
+    [jobId, items]
   );
 
   // ---- Table count
@@ -1130,6 +1196,12 @@ export default function TakeoffReviewPage({
                 !hasBlockingAnomalies &&
                 hasSaveErrors &&
                 "Des erreurs de sauvegarde persistent. Corrigez les lignes en erreur puis modifiez-les pour relancer la sauvegarde."}
+              {hasIncluded &&
+                !hasDirtyOrSaving &&
+                !hasBlockingAnomalies &&
+                !hasSaveErrors &&
+                hasGuardBlocks &&
+                `${guardResult?.blocked_items.length ?? 0} item(s) faible confiance non verifies bloquent l'application. Revenez sur la revue pour les verifier.`}
               {hasIncluded && !hasDirtyOrSaving && hasBlockingAnomalies && (
                 "Anomalies bloquantes sur les items inclus (designation vide ou quantite invalide)."
               )}
@@ -1144,7 +1216,9 @@ export default function TakeoffReviewPage({
           title={
             isApplyReady
               ? "Appliquer les items au chiffrage"
-              : "Resolves les problemes avant d'appliquer"
+              : hasGuardBlocks
+                ? "Verifiez les items faible confiance avant d'appliquer"
+                : "Resolves les problemes avant d'appliquer"
           }
         >
           Appliquer au chiffrage
@@ -1170,6 +1244,12 @@ export default function TakeoffReviewPage({
         submitError={applyError}
         onOpenChange={setApplyWizardOpen}
         onConfirm={handleApplyConfirm}
+        items={items}
+        jobLevel={jobLevel}
+        confidenceThreshold={lowConfidenceThreshold}
+        isAdmin={isAdmin}
+        onVerifyItems={handleWizardVerifyItems}
+        onReturnToReview={() => setApplyWizardOpen(false)}
       />
 
       {/* ---- Evidence panel ---- */}

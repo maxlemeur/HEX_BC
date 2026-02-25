@@ -9,6 +9,7 @@ vi.mock("@/lib/estimates/server", () => ({
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
+  getTakeoffLowConfidenceThresholdForTenant: vi.fn(),
 }));
 
 import {
@@ -16,7 +17,10 @@ import {
   getAuthenticatedContext,
   insertAssemblyIntoVersion,
 } from "@/lib/estimates/server";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import {
+  assertTakeoffEnabled,
+  getTakeoffLowConfidenceThresholdForTenant,
+} from "@/lib/takeoff/feature-flags";
 import { applyTakeoffJob } from "@/lib/takeoff/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -80,6 +84,7 @@ type StoredTakeoffItem = {
 
 type SupabaseMockOptions = {
   jobStatus?: string;
+  jobLevel?: string;
   takeoffItems?: StoredTakeoffItem[];
   mappingRules?: Array<{
     id: string;
@@ -157,7 +162,10 @@ function baseTakeoffItem(overrides: Partial<StoredTakeoffItem> = {}): StoredTake
 
 function createSupabaseMock(options: SupabaseMockOptions = {}) {
   const state = {
-    job: baseJob({ status: options.jobStatus ?? "completed" }),
+    job: baseJob({
+      status: options.jobStatus ?? "completed",
+      level: options.jobLevel ?? "A",
+    }),
     auditActions: [] as string[],
     takeoffItems:
       options.takeoffItems?.map((item) => ({ ...item })) ?? [baseTakeoffItem()],
@@ -231,6 +239,11 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         return {
           select: vi.fn((_columns?: string, opts?: { count?: "exact" }) => {
             const filters: Record<string, string> = {};
+            const getScopedItems = () => {
+              const matchesTenant = !filters.tenant_id || filters.tenant_id === TENANT_ID;
+              const matchesJob = !filters.job_id || filters.job_id === JOB_ID;
+              return matchesTenant && matchesJob ? state.takeoffItems : [];
+            };
             const builder = {
               eq: vi.fn((column: string, value: string) => {
                 filters[column] = value;
@@ -238,9 +251,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
               }),
               order: vi.fn(() => builder),
               range: vi.fn(async (start: number, end: number) => {
-                const matchesTenant = !filters.tenant_id || filters.tenant_id === TENANT_ID;
-                const matchesJob = !filters.job_id || filters.job_id === JOB_ID;
-                const scoped = matchesTenant && matchesJob ? state.takeoffItems : [];
+                const scoped = getScopedItems();
 
                 return {
                   data: scoped.slice(start, end + 1).map((item) => ({ ...item })),
@@ -248,6 +259,18 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
                   error: null,
                 };
               }),
+              then: (
+                resolve: (value: {
+                  data: StoredTakeoffItem[];
+                  count: number | null;
+                  error: null;
+                }) => unknown
+              ) =>
+                resolve({
+                  data: getScopedItems().map((item) => ({ ...item })),
+                  count: opts?.count === "exact" ? getScopedItems().length : null,
+                  error: null,
+                }),
             };
 
             return builder;
@@ -366,6 +389,7 @@ describe("applyTakeoffJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
+    vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.5);
     vi.mocked(insertAssemblyIntoVersion).mockResolvedValue({} as never);
   });
 
@@ -644,5 +668,130 @@ describe("applyTakeoffJob", () => {
       versionId: VERSION_ID,
       afterItemId: insertedSectionId1,
     });
+  });
+
+  it("blocks non-admin override attempts for level C guard failures", async () => {
+    const supabase = createSupabaseMock({
+      jobLevel: "C",
+      takeoffItems: [
+        baseTakeoffItem({
+          id: TAKEOFF_ITEM_ID_1,
+          confidence: 0.2,
+          is_verified: false,
+        }),
+      ],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "site_manager",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    await expect(
+      applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+        override: true,
+        override_justification: "Validation manuelle exceptionnelle",
+      })
+    ).rejects.toMatchObject({
+      status: 403,
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(supabase.__state.auditActions).toEqual(["takeoff.apply.failed"]);
+  });
+
+  it("allows admin override and logs takeoff.apply.override", async () => {
+    const supabase = createSupabaseMock({
+      jobLevel: "C",
+      takeoffItems: [
+        baseTakeoffItem({
+          id: TAKEOFF_ITEM_ID_1,
+          confidence: 0.2,
+          is_verified: false,
+        }),
+      ],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    const response = await applyTakeoffJob(JOB_ID, {
+      strategy: "merge",
+      target_section_id: SECTION_ID,
+      override: true,
+      override_justification: "Validation manuelle exceptionnelle",
+    });
+
+    expect(response.job.status).toBe("applied");
+    expect(supabase.__state.auditActions).toContain("takeoff.apply.override");
+    expect(supabase.__state.auditActions).toEqual([
+      "takeoff.apply.override",
+      "takeoff.apply.started",
+      "takeoff.apply.completed",
+    ]);
+  });
+
+  it("uses tenant low-confidence threshold for level C guard", async () => {
+    const supabase = createSupabaseMock({
+      jobLevel: "C",
+      takeoffItems: [
+        baseTakeoffItem({
+          id: TAKEOFF_ITEM_ID_1,
+          confidence: 0.6,
+          is_verified: false,
+        }),
+      ],
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(getTakeoffLowConfidenceThresholdForTenant).mockResolvedValue(0.7);
+    vi.mocked(bulkUpdateEstimateItems).mockResolvedValue({
+      updated_count: 0,
+      version: {
+        id: VERSION_ID,
+        updated_at: VERSION_UPDATED_AT,
+      },
+    } as never);
+
+    await expect(
+      applyTakeoffJob(JOB_ID, {
+        strategy: "merge",
+        target_section_id: SECTION_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 422,
+      code: "TAKEOFF_APPLY_GUARD_FAILED",
+      details: {
+        blocked_items: expect.arrayContaining([
+          expect.objectContaining({ item_id: TAKEOFF_ITEM_ID_1 }),
+        ]),
+      },
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 });

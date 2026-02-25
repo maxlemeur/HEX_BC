@@ -13,13 +13,16 @@ import {
   TAKEOFF_C_CHUNK_SIZE_PAGES_DEFAULT,
   TAKEOFF_C_CHUNK_THRESHOLD_PAGES_DEFAULT,
   TAKEOFF_C_MAX_PDF_PAGES_DEFAULT,
+  TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY,
   TAKEOFF_C_TIMEOUT_MS_DEFAULT,
   TAKEOFF_C_TIMEOUT_MS_MAX,
   TAKEOFF_C_TIMEOUT_MS_MIN,
 } from "@/lib/takeoff/constants";
+import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
 import {
   assertTakeoffEnabled,
   getTakeoffChunkingConfigForTenant,
+  getTakeoffLowConfidenceThresholdForTenant,
   getTakeoffLevelCProcessingConfigForTenant,
   isTakeoffEnabled,
 } from "@/lib/takeoff/feature-flags";
@@ -205,5 +208,30 @@ describe("takeoff feature flags", () => {
 
     const maxTimeoutConfig = await getTakeoffLevelCProcessingConfigForTenant(TENANT_ID);
     expect(maxTimeoutConfig.timeoutMs).toBe(expectedMaxTimeout);
+  });
+
+  it("returns low-confidence threshold from tenant flag", async () => {
+    vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (_tenantId, key) => {
+      if (key === TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY) {
+        return "0.35";
+      }
+      return null;
+    });
+
+    await expect(
+      getTakeoffLowConfidenceThresholdForTenant(TENANT_ID)
+    ).resolves.toBe(0.35);
+  });
+
+  it("falls back to default low-confidence threshold for invalid values", async () => {
+    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("1.2");
+    await expect(
+      getTakeoffLowConfidenceThresholdForTenant(TENANT_ID)
+    ).resolves.toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
+
+    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("invalid");
+    await expect(
+      getTakeoffLowConfidenceThresholdForTenant(TENANT_ID)
+    ).resolves.toBe(DEFAULT_LOW_CONFIDENCE_THRESHOLD);
   });
 });
