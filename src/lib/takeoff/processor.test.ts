@@ -1067,6 +1067,67 @@ describe("processLevelB", () => {
     );
   });
 
+  it("accepts PDF MIME types with parameters in level B input", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "mime-params.pdf",
+        source_file_path: `${TENANT_ID}/${JOB_ID}/${"b".repeat(64)}-mime-params.pdf`,
+        source_file_type: "application/pdf; charset=utf-8",
+      },
+      downloadFile: {
+        bytes: toArrayBuffer("%PDF-1.7\nmime-params"),
+        mimeType: "application/pdf; charset=utf-8",
+      },
+    });
+
+    const exchange = buildTakeoffExchange(
+      [
+        {
+          designation: "Goulotte",
+          quantity: 12,
+          unit: "m",
+          source_page: 1,
+          source_file: "mime-params.pdf",
+          confidence: 0.9,
+          evidence: "Plan principal",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(exchange, {
+        model: "gemini-2.5-pro",
+        promptVersion: "takeoff-b-v1",
+      })
+    );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(callGemini).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [expect.objectContaining({ mimeType: "application/pdf" })],
+      })
+    );
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      file_type: "application/pdf; charset=utf-8",
+      source_file_name: "mime-params.pdf",
+      processing_mode: "pdf_vision",
+    });
+  });
+
   it("supports multi-page table extraction and keeps source page metadata", async () => {
     const mock = createTakeoffProcessorSupabaseMock({
       job: {

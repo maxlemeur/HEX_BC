@@ -480,7 +480,8 @@ function inferMimeTypeFromFilename(fileName: string) {
 }
 
 function isPdfMimeType(mimeType: string) {
-  return mimeType.trim().toLowerCase() === "application/pdf";
+  const mediaType = mimeType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return mediaType === "application/pdf";
 }
 
 function getFileNameFromStoragePath(path: string, fallback: string) {
