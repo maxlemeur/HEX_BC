@@ -95,6 +95,14 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
   - Admin override with justification
   - Excluded items do not trigger guard
   - Requires `SUPABASE_SERVICE_ROLE_KEY` for DB seeding
+- `e2e/estimates/takeoff-epics-matrix.spec.ts`
+  - E01: takeoff health and foundations smoke
+  - E02: level A job creation + listing
+  - E03: provenance fields + item review editability
+  - E04: plan-set CRUD smoke (create/list/delete)
+  - E06: job list offset ceiling validation (`offset <= 10000`)
+  - E07: compare endpoint delta on two revisions
+  - Requires `SUPABASE_SERVICE_ROLE_KEY` for DB seeding when available (falls back to authenticated user)
 
 Playwright config is in `playwright.config.ts` with:
 - automatic screenshots on failure (`screenshot: only-on-failure`),

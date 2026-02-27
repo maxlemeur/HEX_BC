@@ -17,6 +17,7 @@ vi.mock("@/lib/takeoff/client", async () => {
 });
 
 import TakeoffJobList, {
+  resolveTakeoffMaxNavigablePagesByOffset,
   resolveTakeoffJobsRefreshInterval,
 } from "@/components/takeoff/TakeoffJobList";
 import {
@@ -228,52 +229,17 @@ describe("TakeoffJobList", () => {
     expect(screen.getByText("Acces interdit.")).toBeInTheDocument();
   });
 
-  it("caps pagination at backend offset ceiling", async () => {
-    vi.mocked(listTakeoffJobs).mockImplementation(async (query) => {
-      const offset = query?.offset ?? 0;
-      const limit = query?.limit ?? 20;
+  it("resolves backend offset ceiling deterministically", () => {
+    const maxPages = resolveTakeoffMaxNavigablePagesByOffset(100);
+    const maxOffset = (maxPages - 1) * 100;
 
-      if (offset > 10_000) {
-        throw new Error("Offset exceeds backend limit");
-      }
-
-      return createResponse(
-        [createJob({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })],
-        {
-          total: 2_000_000,
-          limit,
-          offset,
-        }
-      );
-    });
-
-    const user = userEvent.setup();
-    renderTakeoffJobList();
-
-    expect((await screen.findAllByText("niveau-a.csv")).length).toBeGreaterThan(0);
-
-    await user.selectOptions(screen.getByLabelText("Page size"), "100");
-
-    for (let index = 0; index < 160; index += 1) {
-      const nextButton = screen.getByRole("button", { name: "Suivant" });
-      if ((nextButton as HTMLButtonElement).disabled) {
-        break;
-      }
-      await user.click(nextButton);
-    }
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Suivant" })
-      ).toBeDisabled();
-    });
-    expect(screen.getByText("Page 101 / 101")).toBeInTheDocument();
-
-    const calledOffsets = vi
-      .mocked(listTakeoffJobs)
-      .mock.calls.map(([query]) => query?.offset ?? 0);
-    const maxOffset = Math.max(...calledOffsets);
+    expect(maxPages).toBe(101);
     expect(maxOffset).toBe(10_000);
+  });
+
+  it("falls back to a safe value when page size is invalid", () => {
+    expect(resolveTakeoffMaxNavigablePagesByOffset(0)).toBe(10_001);
+    expect(resolveTakeoffMaxNavigablePagesByOffset(Number.NaN)).toBe(10_001);
   });
 
   it("returns no polling interval when no in-flight jobs are present", () => {

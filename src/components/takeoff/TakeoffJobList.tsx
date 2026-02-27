@@ -131,6 +131,13 @@ export function resolveTakeoffJobsRefreshInterval(
     : 0;
 }
 
+export function resolveTakeoffMaxNavigablePagesByOffset(pageSize: number) {
+  const normalizedPageSize =
+    Number.isFinite(pageSize) && pageSize > 0 ? Math.trunc(pageSize) : 1;
+
+  return Math.floor(TAKEOFF_MAX_LIST_OFFSET / normalizedPageSize) + 1;
+}
+
 function CounterCard({ label, value }: { label: string; value: number }) {
   return (
     <article className="rounded-xl border border-[var(--slate-200)] bg-white p-3 shadow-sm">
@@ -169,7 +176,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingActions, setPendingActions] = useState<Record<string, ActionKind>>({});
   const maxNavigablePagesByOffset =
-    Math.floor(TAKEOFF_MAX_LIST_OFFSET / pageSize) + 1;
+    resolveTakeoffMaxNavigablePagesByOffset(pageSize);
   const requestPage = Math.min(currentPage, maxNavigablePagesByOffset);
 
   const listQuery = useMemo(() => {
