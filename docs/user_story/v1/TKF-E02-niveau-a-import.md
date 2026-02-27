@@ -1,6 +1,6 @@
 # TKF-E02 — Niveau A : Import Normaliseur Universel
 
-> Phase: 1 (MVP) | Priorite: P0 | Statut: En cours
+> Phase: 1 (MVP) | Priorite: P0 | Statut: Termine (fichier fini)
 
 ## Objectif
 

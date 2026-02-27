@@ -249,12 +249,18 @@ export default function TakeoffReviewPage({
   const searchParams = useSearchParams();
   const { profile } = useUserContext();
   const isAdmin = profile?.tenant_role === "admin";
-  const { value: lowConfidenceThresholdRaw } = useFeatureFlag(
+  const {
+    enabled: isLowConfidenceThresholdEnabled,
+    value: lowConfidenceThresholdRaw,
+  } = useFeatureFlag(
     TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY
   );
   const lowConfidenceThreshold = useMemo(
-    () => parseLowConfidenceThreshold(lowConfidenceThresholdRaw),
-    [lowConfidenceThresholdRaw]
+    () =>
+      parseLowConfidenceThreshold(
+        isLowConfidenceThresholdEnabled ? lowConfidenceThresholdRaw : null
+      ),
+    [isLowConfidenceThresholdEnabled, lowConfidenceThresholdRaw]
   );
 
   // ---- Tab state from URL
@@ -554,9 +560,12 @@ export default function TakeoffReviewPage({
 
   const applyPatchResults = useCallback(
     (response: TakeoffItemBatchPatchResponse) => {
+      const resultByItemId = new Map(
+        response.results.map((entry) => [entry.item_id, entry] as const)
+      );
       setItems((prev) =>
         prev.map((item) => {
-          const result = response.results.find((entry) => entry.item_id === item.id);
+          const result = resultByItemId.get(item.id);
           if (!result) return item;
 
           if (result.success && result.item) {
@@ -616,15 +625,26 @@ export default function TakeoffReviewPage({
     });
 
     try {
-      const response = await patchTakeoffItems(jobId, { items: patchEntries });
-      applyPatchResults(response);
+      let failedCount = 0;
+      let savedCount = 0;
+      for (
+        let index = 0;
+        index < patchEntries.length;
+        index += TAKEOFF_ITEM_PATCH_BATCH_MAX
+      ) {
+        const chunk = patchEntries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
+        const response = await patchTakeoffItems(jobId, { items: chunk });
+        failedCount += response.failed;
+        savedCount += response.succeeded;
+        applyPatchResults(response);
+      }
 
-      if (response.failed > 0) {
+      if (failedCount > 0) {
         toast.warning({
-          title: `${response.failed} item(s) non sauvegarde(s)`,
+          title: `${failedCount} item(s) non sauvegarde(s)`,
           description: "Verifiez les items en erreur.",
         });
-      } else {
+      } else if (savedCount > 0) {
         toast.success({
           title: "Sauvegarde automatique",
           durationMs: 2000,
@@ -636,7 +656,7 @@ export default function TakeoffReviewPage({
           item._saving
             ? {
                 ...item,
-                _dirty: false,
+                _dirty: true,
                 _saving: false,
                 _error: "Echec de sauvegarde.",
               }
@@ -868,12 +888,16 @@ export default function TakeoffReviewPage({
     return checkApplyGuard(includedItems, lowConfidenceThreshold);
   }, [includedItems, jobLevel, lowConfidenceThreshold]);
   const hasGuardBlocks = guardResult !== null && !guardResult.passed;
-  const isApplyReady =
+  const canOpenApplyWizard =
     hasIncluded &&
     !hasDirtyOrSaving &&
     !hasSaveErrors &&
-    !hasBlockingAnomalies &&
-    !hasGuardBlocks;
+    !hasBlockingAnomalies;
+  const isApplyReady = canOpenApplyWizard && !hasGuardBlocks;
+  const handleOpenApplyWizard = useCallback(() => {
+    if (!isApplyReady) return;
+    setApplyWizardOpen(true);
+  }, [isApplyReady]);
 
   // ---- Apply handler
   const handleApplyConfirm = useCallback(
@@ -924,10 +948,30 @@ export default function TakeoffReviewPage({
 
       if (entries.length === 0) return;
 
-      const response = await patchTakeoffItems(jobId, { items: entries });
+      const responses: TakeoffItemBatchPatchResponse[] = [];
+      for (
+        let index = 0;
+        index < entries.length;
+        index += TAKEOFF_ITEM_PATCH_BATCH_MAX
+      ) {
+        const chunk = entries.slice(index, index + TAKEOFF_ITEM_PATCH_BATCH_MAX);
+        const response = await patchTakeoffItems(jobId, { items: chunk });
+        responses.push(response);
+      }
+
+      const resultByItemId = new Map<
+        string,
+        TakeoffItemBatchPatchResponse["results"][number]
+      >();
+      for (const response of responses) {
+        for (const result of response.results) {
+          resultByItemId.set(result.item_id, result);
+        }
+      }
+
       setItems((prev) =>
         prev.map((item) => {
-          const result = response.results.find((r) => r.item_id === item.id);
+          const result = resultByItemId.get(item.id);
           if (!result || !result.success || !result.item) return item;
           return { ...result.item, _dirty: false, _saving: false, _error: null };
         })
@@ -1212,13 +1256,13 @@ export default function TakeoffReviewPage({
           variant="primary"
           size="sm"
           disabled={!isApplyReady}
-          onClick={() => setApplyWizardOpen(true)}
+          onClick={handleOpenApplyWizard}
           title={
-            isApplyReady
-              ? "Appliquer les items au chiffrage"
-              : hasGuardBlocks
-                ? "Verifiez les items faible confiance avant d'appliquer"
-                : "Resolves les problemes avant d'appliquer"
+            hasGuardBlocks
+              ? "Verifiez les items faible confiance avant d'appliquer"
+              : !canOpenApplyWizard
+                ? "Resolves les problemes avant d'appliquer"
+                : "Appliquer les items au chiffrage"
           }
         >
           Appliquer au chiffrage

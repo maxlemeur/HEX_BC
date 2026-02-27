@@ -1,20 +1,25 @@
 /**
  * TKF-025 E2E: Guard Apply — verified obligatoire pour low-confidence
  *
- * Seeds a completed Level C takeoff job with mixed-confidence items via the
- * Supabase service-role client, then exercises the POST /apply endpoint
+ * Seeds a completed Level C takeoff job with mixed-confidence items via an
+ * authenticated Supabase client, then exercises the POST /apply endpoint
  * through the authenticated Playwright request context to verify server-side
  * guard behaviour (422 block, verify-then-retry, Level A bypass, admin override).
  */
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import path from "node:path";
 
+import { loadEnvConfig } from "@next/env";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { expect, test } from "@playwright/test";
+
+// Load .env.local so NEXT_PUBLIC_SUPABASE_URL / ANON_KEY are available
+loadEnvConfig(path.resolve(__dirname, "../.."));
 
 import {
   buildEstimateName,
   createEstimateViaWizard,
-  extractVersionIdFromUrl,
 } from "./helpers";
 
 // ---------------------------------------------------------------------------
@@ -23,24 +28,44 @@ import {
 
 function envOrThrow(name: string): string {
   const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Missing required env var: ${name}`);
-  return value;
+  if (value) {
+    return value;
+  }
+  throw new Error(`Missing required env var: ${name}`);
 }
 
 // ---------------------------------------------------------------------------
-// Supabase service-role client (bypasses RLS)
+// Supabase seed client (E2E-scoped service role key or authenticated user)
 // ---------------------------------------------------------------------------
 
-let serviceClient: SupabaseClient;
+let supabaseClient: SupabaseClient;
 
-function getServiceClient() {
-  if (serviceClient) return serviceClient;
-  serviceClient = createClient(
-    envOrThrow("NEXT_PUBLIC_SUPABASE_URL"),
-    envOrThrow("SUPABASE_SERVICE_ROLE_KEY"),
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  );
-  return serviceClient;
+async function getAuthenticatedSupabaseClient(): Promise<SupabaseClient> {
+  if (supabaseClient) return supabaseClient;
+
+  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
+
+  // Use a dedicated E2E seeding key when available.
+  const serviceRoleKey = process.env.E2E_SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (serviceRoleKey) {
+    supabaseClient = createClient(url, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    return supabaseClient;
+  }
+
+  const anonKey = envOrThrow("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  const email = envOrThrow("E2E_LOGIN_EMAIL");
+  const password = envOrThrow("E2E_LOGIN_PASSWORD");
+
+  supabaseClient = createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) throw new Error(`Supabase sign-in failed: ${error.message}`);
+
+  return supabaseClient;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,7 +79,7 @@ type SeededJob = {
 };
 
 async function getTenantIdForVersion(versionId: string): Promise<string> {
-  const sb = getServiceClient();
+  const sb = await getAuthenticatedSupabaseClient();
   const { data, error } = await sb
     .from("estimate_versions")
     .select("tenant_id")
@@ -74,7 +99,7 @@ async function seedCompletedTakeoffJob(
   tenantId: string,
   level: "A" | "B" | "C"
 ): Promise<SeededJob> {
-  const sb = getServiceClient();
+  const sb = await getAuthenticatedSupabaseClient();
   const jobId = randomUUID();
 
   // Insert job
@@ -175,8 +200,70 @@ async function seedCompletedTakeoffJob(
   return { jobId, tenantId, itemIds: items.map((i) => i.id) };
 }
 
+async function seedExcludedOnlyJob(
+  versionId: string,
+  tenantId: string
+): Promise<string> {
+  const sb = await getAuthenticatedSupabaseClient();
+  const jobId = randomUUID();
+
+  const { error: jobErr } = await sb.from("takeoff_jobs").insert({
+    id: jobId,
+    tenant_id: tenantId,
+    estimate_version_id: versionId,
+    level: "C",
+    status: "completed",
+    source_file_name: "e2e-guard-excluded.csv",
+    source_file_type: "text/csv",
+    source_file_size_bytes: 256,
+    schema_version: "v1",
+    started_at: new Date().toISOString(),
+    completed_at: new Date().toISOString(),
+  });
+  if (jobErr) throw new Error(`Job insert failed: ${jobErr.message}`);
+
+  const resultId = randomUUID();
+  const { error: resErr } = await sb.from("takeoff_results").insert({
+    id: resultId,
+    tenant_id: tenantId,
+    job_id: jobId,
+    extracted_json: {},
+    warnings: [],
+    tables: [],
+  });
+  if (resErr) throw new Error(`Result insert failed: ${resErr.message}`);
+
+  const { error: itemsErr } = await sb.from("takeoff_items").insert([
+    {
+      tenant_id: tenantId,
+      job_id: jobId,
+      result_id: resultId,
+      designation: "Excluded item A",
+      quantity: 1,
+      unit: "u",
+      confidence: 0.1,
+      is_excluded: true,
+      is_verified: false,
+    },
+    {
+      tenant_id: tenantId,
+      job_id: jobId,
+      result_id: resultId,
+      designation: "High conf item",
+      quantity: 10,
+      unit: "m2",
+      confidence: 0.95,
+      is_excluded: false,
+      is_verified: false,
+    },
+  ]);
+  if (itemsErr) throw new Error(`Items insert failed: ${itemsErr.message}`);
+
+  return jobId;
+}
+
 async function cleanupJob(jobId: string) {
-  const sb = getServiceClient();
+  const sb = await getAuthenticatedSupabaseClient();
   // Items + results cascade from job deletion
   await sb.from("takeoff_jobs").delete().eq("id", jobId);
 }
@@ -213,8 +300,17 @@ test.describe("TKF-025: guard apply – verified obligatoire pour low-confidence
   const seededJobIds: string[] = [];
 
   test.beforeAll(async ({ browser }) => {
+    const storageStateRelative =
+      process.env.E2E_AUTH_STATE?.trim() ?? "e2e/.auth/playwright-user.json";
+    const storageStatePath = path.resolve(process.cwd(), storageStateRelative);
+    if (!existsSync(storageStatePath)) {
+      throw new Error(
+        `Missing auth state file: ${storageStatePath}. Run "npm run e2e:auth" or set E2E_AUTH_STATE.`
+      );
+    }
+
     const context = await browser.newContext({
-      storageState: "e2e/.auth/playwright-user.json",
+      storageState: storageStatePath,
     });
     const page = await context.newPage();
 
@@ -276,7 +372,7 @@ test.describe("TKF-025: guard apply – verified obligatoire pour low-confidence
 
     // First, fetch items to get their updated_at timestamps
     const listResponse = await request.get(
-      `/api/takeoff/jobs/${seed.jobId}?include=items`
+      `/api/takeoff/jobs/${seed.jobId}`
     );
     expect(listResponse.status()).toBe(200);
     const listBody = (await listResponse.json()) as {
@@ -287,15 +383,19 @@ test.describe("TKF-025: guard apply – verified obligatoire pour low-confidence
             id: string;
             designation: string;
             confidence: number | null;
+            is_excluded: boolean;
             updated_at: string;
           }>;
         };
       };
     };
 
-    // Identify low-confidence items (conf < 0.5)
+    // Identify low-confidence included items (conf < 0.5, not excluded)
     const lowConfItems = listBody.data.items.data.filter(
-      (item) => item.confidence !== null && item.confidence < 0.5
+      (item) =>
+        !item.is_excluded &&
+        item.confidence !== null &&
+        item.confidence < 0.5
     );
     expect(lowConfItems.length).toBe(2);
 
@@ -395,64 +495,8 @@ test.describe("TKF-025: guard apply – verified obligatoire pour low-confidence
   test("excluded low-confidence items do not trigger the guard", async ({
     request,
   }) => {
-    const sb = getServiceClient();
-    const jobId = randomUUID();
+    const jobId = await seedExcludedOnlyJob(versionId, tenantId);
     seededJobIds.push(jobId);
-
-    // Insert job
-    const { error: jobErr } = await sb.from("takeoff_jobs").insert({
-      id: jobId,
-      tenant_id: tenantId,
-      estimate_version_id: versionId,
-      level: "C",
-      status: "completed",
-      source_file_name: "e2e-guard-excluded.csv",
-      source_file_type: "text/csv",
-      source_file_size_bytes: 256,
-      schema_version: "v1",
-      started_at: new Date().toISOString(),
-      completed_at: new Date().toISOString(),
-    });
-    if (jobErr) throw new Error(`Job insert failed: ${jobErr.message}`);
-
-    // Insert result
-    const resultId = randomUUID();
-    const { error: resErr } = await sb.from("takeoff_results").insert({
-      id: resultId,
-      tenant_id: tenantId,
-      job_id: jobId,
-      extracted_json: {},
-      warnings: [],
-      tables: [],
-    });
-    if (resErr) throw new Error(`Result insert failed: ${resErr.message}`);
-
-    // All low-confidence items are excluded → guard should pass
-    const { error: itemsErr } = await sb.from("takeoff_items").insert([
-      {
-        tenant_id: tenantId,
-        job_id: jobId,
-        result_id: resultId,
-        designation: "Excluded item A",
-        quantity: 1,
-        unit: "u",
-        confidence: 0.1,
-        is_excluded: true,
-        is_verified: false,
-      },
-      {
-        tenant_id: tenantId,
-        job_id: jobId,
-        result_id: resultId,
-        designation: "High conf item",
-        quantity: 10,
-        unit: "m2",
-        confidence: 0.95,
-        is_excluded: false,
-        is_verified: false,
-      },
-    ]);
-    if (itemsErr) throw new Error(`Items insert failed: ${itemsErr.message}`);
 
     const response = await request.post(
       `/api/takeoff/jobs/${jobId}/apply`,

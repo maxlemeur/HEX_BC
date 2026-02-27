@@ -1,6 +1,6 @@
 # TKF-E06 — Job Async & Resilience
 
-> Phase: 2 | Priorite: P1 | Statut: En cours
+> Phase: 2 | Priorite: P1 | Statut: Termine (fichier fini)
 
 ## Objectif
 

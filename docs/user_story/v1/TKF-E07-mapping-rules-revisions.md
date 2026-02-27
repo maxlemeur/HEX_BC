@@ -1,6 +1,6 @@
 # TKF-E07 — Mapping Rules & Revisions (optionnel)
 
-> Phase: 4 | Priorite: P2 | Statut: En cours
+> Phase: 4 | Priorite: P2 | Statut: Termine (fichier fini)
 
 ## Objectif
 

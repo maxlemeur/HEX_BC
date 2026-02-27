@@ -30,21 +30,21 @@ Et **4 phases de livraison** progressives (MVP → Niveau B + Async → Niveau C
 
 ## Index des epics
 
-| Code    | Nom                                   | Phase     | Priorite | Tickets      | Etat codebase (2026-02-25) | Fichier                                                                    |
+| Code    | Nom                                   | Phase     | Priorite | Tickets      | Etat codebase (2026-02-26) | Fichier                                                                    |
 |---------|---------------------------------------|-----------|----------|--------------|-----------------------------|----------------------------------------------------------------------------|
 | TKF-E01 | Fondations Takeoff & Schema Canonique | 1 (MVP)   | P0       | TKF-001 a 006 | Termine (fichier fini)      | [TKF-E01-fondations-schema.md](./TKF-E01-fondations-schema.md)            |
-| TKF-E02 | Niveau A : Import Normaliseur Universel | 1 (MVP) | P0       | TKF-007 a 013 | En cours                    | [TKF-E02-niveau-a-import.md](./TKF-E02-niveau-a-import.md)                |
+| TKF-E02 | Niveau A : Import Normaliseur Universel | 1 (MVP) | P0       | TKF-007 a 013 | Termine (fichier fini)      | [TKF-E02-niveau-a-import.md](./TKF-E02-niveau-a-import.md)                |
 | TKF-E03 | Provenance & Tracabilite              | 1 (MVP)   | P1       | TKF-014 a 016 | Termine (fichier fini)      | [TKF-E03-provenance-tracabilite.md](./TKF-E03-provenance-tracabilite.md)  |
-| TKF-E04 | Niveau B : Extraction PDF Schedules   | 2         | P1       | TKF-017 a 021 | En cours                    | [TKF-E04-niveau-b-pdf-tables.md](./TKF-E04-niveau-b-pdf-tables.md)        |
-| TKF-E05 | Niveau C : Pre-estimation Plan Complet| 3         | P1       | TKF-022 a 025 | En cours                    | [TKF-E05-niveau-c-pre-estimation.md](./TKF-E05-niveau-c-pre-estimation.md)|
-| TKF-E06 | Job Async & Resilience                | 2         | P1       | TKF-026 a 028 | En cours                    | [TKF-E06-job-async-resilience.md](./TKF-E06-job-async-resilience.md)      |
-| TKF-E07 | Mapping Rules & Revisions (optionnel) | 4         | P2       | TKF-029 a 032 | En cours                    | [TKF-E07-mapping-rules-revisions.md](./TKF-E07-mapping-rules-revisions.md)|
+| TKF-E04 | Niveau B : Extraction PDF Schedules   | 2         | P1       | TKF-017 a 021 | Termine (fichier fini)      | [TKF-E04-niveau-b-pdf-tables.md](./TKF-E04-niveau-b-pdf-tables.md)        |
+| TKF-E05 | Niveau C : Pre-estimation Plan Complet| 3         | P1       | TKF-022 a 025 | Termine (fichier fini)      | [TKF-E05-niveau-c-pre-estimation.md](./TKF-E05-niveau-c-pre-estimation.md)|
+| TKF-E06 | Job Async & Resilience                | 2         | P1       | TKF-026 a 028 | Termine (fichier fini)      | [TKF-E06-job-async-resilience.md](./TKF-E06-job-async-resilience.md)      |
+| TKF-E07 | Mapping Rules & Revisions (optionnel) | 4         | P2       | TKF-029 a 032 | Termine (fichier fini)      | [TKF-E07-mapping-rules-revisions.md](./TKF-E07-mapping-rules-revisions.md)|
 
 **Total : 32 tickets**
 
 ---
 
-## Etat d'avancement tickets TKF-* (codebase au 2026-02-25)
+## Etat d'avancement tickets TKF-* (codebase au 2026-02-26)
 
 | Ticket | Etat |
 |---|---|
@@ -56,35 +56,35 @@ Et **4 phases de livraison** progressives (MVP → Niveau B + Async → Niveau C
 | TKF-006 | Fini |
 | TKF-007 | Fini |
 | TKF-008 | Fini |
-| TKF-009 | Partiel |
+| TKF-009 | Fini |
 | TKF-010 | Fini |
-| TKF-011 | A faire |
-| TKF-012 | A faire |
-| TKF-013 | A faire |
+| TKF-011 | Fini |
+| TKF-012 | Fini |
+| TKF-013 | Fini |
 | TKF-014 | Fini |
 | TKF-015 | Fini |
 | TKF-016 | Fini |
 | TKF-017 | Fini |
 | TKF-018 | Fini |
-| TKF-019 | A faire |
-| TKF-020 | A faire |
+| TKF-019 | Fini |
+| TKF-020 | Fini |
 | TKF-021 | Fini |
-| TKF-022 | A faire |
-| TKF-023 | A faire |
-| TKF-024 | A faire |
-| TKF-025 | A faire |
-| TKF-026 | A faire |
-| TKF-027 | A faire |
-| TKF-028 | A faire |
+| TKF-022 | Fini |
+| TKF-023 | Fini |
+| TKF-024 | Fini |
+| TKF-025 | Fini |
+| TKF-026 | Fini |
+| TKF-027 | Fini |
+| TKF-028 | Fini |
 | TKF-029 | Fini |
 | TKF-030 | Fini |
-| TKF-031 | A faire |
-| TKF-032 | A faire |
+| TKF-031 | Fini |
+| TKF-032 | Fini |
 
 Resume:
-- Fini: 17/32
-- Partiel: 1/32 (TKF-009)
-- A faire: 14/32
+- Fini: 32/32
+- Partiel: 0/32
+- A faire: 0/32
 
 ---
 

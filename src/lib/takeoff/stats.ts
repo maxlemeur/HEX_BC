@@ -131,9 +131,12 @@ function buildTrendBuckets(
   }
 
   const weekCount = Math.ceil(days / 7);
+  const oldestBucketStart = new Date(now);
+  oldestBucketStart.setDate(oldestBucketStart.getDate() - days);
+
   return Array.from({ length: weekCount }, (_, index) => {
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - (weekCount - 1 - index) * 7);
+    const weekStart = new Date(oldestBucketStart);
+    weekStart.setDate(weekStart.getDate() + index * 7);
     const key = weekStart.toISOString().slice(0, 10);
     const label = weekStart.toLocaleDateString("fr-FR", {
       day: "2-digit",

@@ -1,6 +1,6 @@
 # TKF-E05 — Niveau C : Pre-estimation Plan Complet
 
-> Phase: 3 | Priorite: P1 | Statut: En cours
+> Phase: 3 | Priorite: P1 | Statut: Termine (fichier fini)
 
 ## Objectif
 

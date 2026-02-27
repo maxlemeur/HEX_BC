@@ -1,6 +1,6 @@
 # TKF-E04 — Niveau B : Extraction PDF Schedules
 
-> Phase: 2 | Priorite: P1 | Statut: En cours
+> Phase: 2 | Priorite: P1 | Statut: Termine (fichier fini)
 
 ## Objectif
 

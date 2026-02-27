@@ -437,11 +437,14 @@ export default function TakeoffJobMonitor({
 }: TakeoffJobMonitorProps) {
   const { profile } = useUserContext();
   const isAdmin = profile?.tenant_role === "admin";
-  const { value: lowConfidenceThresholdRaw } = useFeatureFlag(
+  const {
+    enabled: isLowConfidenceThresholdEnabled,
+    value: lowConfidenceThresholdRaw,
+  } = useFeatureFlag(
     TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY
   );
   const lowConfidenceThreshold = parseLowConfidenceThreshold(
-    lowConfidenceThresholdRaw
+    isLowConfidenceThresholdEnabled ? lowConfidenceThresholdRaw : null
   );
   const { data, error, errorStatus, isPolling, refetch } =
     useTakeoffJobPolling(jobId);

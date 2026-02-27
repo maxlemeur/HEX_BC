@@ -173,4 +173,74 @@ describe("buildTakeoffMetricsStatsPayload", () => {
     ]);
     expect(payload.trend).toHaveLength(7);
   });
+
+  it.each([
+    {
+      period: "30d" as const,
+      nowIso: "2026-03-31T12:00:00.000Z",
+      oldestJobAt: "2026-03-01T12:00:00.000Z",
+      oldestBucketKey: "2026-03-01",
+    },
+    {
+      period: "90d" as const,
+      nowIso: "2026-03-31T12:00:00.000Z",
+      oldestJobAt: "2025-12-31T12:00:00.000Z",
+      oldestBucketKey: "2025-12-31",
+    },
+  ])(
+    "keeps weekly trend totals aligned with KPI totals for $period",
+    ({ period, nowIso, oldestJobAt, oldestBucketKey }) => {
+      const now = new Date(nowIso);
+      const nextJobAt = new Date(oldestJobAt);
+      nextJobAt.setDate(nextJobAt.getDate() + 1);
+
+      const payload = buildTakeoffMetricsStatsPayload({
+        period,
+        now,
+        jobs: [
+          {
+            id: `job-${period}-oldest`,
+            status: "failed",
+            level: "A",
+            model: "gemini-2.5-flash",
+            duration_ms: null,
+            cost_cents: 0,
+            retry_count: 0,
+            error_code: "AI_TIMEOUT",
+            created_at: oldestJobAt,
+          },
+          {
+            id: `job-${period}-next`,
+            status: "completed",
+            level: "A",
+            model: "gemini-2.5-flash",
+            duration_ms: 500,
+            cost_cents: 0,
+            retry_count: 0,
+            error_code: null,
+            created_at: nextJobAt.toISOString(),
+          },
+        ],
+        runMetrics: [],
+        results: [],
+        items: [],
+      });
+
+      expect(payload.trend[0]?.key).toBe(oldestBucketKey);
+      expect(payload.trend[0]?.createdCount).toBe(2);
+      expect(payload.trend[0]?.failedCount).toBe(1);
+
+      const trendCreatedTotal = payload.trend.reduce(
+        (sum, bucket) => sum + bucket.createdCount,
+        0
+      );
+      const trendFailedTotal = payload.trend.reduce(
+        (sum, bucket) => sum + bucket.failedCount,
+        0
+      );
+
+      expect(trendCreatedTotal).toBe(payload.kpis.totalJobs);
+      expect(trendFailedTotal).toBe(payload.kpis.failedJobs);
+    }
+  );
 });
