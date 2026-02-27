@@ -24,6 +24,16 @@ describe("parseTakeoffMetricsQuery", () => {
       parseTakeoffMetricsQuery(new URLSearchParams("level=Z"))
     ).toThrow(/Parametre level invalide/);
   });
+
+  it("uses a 6-day cutoff for 7d to align with daily trend buckets", () => {
+    const now = new Date("2026-03-10T12:00:00.000Z");
+    const parsed = parseTakeoffMetricsQuery(new URLSearchParams("period=7d"), now);
+
+    const expectedCutoff = new Date(now);
+    expectedCutoff.setDate(expectedCutoff.getDate() - 6);
+
+    expect(parsed.cutoff).toBe(expectedCutoff.toISOString());
+  });
 });
 
 describe("buildTakeoffMetricsStatsPayload", () => {
@@ -243,4 +253,55 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       expect(trendFailedTotal).toBe(payload.kpis.failedJobs);
     }
   );
+
+  it("keeps daily trend totals aligned with KPI totals for 7d", () => {
+    const now = new Date("2026-03-10T12:00:00.000Z");
+    const payload = buildTakeoffMetricsStatsPayload({
+      period: "7d",
+      now,
+      jobs: [
+        {
+          id: "job-7d-oldest",
+          status: "failed",
+          level: "A",
+          model: "gemini-2.5-flash",
+          duration_ms: null,
+          cost_cents: 0,
+          retry_count: 0,
+          error_code: "AI_TIMEOUT",
+          created_at: "2026-03-04T12:00:00.000Z",
+        },
+        {
+          id: "job-7d-today",
+          status: "completed",
+          level: "A",
+          model: "gemini-2.5-flash",
+          duration_ms: 500,
+          cost_cents: 0,
+          retry_count: 0,
+          error_code: null,
+          created_at: "2026-03-10T12:00:00.000Z",
+        },
+      ],
+      runMetrics: [],
+      results: [],
+      items: [],
+    });
+
+    expect(payload.trend[0]?.key).toBe("2026-03-04");
+    expect(payload.trend[0]?.createdCount).toBe(1);
+    expect(payload.trend[0]?.failedCount).toBe(1);
+
+    const trendCreatedTotal = payload.trend.reduce(
+      (sum, bucket) => sum + bucket.createdCount,
+      0
+    );
+    const trendFailedTotal = payload.trend.reduce(
+      (sum, bucket) => sum + bucket.failedCount,
+      0
+    );
+
+    expect(trendCreatedTotal).toBe(payload.kpis.totalJobs);
+    expect(trendFailedTotal).toBe(payload.kpis.failedJobs);
+  });
 });

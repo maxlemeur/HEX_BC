@@ -77,7 +77,11 @@ export async function GET(request: Request) {
     await assertTakeoffEnabled(tenantId, { supabase });
 
     const url = new URL(request.url);
-    const { period, level, cutoff } = parseTakeoffMetricsQuery(url.searchParams);
+    const now = new Date();
+    const { period, level, cutoff } = parseTakeoffMetricsQuery(
+      url.searchParams,
+      now
+    );
 
     let jobsQuery = supabase
       .from("takeoff_jobs" as never)
@@ -144,6 +148,7 @@ export async function GET(request: Request) {
       runMetrics,
       results,
       items,
+      now,
     });
 
     return ok(payload);

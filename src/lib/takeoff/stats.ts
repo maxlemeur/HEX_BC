@@ -20,6 +20,17 @@ const PERIOD_TO_DAYS: Record<TakeoffMetricsPeriod, number> = {
   "90d": 90,
 };
 
+function getTrendWindowStart(
+  period: TakeoffMetricsPeriod,
+  days: number,
+  now: Date
+): Date {
+  const trendStart = new Date(now);
+  const offsetDays = period === "7d" ? days - 1 : days;
+  trendStart.setDate(trendStart.getDate() - offsetDays);
+  return trendStart;
+}
+
 type LevelAccumulator = {
   totalCostCents: number;
   totalTokens: number;
@@ -101,8 +112,7 @@ export function parseTakeoffMetricsQuery(
   }
 
   const days = PERIOD_TO_DAYS[period];
-  const cutoffDate = new Date(now);
-  cutoffDate.setDate(cutoffDate.getDate() - days);
+  const cutoffDate = getTrendWindowStart(period, days, now);
 
   return {
     period,
@@ -118,9 +128,10 @@ function buildTrendBuckets(
   now: Date
 ): TakeoffMetricsTrendPoint[] {
   if (period === "7d") {
+    const trendStart = getTrendWindowStart(period, days, now);
     return Array.from({ length: days }, (_, index) => {
-      const day = new Date(now);
-      day.setDate(day.getDate() - (days - 1 - index));
+      const day = new Date(trendStart);
+      day.setDate(day.getDate() + index);
       const key = day.toISOString().slice(0, 10);
       const label = day.toLocaleDateString("fr-FR", {
         day: "2-digit",
@@ -131,8 +142,7 @@ function buildTrendBuckets(
   }
 
   const weekCount = Math.ceil(days / 7);
-  const oldestBucketStart = new Date(now);
-  oldestBucketStart.setDate(oldestBucketStart.getDate() - days);
+  const oldestBucketStart = getTrendWindowStart(period, days, now);
 
   return Array.from({ length: weekCount }, (_, index) => {
     const weekStart = new Date(oldestBucketStart);
