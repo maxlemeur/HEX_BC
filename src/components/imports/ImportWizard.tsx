@@ -35,10 +35,6 @@ function formatSize(bytes: number): string {
   return `${megabytes.toFixed(1)} Mo`;
 }
 
-function formatModeThreshold(bytes: number): string {
-  return `${(bytes / (1024 * 1024)).toFixed(0)} Mo`;
-}
-
 function statusLabel(status: string): string {
   switch (status) {
     case "pending":
@@ -49,9 +45,9 @@ function statusLabel(status: string): string {
     case "parsed":
     case "imported":
     case "completed":
-      return "Termine";
+      return "Terminé";
     case "failed":
-      return "Echec";
+      return "Échec";
     default:
       return status;
   }
@@ -133,7 +129,6 @@ export function ImportWizard() {
     modeMessage,
     lastMode,
     lastImportId,
-    maxClientParseSizeBytes,
     importFile,
     refreshImports,
   } = useImportFlow();
@@ -148,7 +143,7 @@ export function ImportWizard() {
     if (trimmedHeaderRow.length > 0) {
       const parsed = Number(trimmedHeaderRow);
       if (!Number.isInteger(parsed) || parsed < 1) {
-        setHeaderRowError("La ligne d'en-tete doit etre un entier >= 1.");
+        setHeaderRowError("La ligne d'en-tête doit être un entier >= 1.");
         return;
       }
       headerRowNumber = parsed;
@@ -204,8 +199,8 @@ export function ImportWizard() {
   const STATUS_TABS: { key: StatusFilter; label: string }[] = [
     { key: "all", label: "Tous" },
     { key: "active", label: "En cours" },
-    { key: "completed", label: "Termines" },
-    { key: "failed", label: "Echecs" },
+    { key: "completed", label: "Terminés" },
+    { key: "failed", label: "Échecs" },
   ];
 
   return (
@@ -216,10 +211,10 @@ export function ImportWizard() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="font-medium text-[var(--success)]">
-                Import termine avec succes
+                Import terminé avec succès
               </p>
               <p className="mt-1 text-sm text-[var(--slate-600)]">
-                Passez a l&apos;etape suivante pour mapper les colonnes de votre fichier.
+                Passez à l&apos;étape suivante pour mapper les colonnes de votre fichier.
               </p>
             </div>
             <Link
@@ -238,7 +233,7 @@ export function ImportWizard() {
             Importer un fichier
           </h2>
           <p className="mt-1 text-sm text-[var(--slate-500)]">
-            Formats supportes : CSV, XLSX, XLS.
+            Formats supportés : CSV, XLSX, XLS.
           </p>
         </div>
 
@@ -269,13 +264,13 @@ export function ImportWizard() {
                   strokeWidth="1.5"
                 >
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <path d="m7 10 5 5 5-5" />
-                  <path d="M12 15V3" />
+                  <path d="m17 8-5-5-5 5" />
+                  <path d="M12 3v12" />
                 </svg>
               </div>
               <div>
                 <p className="text-sm font-medium text-[var(--slate-700)]">
-                  Glissez-deposez votre fichier ici
+                  Glissez-déposez votre fichier ici
                 </p>
                 <p className="mt-1 text-xs text-[var(--slate-500)]">
                   ou cliquez pour parcourir
@@ -297,9 +292,8 @@ export function ImportWizard() {
             />
           </div>
 
-          {/* M-03: Clear french help text */}
           <p className="text-xs text-[var(--slate-500)]">
-            Les fichiers de moins de {formatModeThreshold(maxClientParseSizeBytes)} sont traites dans votre navigateur. Au-dela, traitement serveur.
+            Taille maximale : 50 Mo.
           </p>
 
           <div className="max-w-xs">
@@ -307,7 +301,7 @@ export function ImportWizard() {
               htmlFor="header-row-input"
               className="mb-1 block text-xs font-medium text-[var(--slate-700)]"
             >
-              Ligne d&apos;en-tete (optionnel)
+              Ligne d&apos;en-tête (optionnel)
             </label>
             <input
               id="header-row-input"
@@ -325,7 +319,7 @@ export function ImportWizard() {
               className="form-input form-input--sm"
             />
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Laissez vide pour detection automatique de la ligne d&apos;en-tete.
+              Laissez vide pour détection automatique de la ligne d&apos;en-tête.
             </p>
           </div>
 
@@ -337,7 +331,7 @@ export function ImportWizard() {
               download
               className="font-medium text-[var(--brand-blue)] underline hover:text-[var(--brand-blue-dark)]"
             >
-              Telecharger un fichier exemple
+              Télécharger un fichier exemple
             </a>
           </p>
 
@@ -366,7 +360,7 @@ export function ImportWizard() {
               disabled={isSubmitting || !selectedFile}
               onClick={clearSelectedFile}
             >
-              Vider
+              Retirer
             </button>
           </div>
         </form>
@@ -393,7 +387,7 @@ export function ImportWizard() {
 
         {workerError ? (
           <div className="alert alert-info mt-3">
-            Echec du traitement navigateur : {workerError}
+            Échec du traitement navigateur : {workerError}
           </div>
         ) : null}
 
@@ -420,7 +414,7 @@ export function ImportWizard() {
             {isPolling ? (
               <span className="inline-flex items-center gap-2 rounded-full bg-[var(--info-light)] px-3 py-1 text-xs font-medium text-[var(--info)]">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--info)]"></span>
-                Polling actif
+                Actualisation automatique
               </span>
             ) : null}
             <button

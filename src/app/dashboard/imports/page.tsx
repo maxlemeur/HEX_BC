@@ -8,7 +8,7 @@ export default function DashboardImportsPage() {
       <div className="page-header">
         <h1 className="page-title">Import DPGF</h1>
         <p className="page-description">
-          Chargez vos fichiers CSV ou Excel pour demarrer le chiffrage.
+          Importez votre DPGF (Décomposition du Prix Global et Forfaitaire) au format CSV ou Excel pour démarrer le chiffrage.
         </p>
       </div>
 
