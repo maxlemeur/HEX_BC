@@ -75,15 +75,25 @@ export function DataPreview({
 
       {validation && validation.missing_required_fields.length > 0 ? (
         <div className="alert alert-error m-4">
-          Champs requis manquants: {validation.missing_required_fields.join(", ")}
+          <p className="font-medium">Champs requis manquants</p>
+          <ul className="mt-1 list-inside list-disc text-sm">
+            {validation.missing_required_fields.map((field) => (
+              <li key={field}>{field}</li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
       {validation && validation.duplicate_target_assignments.length > 0 ? (
-        <div className="alert alert-error m-4">
-          Cibles dupliquees: {validation.duplicate_target_assignments
-            .map((entry) => `${entry.target} (${entry.sources.join(" / ")})`)
-            .join(", ")}
+        <div className="m-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-medium">Cibles dupliquees</p>
+          <ul className="mt-1 list-inside list-disc">
+            {validation.duplicate_target_assignments.map((entry) => (
+              <li key={entry.target}>
+                <span className="font-medium">{entry.target}</span> assigne a : {entry.sources.join(", ")}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 

@@ -83,6 +83,7 @@ export type MappingSuggestion = {
   suggestions: SourceToTargetMapping;
   source_columns: string[];
   templates: TemplateRow[];
+  sample_values: Record<string, string[]>;
 };
 
 export class MappingsApiError extends Error {
@@ -297,6 +298,44 @@ function toSourceColumns(rows: Array<{ payload: unknown }>) {
   }
 
   return Array.from(columns).sort((a, b) => a.localeCompare(b));
+}
+
+function extractSampleValues(
+  rows: Array<{ payload: unknown }>,
+  maxSamples = 3
+): Record<string, string[]> {
+  const sampleMap = new Map<string, Set<string>>();
+
+  for (const row of rows) {
+    const payload = asRecord(row.payload);
+    if (!payload) continue;
+
+    for (const [key, value] of Object.entries(payload)) {
+      const trimmedKey = key.trim();
+      if (!trimmedKey) continue;
+
+      const text = normalizeText(value);
+      if (!text) continue;
+
+      let samples = sampleMap.get(trimmedKey);
+      if (!samples) {
+        samples = new Set<string>();
+        sampleMap.set(trimmedKey, samples);
+      }
+
+      if (samples.size < maxSamples) {
+        // Truncate long values for display
+        samples.add(text.length > 40 ? text.slice(0, 37) + "..." : text);
+      }
+    }
+  }
+
+  const result: Record<string, string[]> = {};
+  for (const [key, samples] of sampleMap.entries()) {
+    result[key] = Array.from(samples);
+  }
+
+  return result;
 }
 
 function applyMappingToPayload(payload: JsonRecord, mapping: SourceToTargetMapping): JsonRecord {
@@ -996,6 +1035,7 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
     suggestions,
     source_columns: sourceColumns,
     templates: (templates ?? []) as TemplateRow[],
+    sample_values: extractSampleValues(sampleRows),
   };
 }
 

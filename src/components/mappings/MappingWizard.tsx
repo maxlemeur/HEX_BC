@@ -174,12 +174,33 @@ export function MappingWizard() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [autoMappedCount, setAutoMappedCount] = useState(0);
+  const [autoMappedColumns, setAutoMappedColumns] = useState<Array<{ source: string; target: string }>>([]);
+  const [sampleValues, setSampleValues] = useState<Record<string, string[]>>({});
   const previewRequestIdRef = useRef(0);
 
   const selectedImport = useMemo(
     () => imports.find((item) => item.id === selectedImportId) ?? null,
     [imports, selectedImportId]
   );
+
+  // Compute whether the mapping is valid (required fields mapped, no duplicate targets)
+  const isMappingValid = useMemo(() => {
+    const mappedValues = Object.values(mapping);
+    if (mappedValues.length === 0) return false;
+
+    const requiredFields = TARGET_FIELDS.filter((f) => "required" in f && f.required).map((f) => f.value);
+    const mappedTargets = new Set(mappedValues);
+    const hasAllRequired = requiredFields.every((r) => mappedTargets.has(r));
+
+    // Check for duplicate targets
+    const targetCounts = new Map<string, number>();
+    for (const target of mappedValues) {
+      targetCounts.set(target, (targetCounts.get(target) ?? 0) + 1);
+    }
+    const hasDuplicates = Array.from(targetCounts.values()).some((count) => count > 1);
+
+    return hasAllRequired && !hasDuplicates;
+  }, [mapping]);
 
   const loadBaseData = useCallback(async () => {
     setIsLoading(true);
@@ -222,6 +243,7 @@ export function MappingWizard() {
       suggestions: Record<string, string>;
       source_columns: string[];
       templates: TemplateItem[];
+      sample_values: Record<string, string[]>;
     }>("/api/mappings", {
       method: "POST",
       headers: {
@@ -234,6 +256,7 @@ export function MappingWizard() {
     });
 
     setSourceColumns(data.source_columns ?? []);
+    setSampleValues(data.sample_values ?? {});
     setTemplates((previousTemplates) => {
       if (!data.templates || data.templates.length === 0) return previousTemplates;
       return data.templates;
@@ -242,9 +265,12 @@ export function MappingWizard() {
     setMapping((previousMapping) => {
       if (Object.keys(previousMapping).length > 0) return previousMapping;
       const suggestions = data.suggestions ?? {};
-      // M-15: Track auto-mapped columns count
+      // M-15: Track auto-mapped columns count and details
       const count = Object.keys(suggestions).length;
       setAutoMappedCount(count);
+      setAutoMappedColumns(
+        Object.entries(suggestions).map(([source, target]) => ({ source, target }))
+      );
       return suggestions;
     });
   }, []);
@@ -311,6 +337,8 @@ export function MappingWizard() {
     setValidation(null);
     setDuplicates(null);
     setAutoMappedCount(0);
+    setAutoMappedColumns([]);
+    setSampleValues({});
 
     void (async () => {
       try {
@@ -389,10 +417,25 @@ export function MappingWizard() {
 
   return (
     <div className="space-y-6">
-      {/* M-15: Auto-mapping notification */}
+      {/* M-15: Auto-mapping notification with column details */}
       {autoMappedCount > 0 ? (
         <div className="rounded-xl border border-[var(--info)] bg-[var(--info-light)] px-4 py-3 text-sm text-[var(--info)]">
-          {autoMappedCount} colonne(s) pre-mappee(s) automatiquement. Verifiez les associations ci-dessous.
+          <p className="font-medium">
+            {autoMappedCount} colonne(s) pre-mappee(s) automatiquement.
+          </p>
+          <ul className="mt-1.5 space-y-0.5 text-xs">
+            {autoMappedColumns.map(({ source, target }) => {
+              const targetLabel = TARGET_FIELDS.find((f) => f.value === target)?.label ?? target;
+              return (
+                <li key={source}>
+                  <span className="font-medium">{source}</span>
+                  {" "}&rarr;{" "}
+                  <span>{targetLabel}</span>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-1.5 text-xs opacity-80">Verifiez les associations ci-dessous.</p>
         </div>
       ) : null}
 
@@ -468,7 +511,8 @@ export function MappingWizard() {
             type="button"
             className="btn btn-primary"
             onClick={() => void handleCreateMapping()}
-            disabled={isSubmitting || !selectedImportId}
+            disabled={isSubmitting || !selectedImportId || !isMappingValid}
+            title={!isMappingValid ? "Mappez les champs requis (Code HEX, Designation) et resolvez les conflits avant d'enregistrer." : undefined}
           >
             {isSubmitting ? "Enregistrement..." : "Enregistrer le mapping"}
           </button>
@@ -534,6 +578,7 @@ export function MappingWizard() {
         sourceColumns={sourceColumns}
         mapping={mapping}
         targetFields={[...TARGET_FIELDS]}
+        sampleValues={sampleValues}
         onChange={setMapping}
         disabled={isLoading || !selectedImportId}
       />
