@@ -21,10 +21,22 @@ import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ResultCount } from "@/components/TableFilterBar/ResultCount";
 import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips";
-import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
+import { ColumnHeaderHelp } from "@/components/estimates/components/ColumnHeaderHelp";
 import type { SortOption } from "@/components/TableFilterBar/types";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+type PageSizeOption = (typeof PAGE_SIZE_OPTIONS)[number];
+const DEFAULT_PAGE_SIZE: PageSizeOption = 20;
+const PAGE_SIZE_STORAGE_KEY = "estimates-page-size";
+
+function readStoredPageSize(): PageSizeOption {
+  try {
+    const stored = Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+    if (PAGE_SIZE_OPTIONS.includes(stored as PageSizeOption)) return stored as PageSizeOption;
+  } catch { /* ignore */ }
+  return DEFAULT_PAGE_SIZE;
+}
+
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_CURRENCY: SupportedEstimateCurrency = "EUR";
 
@@ -155,8 +167,19 @@ export default function EstimatesPage() {
   // Status chip selection (separate from useTableFilter's multi-select)
   const [selectedStatuses, setSelectedStatuses] = useState<EstimateStatus[]>(initialStatus);
   const [currentPage, setCurrentPage] = useState(initialPage);
+  const [pageSize, setPageSize] = useState<PageSizeOption>(DEFAULT_PAGE_SIZE);
   const [dateRange, setDateRange] = useState<DateRange>("all");
-  const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
+
+  // Hydrate pageSize from URL or localStorage (avoid SSR mismatch)
+  useEffect(() => {
+    const urlSize = Number(searchParams.get("size"));
+    if (PAGE_SIZE_OPTIONS.includes(urlSize as PageSizeOption)) {
+      setPageSize(urlSize as PageSizeOption);
+    } else {
+      setPageSize(readStoredPageSize());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchEstimates = useCallback(async () => fetchEstimateList(), []);
 
@@ -204,9 +227,11 @@ export default function EstimatesPage() {
       }));
 
     const acceptedCount = nonArchived.filter((e) => e.status === "accepted").length;
-    const acceptanceRate = nonArchived.length > 0
-      ? Math.round((acceptedCount / nonArchived.length) * 100)
-      : 0;
+    const sentCount = nonArchived.filter((e) => e.status === "sent").length;
+    const submittedTotal = sentCount + acceptedCount;
+    const acceptanceRate = submittedTotal > 0
+      ? Math.round((acceptedCount / submittedTotal) * 100)
+      : null;
     const expiringSoon = nonArchived.filter((e) => {
       const state = getExpirationState(e, now);
       return state === "expiring_soon" || state === "expired";
@@ -255,7 +280,7 @@ export default function EstimatesPage() {
   });
 
   // Pagination
-  const totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize));
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -264,9 +289,22 @@ export default function EstimatesPage() {
   }, [currentPage, totalPages]);
 
   const paginatedEstimates = useMemo(() => {
-    const start = (currentPage - 1) * PAGE_SIZE;
-    return filteredData.slice(start, start + PAGE_SIZE);
-  }, [currentPage, filteredData]);
+    const start = (currentPage - 1) * pageSize;
+    return filteredData.slice(start, start + pageSize);
+  }, [currentPage, pageSize, filteredData]);
+
+  // Conditional column visibility (based on full filtered dataset for consistency across pages)
+  const showDeviseColumn = useMemo(() => {
+    if (filteredData.length === 0) return false;
+    const currencies = new Set(filteredData.map(resolveEstimateCurrency));
+    return currencies.size > 1;
+  }, [filteredData]);
+
+  const showClientColumn = useMemo(() => {
+    return filteredData.some((e) => e.projectClient?.trim());
+  }, [filteredData]);
+
+  const visibleColumnCount = 5 + (showClientColumn ? 1 : 0) + (showDeviseColumn ? 1 : 0);
 
   // Reset page to 1 when filters/search/sort change
   const prevSearchRef = useRef(searchValue);
@@ -297,6 +335,7 @@ export default function EstimatesPage() {
     if (sortState && sortState.key !== "updatedAt") params.set("sort", sortState.key);
     if (sortState && sortState.direction !== "desc") params.set("dir", sortState.direction);
     if (currentPage > 1) params.set("page", String(currentPage));
+    if (pageSize !== DEFAULT_PAGE_SIZE) params.set("size", String(pageSize));
 
     const qs = params.toString();
     const currentQs = searchParams.toString();
@@ -305,7 +344,7 @@ export default function EstimatesPage() {
     }
     const newPath = qs ? `${pathname}?${qs}` : pathname;
     router.replace(newPath, { scroll: false });
-  }, [searchValue, selectedStatuses, sortState, currentPage, pathname, router, searchParams]);
+  }, [searchValue, selectedStatuses, sortState, currentPage, pageSize, pathname, router, searchParams]);
 
   const handleDuplicate = useCallback(
     async (versionId: string) => {
@@ -334,9 +373,31 @@ export default function EstimatesPage() {
     setDateRange("all");
   }, [clearAllFilters]);
 
+  const handlePageSizeChange = useCallback((next: PageSizeOption) => {
+    setPageSize(next);
+    setCurrentPage(1);
+    try {
+      localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(next));
+    } catch { /* ignore */ }
+  }, []);
+
   const goToPage = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(totalPages, page)));
   };
+
+  // Auto-close <details> dropdowns on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      document.querySelectorAll("details[open]").forEach((details) => {
+        if (!details.contains(target)) {
+          details.removeAttribute("open");
+        }
+      });
+    }
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
 
   return (
     <div className="animate-fade-in">
@@ -348,20 +409,28 @@ export default function EstimatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/dashboard" title="Vue analytique des chiffrages">
-            Dashboard
-          </Link>
-          <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/templates" title="Modèles de chiffrage réutilisables">
-            Templates
-          </Link>
-          <Link className="btn btn-secondary btn-lg" href="/dashboard/estimates/assemblies" title="Groupes de lignes prédéfinis à insérer dans un chiffrage">
-            Assemblages
-          </Link>
-          {takeoffStatus === "ready" && isTakeoffEnabled ? (
-            <Link className="btn btn-secondary btn-lg" href="/dashboard/takeoff" title="Lancer le module Takeoff">
-              Takeoff
-            </Link>
-          ) : null}
+          <details className="relative">
+            <summary className="btn btn-secondary btn-lg cursor-pointer list-none select-none gap-1.5">
+              Outils
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </summary>
+            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl" style={{ minWidth: "240px" }}>
+              <Link className="flex w-full flex-col items-start rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--slate-50)]" href="/dashboard/estimates/dashboard">
+                <span className="font-medium text-[var(--slate-800)]">Dashboard</span>
+                <span className="text-[11px] text-[var(--slate-400)]">Vue analytique des chiffrages</span>
+              </Link>
+              <Link className="flex w-full flex-col items-start rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--slate-50)]" href="/dashboard/estimates/templates">
+                <span className="font-medium text-[var(--slate-800)]">Templates</span>
+                <span className="text-[11px] text-[var(--slate-400)]">Modèles de chiffrage complets</span>
+              </Link>
+              <Link className="flex w-full flex-col items-start rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--slate-50)]" href="/dashboard/estimates/assemblies">
+                <span className="font-medium text-[var(--slate-800)]">Assemblages</span>
+                <span className="text-[11px] text-[var(--slate-400)]">Groupes de lignes prédéfinis</span>
+              </Link>
+            </div>
+          </details>
           <Link className="btn btn-primary btn-lg" href="/dashboard/estimates/new">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -390,7 +459,12 @@ export default function EstimatesPage() {
             <p className="mt-1 text-xl font-bold text-[var(--slate-800)]">{metrics.total}</p>
           </div>
           <div className="dashboard-card px-4 py-3">
-            <p className="text-xs font-medium text-[var(--slate-500)]">Total HT en cours</p>
+            <div className="text-xs font-medium text-[var(--slate-500)]">
+              <ColumnHeaderHelp
+                label="Total HT (hors archivés)"
+                tooltip="Somme HT de tous les chiffrages non archivés, y compris les brouillons."
+              />
+            </div>
             {metrics.totalHtByCurrency.length > 0 ? (
               <div className="mt-1 space-y-0.5">
                 {metrics.totalHtByCurrency.map((bucket) => (
@@ -409,8 +483,15 @@ export default function EstimatesPage() {
             )}
           </div>
           <div className="dashboard-card px-4 py-3">
-            <p className="text-xs font-medium text-[var(--slate-500)]">Taux d&#39;acceptation</p>
-            <p className="mt-1 text-xl font-bold text-[var(--slate-800)]">{metrics.acceptanceRate}%</p>
+            <div className="text-xs font-medium text-[var(--slate-500)]">
+              <ColumnHeaderHelp
+                label="Taux d'acceptation"
+                tooltip="Devis acceptés / (envoyés + acceptés). Brouillons et archivés exclus du calcul."
+              />
+            </div>
+            <p className="mt-1 text-xl font-bold text-[var(--slate-800)]">
+              {metrics.acceptanceRate !== null ? `${metrics.acceptanceRate}%` : "\u2014"}
+            </p>
           </div>
           <div className="dashboard-card px-4 py-3">
             <p className="text-xs font-medium text-[var(--slate-500)]">Expirant bientôt</p>
@@ -448,15 +529,19 @@ export default function EstimatesPage() {
               <h2 className="text-sm font-semibold text-[var(--slate-800)]">
                 Liste des chiffrages
               </h2>
-              <p className="text-xs text-[var(--slate-500)]">
-                Dernière version active par projet.
-              </p>
+              <div className="text-xs text-[var(--slate-500)]">
+                <ColumnHeaderHelp
+                  label="Dernière version active par projet"
+                  tooltip="Seule la version la plus récente de chaque projet est affichée. Les anciennes versions sont accessibles depuis la page détail du chiffrage."
+                />
+              </div>
             </div>
             <button
-              className="btn btn-secondary btn-sm"
+              className="btn btn-ghost btn-sm px-2"
               disabled={isValidating}
               onClick={() => void mutate()}
               type="button"
+              title="Actualiser les données"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -471,7 +556,6 @@ export default function EstimatesPage() {
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
                 <path d="M21 3v5h-5" />
               </svg>
-              {isValidating ? "Chargement..." : "Actualiser"}
             </button>
           </div>
 
@@ -546,10 +630,10 @@ export default function EstimatesPage() {
               <thead>
                 <tr>
                   <th>Projet / Titre</th>
-                  <th>Client</th>
+                  {showClientColumn ? <th>Client</th> : null}
                   <th>Version</th>
                   <th>Statut</th>
-                  <th>Devise</th>
+                  {showDeviseColumn ? <th>Devise</th> : null}
                   <th className="text-right">Total HT vente</th>
                   <th>MAJ</th>
                   <th>Actions</th>
@@ -558,7 +642,7 @@ export default function EstimatesPage() {
               <tbody>
                 {paginatedEstimates.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center">
+                    <td colSpan={visibleColumnCount} className="py-12 text-center">
                       {isLoading ? (
                         <div className="flex flex-col items-center gap-3">
                           <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
@@ -629,13 +713,15 @@ export default function EstimatesPage() {
                             ) : null}
                           </div>
                         </td>
-                        <td className="text-[var(--slate-600)]">
-                          {estimate.projectClient || "—"}
-                        </td>
+                        {showClientColumn ? (
+                          <td className="text-[var(--slate-600)]">
+                            {estimate.projectClient || "—"}
+                          </td>
+                        ) : null}
                         <td>
                           <Link
                             href={`/dashboard/estimates/${estimate.versionId}`}
-                            className="inline-flex items-center rounded-md bg-[var(--slate-100)] px-2 py-1 font-mono text-xs font-medium text-[var(--slate-600)]"
+                            className="inline-flex items-center rounded-md bg-[var(--slate-100)] px-2 py-1 font-mono text-xs font-medium text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-200)] hover:underline"
                           >
                             V{estimate.versionNumber}
                           </Link>
@@ -656,9 +742,11 @@ export default function EstimatesPage() {
                             ) : null}
                           </div>
                         </td>
-                        <td className="font-mono text-xs font-semibold uppercase tracking-wide text-[var(--slate-600)]">
-                          {currency}
-                        </td>
+                        {showDeviseColumn ? (
+                          <td className="font-mono text-xs font-semibold uppercase tracking-wide text-[var(--slate-600)]">
+                            {currency}
+                          </td>
+                        ) : null}
                         <td className="text-right font-mono font-semibold text-[var(--slate-800)]">
                           {formatCurrency(estimate.totalHtCents, currency)}
                         </td>
@@ -679,27 +767,41 @@ export default function EstimatesPage() {
                             >
                               Éditer
                             </Link>
-                            <button
-                              className="btn btn-ghost btn-sm"
-                              type="button"
-                              onClick={() => void handleDuplicate(estimate.versionId)}
-                              disabled={Boolean(duplicatingId)}
-                            >
-                              {isDuplicating ? (
-                                <>
-                                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--slate-300)] border-t-[var(--slate-600)]"></span>
-                                  Duplication...
-                                </>
-                              ) : (
-                                "Dupliquer"
-                              )}
-                            </button>
-                            <Link
-                              href={`/dashboard/estimates/${estimate.versionId}/print`}
-                              className="btn btn-ghost btn-sm"
-                            >
-                              Imprimer
-                            </Link>
+                            <details className="relative">
+                              <summary
+                                className="btn btn-ghost btn-sm cursor-pointer list-none select-none px-2"
+                                aria-label="Plus d'actions"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <circle cx="12" cy="5" r="1" />
+                                  <circle cx="12" cy="12" r="1" />
+                                  <circle cx="12" cy="19" r="1" />
+                                </svg>
+                              </summary>
+                              <div className="absolute right-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl" style={{ minWidth: "140px" }}>
+                                <button
+                                  className="btn btn-ghost btn-sm w-full justify-start"
+                                  type="button"
+                                  onClick={() => void handleDuplicate(estimate.versionId)}
+                                  disabled={Boolean(duplicatingId)}
+                                >
+                                  {isDuplicating ? (
+                                    <>
+                                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--slate-300)] border-t-[var(--slate-600)]"></span>
+                                      Duplication...
+                                    </>
+                                  ) : (
+                                    "Dupliquer"
+                                  )}
+                                </button>
+                                <Link
+                                  href={`/dashboard/estimates/${estimate.versionId}/print`}
+                                  className="btn btn-ghost btn-sm w-full justify-start"
+                                >
+                                  Imprimer
+                                </Link>
+                              </div>
+                            </details>
                           </div>
                         </td>
                       </tr>
@@ -780,10 +882,14 @@ export default function EstimatesPage() {
                         <span className="font-mono font-semibold text-[var(--slate-800)]">
                           {formatCurrency(estimate.totalHtCents, currency)}
                         </span>
-                        <span className="rounded-full bg-[var(--slate-100)] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-[var(--slate-600)]">
-                          {currency}
-                        </span>
-                        <span className="text-[var(--slate-400)]">|</span>
+                        {showDeviseColumn ? (
+                          <>
+                            <span className="rounded-full bg-[var(--slate-100)] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-[var(--slate-600)]">
+                              {currency}
+                            </span>
+                            <span className="text-[var(--slate-400)]">|</span>
+                          </>
+                        ) : null}
                         <span className="text-[var(--slate-500)]">
                           {formatDate(estimate.updatedAt)}
                         </span>
@@ -815,7 +921,7 @@ export default function EstimatesPage() {
         </div>
 
         {/* Pagination */}
-        {filteredCount > PAGE_SIZE ? (
+        {filteredCount > PAGE_SIZE_OPTIONS[0] ? (
           <div className="flex items-center justify-between border-t border-[var(--slate-200)] px-6 py-4">
             <div className="flex items-center gap-1">
               <button
@@ -837,9 +943,29 @@ export default function EstimatesPage() {
                 &lsaquo;
               </button>
             </div>
-            <span className="text-xs text-[var(--slate-500)]">
-              Page {currentPage} / {totalPages}
-            </span>
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-semibold text-[var(--slate-500)]" htmlFor="estimates-page-size">
+                Par page
+              </label>
+              <select
+                id="estimates-page-size"
+                className="form-input form-select form-input--sm h-9 min-w-[88px]"
+                value={pageSize}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (PAGE_SIZE_OPTIONS.includes(next as PageSizeOption)) {
+                    handlePageSizeChange(next as PageSizeOption);
+                  }
+                }}
+              >
+                {PAGE_SIZE_OPTIONS.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+              <span className="text-xs text-[var(--slate-500)]">
+                Page {currentPage} / {totalPages}
+              </span>
+            </div>
             <div className="flex items-center gap-1">
               <button
                 className="btn btn-secondary btn-sm"

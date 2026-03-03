@@ -14,7 +14,7 @@ const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 type NavGroup = {
   key: string;
   label: string;
-  items: { href: string; label: string; icon: React.ReactNode }[];
+  items: { href: string; label: string; icon: React.ReactNode; title?: string }[];
 };
 
 const NAV_GROUPS: NavGroup[] = [
@@ -49,6 +49,7 @@ const NAV_GROUPS: NavGroup[] = [
       {
         href: "/dashboard/imports",
         label: "Imports DPGF",
+        title: "Décomposition du Prix Global et Forfaitaire",
         icon: (
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -411,7 +412,7 @@ export function DashboardShell({
                       href={item.href}
                       className={`sidebar-nav-item ${active ? "active" : ""}`}
                       aria-current={active ? "page" : undefined}
-                      title={collapsed ? item.label : undefined}
+                      title={collapsed ? item.label : item.title}
                       onClick={closeMobile}
                     >
                       {item.icon}
