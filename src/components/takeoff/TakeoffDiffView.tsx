@@ -195,7 +195,7 @@ function InlineDiffEntry({
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <section className="rounded-lg border border-[var(--slate-200)] bg-white p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-            Job courant
+            Extraction actuelle
           </p>
           <p className="mt-1 text-sm font-medium text-[var(--slate-900)]">
             {formatItemTitle(entry.baseItem)}
@@ -205,7 +205,7 @@ function InlineDiffEntry({
 
         <section className="rounded-lg border border-[var(--slate-200)] bg-white p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-            Job compare
+            Extraction de comparaison
           </p>
           <p className="mt-1 text-sm font-medium text-[var(--slate-900)]">
             {formatItemTitle(entry.otherItem)}
@@ -284,8 +284,8 @@ function SideBySideDiffEntry({
           <thead>
             <tr>
               <th>Champ</th>
-              <th>Job courant</th>
-              <th>Job compare</th>
+              <th>Extraction actuelle</th>
+              <th>Extraction de comparaison</th>
             </tr>
           </thead>
           <tbody>
@@ -412,13 +412,13 @@ export default function TakeoffDiffView({
             </p>
           </div>
           <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Total job courant</p>
+            <p className="text-xs text-[var(--slate-500)]">Total extraction actuelle</p>
             <p className="text-lg font-semibold text-[var(--slate-900)]">
               {compare.summary.total_base}
             </p>
           </div>
           <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Total job compare</p>
+            <p className="text-xs text-[var(--slate-500)]">Total extraction de comparaison</p>
             <p className="text-lg font-semibold text-[var(--slate-900)]">
               {compare.summary.total_other}
             </p>

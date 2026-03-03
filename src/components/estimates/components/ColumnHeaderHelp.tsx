@@ -53,7 +53,7 @@ export function ColumnHeaderHelp({
       </button>
       {isOpen && (
         <div
-          className="absolute left-0 top-full z-30 mt-1 w-56 rounded-lg border border-[var(--slate-200)] bg-white p-2 text-xs font-normal text-[var(--slate-600)] shadow-lg"
+          className="absolute left-0 top-full z-30 mt-1 w-max max-w-xs rounded-lg border border-[var(--slate-200)] bg-white p-2 text-xs font-normal text-[var(--slate-600)] shadow-lg"
         >
           {tooltip}
         </div>

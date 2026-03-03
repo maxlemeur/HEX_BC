@@ -268,7 +268,7 @@ function JobTrendChart({ trend }: { trend: TakeoffMetricsTrendPoint[] }) {
   if (trend.length === 0) {
     return (
       <div className="flex h-56 items-center justify-center text-sm text-[var(--slate-500)]">
-        Aucune donnee de tendance disponible.
+        Aucune donnée de tendance disponible.
       </div>
     );
   }
@@ -291,7 +291,7 @@ function JobTrendChart({ trend }: { trend: TakeoffMetricsTrendPoint[] }) {
       viewBox={`0 0 ${chartWidth} ${chartHeight + 24}`}
       className="w-full"
       role="img"
-      aria-label="Tendance des jobs crees et echoues"
+      aria-label="Tendance des extractions créées et échouées"
     >
       {Array.from({ length: horizontalGuides + 1 }, (_, index) => {
         const y = 16 + ((chartHeight - 24) / horizontalGuides) * index;
@@ -430,7 +430,7 @@ function ErrorsTable({ errors }: { errors: TakeoffMetricsErrorEntry[] }) {
   if (errors.length === 0) {
     return (
       <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
-        Aucune erreur sur la periode.
+        Aucune erreur sur la période.
       </div>
     );
   }
@@ -504,7 +504,7 @@ function RecentJobsTable({ jobs }: { jobs: TakeoffMetricsRecentJob[] }) {
   if (jobs.length === 0) {
     return (
       <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
-        Aucun job sur la periode.
+        Aucune extraction sur la période.
       </div>
     );
   }
@@ -566,10 +566,10 @@ function CostByLevelTable({ data }: { data: TakeoffMetricsCostByLevel[] }) {
         <tr>
           <th className="px-4 py-3">Niveau</th>
           <th className="px-4 py-3 text-right">Cout</th>
-          <th className="px-4 py-3 text-right">Jobs</th>
+          <th className="px-4 py-3 text-right">Extractions</th>
           <th className="px-4 py-3 text-right">Duree moy.</th>
           <th className="px-4 py-3 text-right">Taux echec</th>
-          <th className="px-4 py-3 text-right">Items/job</th>
+          <th className="px-4 py-3 text-right">Items/extraction</th>
         </tr>
       </thead>
       <tbody>
@@ -630,10 +630,10 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-[var(--slate-800)]">
-              Metriques Takeoff
+              Métriques d&apos;extraction
             </h1>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Observabilite des jobs, couts et performances.
+              Observabilité des extractions, coûts et performances.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -649,9 +649,9 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       {/* Section 1: KPI Strip */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6 animate-slide-in stagger-2">
         <MetricCard
-          label="Total jobs"
+          label="Total extractions"
           value={String(data.kpis.totalJobs)}
-          hint={`${data.kpis.completedJobs} completes, ${data.kpis.failedJobs} echoues`}
+          hint={`${data.kpis.completedJobs} complètes, ${data.kpis.failedJobs} échouées`}
         />
         <MetricCard
           label="Taux de succes"
@@ -662,12 +662,12 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
         <MetricCard
           label="Duree moyenne"
           value={formatDurationMs(data.kpis.avgDurationMs)}
-          hint="Jobs completes uniquement"
+          hint="Extractions complètes uniquement"
         />
         <MetricCard
           label="Cout total"
           value={formatCostCents(data.kpis.totalCostCents)}
-          hint={`Moy. ${formatCostCents(data.kpis.avgCostCentsPerJob)} / job`}
+          hint={`Moy. ${formatCostCents(data.kpis.avgCostCentsPerJob)} / extraction`}
         />
         <MetricCard
           label="Confiance moy."
@@ -684,7 +684,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
           }
         />
         <MetricCard
-          label="Items / job"
+          label="Items / extraction"
           value={formatDecimal(data.kpis.avgItemsPerJob)}
           hint="Moyenne sur la periode"
         />
@@ -747,7 +747,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
       <section className="dashboard-card overflow-hidden animate-fade-in stagger-4">
         <div className="border-b border-[var(--slate-200)] px-4 py-3">
           <h2 className="text-sm font-semibold text-[var(--slate-700)]">
-            Jobs recents
+            Extractions récentes
           </h2>
         </div>
         <RecentJobsTable jobs={data.recentJobs} />

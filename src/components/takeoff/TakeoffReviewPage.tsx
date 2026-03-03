@@ -528,7 +528,7 @@ export default function TakeoffReviewPage({
         setCompareError(
           isTakeoffApiError(error)
             ? error.message
-            : "Impossible de comparer les deux jobs."
+            : "Impossible de comparer les deux extractions."
         );
       } finally {
         if (!canceled) {
@@ -813,7 +813,7 @@ export default function TakeoffReviewPage({
       if (patchEntries.length === 0) {
         toast.info({
           title: "Aucun changement a appliquer",
-          description: "La selection correspond deja a l'etat actuel du job.",
+          description: "La selection correspond deja a l'etat actuel de l'extraction.",
         });
         return;
       }
@@ -914,7 +914,7 @@ export default function TakeoffReviewPage({
         });
         setApplyWizardOpen(false);
         toast.success({
-          title: "Takeoff applique au devis",
+          title: "Extraction appliquee au devis",
           description: `${includedItems.length} item(s) appliques avec la strategie "${payload.strategy}".`,
         });
         router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
@@ -992,7 +992,7 @@ export default function TakeoffReviewPage({
     return (
       <div className="animate-fade-in">
         <div className="page-header">
-          <h1 className="page-title">Review Takeoff</h1>
+          <h1 className="page-title">Revue d&apos;extraction</h1>
           <p className="page-description">Chargement...</p>
         </div>
         <div className="dashboard-card p-6">
@@ -1015,7 +1015,7 @@ export default function TakeoffReviewPage({
     return (
       <div className="animate-fade-in">
         <div className="page-header">
-          <h1 className="page-title">Review Takeoff</h1>
+          <h1 className="page-title">Revue d&apos;extraction</h1>
           <p className="page-description">{loadError}</p>
         </div>
         <div className="mt-4 flex gap-3">
@@ -1023,7 +1023,7 @@ export default function TakeoffReviewPage({
             href={`/dashboard/estimates/${versionId}/takeoff/${jobId}`}
             className="btn btn-secondary btn-sm"
           >
-            Retour au job
+            Retour à l&apos;extraction
           </Link>
         </div>
       </div>
@@ -1035,9 +1035,9 @@ export default function TakeoffReviewPage({
       {/* ---- Page header ---- */}
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">Review Takeoff</h1>
+          <h1 className="page-title">Revue d&apos;extraction</h1>
           <p className="page-description">
-            {jobFileName ?? "Job"} &mdash;{" "}
+            {jobFileName ?? "Extraction"} &mdash;{" "}
             {hasTables && <>{tablesCount} tables, </>}
             {items.length} item(s) extraits
             {jobLevel && (
@@ -1051,7 +1051,7 @@ export default function TakeoffReviewPage({
           href={`/dashboard/estimates/${versionId}/takeoff/${jobId}`}
           className="btn btn-secondary btn-sm"
         >
-          Retour au job
+          Retour à l&apos;extraction
         </Link>
       </div>
 
@@ -1126,7 +1126,7 @@ export default function TakeoffReviewPage({
                   className="form-label"
                   htmlFor="takeoff-compare-job-select"
                 >
-                  Job a comparer
+                  Extraction à comparer
                 </label>
                 <select
                   id="takeoff-compare-job-select"
@@ -1137,10 +1137,10 @@ export default function TakeoffReviewPage({
                     setCompareWithJobId(nextValue.length > 0 ? nextValue : null);
                   }}
                 >
-                  <option value="">Selectionner un job</option>
+                  <option value="">Selectionner une extraction</option>
                   {selectedCompareCandidate === null && compareWithJobId ? (
                     <option value={compareWithJobId}>
-                      Job {compareWithJobId}
+                      Extraction {compareWithJobId}
                     </option>
                   ) : null}
                   {compareCandidates.map((candidate) => (
@@ -1198,7 +1198,7 @@ export default function TakeoffReviewPage({
             />
           ) : (
             <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
-              Selectionnez un autre job pour afficher le diff.
+              Selectionnez une autre extraction pour afficher le diff.
             </section>
           )}
         </div>

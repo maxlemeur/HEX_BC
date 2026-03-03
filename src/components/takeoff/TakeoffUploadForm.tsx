@@ -55,11 +55,11 @@ function resolveApiErrorMessage(error: unknown) {
   }
 
   if (error.status === 403) {
-    return "Acces refuse. Le module Takeoff est peut-etre desactive pour ce tenant.";
+    return "Acces refuse. Le module d'extraction est peut-etre desactive pour ce tenant.";
   }
 
   if (error.status === 409) {
-    return "Conflit detecte: ce job existe deja ou la cle d'idempotence est deja utilisee.";
+    return "Conflit detecte: cette extraction existe deja ou la cle d'idempotence est deja utilisee.";
   }
 
   if (error.status === 413) {
@@ -224,7 +224,7 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
 
       setSubmitState("success");
       setUploadProgress(100);
-      setAnnouncement("Job takeoff cree avec succes. Redirection en cours.");
+      setAnnouncement("Extraction lancee avec succes. Redirection en cours.");
       router.push(`/dashboard/estimates/${versionId}/takeoff/${job.id}`);
     } catch (error) {
       const message = resolveApiErrorMessage(error);
@@ -238,7 +238,7 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
     <section className="dashboard-card p-6 sm:p-8">
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-[var(--slate-900)]">
-          Nouveau job Takeoff
+          Nouvelle extraction
         </h2>
         <p className="mt-1 text-sm text-[var(--slate-500)]">
           Importez un fichier metrage pour lancer une extraction Niveau A.
@@ -262,7 +262,7 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
 
         <div>
           <label htmlFor={fileInputId} className="form-label">
-            Fichier takeoff
+            Fichier de plans
           </label>
           <div
             className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
@@ -272,7 +272,7 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
             }`}
             role="button"
             tabIndex={submitState === "loading" ? -1 : 0}
-            aria-label="Zone de depot takeoff. Glissez un fichier ou appuyez pour selectionner."
+            aria-label="Zone de depot pour l'extraction. Glissez un fichier ou appuyez pour selectionner."
             aria-disabled={submitState === "loading"}
             onClick={openFilePicker}
             onKeyDown={(event) => {

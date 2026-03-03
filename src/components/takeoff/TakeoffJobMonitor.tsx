@@ -265,7 +265,7 @@ function SkeletonCard() {
     <div className="animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">Job Takeoff</h1>
+          <h1 className="page-title">Extraction</h1>
           <p className="page-description">Chargement...</p>
         </div>
       </div>
@@ -295,14 +295,14 @@ function FatalError({
 }) {
   const title =
     errorStatus === 404
-      ? "Job introuvable"
+      ? "Extraction introuvable"
       : errorStatus === 403
         ? "Acces refuse"
         : errorStatus === 401
           ? "Session expiree"
         : "Erreur";
   const message =
-    errorMessage ?? "Une erreur est survenue lors du chargement du job.";
+    errorMessage ?? "Une erreur est survenue lors du chargement de l&apos;extraction.";
 
   return (
     <div className="animate-fade-in">
@@ -323,7 +323,7 @@ function FatalError({
           href={`/dashboard/estimates/${versionId}/takeoff/new`}
           className="btn btn-primary btn-sm"
         >
-          Nouveau job
+          Nouvelle extraction
         </Link>
       </div>
     </div>
@@ -358,7 +358,7 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
         <dd className="mt-1 text-sm">{job.level}</dd>
       </div>
       <div>
-        <dt className="text-xs font-medium text-[var(--slate-500)]">ID Job</dt>
+        <dt className="text-xs font-medium text-[var(--slate-500)]">ID extraction</dt>
         <dd className="mt-1 font-mono text-xs">{job.id}</dd>
       </div>
       <div>
@@ -471,7 +471,9 @@ export default function TakeoffJobMonitor({
       refetch();
     } catch (err) {
       setRetryState("error");
-      setActionError(isTakeoffApiError(err) ? err.message : "Impossible de relancer le job.");
+      setActionError(
+        isTakeoffApiError(err) ? err.message : "Impossible de relancer cette extraction."
+      );
     }
   }, [jobId, refetch]);
 
@@ -484,7 +486,9 @@ export default function TakeoffJobMonitor({
       refetch();
     } catch (err) {
       setCancelState("error");
-      setActionError(isTakeoffApiError(err) ? err.message : "Impossible d'annuler le job.");
+      setActionError(
+        isTakeoffApiError(err) ? err.message : "Impossible d&apos;annuler cette extraction."
+      );
     }
   }, [jobId, refetch]);
 
@@ -543,7 +547,7 @@ export default function TakeoffJobMonitor({
       } catch (err) {
         setApplyState("error");
         setApplyError(
-          resolveErrorMessage(err, "Impossible d'appliquer les items takeoff au devis.")
+          resolveErrorMessage(err, "Impossible d'appliquer les lignes extraites au devis.")
         );
       } finally {
         if (shouldReleaseDraftLock) {
@@ -626,7 +630,7 @@ export default function TakeoffJobMonitor({
     <div className="animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <h1 className="page-title">Job Takeoff</h1>
+          <h1 className="page-title">Extraction</h1>
           <span className={`status-badge ${getStatusCss(status)}`}>
             {isActive && <Spinner />}
             {getStatusLabel(status)}
@@ -636,7 +640,7 @@ export default function TakeoffJobMonitor({
           href={`/dashboard/estimates/${versionId}/takeoff/new`}
           className="btn btn-secondary btn-sm"
         >
-          Nouveau job
+          Nouvelle extraction
         </Link>
       </div>
 

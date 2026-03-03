@@ -52,9 +52,10 @@ export default async function TakeoffPage() {
     <div className="animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">Takeoff</h1>
+          <h1 className="page-title">Extraction de plans</h1>
           <p className="page-description">
-            Selectionnez un chiffrage pour acceder au suivi des jobs et lancer de nouveaux metrage
+            Selectionnez un chiffrage pour acceder au suivi des extractions et lancer de nouveaux
+            metrage
             plans.
           </p>
         </div>
@@ -71,7 +72,7 @@ export default async function TakeoffPage() {
       {items.length === 0 ? (
         <div className="dashboard-card mt-6 p-6">
           <p className="text-sm text-[var(--slate-700)]">
-            Aucun chiffrage disponible pour lancer Takeoff.
+            Aucun chiffrage disponible pour lancer l&apos;extraction.
           </p>
         </div>
       ) : (
@@ -121,7 +122,7 @@ export default async function TakeoffPage() {
                           href={`/dashboard/estimates/${item.version_id}/takeoff`}
                           className="btn btn-secondary btn-sm"
                         >
-                          Ouvrir Takeoff
+                          Ouvrir l&apos;extraction
                         </Link>
                       </td>
                     </tr>

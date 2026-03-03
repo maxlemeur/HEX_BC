@@ -175,11 +175,11 @@ export function TakeoffSourceBadge({
               <dd>{sourceLevelLabel}</dd>
             </div>
             <div className="takeoff-source-badge__meta-row">
-              <dt>Job</dt>
+              <dt>Extraction</dt>
               <dd>
                 {jobLink ? (
                   <Link className="takeoff-source-badge__job-link" href={jobLink}>
-                    Ouvrir le job
+                    Ouvrir l&apos;extraction
                   </Link>
                 ) : (
                   <span

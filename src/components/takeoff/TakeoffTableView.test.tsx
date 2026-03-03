@@ -371,7 +371,9 @@ describe("TakeoffTableView", () => {
       />
     );
 
-    expect(screen.getByText("Aucune table extraite pour ce job.")).toBeDefined();
+    expect(
+      screen.getByText("Aucune table extraite pour cette extraction.")
+    ).toBeDefined();
   });
 
   it("shows health badge on table cards", () => {

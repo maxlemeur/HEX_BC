@@ -68,7 +68,7 @@ const STRATEGY_OPTIONS: Array<{
   {
     value: "append",
     label: "Append",
-    description: "Ajoute les lignes takeoff a la fin de la section cible.",
+    description: "Ajoute les lignes extraites a la fin de la section cible.",
   },
   {
     value: "replace",

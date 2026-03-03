@@ -263,8 +263,8 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
           isTakeoffApiError(err)
             ? err.message
             : action === "retry"
-              ? "Impossible de relancer ce job."
-              : "Impossible d'annuler ce job."
+              ? "Impossible de relancer cette extraction."
+              : "Impossible d'annuler cette extraction."
         );
       } finally {
         setPendingActions((current) => {
@@ -281,7 +281,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
   const errorMessage =
     isTakeoffApiError(error) && error.message
       ? error.message
-      : "Impossible de charger la liste des jobs takeoff.";
+      : "Impossible de charger l'historique des extractions.";
 
   if (error && !data) {
     return (
@@ -410,8 +410,8 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               <tbody>
                 {jobs.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center text-sm text-[var(--slate-500)]">
-                      Aucun job trouve pour ces filtres.
+                  <td colSpan={8} className="text-center text-sm text-[var(--slate-500)]">
+                      Aucune extraction trouvée pour ces filtres.
                     </td>
                   </tr>
                 ) : (
@@ -523,8 +523,8 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--slate-200)] p-4">
-            <p className="text-sm text-[var(--slate-500)]">
-              {formatCount(totalJobs)} jobs
+              <p className="text-sm text-[var(--slate-500)]">
+              {formatCount(totalJobs)} extractions
               {isValidating ? " (actualisation...)" : ""}
             </p>
 

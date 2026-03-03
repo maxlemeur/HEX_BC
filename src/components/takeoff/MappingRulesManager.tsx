@@ -472,7 +472,7 @@ export function MappingRulesManager() {
     <div className="animate-fade-in space-y-6">
       <header className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">Takeoff mapping rules</h1>
+          <h1 className="page-title">Règles d&apos;enrichissement de l&apos;extraction</h1>
           <p className="page-description">
             Creez, testez et priorisez les regles d&apos;enrichissement automatique.
           </p>

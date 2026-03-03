@@ -121,7 +121,7 @@ describe("TakeoffDiffView", () => {
     );
 
     fireEvent.click(screen.getAllByRole("button", { name: "Cote a cote" })[0]);
-    expect(screen.getAllByText("Job compare").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Extraction de comparaison").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Appliquer la selection" }));
 

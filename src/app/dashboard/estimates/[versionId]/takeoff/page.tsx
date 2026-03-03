@@ -26,7 +26,7 @@ export default async function TakeoffJobsPage({
     <div className="animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">Jobs takeoff</h1>
+          <h1 className="page-title">Historique des extractions</h1>
           <p className="page-description">
             Historique des extractions, suivi des statuts et actions rapides.
           </p>
@@ -42,7 +42,7 @@ export default async function TakeoffJobsPage({
             href={`/dashboard/estimates/${versionId}/takeoff/new`}
             className="btn btn-primary btn-sm"
           >
-            Nouveau job
+            Nouvelle extraction
           </Link>
         </div>
       </div>

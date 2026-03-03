@@ -63,7 +63,7 @@ describe("TakeoffUploadForm", () => {
 
     render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
-    const fileInput = screen.getByLabelText("Fichier takeoff");
+    const fileInput = screen.getByLabelText("Fichier de plans");
     await user.upload(fileInput, makeCsvFile());
 
     expect(screen.getByText("Recap fichier")).toBeInTheDocument();
@@ -99,7 +99,7 @@ describe("TakeoffUploadForm", () => {
 
     render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
-    const fileInput = screen.getByLabelText("Fichier takeoff");
+    const fileInput = screen.getByLabelText("Fichier de plans");
     await user.upload(fileInput, makeCsvFile());
     await user.click(
       screen.getByRole("button", { name: /lancer l'extraction/i })
@@ -116,7 +116,7 @@ describe("TakeoffUploadForm", () => {
 
     render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
-    const fileInput = screen.getByLabelText("Fichier takeoff");
+    const fileInput = screen.getByLabelText("Fichier de plans");
     await user.upload(
       fileInput,
       new File(["hello"], "notes.txt", { type: "text/csv" })
@@ -146,7 +146,7 @@ describe("TakeoffUploadForm", () => {
 
     render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
-    const fileInput = screen.getByLabelText("Fichier takeoff");
+    const fileInput = screen.getByLabelText("Fichier de plans");
     await user.upload(fileInput, makeCsvFile());
 
     await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));

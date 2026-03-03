@@ -10,6 +10,11 @@ type ChapterState = {
   chaosMultiplier: number;
 };
 
+type StoryChapter = 1 | 2 | 3 | 4;
+
+const isStoryChapter = (value: number): value is StoryChapter =>
+  value >= 1 && value <= 4;
+
 const ThreeBackground = ({ chapter }: { chapter: number }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const targetState = useRef<ChapterState>({
@@ -286,7 +291,7 @@ const ThreeBackground = ({ chapter }: { chapter: number }) => {
 };
 
 const StoryVisual = ({ chapter }: { chapter: number }) => {
-  const [animationKeys, setAnimationKeys] = useState({
+  const [animationKeys, setAnimationKeys] = useState<Record<StoryChapter, number>>({
     1: 0,
     2: 0,
     3: 0,
@@ -294,7 +299,7 @@ const StoryVisual = ({ chapter }: { chapter: number }) => {
   });
 
   useEffect(() => {
-    if (chapter >= 1 && chapter <= 4) {
+    if (isStoryChapter(chapter)) {
       setAnimationKeys((prev) => ({
         ...prev,
         [chapter]: prev[chapter] + 1,
@@ -1286,20 +1291,20 @@ const StoryVisual = ({ chapter }: { chapter: number }) => {
 
 const storyData = [
   {
-    title: "La réception du chaos.",
-    text: "Lundi, 8h00. Vous recevez un DPGF de 3000 lignes en PDF mal scanné, 4 grilles tarifaires fournisseurs en Excel, et un plan annoté. Le chiffrage classique vous prendrait 3 jours d'allers-retours.",
+    title: "Lundi matin, le chaos habituel.",
+    text: "8h00. Votre client vous envoie un DPGF de 3\u00a0000 lignes en PDF, quatre grilles tarifaires fournisseurs en Excel et un plan annoté à la main. Classiquement, il faut trois jours pour tout ressaisir, croiser et chiffrer. Trois jours de copier-coller et de risques d\u2019erreurs.",
   },
   {
-    title: "L'ingestion des données.",
-    text: "Vous glissez-déposez l'ensemble dans TIMAX. L'algorithme extrait, nettoie et structure les lignes instantanément. Les assemblages techniques métiers sont automatiquement reconnus.",
+    title: "L\u2019import intelligent.",
+    text: "Glissez-déposez vos fichiers dans TIMAX. L\u2019algorithme parse le DPGF, identifie chaque ligne article, nettoie les désignations et structure le tout en matrice exploitable. Les assemblages techniques métier sont reconnus automatiquement \u2014 pas de ressaisie.",
   },
   {
-    title: "L'ingénierie financière.",
-    text: "TIMAX se connecte à vos tarifs négociés. Face aux variations, le moteur analyse chaque ligne. Il arbitre instantanément : le cuivre chez le fournisseur A, le PVC chez le B. Résultat ? Une marge sécurisée et optimisée sans effort.",
+    title: "Le chiffrage au meilleur prix.",
+    text: "TIMAX se connecte à vos tarifs négociés et compare chaque référence entre vos fournisseurs. Le moteur arbitre ligne par ligne\u00a0: le cuivre chez A, le PVC chez B, la robinetterie en stock. Résultat\u00a0: une marge optimisée sans aucun calcul manuel.",
   },
   {
-    title: "L'exécution parfaite.",
-    text: "11h30. Le devis est généré sans aucune erreur de nomenclature. Un clic, et le PDF normé part au client. Un second clic, et tous les bons de commande fournisseurs sont prêts à être envoyés.",
+    title: "Le chiffrage bouclé avant midi.",
+    text: "11h30, même matinée. Le chiffrage est bouclé \u2014 chaque ligne vérifiée, chaque marge sécurisée, zéro erreur de nomenclature. Il ne reste qu\u2019à exporter\u00a0: le devis PDF part au client, les bons de commande fournisseurs sont prêts. Trois jours de travail compressés en quelques heures.",
   },
 ];
 
@@ -1360,10 +1365,10 @@ const App = () => {
           </div>
           <div className="hidden md:flex space-x-8 text-sm font-medium">
             <a href="#story" className="hover:text-orange-400 transition-colors">
-              Notre méthode
+              Le flux
             </a>
             <a href="#dashboard" className="hover:text-orange-400 transition-colors">
-              Demander une démo
+              Réserver une démo
             </a>
           </div>
           <div className="flex gap-4">
@@ -1392,20 +1397,20 @@ const App = () => {
 
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-900/50 border border-blue-400/40 text-blue-100 text-xs font-semibold mb-8 uppercase tracking-wider backdrop-blur-md shadow-lg">
             <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-            Le moteur de chiffrage nouvelle génération
+            L&apos;assistant chiffrage pour le BTP
           </div>
 
           <h1 className="text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-50 to-slate-300 mb-6 max-w-5xl leading-tight drop-shadow-md">
-            De la demande client au <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">bon de commande</span>, sur une seule plateforme.
+            Vos DPGF <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">chiffrés en heures</span>, pas en jours.
           </h1>
 
           <p className="text-lg md:text-2xl text-slate-200 mb-10 max-w-3xl font-medium drop-shadow-md">
-            Chiffrez plus vite, avec moins d'erreurs. L'outil conçu pour les ingénieurs et techniciens.
+            TIMAX importe vos DPGF, structure chaque ligne, compare vos fournisseurs et optimise vos marges. Le chiffrage qui prenait 3 jours se boucle en une matinée.
           </p>
 
           <div className="animate-bounce mt-10 opacity-50">
             <p className="text-sm mb-2 uppercase tracking-widest text-blue-300">
-              Découvrir le flux
+              Voir comment ça marche
             </p>
             <svg
               className="w-6 h-6 mx-auto text-blue-300"
@@ -1467,13 +1472,13 @@ const App = () => {
           className="py-24 text-center border-t border-slate-700 bg-[#0d1b2a]/95 backdrop-blur-2xl relative z-10"
         >
           <h2 className="text-4xl font-bold mb-6 text-white drop-shadow-sm">
-            Prêt à reprendre la maîtrise ?
+            Prêt à chiffrer 4 fois plus vite ?
           </h2>
           <p className="text-slate-300 mb-10 max-w-xl mx-auto text-lg">
-            Rejoignez les bureaux d'études et entreprises qui ont divisé leur temps de chiffrage par 4 avec TIMAX.
+            Bureaux d&apos;études, entreprises générales, corps d&apos;état techniques — rejoignez ceux qui ont automatisé leur chiffrage avec TIMAX.
           </p>
           <button className="px-10 py-5 text-xl font-bold rounded-xl bg-orange-500 hover:bg-orange-400 text-white shadow-[0_0_30px_rgba(251,146,60,0.5)] transition-all transform hover:scale-105">
-            Planifier une démonstration
+            Réserver une démo gratuite
           </button>
         </footer>
       </main>

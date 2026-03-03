@@ -570,7 +570,7 @@ export function TakeoffTableView({
     return (
       <div className="rounded-lg border border-[var(--border)] bg-white px-6 py-12 text-center">
         <p className="text-sm text-[var(--slate-500)]">
-          Aucune table extraite pour ce job.
+          Aucune table extraite pour cette extraction.
         </p>
       </div>
     );

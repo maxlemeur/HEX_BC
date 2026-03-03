@@ -241,10 +241,10 @@ export default async function AdminHubPage() {
                 </svg>
               </div>
               <h3 className="mt-3 font-semibold text-slate-900">
-                Mapping takeoff
+                Règles d&apos;extraction
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Règles de correspondance pour le module Takeoff
+                Règles de correspondance du module d&apos;extraction
               </p>
             </Link>
 
@@ -269,10 +269,10 @@ export default async function AdminHubPage() {
                 </svg>
               </div>
               <h3 className="mt-3 font-semibold text-slate-900">
-                Metriques takeoff
+                Métriques d&apos;extraction
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Observabilite des jobs, couts et performances
+                Observabilite des extractions, couts et performances
               </p>
             </Link>
           </div>
