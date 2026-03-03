@@ -308,7 +308,7 @@ const StoryVisual = ({ chapter }: { chapter: number }) => {
   }, [chapter]);
 
   return (
-    <div className="relative w-full h-[400px] md:h-[500px] flex items-center justify-center">
+    <div className="relative w-full h-[280px] md:h-[500px] flex items-center justify-center">
       <style>{`
         @keyframes float-1 {
           0%, 100% {
@@ -1121,24 +1121,24 @@ const StoryVisual = ({ chapter }: { chapter: number }) => {
       >
         <div
           key={`step4-${animationKeys[4]}`}
-          className="relative w-full"
+          className="relative w-full pb-10 md:pb-0"
         >
           <div
-            className="absolute -top-12 -right-10 flex items-center gap-2 border px-4 py-2 rounded-full shadow-lg z-0 transition-colors duration-300"
+            className="absolute top-2 right-2 md:-top-12 md:-right-10 flex items-center gap-2 border px-3 py-1.5 md:px-4 md:py-2 rounded-full shadow-lg z-20 transition-colors duration-300 text-xs md:text-sm"
             style={{ animation: "s4-target-client 12s infinite" }}
           >
             <span className="w-2.5 h-2.5 rounded-full bg-current shadow-[0_0_10px_currentColor]"></span>
             <span className="text-sm font-bold tracking-wide">Client</span>
           </div>
           <div
-            className="absolute -bottom-14 -left-12 flex items-center gap-2 border px-4 py-2 rounded-full shadow-lg z-0 transition-colors duration-300"
+            className="absolute -bottom-6 left-0 md:-bottom-14 md:-left-12 flex items-center gap-2 border px-3 py-1.5 md:px-4 md:py-2 rounded-full shadow-lg z-0 transition-colors duration-300 text-xs md:text-sm"
             style={{ animation: "s4-target-fourn 12s infinite" }}
           >
             <span className="w-2.5 h-2.5 rounded-full bg-current shadow-[0_0_10px_currentColor]"></span>
             <span className="text-sm font-bold tracking-wide">Fourn. A</span>
           </div>
           <div
-            className="absolute -bottom-14 -right-12 flex items-center gap-2 border px-4 py-2 rounded-full shadow-lg z-0 transition-colors duration-300"
+            className="absolute -bottom-6 right-0 md:-bottom-14 md:-right-12 flex items-center gap-2 border px-3 py-1.5 md:px-4 md:py-2 rounded-full shadow-lg z-0 transition-colors duration-300 text-xs md:text-sm"
             style={{ animation: "s4-target-fourn 12s infinite" }}
           >
             <span className="w-2.5 h-2.5 rounded-full bg-current shadow-[0_0_10px_currentColor]"></span>
@@ -1343,7 +1343,7 @@ const App = () => {
   }, []);
 
   return (
-    <div className="relative min-h-screen bg-[#0d1b2a] font-sans text-slate-100 selection:bg-orange-500 selection:text-white">
+    <div className="relative min-h-screen bg-[#0d1b2a] font-sans text-slate-100 selection:bg-orange-500 selection:text-white overflow-x-clip">
       <ThreeBackground chapter={activeChapter} />
 
       <div className="fixed inset-0 bg-[#0d1b2a]/15 pointer-events-none z-0"></div>
@@ -1353,7 +1353,7 @@ const App = () => {
         className={`fixed w-full z-50 transition-all duration-300 ${
           scrolled
             ? "bg-[#0d1b2a]/95 backdrop-blur-xl shadow-lg py-4 border-b border-white/5"
-            : "bg-transparent py-6"
+            : "bg-transparent py-4 md:py-6"
         }`}
       >
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
@@ -1371,18 +1371,18 @@ const App = () => {
               Réserver une démo
             </a>
           </div>
-          <div className="flex gap-4">
+          <div className="flex gap-2 md:gap-4">
             <a
               href="/login"
-              className="hidden md:inline-flex px-5 py-2 text-sm font-bold rounded-lg bg-white/10 border border-white/20 text-white hover:bg-white/20 transition-all"
+              className="inline-flex px-3 md:px-5 py-2 text-xs md:text-sm font-bold rounded-lg bg-white/10 border border-white/20 text-white hover:bg-white/20 transition-all"
             >
-              Se connecter
+              Connexion
             </a>
             <a
               href="/signup"
-              className="hidden md:inline-flex px-5 py-2 text-sm font-bold rounded-lg border border-orange-300/60 text-orange-200 hover:bg-orange-300/10 transition-all"
+              className="inline-flex px-3 md:px-5 py-2 text-xs md:text-sm font-bold rounded-lg border border-orange-300/60 text-orange-200 hover:bg-orange-300/10 transition-all"
             >
-              Créer un compte
+              S&apos;inscrire
             </a>
           </div>
         </div>
@@ -1394,11 +1394,6 @@ const App = () => {
           className="story-chapter min-h-screen flex flex-col justify-center items-center text-center px-6 pt-20 relative"
         >
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90%] md:w-[60%] h-[70%] bg-[#0d1b2a]/60 blur-[100px] rounded-full pointer-events-none z-[-1]"></div>
-
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-900/50 border border-blue-400/40 text-blue-100 text-xs font-semibold mb-8 uppercase tracking-wider backdrop-blur-md shadow-lg">
-            <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-            L&apos;assistant chiffrage pour le BTP
-          </div>
 
           <h1 className="text-5xl md:text-7xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-blue-50 to-slate-300 mb-6 max-w-5xl leading-tight drop-shadow-md">
             Vos DPGF <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">chiffrés en heures</span>, pas en jours.
@@ -1429,13 +1424,13 @@ const App = () => {
         </section>
 
         <section id="story" className="relative max-w-7xl mx-auto px-6">
-          <div className="hidden md:flex absolute right-0 top-0 w-1/2 h-full">
+          <div className="hidden md:flex absolute right-0 top-0 w-1/2 h-full z-20">
             <div className="sticky top-0 w-full h-screen flex items-center justify-center p-10">
               <StoryVisual chapter={activeChapter} />
             </div>
           </div>
 
-          <div className="w-full md:w-1/2 relative z-10 py-32">
+          <div className="w-full md:w-1/2 relative z-10 py-16 md:py-32">
             {storyData.map((step, index) => {
               const chapNum = index + 1;
               const isActive = activeChapter === chapNum;
@@ -1444,21 +1439,23 @@ const App = () => {
                 <div
                   key={chapNum}
                   id={`chapter-${chapNum}`}
-                  className={`story-chapter min-h-[130vh] flex flex-col justify-center transition-opacity duration-700 ${
+                  className={`story-chapter min-h-screen md:min-h-[130vh] flex flex-col justify-center transition-opacity duration-700 ${
                     isActive ? "opacity-100" : "opacity-20"
                   }`}
                 >
-                  <div className="bg-[#0d1b2a]/80 backdrop-blur-md border border-slate-700/50 p-8 md:p-10 rounded-3xl shadow-2xl">
-                    <span className="text-orange-500 font-mono font-bold text-xl mb-4 block">0{chapNum}</span>
-                    <h2 className="text-3xl md:text-4xl font-bold text-white mb-6 leading-tight drop-shadow-md">
-                      {step.title}
-                    </h2>
-                    <p className="text-lg text-slate-300 leading-relaxed font-medium">
+                  <div className="bg-[#0d1b2a]/80 backdrop-blur-md border border-slate-700/50 p-5 md:p-10 rounded-3xl shadow-2xl">
+                    <div className="flex items-baseline gap-3 mb-3 md:mb-6">
+                      <span className="text-orange-500 font-mono font-bold text-2xl md:text-xl shrink-0">0{chapNum}</span>
+                      <h2 className="text-2xl md:text-4xl font-bold text-white leading-tight drop-shadow-md">
+                        {step.title}
+                      </h2>
+                    </div>
+                    <p className="text-base md:text-lg text-slate-300 leading-normal md:leading-relaxed font-medium">
                       {step.text}
                     </p>
                   </div>
 
-                  <div className="md:hidden mt-10">
+                  <div className={`md:hidden ${chapNum === 2 || chapNum === 4 ? "mt-22" : "mt-4"}`}>
                     <StoryVisual chapter={isActive ? chapNum : 0} />
                   </div>
                 </div>
