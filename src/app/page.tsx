@@ -1363,13 +1363,22 @@ const App = () => {
               Notre méthode
             </a>
             <a href="#dashboard" className="hover:text-orange-400 transition-colors">
-              Pilotage
+              Demander une démo
             </a>
           </div>
           <div className="flex gap-4">
-            <button className="px-5 py-2 text-sm font-bold rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-400 hover:to-orange-500 text-white shadow-[0_0_20px_rgba(251,146,60,0.4)] transition-all transform hover:-translate-y-0.5">
-              Demander une démo
-            </button>
+            <a
+              href="/login"
+              className="hidden md:inline-flex px-5 py-2 text-sm font-bold rounded-lg bg-white/10 border border-white/20 text-white hover:bg-white/20 transition-all"
+            >
+              Se connecter
+            </a>
+            <a
+              href="/signup"
+              className="hidden md:inline-flex px-5 py-2 text-sm font-bold rounded-lg border border-orange-300/60 text-orange-200 hover:bg-orange-300/10 transition-all"
+            >
+              Créer un compte
+            </a>
           </div>
         </div>
       </nav>
