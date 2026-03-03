@@ -1338,12 +1338,8 @@ export default function EditEstimatePage() {
   );
   const [qualityFilter, setQualityFilter] =
     useState<EstimateQualityFilter>("all_lines");
-  const [activeTab, setActiveTab] = useState<"settings" | "editor">("settings");
-  const hasSetInitialTabRef = useRef(false);
+  const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
   const [isChecklistCollapsed, setIsChecklistCollapsed] = useState(true);
-  const [searchBarPortalNode, setSearchBarPortalNode] = useState<HTMLDivElement | null>(null);
-  const searchBarPortalRef = useRef<HTMLDivElement | null>(null);
-  searchBarPortalRef.current = searchBarPortalNode;
   const [checklistScrollTargetItemId, setChecklistScrollTargetItemId] =
     useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1703,15 +1699,6 @@ export default function EditEstimatePage() {
   ]);
 
   useEffect(() => {
-    if (hasSetInitialTabRef.current || isLoading) return;
-    hasSetInitialTabRef.current = true;
-    const lineCount = items.filter((item) => item.item_type === "line").length;
-    if (lineCount === 0) {
-      setActiveTab("editor");
-    }
-  }, [items, isLoading]);
-
-  useEffect(() => {
     if (!resolvedVersionId) {
       setDismissedOutlierFlagsByItemId({});
       setOutlierActionPendingByItemId({});
@@ -1931,7 +1918,7 @@ export default function EditEstimatePage() {
   const handleChecklistCriterionClick = useCallback(
     (criterion: EstimateChecklistCriterion) => {
       if (!criterion.targetItemId) {
-        setActiveTab("settings");
+        setIsSettingsDrawerOpen(true);
         return;
       }
       if (criterion.qualityFlag) {
@@ -6359,21 +6346,16 @@ export default function EditEstimatePage() {
       scrollToItemId: checklistScrollTargetItemId,
       onScrollToItemHandled: handleChecklistScrollHandled,
       virtualization: editorTableVirtualization,
-      searchBarPortalTarget: searchBarPortalRef,
+      onOpenSettings: () => setIsSettingsDrawerOpen(true),
       headerRight: (
-        <div className="flex items-start gap-4">
-          <div className="shrink-0">
-            <EstimateChecklist
-              checklist={checklist}
-              isCollapsed={isChecklistCollapsed}
-              onToggleCollapsed={() =>
-                setIsChecklistCollapsed((previous) => !previous)
-              }
-              onCriterionClick={handleChecklistCriterionClick}
-            />
-          </div>
-          <div ref={setSearchBarPortalNode} className="shrink-0" />
-        </div>
+        <EstimateChecklist
+          checklist={checklist}
+          isCollapsed={isChecklistCollapsed}
+          onToggleCollapsed={() =>
+            setIsChecklistCollapsed((previous) => !previous)
+          }
+          onCriterionClick={handleChecklistCriterionClick}
+        />
       ),
     }),
     [
@@ -6430,7 +6412,6 @@ export default function EditEstimatePage() {
       checklist,
       isChecklistCollapsed,
       handleChecklistCriterionClick,
-      setSearchBarPortalNode,
       settings?.currency,
       totals?.appliedMarginMultiplier,
       version?.id,
@@ -6812,196 +6793,199 @@ export default function EditEstimatePage() {
         </div>
       ) : null}
 
-      <div className="mt-6 flex items-start gap-4">
-        <div className="estimate-tabs">
-          <button
-            className={`estimate-tab ${
-              activeTab === "settings" ? "estimate-tab--active" : ""
-            }`}
-            type="button"
-            onClick={() => setActiveTab("settings")}
-          >
-            Paramétrage
-          </button>
-          <button
-            className={`estimate-tab ${
-              activeTab === "editor" ? "estimate-tab--active" : ""
-            }`}
-            type="button"
-            onClick={() => setActiveTab("editor")}
-          >
-            Éditeur
-          </button>
-        </div>
-      </div>
-
       {importSummaryMessage ? (
         <div className="alert alert-info mt-4">{importSummaryMessage}</div>
       ) : null}
 
-      {activeTab === "settings" ? (
-        <div className="space-y-6 mt-6">
-          {actionError && (
-            <div className="alert alert-error">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+      {actionError && (
+        <div className="alert alert-error mt-4">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="m15 9-6 6" />
+            <path d="m9 9 6 6" />
+          </svg>
+          {actionError}
+        </div>
+      )}
+
+      <div className="mt-6">
+        <EstimateEditorTable {...editorTableProps} />
+      </div>
+
+      {isSettingsDrawerOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40 bg-black/20"
+            onClick={() => setIsSettingsDrawerOpen(false)}
+            aria-hidden="true"
+          />
+          {/* Drawer */}
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Paramétrage du devis"
+            className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-[var(--slate-200)] bg-white shadow-xl"
+            onKeyDown={(e) => { if (e.key === "Escape") setIsSettingsDrawerOpen(false); }}
+            tabIndex={-1}
+          >
+            {/* Drawer header */}
+            <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
+              <h2 className="text-sm font-semibold text-[var(--slate-800)]">Paramétrage</h2>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setIsSettingsDrawerOpen(false)}
+                aria-label="Fermer"
               >
-                <circle cx="12" cy="12" r="10" />
-                <path d="m15 9-6 6" />
-                <path d="m9 9 6 6" />
-              </svg>
-              {actionError}
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
-          )}
-          <EstimateSettingsPanel
-            projectName={projectName}
-            versionNumber={version.version_number}
-            settings={settings}
-            totals={totals}
-            isSaving={isSavingSettings}
-            isReadOnly={isSaveBlocked}
-            error={null}
-            onChange={updateSettings}
-            onSave={handleSaveSettings}
-          />
-          <LaborRolesManager
-            roles={laborRoles}
-            isSaving={isSavingSettings || isSaveBlocked}
-            error={null}
-            onCreate={handleCreateRole}
-            onUpdate={handleUpdateRole}
-          />
-          {settings?.margin_mode === "tiered" && (
-            <MarginTiersManager
-              tiers={(settings.margin_tiers ?? []) as MarginTierRow[]}
-              isSaving={isSavingMarginTiers}
-              error={marginTiersError}
-              canEdit={canEditMarginTiers}
-              onCreate={handleCreateTier}
-              onUpdate={handleUpdateTier}
-              onDelete={handleDeleteTier}
-            />
-          )}
-          <EstimateSuggestionRulesManager
-            rules={suggestionRules}
-            categories={categories}
-            laborRoles={laborRoles}
-            isSaving={isSavingRules || isSaveBlocked}
-            error={rulesError}
-            onCreate={handleCreateSuggestionRule}
-            onUpdate={handleUpdateSuggestionRule}
-          />
-          {isAdmin ? (
-            <>
-              <EstimateEventsTimeline
-                events={timelineEvents}
-                isLoading={isTimelineLoading}
-                error={timelineError}
-                onRefresh={() => {
-                  void loadTimelineEvents();
-                }}
+            {/* Drawer scrollable content */}
+            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+              {actionError && (
+                <div className="alert alert-error">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+                  {actionError}
+                </div>
+              )}
+              <EstimateSettingsPanel
+                projectName={projectName}
+                versionNumber={version.version_number}
+                settings={settings}
+                totals={totals}
+                isSaving={isSavingSettings}
+                isReadOnly={isSaveBlocked}
+                error={null}
+                onChange={updateSettings}
+                onSave={handleSaveSettings}
               />
-              <div className="dashboard-card p-8">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-                      Audit admin
-                    </h2>
-                    <p className="text-xs text-[var(--slate-500)]">
-                      Dernieres operations journalisees sur cette version.
-                    </p>
-                  </div>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    type="button"
-                    onClick={() => void loadAuditLogs()}
-                    disabled={isAuditLoading}
-                  >
-                    {isAuditLoading ? "Chargement..." : "Actualiser"}
-                  </button>
-                </div>
+              <LaborRolesManager
+                roles={laborRoles}
+                isSaving={isSavingSettings || isSaveBlocked}
+                error={null}
+                onCreate={handleCreateRole}
+                onUpdate={handleUpdateRole}
+              />
+              {settings?.margin_mode === "tiered" && (
+                <MarginTiersManager
+                  tiers={(settings.margin_tiers ?? []) as MarginTierRow[]}
+                  isSaving={isSavingMarginTiers}
+                  error={marginTiersError}
+                  canEdit={canEditMarginTiers}
+                  onCreate={handleCreateTier}
+                  onUpdate={handleUpdateTier}
+                  onDelete={handleDeleteTier}
+                />
+              )}
+              <EstimateSuggestionRulesManager
+                rules={suggestionRules}
+                categories={categories}
+                laborRoles={laborRoles}
+                isSaving={isSavingRules || isSaveBlocked}
+                error={rulesError}
+                onCreate={handleCreateSuggestionRule}
+                onUpdate={handleUpdateSuggestionRule}
+              />
+              {isAdmin ? (
+                <>
+                  <EstimateEventsTimeline
+                    events={timelineEvents}
+                    isLoading={isTimelineLoading}
+                    error={timelineError}
+                    onRefresh={() => {
+                      void loadTimelineEvents();
+                    }}
+                  />
+                  <div className="dashboard-card p-8">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+                          Audit admin
+                        </h2>
+                        <p className="text-xs text-[var(--slate-500)]">
+                          Dernieres operations journalisees sur cette version.
+                        </p>
+                      </div>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        type="button"
+                        onClick={() => void loadAuditLogs()}
+                        disabled={isAuditLoading}
+                      >
+                        {isAuditLoading ? "Chargement..." : "Actualiser"}
+                      </button>
+                    </div>
 
-                {auditError ? (
-                  <div className="alert alert-error mt-6">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="m15 9-6 6" />
-                      <path d="m9 9 6 6" />
-                    </svg>
-                    {auditError}
-                  </div>
-                ) : null}
+                    {auditError ? (
+                      <div className="alert alert-error mt-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+                        {auditError}
+                      </div>
+                    ) : null}
 
-                <div className="table-scroll mt-6">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Action</th>
-                        <th>Table</th>
-                        <th>Record ID</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {auditLogs.length === 0 ? (
-                        <tr>
-                          <td colSpan={4}>
-                            <div className="text-sm text-[var(--slate-500)]">
-                              {isAuditLoading
-                                ? "Chargement des logs d'audit..."
-                                : "Aucun log d'audit recent pour cette version."}
-                            </div>
-                          </td>
-                        </tr>
-                      ) : (
-                        auditLogs.map((log) => (
-                          <tr key={log.id}>
-                            <td>{formatAuditTimestamp(log.created_at)}</td>
-                            <td className="font-medium uppercase">{log.action}</td>
-                            <td>
-                              <span className="font-mono text-xs text-[var(--slate-600)]">
-                                {log.table_name}
-                              </span>
-                            </td>
-                            <td>
-                              <span className="font-mono text-xs text-[var(--slate-600)]">
-                                {log.record_id}
-                              </span>
-                            </td>
+                    <div className="table-scroll mt-6">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Action</th>
+                            <th>Table</th>
+                            <th>Record ID</th>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        </thead>
+                        <tbody>
+                          {auditLogs.length === 0 ? (
+                            <tr>
+                              <td colSpan={4}>
+                                <div className="text-sm text-[var(--slate-500)]">
+                                  {isAuditLoading
+                                    ? "Chargement des logs d'audit..."
+                                    : "Aucun log d'audit recent pour cette version."}
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            auditLogs.map((log) => (
+                              <tr key={log.id}>
+                                <td>{formatAuditTimestamp(log.created_at)}</td>
+                                <td className="font-medium uppercase">{log.action}</td>
+                                <td>
+                                  <span className="font-mono text-xs text-[var(--slate-600)]">
+                                    {log.table_name}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className="font-mono text-xs text-[var(--slate-600)]">
+                                    {log.record_id}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
 
-                {isAuditLoading && auditLogs.length > 0 ? (
-                  <p className="mt-3 text-sm text-[var(--slate-500)]">
-                    Actualisation des logs en cours...
-                  </p>
-                ) : null}
-              </div>
-            </>
-          ) : null}
-        </div>
-      ) : (
-        <div className="mt-6">
-          <EstimateEditorTable {...editorTableProps} />
-        </div>
+                    {isAuditLoading && auditLogs.length > 0 ? (
+                      <p className="mt-3 text-sm text-[var(--slate-500)]">
+                        Actualisation des logs en cours...
+                      </p>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </>
       )}
 
       <BulkSuggestDialog

@@ -215,7 +215,6 @@ type EstimateEditorTableProps = {
   laborRateById: Map<string, number>;
   isLaborSplitEnabled?: boolean;
   isReadOnly: boolean;
-  searchBarPortalTarget?: React.RefObject<HTMLDivElement | null>;
   onQualityFilterChange: (value: EstimateQualityFilter) => void;
   onOutlierDetectionMethodChange: (value: EstimateOutlierMethod) => void;
   onOutlierThresholdChange: (value: number) => void;
@@ -277,6 +276,7 @@ type EstimateEditorTableProps = {
   onScrollToItemHandled?: () => void;
   virtualization?: EstimateVirtualizationConfig;
   headerRight?: React.ReactNode;
+  onOpenSettings?: () => void;
 };
 
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
@@ -771,8 +771,8 @@ export function EstimateEditorTable({
   scrollToItemId,
   onScrollToItemHandled,
   virtualization,
-  searchBarPortalTarget,
   headerRight,
+  onOpenSettings,
 }: EstimateEditorTableProps) {
   const columnVisibility = useColumnVisibility();
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
@@ -1984,7 +1984,7 @@ export function EstimateEditorTable({
           allAdvancedColumns={columnVisibility.allAdvancedColumns}
           columnLabels={columnVisibility.columnLabels}
           onToggleColumn={columnVisibility.toggleColumn}
-          searchBarPortalTarget={searchBarPortalTarget}
+          onOpenSettings={onOpenSettings}
         />
         </div>
         {headerRight && (

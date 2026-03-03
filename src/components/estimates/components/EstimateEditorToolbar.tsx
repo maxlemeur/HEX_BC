@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { createPortal } from "react-dom";
 
 import {
   ESTIMATE_QUALITY_FLAG_KEYS,
@@ -60,6 +59,7 @@ type EstimateEditorToolbarProps = {
   onOpenAssemblyPicker: () => void;
   onOpenImportFromEstimateDialog?: () => void;
   onAddRootSection: () => void;
+  onOpenSettings?: () => void;
   columnPreset: ColumnPreset;
   columnPresetLabels: Record<ColumnPreset, string>;
   onColumnPresetChange: (preset: ColumnPreset) => void;
@@ -69,7 +69,6 @@ type EstimateEditorToolbarProps = {
   allAdvancedColumns: ColumnKey[];
   columnLabels: Record<ColumnKey, string>;
   onToggleColumn: (key: ColumnKey) => void;
-  searchBarPortalTarget?: React.RefObject<HTMLDivElement | null>;
 };
 
 const ROOT_KEY = "root";
@@ -120,6 +119,7 @@ export function EstimateEditorToolbar({
   onOpenAssemblyPicker,
   onOpenImportFromEstimateDialog,
   onAddRootSection,
+  onOpenSettings,
   columnPreset,
   columnPresetLabels,
   onColumnPresetChange,
@@ -129,7 +129,6 @@ export function EstimateEditorToolbar({
   allAdvancedColumns,
   columnLabels,
   onToggleColumn,
-  searchBarPortalTarget,
 }: EstimateEditorToolbarProps) {
   const state = useEstimateEditorState();
   const actions = useEstimateEditorActions();
@@ -144,17 +143,94 @@ export function EstimateEditorToolbar({
     toggle: toolsToggle,
     setContainerRef: toolsContainerRef,
   } = usePopover();
+  const {
+    isOpen: anomaliesOpen,
+    toggle: anomaliesToggle,
+    setContainerRef: anomaliesContainerRef,
+  } = usePopover();
 
-  const searchBarContent = (
+  return (
     <div className="flex flex-col gap-2">
-      <input
-        type="search"
-        className="form-input h-8 w-full text-sm"
-        placeholder="Rechercher..."
-        value={searchTerm}
-        onChange={(e) => onSearchChange(e.target.value)}
-      />
+      {/* Row 1 — Edit actions */}
       <div className="flex flex-wrap items-center gap-2">
+        {/* Undo / Redo group */}
+        <div className="flex items-center gap-1 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
+          <button
+            className="btn btn-ghost btn-sm px-2"
+            type="button"
+            onClick={() => void onUndo()}
+            disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
+            aria-label="Annuler la dernière action"
+            title="Annuler (Ctrl+Z)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+            <span className="text-xs">Annuler</span>
+          </button>
+          <button
+            className="btn btn-ghost btn-sm px-2"
+            type="button"
+            onClick={() => void onRedo()}
+            disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
+            aria-label="Rétablir la dernière action"
+            title="Rétablir (Ctrl+Y)"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></svg>
+            <span className="text-xs">Rétablir</span>
+          </button>
+        </div>
+
+        <div className="h-5 w-px bg-[var(--slate-200)]" />
+
+        {/* Primary actions */}
+        <button
+          className="btn btn-secondary btn-sm"
+          type="button"
+          onClick={onAddRootSection}
+          disabled={meta.isReadOnly}
+        >
+          + Chapitre
+        </button>
+        {onOpenImportFromEstimateDialog ? (
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={onOpenImportFromEstimateDialog}
+            disabled={meta.isReadOnly}
+          >
+            Importer depuis...
+          </button>
+        ) : null}
+
+        {/* Spacer */}
+        <div className="flex-1 min-w-0" />
+
+        {/* Settings button */}
+        {onOpenSettings && (
+          <>
+            <div className="h-5 w-px bg-[var(--slate-200)]" />
+            <button
+              className="btn btn-ghost btn-sm flex items-center gap-1.5"
+              type="button"
+              onClick={onOpenSettings}
+              title="Paramétrage"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>Paramétrage</span>
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Row 2 — View & filter */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          className="form-input h-8 text-sm"
+          style={{ width: "160px" }}
+          placeholder="Rechercher..."
+          value={searchTerm}
+          onChange={(e) => onSearchChange(e.target.value)}
+        />
         <div className="relative" ref={columnsContainerRef}>
           <button
             className="btn btn-secondary btn-sm"
@@ -196,22 +272,53 @@ export function EstimateEditorToolbar({
           )}
         </div>
         {qualityCounts.linesWithAnomaliesCount > 0 && (
-          <button
-            type="button"
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold transition-colors cursor-pointer ${
-              qualityFilter === "with_anomalies"
-                ? "bg-orange-200 text-orange-800 ring-1 ring-orange-400"
-                : "bg-orange-100 text-orange-700 hover:bg-orange-200"
-            }`}
-            onClick={() =>
-              onQualityFilterChange(
-                qualityFilter === "with_anomalies" ? "all_lines" : "with_anomalies"
-              )
-            }
-            title="Cliquez pour filtrer les lignes avec anomalies"
-          >
-            {qualityCounts.linesWithAnomaliesCount} anomalie{qualityCounts.linesWithAnomaliesCount > 1 ? "s" : ""}
-          </button>
+          <div className="relative" ref={anomaliesContainerRef}>
+            <button
+              type="button"
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold transition-colors cursor-pointer ${
+                qualityFilter !== "all_lines"
+                  ? "bg-orange-200 text-orange-800 ring-1 ring-orange-400"
+                  : "bg-orange-100 text-orange-700 hover:bg-orange-200"
+              }`}
+              onClick={anomaliesToggle}
+              title="Filtrer par anomalies"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              {qualityCounts.linesWithAnomaliesCount} anomalie{qualityCounts.linesWithAnomaliesCount > 1 ? "s" : ""}
+              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            {anomaliesOpen && (
+              <div
+                className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl"
+                style={{ minWidth: "260px" }}
+              >
+                <button
+                  type="button"
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${qualityFilter === "all_lines" ? "bg-[var(--slate-100)] font-semibold text-[var(--slate-800)]" : "text-[var(--slate-700)] hover:bg-[var(--slate-50)]"}`}
+                  onClick={() => { onQualityFilterChange("all_lines"); anomaliesToggle(); }}
+                >
+                  Toutes les lignes ({qualityCounts.linesCount})
+                </button>
+                <button
+                  type="button"
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${qualityFilter === "with_anomalies" ? "bg-orange-100 font-semibold text-orange-800" : "text-[var(--slate-700)] hover:bg-[var(--slate-50)]"}`}
+                  onClick={() => { onQualityFilterChange("with_anomalies"); anomaliesToggle(); }}
+                >
+                  Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
+                </button>
+                {ESTIMATE_QUALITY_FLAG_KEYS.filter((flag) => qualityCounts.byFlag[flag] > 0).map((flag) => (
+                  <button
+                    key={flag}
+                    type="button"
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${qualityFilter === flag ? "bg-orange-100 font-semibold text-orange-800" : "text-[var(--slate-700)] hover:bg-[var(--slate-50)]"}`}
+                    onClick={() => { onQualityFilterChange(flag); anomaliesToggle(); }}
+                  >
+                    {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         <div className="relative" ref={toolsContainerRef}>
           <button
@@ -219,11 +326,11 @@ export function EstimateEditorToolbar({
             type="button"
             onClick={toolsToggle}
           >
-            Outils avancés
+            Outils
           </button>
           {toolsOpen && (
             <div
-              className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-[var(--slate-200)] bg-white p-4 shadow-xl"
+              className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-[var(--slate-200)] bg-white p-4 shadow-xl"
               style={{ minWidth: "320px" }}
             >
               <div className="flex flex-wrap items-center gap-2">
@@ -306,69 +413,8 @@ export function EstimateEditorToolbar({
         </div>
         <KeyboardShortcutsButton />
       </div>
-    </div>
-  );
 
-  const portalTarget = searchBarPortalTarget?.current;
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--slate-800)]">Éditeur du devis</h2>
-          <p className="mt-1 text-sm text-[var(--slate-500)]">
-            Organisez chapitres, sous-chapitres et lignes FO/MO.
-          </p>
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
-            {qualityCounts.linesWithAnomaliesCount} ligne(s) avec anomalies sur{" "}
-            {qualityCounts.linesCount} ligne(s) ({qualityCounts.totalFlagsCount} flag(s))
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={() => void onUndo()}
-              disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
-              aria-label="Annuler la dernière action"
-              title="Annuler (Ctrl+Z)"
-            >
-              Annuler
-            </button>
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={() => void onRedo()}
-              disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
-              aria-label="Rétablir la dernière action"
-              title="Rétablir (Ctrl+Y)"
-            >
-              Rétablir
-            </button>
-          </div>
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={onAddRootSection}
-            disabled={meta.isReadOnly}
-          >
-            + Chapitre
-          </button>
-          {onOpenImportFromEstimateDialog ? (
-            <button
-              className="btn btn-secondary btn-sm"
-              type="button"
-              onClick={onOpenImportFromEstimateDialog}
-              disabled={meta.isReadOnly}
-            >
-              Importer depuis...
-            </button>
-          ) : null}
-          {!portalTarget && searchBarContent}
-        </div>
-      </div>
-      {portalTarget && createPortal(searchBarContent, portalTarget)}
+      {/* Bulk selection bar */}
       {state.hasSelectedLines ? (
         <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--slate-200)] bg-white px-6 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
           <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-2">
@@ -530,7 +576,7 @@ function KeyboardShortcutsButton() {
         title="Raccourcis clavier"
         aria-label="Raccourcis clavier"
       >
-        ?
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
       </button>
 
       {isOpen && (
