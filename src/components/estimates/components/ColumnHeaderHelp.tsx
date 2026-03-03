@@ -38,7 +38,7 @@ export function ColumnHeaderHelp({
 
   return (
     <span
-      className={`inline-flex items-center gap-1 ${
+      className={`relative inline-flex items-center gap-1 ${
         allowWrap ? "whitespace-normal" : "whitespace-nowrap"
       }`}
       ref={setContainerRef}
