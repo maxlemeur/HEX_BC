@@ -7,13 +7,19 @@ type PopoverProps = {
   trigger: ReactNode;
   children: ReactNode;
   className?: string;
+  /** When true, the popover opens on hover in addition to click. Default: false */
+  hover?: boolean;
 };
 
-export function Popover({ trigger, children, className = "" }: PopoverProps) {
-  const { isOpen, toggle, setContainerRef } = usePopover();
+export function Popover({ trigger, children, className = "", hover = false }: PopoverProps) {
+  const { isOpen, toggle, setContainerRef, handleMouseEnter, handleMouseLeave } = usePopover();
 
   return (
-    <div className={`relative inline-flex ${className}`} ref={setContainerRef}>
+    <div
+      className={`relative inline-flex ${className}`}
+      ref={setContainerRef}
+      {...(hover ? { onMouseEnter: handleMouseEnter, onMouseLeave: handleMouseLeave } : {})}
+    >
       <div onClick={toggle} className="cursor-pointer">
         {trigger}
       </div>

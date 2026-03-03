@@ -196,9 +196,22 @@ export function EstimateEditorToolbar({
           )}
         </div>
         {qualityCounts.linesWithAnomaliesCount > 0 && (
-          <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">
+          <button
+            type="button"
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold transition-colors cursor-pointer ${
+              qualityFilter === "with_anomalies"
+                ? "bg-orange-200 text-orange-800 ring-1 ring-orange-400"
+                : "bg-orange-100 text-orange-700 hover:bg-orange-200"
+            }`}
+            onClick={() =>
+              onQualityFilterChange(
+                qualityFilter === "with_anomalies" ? "all_lines" : "with_anomalies"
+              )
+            }
+            title="Cliquez pour filtrer les lignes avec anomalies"
+          >
             {qualityCounts.linesWithAnomaliesCount} anomalie{qualityCounts.linesWithAnomaliesCount > 1 ? "s" : ""}
-          </span>
+          </button>
         )}
         <div className="relative" ref={toolsContainerRef}>
           <button

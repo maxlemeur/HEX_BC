@@ -494,7 +494,12 @@ export default function EstimatesPage() {
             </p>
           </div>
           <div className="dashboard-card px-4 py-3">
-            <p className="text-xs font-medium text-[var(--slate-500)]">Expirant bientôt</p>
+            <div className="text-xs font-medium text-[var(--slate-500)]">
+              <ColumnHeaderHelp
+                label="Expirant bientôt"
+                tooltip="Nombre de devis envoyés dont la date de validité expire dans les 7 prochains jours ou est déjà dépassée. Action : relancer le client ou prolonger la validité."
+              />
+            </div>
             <p className="mt-1 text-xl font-bold" style={{ color: metrics.expiringSoon > 0 ? "var(--orange-600, #ea580c)" : "var(--slate-800)" }}>
               {metrics.expiringSoon}
             </p>
@@ -694,18 +699,28 @@ export default function EstimatesPage() {
                     return (
                       <tr
                         key={estimate.versionId}
-                        className="animate-fade-in"
+                        className="animate-fade-in group cursor-pointer"
                         style={{
                           animationDelay: `${index * 0.03}s`,
                           ...(expState === "expired" ? { backgroundColor: "rgba(239, 68, 68, 0.05)" } : {}),
                           ...(expState === "expiring_soon" ? { backgroundColor: "rgba(249, 115, 22, 0.05)" } : {}),
                         }}
+                        onClick={(e) => {
+                          // Don't navigate if clicking on a button, link, or details element
+                          const target = e.target as HTMLElement;
+                          if (target.closest("a, button, details, summary")) return;
+                          router.push(`/dashboard/estimates/${estimate.versionId}`);
+                        }}
                       >
                         <td>
                           <div className="flex flex-col">
-                            <span className="font-semibold text-[var(--slate-800)]">
+                            <Link
+                              href={`/dashboard/estimates/${estimate.versionId}`}
+                              className="font-semibold text-[var(--slate-800)] group-hover:text-[var(--brand-blue)] group-hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               {estimate.projectName}
-                            </span>
+                            </Link>
                             {title !== estimate.projectName ? (
                               <span className="text-xs text-[var(--slate-500)]">
                                 {title}
@@ -842,17 +857,26 @@ export default function EstimatesPage() {
                 return (
                   <div
                     key={estimate.versionId}
-                    className="px-4 py-4"
+                    className="px-4 py-4 cursor-pointer transition-colors hover:bg-[var(--slate-50)]"
                     style={{
                       ...(mobileExpState === "expired" ? { backgroundColor: "rgba(239, 68, 68, 0.05)" } : {}),
                       ...(mobileExpState === "expiring_soon" ? { backgroundColor: "rgba(249, 115, 22, 0.05)" } : {}),
                     }}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      if (target.closest("a, button")) return;
+                      router.push(`/dashboard/estimates/${estimate.versionId}`);
+                    }}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold text-[var(--slate-800)]">
+                        <Link
+                          href={`/dashboard/estimates/${estimate.versionId}`}
+                          className="block truncate font-semibold text-[var(--slate-800)]"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {estimate.projectName}
-                        </p>
+                        </Link>
                         {projectMeta ? (
                           <p className="truncate text-xs text-[var(--slate-500)]">
                             {projectMeta}

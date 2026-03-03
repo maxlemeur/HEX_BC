@@ -6588,9 +6588,9 @@ export default function EditEstimatePage() {
           />
           <Link
             className="btn btn-secondary btn-sm"
-            href={`/dashboard/estimates/${versionId ?? ""}`}
+            href="/dashboard/estimates"
           >
-            Retour
+            Retour à la liste
           </Link>
         </div>
       </div>
