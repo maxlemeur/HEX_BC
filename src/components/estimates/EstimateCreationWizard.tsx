@@ -178,20 +178,26 @@ function parseZodErrors(error: unknown): StepErrors {
 function StepIndicator({
   currentStep,
   validatedSteps,
+  onStepClick,
 }: {
   currentStep: number;
   validatedSteps: Set<number>;
+  onStepClick: (step: number) => void;
 }) {
   return (
     <nav aria-label="Étapes de création" className="mb-8">
-      <ol className="flex items-center gap-2">
+      <ol className="flex items-center">
         {STEPS.map((step, index) => {
           const isActive = index === currentStep;
           const isValidated = validatedSteps.has(index);
           const isPast = index < currentStep;
+          const isClickable = (isPast || isValidated) && !isActive;
 
           return (
-            <li key={step.label} className="flex flex-1 items-center gap-2">
+            <li
+              key={step.label}
+              className={`flex items-center ${index > 0 ? "flex-1" : ""}`}
+            >
               {index > 0 && (
                 <div
                   className={`h-px flex-1 ${
@@ -201,7 +207,14 @@ function StepIndicator({
                   }`}
                 />
               )}
-              <div className="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                disabled={!isClickable}
+                onClick={() => isClickable && onStepClick(index)}
+                className={`flex flex-col items-center gap-1 ${
+                  isClickable ? "cursor-pointer" : "cursor-default"
+                }`}
+              >
                 <div
                   className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold transition-colors ${
                     isActive
@@ -227,7 +240,7 @@ function StepIndicator({
                   )}
                 </div>
                 <span
-                  className={`text-xs text-center ${
+                  className={`text-xs whitespace-nowrap text-center ${
                     isActive
                       ? "font-semibold text-[var(--primary)]"
                       : "text-[var(--slate-500)]"
@@ -235,7 +248,7 @@ function StepIndicator({
                 >
                   {step.label}
                 </span>
-              </div>
+              </button>
             </li>
           );
         })}
@@ -954,6 +967,10 @@ export function EstimateCreationWizard({
       <StepIndicator
         currentStep={currentStep}
         validatedSteps={validatedSteps}
+        onStepClick={(step) => {
+          setErrors({});
+          setCurrentStep(step);
+        }}
       />
 
       {submitError && (

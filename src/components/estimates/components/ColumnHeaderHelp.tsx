@@ -1,6 +1,6 @@
 "use client";
 
-import { usePopover } from "@/hooks/usePopover";
+import { Popover } from "@/components/ui/Popover";
 
 export const COLUMN_HEADER_TOOLTIPS: Record<string, string> = {
   "Désignation": "Désignation de l'article ou de la prestation",
@@ -34,30 +34,25 @@ export function ColumnHeaderHelp({
   tooltip,
   allowWrap = false,
 }: ColumnHeaderHelpProps) {
-  const { isOpen, toggle, setContainerRef } = usePopover();
-
   return (
     <span
-      className={`relative inline-flex items-center gap-1 ${
+      className={`inline-flex items-center gap-1 ${
         allowWrap ? "whitespace-normal" : "whitespace-nowrap"
       }`}
-      ref={setContainerRef}
     >
       {label}
-      <button
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[var(--slate-300)] text-[10px] leading-none text-[var(--slate-500)] hover:bg-[var(--slate-100)]"
-        type="button"
-        onClick={toggle}
+      <Popover
+        trigger={
+          <button
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-[var(--slate-300)] text-[10px] leading-none text-[var(--slate-500)] hover:bg-[var(--slate-100)]"
+            type="button"
+          >
+            ?
+          </button>
+        }
       >
-        ?
-      </button>
-      {isOpen && (
-        <div
-          className="absolute left-0 top-full z-30 mt-1 w-max max-w-xs rounded-lg border border-[var(--slate-200)] bg-white p-2 text-xs font-normal text-[var(--slate-600)] shadow-lg"
-        >
-          {tooltip}
-        </div>
-      )}
+        {tooltip}
+      </Popover>
     </span>
   );
 }
