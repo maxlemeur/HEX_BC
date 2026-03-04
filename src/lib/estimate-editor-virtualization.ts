@@ -135,12 +135,7 @@ export function resolveEstimateEditorVirtualizationRuntimeConfig(input: {
     input.modeFlag?.enabled === true
       ? parseEstimateEditorVirtualizationMode(input.modeFlag?.value)
       : null;
-  const mode =
-    input.modeFlag?.enabled === true
-      ? runtimeMode ?? "on"
-      : input.modeFlag?.enabled === false
-        ? "auto"
-        : envConfig.mode;
+  const mode = input.modeFlag?.enabled === true ? runtimeMode ?? "on" : envConfig.mode;
   const autoThreshold =
     parsePositiveInteger(input.autoThresholdFlag?.value ?? undefined) ??
     envConfig.autoThreshold;

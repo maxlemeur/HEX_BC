@@ -178,20 +178,20 @@ describe("resolveEstimateEditorVirtualizationRuntimeConfig", () => {
     });
   });
 
-  it("applies runtime mode value even when the toggle is disabled", () => {
+  it("preserves env mode when runtime mode flag is inactive", () => {
     expect(
       resolveEstimateEditorVirtualizationRuntimeConfig({
         env: {
-          enabled: "true",
+          mode: "off",
         },
         modeFlag: {
           enabled: false,
-          value: "off",
+          value: "on",
         },
       })
     ).toEqual({
       enabled: false,
-      mode: "auto",
+      mode: "off",
       autoThreshold: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_AUTO_THRESHOLD,
       rowEstimate: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_ROW_ESTIMATE,
       overscan: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_OVERSCAN,
