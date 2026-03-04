@@ -417,7 +417,7 @@ export default function EstimatesPage() {
               </svg>
             </summary>
             <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl" style={{ minWidth: "240px" }}>
-              <Link className="flex w-full flex-col items-start rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--slate-50)]" href="/dashboard/estimates/dashboard">
+              <Link className="flex w-full flex-col items-start rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--slate-50)]" href="/dashboard/analytics">
                 <span className="font-medium text-[var(--slate-800)]">Dashboard</span>
                 <span className="text-[11px] text-[var(--slate-400)]">Vue analytique des chiffrages</span>
               </Link>

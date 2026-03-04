@@ -43,6 +43,7 @@ const NAVIGATION_KEYWORDS_BY_HREF: Readonly<Record<string, string[]>> = {
   "/dashboard/referentiel": ["referentiel", "produit", "catalogue", "fournisseur"],
   "/dashboard/tarifs": ["tarif", "prix", "price", "indice"],
   "/dashboard/admin": ["admin", "parametres", "settings", "tenant"],
+  "/dashboard/analytics": ["analytics", "tableau", "bord", "dashboard", "kpi", "statistiques"],
   "/dashboard/profile": ["profile", "profil", "compte"],
 };
 

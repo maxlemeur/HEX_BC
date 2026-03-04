@@ -189,6 +189,9 @@ export function DashboardShell({
         pathname.startsWith("/dashboard/indices")
       );
     }
+    if (href === "/dashboard/analytics") {
+      return pathname.startsWith("/dashboard/analytics");
+    }
     return pathname.startsWith(href);
   }
 
@@ -341,7 +344,7 @@ export function DashboardShell({
             </kbd>
           </button>
 
-          <div className={`flex items-center rounded-xl bg-white/5 transition-all duration-200 ${
+          <div className={`sidebar-footer-profile flex items-center rounded-xl bg-white/5 transition-all duration-200 ${
             collapsed ? "flex-col gap-2 p-2" : "gap-3 p-3"
           }`}>
             <Link

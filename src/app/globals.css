@@ -54,7 +54,7 @@ body {
   padding: 0 16px;
 }
 
-.dashboard-sidebar--collapsed .sidebar-footer .flex {
+.dashboard-sidebar--collapsed .sidebar-footer .sidebar-footer-profile {
   flex-direction: column;
   align-items: center;
   gap: 8px;

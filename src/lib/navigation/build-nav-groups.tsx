@@ -143,6 +143,27 @@ const TARIFS_ITEM: NavItem = {
   ),
 };
 
+const ANALYTICS_ITEM: NavItem = {
+  href: "/dashboard/analytics",
+  label: "Analytics",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 3v18h18" />
+      <path d="m19 9-5 5-4-4-3 3" />
+    </svg>
+  ),
+};
+
 const ADMIN_ITEM: NavItem = {
   href: "/dashboard/admin",
   label: "Administration",
@@ -190,7 +211,7 @@ export function buildNavGroups(input: BuildNavGroupsInput): NavGroup[] {
     groups.push({
       key: "outils",
       label: "Outils",
-      items: [REFERENTIEL_ITEM, TARIFS_ITEM],
+      items: [REFERENTIEL_ITEM, TARIFS_ITEM, ANALYTICS_ITEM],
     });
   }
 

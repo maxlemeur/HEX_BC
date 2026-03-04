@@ -28,6 +28,16 @@ drop function if exists public.list_affaires_page(
   timestamptz,
   uuid
 );
+drop function if exists public.list_affaires_page(
+  uuid,
+  uuid,
+  integer,
+  text,
+  public.estimate_status[],
+  timestamptz,
+  uuid,
+  text
+);
 
 create or replace function public.list_affaires_page(
   p_tenant_id uuid,
@@ -36,7 +46,8 @@ create or replace function public.list_affaires_page(
   p_search text default null,
   p_statuses public.estimate_status[] default null,
   p_cursor_updated_at timestamptz default null,
-  p_cursor_project_id uuid default null
+  p_cursor_project_id uuid default null,
+  p_sort_dir text default 'desc'
 )
 returns table (
   project_id uuid,
@@ -60,6 +71,10 @@ as $$
 declare
   v_limit integer := greatest(1, least(coalesce(p_limit, 20), 101));
   v_search text := nullif(btrim(p_search), '');
+  v_sort_dir text := case lower(coalesce(p_sort_dir, 'desc'))
+    when 'asc' then 'asc'
+    else 'desc'
+  end;
   v_is_admin boolean;
 begin
   if p_tenant_id is null then
@@ -79,7 +94,7 @@ begin
     raise exception using message = 'AFFAIRES_OWNER_SCOPE_INVALID';
   end if;
 
-  if p_cursor_updated_at is null and p_cursor_project_id is not null then
+  if (p_cursor_updated_at is null) <> (p_cursor_project_id is null) then
     raise exception using message = 'AFFAIRES_CURSOR_INVALID';
   end if;
 
@@ -172,10 +187,16 @@ begin
   )
     and (
       p_cursor_updated_at is null
-      or p_cursor_project_id is null
-      or (s.current_updated_at, s.project_id) < (p_cursor_updated_at, p_cursor_project_id)
+      or (
+        (v_sort_dir = 'desc' and (s.current_updated_at, s.project_id) < (p_cursor_updated_at, p_cursor_project_id))
+        or (v_sort_dir = 'asc' and (s.current_updated_at, s.project_id) > (p_cursor_updated_at, p_cursor_project_id))
+      )
     )
-  order by s.current_updated_at desc, s.project_id desc
+  order by
+    case when v_sort_dir = 'asc' then s.current_updated_at end asc,
+    case when v_sort_dir = 'asc' then s.project_id end asc,
+    case when v_sort_dir = 'desc' then s.current_updated_at end desc,
+    case when v_sort_dir = 'desc' then s.project_id end desc
   limit v_limit;
 end;
 $$;
@@ -187,7 +208,8 @@ grant execute on function public.list_affaires_page(
   text,
   public.estimate_status[],
   timestamptz,
-  uuid
+  uuid,
+  text
 )
 to authenticated;
 
