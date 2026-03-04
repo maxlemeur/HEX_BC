@@ -6,9 +6,33 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
+import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
+
+// ---------------------------------------------------------------------------
+// Text-editing guard (shared with useCommandPalette)
+// ---------------------------------------------------------------------------
+
+const NON_TEXT_INPUT_TYPES = new Set([
+  "button", "checkbox", "color", "file", "hidden",
+  "image", "radio", "range", "reset", "submit",
+]);
+
+function isTextEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
+  if (target instanceof HTMLInputElement) {
+    return !NON_TEXT_INPUT_TYPES.has(target.type.toLowerCase());
+  }
+  if (target instanceof HTMLElement && target.isContentEditable) return true;
+  return Boolean(
+    target.closest(
+      "[contenteditable=''],[contenteditable='true'],[contenteditable='plaintext-only']"
+    )
+  );
+}
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 
@@ -246,6 +270,25 @@ export function DashboardShell({
   const [collapsed, setCollapsed] = useState(false);
   const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // Determine active shortcut context from current route
+  const shortcutContext = useMemo(() => {
+    if (/\/dashboard\/estimates\/[^/]+\/edit/.test(pathname)) return "editor" as const;
+    return "navigation" as const;
+  }, [pathname]);
+
+  // Global listener for "?" key to open shortcuts modal
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTextEditingTarget(e.target)) return;
+      e.preventDefault();
+      setShortcutsOpen(true);
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   useEffect(() => {
     try {
@@ -428,6 +471,41 @@ export function DashboardShell({
         </nav>
 
         <div className="border-t border-white/10 p-4 sidebar-footer">
+          {/* Keyboard shortcuts button */}
+          <button
+            type="button"
+            className="mb-2 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-white/60 transition-colors hover:bg-white/5 hover:text-white/90"
+            onClick={() => setShortcutsOpen(true)}
+            title="Raccourcis clavier"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0"
+            >
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="M6 8h.01" />
+              <path d="M10 8h.01" />
+              <path d="M14 8h.01" />
+              <path d="M18 8h.01" />
+              <path d="M8 12h.01" />
+              <path d="M12 12h.01" />
+              <path d="M16 12h.01" />
+              <path d="M7 16h10" />
+            </svg>
+            <span className="sidebar-label">Raccourcis</span>
+            <kbd className="sidebar-label ml-auto rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/50">
+              ?
+            </kbd>
+          </button>
+
           <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
             <Link
               href="/dashboard/profile"
@@ -480,6 +558,12 @@ export function DashboardShell({
       >
         <div className="min-h-screen px-4 py-16 md:px-8 md:py-8">{children}</div>
       </main>
+
+      <KeyboardShortcutsModal
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+        activeContext={shortcutContext}
+      />
     </div>
   );
 }
