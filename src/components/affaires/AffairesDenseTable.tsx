@@ -82,7 +82,7 @@ export function AffairesDenseTable({ items }: Readonly<Props>) {
                   key={item.projectId}
                   className="border-b border-[var(--slate-100)] cursor-pointer hover:bg-[var(--slate-50)] transition-colors"
                   onClick={() =>
-                    router.push(`/dashboard/affaires/${item.projectId}`)
+                    router.push(`/dashboard/estimates/${item.currentVersionId}`)
                   }
                 >
                   <td className="px-4 py-3 font-medium text-[var(--slate-900)] max-w-[200px] truncate">

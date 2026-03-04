@@ -64,6 +64,7 @@ describe("affaires query schemas", () => {
     params.set("q", "  chantier alpha  ");
     params.set("size", "50");
     params.set("sort", "amount");
+    params.set("dir", "asc");
     params.set("cursor", "  cursor-value  ");
     params.append("status", "draft,accepted");
     params.append("status", " sent ");
@@ -77,6 +78,7 @@ describe("affaires query schemas", () => {
       size: 50,
       cursor: "cursor-value",
       sort: "updatedAt",
+      dir: "asc",
     });
   });
 
@@ -85,6 +87,7 @@ describe("affaires query schemas", () => {
       q: "   ",
       size: "999",
       sort: "other-sort",
+      dir: "upward",
       cursor: "   ",
       status: ["draft", "archived"],
     });
@@ -95,6 +98,7 @@ describe("affaires query schemas", () => {
       size: 20,
       cursor: null,
       sort: "updatedAt",
+      dir: "desc",
     });
   });
 });
@@ -121,6 +125,7 @@ describe("affaires server", () => {
       status: ["draft"],
       size: 20,
       sort: "updatedAt",
+      dir: "asc",
     });
 
     expect(context.supabase.rpc).toHaveBeenCalledTimes(1);
@@ -132,6 +137,7 @@ describe("affaires server", () => {
       p_statuses: ["draft"],
       p_cursor_updated_at: null,
       p_cursor_project_id: null,
+      p_sort_dir: "asc",
     });
 
     expect(result.items).toHaveLength(1);
@@ -162,6 +168,7 @@ describe("affaires server", () => {
       "list_affaires_page",
       expect.objectContaining({
         p_owner_user_id: null,
+        p_sort_dir: "desc",
       })
     );
   });

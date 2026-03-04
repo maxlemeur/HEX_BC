@@ -2126,6 +2126,7 @@ export type Database = {
           )[] | null;
           p_cursor_updated_at?: string | null;
           p_cursor_project_id?: string | null;
+          p_sort_dir?: string | null;
         };
         Returns: {
           project_id: string;

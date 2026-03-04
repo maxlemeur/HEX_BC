@@ -7,6 +7,8 @@ export type AffairePageSize = (typeof AFFAIRE_PAGE_SIZE_OPTIONS)[number];
 
 export const AFFAIRE_SORT_VALUES = ["updatedAt"] as const;
 export type AffaireSort = (typeof AFFAIRE_SORT_VALUES)[number];
+export const AFFAIRE_SORT_DIRECTION_VALUES = ["asc", "desc"] as const;
+export type AffaireSortDirection = (typeof AFFAIRE_SORT_DIRECTION_VALUES)[number];
 
 export const AFFAIRE_STATUS_VALUES = [
   "draft",
@@ -19,6 +21,7 @@ export type AffaireStatus = Database["public"]["Enums"]["estimate_status"];
 const AFFAIRE_STATUS_SET = new Set<AffaireStatus>(AFFAIRE_STATUS_VALUES);
 const DEFAULT_PAGE_SIZE: AffairePageSize = 20;
 const DEFAULT_SORT: AffaireSort = "updatedAt";
+const DEFAULT_SORT_DIRECTION: AffaireSortDirection = "desc";
 
 export type AffaireCursorPayload = {
   updatedAt: string;
@@ -31,6 +34,7 @@ export type AffaireListQuery = {
   size?: number | string | null;
   cursor?: string | null;
   sort?: string | null;
+  dir?: string | null;
 };
 
 export type NormalizedAffaireListQuery = {
@@ -39,6 +43,7 @@ export type NormalizedAffaireListQuery = {
   size: AffairePageSize;
   cursor: string | null;
   sort: AffaireSort;
+  dir: AffaireSortDirection;
 };
 
 export type AffaireSearchParamsInput =
@@ -76,6 +81,9 @@ const cursorSchema = z
 const sortSchema = z
   .enum(AFFAIRE_SORT_VALUES)
   .catch(DEFAULT_SORT);
+const sortDirectionSchema = z
+  .enum(AFFAIRE_SORT_DIRECTION_VALUES)
+  .catch(DEFAULT_SORT_DIRECTION);
 
 export const affaireCursorPayloadSchema = z.object({
   updatedAt: z.string().datetime({ offset: true }),
@@ -194,6 +202,17 @@ function parseSort(value: string | string[] | null | undefined): AffaireSort {
   return sortSchema.parse(candidate);
 }
 
+function parseSortDirection(
+  value: string | string[] | null | undefined
+): AffaireSortDirection {
+  const candidate = toNullableFirstString(value);
+  if (!candidate) {
+    return DEFAULT_SORT_DIRECTION;
+  }
+
+  return sortDirectionSchema.parse(candidate);
+}
+
 export function normalizeAffaireListQuery(
   input: AffaireListQuery | undefined
 ): NormalizedAffaireListQuery {
@@ -203,6 +222,7 @@ export function normalizeAffaireListQuery(
     size: parseSize(input?.size),
     cursor: parseCursor(input?.cursor),
     sort: parseSort(input?.sort),
+    dir: parseSortDirection(input?.dir),
   };
 }
 
@@ -216,6 +236,7 @@ export function parseAffaireListQuery(
       size: parseSize(input.get("size")),
       cursor: parseCursor(input.get("cursor")),
       sort: parseSort(input.get("sort")),
+      dir: parseSortDirection(input.get("dir")),
     };
   }
 
@@ -225,5 +246,6 @@ export function parseAffaireListQuery(
     size: parseSize(input.size),
     cursor: parseCursor(input.cursor),
     sort: parseSort(input.sort),
+    dir: parseSortDirection(input.dir),
   };
 }

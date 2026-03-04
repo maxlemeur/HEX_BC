@@ -23,6 +23,7 @@ export default async function AffairesPage({ searchParams }: Props) {
         initialStatuses={query.status ?? []}
         initialCursor={query.cursor}
         initialSize={query.size}
+        initialDir={query.dir}
       />
     </Suspense>
   );

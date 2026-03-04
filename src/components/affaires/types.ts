@@ -7,6 +7,7 @@ export type {
 
 export type {
   AffairePageSize,
+  AffaireSortDirection,
   AffaireStatus,
   AffaireListQuery,
   NormalizedAffaireListQuery,

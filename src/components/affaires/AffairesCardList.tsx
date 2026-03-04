@@ -59,7 +59,7 @@ export function AffairesCardList({ items }: Readonly<Props>) {
       {items.map((item) => (
         <Link
           key={item.projectId}
-          href={`/dashboard/affaires/${item.projectId}`}
+          href={`/dashboard/estimates/${item.currentVersionId}`}
           className="dashboard-card p-4 transition-shadow hover:shadow-md cursor-pointer block"
         >
           <div className="flex items-start justify-between gap-2 mb-2">

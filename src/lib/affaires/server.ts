@@ -141,6 +141,7 @@ async function fetchAffaireListWithContext(
     p_statuses: query.status,
     p_cursor_updated_at: decodedCursor?.updatedAt ?? null,
     p_cursor_project_id: decodedCursor?.projectId ?? null,
+    p_sort_dir: query.dir,
   });
 
   if (error) {

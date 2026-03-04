@@ -22,6 +22,7 @@ import { AffairesCardList } from "./AffairesCardList";
 import type {
   AffairePageDataResult,
   AffairePageSize,
+  AffaireSortDirection,
   AffaireStatus,
 } from "./types";
 import type { SortOption, SortState } from "@/components/TableFilterBar/types";
@@ -71,14 +72,6 @@ function writeStoredPageSize(size: AffairePageSize) {
   }
 }
 
-function parseStatusParam(param: string | null): AffaireStatus[] {
-  if (!param) return [];
-  const all: AffaireStatus[] = ["draft", "sent", "accepted", "archived"];
-  return param
-    .split(",")
-    .filter((s): s is AffaireStatus => all.includes(s as AffaireStatus));
-}
-
 // -- Props --
 
 type Props = {
@@ -87,6 +80,7 @@ type Props = {
   initialStatuses: AffaireStatus[];
   initialCursor: string | null;
   initialSize: AffairePageSize;
+  initialDir: AffaireSortDirection;
 };
 
 export function AffairesPageClient({
@@ -95,6 +89,7 @@ export function AffairesPageClient({
   initialStatuses,
   initialCursor,
   initialSize,
+  initialDir,
 }: Readonly<Props>) {
   const pathname = usePathname();
   const router = useRouter();
@@ -120,7 +115,7 @@ export function AffairesPageClient({
 
   const [sortState, setSortState] = useState<SortState>({
     key: "updatedAt",
-    direction: "desc",
+    direction: initialDir,
   });
 
   // Use server-passed data directly (page.tsx refetches on navigation)
