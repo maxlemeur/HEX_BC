@@ -881,6 +881,7 @@ export type Database = {
           discount_mode: "simple" | "cascade";
           discount_steps: number[];
           global_coefficient: number;
+          max_section_depth: number;
           tax_rate_bp: number;
           rounding_mode: "none" | "nearest" | "up" | "down";
           rounding_step_cents: number;
@@ -910,6 +911,7 @@ export type Database = {
           discount_mode?: "simple" | "cascade";
           discount_steps?: number[];
           global_coefficient?: number;
+          max_section_depth?: number;
           tax_rate_bp?: number;
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;
@@ -939,6 +941,7 @@ export type Database = {
           discount_mode?: "simple" | "cascade";
           discount_steps?: number[];
           global_coefficient?: number;
+          max_section_depth?: number;
           tax_rate_bp?: number;
           rounding_mode?: "none" | "nearest" | "up" | "down";
           rounding_step_cents?: number;

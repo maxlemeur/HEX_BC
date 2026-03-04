@@ -337,10 +337,10 @@ describe("EstimateDocument - EST-121", () => {
     const childSectionRow = findTableRowMarkup(markup, "Section enfant");
     const lineRow = findTableRowMarkup(markup, "Ligne enfant");
 
-    expect(parentSectionRow).toMatch(/>1<\/span>\s*<span>Section parent<\/span>/);
-    expect(childSectionRow).toMatch(/>1\.1<\/span>\s*<span>Section enfant<\/span>/);
+    expect(parentSectionRow).toMatch(/>01<\/span>\s*<span>Section parent<\/span>/);
+    expect(childSectionRow).toMatch(/>01\.1<\/span>\s*<span>Section enfant<\/span>/);
     expect(lineRow).toContain("Ligne enfant");
-    expect(lineRow).not.toContain("1.1.1");
+    expect(lineRow).not.toContain("01.1.01");
   });
 
   it("formate les montants avec la devise du devis", () => {

@@ -146,6 +146,7 @@ import {
   reconcileCreatedItemWithLocalDraft,
   rollbackRemovedTempItems,
 } from "@/lib/estimates/editor-optimistic";
+import { getDefaultSectionTitleForLevel } from "@/lib/estimates/hierarchy";
 import { refreshVersionTokenAfterAssemblyInsert } from "@/lib/estimates/editor-version-refresh";
 import { useDraftLock } from "@/hooks/useDraftLock";
 import type { Database } from "@/types/database";
@@ -2407,7 +2408,6 @@ export default function EditEstimatePage() {
   }, [laborRoles]);
 
   const deferredItems = useDeferredValue(items);
-  const isDerivationPending = deferredItems !== items;
 
   const bulkSuggestPreview = useMemo(
     () =>
@@ -4123,6 +4123,28 @@ export default function EditEstimatePage() {
     return maxPosition + 1;
   }, []);
 
+  const resolveParentSectionLevel = useCallback((parentId: string | null) => {
+    if (!parentId) return 0;
+
+    const itemById = new Map(itemsRef.current.map((item) => [item.id, item]));
+    let level = 0;
+    let cursorId: string | null = parentId;
+    let guard = 0;
+
+    while (cursorId && guard < 200) {
+      guard += 1;
+      const parent = itemById.get(cursorId);
+      if (!parent || parent.item_type !== "section") {
+        break;
+      }
+
+      level += 1;
+      cursorId = parent.parent_id;
+    }
+
+    return level;
+  }, []);
+
   const applyVersionToken = useCallback((updatedAt: string) => {
     setVersion((previous) =>
       previous
@@ -4270,6 +4292,7 @@ export default function EditEstimatePage() {
       }
       setActionError(null);
       const position = getNextPosition(parentId);
+      const nextSectionLevel = resolveParentSectionLevel(parentId) + 1;
       const tempId = createTempEstimateItemId();
       const optimisticSection = createOptimisticSectionItem({
         tempId,
@@ -4277,7 +4300,7 @@ export default function EditEstimatePage() {
         versionId: version.id,
         parentId,
         position,
-        title: parentId ? "Nouveau sous-chapitre" : "Nouveau chapitre",
+        title: getDefaultSectionTitleForLevel(nextSectionLevel),
       });
 
       setItems((prev) => [...prev, optimisticSection]);
@@ -4377,6 +4400,7 @@ export default function EditEstimatePage() {
       isReadOnly,
       pushHistoryCommand,
       readOnlyActionErrorMessage,
+      resolveParentSectionLevel,
       version,
     ]
   );
@@ -6833,6 +6857,7 @@ export default function EditEstimatePage() {
       isLaborSplitEnabled,
       isReadOnly: editorTableBaseConfig.isReadOnly,
       isViewerMode: isViewerReadOnly,
+      maxSectionDepth: version?.max_section_depth ?? undefined,
       onQualityFilterChange: handleQualityFilterChange,
       onOutlierDetectionMethodChange: handleOutlierMethodChange,
       onOutlierThresholdChange: handleOutlierThresholdChange,
@@ -6938,6 +6963,7 @@ export default function EditEstimatePage() {
       settings?.currency,
       totals?.appliedMarginMultiplier,
       version?.id,
+      version?.max_section_depth,
       resolvedVersionId,
     ]
   );

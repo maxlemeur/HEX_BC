@@ -14,8 +14,13 @@ import { verifyEstimateSeal } from "@/lib/estimates/server";
 import { normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
+import {
+  MAX_SECTION_DEPTH,
+  MIN_SECTION_DEPTH,
+} from "@/lib/estimates/hierarchy";
 
 import { PrintCurrencySelect } from "./PrintCurrencySelect";
+import { PrintLevelFilter } from "./PrintLevelFilter";
 
 type EstimateProject =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -34,6 +39,7 @@ type LaborRoleRate = Pick<
 >;
 type PrintPageProps = {
   params?: Promise<{ versionId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function formatPrintDate(dateStr: string): string {
@@ -76,13 +82,33 @@ function resolveProject(
   return value;
 }
 
+function parseMaxVisibleSectionLevel(
+  value: string | string[] | undefined
+): number | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "all") return null;
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed < MIN_SECTION_DEPTH || parsed > MAX_SECTION_DEPTH) return null;
+  return parsed;
+}
+
 export default async function PrintEstimatePage({
   params,
+  searchParams,
 }: PrintPageProps) {
   if (!params) {
     notFound();
   }
   const { versionId } = await params;
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const maxVisibleSectionLevel = parseMaxVisibleSectionLevel(
+    resolvedSearchParams.max_level
+  );
+  const maxVisibleSectionLevelSelectValue =
+    maxVisibleSectionLevel === null ? "all" : String(maxVisibleSectionLevel);
   const supabase = await createSupabaseServerClient();
 
   const versionPromise = supabase
@@ -267,6 +293,11 @@ export default async function PrintEstimatePage({
           </div>
           <div className="flex items-center gap-3">
             <PrintCurrencySelect currency={selectedCurrency} />
+            <PrintLevelFilter
+              value={
+                maxVisibleSectionLevelSelectValue as "all" | "1" | "2" | "3" | "4"
+              }
+            />
             <PrintButton />
           </div>
         </div>
@@ -291,6 +322,7 @@ export default async function PrintEstimatePage({
           totalTaxCents={totalTaxCents}
           totalTtcCents={totalTtcCents}
           items={items}
+          maxVisibleSectionLevel={maxVisibleSectionLevel}
         />
       </div>
       <div className="print-page-footer" aria-hidden>

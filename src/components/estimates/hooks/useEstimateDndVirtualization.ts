@@ -14,6 +14,12 @@ import { useVirtualList } from "@/hooks/useVirtualList";
 import { type SpreadsheetCell } from "@/hooks/useSpreadsheetNavigation";
 import { type EstimateQualityFlagKey } from "@/lib/estimate-quality";
 import {
+  buildHierarchyIndex,
+  collectSubtreeMetrics,
+  isAncestorOrSelf,
+  resolveSectionLevel,
+} from "@/lib/estimates/hierarchy";
+import {
   type SuggestionPreview,
 } from "@/components/estimates/components/EstimateSuggestionRow";
 import type { Database } from "@/types/database";
@@ -34,8 +40,6 @@ const DEFAULT_VIRTUAL_OVERSCAN = 8;
 const DEFAULT_VIRTUAL_MAX_HEIGHT = 640;
 const EMPTY_ITEMS: EstimateItem[] = [];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
-const MAX_SECTION_DEPTH = 1;
-const MAX_LINE_DEPTH = 2;
 
 function getParentKey(id: string | null) {
   return id ?? ROOT_KEY;
@@ -64,6 +68,7 @@ export type VirtualizedRow = VirtualizedItemRow | VirtualizedSuggestionRow;
 
 export type UseEstimateDndVirtualizationInput = {
   canReorder: boolean;
+  maxSectionDepth: number;
   itemsByParent: Map<string, EstimateItem[]>;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
   onMoveItem: (
@@ -88,6 +93,7 @@ export type UseEstimateDndVirtualizationInput = {
 
 export function useEstimateDndVirtualization({
   canReorder,
+  maxSectionDepth,
   itemsByParent,
   onReorder,
   onMoveItem,
@@ -184,6 +190,11 @@ export function useEstimateDndVirtualization({
     return map;
   }, [itemsByParent]);
 
+  const hierarchyIndex = useMemo(
+    () => buildHierarchyIndex(Array.from(itemById.values())),
+    [itemById]
+  );
+
   const resolveDepth = useCallback(
     (itemId: string): number => {
       const fromMap = depthMap.get(itemId);
@@ -204,16 +215,19 @@ export function useEstimateDndVirtualization({
 
   const isDescendantParent = useCallback(
     (targetParentId: string | null, activeItemId: string): boolean => {
-      let currentParentId = targetParentId;
-      while (currentParentId) {
-        if (currentParentId === activeItemId) return true;
-        const parent = itemById.get(currentParentId);
-        if (!parent) break;
-        currentParentId = parent.parent_id;
-      }
-      return false;
+      return isAncestorOrSelf(hierarchyIndex, activeItemId, targetParentId);
     },
-    [itemById]
+    [hierarchyIndex]
+  );
+
+  const resolveSectionLevelForId = useCallback(
+    (sectionId: string): number | null => {
+      const level = resolveSectionLevel(hierarchyIndex, sectionId);
+      if (level !== null) return level;
+      const fallbackDepth = resolveDepth(sectionId);
+      return fallbackDepth + 1;
+    },
+    [hierarchyIndex, resolveDepth]
   );
 
   const canMoveToParent = useCallback(
@@ -226,37 +240,52 @@ export function useEstimateDndVirtualization({
       }
 
       if (activeItem.item_type === "section") {
-        if (targetParentId !== null) {
-          const queue = [activeItem.id];
-          while (queue.length > 0) {
-            const currentId = queue.pop();
-            if (!currentId) continue;
-            const children = itemsByParent.get(getParentKey(currentId)) ?? EMPTY_ITEMS;
-            for (const child of children) {
-              if (child.item_type === "section") {
-                return false;
-              }
-              queue.push(child.id);
-            }
-          }
-        }
-
         if (
           targetParentId !== null &&
           isDescendantParent(targetParentId, activeItem.id)
         ) {
           return false;
         }
-        const nextDepth =
-          targetParentId === null ? 0 : resolveDepth(targetParentId) + 1;
-        return nextDepth <= MAX_SECTION_DEPTH;
+
+        const parentLevel =
+          targetParentId === null
+            ? null
+            : resolveSectionLevelForId(targetParentId);
+        if (targetParentId !== null && parentLevel === null) {
+          return false;
+        }
+
+        const nextSectionLevel = parentLevel === null ? 1 : parentLevel + 1;
+        if (nextSectionLevel > maxSectionDepth) {
+          return false;
+        }
+
+        const metrics = collectSubtreeMetrics(hierarchyIndex, activeItem.id);
+        if (nextSectionLevel + metrics.maxSectionRelativeDepth > maxSectionDepth) {
+          return false;
+        }
+
+        return !metrics.lineRelativeDepths.some((relativeDepth) => {
+          const expectedParentSectionLevel =
+            nextSectionLevel + Math.max(relativeDepth - 1, 0);
+          return expectedParentSectionLevel !== maxSectionDepth;
+        });
       }
 
-      const nextDepth =
-        targetParentId === null ? 0 : resolveDepth(targetParentId) + 1;
-      return nextDepth <= MAX_LINE_DEPTH;
+      if (targetParentId === null) {
+        return false;
+      }
+
+      const parentLevel = resolveSectionLevelForId(targetParentId);
+      return parentLevel === maxSectionDepth;
     },
-    [isDescendantParent, itemById, itemsByParent, resolveDepth]
+    [
+      hierarchyIndex,
+      isDescendantParent,
+      itemById,
+      maxSectionDepth,
+      resolveSectionLevelForId,
+    ]
   );
 
   const handleDragEnd = useCallback(
@@ -285,9 +314,7 @@ export function useEstimateDndVirtualization({
           : (overItem?.parent_id ?? null);
 
       let targetParentId = overParent;
-      const canDropInsideSection =
-        overItem?.item_type === "section" &&
-        (activeItem.item_type === "line" || activeParent !== null);
+      const canDropInsideSection = overItem?.item_type === "section";
       if (canDropInsideSection && canMoveToParent(activeItem, overItem.id)) {
         targetParentId = overItem.id;
       }

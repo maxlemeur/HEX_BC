@@ -2,6 +2,7 @@ type EstimateNumberingItem = {
   id: string;
   parent_id: string | null;
   position: number;
+  item_type: "section" | "line";
 };
 
 function sortByPositionThenId(
@@ -38,14 +39,21 @@ export function computeEstimateItemNumbering(
     siblings.sort(sortByPositionThenId);
   });
 
-  const walkItem = (item: EstimateNumberingItem, segments: number[]) => {
+  const walkItem = (item: EstimateNumberingItem, segments: string[]) => {
     if (visited.has(item.id)) return;
     visited.add(item.id);
     numberingById[item.id] = segments.join(".");
 
     const children = childrenByParent.get(item.id) ?? [];
     children.forEach((child, index) => {
-      walkItem(child, [...segments, index + 1]);
+      const ordinal = index + 1;
+      const childSegment =
+        child.item_type === "line"
+          ? String(ordinal).padStart(2, "0")
+          : segments.length === 0
+            ? String(ordinal).padStart(2, "0")
+            : String(ordinal);
+      walkItem(child, [...segments, childSegment]);
     });
   };
 
@@ -59,12 +67,14 @@ export function computeEstimateItemNumbering(
   let rootIndex = 0;
   rootItems.forEach((item) => {
     rootIndex += 1;
-    walkItem(item, [rootIndex]);
+    const rootSegment = String(rootIndex).padStart(2, "0");
+    walkItem(item, [rootSegment]);
   });
 
   orphanItems.forEach((item) => {
     rootIndex += 1;
-    walkItem(item, [rootIndex]);
+    const rootSegment = String(rootIndex).padStart(2, "0");
+    walkItem(item, [rootSegment]);
   });
 
   const orphanedCycleItems = items
@@ -73,7 +83,8 @@ export function computeEstimateItemNumbering(
 
   orphanedCycleItems.forEach((item) => {
     rootIndex += 1;
-    walkItem(item, [rootIndex]);
+    const rootSegment = String(rootIndex).padStart(2, "0");
+    walkItem(item, [rootSegment]);
   });
 
   return numberingById;

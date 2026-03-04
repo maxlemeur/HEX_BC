@@ -497,6 +497,13 @@ export type EstimateEditorRowProps = {
   isSearchMatch?: boolean;
   isLastChild?: boolean;
   parentIsLastChild?: boolean;
+  sectionLevel?: number | null;
+  canAddLine?: boolean;
+  canAddSection?: boolean;
+  addLineLabel?: string;
+  addSectionLabel?: string;
+  isSectionCollapsed?: boolean;
+  onToggleSectionCollapsed?: (sectionId: string) => void;
 };
 
 function areStringArraysEqual(left: string[], right: string[]) {
@@ -570,7 +577,14 @@ function areEstimateEditorRowPropsEqual(
     previous.isPendingCreate === next.isPendingCreate &&
     previous.isSearchMatch === next.isSearchMatch &&
     previous.isLastChild === next.isLastChild &&
-    previous.parentIsLastChild === next.parentIsLastChild
+    previous.parentIsLastChild === next.parentIsLastChild &&
+    previous.sectionLevel === next.sectionLevel &&
+    previous.canAddLine === next.canAddLine &&
+    previous.canAddSection === next.canAddSection &&
+    previous.addLineLabel === next.addLineLabel &&
+    previous.addSectionLabel === next.addSectionLabel &&
+    previous.isSectionCollapsed === next.isSectionCollapsed &&
+    previous.onToggleSectionCollapsed === next.onToggleSectionCollapsed
   );
 }
 
@@ -600,6 +614,13 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   isSearchMatch,
   isLastChild,
   parentIsLastChild,
+  sectionLevel = null,
+  canAddLine = true,
+  canAddSection = true,
+  addLineLabel = "+ Ajouter une ligne",
+  addSectionLabel = "+ Ajouter une section",
+  isSectionCollapsed = false,
+  onToggleSectionCollapsed,
 }: EstimateEditorRowProps) {
   const navigation = useEstimateSpreadsheetNavigation();
   const {
@@ -906,6 +927,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         className="estimate-row estimate-row--section"
         data-estimate-item-id={item.id}
         data-depth={depth}
+        data-section-level={sectionLevel ?? undefined}
         data-is-last-child={isLastChild || undefined}
         data-parent-is-last-child={parentIsLastChild || undefined}
         role="row"
@@ -951,6 +973,19 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             />
           ) : null}
           <div className="flex min-w-0 flex-1 items-center gap-2">
+            {onToggleSectionCollapsed ? (
+              <button
+                type="button"
+                className="estimate-section-collapse-btn"
+                onClick={() => onToggleSectionCollapsed(item.id)}
+                aria-label={
+                  isSectionCollapsed ? "Deplier la section" : "Replier la section"
+                }
+                title={isSectionCollapsed ? "Deplier" : "Replier"}
+              >
+                {isSectionCollapsed ? "▸" : "▾"}
+              </button>
+            ) : null}
             <div className="estimate-designation-meta">
               {itemNumber ? (
                 <span className="font-mono text-[11px] font-semibold text-[var(--slate-500)]">
@@ -982,24 +1017,26 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           </div>
           {!hideEditingActions ? (
             <div className="estimate-section-hover-actions">
-              <button
-                className="estimate-section-hover-btn"
-                type="button"
-                onClick={() => onAddLine(item.id)}
-                disabled={isReadOnly}
-              >
-                + Ligne
-              </button>
-              {depth === 0 && (
+              {canAddLine ? (
+                <button
+                  className="estimate-section-hover-btn"
+                  type="button"
+                  onClick={() => onAddLine(item.id)}
+                  disabled={isReadOnly}
+                >
+                  {addLineLabel}
+                </button>
+              ) : null}
+              {canAddSection ? (
                 <button
                   className="estimate-section-hover-btn"
                   type="button"
                   onClick={() => onAddSection(item.id)}
                   disabled={isReadOnly}
                 >
-                  + Sous-chap
+                  {addSectionLabel}
                 </button>
-              )}
+              ) : null}
               {!isAidEditorVisible ? (
                 <button
                   className="estimate-section-hover-btn"

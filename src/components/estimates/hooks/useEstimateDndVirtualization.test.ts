@@ -136,6 +136,7 @@ describe("useEstimateDndVirtualization", () => {
     const { result } = renderHook(() =>
       useEstimateDndVirtualization({
         canReorder: true,
+        maxSectionDepth: 1,
         itemsByParent,
         onReorder: vi.fn(),
         onMoveItem: vi.fn(),
@@ -187,14 +188,27 @@ describe("useEstimateDndVirtualization", () => {
   });
 
   it("reorders only siblings sharing the same parent", () => {
-    const line1 = createItem({ id: "line-1", item_type: "line" });
-    const line2 = createItem({ id: "line-2", item_type: "line" });
-    const line3 = createItem({ id: "line-3", item_type: "line" });
+    const section = createItem({ id: "section-1", item_type: "section" });
+    const line1 = createItem({
+      id: "line-1",
+      item_type: "line",
+      parent_id: "section-1",
+    });
+    const line2 = createItem({
+      id: "line-2",
+      item_type: "line",
+      parent_id: "section-1",
+    });
+    const line3 = createItem({
+      id: "line-3",
+      item_type: "line",
+      parent_id: "section-1",
+    });
     const childA = createItem({ id: "child-a", item_type: "line", parent_id: "section-1" });
 
     const itemsByParent = new Map<string, EstimateItem[]>([
-      ["root", [line1, line2, line3]],
-      ["section-1", [childA]],
+      ["root", [section]],
+      ["section-1", [line1, line2, line3, childA]],
     ]);
 
     const onReorder = vi.fn();
@@ -205,6 +219,7 @@ describe("useEstimateDndVirtualization", () => {
     const { result } = renderHook(() =>
       useEstimateDndVirtualization({
         canReorder: true,
+        maxSectionDepth: 1,
         itemsByParent,
         onReorder,
         onMoveItem,
@@ -221,29 +236,28 @@ describe("useEstimateDndVirtualization", () => {
 
     act(() => {
       result.current.handleDragEnd({
-        active: { id: "line-2", data: { current: { parentId: null } } },
-        over: { id: "line-3", data: { current: { parentId: null } } },
+        active: { id: "line-2", data: { current: { parentId: "section-1" } } },
+        over: { id: "line-3", data: { current: { parentId: "section-1" } } },
       } as never);
     });
 
-    expect(onReorder).toHaveBeenCalledWith(null, ["line-1", "line-3", "line-2"]);
+    expect(onReorder).toHaveBeenCalledWith("section-1", [
+      "line-1",
+      "line-3",
+      "line-2",
+      "child-a",
+    ]);
     expect(onMoveItem).not.toHaveBeenCalled();
 
     act(() => {
       result.current.handleDragEnd({
         active: { id: "child-a", data: { current: { parentId: "section-1" } } },
-        over: { id: "line-1", data: { current: { parentId: null } } },
+        over: { id: "section-1", data: { current: { parentId: null } } },
       } as never);
     });
 
     expect(onReorder).toHaveBeenCalledTimes(1);
-    expect(onMoveItem).toHaveBeenCalledWith(
-      "child-a",
-      "section-1",
-      null,
-      [],
-      ["child-a", "line-1", "line-2", "line-3"]
-    );
+    expect(onMoveItem).not.toHaveBeenCalled();
   });
 
   it("keeps root sections at root when dragging over another root section", () => {
@@ -259,6 +273,7 @@ describe("useEstimateDndVirtualization", () => {
     const { result } = renderHook(() =>
       useEstimateDndVirtualization({
         canReorder: true,
+        maxSectionDepth: 1,
         itemsByParent,
         onReorder,
         onMoveItem,
@@ -285,6 +300,54 @@ describe("useEstimateDndVirtualization", () => {
 
     expect(onReorder).toHaveBeenCalledWith(null, ["section-b", "section-a"]);
     expect(onMoveItem).not.toHaveBeenCalled();
+  });
+
+  it("allows nesting a root section when depth configuration permits it", () => {
+    const sectionA = createItem({ id: "section-a", item_type: "section", position: 1 });
+    const sectionB = createItem({ id: "section-b", item_type: "section", position: 2 });
+
+    const itemsByParent = new Map<string, EstimateItem[]>([["root", [sectionA, sectionB]]]);
+    const onReorder = vi.fn();
+    const onMoveItem = vi.fn();
+    const tableCardRef = createRef<HTMLDivElement>();
+    tableCardRef.current = document.createElement("div");
+
+    const { result } = renderHook(() =>
+      useEstimateDndVirtualization({
+        canReorder: true,
+        maxSectionDepth: 2,
+        itemsByParent,
+        onReorder,
+        onMoveItem,
+        hasVisibleRows: true,
+        getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
+        depthMap: new Map([
+          ["section-a", 0],
+          ["section-b", 0],
+        ]),
+        mergedUnitDrafts: {},
+        mergedSupplyTypeDrafts: {},
+        qualityFlagsByItemId: {},
+        suggestionsByItemId: new Map(),
+        tableCardRef,
+      })
+    );
+
+    act(() => {
+      result.current.handleDragEnd({
+        active: { id: "section-a", data: { current: { parentId: null } } },
+        over: { id: "section-b", data: { current: { parentId: null } } },
+      } as never);
+    });
+
+    expect(onReorder).not.toHaveBeenCalled();
+    expect(onMoveItem).toHaveBeenCalledWith(
+      "section-a",
+      null,
+      "section-b",
+      ["section-b"],
+      ["section-a"]
+    );
   });
 
   it("moves an item into a section when dropping over a section row", () => {
@@ -315,6 +378,7 @@ describe("useEstimateDndVirtualization", () => {
     const { result } = renderHook(() =>
       useEstimateDndVirtualization({
         canReorder: true,
+        maxSectionDepth: 1,
         itemsByParent,
         onReorder,
         onMoveItem,
@@ -397,6 +461,7 @@ describe("useEstimateDndVirtualization", () => {
     const { result } = renderHook(() =>
       useEstimateDndVirtualization({
         canReorder: true,
+        maxSectionDepth: 2,
         itemsByParent,
         onReorder,
         onMoveItem,
@@ -487,6 +552,7 @@ describe("useEstimateDndVirtualization", () => {
     const { result } = renderHook(() =>
       useEstimateDndVirtualization({
         canReorder: true,
+        maxSectionDepth: 1,
         itemsByParent,
         onReorder: vi.fn(),
         onMoveItem: vi.fn(),

@@ -243,6 +243,36 @@ describe("patchEstimateVersionSchema", () => {
 
     expect(parsed.success).toBe(false);
   });
+
+  it("accepts max_section_depth between 1 and 4", () => {
+    expect(
+      patchEstimateVersionSchema.safeParse({
+        max_section_depth: 1,
+        updated_at: UPDATED_AT,
+      }).success
+    ).toBe(true);
+    expect(
+      patchEstimateVersionSchema.safeParse({
+        max_section_depth: 4,
+        updated_at: UPDATED_AT,
+      }).success
+    ).toBe(true);
+  });
+
+  it("rejects max_section_depth outside bounds", () => {
+    expect(
+      patchEstimateVersionSchema.safeParse({
+        max_section_depth: 0,
+        updated_at: UPDATED_AT,
+      }).success
+    ).toBe(false);
+    expect(
+      patchEstimateVersionSchema.safeParse({
+        max_section_depth: 5,
+        updated_at: UPDATED_AT,
+      }).success
+    ).toBe(false);
+  });
 });
 
 describe("wizardStep2Schema", () => {

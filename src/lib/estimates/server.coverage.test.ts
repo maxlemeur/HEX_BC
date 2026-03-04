@@ -121,6 +121,7 @@ function createVersionAccessBuilder(
     project_id: string;
     parent_version_id: string | null;
     variant_label: string | null;
+    max_section_depth: number;
   }> = {}
 ) {
   const versionId = overrides.id ?? VERSION_ID;
@@ -138,6 +139,7 @@ function createVersionAccessBuilder(
       status: "draft",
       margin_mode: "fixed",
       margin_multiplier: 1,
+      max_section_depth: overrides.max_section_depth ?? 2,
       tax_rate_bp: 2000,
       updated_at: "2026-02-22T12:00:00.000Z",
       total_ht_cents: 12000,
@@ -1468,9 +1470,11 @@ describe("estimate server coverage additions", () => {
     );
   });
 
-  it("converts a section to line and reassigns direct children to parent", async () => {
+  it("rejects section-to-line conversion when section has children", async () => {
     const base = createAuth("engineer");
-    const versionAccessBuilder = createVersionAccessBuilder();
+    const versionAccessBuilder = createVersionAccessBuilder({
+      max_section_depth: 1,
+    });
     const draftLockBuilder = createDraftLockBuilder();
     const featureFlagBuilder = chainResult({
       data: null,
@@ -1480,12 +1484,41 @@ describe("estimate server coverage additions", () => {
       data: {
         id: "section-1",
         version_id: VERSION_ID,
-        parent_id: null,
+        parent_id: "parent-1",
         item_type: "section",
         position: 1,
         title: "Section",
         aid: null,
       },
+      error: null,
+    });
+    const parentSectionBuilder = chainResult({
+      data: {
+        id: "parent-1",
+        version_id: VERSION_ID,
+        parent_id: null,
+        item_type: "section",
+      },
+      error: null,
+    });
+    const hierarchyItemsBuilder = chainResult({
+      data: [
+        {
+          id: "parent-1",
+          parent_id: null,
+          item_type: "section",
+        },
+        {
+          id: "section-1",
+          parent_id: "parent-1",
+          item_type: "section",
+        },
+        {
+          id: "child-1",
+          parent_id: "section-1",
+          item_type: "line",
+        },
+      ],
       error: null,
     });
     const sectionChildrenBuilder = chainResult({
@@ -1495,43 +1528,11 @@ describe("estimate server coverage additions", () => {
           parent_id: "section-1",
           position: 1,
         },
-        {
-          id: "child-2",
-          parent_id: "section-1",
-          position: 2,
-        },
       ],
       error: null,
     });
-    const parentPositionBuilder = chainResult({
-      data: [{ position: 5 }],
-      error: null,
-    });
-    const childUpdateBuilder = chainResult({
-      data: null,
-      error: null,
-    });
-    const convertedItemBuilder = chainResult({
-      data: {
-        id: "section-1",
-        version_id: VERSION_ID,
-        parent_id: null,
-        item_type: "line",
-        position: 1,
-        title: "Section",
-      },
-      error: null,
-    });
-
     let estimateItemsCalls = 0;
-    let estimateItemsUpdateCalls = 0;
-    const estimateItemsUpdate = vi.fn(() => {
-      estimateItemsUpdateCalls += 1;
-      if (estimateItemsUpdateCalls <= 2) {
-        return childUpdateBuilder;
-      }
-      return convertedItemBuilder;
-    });
+    const estimateItemsUpdate = vi.fn();
 
     const supabase = {
       ...base,
@@ -1566,20 +1567,22 @@ describe("estimate server coverage additions", () => {
           }
           if (estimateItemsCalls === 2) {
             return {
-              select: vi.fn(() => sectionChildrenBuilder),
+              select: vi.fn(() => parentSectionBuilder),
               update: estimateItemsUpdate,
             };
           }
           if (estimateItemsCalls === 3) {
             return {
-              select: vi.fn(() => parentPositionBuilder),
+              select: vi.fn(() => hierarchyItemsBuilder),
               update: estimateItemsUpdate,
             };
           }
-          return {
-            select: vi.fn(() => parentPositionBuilder),
-            update: estimateItemsUpdate,
-          };
+          if (estimateItemsCalls === 4) {
+            return {
+              select: vi.fn(() => sectionChildrenBuilder),
+              update: estimateItemsUpdate,
+            };
+          }
         }
         throw new Error(`Unexpected table: ${table}`);
       }),
@@ -1587,38 +1590,17 @@ describe("estimate server coverage additions", () => {
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
-    const result = await updateEstimateItem(VERSION_ID, {
-      id: "section-1",
-      item_type: "line",
-    });
-
-    expect(result).toMatchObject({
-      converted_from_item_type: "section",
-      item: {
+    await expect(
+      updateEstimateItem(VERSION_ID, {
         id: "section-1",
         item_type: "line",
-      },
-      reassigned_children: [
-        { id: "child-1", parent_id: null, position: 6 },
-        { id: "child-2", parent_id: null, position: 7 },
-      ],
-    });
-    expect(estimateItemsUpdate).toHaveBeenNthCalledWith(1, {
-      parent_id: null,
-      position: 6,
-    });
-    expect(estimateItemsUpdate).toHaveBeenNthCalledWith(2, {
-      parent_id: null,
-      position: 7,
-    });
-    expect(estimateItemsUpdate).toHaveBeenNthCalledWith(
-      3,
-      expect.objectContaining({
-        item_type: "line",
-        quantity: 1,
-        unit_price_ht_cents: 0,
       })
-    );
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "Une section avec enfants ne peut pas etre convertie en ligne.",
+    });
+    expect(estimateItemsUpdate).not.toHaveBeenCalled();
   });
 
   it("reorders sibling estimate items and returns updated count", async () => {
@@ -1788,7 +1770,9 @@ describe("estimate server coverage additions", () => {
 
   it("moves an estimate item across parents and calls move_estimate_item RPC", async () => {
     const base = createAuth("engineer");
-    const versionAccessBuilder = createVersionAccessBuilder();
+    const versionAccessBuilder = createVersionAccessBuilder({
+      max_section_depth: 1,
+    });
     const draftLockBuilder = createDraftLockBuilder();
     const movingItemBuilder = chainResult({
       data: {
@@ -1814,6 +1798,26 @@ describe("estimate server coverage additions", () => {
     });
     const targetSiblingsBuilder = chainResult({
       data: [{ id: "target-1" }],
+      error: null,
+    });
+    const hierarchyItemsBuilder = chainResult({
+      data: [
+        {
+          id: "parent-source",
+          parent_id: null,
+          item_type: "section",
+        },
+        {
+          id: "parent-target",
+          parent_id: null,
+          item_type: "section",
+        },
+        {
+          id: "item-1",
+          parent_id: "parent-source",
+          item_type: "line",
+        },
+      ],
       error: null,
     });
 
@@ -1851,10 +1855,15 @@ describe("estimate server coverage additions", () => {
           }
           if (estimateItemsCalls === 3) {
             return {
-              select: vi.fn(() => sourceSiblingsBuilder),
+              select: vi.fn(() => hierarchyItemsBuilder),
             };
           }
           if (estimateItemsCalls === 4) {
+            return {
+              select: vi.fn(() => sourceSiblingsBuilder),
+            };
+          }
+          if (estimateItemsCalls === 5) {
             return {
               select: vi.fn(() => targetSiblingsBuilder),
             };
@@ -1978,91 +1987,24 @@ describe("estimate server coverage additions", () => {
       },
       error: null,
     });
-
-    let estimateItemsCalls = 0;
-
-    const supabase = {
-      ...base,
-      from: vi.fn((table: string) => {
-        if (table === "tenant_memberships") {
-          return {
-            select: vi.fn(() => base.__membershipBuilder),
-          };
-        }
-        if (table === "estimate_versions") {
-          return {
-            select: vi.fn(() => versionAccessBuilder),
-          };
-        }
-        if (table === "draft_locks") {
-          return {
-            select: vi.fn(() => draftLockBuilder),
-          };
-        }
-        if (table === "estimate_items") {
-          estimateItemsCalls += 1;
-          if (estimateItemsCalls === 1) {
-            return {
-              select: vi.fn(() => movingItemBuilder),
-            };
-          }
-          if (estimateItemsCalls === 2) {
-            return {
-              select: vi.fn(() => targetParentBuilder),
-            };
-          }
-        }
-        throw new Error(`Unexpected table: ${table}`);
-      }),
-      rpc: vi.fn(),
-    };
-
-    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-
-    await expect(
-      moveEstimateItem(VERSION_ID, {
-        item_id: "section-1",
-        from_parent_id: null,
-        to_parent_id: "subsection-1",
-        ordered_source_ids: ["line-1"],
-        ordered_target_ids: ["line-2", "section-1"],
-      })
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "BAD_REQUEST",
-    });
-
-    expect(supabase.rpc).not.toHaveBeenCalled();
-  });
-
-  it("rejects moving a line to a parent deeper than two levels", async () => {
-    const base = createAuth("engineer");
-    const versionAccessBuilder = createVersionAccessBuilder();
-    const draftLockBuilder = createDraftLockBuilder();
-    const movingItemBuilder = chainResult({
-      data: {
-        id: "line-1",
-        version_id: VERSION_ID,
-        parent_id: "parent-source",
-        item_type: "line",
-      },
-      error: null,
-    });
-    const targetParentBuilder = chainResult({
-      data: {
-        id: "target-subsection",
-        version_id: VERSION_ID,
-        parent_id: "parent-mid",
-        item_type: "section",
-      },
-      error: null,
-    });
-    const grandParentBuilder = chainResult({
-      data: {
-        id: "parent-mid",
-        parent_id: "parent-root",
-        item_type: "section",
-      },
+    const hierarchyItemsBuilder = chainResult({
+      data: [
+        {
+          id: "section-1",
+          parent_id: null,
+          item_type: "section",
+        },
+        {
+          id: "root-section",
+          parent_id: null,
+          item_type: "section",
+        },
+        {
+          id: "subsection-1",
+          parent_id: "root-section",
+          item_type: "section",
+        },
+      ],
       error: null,
     });
 
@@ -2100,7 +2042,116 @@ describe("estimate server coverage additions", () => {
           }
           if (estimateItemsCalls === 3) {
             return {
-              select: vi.fn(() => grandParentBuilder),
+              select: vi.fn(() => hierarchyItemsBuilder),
+            };
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn(),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      moveEstimateItem(VERSION_ID, {
+        item_id: "section-1",
+        from_parent_id: null,
+        to_parent_id: "subsection-1",
+        ordered_source_ids: ["line-1"],
+        ordered_target_ids: ["line-2", "section-1"],
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+    });
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects moving a line below configured max depth", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const draftLockBuilder = createDraftLockBuilder();
+    const movingItemBuilder = chainResult({
+      data: {
+        id: "line-1",
+        version_id: VERSION_ID,
+        parent_id: "parent-source",
+        item_type: "line",
+      },
+      error: null,
+    });
+    const targetParentBuilder = chainResult({
+      data: {
+        id: "target-subsection",
+        version_id: VERSION_ID,
+        parent_id: "parent-mid",
+        item_type: "section",
+      },
+      error: null,
+    });
+    const hierarchyItemsBuilder = chainResult({
+      data: [
+        {
+          id: "parent-root",
+          parent_id: null,
+          item_type: "section",
+        },
+        {
+          id: "parent-mid",
+          parent_id: "parent-root",
+          item_type: "section",
+        },
+        {
+          id: "target-subsection",
+          parent_id: "parent-mid",
+          item_type: "section",
+        },
+        {
+          id: "line-1",
+          parent_id: "parent-source",
+          item_type: "line",
+        },
+      ],
+      error: null,
+    });
+
+    let estimateItemsCalls = 0;
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "draft_locks") {
+          return {
+            select: vi.fn(() => draftLockBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          estimateItemsCalls += 1;
+          if (estimateItemsCalls === 1) {
+            return {
+              select: vi.fn(() => movingItemBuilder),
+            };
+          }
+          if (estimateItemsCalls === 2) {
+            return {
+              select: vi.fn(() => targetParentBuilder),
+            };
+          }
+          if (estimateItemsCalls === 3) {
+            return {
+              select: vi.fn(() => hierarchyItemsBuilder),
             };
           }
         }

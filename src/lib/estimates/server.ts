@@ -17,7 +17,6 @@ import {
   collectSubtreeMetrics,
   getDefaultSectionTitleForLevel,
   isAncestorOrSelf,
-  resolveItemDepth,
   resolveSectionLevel,
 } from "@/lib/estimates/hierarchy";
 import { isPriceStale } from "@/lib/catalogue/stale-prices";

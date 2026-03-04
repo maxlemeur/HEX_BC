@@ -21,6 +21,7 @@ const VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const PROJECT_ID = "44444444-4444-4444-8444-444444444444";
 const ITEM_ID_1 = "55555555-5555-4555-8555-555555555555";
 const ITEM_ID_2 = "66666666-6666-4666-8666-666666666666";
+const PARENT_ID_1 = "12121212-1212-4121-8121-121212121212";
 const OWNER_USER_ID = "77777777-7777-4777-8777-777777777777";
 const CATEGORY_ID = "88888888-8888-4888-8888-888888888888";
 const LABOR_ROLE_ID = "99999999-9999-4999-8999-999999999999";
@@ -1000,6 +1001,7 @@ describe("createEstimate payload", () => {
           discount_mode: "cascade",
           discount_steps: [250, 100],
           global_coefficient: 1.2,
+          max_section_depth: 3,
         },
       })
     ).resolves.toMatchObject({
@@ -1128,6 +1130,7 @@ function createCreateItemSupabaseMock() {
       project_id: PROJECT_ID,
       status: "draft",
       margin_multiplier: 1,
+      max_section_depth: 1,
       tax_rate_bp: 2000,
       updated_at: VERSION_UPDATED_AT,
       estimate_projects: {
@@ -1207,6 +1210,40 @@ function createCreateItemSupabaseMock() {
       }),
     })),
   }));
+  const estimateItemsParentBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        id: PARENT_ID_1,
+        version_id: VERSION_ID,
+        item_type: "section",
+        parent_id: null,
+      },
+      error: null,
+    }),
+  };
+  estimateItemsParentBuilder.eq.mockReturnValue(estimateItemsParentBuilder);
+
+  const estimateItemsHierarchyBuilder = {
+    eq: vi.fn(),
+    then: (
+      resolve: (value: {
+        data: Array<{ id: string; parent_id: string | null; item_type: "section" | "line" }>;
+        error: null;
+      }) => void
+    ) =>
+      resolve({
+        data: [
+          {
+            id: PARENT_ID_1,
+            parent_id: null,
+            item_type: "section",
+          },
+        ],
+        error: null,
+      }),
+  };
+  estimateItemsHierarchyBuilder.eq.mockReturnValue(estimateItemsHierarchyBuilder);
 
   const draftLocksBuilder = {
     eq: vi.fn(),
@@ -1263,6 +1300,15 @@ function createCreateItemSupabaseMock() {
 
       if (table === "estimate_items") {
         return {
+          select: vi.fn((columns: string) => {
+            if (columns === "id, version_id, item_type, parent_id") {
+              return estimateItemsParentBuilder;
+            }
+            if (columns === "id, parent_id, item_type") {
+              return estimateItemsHierarchyBuilder;
+            }
+            throw new Error(`Unexpected estimate_items select columns: ${columns}`);
+          }),
           insert: estimateItemsInsert,
         };
       }
@@ -1443,7 +1489,7 @@ describe("estimate item source provenance", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await createEstimateItem(VERSION_ID, {
-      item_type: "line",
+      item_type: "section",
       position: 1,
     });
 
@@ -1462,7 +1508,7 @@ describe("estimate item source provenance", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await createEstimateItem(VERSION_ID, {
-      item_type: "line",
+      item_type: "section",
       position: 1,
       source_provider: "takeoff",
       source_job_id: ITEM_ID_2,
@@ -1517,6 +1563,7 @@ describe("estimate owner resource scoping regressions", () => {
     await expect(
       createEstimateItem(VERSION_ID, {
         item_type: "line",
+        parent_id: PARENT_ID_1,
         title: "Ligne",
         category_id: CATEGORY_ID,
         labor_role_id: null,
@@ -1540,6 +1587,7 @@ describe("estimate owner resource scoping regressions", () => {
     await expect(
       createEstimateItem(VERSION_ID, {
         item_type: "line",
+        parent_id: PARENT_ID_1,
         title: "Ligne",
         category_id: null,
         labor_role_id: LABOR_ROLE_ID,

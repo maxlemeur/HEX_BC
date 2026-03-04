@@ -18,6 +18,7 @@ type EstimateEditorBodyProps = {
   isReadOnly: boolean;
   hideEditingActions?: boolean;
   onAddRootSection: () => void;
+  rootAddSectionLabel?: string;
   onResetQualityFilter: () => void;
   sensors: DndContextProps["sensors"];
   onDragEnd: DndContextProps["onDragEnd"];
@@ -41,6 +42,7 @@ export function EstimateEditorBody({
   isReadOnly,
   hideEditingActions = false,
   onAddRootSection,
+  rootAddSectionLabel = "Creer un lot",
   onResetQualityFilter,
   sensors,
   onDragEnd,
@@ -83,7 +85,7 @@ export function EstimateEditorBody({
                 onClick={onAddRootSection}
                 disabled={isReadOnly}
               >
-                Creer un chapitre
+                {rootAddSectionLabel}
               </button>
             ) : null}
           </div>

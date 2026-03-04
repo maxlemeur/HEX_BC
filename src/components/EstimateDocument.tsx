@@ -30,6 +30,7 @@ export type EstimateDocumentProps = {
   totalTaxCents: number;
   totalTtcCents: number;
   items: EstimateItem[];
+  maxVisibleSectionLevel?: number | null;
 };
 
 function formatDate(dateStr: string): string {
@@ -60,6 +61,7 @@ export function EstimateDocument({
   totalTaxCents,
   totalTtcCents,
   items,
+  maxVisibleSectionLevel = null,
 }: EstimateDocumentProps) {
   const resolvedCurrency: SupportedEstimateCurrency =
     normalizeEstimateCurrency(currency) ?? "EUR";
@@ -84,6 +86,7 @@ export function EstimateDocument({
     laborRateById,
     validiteJours,
     portalUrl,
+    maxVisibleSectionLevel,
   });
 
   return (

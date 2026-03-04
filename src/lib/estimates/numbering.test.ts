@@ -5,37 +5,39 @@ import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 describe("computeEstimateItemNumbering", () => {
   it("computes hierarchical numbering for mixed section/line trees", () => {
     const numberingById = computeEstimateItemNumbering([
-      { id: "section-1", parent_id: null, position: 1 },
-      { id: "line-1", parent_id: "section-1", position: 1 },
-      { id: "section-1-1", parent_id: "section-1", position: 2 },
-      { id: "line-1-1", parent_id: "section-1-1", position: 1 },
-      { id: "section-2", parent_id: null, position: 2 },
-      { id: "line-root", parent_id: null, position: 3 },
+      { id: "section-1", parent_id: null, position: 1, item_type: "section" },
+      { id: "section-1-1", parent_id: "section-1", position: 1, item_type: "section" },
+      { id: "line-1-1", parent_id: "section-1-1", position: 1, item_type: "line" },
+      { id: "line-1-2", parent_id: "section-1-1", position: 2, item_type: "line" },
+      { id: "section-1-2", parent_id: "section-1", position: 2, item_type: "section" },
+      { id: "line-1-2-1", parent_id: "section-1-2", position: 1, item_type: "line" },
+      { id: "section-2", parent_id: null, position: 2, item_type: "section" },
     ]);
 
     expect(numberingById).toMatchObject({
-      "section-1": "1",
-      "line-1": "1.1",
-      "section-1-1": "1.2",
-      "line-1-1": "1.2.1",
-      "section-2": "2",
-      "line-root": "3",
+      "section-1": "01",
+      "section-1-1": "01.1",
+      "line-1-1": "01.1.01",
+      "line-1-2": "01.1.02",
+      "section-1-2": "01.2",
+      "line-1-2-1": "01.2.01",
+      "section-2": "02",
     });
   });
 
   it("treats orphan nodes as roots and keeps deterministic order", () => {
     const numberingById = computeEstimateItemNumbering([
-      { id: "orphan-b", parent_id: "missing-parent", position: 1 },
-      { id: "root-a", parent_id: null, position: 1 },
-      { id: "orphan-a", parent_id: "missing-parent", position: 1 },
-      { id: "root-b", parent_id: null, position: 2 },
+      { id: "orphan-b", parent_id: "missing-parent", position: 1, item_type: "section" },
+      { id: "root-a", parent_id: null, position: 1, item_type: "section" },
+      { id: "orphan-a", parent_id: "missing-parent", position: 1, item_type: "line" },
+      { id: "root-b", parent_id: null, position: 2, item_type: "section" },
     ]);
 
     expect(numberingById).toMatchObject({
-      "orphan-a": "3",
-      "orphan-b": "4",
-      "root-a": "1",
-      "root-b": "2",
+      "root-a": "01",
+      "root-b": "02",
+      "orphan-a": "03",
+      "orphan-b": "04",
     });
   });
 });

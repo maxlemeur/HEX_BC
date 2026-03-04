@@ -148,7 +148,7 @@ describe("EstimateEditorBody", () => {
     render(<EstimateEditorBody {...props} />);
 
     expect(screen.getByText("Aucune ligne pour le moment.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Creer un chapitre" }));
+    fireEvent.click(screen.getByRole("button", { name: "Creer un lot" }));
     expect(onAddRootSection).toHaveBeenCalledTimes(1);
   });
 

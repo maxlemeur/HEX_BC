@@ -1,5 +1,5 @@
 import {
-  computeSectionTotals,
+  computeAllSectionTotals,
   type EstimateItemRecord,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
@@ -26,6 +26,7 @@ type PrepareEstimateDocumentDataInput = {
   laborRateById: Record<string, number>;
   validiteJours: number;
   portalUrl?: string | null;
+  maxVisibleSectionLevel?: number | null;
 };
 
 export type EstimateDocumentPreparedData = {
@@ -140,7 +141,10 @@ function buildQrLikeCells(value: string, size = 21): QrLikeCell[] {
   );
 }
 
-function buildRows(items: EstimateItem[]): EstimateDocumentRow[] {
+function buildRows(
+  items: EstimateItem[],
+  maxVisibleSectionLevel: number | null
+): EstimateDocumentRow[] {
   const map = new Map<string, EstimateItem[]>();
   items.forEach((item) => {
     const key = getParentKey(item.parent_id);
@@ -151,12 +155,25 @@ function buildRows(items: EstimateItem[]): EstimateDocumentRow[] {
   map.forEach((list) => list.sort((a, b) => a.position - b.position));
 
   const rows: EstimateDocumentRow[] = [];
+  const hideLineDetails = maxVisibleSectionLevel !== null;
   const walk = (parentId: string | null, depth: number) => {
     const list = map.get(getParentKey(parentId)) ?? [];
     list.forEach((item) => {
-      rows.push({ item, depth });
       if (item.item_type === "section") {
+        const sectionLevel = depth + 1;
+        if (
+          maxVisibleSectionLevel !== null &&
+          sectionLevel > maxVisibleSectionLevel
+        ) {
+          return;
+        }
+        rows.push({ item, depth });
         walk(item.id, depth + 1);
+        return;
+      }
+
+      if (!hideLineDetails) {
+        rows.push({ item, depth });
       }
     });
   };
@@ -174,27 +191,26 @@ export function prepareEstimateDocumentData({
   laborRateById,
   validiteJours,
   portalUrl,
+  maxVisibleSectionLevel = null,
 }: PrepareEstimateDocumentDataInput): EstimateDocumentPreparedData {
   const resolvedCurrency: SupportedEstimateCurrency =
     normalizeEstimateCurrency(currency) ?? "EUR";
-  const rows = buildRows(items);
+  const rows = buildRows(items, maxVisibleSectionLevel);
   const numberingById = computeEstimateItemNumbering(items);
-  const sectionTotalsById: Record<string, SectionTotals> = {};
   const calcItems = items as EstimateItemRecord[];
   const laborRateMap = new Map(Object.entries(laborRateById));
-
-  items.forEach((item) => {
-    if (item.item_type !== "section") return;
-    sectionTotalsById[item.id] = computeSectionTotals({
-      items: calcItems,
-      sectionId: item.id,
-      marginMultiplier,
-      discountCents,
-      taxRateBp,
-      laborRateById: laborRateMap,
-      isLaborSplitEnabled,
-    });
-  });
+  const sectionTotalsById = Object.fromEntries(
+    Array.from(
+      computeAllSectionTotals({
+        items: calcItems,
+        marginMultiplier,
+        discountCents,
+        taxRateBp,
+        laborRateById: laborRateMap,
+        isLaborSplitEnabled,
+      }).entries()
+    )
+  ) as Record<string, SectionTotals>;
 
   const taxEnabled = taxRateBp > 0;
   const discountLabel =

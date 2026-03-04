@@ -97,7 +97,6 @@ import {
   clampMaxSectionDepth,
   formatAddLineLabelForSectionLevel,
   formatAddSectionLabelForLevel,
-  formatAddSectionLabelForLevel as formatRootSectionLabelForLevel,
 } from "@/lib/estimates/hierarchy";
 import {
   rankSuggestions,
@@ -234,6 +233,7 @@ type EstimateEditorTableProps = {
   isLaborSplitEnabled?: boolean;
   isReadOnly: boolean;
   isViewerMode?: boolean;
+  maxSectionDepth?: number;
   onQualityFilterChange: (value: EstimateQualityFilter) => void;
   onOutlierDetectionMethodChange: (value: EstimateOutlierMethod) => void;
   onOutlierThresholdChange: (value: number) => void;
@@ -767,6 +767,7 @@ export function EstimateEditorTable({
   isLaborSplitEnabled = false,
   isReadOnly,
   isViewerMode = false,
+  maxSectionDepth,
   onQualityFilterChange,
   onOutlierDetectionMethodChange,
   onOutlierThresholdChange,
@@ -829,6 +830,9 @@ export function EstimateEditorTable({
     Record<string, string>
   >({});
   const [isItemConversionPending, setIsItemConversionPending] = useState(false);
+  const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const tableCardRef = useRef<HTMLDivElement | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
   const appliedSuggestionContextByItemIdRef = useRef<
@@ -837,6 +841,10 @@ export function EstimateEditorTable({
   const normalizedSearchTerm = useMemo(
     () => normalizeQuickFilterTerm(searchTerm),
     [searchTerm]
+  );
+  const resolvedMaxSectionDepth = useMemo(
+    () => clampMaxSectionDepth(maxSectionDepth, DEFAULT_MAX_SECTION_DEPTH),
+    [maxSectionDepth]
   );
   const quickFilteredItems = useMemo(
     () => filterItemsByQuickFilter(items, searchTerm),
@@ -851,9 +859,7 @@ export function EstimateEditorTable({
     visibleLineIds,
     getSectionTotals,
     getVisibleItems,
-    hasVisibleRows,
     visibleLineIdList,
-    visibleItemsInOrder,
   } = useEstimateVisibility({
     items: quickFilteredItems,
     reorderItems: items,
@@ -865,6 +871,26 @@ export function EstimateEditorTable({
     laborRateById,
     isLaborSplitEnabled,
   });
+  const sectionLevelById = useMemo(() => {
+    const map = new Map<string, number>();
+    items.forEach((item) => {
+      if (item.item_type !== "section") return;
+      const depth = depthMap.get(item.id) ?? 0;
+      map.set(item.id, depth + 1);
+    });
+    return map;
+  }, [depthMap, items]);
+
+  const getVisibleItemsForRender = useCallback(
+    (parentId: string | null) => {
+      if (parentId !== null && collapsedSectionIds.has(parentId)) {
+        return [] as EstimateItem[];
+      }
+      return getVisibleItems(parentId);
+    },
+    [collapsedSectionIds, getVisibleItems]
+  );
+  const hasVisibleRowsForRender = getVisibleItemsForRender(null).length > 0;
   const dynamicGridStyle = useMemo(() => {
     if (isLaborSplitEnabled) return undefined; // labor split uses its own grid, not affected by column visibility
     const cols: string[] = ["minmax(320px, 3fr)", "80px", "80px", "110px"]; // designation, qty, unit, PR.FO
@@ -970,6 +996,22 @@ export function EstimateEditorTable({
     if (changed) {
       appliedSuggestionContextByItemIdRef.current = next;
     }
+  }, [items]);
+
+  useEffect(() => {
+    const sectionIdSet = new Set(
+      items.filter((item) => item.item_type === "section").map((item) => item.id)
+    );
+    setCollapsedSectionIds((previous) => {
+      if (previous.size === 0) return previous;
+      const next = new Set<string>();
+      previous.forEach((sectionId) => {
+        if (sectionIdSet.has(sectionId)) {
+          next.add(sectionId);
+        }
+      });
+      return next.size === previous.size ? previous : next;
+    });
   }, [items]);
 
   const orderedRules = useMemo(
@@ -1394,10 +1436,14 @@ export function EstimateEditorTable({
       if (!item || item.item_type !== "section") return;
 
       const directChildrenCount = (itemsByParent.get(sectionId) ?? []).length;
+      if (directChildrenCount > 0) {
+        window.alert(
+          "Conversion impossible: la section contient des enfants."
+        );
+        return;
+      }
       const confirmed = window.confirm(
-        directChildrenCount > 0
-          ? "Convertir cette section en ligne ? Les enfants seront rattaches au parent."
-          : "Convertir cette section en ligne ?"
+        "Convertir cette section en ligne ?"
       );
       if (!confirmed) return;
 
@@ -1730,11 +1776,12 @@ export function EstimateEditorTable({
     handleNavigationCellNotMounted,
   } = useEstimateDndVirtualization({
     canReorder,
+    maxSectionDepth: resolvedMaxSectionDepth,
     itemsByParent,
     onReorder,
     onMoveItem,
-    hasVisibleRows,
-    getVisibleItems,
+    hasVisibleRows: hasVisibleRowsForRender,
+    getVisibleItems: getVisibleItemsForRender,
     depthMap,
     mergedUnitDrafts,
     mergedSupplyTypeDrafts,
@@ -1764,10 +1811,25 @@ export function EstimateEditorTable({
     return hidden;
   }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
 
-  const spreadsheetNavigationRows = useMemo(() => {
-    if (!hasVisibleRows) return [] as SpreadsheetNavigationRow[];
+  const visibleItemsInOrderForRender = useMemo(() => {
+    const ordered: EstimateItem[] = [];
+    const walk = (parentId: string | null) => {
+      const list = getVisibleItemsForRender(parentId);
+      list.forEach((item) => {
+        ordered.push(item);
+        if (item.item_type === "section") {
+          walk(item.id);
+        }
+      });
+    };
+    walk(null);
+    return ordered;
+  }, [getVisibleItemsForRender]);
 
-    return visibleItemsInOrder.map((item) => {
+  const spreadsheetNavigationRows = useMemo(() => {
+    if (!hasVisibleRowsForRender) return [] as SpreadsheetNavigationRow[];
+
+    return visibleItemsInOrderForRender.map((item) => {
       const allKeys = getSpreadsheetColumnKeys(item.item_type, isLaborSplitEnabled);
       if (hiddenSpreadsheetColumnKeys.size === 0) {
         return { rowId: item.id, columnKeys: allKeys };
@@ -1777,11 +1839,16 @@ export function EstimateEditorTable({
         columnKeys: allKeys.filter((key) => !hiddenSpreadsheetColumnKeys.has(key)),
       };
     });
-  }, [hasVisibleRows, hiddenSpreadsheetColumnKeys, isLaborSplitEnabled, visibleItemsInOrder]);
+  }, [
+    hasVisibleRowsForRender,
+    hiddenSpreadsheetColumnKeys,
+    isLaborSplitEnabled,
+    visibleItemsInOrderForRender,
+  ]);
 
   const spreadsheetNavigation = useSpreadsheetNavigation({
     rows: spreadsheetNavigationRows,
-    disabled: !hasVisibleRows || isReadOnly,
+    disabled: !hasVisibleRowsForRender || isReadOnly,
     onActiveCellNotMounted: isVirtualized
       ? handleNavigationCellNotMounted
       : undefined,
@@ -1791,6 +1858,60 @@ export function EstimateEditorTable({
   useEffect(() => {
     insertionAnchorItemIdRef.current = insertionAnchorItemId;
   }, [insertionAnchorItemId]);
+
+  const toggleSectionCollapsed = useCallback((sectionId: string) => {
+    setCollapsedSectionIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(sectionId)) {
+        next.delete(sectionId);
+      } else {
+        next.add(sectionId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleExpandAllSections = useCallback(() => {
+    setCollapsedSectionIds(new Set());
+  }, []);
+
+  const handleCollapseAllSections = useCallback(() => {
+    setCollapsedSectionIds(
+      new Set(
+        items.filter((item) => item.item_type === "section").map((item) => item.id)
+      )
+    );
+  }, [items]);
+
+  const activeLineBreadcrumb = useMemo(() => {
+    const activeRowId = spreadsheetNavigation.activeCell?.rowId;
+    if (!activeRowId) return null;
+
+    const activeItem = itemById.get(activeRowId);
+    if (!activeItem || activeItem.item_type !== "line") {
+      return null;
+    }
+
+    const labels: string[] = [];
+    let cursorParentId = activeItem.parent_id;
+    let guard = 0;
+
+    while (cursorParentId && guard < 100) {
+      guard += 1;
+      const parent = itemById.get(cursorParentId);
+      if (!parent || parent.item_type !== "section") {
+        break;
+      }
+      labels.push(parent.title || "Sans titre");
+      cursorParentId = parent.parent_id;
+    }
+
+    if (labels.length === 0) {
+      return null;
+    }
+
+    return labels.reverse().join(" > ");
+  }, [itemById, spreadsheetNavigation.activeCell?.rowId]);
 
   const openSectionContextMenuForRow = useCallback(
     (sectionId: string, position: { x: number; y: number }) => {
@@ -1850,6 +1971,26 @@ export function EstimateEditorTable({
       const hasSupplierComparisonMismatch =
         bestSupplierPriceId !== null &&
         (item.selected_supplier_price_id ?? null) !== bestSupplierPriceId;
+      const sectionLevel =
+        item.item_type === "section"
+          ? (sectionLevelById.get(item.id) ?? depth + 1)
+          : null;
+      const canAddSection =
+        item.item_type === "section" &&
+        sectionLevel !== null &&
+        sectionLevel < resolvedMaxSectionDepth;
+      const canAddLine =
+        item.item_type === "section" &&
+        sectionLevel !== null &&
+        sectionLevel === resolvedMaxSectionDepth;
+      const addSectionLabel =
+        item.item_type === "section" && sectionLevel !== null
+          ? formatAddSectionLabelForLevel(sectionLevel + 1)
+          : "+ Ajouter une section";
+      const addLineLabel =
+        item.item_type === "section" && sectionLevel !== null
+          ? formatAddLineLabelForSectionLevel(sectionLevel)
+          : "+ Ajouter une ligne";
 
       return (
         <EstimateEditorRow
@@ -1882,6 +2023,13 @@ export function EstimateEditorTable({
           }
           isLastChild={isLastChild}
           parentIsLastChild={parentIsLastChild}
+          sectionLevel={sectionLevel}
+          canAddLine={canAddLine}
+          canAddSection={canAddSection}
+          addLineLabel={addLineLabel}
+          addSectionLabel={addSectionLabel}
+          isSectionCollapsed={collapsedSectionIds.has(item.id)}
+          onToggleSectionCollapsed={toggleSectionCollapsed}
         />
       );
     },
@@ -1902,6 +2050,10 @@ export function EstimateEditorTable({
       supplyTypeById,
       currency,
       versionId,
+      sectionLevelById,
+      resolvedMaxSectionDepth,
+      collapsedSectionIds,
+      toggleSectionCollapsed,
     ]
   );
 
@@ -1925,7 +2077,7 @@ export function EstimateEditorTable({
   );
 
   function renderList(parentId: string | null, parentIsLastChild?: boolean) {
-    const list = getVisibleItems(parentId);
+    const list = getVisibleItemsForRender(parentId);
     if (list.length === 0) return null;
 
     return (
@@ -1983,7 +2135,7 @@ export function EstimateEditorTable({
         clearLineSelection,
       },
       meta: {
-        hasVisibleRows,
+        hasVisibleRows: hasVisibleRowsForRender,
         isReadOnly,
       },
     }),
@@ -1995,7 +2147,7 @@ export function EstimateEditorTable({
       bulkMoveParentId,
       clearLineSelection,
       hasSelectedLines,
-      hasVisibleRows,
+      hasVisibleRowsForRender,
       isReadOnly,
       selectedLineCount,
       selectedLineIdList,
@@ -2023,6 +2175,32 @@ export function EstimateEditorTable({
     });
     return { foTotal, moTotal, htTotal };
   }, [itemsByParent, getSectionTotals]);
+
+  const sectionContextMeta = useMemo(() => {
+    if (!sectionContextMenu) return null;
+    const section = itemById.get(sectionContextMenu.sectionId);
+    if (!section || section.item_type !== "section") {
+      return null;
+    }
+    const sectionLevel = sectionLevelById.get(section.id) ?? 1;
+    const hasChildren = (itemsByParent.get(section.id) ?? []).length > 0;
+    const canAddSection = sectionLevel < resolvedMaxSectionDepth;
+    const canAddLine = sectionLevel === resolvedMaxSectionDepth;
+    return {
+      sectionLevel,
+      hasChildren,
+      canAddSection,
+      canAddLine,
+      addSectionLabel: formatAddSectionLabelForLevel(sectionLevel + 1),
+      addLineLabel: formatAddLineLabelForSectionLevel(sectionLevel),
+    };
+  }, [
+    itemById,
+    itemsByParent,
+    resolvedMaxSectionDepth,
+    sectionContextMenu,
+    sectionLevelById,
+  ]);
 
   return (
     <EstimateEditorProvider value={estimateEditorContextValue}>
@@ -2060,6 +2238,9 @@ export function EstimateEditorTable({
           onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
           onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
           onAddRootSection={() => onAddSection(null)}
+          rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
+          onExpandAllSections={handleExpandAllSections}
+          onCollapseAllSections={handleCollapseAllSections}
           columnPreset={columnVisibility.preset}
           columnPresetLabels={columnVisibility.presetLabels}
           onColumnPresetChange={columnVisibility.setPreset}
@@ -2101,6 +2282,11 @@ export function EstimateEditorTable({
             />
           }
         />
+        {activeLineBreadcrumb ? (
+          <div className="mt-2 text-xs text-[var(--slate-500)]">
+            Chemin actif: {activeLineBreadcrumb}
+          </div>
+        ) : null}
         </div>
         {headerRight && (
           <div className="shrink-0">{headerRight}</div>
@@ -2209,10 +2395,11 @@ export function EstimateEditorTable({
         </div>
         <EstimateEditorBody
           items={items}
-          hasVisibleRows={hasVisibleRows}
+          hasVisibleRows={hasVisibleRowsForRender}
           isReadOnly={isReadOnly}
           hideEditingActions={isViewerMode}
           onAddRootSection={() => onAddSection(null)}
+          rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
           onResetQualityFilter={() => onQualityFilterChange("all_lines")}
           sensors={sensors}
           onDragEnd={handleDragEnd}
@@ -2229,7 +2416,7 @@ export function EstimateEditorTable({
           renderVirtualRow={renderVirtualRow}
           renderList={() => renderList(null)}
         />
-        {hasVisibleRows ? (
+        {hasVisibleRowsForRender ? (
           <div className="estimate-table__footer">
             <div className="font-semibold text-[var(--slate-800)]">Total</div>
             <div></div>
@@ -2284,11 +2471,11 @@ export function EstimateEditorTable({
               closeSectionContextMenu();
               onAddLine(id);
             }}
-            disabled={isReadOnly}
+            disabled={isReadOnly || !sectionContextMeta?.canAddLine}
           >
-            + Ligne
+            {sectionContextMeta?.addLineLabel ?? "+ Ajouter une ligne"}
           </button>
-          {itemById.get(sectionContextMenu.sectionId)?.parent_id == null && (
+          {sectionContextMeta?.canAddSection ? (
             <button
               type="button"
               className="estimate-supplier-comparison-context-menu__action"
@@ -2300,15 +2487,24 @@ export function EstimateEditorTable({
               }}
               disabled={isReadOnly}
             >
-              + Sous-chapitre
+              {sectionContextMeta.addSectionLabel}
             </button>
-          )}
+          ) : null}
           <button
             type="button"
             className="estimate-supplier-comparison-context-menu__action"
             role="menuitem"
             onClick={() => void handleConvertSectionToLine(sectionContextMenu.sectionId)}
-            disabled={isReadOnly || isItemConversionPending}
+            disabled={
+              isReadOnly ||
+              isItemConversionPending ||
+              Boolean(sectionContextMeta?.hasChildren)
+            }
+            title={
+              sectionContextMeta?.hasChildren
+                ? "Conversion impossible: la section contient des enfants."
+                : undefined
+            }
           >
             Convertir en ligne
           </button>
