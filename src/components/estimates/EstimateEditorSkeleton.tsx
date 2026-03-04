@@ -20,7 +20,7 @@ function TableRowSkeleton({ index }: { index: number }) {
 
 export function EstimateEditorSkeleton() {
   return (
-    <div className="animate-fade-in" role="status" aria-live="polite" aria-busy="true">
+    <div className="animate-fade-in" role="status" aria-live="polite">
       <span className="sr-only">Chargement du chiffrage...</span>
       {/* Header */}
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
