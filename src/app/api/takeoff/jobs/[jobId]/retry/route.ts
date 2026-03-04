@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
+import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import { retryTakeoffJob } from "@/lib/takeoff/server";
 
@@ -17,6 +18,19 @@ export async function POST(
   try {
     const jobId = await getJobId(params);
     const data = await retryTakeoffJob(jobId);
+
+    const triggerResult = await triggerTakeoffJobProcessing({
+      jobId: data.job.id,
+      trigger: "retry",
+    });
+
+    if (!triggerResult.triggered) {
+      console.error("Takeoff retry accepted but async processing trigger failed.", {
+        jobId: data.job.id,
+        correlationId: triggerResult.correlationId,
+      });
+    }
+
     return ok(data);
   } catch (error) {
     if (error instanceof TakeoffError) {

@@ -627,9 +627,24 @@ function deriveDeterministicJobId(tenantId: string, idempotencyKey: string) {
 }
 
 function extractPayloadFingerprint(path: string | null | undefined) {
-  if (!path) return null;
-  const match = path.match(/\/([a-f0-9]{64})-[^/]+$/i);
-  return match?.[1]?.toLowerCase() ?? null;
+  const normalizedPath = typeof path === "string" ? path.trim().replace(/\/+$/g, "") : "";
+  if (!normalizedPath) return null;
+
+  const patterns = [
+    /(?:^|\/)([a-f0-9]{64})-[^/]+$/i,
+    /(?:^|\/)([a-f0-9]{64})\/[^/]+$/i,
+    /(?:^|\/)([a-f0-9]{64})$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalizedPath.match(pattern);
+    const fingerprint = match?.[1];
+    if (fingerprint) {
+      return fingerprint.toLowerCase();
+    }
+  }
+
+  return null;
 }
 
 function normalizeTakeoffJobRow(row: TakeoffJobRow): TakeoffJobCreateResponse {

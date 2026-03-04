@@ -131,6 +131,7 @@ type SupabaseMockOptions = {
   cancelOnResultInsert?: boolean;
   failCompletedJobUpdate?: boolean;
   failRunMetricsDeleteWhenNonEmpty?: boolean;
+  failTakeoffItemsInsertOnce?: boolean;
 };
 
 type SupabaseMockState = {
@@ -349,6 +350,7 @@ function createTakeoffProcessorSupabaseMock(
   const failCompletedJobUpdate = options.failCompletedJobUpdate ?? false;
   const failRunMetricsDeleteWhenNonEmpty =
     options.failRunMetricsDeleteWhenNonEmpty ?? false;
+  let takeoffItemsInsertFailuresRemaining = options.failTakeoffItemsInsertOnce ? 1 : 0;
   let cancellationApplied = false;
 
   let resultIdSequence = 0;
@@ -480,6 +482,102 @@ function createTakeoffProcessorSupabaseMock(
         async (): Promise<QueryResponse<TakeoffJobRow | null>> =>
           execute(true) as QueryResponse<TakeoffJobRow | null>
       ),
+      then,
+    };
+
+    return builder;
+  }
+
+  function createTakeoffItemsSelectBuilder() {
+    const filters: Record<string, string> = {};
+
+    const then: QueryThen<StoredTakeoffItemRow[]> = (onfulfilled, onrejected) => {
+      const data = state.takeoffItems.filter((item) => {
+        if (filters.tenant_id && item.tenant_id !== filters.tenant_id) {
+          return false;
+        }
+        if (filters.job_id && item.job_id !== filters.job_id) {
+          return false;
+        }
+
+        return true;
+      });
+
+      return Promise.resolve({
+        data: deepClone(data),
+        error: null,
+      }).then(onfulfilled, onrejected);
+    };
+
+    const builder = {
+      eq: vi.fn((column: string, value: string) => {
+        filters[column] = value;
+        return builder;
+      }),
+      then,
+    };
+
+    return builder;
+  }
+
+  function createTakeoffResultsSelectBuilder() {
+    const filters: Record<string, string> = {};
+
+    const then: QueryThen<StoredTakeoffResultRow[]> = (onfulfilled, onrejected) => {
+      const data = state.takeoffResults.filter((result) => {
+        if (filters.tenant_id && result.tenant_id !== filters.tenant_id) {
+          return false;
+        }
+        if (filters.job_id && result.job_id !== filters.job_id) {
+          return false;
+        }
+
+        return true;
+      });
+
+      return Promise.resolve({
+        data: deepClone(data),
+        error: null,
+      }).then(onfulfilled, onrejected);
+    };
+
+    const builder = {
+      eq: vi.fn((column: string, value: string) => {
+        filters[column] = value;
+        return builder;
+      }),
+      then,
+    };
+
+    return builder;
+  }
+
+  function createTakeoffRunMetricsSelectBuilder() {
+    const filters: Record<string, string> = {};
+
+    const then: QueryThen<StoredTakeoffRunMetricRow[]> = (onfulfilled, onrejected) => {
+      const data = state.takeoffRunMetrics.filter((metric) => {
+        if (filters.tenant_id && metric.tenant_id !== filters.tenant_id) {
+          return false;
+        }
+        if (filters.job_id && metric.job_id !== filters.job_id) {
+          return false;
+        }
+
+        return true;
+      });
+
+      return Promise.resolve({
+        data: deepClone(data),
+        error: null,
+      }).then(onfulfilled, onrejected);
+    };
+
+    const builder = {
+      eq: vi.fn((column: string, value: string) => {
+        filters[column] = value;
+        return builder;
+      }),
       then,
     };
 
@@ -825,9 +923,21 @@ function createTakeoffProcessorSupabaseMock(
 
       if (table === "takeoff_items") {
         return {
+          select: vi.fn(() => createTakeoffItemsSelectBuilder()),
           delete: vi.fn(() => createTakeoffItemsDeleteBuilder()),
           insert: vi.fn(
             async (payload: StoredTakeoffItemRow[]): Promise<QueryResponse<null>> => {
+              if (takeoffItemsInsertFailuresRemaining > 0) {
+                takeoffItemsInsertFailuresRemaining -= 1;
+                return {
+                  data: null,
+                  error: {
+                    code: "PGRST301",
+                    message: "Simulated takeoff_items insert failure",
+                  },
+                };
+              }
+
               state.takeoffItems.push(...deepClone(payload));
               return { data: null, error: null };
             }
@@ -837,6 +947,7 @@ function createTakeoffProcessorSupabaseMock(
 
       if (table === "takeoff_results") {
         return {
+          select: vi.fn(() => createTakeoffResultsSelectBuilder()),
           delete: vi.fn(() => createTakeoffResultsDeleteBuilder()),
           insert: vi.fn((payload: Omit<StoredTakeoffResultRow, "id">) =>
             createTakeoffResultsInsertBuilder(deepClone(payload))
@@ -846,6 +957,7 @@ function createTakeoffProcessorSupabaseMock(
 
       if (table === "takeoff_run_metrics") {
         return {
+          select: vi.fn(() => createTakeoffRunMetricsSelectBuilder()),
           delete: vi.fn(() => createTakeoffRunMetricsDeleteBuilder()),
           insert: vi.fn((payload: StoredTakeoffRunMetricRow[]) =>
             createTakeoffRunMetricsInsertBuilder(deepClone(payload))
@@ -1207,6 +1319,93 @@ describe("processLevelA", () => {
     });
   });
 
+  it("restores previous Level A persistence snapshot when persisting new items fails", async () => {
+    const previousResultId = "66666666-6666-4666-8666-666666666666";
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        status: "failed",
+        retry_count: 1,
+        error_code: TakeoffErrorCode.AI_TIMEOUT,
+        error_message: "Previous timeout",
+      },
+      existingResults: [
+        {
+          id: previousResultId,
+          tenant_id: TENANT_ID,
+          job_id: JOB_ID,
+          extracted_json: {
+            legacy: true,
+          },
+          warnings: [],
+          tables: [],
+          provider_meta: {
+            status: "failed",
+          },
+          raw_response: {
+            previous: true,
+          },
+          confidence: null,
+          token_count: 0,
+          cost_cents: 0,
+          duration_ms: 10,
+        },
+      ],
+      existingItems: [
+        {
+          tenant_id: TENANT_ID,
+          job_id: JOB_ID,
+          result_id: previousResultId,
+          designation: "Ancien poste",
+          quantity: 1,
+          unit: "u",
+          confidence: null,
+          evidence: null,
+          source_file_name: "old.csv",
+          source_page: 1,
+          metadata: {
+            legacy: true,
+          },
+        },
+      ],
+      failTakeoffItemsInsertOnce: true,
+    });
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(
+        buildTakeoffExchange([
+          {
+            designation: "Nouveau poste",
+            quantity: 4,
+            unit: "m",
+            source_page: 1,
+            source_file: "niveau-a.csv",
+            confidence: 0.95,
+            evidence: "Relance",
+          },
+        ])
+      )
+    );
+
+    await expect(
+      processLevelA(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toBeInstanceOf(TakeoffError);
+
+    expect(mock.state.job.status).toBe("failed");
+    expect(mock.state.takeoffResults).toHaveLength(1);
+    expect(mock.state.takeoffResults[0]?.id).toBe(previousResultId);
+    expect(mock.state.takeoffResults[0]?.warnings).toEqual([]);
+    expect(mock.state.takeoffItems).toHaveLength(1);
+    expect(mock.state.takeoffItems[0]).toMatchObject({
+      designation: "Ancien poste",
+      result_id: previousResultId,
+    });
+  });
+
   it("stops persistence and preserves canceled status when cancellation happens mid-processing", async () => {
     const mock = createTakeoffProcessorSupabaseMock({
       cancelOnResultInsert: true,
@@ -1527,6 +1726,149 @@ describe("processLevelB", () => {
       expect.arrayContaining([
         expect.objectContaining({ designation: "Cheminement principal", source_page: 1 }),
         expect.objectContaining({ designation: "Support mural", source_page: 4 }),
+      ])
+    );
+  });
+
+  it("chunks Level B PDF extraction using tenant page/chunk configuration", async () => {
+    const pdfBytes = await createPdfArrayBuffer(6);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "niveau-b-chunked.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      featureFlags: {
+        TAKEOFF_C_CHUNK_THRESHOLD_PAGES: "1",
+        TAKEOFF_C_CHUNK_SIZE_PAGES: "2",
+        TAKEOFF_C_CHUNK_OVERLAP_PAGES: "0",
+        TAKEOFF_C_MAX_PDF_PAGES: "50",
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+    });
+
+    const chunk1 = buildTakeoffExchange(
+      [
+        {
+          designation: "Cheminement principal",
+          quantity: 10,
+          unit: "m",
+          source_page: 1,
+          source_file: "niveau-b-chunked.pdf",
+          confidence: 0.87,
+          evidence: "Chunk 1",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+    const chunk2 = buildTakeoffExchange(
+      [
+        {
+          designation: "Support mural",
+          quantity: 8,
+          unit: "u",
+          source_page: 1,
+          source_file: "niveau-b-chunked.pdf",
+          confidence: 0.84,
+          evidence: "Chunk 2",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+    const chunk3 = buildTakeoffExchange(
+      [
+        {
+          designation: "Ancrage",
+          quantity: 4,
+          unit: "u",
+          source_page: 2,
+          source_file: "niveau-b-chunked.pdf",
+          confidence: 0.83,
+          evidence: "Chunk 3",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+
+    const callGemini = vi
+      .fn()
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunk1, {
+          tokenCount: 400,
+          costCents: 20,
+          durationMs: 900,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-b-v1",
+        })
+      )
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunk2, {
+          tokenCount: 450,
+          costCents: 23,
+          durationMs: 1_000,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-b-v1",
+        })
+      )
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunk3, {
+          tokenCount: 500,
+          costCents: 26,
+          durationMs: 1_100,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-b-v1",
+        })
+      );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.tablesCount).toBe(3);
+    expect(result.tokenCount).toBe(1_350);
+    expect(result.costCents).toBe(69);
+    expect(result.durationMs).toBe(3_000);
+    expect(callGemini).toHaveBeenCalledTimes(3);
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      processing_mode: "pdf_vision_chunked",
+      page_count: 6,
+      chunks_count: 3,
+      chunking_config: {
+        threshold_pages: 1,
+        chunk_size_pages: 2,
+        chunk_overlap_pages: 0,
+        max_pdf_pages: 50,
+      },
+    });
+    expect(mock.state.takeoffItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ designation: "Cheminement principal", source_page: 1 }),
+        expect.objectContaining({ designation: "Support mural", source_page: 3 }),
+        expect.objectContaining({ designation: "Ancrage", source_page: 6 }),
       ])
     );
   });

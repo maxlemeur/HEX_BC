@@ -27,7 +27,10 @@ import {
   TakeoffErrorCode,
   toTakeoffError,
 } from "@/lib/takeoff/errors";
-import { getTakeoffLevelCProcessingConfigForTenant } from "@/lib/takeoff/feature-flags";
+import {
+  getTakeoffChunkingConfigForTenant,
+  getTakeoffLevelCProcessingConfigForTenant,
+} from "@/lib/takeoff/feature-flags";
 import { getTakeoffLevelConfig, getTakeoffPrompt } from "@/lib/takeoff/prompts";
 import { TakeoffExchangeSchema, TakeoffWarningSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffExchange, TakeoffWarning } from "@/lib/takeoff/types";
@@ -45,6 +48,7 @@ const TAKEOFF_LEVEL_B = "B";
 const TAKEOFF_LEVEL_C = "C";
 const DEFAULT_GEMINI_TIMEOUT_MS = 60_000;
 const MAX_GEMINI_TIMEOUT_MS = 180_000;
+const ATOMIC_PERSISTENCE_ROLLBACK_MARKER = "atomic_persistence_rollback_applied";
 
 const TAKEOFF_JOB_PROCESSING_SELECT = [
   "id",
@@ -1042,6 +1046,249 @@ async function clearPreviousResultsForJob(input: {
   }
 }
 
+type PersistedTakeoffResultSnapshotRow = {
+  id: string;
+  tenant_id: string;
+  job_id: string;
+  extracted_json: unknown;
+  warnings: unknown[];
+  tables: unknown[];
+  provider_meta: Record<string, unknown>;
+  raw_response: unknown;
+  confidence: number | null;
+  token_count: number | null;
+  cost_cents: number | null;
+  duration_ms: number | null;
+};
+
+type PersistedTakeoffItemSnapshotRow = {
+  id: string;
+  tenant_id: string;
+  job_id: string;
+  result_id: string | null;
+  designation: string;
+  quantity: number;
+  unit: string;
+  confidence: number | null;
+  evidence: string | null;
+  source_file_name: string | null;
+  source_page: number | null;
+  metadata: Record<string, unknown>;
+  is_excluded: boolean;
+  exclusion_reason: string | null;
+  is_verified: boolean;
+  verified_at: string | null;
+  verified_by: string | null;
+};
+
+type PersistedTakeoffRunMetricSnapshotRow = {
+  id: string;
+  tenant_id: string;
+  job_id: string;
+  result_id: string | null;
+  level: string;
+  provider: string;
+  model: string;
+  chunk_index: number;
+  chunk_start_page: number;
+  chunk_end_page: number;
+  input_tokens: number;
+  reasoning_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_cents: number;
+  duration_ms: number;
+  timed_out: boolean;
+  budget_exceeded: boolean;
+  metadata: Record<string, unknown>;
+};
+
+type TakeoffPersistenceSnapshot = {
+  results: PersistedTakeoffResultSnapshotRow[];
+  items: PersistedTakeoffItemSnapshotRow[];
+  runMetrics: PersistedTakeoffRunMetricSnapshotRow[];
+};
+
+function annotateAtomicPersistenceRollbackError(error: TakeoffError) {
+  const details: Record<string, unknown> =
+    error.details && typeof error.details === "object" && !Array.isArray(error.details)
+      ? { ...(error.details as Record<string, unknown>) }
+      : { cause: error.details };
+
+  details[ATOMIC_PERSISTENCE_ROLLBACK_MARKER] = true;
+
+  return new TakeoffError({
+    code: error.code,
+    status: error.status,
+    message: error.message,
+    details,
+    retryable: error.retryable,
+    jobId: error.jobId,
+    level: error.level,
+  });
+}
+
+function hasAtomicPersistenceRollbackError(error: TakeoffError) {
+  if (!error.details || typeof error.details !== "object" || Array.isArray(error.details)) {
+    return false;
+  }
+
+  return (
+    (error.details as Record<string, unknown>)[ATOMIC_PERSISTENCE_ROLLBACK_MARKER] === true
+  );
+}
+
+async function snapshotTakeoffPersistenceState(input: {
+  supabase: Supabase;
+  job: TakeoffJobProcessingRow;
+  level: ProcessableTakeoffLevel;
+}): Promise<TakeoffPersistenceSnapshot> {
+  const [resultsResponse, itemsResponse, runMetricsResponse] = await Promise.all([
+    input.supabase
+      .from("takeoff_results" as never)
+      .select(
+        "id, tenant_id, job_id, extracted_json, warnings, tables, provider_meta, raw_response, confidence, token_count, cost_cents, duration_ms" as never
+      )
+      .eq("tenant_id" as never, input.job.tenant_id as never)
+      .eq("job_id" as never, input.job.id as never),
+    input.supabase
+      .from("takeoff_items" as never)
+      .select(
+        "id, tenant_id, job_id, result_id, designation, quantity, unit, confidence, evidence, source_file_name, source_page, metadata, is_excluded, exclusion_reason, is_verified, verified_at, verified_by" as never
+      )
+      .eq("tenant_id" as never, input.job.tenant_id as never)
+      .eq("job_id" as never, input.job.id as never),
+    input.supabase
+      .from("takeoff_run_metrics" as never)
+      .select(
+        "id, tenant_id, job_id, result_id, level, provider, model, chunk_index, chunk_start_page, chunk_end_page, input_tokens, reasoning_tokens, output_tokens, total_tokens, cost_cents, duration_ms, timed_out, budget_exceeded, metadata" as never
+      )
+      .eq("tenant_id" as never, input.job.tenant_id as never)
+      .eq("job_id" as never, input.job.id as never),
+  ]);
+
+  if (resultsResponse.error) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        resultsResponse.error,
+        "Impossible de lire le snapshot des resultats takeoff."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.job.id,
+        level: input.level,
+      }
+    );
+  }
+
+  if (itemsResponse.error) {
+    throw toTakeoffError(
+      mapSupabaseError(itemsResponse.error, "Impossible de lire le snapshot des items takeoff."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.job.id,
+        level: input.level,
+      }
+    );
+  }
+
+  if (runMetricsResponse.error) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        runMetricsResponse.error,
+        "Impossible de lire le snapshot des metriques takeoff."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.job.id,
+        level: input.level,
+      }
+    );
+  }
+
+  return {
+    results: Array.isArray(resultsResponse.data)
+      ? (resultsResponse.data as PersistedTakeoffResultSnapshotRow[])
+      : [],
+    items: Array.isArray(itemsResponse.data)
+      ? (itemsResponse.data as PersistedTakeoffItemSnapshotRow[])
+      : [],
+    runMetrics: Array.isArray(runMetricsResponse.data)
+      ? (runMetricsResponse.data as PersistedTakeoffRunMetricSnapshotRow[])
+      : [],
+  };
+}
+
+async function restoreTakeoffPersistenceState(input: {
+  supabase: Supabase;
+  job: TakeoffJobProcessingRow;
+  snapshot: TakeoffPersistenceSnapshot;
+  level: ProcessableTakeoffLevel;
+}) {
+  await clearPreviousResultsForJob({
+    supabase: input.supabase,
+    job: input.job,
+    level: input.level,
+  });
+
+  for (const resultRow of input.snapshot.results) {
+    const { error } = await input.supabase
+      .from("takeoff_results" as never)
+      .insert(resultRow as never);
+
+    if (error) {
+      throw toTakeoffError(
+        mapSupabaseError(error, "Impossible de restaurer les resultats takeoff."),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+          jobId: input.job.id,
+          level: input.level,
+        }
+      );
+    }
+  }
+
+  if (input.snapshot.items.length > 0) {
+    const { error } = await input.supabase
+      .from("takeoff_items" as never)
+      .insert(input.snapshot.items as never);
+
+    if (error) {
+      throw toTakeoffError(
+        mapSupabaseError(error, "Impossible de restaurer les items takeoff."),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+          jobId: input.job.id,
+          level: input.level,
+        }
+      );
+    }
+  }
+
+  if (input.snapshot.runMetrics.length > 0) {
+    const { error } = await input.supabase
+      .from("takeoff_run_metrics" as never)
+      .insert(input.snapshot.runMetrics as never);
+
+    if (error) {
+      throw toTakeoffError(
+        mapSupabaseError(error, "Impossible de restaurer les metriques takeoff."),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+          jobId: input.job.id,
+          level: input.level,
+        }
+      );
+    }
+  }
+}
+
 async function persistTakeoffResultAndItems(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
@@ -1073,75 +1320,53 @@ async function persistTakeoffResultAndItems(input: {
     });
   }
 
-  await clearPreviousResultsForJob({
-    supabase: input.supabase,
-    job: input.job,
-    level: input.level,
-  });
-
-  const { data: insertedResult, error: insertResultError } = await input.supabase
-    .from("takeoff_results" as never)
-    .insert({
-      tenant_id: input.job.tenant_id,
-      job_id: input.job.id,
-      extracted_json: input.exchange,
-      warnings: input.exchange.warnings,
-      tables: input.exchange.tables ?? [],
-      provider_meta: input.providerMeta,
-      raw_response: input.rawResponse,
-      confidence: input.exchange.confidence ?? null,
-      token_count: input.tokenCount,
-      cost_cents: input.costCents,
-      duration_ms: input.durationMs,
-    } as never)
-    .select("id" as never)
-    .single();
-
-  if (insertResultError || !insertedResult) {
-    throw toTakeoffError(
-      mapSupabaseError(
-        insertResultError ?? {
-          code: "NOT_FOUND",
-          details: null,
-          hint: null,
-          message: "Insertion takeoff_results invalide.",
-        },
-        "Impossible de persister le resultat takeoff."
-      ),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-        jobId: input.job.id,
+  const shouldEnforceAtomicRollback = input.level === TAKEOFF_LEVEL_A;
+  const initialSnapshot = shouldEnforceAtomicRollback
+    ? await snapshotTakeoffPersistenceState({
+        supabase: input.supabase,
+        job: input.job,
         level: input.level,
-      }
-    );
-  }
+      })
+    : null;
 
-  const parsedResult = takeoffResultIdSchema.parse(insertedResult);
-  const resultId = parsedResult.id;
+  let resultId: string;
 
-  if (input.itemsForInsert.length > 0) {
-    const { error: insertItemsError } = await input.supabase
-      .from("takeoff_items" as never)
-      .insert(
-        input.itemsForInsert.map((item) => ({
-          tenant_id: input.job.tenant_id,
-          job_id: input.job.id,
-          result_id: resultId,
-          designation: item.designation,
-          quantity: item.quantity,
-          unit: item.unit,
-          confidence: item.confidence,
-          evidence: item.evidence,
-          source_file_name: item.source_file_name,
-          source_page: item.source_page,
-          metadata: item.metadata,
-        })) as never
-      );
+  try {
+    await clearPreviousResultsForJob({
+      supabase: input.supabase,
+      job: input.job,
+      level: input.level,
+    });
 
-    if (insertItemsError) {
+    const { data: insertedResult, error: insertResultError } = await input.supabase
+      .from("takeoff_results" as never)
+      .insert({
+        tenant_id: input.job.tenant_id,
+        job_id: input.job.id,
+        extracted_json: input.exchange,
+        warnings: input.exchange.warnings,
+        tables: input.exchange.tables ?? [],
+        provider_meta: input.providerMeta,
+        raw_response: input.rawResponse,
+        confidence: input.exchange.confidence ?? null,
+        token_count: input.tokenCount,
+        cost_cents: input.costCents,
+        duration_ms: input.durationMs,
+      } as never)
+      .select("id" as never)
+      .single();
+
+    if (insertResultError || !insertedResult) {
       throw toTakeoffError(
-        mapSupabaseError(insertItemsError, "Impossible de persister les items takeoff."),
+        mapSupabaseError(
+          insertResultError ?? {
+            code: "NOT_FOUND",
+            details: null,
+            hint: null,
+            message: "Insertion takeoff_results invalide.",
+          },
+          "Impossible de persister le resultat takeoff."
+        ),
         {
           fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
           retryable: false,
@@ -1150,6 +1375,87 @@ async function persistTakeoffResultAndItems(input: {
         }
       );
     }
+
+    const parsedResult = takeoffResultIdSchema.parse(insertedResult);
+    resultId = parsedResult.id;
+
+    if (input.itemsForInsert.length > 0) {
+      const { error: insertItemsError } = await input.supabase
+        .from("takeoff_items" as never)
+        .insert(
+          input.itemsForInsert.map((item) => ({
+            tenant_id: input.job.tenant_id,
+            job_id: input.job.id,
+            result_id: resultId,
+            designation: item.designation,
+            quantity: item.quantity,
+            unit: item.unit,
+            confidence: item.confidence,
+            evidence: item.evidence,
+            source_file_name: item.source_file_name,
+            source_page: item.source_page,
+            metadata: item.metadata,
+          })) as never
+        );
+
+      if (insertItemsError) {
+        throw toTakeoffError(
+          mapSupabaseError(insertItemsError, "Impossible de persister les items takeoff."),
+          {
+            fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+            retryable: false,
+            jobId: input.job.id,
+            level: input.level,
+          }
+        );
+      }
+    }
+  } catch (error) {
+    const mapped = toTakeoffError(error, {
+      fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+      jobId: input.job.id,
+      level: input.level,
+      retryable: false,
+    });
+
+    if (!shouldEnforceAtomicRollback || !initialSnapshot) {
+      throw mapped;
+    }
+
+    try {
+      await restoreTakeoffPersistenceState({
+        supabase: input.supabase,
+        job: input.job,
+        snapshot: initialSnapshot,
+        level: input.level,
+      });
+    } catch (restoreError) {
+      const restoreMapped = toTakeoffError(restoreError, {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        fallbackMessage:
+          "Impossible de restaurer l'etat precedent apres echec de persistance takeoff.",
+        retryable: false,
+        jobId: input.job.id,
+        level: input.level,
+      });
+
+      throw new TakeoffError({
+        code: TakeoffErrorCode.INTERNAL_ERROR,
+        status: 500,
+        message:
+          "La persistance takeoff a echoue et la restauration atomique n'a pas pu etre completee.",
+        details: {
+          original_error: mapped.details,
+          rollback_error: restoreMapped.details,
+          [ATOMIC_PERSISTENCE_ROLLBACK_MARKER]: false,
+        },
+        retryable: false,
+        jobId: input.job.id,
+        level: input.level,
+      });
+    }
+
+    throw annotateAtomicPersistenceRollbackError(mapped);
   }
 
   const statusAfterPersist = await fetchCurrentTakeoffJobStatus({
@@ -1959,6 +2265,18 @@ async function processLevelCGeminiChunks(input: {
   };
 }
 
+type ProcessLevelBGeminiAggregate = {
+  normalizedExchange: TakeoffExchange;
+  itemsForInsert: NormalizedTakeoffItemForInsert[];
+  tokenCount: number;
+  costCents: number;
+  durationMs: number;
+  tablesCount: number;
+  pageCount: number | null;
+  chunksCount: number;
+  providerMeta: Record<string, unknown>;
+};
+
 type PreparedTakeoffLevelInput = {
   files: Array<{ data: string; mimeType: string }>;
   parseWarnings: TakeoffWarning[];
@@ -1966,51 +2284,27 @@ type PreparedTakeoffLevelInput = {
   providerMeta: Record<string, unknown>;
 };
 
-type PrepareableTakeoffLevel = typeof TAKEOFF_LEVEL_A | typeof TAKEOFF_LEVEL_B;
-
 function getProcessorLevelLabel(level: ProcessableTakeoffLevel) {
   return `Level ${level}`;
 }
 
-function prepareTakeoffLevelInput(input: {
-  level: PrepareableTakeoffLevel;
+async function processLevelBGeminiChunks(input: {
+  supabase: Supabase;
+  job: TakeoffJobProcessingRow;
   sourceFile: DownloadedTakeoffFile;
-  jobId: string;
-}): PreparedTakeoffLevelInput {
-  if (input.level === TAKEOFF_LEVEL_A) {
-    const parsedWorkbook = parseTakeoffWorkbook({
-      bytes: input.sourceFile.bytes,
-      fileName: input.sourceFile.fileName,
-    });
-
-    return {
-      files: parsedWorkbook.sheets.map((sheet) => ({
-        data: Buffer.from(sheet.csvText, "utf8").toString("base64"),
-        mimeType: "text/csv",
-      })),
-      parseWarnings: parsedWorkbook.warnings,
-      sourceHint: buildPromptSourceHint(input.sourceFile.fileName, parsedWorkbook.sheets),
-      providerMeta: {
-        file_type: input.sourceFile.mimeType,
-        source_file_name: input.sourceFile.fileName,
-        sheet_count: parsedWorkbook.sheets.length,
-        sheets: parsedWorkbook.sheets.map((sheet) => ({
-          name: sheet.sheetName,
-          header_row_index: sheet.headerRowIndex,
-          rows: sheet.rows.length,
-          columns: sheet.headers.length,
-        })),
-      },
-    };
-  }
-
+  callGemini: CallGeminiStructuredFn;
+  schemaVersion: string;
+  model: string;
+  promptVersion: string;
+  thinkingLevel: GeminiThinkingLevel;
+}): Promise<ProcessLevelBGeminiAggregate> {
   if (!isPdfMimeType(input.sourceFile.mimeType)) {
     throw new TakeoffError({
       code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
       message: "Le processor Level B requiert un fichier PDF source.",
       retryable: false,
-      jobId: input.jobId,
-      level: input.level,
+      jobId: input.job.id,
+      level: TAKEOFF_LEVEL_B,
       details: {
         file_type: input.sourceFile.mimeType,
         source_file_name: input.sourceFile.fileName,
@@ -2018,19 +2312,194 @@ function prepareTakeoffLevelInput(input: {
     });
   }
 
-  return {
-    files: [
-      {
-        data: Buffer.from(input.sourceFile.bytes).toString("base64"),
-        mimeType: "application/pdf",
+  const chunkingConfig = await getTakeoffChunkingConfigForTenant(input.job.tenant_id, {
+    supabase: input.supabase,
+  });
+
+  let pageCount: number | null = null;
+  try {
+    pageCount = await getPdfPageCount(input.sourceFile.bytes);
+  } catch (error) {
+    console.warn("Impossible de lire le nombre de pages du PDF source Level B.", {
+      job_id: input.job.id,
+      tenant_id: input.job.tenant_id,
+      source_file_name: input.sourceFile.fileName,
+      error,
+    });
+  }
+
+  if (pageCount !== null && pageCount > chunkingConfig.maxPdfPages) {
+    throw new TakeoffError({
+      status: 413,
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      message: `Le PDF contient ${pageCount} pages et depasse la limite de ${chunkingConfig.maxPdfPages} pages.`,
+      retryable: false,
+      jobId: input.job.id,
+      level: TAKEOFF_LEVEL_B,
+      details: {
+        page_count: pageCount,
+        max_pdf_pages: chunkingConfig.maxPdfPages,
       },
-    ],
+    });
+  }
+
+  if (pageCount !== null) {
+    await upsertDetectedPlanFilePageCount({
+      supabase: input.supabase,
+      tenantId: input.job.tenant_id,
+      sourceFilePath: input.job.source_file_path,
+      pageCount,
+    });
+  }
+
+  const chunks: TakeoffPdfChunk[] =
+    pageCount !== null
+      ? buildPdfChunks(pageCount, {
+          thresholdPages: chunkingConfig.thresholdPages,
+          chunkSizePages: chunkingConfig.chunkSizePages,
+          overlapPages: chunkingConfig.overlapPages,
+        })
+      : [{ index: 0, startPage: 1, endPage: 1 }];
+
+  const chunkExchanges: Array<{
+    chunk: TakeoffPdfChunk;
+    exchange: TakeoffExchange;
+  }> = [];
+  let tokenCount = 0;
+  let costCents = 0;
+  let durationMs = 0;
+
+  for (const chunk of chunks) {
+    const sourceHint =
+      pageCount !== null
+        ? createChunkPromptSourceHint({
+            fileName: input.sourceFile.fileName,
+            chunk,
+            totalChunks: chunks.length,
+          })
+        : input.sourceFile.fileName;
+    const prompt = getTakeoffPrompt(TAKEOFF_LEVEL_B, {
+      fileType: input.sourceFile.mimeType,
+      schemaVersion: input.schemaVersion,
+      sourceHint,
+    });
+    const bytesForChunk =
+      pageCount !== null
+        ? await createPdfChunkBytes({
+            bytes: input.sourceFile.bytes,
+            chunk,
+          })
+        : new Uint8Array(input.sourceFile.bytes);
+
+    const geminiResult = await input.callGemini<TakeoffExchange>({
+      prompt,
+      schema: TakeoffExchangeSchema,
+      files: [
+        {
+          data: Buffer.from(bytesForChunk).toString("base64"),
+          mimeType: "application/pdf",
+        },
+      ],
+      thinkingLevel: input.thinkingLevel,
+      timeoutMs: resolveGeminiTimeoutMs(),
+      context: {
+        jobId: input.job.id,
+        tenantId: input.job.tenant_id,
+        level: TAKEOFF_LEVEL_B,
+        promptVersion: input.promptVersion,
+        model: input.model,
+      },
+    });
+
+    const parsedExchange = TakeoffExchangeSchema.parse(geminiResult.data);
+    chunkExchanges.push({
+      chunk,
+      exchange:
+        pageCount !== null
+          ? remapChunkLocalPagesToAbsolute({
+              chunk,
+              exchange: parsedExchange,
+            })
+          : parsedExchange,
+    });
+
+    tokenCount += geminiResult.tokenCount;
+    costCents += geminiResult.costCents;
+    durationMs += geminiResult.durationMs;
+  }
+
+  const merged =
+    chunkExchanges.length > 1
+      ? mergeTakeoffChunkExchanges(chunkExchanges)
+      : {
+          exchange: chunkExchanges[0].exchange,
+          deduplicatedItems: chunkExchanges[0].exchange.items.length,
+          duplicateItems: 0,
+        };
+  const normalized = normalizeTakeoffExchange({
+    exchange: merged.exchange,
+    sourceFileName: normalizeNullableText(input.job.source_file_name),
     parseWarnings: [],
-    sourceHint: input.sourceFile.fileName,
+  });
+  const tablesCount = normalized.exchange.tables?.length ?? 0;
+
+  const providerMeta: Record<string, unknown> = {
+    file_type: input.sourceFile.mimeType,
+    source_file_name: input.sourceFile.fileName,
+    processing_mode: chunkExchanges.length > 1 ? "pdf_vision_chunked" : "pdf_vision",
+    chunks_count: chunkExchanges.length,
+    deduplicated_items: merged.deduplicatedItems,
+    duplicate_items: merged.duplicateItems,
+  };
+
+  if (pageCount !== null) {
+    providerMeta.page_count = pageCount;
+    providerMeta.chunking_config = {
+      threshold_pages: chunkingConfig.thresholdPages,
+      chunk_size_pages: chunkingConfig.chunkSizePages,
+      chunk_overlap_pages: chunkingConfig.overlapPages,
+      max_pdf_pages: chunkingConfig.maxPdfPages,
+    };
+  }
+
+  return {
+    normalizedExchange: normalized.exchange,
+    itemsForInsert: normalized.itemsForInsert,
+    tokenCount,
+    costCents,
+    durationMs,
+    tablesCount,
+    pageCount,
+    chunksCount: chunkExchanges.length,
+    providerMeta,
+  };
+}
+
+function prepareTakeoffLevelInput(input: {
+  sourceFile: DownloadedTakeoffFile;
+}): PreparedTakeoffLevelInput {
+  const parsedWorkbook = parseTakeoffWorkbook({
+    bytes: input.sourceFile.bytes,
+    fileName: input.sourceFile.fileName,
+  });
+
+  return {
+    files: parsedWorkbook.sheets.map((sheet) => ({
+      data: Buffer.from(sheet.csvText, "utf8").toString("base64"),
+      mimeType: "text/csv",
+    })),
+    parseWarnings: parsedWorkbook.warnings,
+    sourceHint: buildPromptSourceHint(input.sourceFile.fileName, parsedWorkbook.sheets),
     providerMeta: {
       file_type: input.sourceFile.mimeType,
       source_file_name: input.sourceFile.fileName,
-      processing_mode: "pdf_vision",
+      sheet_count: parsedWorkbook.sheets.length,
+      sheets: parsedWorkbook.sheets.map((sheet) => ({
+        name: sheet.sheetName,
+        header_row_index: sheet.headerRowIndex,
+        rows: sheet.rows.length,
+        columns: sheet.headers.length,
+      })),
     },
   };
 }
@@ -2200,10 +2669,82 @@ async function processTakeoffLevel(
       };
     }
 
+    if (level === TAKEOFF_LEVEL_B) {
+      const levelBResult = await processLevelBGeminiChunks({
+        supabase: context.supabase,
+        job,
+        sourceFile,
+        callGemini,
+        schemaVersion,
+        model: levelConfig.model,
+        promptVersion: levelConfig.promptVersion,
+        thinkingLevel: levelConfig.thinkingLevel,
+      });
+
+      const persisted = await persistTakeoffResultAndItems({
+        supabase: context.supabase,
+        job,
+        exchange: levelBResult.normalizedExchange,
+        itemsForInsert: levelBResult.itemsForInsert,
+        tokenCount: levelBResult.tokenCount,
+        costCents: levelBResult.costCents,
+        durationMs: levelBResult.durationMs,
+        rawResponse: null,
+        providerMeta: {
+          ...levelBResult.providerMeta,
+          model: levelConfig.model,
+          prompt_version: levelConfig.promptVersion,
+          thinking_level: levelConfig.thinkingLevel,
+          tables_count: levelBResult.tablesCount,
+        },
+        level,
+      });
+
+      const completedAt = now();
+      const totalDurationMs = Math.max(
+        levelBResult.durationMs,
+        completedAt.getTime() - processingStartedAt.getTime()
+      );
+
+      await updateJobAsCompleted({
+        supabase: context.supabase,
+        job,
+        tenantId: context.tenantId,
+        completedAtIso: completedAt.toISOString(),
+        tokenCount: levelBResult.tokenCount,
+        costCents: levelBResult.costCents,
+        durationMs: totalDurationMs,
+        model: levelConfig.model,
+        thinkingLevel: levelConfig.thinkingLevel,
+        promptVersion: levelConfig.promptVersion,
+        level,
+      });
+
+      await logCompletedAuditEvent({
+        supabase: context.supabase,
+        userId: actorUserId,
+        job,
+        resultId: persisted.resultId,
+        itemsCount: persisted.itemsCount,
+        warningsCount: persisted.warningsCount,
+        durationMs: totalDurationMs,
+      });
+
+      return {
+        jobId: job.id,
+        resultId: persisted.resultId,
+        status: "completed",
+        itemsCount: persisted.itemsCount,
+        warningsCount: persisted.warningsCount,
+        tokenCount: levelBResult.tokenCount,
+        costCents: levelBResult.costCents,
+        durationMs: totalDurationMs,
+        tablesCount: levelBResult.tablesCount,
+      };
+    }
+
     const preparedLevelInput = prepareTakeoffLevelInput({
-      level,
       sourceFile,
-      jobId: job.id,
     });
 
     const prompt = getTakeoffPrompt(level, {
@@ -2313,16 +2854,21 @@ async function processTakeoffLevel(
       const completedAt = now();
       const durationMs = Math.max(0, completedAt.getTime() - processingStartedAt.getTime());
 
-      const failureSnapshotClearedResults = await persistFailureSnapshotIfNeeded({
-        supabase: context.supabase,
-        job,
-        error: mappedError,
-        durationMs,
-        model: levelConfig.model,
-        promptVersion: levelConfig.promptVersion,
-        thinkingLevel: levelConfig.thinkingLevel,
-        level,
-      });
+      const skipFailureSnapshotPersist =
+        level === TAKEOFF_LEVEL_A && hasAtomicPersistenceRollbackError(mappedError);
+
+      const failureSnapshotClearedResults = skipFailureSnapshotPersist
+        ? false
+        : await persistFailureSnapshotIfNeeded({
+            supabase: context.supabase,
+            job,
+            error: mappedError,
+            durationMs,
+            model: levelConfig.model,
+            promptVersion: levelConfig.promptVersion,
+            thinkingLevel: levelConfig.thinkingLevel,
+            level,
+          });
 
       await updateJobAsFailed({
         supabase: context.supabase,
