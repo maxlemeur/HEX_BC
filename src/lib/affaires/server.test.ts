@@ -118,13 +118,17 @@ function createHubContext(options: {
   };
 }
 
-function buildAffaireRow(index: number) {
+function buildAffaireRow(
+  index: number,
+  overrides: Partial<Record<string, unknown>> = {}
+) {
   return {
     project_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
     project_name: `Projet ${index}`,
     project_reference: `REF-${index}`,
     project_client: `Client ${index}`,
     version_count: 1,
+    has_current_version: true,
     current_version_id: `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
     current_version_number: index,
     current_status: "draft" as const,
@@ -132,6 +136,7 @@ function buildAffaireRow(index: number) {
     current_updated_at: `2026-03-${String((index % 28) + 1).padStart(2, "0")}T10:00:00+00:00`,
     accepted_version_id: null,
     accepted_version_number: null,
+    ...overrides,
   };
 }
 
@@ -221,11 +226,44 @@ describe("affaires server (list + counters)", () => {
     expect(result.items[0]).toMatchObject({
       projectId: row.project_id,
       projectName: row.project_name,
+      hasCurrentVersion: true,
       currentVersionId: row.current_version_id,
       currentStatus: "draft",
     });
     expect(result.hasNextPage).toBe(false);
     expect(result.nextCursor).toBeNull();
+  });
+
+  it("maps projects without current version as nullable fields", async () => {
+    const row = buildAffaireRow(1, {
+      version_count: 0,
+      has_current_version: false,
+      current_version_id: null,
+      current_version_number: null,
+      current_status: null,
+      current_total_ht_cents: null,
+    });
+    const context = createContext({
+      role: "engineer",
+      rpcResult: {
+        data: [row],
+        error: null,
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireList({ size: 20 });
+
+    expect(result.items[0]).toMatchObject({
+      projectId: row.project_id,
+      hasCurrentVersion: false,
+      currentVersionId: null,
+      currentVersionNumber: null,
+      currentStatus: null,
+      currentTotalHtCents: null,
+      currentUpdatedAt: row.current_updated_at,
+    });
   });
 
   it("passes admin scope with null owner", async () => {
@@ -673,6 +711,28 @@ describe("affaires hub server", () => {
   });
 
   it("wraps project timeline fetch and validates page", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Timeline",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
     vi.mocked(listEstimateProjectVersions).mockResolvedValue({
       items: [],
       pagination: {

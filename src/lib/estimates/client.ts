@@ -192,7 +192,8 @@ export type UpdateEstimateTemplatePayload = {
 };
 
 export type InstantiateEstimateTemplatePayload = {
-  projectName: string;
+  projectName?: string;
+  projectId?: string;
   versionTitle?: string | null;
   dateDevis?: string;
   validiteJours?: number;
@@ -225,7 +226,8 @@ export type EstimateEditorData = {
 };
 
 export type CreateEstimatePayload = {
-  projectName: string;
+  projectName?: string;
+  projectId?: string;
   title: string | null;
   dateDevis: string;
   validiteJours: number;
@@ -2077,6 +2079,43 @@ export async function importEstimateSections(
 export async function createEstimate(
   input: CreateEstimatePayload
 ): Promise<string> {
+  const projectName = input.projectName?.trim() ?? null;
+  const projectId = input.projectId?.trim() ?? null;
+
+  if (!projectId && !projectName) {
+    throw new Error("projectName ou projectId est requis.");
+  }
+
+  const requestBody: Record<string, unknown> = {
+    version: {
+      title: input.title,
+      date_devis: input.dateDevis,
+      validite_jours: input.validiteJours,
+      margin_multiplier: input.marginMultiplier ?? 1,
+      ...(input.marginMode ? { margin_mode: input.marginMode } : {}),
+      ...(input.marginBp != null ? { margin_bp: input.marginBp } : {}),
+      ...(input.taxRateBp != null ? { tax_rate_bp: input.taxRateBp } : {}),
+      ...(input.roundingMode ? { rounding_mode: input.roundingMode } : {}),
+      ...(input.roundingStepCents != null
+        ? { rounding_step_cents: input.roundingStepCents }
+        : {}),
+      ...(input.currency ? { currency: input.currency } : {}),
+    },
+  };
+
+  if (projectId) {
+    requestBody.project_id = projectId;
+  }
+
+  if (projectName) {
+    requestBody.project = {
+      name: projectName,
+      reference: input.reference ?? null,
+      client_name: input.clientName ?? null,
+      notes: input.projectNotes ?? null,
+    };
+  }
+
   const payload = await requestJson<unknown>(
     "/api/estimates",
     {
@@ -2084,26 +2123,7 @@ export async function createEstimate(
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        project: {
-          name: input.projectName,
-          reference: input.reference ?? null,
-          client_name: input.clientName ?? null,
-          notes: input.projectNotes ?? null,
-        },
-        version: {
-          title: input.title,
-          date_devis: input.dateDevis,
-          validite_jours: input.validiteJours,
-          margin_multiplier: input.marginMultiplier ?? 1,
-          ...(input.marginMode ? { margin_mode: input.marginMode } : {}),
-          ...(input.marginBp != null ? { margin_bp: input.marginBp } : {}),
-          ...(input.taxRateBp != null ? { tax_rate_bp: input.taxRateBp } : {}),
-          ...(input.roundingMode ? { rounding_mode: input.roundingMode } : {}),
-          ...(input.roundingStepCents != null ? { rounding_step_cents: input.roundingStepCents } : {}),
-          ...(input.currency ? { currency: input.currency } : {}),
-        },
-      }),
+      body: JSON.stringify(requestBody),
     },
     "Impossible de creer le chiffrage."
   );
@@ -3439,6 +3459,28 @@ export async function instantiateEstimateFromTemplate(
   templateId: string,
   input: InstantiateEstimateTemplatePayload
 ): Promise<{ projectId: string; versionId: string; redirectTo: string }> {
+  const projectName = input.projectName?.trim() ?? null;
+  const projectId = input.projectId?.trim() ?? null;
+
+  if (!projectId && !projectName) {
+    throw new Error("projectName ou projectId est requis.");
+  }
+
+  const requestBody: Record<string, unknown> = {
+    versionTitle: input.versionTitle ?? null,
+    dateDevis: input.dateDevis,
+    validiteJours: input.validiteJours,
+    projectNotes: input.projectNotes ?? null,
+  };
+
+  if (projectId) {
+    requestBody.projectId = projectId;
+  }
+
+  if (projectName) {
+    requestBody.projectName = projectName;
+  }
+
   const payload = await requestJson<unknown>(
     `/api/estimates/templates/${templateId}/instantiate`,
     {
@@ -3446,13 +3488,7 @@ export async function instantiateEstimateFromTemplate(
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        projectName: input.projectName,
-        versionTitle: input.versionTitle ?? null,
-        dateDevis: input.dateDevis,
-        validiteJours: input.validiteJours,
-        projectNotes: input.projectNotes ?? null,
-      }),
+      body: JSON.stringify(requestBody),
     },
     "Impossible d'instancier le template."
   );

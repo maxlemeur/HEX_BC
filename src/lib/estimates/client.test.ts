@@ -4,6 +4,7 @@ import {
   acquireEstimateDraftLock,
   batchEstimateOperations,
   bulkUpdateEstimateItems,
+  createEstimate,
   createEstimateAssembly,
   createEstimateItem,
   deleteEstimateAssembly,
@@ -19,6 +20,7 @@ import {
   insertAssemblyIntoVersion,
   importEstimateSections,
   isEstimateApiError,
+  instantiateEstimateFromTemplate,
   releaseEstimateDraftLock,
   requestEstimatePdfGeneration,
   renewEstimateDraftLock,
@@ -39,6 +41,7 @@ const SUPPLY_TYPE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ASSEMBLY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const SOURCE_VERSION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const SECTION_ID_1 = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const TEMPLATE_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const UPDATED_AT = "2026-02-20T10:00:00.000Z";
 const NEXT_UPDATED_AT = "2026-02-20T10:00:01.000Z";
 const LOCK_EXPIRES_AT = "2026-02-20T10:30:00.000Z";
@@ -1529,6 +1532,111 @@ describe("estimate client assemblies wrappers", () => {
       sha256Hash: undefined,
       generatedAt: undefined,
       fileSizeBytes: undefined,
+    });
+  });
+});
+
+describe("estimate client creation wrappers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("sends project_id when creating a blank estimate on an existing project", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            version: {
+              id: VERSION_ID,
+            },
+          },
+        }),
+        {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const createdVersionId = await createEstimate({
+      projectId: PROJECT_ID,
+      title: "Version 4",
+      dateDevis: "2026-03-04",
+      validiteJours: 30,
+      marginMultiplier: 1.1,
+    });
+
+    expect(createdVersionId).toBe(VERSION_ID);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/estimates",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+      })
+    );
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(requestInit.body)) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      project_id: PROJECT_ID,
+      version: {
+        title: "Version 4",
+        date_devis: "2026-03-04",
+        validite_jours: 30,
+        margin_multiplier: 1.1,
+      },
+    });
+    expect(body.project).toBeUndefined();
+  });
+
+  it("sends projectId when instantiating a template into an existing project", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            projectId: PROJECT_ID,
+            versionId: VERSION_ID,
+            redirectTo: `/dashboard/estimates/${VERSION_ID}/edit`,
+          },
+        }),
+        {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await instantiateEstimateFromTemplate(TEMPLATE_ID, {
+      projectId: PROJECT_ID,
+      versionTitle: "Option B",
+      validiteJours: 45,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/templates/${TEMPLATE_ID}/instantiate`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+      })
+    );
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(requestInit.body)) as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      projectId: PROJECT_ID,
+      versionTitle: "Option B",
+      validiteJours: 45,
+    });
+    expect(body.projectName).toBeUndefined();
+    expect(result).toEqual({
+      projectId: PROJECT_ID,
+      versionId: VERSION_ID,
+      redirectTo: `/dashboard/estimates/${VERSION_ID}/edit`,
     });
   });
 });

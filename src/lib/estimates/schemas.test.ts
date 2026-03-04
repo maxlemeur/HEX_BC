@@ -9,6 +9,7 @@ import {
   createEstimateAssemblySchema,
   duplicateEstimateSectionSchema,
   importEstimateSectionsSchema,
+  instantiateEstimateFromTemplateSchema,
   listEstimateImportSourcesQuerySchema,
   createMarginTierSchema,
   insertAssemblyIntoVersionSchema,
@@ -110,6 +111,63 @@ describe("createEstimateSchema", () => {
       version: {
         currency: "CHF",
       },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("accepts project_id without requiring project payload", () => {
+    const parsed = createEstimateSchema.parse({
+      project_id: ITEM_ID_1,
+      version: {
+        title: "Version depuis projet existant",
+      },
+    });
+
+    expect(parsed.project_id).toBe(ITEM_ID_1);
+    expect(parsed.project).toBeUndefined();
+  });
+
+  it("rejects payload when project and project_id are both missing", () => {
+    const parsed = createEstimateSchema.safeParse({
+      version: {
+        title: "Invalide",
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+});
+
+describe("instantiateEstimateFromTemplateSchema", () => {
+  it("accepts project_id without project_name", () => {
+    const parsed = instantiateEstimateFromTemplateSchema.parse({
+      project_id: ITEM_ID_2,
+      version_title: "Template V2",
+    });
+
+    expect(parsed).toMatchObject({
+      project_id: ITEM_ID_2,
+      project_name: undefined,
+      version_title: "Template V2",
+    });
+  });
+
+  it("accepts camelCase aliases and normalizes text", () => {
+    const parsed = instantiateEstimateFromTemplateSchema.parse({
+      projectId: ITEM_ID_3,
+      projectName: "  A ignorer si projectId present  ",
+      versionTitle: "  Option A  ",
+    });
+
+    expect(parsed.project_id).toBe(ITEM_ID_3);
+    expect(parsed.project_name).toBe("A ignorer si projectId present");
+    expect(parsed.version_title).toBe("Option A");
+  });
+
+  it("rejects payload when neither project_name nor project_id is provided", () => {
+    const parsed = instantiateEstimateFromTemplateSchema.safeParse({
+      version_title: "Template",
     });
 
     expect(parsed.success).toBe(false);

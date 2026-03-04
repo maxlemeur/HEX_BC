@@ -33,10 +33,11 @@ export type AffaireListItem = {
   projectReference: string | null;
   projectClient: string | null;
   versionCount: number;
-  currentVersionId: string;
-  currentVersionNumber: number;
-  currentStatus: AffaireStatus;
-  currentTotalHtCents: number;
+  hasCurrentVersion: boolean;
+  currentVersionId: string | null;
+  currentVersionNumber: number | null;
+  currentStatus: AffaireStatus | null;
+  currentTotalHtCents: number | null;
   currentUpdatedAt: string;
   acceptedVersionId: string | null;
   acceptedVersionNumber: number | null;
@@ -155,6 +156,27 @@ function toSafeInteger(value: number | string | null | undefined): number {
   return 0;
 }
 
+function toNullableSafeInteger(
+  value: number | string | null | undefined
+): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
 function toBase64Url(input: string): string {
   return Buffer.from(input, "utf8")
     .toString("base64")
@@ -195,16 +217,19 @@ function getOwnerScopeUserId(context: AffaireContext): string | null {
 }
 
 function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {
+  const hasCurrentVersion = row.has_current_version ?? false;
+
   return {
     projectId: row.project_id,
     projectName: row.project_name,
     projectReference: row.project_reference,
     projectClient: row.project_client,
     versionCount: toSafeInteger(row.version_count),
-    currentVersionId: row.current_version_id,
-    currentVersionNumber: toSafeInteger(row.current_version_number),
-    currentStatus: row.current_status,
-    currentTotalHtCents: toSafeInteger(row.current_total_ht_cents),
+    hasCurrentVersion,
+    currentVersionId: row.current_version_id ?? null,
+    currentVersionNumber: toNullableSafeInteger(row.current_version_number),
+    currentStatus: row.current_status ?? null,
+    currentTotalHtCents: toNullableSafeInteger(row.current_total_ht_cents),
     currentUpdatedAt: row.current_updated_at,
     acceptedVersionId: row.accepted_version_id,
     acceptedVersionNumber:

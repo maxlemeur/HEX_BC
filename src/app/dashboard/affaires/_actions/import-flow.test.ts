@@ -113,7 +113,7 @@ function createMappedRowsBuilder(rows: unknown[]) {
 
   builder.select.mockReturnValue(builder);
   builder.eq.mockReturnValue(builder);
-  builder.order.mockImplementation((_column: string) => {
+  builder.order.mockImplementation(() => {
     if (builder.order.mock.calls.length === 1) {
       return builder;
     }
