@@ -36,6 +36,7 @@ type BulkMoveDestination = {
 
 type EstimateEditorToolbarProps = {
   uiMode: UiMode;
+  isViewerMode?: boolean;
   qualityCounts: EstimateQualityFlagCounts;
   qualityFilter: EstimateQualityFilter;
   outlierDetectionMethod: EstimateOutlierMethod;
@@ -97,6 +98,7 @@ function parseNumberInput(value: string) {
 
 export function EstimateEditorToolbar({
   uiMode,
+  isViewerMode = false,
   qualityCounts,
   qualityFilter,
   outlierDetectionMethod,
@@ -155,6 +157,32 @@ export function EstimateEditorToolbar({
   const availableColumnPresets = isSimplifiedMode
     ? (["essential"] as const)
     : (Object.keys(columnPresetLabels) as ColumnPreset[]);
+
+  if (isViewerMode) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          className="form-input h-8 text-sm"
+          style={{ width: "220px" }}
+          placeholder="Rechercher..."
+          value={searchTerm}
+          onChange={(event) => onSearchChange(event.target.value)}
+        />
+        <div className="flex-1 min-w-0" />
+        {onOpenSettings ? (
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={onOpenSettings}
+          >
+            Parametres
+          </button>
+        ) : null}
+        <KeyboardShortcutsButton />
+      </div>
+    );
+  }
 
   return (
     <div className={`flex flex-col ${isSimplifiedMode ? "gap-1" : "gap-2"}`}>
@@ -424,7 +452,7 @@ export function EstimateEditorToolbar({
       </div>
 
       {/* Bulk selection bar */}
-      {state.hasSelectedLines ? (
+      {!isViewerMode && state.hasSelectedLines ? (
         <>
         <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-surface px-6 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
           <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-2">

@@ -1804,22 +1804,26 @@ export default function EditEstimatePage() {
 
   const projectName = getProjectName(version?.estimate_projects ?? null);
   const isAdmin = profile?.role === "admin";
+  const isViewerReadOnly = profile?.tenant_role === "viewer";
   const lockHolderLabel = draftLockHolderName ?? "un autre utilisateur";
   const isStatusReadOnly = version ? version.status !== "draft" : false;
   const isDraftLockPending =
     version?.status === "draft" &&
     !isDraftLockedByOther &&
     !isDraftLockOwnedByCurrentUser;
-  const isReadOnly = isStatusReadOnly || isDraftLockedByOther || isDraftLockPending;
+  const isReadOnly =
+    isStatusReadOnly || isDraftLockedByOther || isDraftLockPending || isViewerReadOnly;
   const isConflictLocked = conflictState !== null;
   const isSaveBlocked = isReadOnly || isConflictLocked;
   const readOnlyActionErrorMessage =
-    isDraftLockPending && !isDraftLockedByOther
+    isViewerReadOnly
+      ? "Mode consultation active."
+      : isDraftLockPending && !isDraftLockedByOther
       ? "Acquisition du verrou de brouillon en cours."
       : isDraftLockedByOther
         ? `Verrouille par ${lockHolderLabel}.`
         : "Cette version est en lecture seule.";
-  const canSend = version?.status === "draft";
+  const canSend = version?.status === "draft" && !isViewerReadOnly;
   const hasKnownBlockingSendFlags = (sendGating?.blockingFlags.length ?? 0) > 0;
   const isSendBlockedForCurrentUser =
     sendGating !== null && !sendGating.canSend && hasKnownBlockingSendFlags && !isAdmin;
@@ -6314,6 +6318,7 @@ export default function EditEstimatePage() {
       laborRateById,
       isLaborSplitEnabled,
       isReadOnly: editorTableBaseConfig.isReadOnly,
+      isViewerMode: isViewerReadOnly,
       onQualityFilterChange: handleQualityFilterChange,
       onOutlierDetectionMethodChange: handleOutlierMethodChange,
       onOutlierThresholdChange: handleOutlierThresholdChange,
@@ -6394,6 +6399,7 @@ export default function EditEstimatePage() {
       isUndoRedoBusy,
       items,
       isLaborSplitEnabled,
+      isViewerReadOnly,
       laborRateById,
       laborRoles,
       outlierActionPendingByItemId,
@@ -6594,6 +6600,12 @@ export default function EditEstimatePage() {
           {statusError}
         </div>
       )}
+
+      {isViewerReadOnly ? (
+        <div className="alert alert-info mb-6">
+          Mode consultation — vous ne pouvez pas modifier ce chiffrage.
+        </div>
+      ) : null}
 
       {canSend && isSendBlockedForCurrentUser ? (
         <div className="alert alert-warning mb-6">

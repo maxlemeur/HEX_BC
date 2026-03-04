@@ -16,6 +16,7 @@ type EstimateEditorBodyProps = {
   items: EstimateItem[];
   hasVisibleRows: boolean;
   isReadOnly: boolean;
+  hideEditingActions?: boolean;
   onAddRootSection: () => void;
   onResetQualityFilter: () => void;
   sensors: DndContextProps["sensors"];
@@ -38,6 +39,7 @@ export function EstimateEditorBody({
   items,
   hasVisibleRows,
   isReadOnly,
+  hideEditingActions = false,
   onAddRootSection,
   onResetQualityFilter,
   sensors,
@@ -74,14 +76,16 @@ export function EstimateEditorBody({
         {items.length === 0 ? (
           <div className="estimate-empty">
             <p>Aucune ligne pour le moment.</p>
-            <button
-              className="btn btn-primary btn-sm"
-              type="button"
-              onClick={onAddRootSection}
-              disabled={isReadOnly}
-            >
-              Creer un chapitre
-            </button>
+            {!hideEditingActions ? (
+              <button
+                className="btn btn-primary btn-sm"
+                type="button"
+                onClick={onAddRootSection}
+                disabled={isReadOnly}
+              >
+                Creer un chapitre
+              </button>
+            ) : null}
           </div>
         ) : !hasVisibleRows ? (
           <div className="estimate-empty">

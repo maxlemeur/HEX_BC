@@ -536,6 +536,7 @@ export type EstimateEditorRowProps = {
   isDragDisabled: boolean;
   isOutlierActionPending: boolean;
   isReadOnly: boolean;
+  hideEditingActions?: boolean;
   isLaborSplitEnabled: boolean;
   isSearchMatch?: boolean;
   isLastChild?: boolean;
@@ -576,6 +577,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   isDragDisabled,
   isOutlierActionPending,
   isReadOnly,
+  hideEditingActions = false,
   isLaborSplitEnabled,
   visibleColumns,
   isSearchMatch,
@@ -881,6 +883,9 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           ) {
             return;
           }
+          if (hideEditingActions) {
+            return;
+          }
 
           event.preventDefault();
           onOpenSectionContextMenu(item.id, {
@@ -900,11 +905,13 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           )}
           style={indentStyle}
         >
-          <DragHandle
-            listeners={listeners}
-            attributes={attributes}
-            disabled={isReadOnly || isDragDisabled}
-          />
+          {!hideEditingActions ? (
+            <DragHandle
+              listeners={listeners}
+              attributes={attributes}
+              disabled={isReadOnly || isDragDisabled}
+            />
+          ) : null}
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="estimate-designation-meta">
               {itemNumber ? (
@@ -935,36 +942,38 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
               />
             </div>
           </div>
-          <div className="estimate-section-hover-actions">
-            <button
-              className="estimate-section-hover-btn"
-              type="button"
-              onClick={() => onAddLine(item.id)}
-              disabled={isReadOnly}
-            >
-              + Ligne
-            </button>
-            {depth === 0 && (
+          {!hideEditingActions ? (
+            <div className="estimate-section-hover-actions">
               <button
                 className="estimate-section-hover-btn"
                 type="button"
-                onClick={() => onAddSection(item.id)}
+                onClick={() => onAddLine(item.id)}
                 disabled={isReadOnly}
               >
-                + Sous-chap
+                + Ligne
               </button>
-            )}
-            {!isAidEditorVisible ? (
-              <button
-                className="estimate-section-hover-btn"
-                type="button"
-                onClick={handleRevealAidEditor}
-                disabled={isReadOnly}
-              >
-                + AID
-              </button>
-            ) : null}
-          </div>
+              {depth === 0 && (
+                <button
+                  className="estimate-section-hover-btn"
+                  type="button"
+                  onClick={() => onAddSection(item.id)}
+                  disabled={isReadOnly}
+                >
+                  + Sous-chap
+                </button>
+              )}
+              {!isAidEditorVisible ? (
+                <button
+                  className="estimate-section-hover-btn"
+                  type="button"
+                  onClick={handleRevealAidEditor}
+                  disabled={isReadOnly}
+                >
+                  + AID
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         {/* qty */}
         <div />
@@ -1284,11 +1293,13 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           disabled={isReadOnly}
           aria-label={`Sélectionner la ligne ${item.title || "sans titre"}`}
         />
-        <DragHandle
-          listeners={listeners}
-          attributes={attributes}
-          disabled={isReadOnly || isDragDisabled}
-        />
+        {!hideEditingActions ? (
+          <DragHandle
+            listeners={listeners}
+            attributes={attributes}
+            disabled={isReadOnly || isDragDisabled}
+          />
+        ) : null}
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="estimate-designation-meta">
             {renderAidInput()}
@@ -2124,43 +2135,54 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         <span>{formatCurrency(lineTotal, estimateCurrency)}</span>
       </div>
       <div className="estimate-cell estimate-cell--actions">
-        <details className="relative">
-          <summary
-            className="btn btn-ghost btn-sm cursor-pointer list-none select-none"
-            title="Plus d'actions"
+        {hideEditingActions ? (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onOpenSupplierComparisonPanel(item.id)}
+            title="Comparer fournisseurs"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="5" r="1" />
-              <circle cx="12" cy="12" r="1" />
-              <circle cx="12" cy="19" r="1" />
-            </svg>
-          </summary>
-          <div className="absolute right-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl" style={{ minWidth: "140px" }}>
-            <button
-              className="btn btn-ghost btn-sm w-full justify-start"
-              type="button"
-              onClick={() => onOpenSupplierComparisonPanel(item.id)}
+            Comparer
+          </button>
+        ) : (
+          <details className="relative">
+            <summary
+              className="btn btn-ghost btn-sm cursor-pointer list-none select-none"
+              title="Plus d'actions"
             >
-              Comparer
-            </button>
-            <button
-              className="btn btn-ghost btn-sm w-full justify-start"
-              type="button"
-              onClick={() => onConvertLineToSection(item.id)}
-              disabled={isReadOnly}
-            >
-              Convertir en section
-            </button>
-            <button
-              className="btn btn-danger btn-sm w-full justify-start"
-              type="button"
-              onClick={() => onDeleteItem(item.id)}
-              disabled={isReadOnly}
-            >
-              Supprimer
-            </button>
-          </div>
-        </details>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="5" r="1" />
+                <circle cx="12" cy="12" r="1" />
+                <circle cx="12" cy="19" r="1" />
+              </svg>
+            </summary>
+            <div className="absolute right-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl" style={{ minWidth: "140px" }}>
+              <button
+                className="btn btn-ghost btn-sm w-full justify-start"
+                type="button"
+                onClick={() => onOpenSupplierComparisonPanel(item.id)}
+              >
+                Comparer
+              </button>
+              <button
+                className="btn btn-ghost btn-sm w-full justify-start"
+                type="button"
+                onClick={() => onConvertLineToSection(item.id)}
+                disabled={isReadOnly}
+              >
+                Convertir en section
+              </button>
+              <button
+                className="btn btn-danger btn-sm w-full justify-start"
+                type="button"
+                onClick={() => onDeleteItem(item.id)}
+                disabled={isReadOnly}
+              >
+                Supprimer
+              </button>
+            </div>
+          </details>
+        )}
       </div>
     </div>
   );

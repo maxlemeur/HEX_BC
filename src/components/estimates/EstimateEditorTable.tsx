@@ -216,6 +216,7 @@ type EstimateEditorTableProps = {
   laborRateById: Map<string, number>;
   isLaborSplitEnabled?: boolean;
   isReadOnly: boolean;
+  isViewerMode?: boolean;
   onQualityFilterChange: (value: EstimateQualityFilter) => void;
   onOutlierDetectionMethodChange: (value: EstimateOutlierMethod) => void;
   onOutlierThresholdChange: (value: number) => void;
@@ -740,6 +741,7 @@ export function EstimateEditorTable({
   laborRateById,
   isLaborSplitEnabled = false,
   isReadOnly,
+  isViewerMode = false,
   onQualityFilterChange,
   onOutlierDetectionMethodChange,
   onOutlierThresholdChange,
@@ -1795,7 +1797,11 @@ export function EstimateEditorTable({
           onOpenSupplierComparisonContextMenu={
             handleOpenSupplierComparisonContextMenu
           }
-          onOpenSectionContextMenu={handleOpenSectionContextMenu}
+          onOpenSectionContextMenu={
+            isViewerMode
+              ? () => undefined
+              : handleOpenSectionContextMenu
+          }
           onPatchItem={patchItemWithSuggestionTracking}
           onUnitChange={handleUnitDraftChange}
           onUnitCommit={handleUnitCommit}
@@ -1810,6 +1816,7 @@ export function EstimateEditorTable({
           isDragDisabled={!canReorder}
           isOutlierActionPending={Boolean(outlierActionPendingByItemId[item.id])}
           isReadOnly={isReadOnly}
+          hideEditingActions={isViewerMode}
           isLaborSplitEnabled={isLaborSplitEnabled}
           visibleColumns={isLaborSplitEnabled ? undefined : columnVisibility.visibleColumns}
           isSearchMatch={
@@ -1840,6 +1847,7 @@ export function EstimateEditorTable({
       handleConvertLineToSection,
       itemNumberById,
       isLaborSplitEnabled,
+      isViewerMode,
       isLineSelected,
       isReadOnly,
       laborRoles,
@@ -1983,6 +1991,7 @@ export function EstimateEditorTable({
         <div className="min-w-0 flex-1">
         <EstimateEditorToolbar
           uiMode={uiMode}
+          isViewerMode={isViewerMode}
           qualityCounts={qualityCounts}
           qualityFilter={qualityFilter}
           outlierDetectionMethod={outlierDetectionMethod}
@@ -2129,6 +2138,7 @@ export function EstimateEditorTable({
           items={items}
           hasVisibleRows={hasVisibleRows}
           isReadOnly={isReadOnly}
+          hideEditingActions={isViewerMode}
           onAddRootSection={() => onAddSection(null)}
           onResetQualityFilter={() => onQualityFilterChange("all_lines")}
           sensors={sensors}
@@ -2182,7 +2192,7 @@ export function EstimateEditorTable({
       </div>
       </div>
 
-      {sectionContextMenu ? (
+      {sectionContextMenu && !isViewerMode ? (
         <div
           className="estimate-supplier-comparison-context-menu estimate-section-context-menu"
           role="menu"
@@ -2444,15 +2454,17 @@ export function EstimateEditorTable({
           >
             Comparer fournisseurs
           </button>
-          <button
-            type="button"
-            className="estimate-supplier-comparison-context-menu__action"
-            role="menuitem"
-            onClick={() => void handleConvertLineToSection(supplierComparisonMenu.itemId)}
-            disabled={isReadOnly || isItemConversionPending}
-          >
-            Convertir en section
-          </button>
+          {!isViewerMode ? (
+            <button
+              type="button"
+              className="estimate-supplier-comparison-context-menu__action"
+              role="menuitem"
+              onClick={() => void handleConvertLineToSection(supplierComparisonMenu.itemId)}
+              disabled={isReadOnly || isItemConversionPending}
+            >
+              Convertir en section
+            </button>
+          ) : null}
         </div>
       ) : null}
 
