@@ -115,7 +115,7 @@ const createCatalogueItemBodySchema = catalogueCreateFieldsSchema.superRefine(
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["reference"],
-      message: "Le champ reference (ou hex_code) est requis.",
+      message: "Le champ reference article est requis.",
     });
   }
 );

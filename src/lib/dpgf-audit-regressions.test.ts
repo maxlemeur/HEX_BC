@@ -271,9 +271,9 @@ describe("M-10: consolidated mapping action buttons", () => {
       "utf-8"
     );
 
-    // Should have the two consolidated buttons
-    expect(source).toContain("Apercu");
-    expect(source).toContain("Enregistrer");
+    // Should keep only bottom-bar actions in current UI
+    expect(source).toContain("Retour a l&apos;import");
+    expect(source).toContain("Enregistrer le mapping");
   });
 });
 
@@ -504,7 +504,7 @@ describe("M-11: French headers in DataPreview", () => {
     );
 
     // Should have at least some French labels
-    expect(source).toMatch(/Code HEX|Designation|Quantite|Prix unitaire/);
+    expect(source).toMatch(/Reference article|Designation|Quantite|Prix unitaire/);
   });
 });
 
