@@ -152,7 +152,6 @@ export function CommandPalette() {
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-[rgb(2_6_23_/_0.45)] pt-[15vh] transition-opacity sm:pt-[20vh]"
       onMouseDown={() => close()}
-      aria-hidden="true"
     >
       {/* Panel */}
       <div
@@ -202,7 +201,7 @@ export function CommandPalette() {
             aria-controls="command-palette-list"
             aria-activedescendant={
               flatItems[selectedIndex]
-                ? `command-item-${flatItems[selectedIndex].id}`
+                ? `command-item-${selectedIndex}`
                 : undefined
             }
           />
@@ -238,7 +237,7 @@ export function CommandPalette() {
                     return (
                       <button
                         key={`${group.key}-${item.id}`}
-                        id={`command-item-${item.id}`}
+                        id={`command-item-${idx}`}
                         role="option"
                         aria-selected={isSelected}
                         data-command-index={idx}
