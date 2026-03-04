@@ -2200,6 +2200,43 @@ export type Database = {
           accepted_version_number: number | null;
         }[];
       };
+      get_chiffreur_analytics_kpis: {
+        Args: {
+          p_tenant_id: string;
+          p_owner_user_id?: string | null;
+        };
+        Returns: {
+          active_affaires_count: number;
+          accepted_revenue_cents: number;
+          accepted_versions_count: number;
+          sent_versions_count: number;
+          acceptance_rate: number;
+          avg_days_to_first_acceptance: number | null;
+        }[];
+      };
+      list_chiffreur_analytics_trend: {
+        Args: {
+          p_tenant_id: string;
+          p_owner_user_id?: string | null;
+          p_months?: number;
+        };
+        Returns: {
+          month_key: string;
+          created_count: number;
+          accepted_count: number;
+        }[];
+      };
+      list_chiffreur_analytics_owners: {
+        Args: {
+          p_tenant_id: string;
+        };
+        Returns: {
+          owner_user_id: string;
+          owner_name: string;
+          owner_role: "admin" | "engineer" | "viewer";
+          active_affaires_count: number;
+        }[];
+      };
       upsert_mapping_memory_bulk: {
         Args: {
           p_entries: Json;
