@@ -85,6 +85,10 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
     mutate();
   }, [mutate]);
 
+  const handleSetUpdated = useCallback(() => {
+    mutate();
+  }, [mutate]);
+
   /* Metrics */
   const totalSets = sets?.length ?? 0;
   const totalFiles = sets ? formatTotalSize(sets) : 0;
@@ -193,6 +197,7 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
               versionId={versionId}
               onDeleted={handleSetDeleted}
               onFilesChanged={handleFilesChanged}
+              onUpdated={handleSetUpdated}
             />
           ))}
         </div>

@@ -362,6 +362,59 @@ describe("TakeoffTableView", () => {
     );
   });
 
+  it("edits unit cell and propagates update callback", () => {
+    render(
+      <TakeoffTableView
+        tables={[makeTable()]}
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const unitInput = screen.getByLabelText("Unite");
+    fireEvent.change(unitInput, {
+      target: { value: "m3" },
+    });
+    fireEvent.blur(unitInput);
+
+    expect(defaultProps.onUpdateItem).toHaveBeenCalledWith(
+      ITEM_ID_1,
+      "unit",
+      "m3"
+    );
+  });
+
+  it("maps quantity column by header even when order is different", () => {
+    render(
+      <TakeoffTableView
+        tables={[
+          makeTable({
+            headers: ["Designation", "Unite", "Quantite"],
+            rows: [{ row_index: 0, cells: ["Carrelage 30x30", "m2", "25.5"] }],
+          }),
+        ]}
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const quantityInput = screen.getByLabelText("Quantite");
+    fireEvent.change(quantityInput, {
+      target: { value: "42.75" },
+    });
+    fireEvent.blur(quantityInput);
+
+    expect(defaultProps.onUpdateItem).toHaveBeenCalledWith(
+      ITEM_ID_1,
+      "quantity",
+      42.75
+    );
+  });
+
   it("shows empty state when no tables", () => {
     render(
       <TakeoffTableView

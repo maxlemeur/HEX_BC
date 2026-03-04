@@ -70,11 +70,13 @@ function makePlanFile(
 function renderCard(
   planSet = makePlanSet(),
   onDeleted = vi.fn(),
-  onFilesChanged = vi.fn()
+  onFilesChanged = vi.fn(),
+  onUpdated = vi.fn()
 ) {
   return {
     onDeleted,
     onFilesChanged,
+    onUpdated,
     ...render(
       <SWRConfig value={{ dedupingInterval: 0, provider: () => new Map() }}>
         <PlanSetCard
@@ -82,6 +84,7 @@ function renderCard(
           versionId={VERSION_ID}
           onDeleted={onDeleted}
           onFilesChanged={onFilesChanged}
+          onUpdated={onUpdated}
         />
       </SWRConfig>
     ),
@@ -103,6 +106,7 @@ describe("PlanSetCard", () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("renders set name and file count", () => {
@@ -177,6 +181,102 @@ describe("PlanSetCard", () => {
 
     await waitFor(() => {
       expect(onDeleted).toHaveBeenCalled();
+    });
+  });
+
+  it("updates a plan set from the inline edit form", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            plan_set: makePlanSet({
+              name: "Plans Archi v2",
+              description: "Lot 01 - revision",
+            }),
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { onUpdated } = renderCard();
+
+    await user.click(
+      screen.getByRole("button", { name: /Modifier le jeu "Plans Archi"/i })
+    );
+
+    const nameInput = screen.getByLabelText("Nom du jeu");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Plans Archi v2");
+
+    const descriptionInput = screen.getByLabelText("Description (optionnel)");
+    await user.clear(descriptionInput);
+    await user.type(descriptionInput, "Lot 01 - revision");
+
+    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/takeoff/plan-sets/${encodeURIComponent(SET_ID)}`,
+        expect.objectContaining({
+          method: "PATCH",
+        })
+      );
+    });
+
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(requestInit).toBeDefined();
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      name: "Plans Archi v2",
+      description: "Lot 01 - revision",
+    });
+
+    await waitFor(() => {
+      expect(onUpdated).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("shows API error when update set fails", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error: {
+            message: "Nom deja utilise.",
+          },
+        }),
+        {
+          status: 409,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCard();
+
+    await user.click(
+      screen.getByRole("button", { name: /Modifier le jeu "Plans Archi"/i })
+    );
+    const nameInput = screen.getByLabelText("Nom du jeu");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Set en conflit");
+
+    await user.click(screen.getByRole("button", { name: "Enregistrer" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Nom deja utilise.");
     });
   });
 

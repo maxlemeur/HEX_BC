@@ -7,6 +7,7 @@ import useSWR from "swr";
 import { PlanFileCard } from "@/components/takeoff/PlanFileCard";
 import { PlanFileUploadZone } from "@/components/takeoff/PlanFileUploadZone";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { Button } from "@/components/ui/Button";
 import {
   deletePlanFile as apiDeletePlanFile,
   deletePlanSet as apiDeletePlanSet,
@@ -20,7 +21,55 @@ type PlanSetCardProps = {
   versionId: string;
   onDeleted: () => void;
   onFilesChanged: () => void;
+  onUpdated: () => void;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toApiErrorMessage(payload: unknown, fallback: string) {
+  if (isRecord(payload)) {
+    const nestedError = payload.error;
+    if (isRecord(nestedError) && typeof nestedError.message === "string") {
+      return nestedError.message;
+    }
+
+    if (typeof payload.message === "string") {
+      return payload.message;
+    }
+  }
+
+  return fallback;
+}
+
+async function updatePlanSetRequest(input: {
+  setId: string;
+  name: string;
+  description: string | null;
+}) {
+  const response = await fetch(
+    `/api/takeoff/plan-sets/${encodeURIComponent(input.setId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        name: input.name,
+        description: input.description,
+      }),
+    }
+  );
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(
+      toApiErrorMessage(payload, "Impossible de mettre a jour le jeu de plans.")
+    );
+  }
+}
 
 function formatRelativeTime(isoDate: string) {
   const diff = Date.now() - new Date(isoDate).getTime();
@@ -38,6 +87,7 @@ export function PlanSetCard({
   versionId,
   onDeleted,
   onFilesChanged,
+  onUpdated,
 }: PlanSetCardProps) {
   const regionId = useId();
   const [expanded, setExpanded] = useState(false);
@@ -45,6 +95,11 @@ export function PlanSetCard({
   const [deletingSet, setDeletingSet] = useState(false);
   const [deleteFileTarget, setDeleteFileTarget] = useState<string | null>(null);
   const [deletingFile, setDeletingFile] = useState(false);
+  const [editingSet, setEditingSet] = useState(false);
+  const [editName, setEditName] = useState(planSet.name);
+  const [editDescription, setEditDescription] = useState(planSet.description ?? "");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingSet, setSavingSet] = useState(false);
   const [announcement, setAnnouncement] = useState("");
 
   const filesSWRKey = expanded ? `plan-files:${planSet.id}` : null;
@@ -108,6 +163,52 @@ export function PlanSetCard({
     onFilesChanged();
   }, [mutateFiles, onFilesChanged]);
 
+  const handleStartEdit = useCallback(() => {
+    setEditName(planSet.name);
+    setEditDescription(planSet.description ?? "");
+    setEditError(null);
+    setEditingSet(true);
+    setExpanded(true);
+  }, [planSet.name, planSet.description]);
+
+  const handleCancelEdit = useCallback(() => {
+    if (savingSet) return;
+    setEditingSet(false);
+    setEditError(null);
+    setEditName(planSet.name);
+    setEditDescription(planSet.description ?? "");
+  }, [planSet.name, planSet.description, savingSet]);
+
+  const handleSaveEdit = useCallback(async () => {
+    const normalizedName = editName.trim();
+    if (!normalizedName) {
+      setEditError("Le nom du jeu est obligatoire.");
+      return;
+    }
+
+    setSavingSet(true);
+    setEditError(null);
+    try {
+      await updatePlanSetRequest({
+        setId: planSet.id,
+        name: normalizedName,
+        description: editDescription.trim() || null,
+      });
+      setEditingSet(false);
+      setAnnouncement(`Jeu "${normalizedName}" mis a jour.`);
+      onUpdated();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Impossible de mettre a jour le jeu de plans.";
+      setEditError(message);
+      setAnnouncement(message);
+    } finally {
+      setSavingSet(false);
+    }
+  }, [editDescription, editName, onUpdated, planSet.id]);
+
   return (
     <div className="dashboard-card overflow-hidden">
       {/* Header row */}
@@ -156,6 +257,29 @@ export function PlanSetCard({
           </div>
         </button>
 
+        {/* Edit set button */}
+        <button
+          type="button"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--slate-400)] transition hover:bg-[var(--slate-100)] hover:text-[var(--slate-700)]"
+          aria-label={`Modifier le jeu "${planSet.name}"`}
+          onClick={handleStartEdit}
+        >
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M16.862 4.487a2.1 2.1 0 112.97 2.97L7.5 19.789l-4.5.75.75-4.5L16.862 4.487z"
+            />
+          </svg>
+        </button>
+
         {/* Delete set button */}
         <button
           type="button"
@@ -189,6 +313,75 @@ export function PlanSetCard({
       >
         {expanded && (
           <div className="border-t border-[var(--slate-200)] px-5 pb-5 pt-4">
+            {/* Set edit form */}
+            {editingSet && (
+              <div className="mb-4 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label
+                      htmlFor={`plan-set-name-${planSet.id}`}
+                      className="form-label"
+                    >
+                      Nom du jeu
+                    </label>
+                    <input
+                      id={`plan-set-name-${planSet.id}`}
+                      type="text"
+                      className="form-input"
+                      value={editName}
+                      onChange={(event) => setEditName(event.target.value)}
+                      maxLength={255}
+                      disabled={savingSet}
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label
+                      htmlFor={`plan-set-description-${planSet.id}`}
+                      className="form-label"
+                    >
+                      Description (optionnel)
+                    </label>
+                    <textarea
+                      id={`plan-set-description-${planSet.id}`}
+                      className="form-input min-h-[80px] resize-y"
+                      value={editDescription}
+                      onChange={(event) => setEditDescription(event.target.value)}
+                      maxLength={2000}
+                      disabled={savingSet}
+                    />
+                  </div>
+                </div>
+
+                {editError && (
+                  <div className="mt-3 alert alert-error" role="alert">
+                    {editError}
+                  </div>
+                )}
+
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCancelEdit}
+                    disabled={savingSet}
+                  >
+                    Annuler
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleSaveEdit}
+                    loading={savingSet}
+                    disabled={!editName.trim()}
+                  >
+                    Enregistrer
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Upload zone */}
             <PlanFileUploadZone
               setId={planSet.id}

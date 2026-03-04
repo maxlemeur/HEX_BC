@@ -8,7 +8,11 @@ vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
 }));
 
-import { DELETE } from "@/app/api/takeoff/plan-sets/[setId]/route";
+import {
+  DELETE,
+  PATCH,
+  PUT,
+} from "@/app/api/takeoff/plan-sets/[setId]/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
@@ -53,6 +57,10 @@ type SupabaseMockOptions = {
   planFiles?: PlanFileStoredRow[];
   hasMembership?: boolean;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function basePlanSet(input?: Partial<PlanSetStoredRow>): PlanSetStoredRow {
   return {
@@ -243,6 +251,69 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     return builder;
   }
 
+  function createPlanSetsUpdateBuilder(payload: unknown) {
+    const updates = isRecord(payload)
+      ? payload
+      : {};
+    const filters: { tenant_id?: string; id?: string } = {};
+
+    function updateSet() {
+      const [row] = filterPlanSets(filters);
+      if (!row) return null;
+
+      const nextRow: PlanSetStoredRow = {
+        ...row,
+        name: typeof updates.name === "string" ? updates.name : row.name,
+        description:
+          updates.description === null || typeof updates.description === "string"
+            ? updates.description
+            : row.description,
+        metadata: isRecord(updates.metadata)
+          ? updates.metadata
+          : row.metadata,
+        updated_at: "2026-02-24T11:00:00.000Z",
+      };
+
+      state.planSetsById.set(nextRow.id, nextRow);
+      return { id: nextRow.id };
+    }
+
+    const builder = {
+      eq: vi.fn((column: string, value: string) => {
+        if (column === "tenant_id" || column === "id") {
+          filters[column] = value;
+        }
+        return builder;
+      }),
+      select: vi.fn(() => builder),
+      maybeSingle: vi.fn(async () => {
+        const updated = updateSet();
+        return { data: updated, error: null };
+      }),
+      single: vi.fn(async () => {
+        const updated = updateSet();
+        if (!updated) {
+          return { data: null, error: { code: "PGRST116", message: "Not found" } };
+        }
+        return { data: updated, error: null };
+      }),
+      then: (
+        onFulfilled?: (
+          value: { data: Array<{ id: string }>; error: null }
+        ) => unknown,
+        onRejected?: (reason: unknown) => unknown
+      ) => {
+        const updated = updateSet();
+        return Promise.resolve({
+          data: updated ? [updated] : [],
+          error: null,
+        }).then(onFulfilled, onRejected);
+      },
+    };
+
+    return builder;
+  }
+
   function createPlanFilesSelectBuilder() {
     const filters: { tenant_id?: string; id?: string; plan_set_id?: string } = {};
 
@@ -359,6 +430,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         return {
           select: vi.fn(() => createPlanSetsSelectBuilder()),
           delete: vi.fn(() => createPlanSetsDeleteBuilder()),
+          update: vi.fn((payload: unknown) => createPlanSetsUpdateBuilder(payload)),
         };
       }
 
@@ -418,6 +490,163 @@ describe("/api/takeoff/plan-sets/[setId]", () => {
       )
     ).toHaveLength(0);
     expect(supabase.__state.storageRemovals.length).toBeGreaterThan(0);
+  });
+
+  it("PATCH updates plan set name and description", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await PATCH(
+      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Set mis a jour",
+          description: "Nouvelle description",
+        }),
+      }),
+      makeParams()
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: {
+        plan_set?: {
+          id: string;
+          name: string;
+          description: string | null;
+        };
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data?.plan_set?.id).toBe(SET_ID);
+    expect(body.data?.plan_set?.name).toBe("Set mis a jour");
+    expect(body.data?.plan_set?.description).toBe("Nouvelle description");
+    expect(supabase.__state.planSetsById.get(SET_ID)?.name).toBe("Set mis a jour");
+    expect(supabase.__state.planSetsById.get(SET_ID)?.description).toBe(
+      "Nouvelle description"
+    );
+  });
+
+  it("PUT clears empty description and updates metadata", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await PUT(
+      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Set revision B",
+          description: "   ",
+          metadata: {
+            revision: "B",
+          },
+        }),
+      }),
+      makeParams()
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: {
+        plan_set?: {
+          id: string;
+          description: string | null;
+          metadata: Record<string, unknown>;
+        };
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data?.plan_set?.id).toBe(SET_ID);
+    expect(body.data?.plan_set?.description).toBeNull();
+    expect(body.data?.plan_set?.metadata).toEqual({
+      revision: "B",
+    });
+    expect(supabase.__state.planSetsById.get(SET_ID)?.description).toBeNull();
+  });
+
+  it("PATCH returns 422 for empty update payload", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await PATCH(
+      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      }),
+      makeParams()
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
+
+    expect(response.status).toBe(422);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("PATCH returns 400 when body is invalid JSON", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await PATCH(
+      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: "{invalid-json",
+      }),
+      makeParams()
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
+
+    expect(response.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe("BAD_REQUEST");
+  });
+
+  it("PATCH returns 404 when updating an unknown set", async () => {
+    const supabase = createSupabaseMock({
+      planSets: [],
+      planFiles: [],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await PATCH(
+      new Request(`http://localhost/api/takeoff/plan-sets/${MISSING_SET_ID}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Inexistant",
+        }),
+      }),
+      makeParams(MISSING_SET_ID)
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
+
+    expect(response.status).toBe(404);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBeDefined();
   });
 
   it("returns 400 with normalized error envelope for invalid setId", async () => {

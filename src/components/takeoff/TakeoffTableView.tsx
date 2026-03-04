@@ -38,10 +38,73 @@ type TableCardData = {
 };
 
 type InclusionStatusFilter = "all" | "included" | "excluded" | "mixed";
+type EditableColumnField = "designation" | "quantity" | "unit" | "evidence";
+
+const EDITABLE_COLUMN_HEADER_HINTS: Record<EditableColumnField, string[]> = {
+  designation: ["designation", "description", "libelle", "article", "item"],
+  quantity: ["quantite", "quantity", "qty", "qte", "qt"],
+  unit: ["unite", "unit", "uom", "udm"],
+  evidence: ["evidence", "source", "commentaire", "comment"],
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function normalizeHeaderLabel(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function resolveEditableField(header: string): EditableColumnField | null {
+  const normalizedHeader = normalizeHeaderLabel(header);
+
+  for (const field of Object.keys(EDITABLE_COLUMN_HEADER_HINTS) as EditableColumnField[]) {
+    if (
+      EDITABLE_COLUMN_HEADER_HINTS[field].some((hint) =>
+        normalizedHeader.includes(hint)
+      )
+    ) {
+      return field;
+    }
+  }
+
+  return null;
+}
+
+function buildEditableColumnMap(headers: string[]) {
+  const editableByIndex = new Map<number, EditableColumnField>();
+  const takenFields = new Set<EditableColumnField>();
+
+  headers.forEach((header, index) => {
+    const resolvedField = resolveEditableField(header);
+    if (!resolvedField || takenFields.has(resolvedField)) return;
+
+    editableByIndex.set(index, resolvedField);
+    takenFields.add(resolvedField);
+  });
+
+  // Fallback to the default first columns when headers are ambiguous.
+  if (!takenFields.has("designation") && headers.length > 0) {
+    editableByIndex.set(0, "designation");
+    takenFields.add("designation");
+  }
+
+  if (!takenFields.has("quantity") && headers.length > 1) {
+    editableByIndex.set(1, "quantity");
+    takenFields.add("quantity");
+  }
+
+  if (!takenFields.has("unit") && headers.length > 2) {
+    editableByIndex.set(2, "unit");
+  }
+
+  return editableByIndex;
+}
 
 function getTableHealthBadge(tableItems: ReviewItem[]): {
   variant: "success" | "warning" | "error";
@@ -94,6 +157,10 @@ function TableCard({
   const tableRowsByIndex = useMemo(
     () => new Map(table.rows.map((row) => [row.row_index, row])),
     [table.rows]
+  );
+  const editableByColumnIndex = useMemo(
+    () => buildEditableColumnMap(table.headers),
+    [table.headers]
   );
 
   // Spreadsheet navigation scoped to this card
@@ -242,13 +309,10 @@ function TableCard({
                   >
                     {table.headers.map((_, ci) => {
                       const cellValue = rowData?.cells[ci] ?? "";
-                      // Map first column to designation, use raw cells for other columns
-                      // The editable fields are: designation (mapped), quantity, unit
-                      // For the table view, we show raw cell values with inline editing
+                      const editableField = editableByColumnIndex.get(ci);
                       const colKey = `col_${ci}`;
 
-                      if (ci === 0) {
-                        // First column: editable as designation
+                      if (editableField === "designation") {
                         return (
                           <td key={ci}>
                             <EditableCell
@@ -269,14 +333,7 @@ function TableCard({
                         );
                       }
 
-                      // Check if this column looks like quantity (number)
-                      const numVal = parseFloat(cellValue);
-                      const isQuantityColumn =
-                        Number.isFinite(numVal) &&
-                        ci === 1 &&
-                        table.headers.length >= 2;
-
-                      if (isQuantityColumn) {
+                      if (editableField === "quantity") {
                         return (
                           <td key={ci}>
                             <EditableCell
@@ -299,7 +356,47 @@ function TableCard({
                               type="number"
                               step="0.001"
                               min="0.001"
-                              ariaLabel={`${table.headers[ci]}`}
+                              ariaLabel={table.headers[ci]}
+                              className="editable-cell"
+                            />
+                          </td>
+                        );
+                      }
+
+                      if (editableField === "unit") {
+                        return (
+                          <td key={ci}>
+                            <EditableCell
+                              cell={{ rowId: item.id, columnKey: colKey }}
+                              navigation={navigation}
+                              value={item.unit}
+                              onChange={(val) => onUpdateItem(item.id, "unit", val)}
+                              onCommit={(val) => onUpdateItem(item.id, "unit", val)}
+                              readOnly={isExcluded}
+                              placeholder="Unite..."
+                              ariaLabel={table.headers[ci]}
+                              className="editable-cell"
+                            />
+                          </td>
+                        );
+                      }
+
+                      if (editableField === "evidence") {
+                        return (
+                          <td key={ci}>
+                            <EditableCell
+                              cell={{ rowId: item.id, columnKey: colKey }}
+                              navigation={navigation}
+                              value={item.evidence ?? ""}
+                              onChange={(val) =>
+                                onUpdateItem(item.id, "evidence", val.trim() || null)
+                              }
+                              onCommit={(val) =>
+                                onUpdateItem(item.id, "evidence", val.trim() || null)
+                              }
+                              readOnly={isExcluded}
+                              placeholder="Evidence..."
+                              ariaLabel={table.headers[ci]}
                               className="editable-cell"
                             />
                           </td>
