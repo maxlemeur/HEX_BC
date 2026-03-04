@@ -52,8 +52,8 @@ export function Input({
           id={inputId}
           ref={ref}
           className={cn(
-            "h-full w-full border-0 bg-transparent px-3 py-0 text-sm text-slate-800",
-            "placeholder:text-slate-400",
+            "h-full w-full border-0 bg-transparent px-3 py-0 text-sm text-foreground",
+            "placeholder:text-muted-foreground",
             "focus-visible:outline-none focus-visible:ring-0",
             prefix ? "pl-2" : null,
             suffix ? "pr-2" : null,

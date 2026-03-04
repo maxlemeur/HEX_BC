@@ -6,8 +6,9 @@ type ButtonSize = "sm" | "md" | "lg";
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary: "bg-primary text-primary-foreground hover:brightness-110",
   secondary:
-    "border border-border bg-surface text-slate-700 hover:bg-slate-50",
-  ghost: "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+    "border border-border bg-surface text-secondary-foreground hover:bg-surface-subtle hover:text-foreground",
+  ghost:
+    "bg-transparent text-secondary-foreground hover:bg-surface-subtle hover:text-foreground",
   danger: "border border-danger/30 bg-surface text-danger hover:bg-error-light",
 };
 
