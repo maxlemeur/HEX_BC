@@ -194,7 +194,7 @@ describe("QuickCreateAffaireDialog", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        "Cet import n'est pas pret pour la creation rapide. Finalisez le mapping puis reessayez."
+        /Cet import n['’]est pas pret pour la creation rapide\. Finalisez le mapping puis reessayez\./i
       );
     });
 
