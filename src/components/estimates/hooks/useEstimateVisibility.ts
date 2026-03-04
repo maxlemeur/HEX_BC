@@ -5,7 +5,6 @@ import { useCallback, useMemo } from "react";
 import {
   computeAllSectionTotals,
   type EstimateItemRecord,
-  type SectionTotals,
 } from "@/lib/estimate-calculations";
 import type {
   EstimateQualityFlagKey,
