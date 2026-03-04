@@ -186,8 +186,10 @@ describe("PlanSetCard", () => {
 
   it("updates a plan set from the inline edit form", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      new Response(
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return new Response(
         JSON.stringify({
           ok: true,
           data: {
@@ -203,8 +205,8 @@ describe("PlanSetCard", () => {
             "Content-Type": "application/json",
           },
         }
-      )
-    );
+      );
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const { onUpdated } = renderCard();
@@ -246,8 +248,10 @@ describe("PlanSetCard", () => {
 
   it("shows API error when update set fails", async () => {
     const user = userEvent.setup();
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      new Response(
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return new Response(
         JSON.stringify({
           ok: false,
           error: {
@@ -260,8 +264,8 @@ describe("PlanSetCard", () => {
             "Content-Type": "application/json",
           },
         }
-      )
-    );
+      );
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     renderCard();

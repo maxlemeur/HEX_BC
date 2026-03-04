@@ -27,11 +27,15 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       ? timelinePageRaw
       : undefined;
 
-  let summary: Awaited<ReturnType<typeof fetchAffaireHubSummary>>;
+  const summaryPromise = fetchAffaireHubSummary(projectId);
+  const timelinePromise = fetchAffaireHubTimeline(projectId, timelinePage);
+  const dpgfSourcePromise = fetchAffaireHubDpgfSource(projectId);
 
-  try {
-    summary = await fetchAffaireHubSummary(projectId);
-  } catch (err: unknown) {
+  const [summaryResult, timelineResult, dpgfSourceResult] =
+    await Promise.allSettled([summaryPromise, timelinePromise, dpgfSourcePromise]);
+
+  if (summaryResult.status === "rejected") {
+    const err = summaryResult.reason as unknown;
     if (
       err !== null &&
       typeof err === "object" &&
@@ -43,10 +47,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     throw err;
   }
 
-  const [timelineResult, dpgfSourceResult] = await Promise.allSettled([
-    fetchAffaireHubTimeline(projectId, timelinePage),
-    fetchAffaireHubDpgfSource(projectId),
-  ]);
+  const summary = summaryResult.value;
 
   const timeline =
     timelineResult.status === "fulfilled" ? timelineResult.value : null;

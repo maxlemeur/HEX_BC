@@ -198,13 +198,22 @@ export function ImportWizard() {
     refreshImports,
   } = useImportFlow();
 
+  function resetFileSelectionState() {
+    setSelectedFile(null);
+    setFileStage("idle");
+    setDetectedHeaders([]);
+    setDetectedHeaderRow(null);
+    setFormatError(null);
+    setHeaderRowInput("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
   // File validation + header scanning effect
   useEffect(() => {
     if (!selectedFile) {
-      setFileStage("idle");
-      setDetectedHeaders([]);
-      setDetectedHeaderRow(null);
-      setFormatError(null);
+      scanAbortRef.current += 1;
       return;
     }
 
@@ -283,25 +292,13 @@ export function ImportWizard() {
       const success = await importFile(selectedFile, { headerRowNumber });
       if (!success) return;
 
-      setSelectedFile(null);
-      setFileStage("idle");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      resetFileSelectionState();
     },
     [selectedFile, isSubmitting, headerRowInput, importFile]
   );
 
   function clearSelectedFile() {
-    setSelectedFile(null);
-    setFileStage("idle");
-    setDetectedHeaders([]);
-    setDetectedHeaderRow(null);
-    setFormatError(null);
-    setHeaderRowInput("");
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+    resetFileSelectionState();
   }
 
   function handleDrop(event: React.DragEvent) {
@@ -432,7 +429,11 @@ export function ImportWizard() {
                   className="absolute inset-0 cursor-pointer opacity-0"
                   onChange={(event) => {
                     const nextFile = event.target.files?.[0] ?? null;
-                    setSelectedFile(nextFile);
+                    if (nextFile) {
+                      setSelectedFile(nextFile);
+                    } else {
+                      resetFileSelectionState();
+                    }
                   }}
                   disabled={isSubmitting}
                   required

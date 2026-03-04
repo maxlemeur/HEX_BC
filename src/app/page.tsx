@@ -10,10 +10,124 @@ type ChapterState = {
   chaosMultiplier: number;
 };
 
-type StoryChapter = 1 | 2 | 3 | 4;
+type ThreeVector3 = {
+  x: number;
+  y: number;
+  z: number;
+};
 
-const isStoryChapter = (value: number): value is StoryChapter =>
-  value >= 1 && value <= 4;
+type ThreeRotation = {
+  x: number;
+  y: number;
+};
+
+type ThreeMaterialWithOpacity = {
+  opacity: number;
+};
+
+type ThreeGridHelper = {
+  position: { y: number };
+  material: ThreeMaterialWithOpacity;
+};
+
+type ThreeScene = {
+  fog: unknown;
+  position: unknown;
+  add: (...objects: unknown[]) => void;
+};
+
+type ThreeCamera = {
+  aspect: number;
+  position: ThreeVector3;
+  updateProjectionMatrix: () => void;
+  lookAt: (target: unknown) => void;
+};
+
+type ThreeRenderer = {
+  domElement: Node;
+  setSize: (width: number, height: number) => void;
+  setPixelRatio: (value: number) => void;
+  setClearColor: (color: number, alpha?: number) => void;
+  render: (scene: ThreeScene, camera: ThreeCamera) => void;
+  dispose: () => void;
+};
+
+type ThreeGroup = {
+  rotation: ThreeRotation;
+  add: (...objects: unknown[]) => void;
+};
+
+type ThreeBufferAttribute = {
+  array: Float32Array;
+  needsUpdate: boolean;
+};
+
+type ThreePoints = {
+  rotation: { y: number };
+  geometry: unknown;
+};
+
+type ThreeParticlePoints = {
+  rotation: { y: number };
+  geometry: {
+    attributes: {
+      position: ThreeBufferAttribute;
+      randomOffset: ThreeBufferAttribute;
+    };
+  };
+};
+
+type ThreeBufferGeometry = {
+  attributes: {
+    position: ThreeBufferAttribute;
+    randomOffset: ThreeBufferAttribute;
+  };
+  setAttribute: (name: string, attribute: ThreeBufferAttribute) => void;
+};
+
+type ThreeLibrary = {
+  AdditiveBlending: unknown;
+  Scene: new () => ThreeScene;
+  FogExp2: new (color: number, density: number) => unknown;
+  PerspectiveCamera: new (
+    fov: number,
+    aspect: number,
+    near: number,
+    far: number
+  ) => ThreeCamera;
+  WebGLRenderer: new (options: { antialias: boolean; alpha: boolean }) => ThreeRenderer;
+  GridHelper: new (
+    size: number,
+    divisions: number,
+    colorCenterLine: number,
+    colorGrid: number
+  ) => ThreeGridHelper;
+  Group: new () => ThreeGroup;
+  IcosahedronGeometry: new (radius: number, detail: number) => unknown;
+  MeshBasicMaterial: new (options: {
+    color: number;
+    wireframe?: boolean;
+    transparent?: boolean;
+    opacity?: number;
+  }) => unknown;
+  Mesh: new (geometry: unknown, material: unknown) => unknown;
+  TorusKnotGeometry: new (
+    radius: number,
+    tube: number,
+    tubularSegments: number,
+    radialSegments: number
+  ) => unknown;
+  PointsMaterial: new (options: {
+    color?: number;
+    size: number;
+    transparent?: boolean;
+    opacity?: number;
+    blending?: unknown;
+  }) => unknown;
+  Points: new (geometry: unknown, material: unknown) => ThreePoints;
+  BufferGeometry: new () => ThreeBufferGeometry;
+  BufferAttribute: new (array: Float32Array, itemSize: number) => ThreeBufferAttribute;
+};
 
 const ThreeBackground = ({ chapter }: { chapter: number }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -84,14 +198,14 @@ const ThreeBackground = ({ chapter }: { chapter: number }) => {
   }, [chapter]);
 
   useEffect(() => {
-    let scene: any;
-    let camera: any;
-    let renderer: any;
+    let scene: ThreeScene | null = null;
+    let camera: ThreeCamera | null = null;
+    let renderer: ThreeRenderer | null = null;
     let animationId = 0;
-    let mainObject: any;
-    let particles: any;
-    let gridHelperBottom: any;
-    let gridHelperTop: any;
+    let mainObject: ThreeGroup | null = null;
+    let particles: ThreeParticlePoints | null = null;
+    let gridHelperBottom: ThreeGridHelper | null = null;
+    let gridHelperTop: ThreeGridHelper | null = null;
     let mouseX = 0;
     let mouseY = 0;
 
@@ -113,7 +227,7 @@ const ThreeBackground = ({ chapter }: { chapter: number }) => {
     };
 
     const initThreeJS = () => {
-      const THREE: any = (window as Window & { THREE?: any }).THREE;
+      const THREE = (window as Window & { THREE?: ThreeLibrary }).THREE;
       if (!THREE) {
         return;
       }
@@ -202,7 +316,7 @@ const ThreeBackground = ({ chapter }: { chapter: number }) => {
         opacity: 0.6,
         blending: THREE.AdditiveBlending,
       });
-      particles = new THREE.Points(particleGeo, particleMat);
+      particles = new THREE.Points(particleGeo, particleMat) as ThreeParticlePoints;
       scene.add(particles);
 
       document.addEventListener("mousemove", onDocumentMouseMove);
@@ -222,7 +336,7 @@ const ThreeBackground = ({ chapter }: { chapter: number }) => {
       currentCoreSpeedY += (state.coreSpeedY - currentCoreSpeedY) * 0.05;
       currentGridOpacity += (state.gridOpacity - currentGridOpacity) * 0.05;
 
-      if (gridHelperBottom && gridHelperBottom.material) {
+      if (gridHelperBottom && gridHelperTop) {
         gridHelperBottom.material.opacity = currentGridOpacity;
         gridHelperTop.material.opacity = currentGridOpacity * 0.5;
       }
@@ -249,16 +363,18 @@ const ThreeBackground = ({ chapter }: { chapter: number }) => {
         particles.geometry.attributes.position.needsUpdate = true;
       }
 
-      if (camera) {
+      if (camera && scene) {
         camera.position.x += (mouseX - camera.position.x) * 0.05;
         camera.position.y += (-mouseY - camera.position.y) * 0.05 + 0.02;
         camera.lookAt(scene.position);
       }
 
-      renderer.render(scene, camera);
+      if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+      }
     };
 
-    const maybeThree = (window as Window & { THREE?: any }).THREE;
+    const maybeThree = (window as Window & { THREE?: ThreeLibrary }).THREE;
     if (!maybeThree) {
       const script = document.createElement("script");
       script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
@@ -291,21 +407,7 @@ const ThreeBackground = ({ chapter }: { chapter: number }) => {
 };
 
 const StoryVisual = ({ chapter }: { chapter: number }) => {
-  const [animationKeys, setAnimationKeys] = useState<Record<StoryChapter, number>>({
-    1: 0,
-    2: 0,
-    3: 0,
-    4: 0,
-  });
-
-  useEffect(() => {
-    if (isStoryChapter(chapter)) {
-      setAnimationKeys((prev) => ({
-        ...prev,
-        [chapter]: prev[chapter] + 1,
-      }));
-    }
-  }, [chapter]);
+  const animationSeed = chapter;
 
   return (
     <div className="relative w-full h-[280px] md:h-[500px] flex items-center justify-center">
@@ -673,7 +775,7 @@ const StoryVisual = ({ chapter }: { chapter: number }) => {
           chapter === 1 ? "opacity-100 scale-100" : "opacity-0 scale-75 pointer-events-none"
         }`}
       >
-        <div key={`step1-${animationKeys[1]}`} className="w-full h-full relative">
+        <div key={`step1-${animationSeed}`} className="w-full h-full relative">
           <div
             className="absolute top-[5%] left-[0%] z-20"
             style={{ animation: "float-1 7s ease-in-out infinite" }}
@@ -848,7 +950,7 @@ const StoryVisual = ({ chapter }: { chapter: number }) => {
         }`}
       >
         <div
-          key={`step2-${animationKeys[2]}`}
+          key={`step2-${animationSeed}`}
           className="relative w-full h-[350px] flex flex-col items-center justify-center mt-10"
         >
           <div
@@ -1003,7 +1105,7 @@ const StoryVisual = ({ chapter }: { chapter: number }) => {
         }`}
       >
         <div
-          key={`step3-${animationKeys[3]}`}
+          key={`step3-${animationSeed}`}
           className="w-full"
         >
           <div style={{ animation: "step3-table-appear 10s infinite" }}>
@@ -1120,7 +1222,7 @@ const StoryVisual = ({ chapter }: { chapter: number }) => {
         }`}
       >
         <div
-          key={`step4-${animationKeys[4]}`}
+          key={`step4-${animationSeed}`}
           className="relative w-full pb-10 md:pb-0"
         >
           <div
@@ -1226,7 +1328,7 @@ const StoryVisual = ({ chapter }: { chapter: number }) => {
               </svg>
             </div>
             <h3 className="text-2xl font-bold text-white mb-2">Chiffrage Validé</h3>
-            <p className="text-slate-400 text-sm mb-6">Prêt pour l'exécution automatique</p>
+            <p className="text-slate-400 text-sm mb-6">Prêt pour l&apos;exécution automatique</p>
 
             <div className="flex justify-center gap-4 mb-8">
               <div className="bg-slate-800/80 px-4 py-3 rounded-lg border border-slate-700 w-1/2">
