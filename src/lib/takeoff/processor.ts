@@ -32,7 +32,11 @@ import {
   getTakeoffLevelCProcessingConfigForTenant,
 } from "@/lib/takeoff/feature-flags";
 import { getTakeoffLevelConfig, getTakeoffPrompt } from "@/lib/takeoff/prompts";
-import { TakeoffExchangeSchema, TakeoffWarningSchema } from "@/lib/takeoff/schemas";
+import {
+  TakeoffChunkExchangeSchema,
+  TakeoffExchangeSchema,
+  TakeoffWarningSchema,
+} from "@/lib/takeoff/schemas";
 import type { TakeoffExchange, TakeoffWarning } from "@/lib/takeoff/types";
 import { toUnitToken } from "@/lib/takeoff/units";
 
@@ -459,6 +463,52 @@ function buildLevelBTableMapping(tables: TakeoffExchange["tables"]) {
   });
 
   return { mapping, pageItemCounters: new Map<number, number>() };
+}
+
+function normalizeTableTextToken(value: string | null | undefined) {
+  if (typeof value !== "string") return "";
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function buildLevelBTableSignature(table: NonNullable<TakeoffExchange["tables"]>[number]) {
+  const headersSignature = table.headers
+    .map((header) => normalizeTableTextToken(header))
+    .join("||");
+  const rowsSignature = table.rows
+    .map((row) => {
+      const cellsSignature = row.cells
+        .map((cell) => normalizeTableTextToken(cell))
+        .join("|");
+      return `${row.row_index}:${cellsSignature}`;
+    })
+    .join("##");
+
+  return `${table.page}::${normalizeTableTextToken(table.title)}::${headersSignature}::${rowsSignature}`;
+}
+
+function dedupeLevelBTables(tables: TakeoffExchange["tables"]) {
+  if (!tables || tables.length === 0) {
+    return tables;
+  }
+
+  const seen = new Set<string>();
+  const deduped: NonNullable<TakeoffExchange["tables"]> = [];
+
+  tables.forEach((table) => {
+    const signature = buildLevelBTableSignature(table);
+    if (seen.has(signature)) {
+      return;
+    }
+    seen.add(signature);
+    deduped.push(table);
+  });
+
+  return deduped.length > 0 ? deduped : undefined;
 }
 
 function normalizeTakeoffExchange(input: {
@@ -2393,7 +2443,7 @@ async function processLevelBGeminiChunks(input: {
 
     const geminiResult = await input.callGemini<TakeoffExchange>({
       prompt,
-      schema: TakeoffExchangeSchema,
+      schema: TakeoffChunkExchangeSchema,
       files: [
         {
           data: Buffer.from(bytesForChunk).toString("base64"),
@@ -2411,7 +2461,7 @@ async function processLevelBGeminiChunks(input: {
       },
     });
 
-    const parsedExchange = TakeoffExchangeSchema.parse(geminiResult.data);
+    const parsedExchange = TakeoffChunkExchangeSchema.parse(geminiResult.data);
     chunkExchanges.push({
       chunk,
       exchange:
@@ -2436,8 +2486,12 @@ async function processLevelBGeminiChunks(input: {
           deduplicatedItems: chunkExchanges[0].exchange.items.length,
           duplicateItems: 0,
         };
+  const strictMergedExchange = TakeoffExchangeSchema.parse({
+    ...merged.exchange,
+    tables: dedupeLevelBTables(merged.exchange.tables),
+  });
   const normalized = normalizeTakeoffExchange({
-    exchange: merged.exchange,
+    exchange: strictMergedExchange,
     sourceFileName: normalizeNullableText(input.job.source_file_name),
     parseWarnings: [],
   });

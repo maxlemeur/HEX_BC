@@ -1873,6 +1873,217 @@ describe("processLevelB", () => {
     );
   });
 
+  it("accepts table-less intermediate Level B chunks and validates merged output", async () => {
+    const pdfBytes = await createPdfArrayBuffer(3);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "niveau-b-intermediate-empty.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      featureFlags: {
+        TAKEOFF_C_CHUNK_THRESHOLD_PAGES: "1",
+        TAKEOFF_C_CHUNK_SIZE_PAGES: "2",
+        TAKEOFF_C_CHUNK_OVERLAP_PAGES: "0",
+        TAKEOFF_C_MAX_PDF_PAGES: "50",
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+    });
+
+    const chunkWithoutTables: TakeoffExchange = {
+      items: [],
+      warnings: [],
+      metadata: {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.7,
+    };
+    const chunkWithTables = buildTakeoffExchange(
+      [
+        {
+          designation: "Support mural",
+          quantity: 8,
+          unit: "u",
+          source_page: 1,
+          source_file: "niveau-b-intermediate-empty.pdf",
+          confidence: 0.84,
+          evidence: "Chunk with tables",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+
+    const callGemini = vi
+      .fn()
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunkWithoutTables, {
+          tokenCount: 300,
+          costCents: 15,
+          durationMs: 700,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-b-v1",
+        })
+      )
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunkWithTables, {
+          tokenCount: 420,
+          costCents: 20,
+          durationMs: 850,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-b-v1",
+        })
+      );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.tablesCount).toBe(1);
+    expect(callGemini).toHaveBeenCalledTimes(2);
+    expect(mock.state.takeoffResults[0]?.tables).toHaveLength(1);
+    expect(mock.state.takeoffItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ designation: "Support mural", source_page: 3 }),
+      ])
+    );
+  });
+
+  it("deduplicates overlapping Level B tables before normalization", async () => {
+    const pdfBytes = await createPdfArrayBuffer(6);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "niveau-b-overlap.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      featureFlags: {
+        TAKEOFF_C_CHUNK_THRESHOLD_PAGES: "1",
+        TAKEOFF_C_CHUNK_SIZE_PAGES: "4",
+        TAKEOFF_C_CHUNK_OVERLAP_PAGES: "2",
+        TAKEOFF_C_MAX_PDF_PAGES: "50",
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+    });
+
+    const chunk1 = buildTakeoffExchange(
+      [
+        {
+          designation: "Cheminement principal",
+          quantity: 10,
+          unit: "m",
+          source_page: 4,
+          source_file: "niveau-b-overlap.pdf",
+          confidence: 0.9,
+          evidence: "Chunk 1",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+    chunk1.tables = [
+      {
+        page: 4,
+        title: "Zone de recouvrement",
+        headers: ["designation", "quantity", "unit"],
+        rows: [{ row_index: 0, cells: ["Cheminement principal", "10", "m"] }],
+      },
+    ];
+
+    const chunk2 = buildTakeoffExchange(
+      [
+        {
+          designation: "Cheminement principal",
+          quantity: 10,
+          unit: "m",
+          source_page: 2,
+          source_file: "niveau-b-overlap.pdf",
+          confidence: 0.88,
+          evidence: "Chunk 2",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+    chunk2.tables = [
+      {
+        page: 2,
+        title: "Zone de recouvrement",
+        headers: ["designation", "quantity", "unit"],
+        rows: [{ row_index: 0, cells: ["Cheminement principal", "10", "m"] }],
+      },
+    ];
+
+    const callGemini = vi
+      .fn()
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunk1, {
+          tokenCount: 500,
+          costCents: 25,
+          durationMs: 900,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-b-v1",
+        })
+      )
+      .mockResolvedValueOnce(
+        buildGeminiResult(chunk2, {
+          tokenCount: 520,
+          costCents: 26,
+          durationMs: 950,
+          model: "gemini-2.5-pro",
+          promptVersion: "takeoff-b-v1",
+        })
+      );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.tablesCount).toBe(1);
+    expect(mock.state.takeoffResults[0]?.tables).toHaveLength(1);
+    expect(mock.state.takeoffResults[0]?.tables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          page: 4,
+          title: "Zone de recouvrement",
+        }),
+      ])
+    );
+  });
+
   it("fails with snapshot when Gemini response is invalid for level B schema", async () => {
     const mock = createTakeoffProcessorSupabaseMock({
       job: {

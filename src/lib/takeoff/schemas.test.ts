@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
+  TakeoffChunkExchangeSchema,
   TakeoffExchangeSchema,
   takeoffApplyRequestSchema,
   takeoffPreviewConversionResponseSchema,
@@ -97,6 +98,12 @@ describe("TakeoffExchangeSchema", () => {
     expect(parsed.success).toBe(false);
     if (parsed.success) return;
     expect(parsed.error.issues.some((issue) => issue.path.join(".") === "tables")).toBe(true);
+  });
+
+  it("accepts intermediate level B payloads without tables for chunk processing", () => {
+    const parsed = TakeoffChunkExchangeSchema.safeParse(createBasePayload("B"));
+
+    expect(parsed.success).toBe(true);
   });
 
   it("rejects level C payloads without global confidence", () => {

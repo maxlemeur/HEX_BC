@@ -104,51 +104,77 @@ const takeoffExchangeBaseSchema = z
   })
   .strict();
 
-export const TakeoffExchangeSchema = takeoffExchangeBaseSchema.superRefine(
-  (payload, ctx) => {
-    if (payload.metadata.level === "B" && (!payload.tables || payload.tables.length === 0)) {
+type TakeoffExchangeBasePayload = z.infer<typeof takeoffExchangeBaseSchema>;
+
+function refineTakeoffExchangePayload(
+  payload: TakeoffExchangeBasePayload,
+  ctx: z.RefinementCtx,
+  options: {
+    requireLevelBTables: boolean;
+  }
+) {
+  if (
+    options.requireLevelBTables &&
+    payload.metadata.level === "B" &&
+    (!payload.tables || payload.tables.length === 0)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "tables est requis pour le niveau B.",
+      path: ["tables"],
+    });
+  }
+
+  if (payload.metadata.level === "C") {
+    if (payload.confidence === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "tables est requis pour le niveau B.",
-        path: ["tables"],
+        message: "confidence global est requis pour le niveau C.",
+        path: ["confidence"],
       });
     }
 
-    if (payload.metadata.level === "C") {
-      if (payload.confidence === undefined) {
+    payload.items.forEach((item, index) => {
+      if (item.confidence === undefined) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "confidence global est requis pour le niveau C.",
-          path: ["confidence"],
+          message: "confidence est requis pour chaque item au niveau C.",
+          path: ["items", index, "confidence"],
         });
       }
 
-      payload.items.forEach((item, index) => {
-        if (item.confidence === undefined) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "confidence est requis pour chaque item au niveau C.",
-            path: ["items", index, "confidence"],
-          });
-        }
+      if (item.source_page === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "source_page est requis pour chaque item au niveau C.",
+          path: ["items", index, "source_page"],
+        });
+      }
 
-        if (item.source_page === undefined) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "source_page est requis pour chaque item au niveau C.",
-            path: ["items", index, "source_page"],
-          });
-        }
+      if (!item.evidence || item.evidence.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "evidence est requis pour chaque item au niveau C.",
+          path: ["items", index, "evidence"],
+        });
+      }
+    });
+  }
+}
 
-        if (!item.evidence || item.evidence.trim().length === 0) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "evidence est requis pour chaque item au niveau C.",
-            path: ["items", index, "evidence"],
-          });
-        }
-      });
-    }
+export const TakeoffChunkExchangeSchema = takeoffExchangeBaseSchema.superRefine(
+  (payload, ctx) => {
+    refineTakeoffExchangePayload(payload, ctx, {
+      requireLevelBTables: false,
+    });
+  }
+);
+
+export const TakeoffExchangeSchema = takeoffExchangeBaseSchema.superRefine(
+  (payload, ctx) => {
+    refineTakeoffExchangePayload(payload, ctx, {
+      requireLevelBTables: true,
+    });
   }
 );
 
