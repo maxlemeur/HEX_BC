@@ -24,9 +24,14 @@ async function parseMultipartFormData(request: Request): Promise<FormData> {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const data = await listUserImports();
+    const { searchParams } = new URL(request.url);
+    const projectId = searchParams.get("project_id") ?? searchParams.get("projectId");
+
+    const data = await listUserImports({
+      projectId,
+    });
     return ok(data);
   } catch (error) {
     return toErrorResponse(error);

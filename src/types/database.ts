@@ -1975,6 +1975,23 @@ export type Database = {
         };
         Returns: string;
       };
+      create_estimate_version_from_import_lines: {
+        Args: {
+          p_project_id: string;
+          p_import_id: string;
+          p_version_title: string | null;
+          p_section_title: string | null;
+          p_lines: Json;
+        };
+        Returns: {
+          version_id: string;
+          section_id: string;
+          inserted_count: number;
+          total_ht_cents: number;
+          total_tax_cents: number;
+          total_ttc_cents: number;
+        }[];
+      };
       duplicate_estimate_template: {
         Args: {
           p_template_id: string;

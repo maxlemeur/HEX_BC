@@ -61,6 +61,10 @@ export type ApiFailureResponse = {
   error: ApiErrorBody;
 };
 
+export type ListUserImportsOptions = {
+  projectId?: string | null;
+};
+
 const IMPORT_SELECT_COLUMNS = [
   "id",
   "created_at",
@@ -510,7 +514,8 @@ function formatUnexpectedImportError(error: unknown): ImportsApiError {
   return internalError();
 }
 
-export async function listUserImports() {
+export async function listUserImports(options?: ListUserImportsOptions) {
+  const projectId = parseOptionalProjectId(options?.projectId ?? null);
   const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
 
   let query = supabase
@@ -521,6 +526,10 @@ export async function listUserImports() {
 
   if (!isTenantAdmin) {
     query = query.eq("user_id", userId);
+  }
+
+  if (projectId) {
+    query = query.eq("project_id", projectId);
   }
 
   const { data, error } = await query;
