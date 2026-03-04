@@ -4,7 +4,9 @@ import Link from "next/link";
 
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
+import { useDeleteAffaire } from "./useDeleteAffaire";
 import type { AffaireListItem } from "./types";
 
 type AffairesEmptyVariant = "no-data" | "filtered";
@@ -80,8 +82,11 @@ export function AffairesCardList({
     );
   }
 
+  const { requestDelete, modalProps } = useDeleteAffaire();
+
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <ConfirmModal {...modalProps} />
       {items.map((item) => {
         const hasCurrentVersion =
           item.hasCurrentVersion &&
@@ -95,11 +100,14 @@ export function AffairesCardList({
             : `/dashboard/estimates/${item.currentVersionId}`
           : `/dashboard/affaires/${item.projectId}`;
 
+        const canDelete =
+          !hasCurrentVersion || item.currentStatus === "draft";
+
         return (
           <Link
             key={item.projectId}
             href={href}
-            className="dashboard-card p-4 transition-shadow hover:shadow-md cursor-pointer block"
+            className="dashboard-card p-4 transition-shadow hover:shadow-md cursor-pointer block relative"
           >
             <div className="flex items-start justify-between gap-2 mb-2">
               <div className="min-w-0">
@@ -112,9 +120,39 @@ export function AffairesCardList({
                   </p>
                 )}
               </div>
-              <span className="text-xs text-[var(--slate-400)] shrink-0">
-                {item.versionCount} version{item.versionCount !== 1 ? "s" : ""}
-              </span>
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-xs text-[var(--slate-400)]">
+                  {item.versionCount} version{item.versionCount !== 1 ? "s" : ""}
+                </span>
+                {canDelete && (
+                  <button
+                    type="button"
+                    title="Supprimer l'affaire"
+                    className="inline-flex items-center justify-center rounded p-1 text-[var(--slate-400)] hover:text-red-600 hover:bg-red-50 transition-colors"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      requestDelete(item.projectId, item.projectName);
+                    }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
 
             {item.projectReference && (

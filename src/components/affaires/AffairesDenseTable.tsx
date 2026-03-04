@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
+import { useDeleteAffaire } from "./useDeleteAffaire";
 import type { AffaireListItem } from "./types";
 
 type AffairesEmptyVariant = "no-data" | "filtered";
@@ -37,7 +39,7 @@ function AffairesEmptyState({
 }) {
   return (
     <tr>
-      <td colSpan={8} className="py-16 text-center">
+      <td colSpan={9} className="py-16 text-center">
         {emptyVariant === "no-data" ? (
           <EmptyState
             icon={
@@ -95,9 +97,11 @@ export function AffairesDenseTable({
   onCreateAffaire,
 }: Readonly<Props>) {
   const router = useRouter();
+  const { requestDelete, modalProps } = useDeleteAffaire();
 
   return (
     <div className="dashboard-card overflow-hidden">
+      <ConfirmModal {...modalProps} />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -126,6 +130,7 @@ export function AffairesDenseTable({
               <th className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Date MAJ
               </th>
+              <th className="w-10" />
             </tr>
           </thead>
           <tbody>
@@ -199,6 +204,35 @@ export function AffairesDenseTable({
                     </td>
                     <td className="px-4 py-3 text-right text-[var(--slate-400)] whitespace-nowrap">
                       {formatDate(item.currentUpdatedAt)}
+                    </td>
+                    <td className="px-2 py-3 text-center">
+                      {(!hasCurrentVersion || item.currentStatus === "draft") && (
+                        <button
+                          type="button"
+                          title="Supprimer l'affaire"
+                          className="inline-flex items-center justify-center rounded p-1 text-[var(--slate-400)] hover:text-red-600 hover:bg-red-50 transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            requestDelete(item.projectId, item.projectName);
+                          }}
+                        >
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                          </svg>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
