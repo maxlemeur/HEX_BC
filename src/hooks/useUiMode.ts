@@ -11,25 +11,31 @@ import {
   type UiMode,
 } from "@/lib/ui-mode";
 
-const UI_MODE_STORAGE_KEY = "timax-ui-mode";
+const UI_MODE_STORAGE_KEY_PREFIX = "timax-ui-mode";
 const ONBOARDING_MODE_STORAGE_KEY = "timax-onboarding-ui-mode";
 
-function readUiModeFromStorage(): UiMode | null {
+function getUiModeStorageKey(profileId: string | null) {
+  return profileId
+    ? `${UI_MODE_STORAGE_KEY_PREFIX}:${profileId}`
+    : UI_MODE_STORAGE_KEY_PREFIX;
+}
+
+function readUiModeFromStorage(profileId: string | null): UiMode | null {
   if (typeof window === "undefined") return null;
 
   try {
-    const rawValue = localStorage.getItem(UI_MODE_STORAGE_KEY);
+    const rawValue = localStorage.getItem(getUiModeStorageKey(profileId));
     return isUiMode(rawValue) ? rawValue : null;
   } catch {
     return null;
   }
 }
 
-function writeUiModeToStorage(mode: UiMode) {
+function writeUiModeToStorage(mode: UiMode, profileId: string | null) {
   if (typeof window === "undefined") return;
 
   try {
-    localStorage.setItem(UI_MODE_STORAGE_KEY, mode);
+    localStorage.setItem(getUiModeStorageKey(profileId), mode);
     localStorage.setItem(ONBOARDING_MODE_STORAGE_KEY, mode);
   } catch {
     // Keep the UI usable even if storage fails.
@@ -40,33 +46,37 @@ type SetModeInput = UiMode | ((previousMode: UiMode) => UiMode);
 
 export function useUiMode() {
   const { profile, setProfile } = useUserContext();
+  const profileId = profile?.id ?? null;
   const profileMode = normalizeUiMode(profile?.ui_mode ?? DEFAULT_UI_MODE);
 
-  const [mode, setModeState] = useState<UiMode>(
-    () => readUiModeFromStorage() ?? profileMode
+  const [fallbackMode, setFallbackMode] = useState<UiMode>(
+    () => readUiModeFromStorage(null) ?? profileMode
   );
+  const mode = profileId ? profileMode : fallbackMode;
 
-  const profileIdRef = useRef<string | null>(profile?.id ?? null);
+  const profileIdRef = useRef<string | null>(profileId);
   const modeRef = useRef<UiMode>(mode);
   const syncedDbModeRef = useRef<UiMode>(profileMode);
 
   const syncModeToDatabase = useCallback(
-    (nextMode: UiMode) => {
-      if (!profileIdRef.current) return;
+    (nextMode: UiMode, expectedProfileId: string) => {
+      if (!expectedProfileId) return;
 
       void updateProfileUiMode({ mode: nextMode })
         .then((result) => {
           const persistedMode = normalizeUiMode(result.mode);
-          syncedDbModeRef.current = persistedMode;
-
           setProfile((currentProfile) =>
-            currentProfile
+            currentProfile?.id === expectedProfileId
               ? {
                   ...currentProfile,
                   ui_mode: persistedMode,
                 }
               : currentProfile
           );
+
+          if (profileIdRef.current === expectedProfileId) {
+            syncedDbModeRef.current = persistedMode;
+          }
         })
         .catch(() => {
           // Keep optimistic mode locally if the round-trip fails.
@@ -77,26 +87,13 @@ export function useUiMode() {
 
   useEffect(() => {
     modeRef.current = mode;
-    writeUiModeToStorage(mode);
-  }, [mode]);
+    writeUiModeToStorage(mode, profileId);
+  }, [mode, profileId]);
 
   useEffect(() => {
-    profileIdRef.current = profile?.id ?? null;
-
-    if (!profileIdRef.current) {
-      return;
-    }
-
-    if (profileMode === modeRef.current) {
-      syncedDbModeRef.current = profileMode;
-      return;
-    }
-
-    if (syncedDbModeRef.current !== modeRef.current) {
-      syncedDbModeRef.current = modeRef.current;
-      syncModeToDatabase(modeRef.current);
-    }
-  }, [profile?.id, profileMode, syncModeToDatabase]);
+    profileIdRef.current = profileId;
+    syncedDbModeRef.current = profileMode;
+  }, [profileId, profileMode]);
 
   const setMode = useCallback(
     (next: SetModeInput) => {
@@ -109,8 +106,12 @@ export function useUiMode() {
       }
 
       modeRef.current = computedMode;
-      setModeState(computedMode);
-      writeUiModeToStorage(computedMode);
+      writeUiModeToStorage(computedMode, profileIdRef.current);
+
+      if (!profileIdRef.current) {
+        setFallbackMode(computedMode);
+        return;
+      }
 
       setProfile((currentProfile) =>
         currentProfile
@@ -122,8 +123,9 @@ export function useUiMode() {
       );
 
       if (profileIdRef.current && syncedDbModeRef.current !== computedMode) {
+        const expectedProfileId = profileIdRef.current;
         syncedDbModeRef.current = computedMode;
-        syncModeToDatabase(computedMode);
+        syncModeToDatabase(computedMode, expectedProfileId);
       }
     },
     [setProfile, syncModeToDatabase]

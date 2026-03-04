@@ -8,6 +8,7 @@ import {
 import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { UserProvider } from "@/components/UserContext";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
 import type { Database } from "@/types/database";
 
@@ -117,77 +118,92 @@ function renderEstimateEditorTable(options?: { currency?: "EUR" | "USD" | "GBP" 
   const onApplyBulkMajoration = vi.fn().mockResolvedValue(undefined);
 
   render(
-    <EstimateEditorTable
-      versionId="version-1"
-      currency={options?.currency ?? "EUR"}
-      items={[
-        createItem({
-          id: "line-1",
-          item_type: "line",
-          title: "Tube acier",
-          quantity: 2,
-          unit_price_ht_cents: 950,
-          pu_ht_cents: 950,
-          line_total_ht_cents: 1900,
-        }),
-      ]}
-      categories={[]}
-      supplyTypes={[]}
-      laborRoles={[]}
-      suggestionRules={[]}
-      detectedOutlierFlagsByItemId={{}}
-      dismissedOutlierFlagsByItemId={{}}
-      outlierActionPendingByItemId={{}}
-      outlierDetectionMethod="iqr"
-      outlierThreshold={1.5}
-      qualityFlagsByItemId={{}}
-      qualityCounts={{
-        linesCount: 1,
-        linesWithAnomaliesCount: 0,
-        totalFlagsCount: 0,
-        byFlag: {
-          missing_price: 0,
-          missing_quantity: 0,
-          missing_labor_time: 0,
-          missing_labor_role: 0,
-          price_outlier: 0,
-          quantity_outlier: 0,
-          supplier_price_outdated: 0,
-          labor_split_incomplete: 0,
-        },
+    <UserProvider
+      initialUserEmail="integration@test.local"
+      initialProfile={{
+        id: "user-1",
+        full_name: "Integration User",
+        phone: null,
+        job_title: null,
+        work_email: "integration@test.local",
+        role: "buyer",
+        ui_mode: "expert",
+        tenant_id: "tenant-1",
+        tenant_role: "admin",
       }}
-      qualityFilter="all_lines"
-      actionError={null}
-      marginMultiplier={1}
-      discountCents={0}
-      taxRateBp={2000}
-      laborRateById={new Map()}
-      isReadOnly={false}
-      onQualityFilterChange={vi.fn()}
-      onOutlierDetectionMethodChange={vi.fn()}
-      onOutlierThresholdChange={vi.fn()}
-      onToggleOutlierDismiss={vi.fn()}
-      onAddSection={vi.fn()}
-      onAddLine={vi.fn()}
-      onDeleteItem={vi.fn()}
-      onPatchItem={onPatchItem}
-      onApplyBulkMajoration={onApplyBulkMajoration}
-      onBulkDeleteLines={vi.fn().mockResolvedValue(undefined)}
-      onBulkMoveLines={vi.fn().mockResolvedValue(undefined)}
-      onBulkSetCategory={vi.fn().mockResolvedValue(undefined)}
-      onBulkSetLaborRole={vi.fn().mockResolvedValue(undefined)}
-      onInsertAssembly={vi.fn().mockResolvedValue(undefined)}
-      onPasteRows={vi.fn().mockResolvedValue(undefined)}
-      onUndo={vi.fn().mockResolvedValue(undefined)}
-      onRedo={vi.fn().mockResolvedValue(undefined)}
-      canUndo={false}
-      canRedo={false}
-      isUndoRedoBusy={false}
-      bulkSuggestionEligibleCount={0}
-      onOpenBulkSuggestDialog={vi.fn()}
-      onReorder={vi.fn()}
-      onMoveItem={vi.fn()}
-    />
+    >
+      <EstimateEditorTable
+        versionId="version-1"
+        currency={options?.currency ?? "EUR"}
+        items={[
+          createItem({
+            id: "line-1",
+            item_type: "line",
+            title: "Tube acier",
+            quantity: 2,
+            unit_price_ht_cents: 950,
+            pu_ht_cents: 950,
+            line_total_ht_cents: 1900,
+          }),
+        ]}
+        categories={[]}
+        supplyTypes={[]}
+        laborRoles={[]}
+        suggestionRules={[]}
+        detectedOutlierFlagsByItemId={{}}
+        dismissedOutlierFlagsByItemId={{}}
+        outlierActionPendingByItemId={{}}
+        outlierDetectionMethod="iqr"
+        outlierThreshold={1.5}
+        qualityFlagsByItemId={{}}
+        qualityCounts={{
+          linesCount: 1,
+          linesWithAnomaliesCount: 0,
+          totalFlagsCount: 0,
+          byFlag: {
+            missing_price: 0,
+            missing_quantity: 0,
+            missing_labor_time: 0,
+            missing_labor_role: 0,
+            price_outlier: 0,
+            quantity_outlier: 0,
+            supplier_price_outdated: 0,
+            labor_split_incomplete: 0,
+          },
+        }}
+        qualityFilter="all_lines"
+        actionError={null}
+        marginMultiplier={1}
+        discountCents={0}
+        taxRateBp={2000}
+        laborRateById={new Map()}
+        isReadOnly={false}
+        onQualityFilterChange={vi.fn()}
+        onOutlierDetectionMethodChange={vi.fn()}
+        onOutlierThresholdChange={vi.fn()}
+        onToggleOutlierDismiss={vi.fn()}
+        onAddSection={vi.fn()}
+        onAddLine={vi.fn()}
+        onDeleteItem={vi.fn()}
+        onPatchItem={onPatchItem}
+        onApplyBulkMajoration={onApplyBulkMajoration}
+        onBulkDeleteLines={vi.fn().mockResolvedValue(undefined)}
+        onBulkMoveLines={vi.fn().mockResolvedValue(undefined)}
+        onBulkSetCategory={vi.fn().mockResolvedValue(undefined)}
+        onBulkSetLaborRole={vi.fn().mockResolvedValue(undefined)}
+        onInsertAssembly={vi.fn().mockResolvedValue(undefined)}
+        onPasteRows={vi.fn().mockResolvedValue(undefined)}
+        onUndo={vi.fn().mockResolvedValue(undefined)}
+        onRedo={vi.fn().mockResolvedValue(undefined)}
+        canUndo={false}
+        canRedo={false}
+        isUndoRedoBusy={false}
+        bulkSuggestionEligibleCount={0}
+        onOpenBulkSuggestDialog={vi.fn()}
+        onReorder={vi.fn()}
+        onMoveItem={vi.fn()}
+      />
+    </UserProvider>
   );
 
   return {
