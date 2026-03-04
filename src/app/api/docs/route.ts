@@ -56,7 +56,7 @@ function renderSwaggerHtml(specUrl: string, assetsBaseUrl: string): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>HEX BC API Docs</title>
+    <title>BC API Docs</title>
     <link rel="stylesheet" href="${assetsBaseUrl}/swagger-ui.css" />
     <style>
       html, body {

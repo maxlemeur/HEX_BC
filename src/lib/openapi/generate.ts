@@ -310,7 +310,7 @@ export function generateOpenApiDocument(
     openapi: "3.1.0",
     jsonSchemaDialect: JSON_SCHEMA_DIALECT,
     info: {
-      title: options.title ?? "HEX BC - API Chiffrage",
+      title: options.title ?? "BC - API Chiffrage",
       version: options.version ?? "1.0.0",
       description:
         options.description ??
