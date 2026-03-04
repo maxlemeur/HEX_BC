@@ -176,6 +176,7 @@ export function MappingWizard() {
   const [autoMappedCount, setAutoMappedCount] = useState(0);
   const [autoMappedColumns, setAutoMappedColumns] = useState<Array<{ source: string; target: string }>>([]);
   const [sampleValues, setSampleValues] = useState<Record<string, string[]>>({});
+  const [showAutoMapDetails, setShowAutoMapDetails] = useState(false);
   const previewRequestIdRef = useRef(0);
 
   const selectedImport = useMemo(
@@ -417,30 +418,40 @@ export function MappingWizard() {
 
   return (
     <div className="space-y-6">
-      {/* M-15: Auto-mapping notification with column details */}
+      {/* M-15: Auto-mapping notification — compact and collapsible */}
       {autoMappedCount > 0 ? (
-        <div className="rounded-xl border border-[var(--info)] bg-[var(--info-light)] px-4 py-3 text-sm text-[var(--info)]">
-          <p className="font-medium">
-            {autoMappedCount} colonne(s) pre-mappee(s) automatiquement.
-          </p>
-          <ul className="mt-1.5 space-y-0.5 text-xs">
-            {autoMappedColumns.map(({ source, target }) => {
-              const targetLabel = TARGET_FIELDS.find((f) => f.value === target)?.label ?? target;
-              return (
-                <li key={source}>
-                  <span className="font-medium">{source}</span>
-                  {" "}&rarr;{" "}
-                  <span>{targetLabel}</span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="mt-1.5 text-xs opacity-80">Verifiez les associations ci-dessous.</p>
+        <div className="rounded-xl border border-[var(--success)] bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-medium">
+              {autoMappedCount} colonne(s) pre-mappee(s) automatiquement
+            </p>
+            <button
+              type="button"
+              className="text-xs underline underline-offset-2 hover:no-underline"
+              onClick={() => setShowAutoMapDetails((prev) => !prev)}
+            >
+              {showAutoMapDetails ? "Masquer" : "Voir le detail"}
+            </button>
+          </div>
+          {showAutoMapDetails ? (
+            <div className="mt-2 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
+              {autoMappedColumns.map(({ source, target }) => {
+                const targetLabel = TARGET_FIELDS.find((f) => f.value === target)?.label ?? target;
+                return (
+                  <div key={source}>
+                    <span className="font-medium">{source}</span>
+                    {" "}&rarr;{" "}
+                    <span>{targetLabel}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       <section className="dashboard-card p-6">
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-2">
           <div>
             <label className="form-label" htmlFor="mapping-import-id">
               Import source
@@ -475,7 +486,7 @@ export function MappingWizard() {
               onChange={(event) => applyTemplate(event.target.value)}
               disabled={isLoading || templates.length === 0}
             >
-              <option value="">Aucun</option>
+              <option value="">Pas de template - mapping manuel</option>
               {templates.map((template) => (
                 <option key={template.id} value={template.id}>
                   {template.name}
@@ -485,45 +496,6 @@ export function MappingWizard() {
               ))}
             </select>
           </div>
-
-          <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3 text-sm">
-            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Import selectionne</p>
-            <p className="mt-1 font-semibold text-[var(--slate-800)]">
-              {selectedImport ? selectedImport.filename : "-"}
-            </p>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
-              {selectedImport ? `${selectedImport.row_count} lignes - statut ${selectedImport.status}` : ""}
-            </p>
-          </div>
-        </div>
-
-        {/* M-10: Consolidated to 2 buttons */}
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => void handleRefreshAll()}
-            disabled={!selectedImportId || isPreviewLoading}
-          >
-            {isPreviewLoading ? "Chargement..." : "Apercu et validation"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void handleCreateMapping()}
-            disabled={isSubmitting || !selectedImportId || !isMappingValid}
-            title={!isMappingValid ? "Mappez les champs requis (Code HEX, Designation) et resolvez les conflits avant d'enregistrer." : undefined}
-          >
-            {isSubmitting ? "Enregistrement..." : "Enregistrer le mapping"}
-          </button>
-
-          {/* M-09: Back to import button */}
-          <Link
-            href="/dashboard/imports"
-            className="btn btn-secondary"
-          >
-            Retour a l&apos;import
-          </Link>
         </div>
 
         {/* M-14: Hide template save fields when checkbox unchecked */}
@@ -583,30 +555,48 @@ export function MappingWizard() {
         disabled={isLoading || !selectedImportId}
       />
 
-      {/* M-13: Preview row count selector */}
-      <div className="flex items-center gap-2">
-        <label className="text-sm text-[var(--slate-600)]" htmlFor="preview-limit">
-          Lignes d&apos;apercu :
-        </label>
-        <select
-          id="preview-limit"
-          className="form-input form-select form-input--sm w-auto"
-          value={previewLimit}
-          onChange={(event) => setPreviewLimit(Number(event.target.value))}
-        >
-          <option value={20}>20</option>
-          <option value={50}>50</option>
-          <option value={100}>100</option>
-          <option value={200}>200</option>
-        </select>
-      </div>
-
       <DataPreview
         rows={previewRows}
         validation={validation}
         duplicates={duplicates}
         isLoading={isPreviewLoading}
+        previewLimit={previewLimit}
+        onPreviewLimitChange={setPreviewLimit}
       />
+
+      {/* Spacer for sticky bottom bar */}
+      <div className="h-20" />
+
+      {/* Sticky bottom action bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--slate-200)] bg-white/95 px-6 py-3 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] backdrop-blur-sm">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+          <Link
+            href="/dashboard/imports"
+            className="btn btn-secondary"
+          >
+            Retour a l&apos;import
+          </Link>
+
+          <div className="flex items-center gap-4">
+            <span className="hidden text-xs text-[var(--slate-500)] sm:inline">
+              {(() => {
+                const mappedValues = Object.values(mapping);
+                const mappedTargetSet = new Set(mappedValues);
+                return `${mappedTargetSet.size}/${TARGET_FIELDS.length} champs mappes`;
+              })()}
+            </span>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void handleCreateMapping()}
+              disabled={isSubmitting || !selectedImportId || !isMappingValid}
+              title={!isMappingValid ? "Mappez les champs requis (Code HEX, Designation) et resolvez les conflits avant d'enregistrer." : undefined}
+            >
+              {isSubmitting ? "Enregistrement..." : "Enregistrer le mapping"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

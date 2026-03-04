@@ -37,30 +37,58 @@ export function DataPreview({
   validation,
   duplicates,
   isLoading,
+  previewLimit,
+  onPreviewLimitChange,
 }: {
   rows: MappingPreviewRow[];
   validation: MappingValidation | null;
   duplicates: DuplicatesSummary | null;
   isLoading: boolean;
+  previewLimit?: number;
+  onPreviewLimitChange?: (limit: number) => void;
 }) {
   return (
     <section className="dashboard-card overflow-hidden">
       <div className="border-b border-[var(--slate-200)] px-6 py-4">
-        <h2 className="text-sm font-semibold text-[var(--slate-800)]">Apercu des donnees mappees</h2>
-        <p className="mt-1 text-xs text-[var(--slate-500)]">
-          Verification rapide des champs requis et detection des doublons.
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--slate-800)]">Apercu des donnees mappees</h2>
+            <p className="mt-1 text-xs text-[var(--slate-500)]">
+              Verification rapide des champs requis et detection des doublons.
+            </p>
+          </div>
+
+          {/* Preview limit selector — integrated into header */}
+          {previewLimit !== undefined && onPreviewLimitChange ? (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-[var(--slate-500)]" htmlFor="preview-limit">
+                Lignes :
+              </label>
+              <select
+                id="preview-limit"
+                className="form-input form-select form-input--sm w-auto"
+                value={previewLimit}
+                onChange={(event) => onPreviewLimitChange(Number(event.target.value))}
+              >
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+              </select>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid gap-3 border-b border-[var(--slate-200)] px-6 py-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
+        <div className={`rounded-xl border px-4 py-3 ${validation?.is_valid ? "border-[var(--success)] bg-emerald-50" : "border-[var(--slate-200)] bg-[var(--slate-50)]"}`}>
           <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Validation</p>
-          <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
-            {validation ? (validation.is_valid ? "Valide" : "Invalide") : "-"}
+          <p className={`mt-1 text-sm font-semibold ${validation?.is_valid ? "text-emerald-700" : "text-[var(--slate-800)]"}`}>
+            {validation ? (validation.is_valid ? "Pret a enregistrer" : "Mapping en cours\u2026") : "-"}
           </p>
         </div>
         <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Champs manquants</p>
+          <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Champs a completer</p>
           <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
             {validation ? validation.missing_required_fields.length : "-"}
           </p>
@@ -74,8 +102,8 @@ export function DataPreview({
       </div>
 
       {validation && validation.missing_required_fields.length > 0 ? (
-        <div className="alert alert-error m-4">
-          <p className="font-medium">Champs requis manquants</p>
+        <div className="alert alert-info m-4">
+          <p className="font-medium">Champs a completer</p>
           <ul className="mt-1 list-inside list-disc text-sm">
             {validation.missing_required_fields.map((field) => (
               <li key={field}>{field}</li>
@@ -142,10 +170,10 @@ export function DataPreview({
                     <td>
                       <span
                         className={
-                          hasMissingRequired ? "status-badge status-canceled" : "status-badge status-confirmed"
+                          hasMissingRequired ? "status-badge status-draft" : "status-badge status-confirmed"
                         }
                       >
-                        {hasMissingRequired ? "Incomplet" : "OK"}
+                        {hasMissingRequired ? "A completer" : "OK"}
                       </span>
                     </td>
                   </tr>

@@ -47,13 +47,24 @@ export function ColumnMapper({
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
 
   const requiredTargets = targetFields.filter((field) => field.required).map((field) => field.value);
-  const mappedTargets = new Set(Object.values(mapping));
+  const visibleMappings = useMemo(() => {
+    const entries: Array<[string, string]> = [];
+    for (const sourceColumn of sourceColumns) {
+      const target = mapping[sourceColumn];
+      if (target) {
+        entries.push([sourceColumn, target]);
+      }
+    }
+    return entries;
+  }, [sourceColumns, mapping]);
+
+  const mappedTargets = useMemo(() => new Set(visibleMappings.map(([, target]) => target)), [visibleMappings]);
   const missingRequiredTargets = requiredTargets.filter((required) => !mappedTargets.has(required));
 
   // Compute duplicate target assignments for inline warnings
   const duplicateTargetMap = useMemo(() => {
     const targetToSources = new Map<string, string[]>();
-    for (const [source, target] of Object.entries(mapping)) {
+    for (const [source, target] of visibleMappings) {
       if (!target) continue;
       const existing = targetToSources.get(target) ?? [];
       existing.push(source);
@@ -66,7 +77,7 @@ export function ColumnMapper({
       }
     }
     return duplicates;
-  }, [mapping]);
+  }, [visibleMappings]);
 
   // Smart sorting: mapped columns first, then natural sort
   const sortedAndFilteredColumns = useMemo(() => {
@@ -91,9 +102,9 @@ export function ColumnMapper({
     return sorted;
   }, [sourceColumns, mapping, filterMode]);
 
-  const mappedCount = Object.keys(mapping).length;
+  const mappedCount = visibleMappings.length;
   const totalTargetFields = targetFields.length;
-  const mappedTargetCount = new Set(Object.values(mapping)).size;
+  const mappedTargetCount = mappedTargets.size;
 
   function setMapping(sourceColumn: string, nextTarget: string) {
     const next = { ...mapping };
@@ -113,54 +124,50 @@ export function ColumnMapper({
 
   return (
     <section className="dashboard-card overflow-hidden">
-      <div className="border-b border-[var(--slate-200)] px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="border-b border-[var(--slate-200)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div>
             <h2 className="text-sm font-semibold text-[var(--slate-800)]">Mapping des colonnes</h2>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
               Associez les colonnes source aux champs metier.
+              <span className="ml-2 font-medium text-[var(--slate-700)]">
+                {mappedTargetCount}/{totalTargetFields} champs
+              </span>
             </p>
           </div>
 
-          {/* Progress bar */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-1.5">
-              <div className="h-2 w-20 overflow-hidden rounded-full bg-[var(--slate-200)]">
-                <div
-                  className="h-full rounded-full bg-[var(--success)] transition-all duration-300"
-                  style={{ width: `${totalTargetFields > 0 ? (mappedTargetCount / totalTargetFields) * 100 : 0}%` }}
-                />
-              </div>
-              <span className="text-xs font-medium text-[var(--slate-700)]">
-                {mappedTargetCount}/{totalTargetFields} champs
-              </span>
-            </div>
-
-            {/* Filter toggle */}
-            <div className="flex rounded-lg border border-[var(--slate-200)] text-xs">
-              <button
-                type="button"
-                className={`px-2.5 py-1.5 transition-colors ${filterMode === "all" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
-                onClick={() => setFilterMode("all")}
-              >
-                Toutes ({sourceColumns.length})
-              </button>
-              <button
-                type="button"
-                className={`border-l border-r border-[var(--slate-200)] px-2.5 py-1.5 transition-colors ${filterMode === "mapped" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
-                onClick={() => setFilterMode("mapped")}
-              >
-                Mappees ({mappedCount})
-              </button>
-              <button
-                type="button"
-                className={`px-2.5 py-1.5 transition-colors ${filterMode === "unmapped" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
-                onClick={() => setFilterMode("unmapped")}
-              >
-                Non mappees ({sourceColumns.length - mappedCount})
-              </button>
-            </div>
+          {/* Filter toggle */}
+          <div className="flex rounded-lg border border-[var(--slate-200)] text-xs">
+            <button
+              type="button"
+              className={`px-2.5 py-1.5 transition-colors ${filterMode === "all" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
+              onClick={() => setFilterMode("all")}
+            >
+              Toutes ({sourceColumns.length})
+            </button>
+            <button
+              type="button"
+              className={`border-l border-r border-[var(--slate-200)] px-2.5 py-1.5 transition-colors ${filterMode === "mapped" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
+              onClick={() => setFilterMode("mapped")}
+            >
+              Mappees ({mappedCount})
+            </button>
+            <button
+              type="button"
+              className={`px-2.5 py-1.5 transition-colors ${filterMode === "unmapped" ? "bg-[var(--slate-800)] text-white" : "text-[var(--slate-600)] hover:bg-[var(--slate-100)]"}`}
+              onClick={() => setFilterMode("unmapped")}
+            >
+              Non mappees ({sourceColumns.length - mappedCount})
+            </button>
           </div>
+        </div>
+
+        {/* Full-width progress bar */}
+        <div className="h-2.5 w-full overflow-hidden bg-[var(--slate-200)]">
+          <div
+            className="h-full bg-[var(--success)] transition-all duration-300"
+            style={{ width: `${totalTargetFields > 0 ? (mappedTargetCount / totalTargetFields) * 100 : 0}%` }}
+          />
         </div>
       </div>
 
@@ -205,9 +212,6 @@ export function ColumnMapper({
                           title={isMapped ? "Mappe" : "Non mappe"}
                         />
                         <span className="font-medium text-[var(--slate-800)]">{sourceColumn}</span>
-                        {isRequiredTarget ? (
-                          <span className="ml-1 text-red-500" title="Champ requis">*</span>
-                        ) : null}
                       </div>
                     </td>
                     <td>
@@ -227,18 +231,27 @@ export function ColumnMapper({
                           onChange={(event) => setMapping(sourceColumn, event.target.value)}
                           disabled={disabled}
                         >
-                          <option value="">Non mappe</option>
+                          <option value="">-- Choisir un champ --</option>
                           {targetFields.map((target) => (
                             <option key={target.value} value={target.value}>
                               {target.label}
-                              {target.required ? " (requis)" : ""}
+                              {target.required ? " *" : ""}
                             </option>
                           ))}
                         </select>
                         {hasDuplicateConflict ? (
-                          <span className="text-[11px] text-amber-600">
-                            Conflit : &laquo;{getTargetLabel(currentTarget)}&raquo; aussi assigne a {duplicateSources.filter((s) => s !== sourceColumn).join(", ")}
-                          </span>
+                          <div className="flex items-center gap-2 text-[11px] text-amber-600">
+                            <span>
+                              Conflit : &laquo;{getTargetLabel(currentTarget)}&raquo; aussi assigne a {duplicateSources.filter((s) => s !== sourceColumn).join(", ")}
+                            </span>
+                            <button
+                              type="button"
+                              className="font-medium underline underline-offset-2 hover:no-underline"
+                              onClick={() => setMapping(sourceColumn, "")}
+                            >
+                              Retirer
+                            </button>
+                          </div>
                         ) : null}
                       </div>
                     </td>
@@ -251,9 +264,23 @@ export function ColumnMapper({
       )}
 
       <div className="border-t border-[var(--slate-200)] px-6 py-4 text-xs text-[var(--slate-500)]">
-        {missingRequiredTargets.length === 0
-          ? `Tous les champs requis sont mappes (${targetFields.filter((f) => f.required).map((f) => f.label).join(", ")}).`
-          : `Champs requis manquants : ${missingRequiredTargets.map((v) => targetFields.find((f) => f.value === v)?.label ?? v).join(", ")}.`}
+        {missingRequiredTargets.length === 0 ? (
+          <span className="text-[var(--success)]">
+            Tous les champs requis sont mappes.
+          </span>
+        ) : (
+          <span className="flex flex-wrap items-center gap-1.5">
+            A mapper :
+            {missingRequiredTargets.map((v) => (
+              <span
+                key={v}
+                className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+              >
+                {targetFields.find((f) => f.value === v)?.label ?? v}
+              </span>
+            ))}
+          </span>
+        )}
       </div>
     </section>
   );

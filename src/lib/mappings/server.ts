@@ -511,7 +511,7 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
 
   if (
     normalized.includes("prix unitaire") ||
-    normalized.includes("pu") ||
+    wordSet.has("pu") ||
     normalized.includes("unit price")
   ) {
     return "unit_price_ht";
@@ -1011,6 +1011,21 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
       if (heuristic) {
         suggestions[sourceColumn] = heuristic;
       }
+    }
+
+    // Deduplication: if multiple sources map to the same target, keep only the first
+    const targetToSource = new Map<string, string>();
+    const sourcesToRemove: string[] = [];
+    for (const [source, target] of Object.entries(suggestions)) {
+      const existingSource = targetToSource.get(target);
+      if (existingSource) {
+        sourcesToRemove.push(source);
+      } else {
+        targetToSource.set(target, source);
+      }
+    }
+    for (const source of sourcesToRemove) {
+      delete suggestions[source];
     }
   }
 
