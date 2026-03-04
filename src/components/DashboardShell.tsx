@@ -50,6 +50,40 @@ function buildInitials(value: string) {
   return trimmed.slice(0, 2).toUpperCase();
 }
 
+function ModeToggleSwitch({
+  isExpert,
+  onToggle,
+}: Readonly<{
+  isExpert: boolean;
+  onToggle: () => void;
+}>) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isExpert}
+      aria-label={isExpert ? "Mode Expert actif, basculer en Simplifié" : "Mode Simplifié actif, basculer en Expert"}
+      title={isExpert ? "Passer en mode Simplifié" : "Passer en mode Expert"}
+      onClick={onToggle}
+      className="group relative flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full border border-white/20 bg-white/10 p-0.5 transition-colors duration-200 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/50 focus-visible:outline-offset-2"
+    >
+      {/* Track labels */}
+      <span className="absolute inset-0 flex items-center justify-between px-1.5 text-[9px] font-bold uppercase tracking-wider">
+        <span className={`transition-opacity duration-200 ${isExpert ? "opacity-0" : "opacity-60 text-white"}`}>S</span>
+        <span className={`transition-opacity duration-200 ${isExpert ? "opacity-60 text-white" : "opacity-0"}`}>E</span>
+      </span>
+      {/* Sliding thumb */}
+      <span
+        className={`pointer-events-none relative z-10 h-5 w-5 rounded-full shadow-md transition-all duration-200 ease-in-out ${
+          isExpert
+            ? "translate-x-5 bg-brand-orange"
+            : "translate-x-0 bg-white/80"
+        }`}
+      />
+    </button>
+  );
+}
+
 export function DashboardShell({
   children,
   displayName,
@@ -63,7 +97,7 @@ export function DashboardShell({
     "FEATURE_FLAGS_SIDEBAR_INDICATOR"
   );
   const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
-  const { setMode, isExpert, isSimplified } = useUiMode();
+  const { setMode, isExpert } = useUiMode();
   const { profile } = useUserContext();
   const tenantRole = profile?.tenant_role ?? null;
 
@@ -307,7 +341,9 @@ export function DashboardShell({
             </kbd>
           </button>
 
-          <div className="flex items-center gap-3 rounded-xl bg-white/5 p-3">
+          <div className={`flex items-center rounded-xl bg-white/5 transition-all duration-200 ${
+            collapsed ? "flex-col gap-2 p-2" : "gap-3 p-3"
+          }`}>
             <Link
               href="/dashboard/profile"
               className="flex flex-1 items-center gap-3 min-w-0 rounded-lg -m-1.5 p-1.5 transition-colors hover:bg-white/5"
@@ -320,28 +356,19 @@ export function DashboardShell({
                 <p className="truncate text-sm font-medium text-white">
                   {displayName || "Compte"}
                 </p>
-                <p className="truncate text-[11px] font-medium text-white/60">
-                  {isSimplified ? "Simplifie ○" : "Expert ●"}
-                </p>
+                <span className={`mt-0.5 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors duration-200 ${
+                  isExpert
+                    ? "bg-brand-orange/20 text-brand-orange-light"
+                    : "bg-white/10 text-white/70"
+                }`}>
+                  {isExpert ? "Expert" : "Simplifié"}
+                </span>
               </div>
             </Link>
-            <button
-              type="button"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-xs font-semibold text-white transition-colors hover:bg-white/20"
-              title={
-                isExpert
-                  ? "Passer en mode Simplifie"
-                  : "Passer en mode Expert"
-              }
-              aria-label={
-                isExpert
-                  ? "Passer en mode Simplifie"
-                  : "Passer en mode Expert"
-              }
-              onClick={() => setMode(isExpert ? "simplified" : "expert")}
-            >
-              {isExpert ? "●" : "○"}
-            </button>
+            <ModeToggleSwitch
+              isExpert={isExpert}
+              onToggle={() => setMode(isExpert ? "simplified" : "expert")}
+            />
             <div className="sidebar-label">
               <SignOutButton />
             </div>
