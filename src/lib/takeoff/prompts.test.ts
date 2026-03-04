@@ -156,9 +156,11 @@ describe("takeoff prompts", () => {
 
       REGLES NIVEAU C
       1. Niveau C: confidence global est requis pour le niveau C.
-      2. Niveau C: evidence est requis pour chaque item au niveau C.
-      3. confidence doit etre entre 0 et 1; idem pour items[*].confidence si present.
-      4. Chaque evidence doit decrire la source de preuve de facon concise et verifiable.
+      2. Niveau C: items[*].confidence est requis pour chaque item au niveau C.
+      3. Niveau C: source_page est requis pour chaque item au niveau C.
+      4. Niveau C: evidence est requis pour chaque item au niveau C.
+      5. confidence global et items[*].confidence doivent etre entre 0 et 1.
+      6. Chaque evidence doit decrire la source de preuve de facon concise et verifiable.
 
       CONSIGNES DE SORTIE
       1. Maximiser la tracabilite: justifier les dedutions avec evidence et warnings associes.
@@ -169,13 +171,15 @@ describe("takeoff prompts", () => {
     `);
   });
 
-  it("includes mandatory confidence and evidence instructions for level C", () => {
+  it("includes mandatory confidence, source_page and evidence instructions for level C", () => {
     const prompt = getTakeoffPrompt("C", {
       fileType: "xlsx",
       schemaVersion: "v1",
     });
 
     expect(prompt).toContain("Niveau C: confidence global est requis pour le niveau C.");
+    expect(prompt).toContain("Niveau C: items[*].confidence est requis pour chaque item au niveau C.");
+    expect(prompt).toContain("Niveau C: source_page est requis pour chaque item au niveau C.");
     expect(prompt).toContain("Niveau C: evidence est requis pour chaque item au niveau C.");
   });
 

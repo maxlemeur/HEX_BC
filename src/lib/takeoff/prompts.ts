@@ -106,8 +106,10 @@ const TAKEOFF_PROMPT_DEFINITIONS = {
     warningAndAnomalyRules: [...COMMON_WARNING_RULES],
     levelSpecificRules: [
       "Niveau C: confidence global est requis pour le niveau C.",
+      "Niveau C: items[*].confidence est requis pour chaque item au niveau C.",
+      "Niveau C: source_page est requis pour chaque item au niveau C.",
       "Niveau C: evidence est requis pour chaque item au niveau C.",
-      "confidence doit etre entre 0 et 1; idem pour items[*].confidence si present.",
+      "confidence global et items[*].confidence doivent etre entre 0 et 1.",
       "Chaque evidence doit decrire la source de preuve de facon concise et verifiable.",
     ],
     outputRules: [

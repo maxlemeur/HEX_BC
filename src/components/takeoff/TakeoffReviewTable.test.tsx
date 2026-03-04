@@ -391,6 +391,32 @@ describe("TakeoffReviewTable (controlled)", () => {
     expect(firstRow).toContain("Low");
   });
 
+  it("keeps null confidence rows last when sorting confidence descending", () => {
+    render(
+      <TakeoffReviewTable
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, confidence: 0.9, designation: "High" }),
+          makeReviewItem({ id: ITEM_ID_2, confidence: null, designation: "Unscored" }),
+          makeReviewItem({
+            id: "66666666-6666-4666-8666-666666666666",
+            confidence: 0.3,
+            designation: "Low",
+          }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle("Croissant"));
+
+    const rows = screen.getAllByRole("row").slice(1);
+    const firstRow = rows[0]?.textContent ?? "";
+    const lastRow = rows[rows.length - 1]?.textContent ?? "";
+
+    expect(firstRow).toContain("High");
+    expect(lastRow).toContain("Unscored");
+  });
+
   it("renders clickable confidence badge when onOpenEvidencePanel provided", () => {
     const onOpenEvidencePanel = vi.fn();
     render(

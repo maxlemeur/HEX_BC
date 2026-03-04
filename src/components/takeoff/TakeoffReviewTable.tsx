@@ -53,8 +53,18 @@ export const ANOMALY_LABELS: Record<AnomalyType, string> = {
   empty_designation: "Designation vide",
 };
 
-function getConfidenceSortValue(confidence: number | null): number {
-  return confidence === null ? 2 : confidence;
+function compareConfidence(
+  a: number | null,
+  b: number | null,
+  sortDirection: SortDirection
+): number {
+  // Always place missing confidence rows last, regardless of direction.
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+
+  const cmp = a - b;
+  return sortDirection === "asc" ? cmp : -cmp;
 }
 
 // ---------------------------------------------------------------------------
@@ -356,7 +366,7 @@ export default function TakeoffReviewTable({
         const cb = (typeof b.metadata.category === "string" ? b.metadata.category : "") as string;
         cmp = ca.localeCompare(cb, "fr");
       } else if (sortField === "confidence") {
-        cmp = getConfidenceSortValue(a.confidence) - getConfidenceSortValue(b.confidence);
+        return compareConfidence(a.confidence, b.confidence, sortDirection);
       }
       return sortDirection === "asc" ? cmp : -cmp;
     });
