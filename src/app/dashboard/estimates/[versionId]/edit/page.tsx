@@ -140,6 +140,11 @@ import {
   updateEstimateStatus,
   updateEstimateSuggestionRule,
 } from "@/lib/estimates/client";
+import {
+  markTempItemsRemoved,
+  reconcileCreatedItemWithLocalDraft,
+  rollbackRemovedTempItems,
+} from "@/lib/estimates/editor-optimistic";
 import { refreshVersionTokenAfterAssemblyInsert } from "@/lib/estimates/editor-version-refresh";
 import { useDraftLock } from "@/hooks/useDraftLock";
 import type { Database } from "@/types/database";
@@ -4299,15 +4304,16 @@ export default function EditEstimatePage() {
         const queuedPatch = queuedPatchesByTempIdRef.current.get(tempId);
         queuedPatchesByTempIdRef.current.delete(tempId);
 
-        const restoredItem: EditorEstimateItem = {
-          ...created,
-          ...(queuedPatch ?? {}),
-          _optimistic: false,
-          _pendingCreate: false,
-        };
-
         setItems((previous) =>
-          previous.map((item) => (item.id === tempId ? restoredItem : item))
+          previous.map((item) =>
+            item.id === tempId
+              ? (reconcileCreatedItemWithLocalDraft(
+                  created,
+                  buildEstimateItemUpdatePayload(item),
+                  queuedPatch
+                ) as EditorEstimateItem)
+              : item
+          )
         );
 
         if (queuedPatch) {
@@ -4480,15 +4486,16 @@ export default function EditEstimatePage() {
         const queuedPatch = queuedPatchesByTempIdRef.current.get(tempId);
         queuedPatchesByTempIdRef.current.delete(tempId);
 
-        const restoredItem: EditorEstimateItem = {
-          ...created,
-          ...(queuedPatch ?? {}),
-          _optimistic: false,
-          _pendingCreate: false,
-        };
-
         setItems((previous) =>
-          previous.map((item) => (item.id === tempId ? restoredItem : item))
+          previous.map((item) =>
+            item.id === tempId
+              ? (reconcileCreatedItemWithLocalDraft(
+                  created,
+                  buildEstimateItemUpdatePayload(item),
+                  queuedPatch
+                ) as EditorEstimateItem)
+              : item
+          )
         );
 
         if (queuedPatch) {
@@ -4987,10 +4994,19 @@ export default function EditEstimatePage() {
       const removedTempIds = Array.from(idsToRemove).filter((id) =>
         isTempEstimateItemId(id)
       );
-      removedTempIds.forEach((tempId) => {
-        removedTempItemIdsRef.current.add(tempId);
-        queuedPatchesByTempIdRef.current.delete(tempId);
-      });
+      const removedTempQueuedPatches = markTempItemsRemoved(
+        removedTempIds,
+        removedTempItemIdsRef.current,
+        queuedPatchesByTempIdRef.current
+      );
+      const rollbackRemovedTempIds = () => {
+        rollbackRemovedTempItems(
+          removedTempIds,
+          removedTempQueuedPatches,
+          removedTempItemIdsRef.current,
+          queuedPatchesByTempIdRef.current
+        );
+      };
 
       if (isTempEstimateItemId(itemId)) {
         setTotalsOutOfSync(false);
@@ -4998,6 +5014,7 @@ export default function EditEstimatePage() {
       }
 
       if (!version?.id) {
+        rollbackRemovedTempIds();
         setActionError("Version introuvable.");
         await reloadItems();
         return;
@@ -5066,6 +5083,7 @@ export default function EditEstimatePage() {
           },
         });
       } catch (error) {
+        rollbackRemovedTempIds();
         setActionError(
           resolveEstimateActionError(
             error instanceof Error ? error.message : "Impossible de supprimer la ligne."
