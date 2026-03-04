@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { EstimateDocument } from "@/components/EstimateDocument";
 import { EstimateTimeline } from "@/components/estimates/EstimateTimeline";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
@@ -259,6 +260,14 @@ export default async function EstimateDetailPage({
 
   return (
     <div className="min-h-screen bg-[var(--slate-100)] animate-fade-in">
+      {version.project_id && project?.name && (
+        <AffaireBreadcrumb
+          projectId={version.project_id}
+          projectName={project.name}
+          versionNumber={version.version_number}
+          pageSuffix="Detail"
+        />
+      )}
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="page-title">Chiffrage</h1>

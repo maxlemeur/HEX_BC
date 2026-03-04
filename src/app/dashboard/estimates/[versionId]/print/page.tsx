@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { EstimateDocument } from "@/components/EstimateDocument";
 import { PrintButton } from "@/components/PrintButton";
 import { PrintTitle } from "@/components/PrintTitle";
@@ -114,7 +115,7 @@ export default async function PrintEstimatePage({
   const versionPromise = supabase
     .from("estimate_versions")
     .select(
-      "tenant_id, version_number, status, seal_hash, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, client_name )"
+      "project_id, tenant_id, version_number, status, seal_hash, date_devis, validite_jours, margin_multiplier, margin_mode, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, total_ht_cents, total_tax_cents, total_ttc_cents, currency, estimate_projects ( name, reference, client_name )"
     )
     .eq("id", versionId)
     .single();
@@ -263,6 +264,16 @@ export default async function PrintEstimatePage({
     <div className="min-h-screen bg-[var(--slate-100)] print:bg-white">
       <PrintTitle title={printTitle} />
       <div className="no-print sticky top-0 z-10 border-b border-[var(--slate-200)] bg-white/80 backdrop-blur-md">
+        <div className="mx-auto max-w-5xl px-6 pt-4">
+          {version.project_id && project?.name && (
+            <AffaireBreadcrumb
+              projectId={version.project_id}
+              projectName={project.name}
+              versionNumber={version.version_number}
+              pageSuffix="Impression"
+            />
+          )}
+        </div>
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-4">
             <Link

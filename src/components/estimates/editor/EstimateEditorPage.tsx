@@ -2,6 +2,7 @@
 
 import { memo, useMemo } from "react";
 
+import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateEditorSkeleton } from "@/components/estimates/EstimateEditorSkeleton";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
@@ -98,6 +99,14 @@ export function EstimateEditorPage({ versionId }: EstimateEditorPageProps) {
 
   return (
     <div className="animate-fade-in">
+      {readyMeta.projectId && (
+        <AffaireBreadcrumb
+          projectId={readyMeta.projectId}
+          projectName={readyMeta.toolbarProps.projectName}
+          versionNumber={readyMeta.toolbarProps.versionNumber}
+          pageSuffix="Edition"
+        />
+      )}
       <EstimateEditorToolbar {...readyMeta.toolbarProps} />
       {alertsRegion}
       <EstimateSettingsSummaryBar {...readyMeta.summaryBarProps} />

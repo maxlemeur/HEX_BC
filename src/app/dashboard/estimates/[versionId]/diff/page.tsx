@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { EstimateChangelogView } from "@/components/estimates/EstimateChangelogView";
 import { EstimateDiffView } from "@/components/estimates/EstimateDiffView";
 import { getOrBuildEstimateChangelog } from "@/lib/estimates/changelog";
@@ -301,8 +302,20 @@ export default async function EstimateDiffPage({
     ? formatVersionLabel(compareVersionOption ?? previousDetails.version)
     : "Version precedente";
 
+  const diffProject = currentDetails.version.estimate_projects;
+  const diffProjectName =
+    diffProject && !Array.isArray(diffProject) ? diffProject.name : null;
+
   return (
     <div className="animate-fade-in">
+      {currentDetails.version.project_id && diffProjectName && (
+        <AffaireBreadcrumb
+          projectId={currentDetails.version.project_id}
+          projectName={diffProjectName}
+          versionNumber={currentDetails.version.version_number}
+          pageSuffix="Comparaison"
+        />
+      )}
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="page-title">Comparaison de versions</h1>
