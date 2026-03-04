@@ -1308,6 +1308,7 @@ export type EstimateEditorStateModel = {
       }
     | {
         kind: "ready";
+        projectId: string | null;
         toolbarProps: ComponentProps<typeof EstimateEditorToolbar>;
         alertsProps: ComponentProps<typeof EstimateEditorAlerts>;
         summaryBarProps: ComponentProps<typeof EstimateSettingsSummaryBar>;
@@ -2002,9 +2003,9 @@ export function useEstimateEditorState({
       }
       const qualityFlag = criterion.qualityFlag;
       if (qualityFlag) {
-        startTransition(() => {
-          setQualityFilter(qualityFlag);
-        });
+        // Keep this update urgent so checklist navigation scrolls on the same
+        // render where filtered rows include the target item.
+        setQualityFilter(qualityFlag);
       }
       setChecklistScrollTargetItemId(criterion.targetItemId);
     },
@@ -7111,6 +7112,7 @@ export function useEstimateEditorState({
     actions: actionsModel,
     meta: {
       kind: "ready",
+      projectId: version.project_id ?? null,
       toolbarProps,
       alertsProps,
       summaryBarProps,

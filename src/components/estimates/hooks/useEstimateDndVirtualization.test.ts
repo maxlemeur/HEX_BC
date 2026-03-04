@@ -592,4 +592,86 @@ describe("useEstimateDndVirtualization", () => {
     expect(scrollToIndex).toHaveBeenCalledWith(0);
     tableCard.remove();
   });
+
+  it("keeps pending scroll target until the virtualized row becomes visible", async () => {
+    const line1 = createItem({ id: "line-1", item_type: "line" });
+    const line2 = createItem({ id: "line-2", item_type: "line" });
+
+    const filteredItemsByParent = new Map<string, EstimateItem[]>([["root", [line1]]]);
+    const fullItemsByParent = new Map<string, EstimateItem[]>([["root", [line1, line2]]]);
+
+    mockUseVirtualList.mockReturnValue({
+      scrollRef: createRef<HTMLDivElement>(),
+      virtualItems: [createVirtualItem(0), createVirtualItem(1)],
+      totalSize: 112,
+      measureElement: vi.fn(),
+      scrollToIndex,
+      isVirtualized: true,
+    });
+
+    const tableCard = document.createElement("div");
+    document.body.appendChild(tableCard);
+
+    const row = document.createElement("div");
+    row.setAttribute("data-estimate-item-id", "line-2");
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(row, "scrollIntoView", {
+      value: scrollIntoView,
+      configurable: true,
+    });
+
+    const onScrollToItemHandled = vi.fn();
+    const tableCardRef = createRef<HTMLDivElement>();
+    tableCardRef.current = tableCard;
+
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+
+    const { rerender } = renderHook(
+      ({ itemsByParent }: { itemsByParent: Map<string, EstimateItem[]> }) =>
+        useEstimateDndVirtualization({
+          canReorder: true,
+          maxSectionDepth: 1,
+          itemsByParent,
+          onReorder: vi.fn(),
+          onMoveItem: vi.fn(),
+          hasVisibleRows: true,
+          getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
+          depthMap: new Map(),
+          mergedUnitDrafts: {},
+          mergedSupplyTypeDrafts: {},
+          qualityFlagsByItemId: {},
+          suggestionsByItemId: new Map(),
+          virtualization: { enabled: true },
+          tableCardRef,
+          scrollToItemId: "line-2",
+          onScrollToItemHandled,
+        }),
+      {
+        initialProps: {
+          itemsByParent: filteredItemsByParent,
+        },
+      }
+    );
+
+    expect(scrollToIndex).not.toHaveBeenCalled();
+    expect(onScrollToItemHandled).not.toHaveBeenCalled();
+
+    tableCard.appendChild(row);
+    rerender({ itemsByParent: fullItemsByParent });
+
+    await waitFor(() => {
+      expect(scrollToIndex).toHaveBeenCalledWith(1);
+    });
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "center",
+    });
+    expect(onScrollToItemHandled).toHaveBeenCalledTimes(1);
+
+    tableCard.remove();
+  });
 });

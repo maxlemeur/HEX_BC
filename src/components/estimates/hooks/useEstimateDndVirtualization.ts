@@ -415,7 +415,8 @@ export function useEstimateDndVirtualization({
     if (isVirtualized) {
       const rowIndex = virtualRowIndexByItemId.get(scrollToItemId);
       if (rowIndex === undefined) {
-        onScrollToItemHandled?.();
+        // Keep the target pending so a subsequent render (e.g. after a filter
+        // update) can still scroll once the row becomes visible.
         return;
       }
       scrollToIndex(rowIndex);
