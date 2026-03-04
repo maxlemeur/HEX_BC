@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "jsonSchemaDialect": "https://spec.openapis.org/oas/3.1/dialect/base",
   "info": {
-    "title": "HEX BC - API Chiffrage",
+    "title": "BC - API Chiffrage",
     "version": "1.0.0",
     "description": "Documentation OpenAPI auto-generee depuis les schemas Zod existants."
   },
@@ -9330,6 +9330,11 @@
       "CreateEstimateRequest": {
         "type": "object",
         "properties": {
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
           "project": {
             "type": "object",
             "properties": {
@@ -9461,13 +9466,16 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 9007199254740991
+              },
+              "max_section_depth": {
+                "default": 3,
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4
               }
             }
           }
-        },
-        "required": [
-          "project"
-        ]
+        }
       },
       "ApiEstimateCreatedResponse": {
         "type": "object",
@@ -10824,6 +10832,11 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
+          },
+          "max_section_depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
           },
           "total_ht_cents": {
             "type": "integer",
@@ -17559,10 +17572,20 @@
       "InstantiateEstimateFromTemplateRequest": {
         "type": "object",
         "properties": {
-          "project_name": {
+          "project_id": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 500
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "version_title": {
             "anyOf": [
@@ -17593,10 +17616,7 @@
               }
             ]
           }
-        },
-        "required": [
-          "project_name"
-        ]
+        }
       },
       "ApiEstimateInstantiateTemplateResponse": {
         "type": "object",

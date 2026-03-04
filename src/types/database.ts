@@ -1970,6 +1970,26 @@ export type Database = {
         Args: Record<PropertyKey, never>;
         Returns: string | null;
       };
+      create_affaire_from_import_lines: {
+        Args: {
+          p_import_id: string;
+          p_project_name: string;
+          p_project_client?: string | null;
+          p_project_reference?: string | null;
+          p_version_title?: string | null;
+          p_section_title?: string | null;
+          p_lines?: Json | null;
+        };
+        Returns: {
+          project_id: string;
+          version_id: string;
+          section_id: string;
+          inserted_count: number;
+          total_ht_cents: number;
+          total_tax_cents: number;
+          total_ttc_cents: number;
+        }[];
+      };
       create_estimate_template_from_version: {
         Args: {
           p_source_version_id: string;
@@ -2013,6 +2033,19 @@ export type Database = {
         Args: {
           p_template_id: string;
           p_project_name: string;
+          p_version_title: string | null;
+          p_date_devis: string | null;
+          p_validite_jours: number | null;
+        };
+        Returns: {
+          project_id: string;
+          version_id: string;
+        }[];
+      };
+      instantiate_estimate_template_into_project: {
+        Args: {
+          p_template_id: string;
+          p_project_id: string;
           p_version_title: string | null;
           p_date_devis: string | null;
           p_validite_jours: number | null;
@@ -2157,10 +2190,11 @@ export type Database = {
           project_reference: string | null;
           project_client: string | null;
           version_count: number;
-          current_version_id: string;
-          current_version_number: number;
-          current_status: "draft" | "sent" | "accepted" | "archived";
-          current_total_ht_cents: number;
+          has_current_version: boolean;
+          current_version_id: string | null;
+          current_version_number: number | null;
+          current_status: "draft" | "sent" | "accepted" | "archived" | null;
+          current_total_ht_cents: number | null;
           current_updated_at: string;
           accepted_version_id: string | null;
           accepted_version_number: number | null;
