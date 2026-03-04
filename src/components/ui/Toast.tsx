@@ -12,6 +12,8 @@ import {
 
 import { cn } from "@/lib/utils";
 
+/* ────────────────── Types ────────────────── */
+
 export type ToastVariant = "success" | "error" | "warning" | "info";
 
 export type ToastPayload = {
@@ -25,6 +27,7 @@ type ToastRecord = ToastPayload & {
   id: string;
   variant: ToastVariant;
   durationMs: number;
+  exiting?: boolean;
 };
 
 type ToastContextValue = {
@@ -36,7 +39,11 @@ type ToastContextValue = {
   info: (payload: Omit<ToastPayload, "variant">) => string;
 };
 
+/* ────────────────── Constants ────────────────── */
+
 const DEFAULT_DURATION_MS = 4000;
+const MAX_VISIBLE = 3;
+const EXIT_ANIMATION_MS = 200;
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
@@ -46,6 +53,8 @@ const TOAST_VARIANTS: Record<ToastVariant, string> = {
   warning: "border-warning/30 bg-warning-light text-slate-800",
   info: "border-info/30 bg-info-light text-slate-800",
 };
+
+/* ────────────────── Toast (single item) ────────────────── */
 
 export function Toast({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id: string) => void }) {
   const role = toast.variant === "error" || toast.variant === "warning" ? "alert" : "status";
@@ -78,23 +87,34 @@ export function Toast({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id
   );
 }
 
+/* ────────────────── ToastViewport ────────────────── */
+
 export function ToastViewport({
   toasts,
   onDismiss,
+  onExitEnd,
   className,
 }: {
   toasts: ToastRecord[];
   onDismiss: (id: string) => void;
+  onExitEnd?: (id: string) => void;
   className?: string;
 }) {
   return (
     <div
-      className={cn("pointer-events-none fixed bottom-4 right-4 z-[70] flex flex-col gap-2", className)}
+      className={cn("pointer-events-none fixed bottom-4 right-4 z-70 flex flex-col gap-2", className)}
       aria-live="polite"
       aria-relevant="additions removals"
     >
       {toasts.map((toast) => (
-        <div key={toast.id} className="pointer-events-auto">
+        <div
+          key={toast.id}
+          className={cn(
+            "pointer-events-auto",
+            toast.exiting ? "animate-toast-exit" : "animate-slide-in-right"
+          )}
+          onAnimationEnd={toast.exiting && onExitEnd ? () => onExitEnd(toast.id) : undefined}
+        >
           <Toast toast={toast} onDismiss={onDismiss} />
         </div>
       ))}
@@ -102,20 +122,45 @@ export function ToastViewport({
   );
 }
 
+/* ────────────────── ToastProvider ────────────────── */
+
 export function ToastProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
   const timeoutIdsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  const dismiss = useCallback((id: string) => {
-    setToasts((previous) => previous.filter((toast) => toast.id !== id));
-
-    const timeoutId = timeoutIdsRef.current.get(id);
-    if (timeoutId) {
-      clearTimeout(timeoutId);
+  /* Remove a toast from the array (internal — after exit animation) */
+  const removeToast = useCallback((id: string) => {
+    setToasts((previous) => previous.filter((t) => t.id !== id));
+    const tid = timeoutIdsRef.current.get(id);
+    if (tid) {
+      clearTimeout(tid);
       timeoutIdsRef.current.delete(id);
     }
   }, []);
 
+  /* Start exit animation — public "dismiss" */
+  const startExit = useCallback((id: string) => {
+    setToasts((previous) => {
+      const target = previous.find((t) => t.id === id);
+      if (!target || target.exiting) return previous;
+      return previous.map((t) => (t.id === id ? { ...t, exiting: true } : t));
+    });
+
+    // Clear auto-dismiss timer if running
+    const existingTid = timeoutIdsRef.current.get(id);
+    if (existingTid) clearTimeout(existingTid);
+
+    // Fallback removal for environments where onAnimationEnd doesn't fire
+    const fallbackTid = setTimeout(() => removeToast(id), EXIT_ANIMATION_MS + 50);
+    timeoutIdsRef.current.set(id, fallbackTid);
+  }, [removeToast]);
+
+  /* Called by ToastViewport when exit animation completes */
+  const handleExitEnd = useCallback((id: string) => {
+    removeToast(id);
+  }, [removeToast]);
+
+  /* Push a new toast (timer started lazily by effect when it becomes visible) */
   const push = useCallback((payload: ToastPayload) => {
     const id =
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -128,22 +173,42 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
       description: payload.description,
       variant: payload.variant ?? "info",
       durationMs: payload.durationMs ?? DEFAULT_DURATION_MS,
+      exiting: false,
     };
 
     setToasts((previous) => [...previous, record]);
-
-    const timeoutId = setTimeout(() => {
-      dismiss(id);
-    }, record.durationMs);
-    timeoutIdsRef.current.set(id, timeoutId);
-
     return id;
-  }, [dismiss]);
+  }, []);
 
+  /* Visible IDs = first MAX_VISIBLE non-exiting toasts */
+  const visibleIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const t of toasts) {
+      if (!t.exiting && ids.size < MAX_VISIBLE) ids.add(t.id);
+    }
+    return ids;
+  }, [toasts]);
+
+  /* Toasts to render: visible non-exiting + any exiting (animating out) */
+  const renderToasts = useMemo(() => {
+    return toasts.filter((t) => t.exiting || visibleIds.has(t.id));
+  }, [toasts, visibleIds]);
+
+  /* Start auto-dismiss timers only when a toast becomes visible */
+  useEffect(() => {
+    for (const toast of toasts) {
+      if (visibleIds.has(toast.id) && !toast.exiting && !timeoutIdsRef.current.has(toast.id)) {
+        const tid = setTimeout(() => startExit(toast.id), toast.durationMs);
+        timeoutIdsRef.current.set(toast.id, tid);
+      }
+    }
+  }, [toasts, visibleIds, startExit]);
+
+  /* Cleanup all timeouts on unmount */
   useEffect(() => {
     const timeoutIds = timeoutIdsRef.current;
     return () => {
-      timeoutIds.forEach((timeoutId) => clearTimeout(timeoutId));
+      timeoutIds.forEach((tid) => clearTimeout(tid));
       timeoutIds.clear();
     };
   }, []);
@@ -151,22 +216,24 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
   const contextValue = useMemo<ToastContextValue>(
     () => ({
       push,
-      dismiss,
+      dismiss: startExit,
       success: (payload) => push({ ...payload, variant: "success" }),
       error: (payload) => push({ ...payload, variant: "error" }),
       warning: (payload) => push({ ...payload, variant: "warning" }),
       info: (payload) => push({ ...payload, variant: "info" }),
     }),
-    [dismiss, push]
+    [startExit, push]
   );
 
   return (
     <ToastContext.Provider value={contextValue}>
       {children}
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
+      <ToastViewport toasts={renderToasts} onDismiss={startExit} onExitEnd={handleExitEnd} />
     </ToastContext.Provider>
   );
 }
+
+/* ────────────────── useToast ────────────────── */
 
 export function useToast() {
   const context = useContext(ToastContext);
