@@ -37,26 +37,17 @@ export function QuickInsertPicker({
   const [searchInput, setSearchInput] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-
-  // Reset state when opened
-  useEffect(() => {
-    if (isOpen) {
-      setSearchInput("");
-      setHighlightedIndex(0);
-      onSearch("");
-      // Focus search after render
-      requestAnimationFrame(() => {
-        searchRef.current?.focus();
-      });
-    }
-  }, [isOpen, onSearch]);
 
   // Debounced search
   useEffect(() => {
     if (!isOpen) return;
+    const normalizedSearch = searchInput.trim();
+    if (!normalizedSearch) {
+      onSearch("");
+      return;
+    }
     const timer = window.setTimeout(() => {
-      onSearch(searchInput.trim());
+      onSearch(normalizedSearch);
     }, 200);
     return () => window.clearTimeout(timer);
   }, [isOpen, searchInput, onSearch]);
@@ -85,13 +76,20 @@ export function QuickInsertPicker({
         onClose();
       } else if (event.key === "ArrowDown") {
         event.preventDefault();
-        setHighlightedIndex((prev) => Math.min(prev + 1, items.length - 1));
+        setHighlightedIndex((prev) => {
+          if (items.length === 0) return prev;
+          return Math.min(prev + 1, items.length - 1);
+        });
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
-        setHighlightedIndex((prev) => Math.max(prev - 1, 0));
+        setHighlightedIndex((prev) => {
+          if (items.length === 0) return prev;
+          return Math.max(prev - 1, 0);
+        });
       } else if (event.key === "Enter" && items.length > 0) {
         event.preventDefault();
-        const item = items[highlightedIndex];
+        const clampedIndex = Math.min(highlightedIndex, items.length - 1);
+        const item = items[clampedIndex];
         if (item) onSelect(item.id);
       }
     }
@@ -99,10 +97,8 @@ export function QuickInsertPicker({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, items, highlightedIndex, onSelect, onClose]);
 
-  // Reset highlight when items change
-  useEffect(() => {
-    setHighlightedIndex(0);
-  }, [items]);
+  const clampedHighlightedIndex =
+    items.length > 0 ? Math.min(highlightedIndex, items.length - 1) : -1;
 
   if (!isOpen) return null;
 
@@ -143,12 +139,15 @@ export function QuickInsertPicker({
       {/* Search */}
       <div className="px-3 py-2">
         <input
-          ref={searchRef}
           type="search"
           className="form-input h-8 w-full text-sm"
           placeholder="Rechercher par nom..."
           value={searchInput}
-          onChange={(event) => setSearchInput(event.target.value)}
+          autoFocus
+          onChange={(event) => {
+            setSearchInput(event.target.value);
+            setHighlightedIndex(0);
+          }}
         />
       </div>
 
@@ -172,7 +171,7 @@ export function QuickInsertPicker({
               key={item.id}
               type="button"
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
-                index === highlightedIndex
+                index === clampedHighlightedIndex
                   ? "bg-accent text-accent-foreground"
                   : "text-foreground hover:bg-surface-subtle"
               }`}

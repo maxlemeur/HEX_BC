@@ -93,6 +93,7 @@ export function QuickTemplatePicker({
 
   return (
     <QuickInsertPicker
+      key={isOpen ? "template-open" : "template-closed"}
       isOpen={isOpen}
       title="Inserer un template"
       emptyLabel="Aucun template disponible."

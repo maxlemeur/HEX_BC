@@ -93,6 +93,7 @@ export function QuickAssemblyPicker({
 
   return (
     <QuickInsertPicker
+      key={isOpen ? "assembly-open" : "assembly-closed"}
       isOpen={isOpen}
       title="Inserer un assemblage"
       emptyLabel="Aucun assemblage disponible."
