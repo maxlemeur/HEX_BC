@@ -135,7 +135,9 @@ export function EstimateSettingsSummaryBar({
     if (!totals) return null;
 
     const marginPercent = `${((totals.appliedMarginMultiplier - 1) * 100).toFixed(0)}%`;
-    const tvaPercent = `${(taxRateBp / 100).toFixed(taxRateBp % 100 === 0 ? 0 : 1)}%`;
+    const tvaPrecision =
+      taxRateBp % 100 === 0 ? 0 : taxRateBp % 10 === 0 ? 1 : 2;
+    const tvaPercent = `${(taxRateBp / 100).toFixed(tvaPrecision)}%`;
     const discountDisplay = formatCurrency(totals.discountCents, currency);
     const totalHt = formatCurrency(totals.saleTotalCents, currency);
     const totalTtc = formatCurrency(totals.roundedTtcCents, currency);
