@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
+import { EstimateEditorSkeleton } from "@/components/estimates/EstimateEditorSkeleton";
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
 import {
   EstimateEditorTable,
@@ -6449,14 +6450,7 @@ export default function EditEstimatePage() {
   }
 
   if (isLoading) {
-    return (
-      <div className="animate-fade-in flex min-h-[300px] items-center justify-center">
-        <div className="flex items-center gap-3 text-[var(--slate-500)]">
-          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
-          Chargement du chiffrage...
-        </div>
-      </div>
-    );
+    return <EstimateEditorSkeleton />;
   }
 
   if (loadError || !version || !settings) {
