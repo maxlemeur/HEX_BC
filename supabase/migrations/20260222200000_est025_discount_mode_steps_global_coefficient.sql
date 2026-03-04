@@ -286,7 +286,6 @@ set search_path = public
 as $$
 declare
   source_version public.estimate_versions%rowtype;
-  source_owner_id uuid;
   current_user_id uuid := (select auth.uid());
   new_template_id uuid := gen_random_uuid();
 begin
@@ -298,8 +297,8 @@ begin
     raise exception 'Template name is required';
   end if;
 
-  select v.*, p.user_id
-    into source_version, source_owner_id
+  select v.*
+    into source_version
   from public.estimate_versions v
   join public.estimate_projects p
     on p.id = v.project_id
