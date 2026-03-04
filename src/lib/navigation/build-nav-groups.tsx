@@ -77,7 +77,7 @@ export const TAKEOFF_NAV_ITEM: NavItem = {
 
 const ORDERS_ITEM: NavItem = {
   href: "/dashboard/orders",
-  label: "Bons de commande",
+  label: "Mes commandes",
   icon: (
     <svg
       xmlns="http://www.w3.org/2000/svg"
