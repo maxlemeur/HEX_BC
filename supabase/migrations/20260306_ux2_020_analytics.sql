@@ -99,6 +99,7 @@ begin
       on p.id = ev.project_id
      and p.tenant_id = ev.tenant_id
     where ev.tenant_id = p_tenant_id
+      and ev.status in ('sent'::public.estimate_status, 'accepted'::public.estimate_status)
   ),
   accepted_version_timestamps as (
     select
@@ -322,7 +323,15 @@ begin
   end if;
 
   return query
-  with active_projects as (
+  with owner_memberships as (
+    select
+      tm.user_id,
+      tm.role
+    from public.tenant_memberships tm
+    where tm.tenant_id = p_tenant_id
+      and tm.role in ('engineer'::public.tenant_role, 'admin'::public.tenant_role)
+  ),
+  active_projects as (
     select
       p.user_id,
       count(*)::integer as active_affaires_count
@@ -332,18 +341,16 @@ begin
     group by p.user_id
   )
   select
-    ap.user_id as owner_user_id,
-    coalesce(nullif(trim(profile.full_name), ''), profile.work_email, ap.user_id::text) as owner_name,
-    tm.role as owner_role,
-    ap.active_affaires_count
-  from active_projects ap
-  join public.tenant_memberships tm
-    on tm.tenant_id = p_tenant_id
-   and tm.user_id = ap.user_id
-  join public.profiles profile
-    on profile.id = ap.user_id
-  where tm.role in ('engineer'::public.tenant_role, 'admin'::public.tenant_role)
-  order by ap.active_affaires_count desc, owner_name asc;
+    om.user_id as owner_user_id,
+    coalesce(nullif(trim(profile.full_name), ''), profile.work_email, om.user_id::text) as owner_name,
+    om.role as owner_role,
+    coalesce(ap.active_affaires_count, 0)::integer as active_affaires_count
+  from owner_memberships om
+  left join active_projects ap
+    on ap.user_id = om.user_id
+  left join public.profiles profile
+    on profile.id = om.user_id
+  order by coalesce(ap.active_affaires_count, 0) desc, owner_name asc;
 end;
 $$;
 
