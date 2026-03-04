@@ -114,7 +114,7 @@ Shortlist obligatoire V2 (a appliquer uniquement sur les surfaces critiques):
 | UX2-E05 | Outils Expert & Productivite Senior | M3 | P1 | UX2-018 a 022 | [UX2-E05-outils-expert.md](./UX2-E05-outils-expert.md) |
 | UX2-E06 | Onboarding, Polish & Responsive | M3 | P2 | UX2-023 a 027 | [UX2-E06-onboarding-polish.md](./UX2-E06-onboarding-polish.md) |
 
-**Total : 27 stories**
+**Total : 27 stories** | [Plan d'implementation](./IMPLEMENTATION_PLAN.md)
 
 ---
 

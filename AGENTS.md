@@ -34,8 +34,7 @@
 - Never delete, overwrite, or revert work from other developers unless explicitly asked.
 - Follow the team standard for commit messages (Conventional Commits if undecided).
 - Include the ticket number in commit messages when one exists.
-- PRs should include a concise summary, linked issue (if any), and UI screenshots
-  for visual changes. Note any Supabase schema or RLS updates.
+- Commit should include a concise summary, linked issue (if any) Note any Supabase schema or RLS updates.
 
 ## Configuration & Security Tips
 - Copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and

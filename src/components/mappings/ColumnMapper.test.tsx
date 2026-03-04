@@ -57,4 +57,44 @@ describe("ColumnMapper", () => {
 
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("indicates required targets with explicit marker and required hint", async () => {
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(
+        createElement(ColumnMapper, {
+          sourceColumns: ["Code", "Description"],
+          mapping: {
+            Code: "hex_code",
+            Description: "designation",
+          },
+          targetFields: [
+            { value: "hex_code", label: "Reference article", required: true },
+            { value: "designation", label: "Designation", required: false },
+          ],
+          onChange: vi.fn(),
+        })
+      );
+    });
+
+    const option = renderer.root
+      .findAllByType("option")
+      .find((node) => node.props.value === "hex_code");
+
+    expect(option).toBeDefined();
+    if (!option) {
+      throw new Error("Option hex_code not found");
+    }
+    expect(extractText(option)).toContain("*");
+
+    const requiredHint = renderer.root
+      .findAllByType("span")
+      .find((node) => extractText(node) === "Champ requis");
+
+    expect(requiredHint).toBeDefined();
+    if (!requiredHint) {
+      throw new Error("Champ requis hint not found");
+    }
+  });
 });

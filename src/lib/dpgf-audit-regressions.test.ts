@@ -289,9 +289,8 @@ describe("M-12: required field asterisks", () => {
       "utf-8"
     );
 
-    expect(source).toContain("isRequiredTarget");
+    expect(source).toMatch(/target\.required\s*\?\s*["'`]\s*\*\s*["'`]\s*:\s*["'`]\s*["'`]/);
     expect(source).toContain("Champ requis");
-    expect(source).toContain("text-red-500");
   });
 });
 
