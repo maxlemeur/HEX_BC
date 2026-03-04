@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   createEstimateVariant,
   duplicateEstimateVersion,
@@ -15,8 +16,10 @@ import type {
   AffaireHubSummaryResult,
   AffaireHubTimelineResult,
 } from "@/lib/affaires/server";
+import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
+import { UnifiedImportFlow } from "./UnifiedImportFlow";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -216,17 +219,31 @@ function VersionTimelineCard({
       </div>
 
       {items.length === 0 ? (
-        <div className="py-8 text-center">
-          <p className="text-sm text-[var(--slate-500)]">
-            Aucune version pour cette affaire.
-          </p>
-          <Link
-            href={`/dashboard/estimates/new?projectId=${projectId}`}
-            className="btn btn-primary btn-sm mt-4 inline-flex"
-          >
-            Creer une premiere version
-          </Link>
-        </div>
+        <EmptyState
+          icon={
+            <svg
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="9" x2="15" y1="13" y2="13" />
+              <line x1="9" x2="15" y1="17" y2="17" />
+            </svg>
+          }
+          title="Aucune version encore"
+          description="Commencez le chiffrage ou importez un DPGF pour alimenter cette affaire."
+          actionLabel="Demarrer"
+          actionHref={`/dashboard/estimates/new?projectId=${projectId}`}
+          className="py-10"
+        />
       ) : (
         <div className="relative">
           {/* Vertical line */}
@@ -377,12 +394,12 @@ const MAPPING_STATUS_LABEL: Record<string, string> = {
 
 function DpgfSourceCard({
   dpgfSource,
-  projectId,
   errorMessage,
+  onStartImport,
 }: {
   dpgfSource: AffaireHubDpgfSourceResult;
-  projectId: string;
   errorMessage?: string;
+  onStartImport?: () => void;
 }) {
   return (
     <section className="dashboard-card p-5">
@@ -413,12 +430,13 @@ function DpgfSourceCard({
           <p className="text-sm text-[var(--slate-500)]">
             Aucun import DPGF lie a cette affaire.
           </p>
-          <Link
-            href={`/dashboard/imports?projectId=${projectId}`}
+          <button
+            type="button"
             className="btn btn-secondary btn-sm mt-3 inline-flex"
+            onClick={onStartImport}
           >
             Importer un DPGF
-          </Link>
+          </button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -698,8 +716,22 @@ export function AffaireHub({
   dpgfSource,
   sectionErrors,
 }: AffaireHubProps) {
+  const router = useRouter();
   const currentVersionId = summary.currentVersion?.id ?? null;
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
+
+  const [showImportFlow, setShowImportFlow] = useState(false);
+  const [importResult, setImportResult] =
+    useState<ConfirmUnifiedImportFlowResult | null>(null);
+
+  const handleImportComplete = useCallback(
+    (result: ConfirmUnifiedImportFlowResult) => {
+      setShowImportFlow(false);
+      setImportResult(result);
+      router.refresh();
+    },
+    [router],
+  );
 
   return (
     <div className="animate-fade-in">
@@ -739,30 +771,90 @@ export function AffaireHub({
         </div>
       </div>
 
-      {/* Content: 2 columns on desktop, stacked on mobile */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Left column: Financial + Timeline */}
-        <div className="space-y-4 lg:col-span-2">
-          <FinancialSummaryCard summary={summary} />
-          <VersionTimelineCard
-            timeline={timeline}
-            projectId={summary.project.id}
-            currentVersionId={currentVersionId}
-            acceptedVersionId={acceptedVersionId}
-            errorMessage={sectionErrors?.timeline}
-          />
+      {/* Import result summary banner */}
+      {importResult && (
+        <div className="mb-4 animate-fade-in rounded-xl border border-[var(--success)]/20 bg-[var(--success)]/5 px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--success)]/10">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--success)"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[var(--slate-800)]">
+                  Import termine
+                </p>
+                <p className="mt-0.5 text-xs text-[var(--slate-600)]">
+                  {importResult.stats.insertedRows} ligne
+                  {importResult.stats.insertedRows > 1 ? "s" : ""} inseree
+                  {importResult.stats.insertedRows > 1 ? "s" : ""}
+                  {importResult.stats.skippedRows > 0 && (
+                    <>
+                      {" — "}
+                      {importResult.stats.skippedRows} ignoree
+                      {importResult.stats.skippedRows > 1 ? "s" : ""}
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 text-xs text-[var(--slate-400)] hover:text-[var(--slate-600)]"
+              onClick={() => setImportResult(null)}
+            >
+              Fermer
+            </button>
+          </div>
         </div>
+      )}
 
-        {/* Right column: DPGF + Quick Actions */}
-        <div className="space-y-4">
-          <DpgfSourceCard
-            dpgfSource={dpgfSource}
-            projectId={summary.project.id}
-            errorMessage={sectionErrors?.dpgfSource}
-          />
-          <QuickActionsCard summary={summary} />
+      {/* Unified Import Flow (full-width, replaces grid when active) */}
+      {showImportFlow ? (
+        <UnifiedImportFlow
+          projectId={summary.project.id}
+          onCancel={() => setShowImportFlow(false)}
+          onComplete={handleImportComplete}
+        />
+      ) : (
+        /* Content: 2 columns on desktop, stacked on mobile */
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {/* Left column: Financial + Timeline */}
+          <div className="space-y-4 lg:col-span-2">
+            <FinancialSummaryCard summary={summary} />
+            <VersionTimelineCard
+              timeline={timeline}
+              projectId={summary.project.id}
+              currentVersionId={currentVersionId}
+              acceptedVersionId={acceptedVersionId}
+              errorMessage={sectionErrors?.timeline}
+            />
+          </div>
+
+          {/* Right column: DPGF + Quick Actions */}
+          <div className="space-y-4">
+            <DpgfSourceCard
+              dpgfSource={dpgfSource}
+              errorMessage={sectionErrors?.dpgfSource}
+              onStartImport={() => {
+                setImportResult(null);
+                setShowImportFlow(true);
+              }}
+            />
+            <QuickActionsCard summary={summary} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

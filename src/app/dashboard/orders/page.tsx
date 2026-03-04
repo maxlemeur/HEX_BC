@@ -12,6 +12,7 @@ import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
+import { EmptyState } from "@/components/ui/EmptyState";
 import {
   exportToCSV,
   exportToExcelWithSheets,
@@ -835,50 +836,54 @@ export default function OrdersPage() {
                         <span className="text-[var(--slate-500)]">Chargement des commandes...</span>
                       </div>
                     ) : orders.length === 0 ? (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                      <EmptyState
+                        icon={
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
-                            width="24"
-                            height="24"
+                            width="26"
+                            height="26"
                             viewBox="0 0 24 24"
                             fill="none"
-                            stroke="var(--slate-400)"
+                            stroke="currentColor"
                             strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
                           >
-                            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-                            <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+                            <circle cx="8" cy="20" r="1" />
+                            <circle cx="19" cy="20" r="1" />
+                            <path d="M2 3h3l2.6 11.3a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H7" />
                           </svg>
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium text-[var(--slate-700)]">Aucun bon de commande</p>
-                          <p className="mt-1 text-sm text-[var(--slate-500)]">Commencez par creer votre premier bon de commande.</p>
-                        </div>
-                        <Link href="/dashboard/orders/new" className="btn btn-primary btn-sm mt-2">
-                          Creer un bon
-                        </Link>
-                      </div>
+                        }
+                        title="Aucune commande"
+                        description="Les commandes sont generees depuis un chiffrage accepte."
+                        actionLabel="Voir mes affaires"
+                        actionHref="/dashboard/affaires"
+                        className="mx-auto max-w-xl"
+                      />
                     ) : (
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--slate-100)]">
+                      <EmptyState
+                        icon={
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
-                            width="24"
-                            height="24"
+                            width="26"
+                            height="26"
                             viewBox="0 0 24 24"
                             fill="none"
-                            stroke="var(--slate-400)"
+                            stroke="currentColor"
                             strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
                           >
                             <circle cx="11" cy="11" r="8" />
                             <path d="m21 21-4.3-4.3" />
                           </svg>
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium text-[var(--slate-700)]">Aucun resultat</p>
-                          <p className="mt-1 text-sm text-[var(--slate-500)]">Modifiez vos filtres pour voir plus de resultats.</p>
-                        </div>
-                      </div>
+                        }
+                        title="Aucun resultat"
+                        description="Modifiez vos filtres pour voir plus de resultats."
+                        className="mx-auto max-w-xl"
+                      />
                     )}
                   </td>
                 </tr>

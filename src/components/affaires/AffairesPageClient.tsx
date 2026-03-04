@@ -266,6 +266,7 @@ export function AffairesPageClient({
 
   const hasPrevPage = cursorStack.length > 0;
   const hasNextPage = data.list.hasNextPage;
+  const emptyVariant = data.counters.totalCount === 0 ? "no-data" : "filtered";
 
   return (
     <div className="animate-fade-in">
@@ -336,9 +337,17 @@ export function AffairesPageClient({
       {/* Content */}
       <div className="mt-4">
         {isExpert ? (
-          <AffairesDenseTable items={data.list.items} />
+          <AffairesDenseTable
+            items={data.list.items}
+            emptyVariant={emptyVariant}
+            onCreateAffaire={() => setShowCreateDialog(true)}
+          />
         ) : (
-          <AffairesCardList items={data.list.items} />
+          <AffairesCardList
+            items={data.list.items}
+            emptyVariant={emptyVariant}
+            onCreateAffaire={() => setShowCreateDialog(true)}
+          />
         )}
       </div>
 
