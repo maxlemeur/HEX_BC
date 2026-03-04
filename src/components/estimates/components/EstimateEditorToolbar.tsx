@@ -416,6 +416,7 @@ export function EstimateEditorToolbar({
 
       {/* Bulk selection bar */}
       {state.hasSelectedLines ? (
+        <>
         <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--slate-200)] bg-white px-6 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
           <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-2">
           <span className="text-xs font-semibold text-[var(--slate-700)]">
@@ -543,6 +544,7 @@ export function EstimateEditorToolbar({
           </button>
           </div>
         </div>
+        </>
       ) : null}
     </div>
   );

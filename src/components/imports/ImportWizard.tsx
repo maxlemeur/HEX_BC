@@ -48,9 +48,9 @@ function statusLabel(status: string): string {
     case "parsed":
     case "imported":
     case "completed":
-      return "Terminé";
+      return "Termine";
     case "failed":
-      return "Échec";
+      return "Echec";
     default:
       return status;
   }
@@ -173,6 +173,7 @@ export function ImportWizard() {
   const [headerRowInput, setHeaderRowInput] = useState("");
   const [headerRowError, setHeaderRowError] = useState<string | null>(null);
   const [dismissedSuccess, setDismissedSuccess] = useState(false);
+  const [copiedImportId, setCopiedImportId] = useState<string | null>(null);
 
   // Storytelling states
   const [fileStage, setFileStage] = useState<FileStage>("idle");
@@ -215,6 +216,7 @@ export function ImportWizard() {
       setFormatError(null);
       setDetectedHeaders([]);
       setDetectedHeaderRow(null);
+      setHeaderRowInput("");
 
       const ext = getFileExtension(selectedFile.name);
       if (!ext || !VALID_EXTENSIONS.has(ext)) {
@@ -242,7 +244,6 @@ export function ImportWizard() {
         if (result.headers.length >= 2) {
           setDetectedHeaders(result.headers);
           setDetectedHeaderRow(result.headerRow);
-          setHeaderRowInput(result.headerRow > 1 ? String(result.headerRow) : "");
           setFileStage("ready");
         } else {
           setDetectedHeaders([]);
@@ -276,8 +277,6 @@ export function ImportWizard() {
           return;
         }
         headerRowNumber = parsed;
-      } else if (detectedHeaderRow && detectedHeaderRow > 1) {
-        headerRowNumber = detectedHeaderRow;
       }
 
       setHeaderRowError(null);
@@ -290,7 +289,7 @@ export function ImportWizard() {
         fileInputRef.current.value = "";
       }
     },
-    [selectedFile, isSubmitting, headerRowInput, detectedHeaderRow, importFile]
+    [selectedFile, isSubmitting, headerRowInput, importFile]
   );
 
   function clearSelectedFile() {
@@ -323,13 +322,27 @@ export function ImportWizard() {
     setIsDragOver(false);
   }
 
+  async function handleCopyImportId(importId: string) {
+    try {
+      await navigator.clipboard.writeText(importId);
+      setCopiedImportId(importId);
+      window.setTimeout(() => {
+        setCopiedImportId((prev) => (prev === importId ? null : prev));
+      }, 1500);
+    } catch {
+      // Ignore clipboard errors (permissions / unavailable API)
+    }
+  }
+
   const filteredImports = filterImports(imports, statusFilter, historySearch);
+  const shouldShowHistory = showHistory || Boolean(loadError);
+  const canAccessHistory = imports.length > 0 || Boolean(loadError);
 
   const STATUS_TABS: { key: StatusFilter; label: string }[] = [
     { key: "all", label: "Tous" },
     { key: "active", label: "En cours" },
-    { key: "completed", label: "Terminés" },
-    { key: "failed", label: "Échecs" },
+    { key: "completed", label: "Termines" },
+    { key: "failed", label: "Echecs" },
   ];
 
   return (
@@ -704,7 +717,7 @@ export function ImportWizard() {
       )}
 
       {/* History: collapsed by default, toggle link */}
-      {imports.length > 0 && !showHistory && (
+      {canAccessHistory && !shouldShowHistory && (
         <div className="text-center">
           <button
             type="button"
@@ -715,7 +728,9 @@ export function ImportWizard() {
               <circle cx="12" cy="12" r="10" />
               <polyline points="12 6 12 12 16 14" />
             </svg>
-            Voir l&apos;historique ({imports.length} import{imports.length > 1 ? "s" : ""})
+            {imports.length > 0
+              ? `Voir l&apos;historique (${imports.length} import${imports.length > 1 ? "s" : ""})`
+              : "Voir l&apos;historique"}
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="6 9 12 15 18 9" />
             </svg>
@@ -723,7 +738,7 @@ export function ImportWizard() {
         </div>
       )}
 
-      {showHistory && (
+      {shouldShowHistory && (
         <section className="animate-fade-in dashboard-card overflow-hidden">
           <div className="flex items-center justify-between border-b border-[var(--slate-200)] px-6 py-4">
             <div className="flex items-center gap-3">
@@ -746,13 +761,15 @@ export function ImportWizard() {
               >
                 {isRefreshing ? "..." : "Actualiser"}
               </button>
-              <button
-                type="button"
-                className="text-xs text-[var(--slate-400)] hover:text-[var(--slate-600)]"
-                onClick={() => setShowHistory(false)}
-              >
-                Masquer
-              </button>
+              {showHistory ? (
+                <button
+                  type="button"
+                  className="text-xs text-[var(--slate-400)] hover:text-[var(--slate-600)]"
+                  onClick={() => setShowHistory(false)}
+                >
+                  Masquer
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -790,6 +807,7 @@ export function ImportWizard() {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th>ID</th>
                   <th>Nom</th>
                   <th>Statut</th>
                   <th>Lignes</th>
@@ -800,7 +818,7 @@ export function ImportWizard() {
               <tbody>
                 {isLoadingImports ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center">
+                    <td colSpan={6} className="py-8 text-center">
                       <div className="flex items-center justify-center gap-2">
                         <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]"></div>
                         <span className="text-sm text-[var(--slate-500)]">Chargement...</span>
@@ -809,13 +827,27 @@ export function ImportWizard() {
                   </tr>
                 ) : filteredImports.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-sm text-[var(--slate-500)]">
+                    <td colSpan={6} className="py-8 text-center text-sm text-[var(--slate-500)]">
                       Aucun import trouvé.
                     </td>
                   </tr>
                 ) : (
                   filteredImports.map((item) => (
                     <tr key={item.id}>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs text-[var(--slate-600)]">
+                            {item.id.slice(0, 8)}
+                          </code>
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-[var(--brand-blue)] hover:underline"
+                            onClick={() => void handleCopyImportId(item.id)}
+                          >
+                            {copiedImportId === item.id ? "Copie" : "Copier"}
+                          </button>
+                        </div>
+                      </td>
                       <td className="max-w-[280px]">
                         <span className="block truncate font-medium text-[var(--slate-800)]">
                           {item.fileName}

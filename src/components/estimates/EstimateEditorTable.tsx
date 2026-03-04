@@ -2470,6 +2470,9 @@ export function EstimateEditorTable({
         onConfirm={() => void handleConfirmPastePreview()}
         onClose={closePastePreview}
       />
+
+      {/* Spacer so table content isn't hidden behind the fixed bulk-selection bar */}
+      {hasSelectedLines && <div className="h-16" />}
       </div>
     </EstimateEditorProvider>
   );

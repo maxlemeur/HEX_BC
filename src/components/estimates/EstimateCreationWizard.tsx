@@ -83,6 +83,25 @@ type EstimateCreationWizardProps = {
   onCreated: (versionId: string) => void;
 };
 
+const FIELD_STEP_INDEX: Record<keyof WizardData, number> = {
+  projectName: 0,
+  clientName: 0,
+  reference: 0,
+  title: 0,
+  dateDevis: 1,
+  validiteJours: 1,
+  marginMode: 1,
+  marginBp: 1,
+  taxRateBp: 1,
+  roundingMode: 1,
+  roundingStepCents: 1,
+  currency: 1,
+  projectFamily: 1,
+  creationMode: 2,
+  selectedTemplateId: 2,
+  dpgfImportMode: 2,
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -366,6 +385,22 @@ export function EstimateCreationWizard({
   const updateField = useCallback(
     <K extends keyof WizardData>(key: K, value: WizardData[K]) => {
       setData((prev) => ({ ...prev, [key]: value }));
+      setValidatedSteps((prev) => {
+        if (prev.size === 0) return prev;
+        const stepIndex = FIELD_STEP_INDEX[key];
+        const next = new Set<number>();
+        let didChange = false;
+
+        for (const step of prev) {
+          if (step < stepIndex) {
+            next.add(step);
+          } else {
+            didChange = true;
+          }
+        }
+
+        return didChange ? next : prev;
+      });
       setErrors((prev) => {
         if (!prev[key]) return prev;
         const next = { ...prev };

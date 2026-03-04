@@ -239,6 +239,11 @@ export function ColumnMapper({
                             </option>
                           ))}
                         </select>
+                        {isRequiredTarget ? (
+                          <span className="text-[11px] text-red-500">
+                            Champ requis
+                          </span>
+                        ) : null}
                         {hasDuplicateConflict ? (
                           <div className="flex items-center gap-2 text-[11px] text-amber-600">
                             <span>
