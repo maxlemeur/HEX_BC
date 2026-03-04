@@ -115,6 +115,28 @@
   --color-surface: var(--surface);
   --color-surface-subtle: var(--surface-subtle);
 
+  /* Slate scale (maps CSS vars to Tailwind utilities: bg-slate-100, text-slate-600, etc.) */
+  --color-slate-50: var(--slate-50);
+  --color-slate-100: var(--slate-100);
+  --color-slate-200: var(--slate-200);
+  --color-slate-300: var(--slate-300);
+  --color-slate-400: var(--slate-400);
+  --color-slate-500: var(--slate-500);
+  --color-slate-600: var(--slate-600);
+  --color-slate-700: var(--slate-700);
+  --color-slate-800: var(--slate-800);
+  --color-slate-900: var(--slate-900);
+  --color-slate-950: var(--slate-950);
+
+  /* Status light variants (bg-success-light, bg-error-light, etc.) */
+  --color-success-light: var(--success-light);
+  --color-warning-light: var(--warning-light);
+  --color-error-light: var(--error-light);
+  --color-info-light: var(--info-light);
+
+  /* Error alias (consistency with Badge "error" variant) */
+  --color-error: var(--error);
+
   --color-brand-blue: var(--brand-blue);
   --color-brand-blue-light: var(--brand-blue-light);
   --color-brand-blue-dark: var(--brand-blue-dark);
@@ -139,6 +161,10 @@
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
+  /* Named radius for buttons/inputs (rounded-button-sm, rounded-button, rounded-button-lg) */
+  --radius-button-sm: 10px;
+  --radius-button: 12px;
+  --radius-button-lg: 14px;
 
   --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.08);
   --shadow-md: 0 6px 18px rgb(15 23 42 / 0.1);

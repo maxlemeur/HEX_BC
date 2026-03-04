@@ -120,7 +120,7 @@ function Content({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={cn(
-          "relative z-10 w-full max-w-2xl rounded-2xl border border-[var(--slate-200)] bg-white p-6 shadow-2xl",
+          "relative z-10 w-full max-w-2xl rounded-2xl border border-slate-200 bg-surface p-6 shadow-2xl",
           className
         )}
         onMouseDown={(event) => {
@@ -171,7 +171,7 @@ function Title({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>
   return (
     <h2
       id={titleId}
-      className={cn("text-lg font-semibold text-[var(--slate-800)]", className)}
+      className={cn("text-lg font-semibold text-slate-800", className)}
       {...props}
     />
   );
@@ -195,8 +195,8 @@ function Close({ className, children = "Fermer", ...props }: Readonly<ModalClose
     <button
       type="button"
       className={cn(
-        "inline-flex h-9 items-center justify-center rounded-[10px] px-3 text-xs font-semibold",
-        "text-[var(--slate-600)] transition hover:bg-[var(--slate-100)] hover:text-[var(--slate-900)]",
+        "inline-flex h-9 items-center justify-center rounded-button-sm px-3 text-xs font-semibold",
+        "text-slate-600 transition hover:bg-slate-100 hover:text-slate-900",
         className
       )}
       onClick={(event) => {

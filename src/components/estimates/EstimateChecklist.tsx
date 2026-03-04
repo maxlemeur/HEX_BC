@@ -60,7 +60,7 @@ export function EstimateChecklist({
     <aside className={`dashboard-card h-fit p-4 ${collapsedBorderClassName}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+          <h2 className="text-sm font-semibold text-foreground">
             Checklist complétude
           </h2>
         </div>
@@ -81,20 +81,20 @@ export function EstimateChecklist({
         >
           {STATUS_LABEL[checklist.status]}
         </span>
-        <span className="text-xs text-[var(--slate-500)]">
+        <span className="text-xs text-muted-foreground">
           {checklist.completedCount}/{checklist.totalCount} criteres
         </span>
       </div>
 
       {!isCollapsed ? (
         <>
-          <div className="mt-2 h-2 w-full rounded-full bg-[var(--slate-200)]">
+          <div className="mt-2 h-2 w-full rounded-full bg-slate-200">
             <div
               className={`h-2 rounded-full transition-all ${progressBarClassName}`}
               style={{ width: `${checklist.progressPercent}%` }}
             />
           </div>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
+          <p className="mt-1 text-xs text-muted-foreground">
             Progression globale: {checklist.progressPercent}%
           </p>
         </>

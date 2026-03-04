@@ -113,7 +113,7 @@ export function DataPreview({
       ) : null}
 
       {validation && validation.duplicate_target_assignments.length > 0 ? (
-        <div className="m-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="m-4 rounded-xl border border-warning/30 bg-warning-light px-4 py-3 text-sm text-warning">
           <p className="font-medium">Cibles dupliquees</p>
           <ul className="mt-1 list-inside list-disc">
             {validation.duplicate_target_assignments.map((entry) => (
@@ -130,7 +130,7 @@ export function DataPreview({
           <thead>
             <tr>
               <th>#</th>
-              <th>Code HEX</th>
+              <th>Reference article</th>
               <th>Designation</th>
               <th>Quantite</th>
               <th>Unite</th>

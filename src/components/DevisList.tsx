@@ -328,7 +328,7 @@ function SortableDevisRow({
               </span>
               <div className="flex items-center gap-2">
                 <button
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--error)] px-3 text-sm font-medium text-white transition-colors hover:bg-red-600"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--error)] px-3 text-sm font-medium text-white transition-colors hover:bg-danger"
                   onClick={onConfirmDelete}
                   type="button"
                   disabled={isRemoving}

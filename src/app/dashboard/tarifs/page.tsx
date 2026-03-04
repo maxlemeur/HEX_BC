@@ -29,8 +29,8 @@ export default function TarifsHubPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-10">
       <div className="animate-slide-in stagger-1">
-        <h1 className="text-2xl font-bold text-slate-900">Tarifs</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-2xl font-bold text-foreground">Tarifs</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Grilles tarifaires et indices de révision
         </p>
       </div>
@@ -43,11 +43,11 @@ export default function TarifsHubPage() {
               href={card.href}
               className="dashboard-card hub-card p-5 lg:col-span-2"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
                 {card.icon}
               </div>
-              <h3 className="mt-3 font-semibold text-slate-900">{card.title}</h3>
-              <p className="mt-1 text-sm text-slate-500">{card.description}</p>
+              <h3 className="mt-3 font-semibold text-foreground">{card.title}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{card.description}</p>
             </Link>
           ))}
         </div>

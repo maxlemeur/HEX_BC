@@ -51,14 +51,14 @@ const CHANGE_TYPE_LABELS: Record<DiffEntryChangeType, string> = {
 const CHANGE_TYPE_CARD_CSS: Record<DiffEntryChangeType, string> = {
   added: "border-emerald-200 bg-emerald-50/40",
   removed: "border-rose-200 bg-rose-50/40",
-  changed: "border-amber-200 bg-amber-50/40",
-  unchanged: "border-[var(--slate-200)] bg-white",
+  changed: "border-warning/30 bg-amber-50/40",
+  unchanged: "border-[var(--slate-200)] bg-surface",
 };
 
 const CHANGE_TYPE_BADGE_CSS: Record<DiffEntryChangeType, string> = {
   added: "border border-emerald-200 bg-emerald-50 text-emerald-700",
   removed: "border border-rose-200 bg-rose-50 text-rose-700",
-  changed: "border border-amber-200 bg-amber-50 text-amber-700",
+  changed: "border border-warning/30 bg-warning-light text-warning",
   unchanged: "border border-[var(--slate-200)] bg-[var(--slate-100)] text-[var(--slate-700)]",
 };
 
@@ -193,7 +193,7 @@ function InlineDiffEntry({
       </header>
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
-        <section className="rounded-lg border border-[var(--slate-200)] bg-white p-3">
+        <section className="rounded-lg border border-[var(--slate-200)] bg-surface p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
             Extraction actuelle
           </p>
@@ -203,7 +203,7 @@ function InlineDiffEntry({
           <p className="mt-1 text-xs text-[var(--slate-600)]">{formatItemMeta(entry.baseItem)}</p>
         </section>
 
-        <section className="rounded-lg border border-[var(--slate-200)] bg-white p-3">
+        <section className="rounded-lg border border-[var(--slate-200)] bg-surface p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
             Extraction de comparaison
           </p>
@@ -219,7 +219,7 @@ function InlineDiffEntry({
           {entry.delta.map((deltaEntry) => (
             <div
               key={`${entry.key}:${deltaEntry.field}`}
-              className="grid gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm md:grid-cols-[180px_1fr_auto_1fr]"
+              className="grid gap-2 rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2 text-sm md:grid-cols-[180px_1fr_auto_1fr]"
             >
               <span className="font-medium text-[var(--slate-700)]">{deltaEntry.label}</span>
               <span className="text-[var(--slate-500)] line-through">
@@ -279,7 +279,7 @@ function SideBySideDiffEntry({
         ) : null}
       </header>
 
-      <div className="mt-4 overflow-hidden rounded-lg border border-[var(--slate-200)] bg-white">
+      <div className="mt-4 overflow-hidden rounded-lg border border-[var(--slate-200)] bg-surface">
         <table className="data-table w-full">
           <thead>
             <tr>
@@ -393,31 +393,31 @@ export default function TakeoffDiffView({
       <section className="dashboard-card p-4">
         <h2 className="text-sm font-semibold text-[var(--slate-800)]">Resume des changements</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <div className="rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2">
             <p className="text-xs text-[var(--slate-500)]">Ajouts</p>
             <p className="text-lg font-semibold text-emerald-700">{compare.summary.added}</p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <div className="rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2">
             <p className="text-xs text-[var(--slate-500)]">Suppressions</p>
             <p className="text-lg font-semibold text-rose-700">{compare.summary.removed}</p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <div className="rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2">
             <p className="text-xs text-[var(--slate-500)]">Modifications</p>
-            <p className="text-lg font-semibold text-amber-700">{compare.summary.changed}</p>
+            <p className="text-lg font-semibold text-warning">{compare.summary.changed}</p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <div className="rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2">
             <p className="text-xs text-[var(--slate-500)]">Inchanges</p>
             <p className="text-lg font-semibold text-[var(--slate-700)]">
               {compare.summary.unchanged}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <div className="rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2">
             <p className="text-xs text-[var(--slate-500)]">Total extraction actuelle</p>
             <p className="text-lg font-semibold text-[var(--slate-900)]">
               {compare.summary.total_base}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
+          <div className="rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2">
             <p className="text-xs text-[var(--slate-500)]">Total extraction de comparaison</p>
             <p className="text-lg font-semibold text-[var(--slate-900)]">
               {compare.summary.total_other}
@@ -444,7 +444,7 @@ export default function TakeoffDiffView({
             ))}
           </select>
 
-          <div className="ml-2 inline-flex overflow-hidden rounded-lg border border-[var(--slate-200)] bg-white">
+          <div className="ml-2 inline-flex overflow-hidden rounded-lg border border-[var(--slate-200)] bg-surface">
             <button
               type="button"
               className={`px-3 py-1.5 text-xs font-semibold ${

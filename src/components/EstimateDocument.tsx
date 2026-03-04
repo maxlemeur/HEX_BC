@@ -100,8 +100,8 @@ export function EstimateDocument({
             className="h-[100px] w-auto object-contain print:h-[80px]"
             priority
           />
-          <div className="max-w-[220px] rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-right text-sm print:px-3 print:py-2 print:text-xs">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="max-w-[220px] rounded-lg border border-border bg-surface-subtle px-4 py-3 text-right text-sm print:px-3 print:py-2 print:text-xs">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Etablissement principal :
             </p>
             <p className="text-slate-600">{COMPANY_INFO.address.street}</p>
@@ -117,27 +117,27 @@ export function EstimateDocument({
 
         <div className="mt-4 flex items-start print:mt-3">
           <div className="w-[240px] shrink-0 text-sm">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Projet
             </p>
             <p className="text-lg font-bold text-brand-blue">
               {projectName || "Projet"}
             </p>
             {projectClient ? (
-              <p className="text-slate-500">{projectClient}</p>
+              <p className="text-muted-foreground">{projectClient}</p>
             ) : null}
             {projectReference ? (
-              <p className="mt-2 text-xs font-medium text-slate-500">
+              <p className="mt-2 text-xs font-medium text-muted-foreground">
                 Ref : {projectReference}
               </p>
             ) : null}
           </div>
 
           <div className="flex-1 text-center self-center">
-            <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-slate-800 print:mb-1 print:text-[25px]">
+            <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-foreground print:mb-1 print:text-[25px]">
               Devis
             </h2>
-            <p className="inline-block rounded-lg border border-slate-200 bg-slate-50 px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-slate-500">
+            <p className="inline-block rounded-lg border border-border bg-surface-subtle px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-muted-foreground">
               Version :{" "}
               <span className="font-bold text-brand-orange">
                 V{versionNumber}
@@ -150,54 +150,54 @@ export function EstimateDocument({
       </div>
 
       <div className="mb-8 grid grid-cols-2 gap-8 print:mb-3">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 print:p-4">
+        <div className="rounded-xl border border-border bg-surface-subtle p-6 print:p-4">
           <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
             Informations devis
           </h4>
           <div className="space-y-3 text-sm text-slate-600">
             <div className="flex items-center justify-between gap-4">
               <span>Date devis</span>
-              <span className="font-semibold text-slate-700">
+              <span className="font-semibold text-secondary-foreground">
                 {formatDate(dateDevis)}
               </span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span>Validite</span>
-              <span className="font-semibold text-slate-700">
+              <span className="font-semibold text-secondary-foreground">
                 {validiteLabel}
               </span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <span>Version</span>
-              <span className="font-semibold text-slate-700">
+              <span className="font-semibold text-secondary-foreground">
                 V{versionNumber}
               </span>
             </div>
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 print:p-4">
+        <div className="rounded-xl border border-border bg-surface-subtle p-6 print:p-4">
           <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
             Conditions
           </h4>
           <div className="space-y-3 text-sm text-slate-600">
             <div className="flex items-center justify-between gap-4">
               <span>Remise</span>
-              <span className="font-semibold text-slate-700">
+              <span className="font-semibold text-secondary-foreground">
                 {discountLabel}
               </span>
             </div>
             {taxEnabled ? (
               <div className="flex items-center justify-between gap-4">
                 <span>TVA</span>
-                <span className="font-semibold text-slate-700">{taxLabel}</span>
+                <span className="font-semibold text-secondary-foreground">{taxLabel}</span>
               </div>
             ) : null}
           </div>
         </div>
       </div>
 
-      <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 shadow-sm print:mb-3">
+      <div className="mb-6 overflow-hidden rounded-xl border border-border shadow-sm print:mb-3">
         <table className="w-full">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
@@ -216,7 +216,7 @@ export function EstimateDocument({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[var(--slate-300)] text-sm print:text-slate-900">
+          <tbody className="divide-y divide-[var(--slate-300)] text-sm print:text-foreground">
             <EstimateDocumentTableRows
               rows={rows}
               numberingById={numberingById}
@@ -229,7 +229,7 @@ export function EstimateDocument({
 
       <div className="mb-8 flex justify-end print:mb-4">
         <div className="w-full max-w-[320px] space-y-2">
-          <div className="overflow-hidden rounded-xl border border-slate-200">
+          <div className="overflow-hidden rounded-xl border border-border">
             <div className="flex items-center justify-between bg-brand-blue px-5 py-3 print-color-adjust">
               <span className="text-xs font-bold uppercase tracking-wide text-white/80">
                 Total HT
@@ -239,8 +239,8 @@ export function EstimateDocument({
               </span>
             </div>
             {taxEnabled ? (
-              <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-5 py-2">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <div className="flex items-center justify-between border-b border-border bg-surface-subtle px-5 py-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   TVA
                 </span>
                 <span className="text-sm font-medium text-slate-600">
@@ -248,8 +248,8 @@ export function EstimateDocument({
                 </span>
               </div>
             ) : null}
-            <div className="flex items-center justify-between bg-slate-50 px-5 py-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="flex items-center justify-between bg-surface-subtle px-5 py-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Total TTC
               </span>
               <span className="text-sm font-semibold text-slate-600">
@@ -278,17 +278,17 @@ export function EstimateDocument({
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
               Portail client du devis
             </p>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-muted-foreground">
               Ouvrez ce lien pour consulter la version partagee.
             </p>
-            <p className="print-portal-url mt-2 text-[11px] font-medium text-slate-700">
+            <p className="print-portal-url mt-2 text-[11px] font-medium text-secondary-foreground">
               {portalUrl}
             </p>
           </div>
         </div>
       ) : null}
 
-      <div className="mt-auto border-t border-slate-200 pt-5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 print:pt-3">
+      <div className="mt-auto border-t border-border pt-5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground print:pt-3">
         <p className="mb-1">Siege social : {footerAddress}</p>
         <p>
           SIRET {COMPANY_INFO.legal.siret} - TVA {COMPANY_INFO.legal.vat}

@@ -298,7 +298,7 @@ function GuardPanel({
   return (
     <div className="space-y-4">
       {/* Banner */}
-      <div className="rounded-xl border border-[var(--warning)] bg-amber-50 p-4">
+      <div className="rounded-xl border border-[var(--warning)] bg-warning-light p-4">
         <p className="flex items-center gap-2 text-sm font-semibold text-[var(--warning)]">
           <span aria-hidden="true">&#9888;</span> Verification requise
         </p>
@@ -390,7 +390,7 @@ function GuardPanel({
 
       {/* Medium confidence warning */}
       {guardResult.medium_items.length > 0 && (
-        <div className="rounded-xl border border-[var(--info)] bg-blue-50 p-3">
+        <div className="rounded-xl border border-[var(--info)] bg-info-light p-3">
           <p className="text-xs font-semibold text-[var(--info)]">
             Items confiance moyenne (non bloquants)
           </p>
@@ -418,7 +418,7 @@ function GuardPanel({
 
       {/* Admin override section */}
       {isAdmin && (
-        <div className="rounded-xl border border-[var(--danger)] bg-red-50 p-4">
+        <div className="rounded-xl border border-[var(--danger)] bg-error-light p-4">
           <p className="text-xs font-semibold text-[var(--danger)]">
             Override administrateur
           </p>
@@ -986,7 +986,7 @@ export function TakeoffApplyWizard({
                 guardResult &&
                 guardResult.passed &&
                 guardResult.medium_items.length > 0 && (
-                  <div className="rounded-xl border border-[var(--info)] bg-blue-50 p-3">
+                  <div className="rounded-xl border border-[var(--info)] bg-info-light p-3">
                     <p className="text-xs font-semibold text-[var(--info)]">
                       Items confiance moyenne (non bloquants)
                     </p>

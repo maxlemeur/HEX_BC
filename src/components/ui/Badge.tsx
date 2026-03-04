@@ -4,11 +4,11 @@ type BadgeVariant = "neutral" | "info" | "success" | "warning" | "error";
 type BadgeSize = "sm" | "md";
 
 const BADGE_VARIANTS: Record<BadgeVariant, string> = {
-  neutral: "bg-[var(--slate-100)] text-[var(--slate-600)]",
-  info: "bg-[var(--info-light)] text-[var(--info)]",
-  success: "bg-[var(--success-light)] text-[var(--success)]",
-  warning: "bg-[var(--warning-light)] text-[var(--warning)]",
-  error: "bg-[var(--error-light)] text-[var(--danger)]",
+  neutral: "bg-slate-100 text-slate-600",
+  info: "bg-info-light text-info",
+  success: "bg-success-light text-success",
+  warning: "bg-warning-light text-warning",
+  error: "bg-error-light text-danger",
 };
 
 const BADGE_SIZES: Record<BadgeSize, string> = {

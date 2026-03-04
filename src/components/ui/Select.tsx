@@ -41,15 +41,15 @@ export function Select({
   return (
     <div className="space-y-1.5">
       {label ? (
-        <label className="block text-xs font-semibold text-[var(--slate-700)]" htmlFor={selectId}>
+        <label className="block text-xs font-semibold text-slate-700" htmlFor={selectId}>
           {label}
         </label>
       ) : null}
 
       <div
         className={cn(
-          "relative flex h-11 items-center rounded-[12px] border bg-white transition",
-          "border-[var(--slate-200)] hover:border-[var(--slate-300)] focus-within:border-[var(--ring)]",
+          "relative flex h-11 items-center rounded-button border bg-surface transition",
+          "border-slate-200 hover:border-slate-300 focus-within:border-ring",
           error ? "border-danger" : null
         )}
       >
@@ -57,7 +57,7 @@ export function Select({
           id={selectId}
           ref={ref}
           className={cn(
-            "h-full w-full appearance-none rounded-[12px] bg-transparent px-3 pr-10 text-sm",
+            "h-full w-full appearance-none rounded-button bg-transparent px-3 pr-10 text-sm",
             "focus-visible:outline-none",
             className
           )}
@@ -76,7 +76,7 @@ export function Select({
             </option>
           ))}
         </select>
-        <span className="pointer-events-none absolute right-3 text-[var(--slate-400)]">
+        <span className="pointer-events-none absolute right-3 text-slate-400">
           ▾
         </span>
       </div>
@@ -88,7 +88,7 @@ export function Select({
       ) : null}
 
       {!error && helperText ? (
-        <p id={helperId ?? undefined} className="text-xs text-[var(--slate-500)]">
+        <p id={helperId ?? undefined} className="text-xs text-slate-500">
           {helperText}
         </p>
       ) : null}

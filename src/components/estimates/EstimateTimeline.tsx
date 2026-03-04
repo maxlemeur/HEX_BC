@@ -208,7 +208,7 @@ export function EstimateTimeline({
                             const delta = version.total_ht_cents - previousVersion.total_ht_cents;
                             if (delta === 0) return null;
                             return (
-                              <span className={`text-xs font-medium ${delta > 0 ? "text-green-600" : "text-red-600"}`}>
+                              <span className={`text-xs font-medium ${delta > 0 ? "text-success" : "text-danger"}`}>
                                 {delta > 0 ? "+" : ""}{formatEUR(delta)}
                               </span>
                             );

@@ -94,7 +94,7 @@ function renderSnapshotLine(entry: EstimateDiffEntry) {
   if (!sourceItem || sourceItem.item_type !== "line") return null;
 
   return (
-    <div className="mt-3 grid gap-1 text-xs text-[var(--slate-600)] md:grid-cols-4">
+    <div className="mt-3 grid gap-1 text-xs text-slate-600 md:grid-cols-4">
       <span>Quantite: {sourceItem.quantity ?? "-"}</span>
       <span>PU HT: {formatEUR(sourceItem.unit_price_ht_cents ?? 0)}</span>
       <span>Total HT: {formatEUR(sourceItem.line_total_ht_cents ?? 0)}</span>
@@ -116,12 +116,12 @@ function InlineEntry({ entry }: { entry: EstimateDiffEntry }) {
             >
               {changeLabel(entry.changeType)}
             </span>
-            <span className="text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+            <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
               {formatItemType(entry.entityType)}
             </span>
           </div>
-          <h3 className="text-sm font-semibold text-[var(--slate-900)]">{entry.title}</h3>
-          <p className="text-xs text-[var(--slate-500)]">
+          <h3 className="text-sm font-semibold text-foreground">{entry.title}</h3>
+          <p className="text-xs text-muted-foreground">
             Section: {formatSectionPath(entry.sectionPath)}
           </p>
         </div>
@@ -132,14 +132,14 @@ function InlineEntry({ entry }: { entry: EstimateDiffEntry }) {
           {entry.fieldChanges.map((change) => (
             <div
               key={`${entry.key}:${change.field}`}
-              className="grid gap-2 rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm md:grid-cols-[180px_1fr_auto_1fr]"
+              className="grid gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm md:grid-cols-[180px_1fr_auto_1fr]"
             >
-              <span className="font-medium text-[var(--slate-700)]">{change.label}</span>
-              <span className="text-[var(--slate-500)] line-through">
+              <span className="font-medium text-secondary-foreground">{change.label}</span>
+              <span className="text-muted-foreground line-through">
                 {formatFieldValue(change, change.beforeValue)}
               </span>
-              <span className="text-center text-[var(--slate-400)]">-&gt;</span>
-              <span className="font-medium text-[var(--slate-900)]">
+              <span className="text-center text-slate-400">-&gt;</span>
+              <span className="font-medium text-foreground">
                 {formatFieldValue(change, change.afterValue)}
               </span>
             </div>
@@ -173,19 +173,19 @@ function SideBySideEntry({
             >
               {changeLabel(entry.changeType)}
             </span>
-            <span className="text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+            <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
               {formatItemType(entry.entityType)}
             </span>
           </div>
-          <h3 className="text-sm font-semibold text-[var(--slate-900)]">{entry.title}</h3>
-          <p className="text-xs text-[var(--slate-500)]">
+          <h3 className="text-sm font-semibold text-foreground">{entry.title}</h3>
+          <p className="text-xs text-muted-foreground">
             Section: {formatSectionPath(entry.sectionPath)}
           </p>
         </div>
       </header>
 
       {entry.changeType === "modified" ? (
-        <div className="mt-4 overflow-hidden rounded-lg border border-[var(--slate-200)] bg-white">
+        <div className="mt-4 overflow-hidden rounded-lg border border-border bg-surface">
           <table className="data-table w-full">
             <thead>
               <tr>
@@ -198,10 +198,10 @@ function SideBySideEntry({
               {entry.fieldChanges.map((change) => (
                 <tr key={`${entry.key}:${change.field}`}>
                   <td className="font-medium">{change.label}</td>
-                  <td className="text-[var(--slate-500)]">
+                  <td className="text-muted-foreground">
                     {formatFieldValue(change, change.beforeValue)}
                   </td>
-                  <td className="font-semibold text-[var(--slate-900)]">
+                  <td className="font-semibold text-foreground">
                     {formatFieldValue(change, change.afterValue)}
                   </td>
                 </tr>
@@ -212,15 +212,15 @@ function SideBySideEntry({
       ) : (
         <div className="mt-4 grid gap-3">
           {entry.changeType !== "added" ? (
-            <div className="rounded-lg border border-[var(--slate-200)] bg-white p-3 text-sm">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+            <div className="rounded-lg border border-border bg-surface p-3 text-sm">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                 {previousVersionLabel}
               </p>
-              <p className="font-medium text-[var(--slate-900)]">
+              <p className="font-medium text-foreground">
                 {entry.beforeItem ? entry.beforeItem.title : "-"}
               </p>
               {entry.beforeItem?.item_type === "line" ? (
-                <p className="mt-1 text-xs text-[var(--slate-600)]">
+                <p className="mt-1 text-xs text-slate-600">
                   HT {formatEUR(entry.beforeItem.line_total_ht_cents ?? 0)} | TTC{" "}
                   {formatEUR(entry.beforeItem.line_total_ttc_cents ?? 0)}
                 </p>
@@ -228,15 +228,15 @@ function SideBySideEntry({
             </div>
           ) : null}
           {entry.changeType !== "removed" ? (
-            <div className="rounded-lg border border-[var(--slate-200)] bg-white p-3 text-sm">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+            <div className="rounded-lg border border-border bg-surface p-3 text-sm">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                 {currentVersionLabel}
               </p>
-              <p className="font-medium text-[var(--slate-900)]">
+              <p className="font-medium text-foreground">
                 {entry.afterItem ? entry.afterItem.title : "-"}
               </p>
               {entry.afterItem?.item_type === "line" ? (
-                <p className="mt-1 text-xs text-[var(--slate-600)]">
+                <p className="mt-1 text-xs text-slate-600">
                   HT {formatEUR(entry.afterItem.line_total_ht_cents ?? 0)} | TTC{" "}
                   {formatEUR(entry.afterItem.line_total_ttc_cents ?? 0)}
                 </p>
@@ -257,7 +257,7 @@ export function EstimateDiffView({
 }: Readonly<EstimateDiffViewProps>) {
   if (diff.entries.length === 0) {
     return (
-      <div className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+      <div className="dashboard-card p-6 text-sm text-slate-600">
         Aucun changement detecte entre les versions selectionnees.
       </div>
     );
@@ -266,28 +266,28 @@ export function EstimateDiffView({
   return (
     <div className="space-y-4">
       <section className="dashboard-card p-4">
-        <h2 className="text-sm font-semibold text-[var(--slate-800)]">Resume des changements</h2>
+        <h2 className="text-sm font-semibold text-foreground">Resume des changements</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Ajouts</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Ajouts</p>
             <p className="text-lg font-semibold text-emerald-700">
               {diff.summary.addedCount}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Suppressions</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Suppressions</p>
             <p className="text-lg font-semibold text-rose-700">
               {diff.summary.removedCount}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Modifications</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Modifications</p>
             <p className="text-lg font-semibold text-amber-700">
               {diff.summary.modifiedCount}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Delta HT</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Delta HT</p>
             <p
               className={`text-lg font-semibold ${
                 diff.summary.deltaHtCents >= 0 ? "text-emerald-700" : "text-rose-700"
@@ -296,8 +296,8 @@ export function EstimateDiffView({
               {formatDelta(diff.summary.deltaHtCents)}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Delta TTC</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Delta TTC</p>
             <p
               className={`text-lg font-semibold ${
                 diff.summary.deltaTtcCents >= 0 ? "text-emerald-700" : "text-rose-700"
@@ -306,13 +306,13 @@ export function EstimateDiffView({
               {formatDelta(diff.summary.deltaTtcCents)}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Totaux</p>
-            <p className="text-xs text-[var(--slate-600)]">
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Totaux</p>
+            <p className="text-xs text-slate-600">
               {previousVersionLabel}: HT {formatEUR(diff.summary.previousTotals.totalHtCents)} | TTC{" "}
               {formatEUR(diff.summary.previousTotals.totalTtcCents)}
             </p>
-            <p className="text-xs text-[var(--slate-900)]">
+            <p className="text-xs text-foreground">
               {currentVersionLabel}: HT {formatEUR(diff.summary.currentTotals.totalHtCents)} | TTC{" "}
               {formatEUR(diff.summary.currentTotals.totalTtcCents)}
             </p>

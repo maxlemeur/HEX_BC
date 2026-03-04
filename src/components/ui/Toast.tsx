@@ -41,10 +41,10 @@ const DEFAULT_DURATION_MS = 4000;
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 const TOAST_VARIANTS: Record<ToastVariant, string> = {
-  success: "border-success/30 bg-[var(--success-light)] text-[var(--slate-800)]",
-  error: "border-danger/30 bg-[var(--error-light)] text-[var(--slate-800)]",
-  warning: "border-warning/30 bg-[var(--warning-light)] text-[var(--slate-800)]",
-  info: "border-info/30 bg-[var(--info-light)] text-[var(--slate-800)]",
+  success: "border-success/30 bg-success-light text-slate-800",
+  error: "border-danger/30 bg-error-light text-slate-800",
+  warning: "border-warning/30 bg-warning-light text-slate-800",
+  info: "border-info/30 bg-info-light text-slate-800",
 };
 
 export function Toast({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id: string) => void }) {

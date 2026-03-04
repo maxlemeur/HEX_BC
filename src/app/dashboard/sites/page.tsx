@@ -285,7 +285,7 @@ export default function SitesPage() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="site-modal-title"
-            className="relative max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="relative max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-surface shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="border-b border-[var(--slate-200)] px-6 py-4">

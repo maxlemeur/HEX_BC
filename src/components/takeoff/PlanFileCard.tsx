@@ -30,7 +30,7 @@ function formatRelativeTime(isoDate: string) {
 
 export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3 text-sm transition hover:border-[var(--slate-300)]">
+    <div className="flex items-center gap-3 rounded-lg border border-[var(--slate-200)] bg-surface px-4 py-3 text-sm transition hover:border-[var(--slate-300)]">
       {/* PDF icon */}
       <svg
         className="h-5 w-5 shrink-0 text-red-500"
@@ -66,7 +66,7 @@ export function PlanFileCard({ file, onDelete, deleting }: PlanFileCardProps) {
       {/* Delete button */}
       <button
         type="button"
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--slate-400)] transition hover:bg-[var(--slate-100)] hover:text-red-600 disabled:opacity-50"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--slate-400)] transition hover:bg-[var(--slate-100)] hover:text-danger disabled:opacity-50"
         aria-label={`Supprimer ${file.file_name}`}
         onClick={() => onDelete(file.id)}
         disabled={deleting}

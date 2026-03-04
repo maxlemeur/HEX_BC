@@ -119,7 +119,7 @@ export function AssemblyLibraryTable({
                         &middot;&middot;&middot;
                       </button>
                       {openMenuId === assembly.id && (
-                        <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border border-[var(--slate-200)] bg-white py-1 shadow-xl">
+                        <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border border-[var(--slate-200)] bg-surface py-1 shadow-xl">
                           <button
                             type="button"
                             className="w-full px-4 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)]"
@@ -144,7 +144,7 @@ export function AssemblyLibraryTable({
                           <div className="my-1 border-t border-[var(--slate-200)]" />
                           <button
                             type="button"
-                            className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                            className="w-full px-4 py-2 text-left text-sm text-danger hover:bg-error-light"
                             onClick={() => { setOpenMenuId(null); onDelete(assembly); }}
                           >
                             Supprimer

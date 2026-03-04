@@ -16,8 +16,8 @@ export default async function AdminHubPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-10">
       <div className="animate-slide-in stagger-1">
-        <h1 className="text-2xl font-bold text-slate-900">Administration</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-2xl font-bold text-foreground">Administration</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Configuration et paramétrage de la plateforme
         </p>
       </div>
@@ -32,7 +32,7 @@ export default async function AdminHubPage() {
             href="/dashboard/tenants"
             className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="20"
@@ -50,8 +50,8 @@ export default async function AdminHubPage() {
                 <path d="M8 10h8" />
               </svg>
             </div>
-            <h3 className="mt-3 font-semibold text-slate-900">Tenant</h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <h3 className="mt-3 font-semibold text-foreground">Tenant</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
               Paramètres généraux de l&apos;organisation
             </p>
           </Link>
@@ -60,7 +60,7 @@ export default async function AdminHubPage() {
             href="/dashboard/admin/currencies"
             className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="20"
@@ -79,8 +79,8 @@ export default async function AdminHubPage() {
                 <path d="M4 19h9" />
               </svg>
             </div>
-            <h3 className="mt-3 font-semibold text-slate-900">Devises</h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <h3 className="mt-3 font-semibold text-foreground">Devises</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
               Gestion des devises et taux de change
             </p>
           </Link>
@@ -97,7 +97,7 @@ export default async function AdminHubPage() {
             href="/dashboard/admin/suggestion-learning"
             className="dashboard-card hub-card p-5"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="20"
@@ -114,10 +114,10 @@ export default async function AdminHubPage() {
                 <path d="M8 12h.01" />
               </svg>
             </div>
-            <h3 className="mt-3 font-semibold text-slate-900">
+            <h3 className="mt-3 font-semibold text-foreground">
               Suggestion learning
             </h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               Apprentissage des suggestions automatiques
             </p>
           </Link>
@@ -126,7 +126,7 @@ export default async function AdminHubPage() {
             href="/dashboard/admin/anomaly-history"
             className="dashboard-card hub-card p-5"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="20"
@@ -143,10 +143,10 @@ export default async function AdminHubPage() {
                 <path d="M12 16h.01" />
               </svg>
             </div>
-            <h3 className="mt-3 font-semibold text-slate-900">
+            <h3 className="mt-3 font-semibold text-foreground">
               Historique anomalies
             </h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               Suivi et résolution des anomalies détectées
             </p>
           </Link>
@@ -155,7 +155,7 @@ export default async function AdminHubPage() {
             href="/dashboard/admin/rules"
             className="dashboard-card hub-card p-5"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="20"
@@ -175,8 +175,8 @@ export default async function AdminHubPage() {
                 <circle cx="9" cy="6" r="2" />
               </svg>
             </div>
-            <h3 className="mt-3 font-semibold text-slate-900">Rules engine</h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <h3 className="mt-3 font-semibold text-foreground">Rules engine</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
               Règles métier et moteur de validation
             </p>
           </Link>
@@ -185,7 +185,7 @@ export default async function AdminHubPage() {
             href="/dashboard/admin/flags"
             className="dashboard-card hub-card p-5"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="20"
@@ -201,10 +201,10 @@ export default async function AdminHubPage() {
                 <line x1="4" x2="4" y1="22" y2="15" />
               </svg>
             </div>
-            <h3 className="mt-3 font-semibold text-slate-900">
+            <h3 className="mt-3 font-semibold text-foreground">
               Feature flags
             </h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               Activation et configuration des fonctionnalités
             </p>
           </Link>
@@ -222,7 +222,7 @@ export default async function AdminHubPage() {
               href="/dashboard/admin/takeoff/mapping-rules"
               className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="20"
@@ -240,10 +240,10 @@ export default async function AdminHubPage() {
                   <path d="M17 20v-8H7" />
                 </svg>
               </div>
-              <h3 className="mt-3 font-semibold text-slate-900">
+              <h3 className="mt-3 font-semibold text-foreground">
                 Règles d&apos;extraction
               </h3>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Règles de correspondance du module d&apos;extraction
               </p>
             </Link>
@@ -252,7 +252,7 @@ export default async function AdminHubPage() {
               href="/dashboard/admin/takeoff/metrics"
               className="dashboard-card hub-card p-5 sm:col-span-1 lg:col-span-2"
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="20"
@@ -268,10 +268,10 @@ export default async function AdminHubPage() {
                   <path d="m7 12 4-4 4 4 4-4" />
                 </svg>
               </div>
-              <h3 className="mt-3 font-semibold text-slate-900">
+              <h3 className="mt-3 font-semibold text-foreground">
                 Métriques d&apos;extraction
               </h3>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Observabilite des extractions, couts et performances
               </p>
             </Link>

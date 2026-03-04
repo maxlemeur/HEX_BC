@@ -400,7 +400,7 @@ export function DevisPreviewModal({ open, onClose, devis }: DevisPreviewModalPro
                   </div>
 
                   {emailPreview.text ? (
-                    <div className="rounded-xl bg-white p-5 text-sm text-slate-900 shadow-lg">
+                    <div className="rounded-xl bg-white p-5 text-sm text-foreground shadow-lg">
                       <pre className="whitespace-pre-wrap leading-relaxed">
                         {emailPreview.text}
                       </pre>

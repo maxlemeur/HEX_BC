@@ -685,7 +685,7 @@ export function CatalogueManager() {
               <div className={`rounded-xl border p-4 ${
                 linkSummary.unmatched_count === 0
                   ? "border-[var(--success)] bg-[var(--success-light)]"
-                  : "border-[var(--warning)] bg-amber-50"
+                  : "border-[var(--warning)] bg-warning-light"
               }`}>
                 <div className="flex items-center gap-3">
                   <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
@@ -733,14 +733,14 @@ export function CatalogueManager() {
                 </div>
                 <div className={`rounded-xl border px-4 py-3 text-center ${
                   linkSummary.unmatched_count > 0
-                    ? "border-red-200 bg-red-50"
+                    ? "border-danger/30 bg-error-light"
                     : "border-[var(--slate-200)] bg-[var(--slate-50)]"
                 }`}>
                   <p className={`text-[11px] uppercase tracking-wide ${
-                    linkSummary.unmatched_count > 0 ? "text-red-500" : "text-[var(--slate-500)]"
+                    linkSummary.unmatched_count > 0 ? "text-danger" : "text-[var(--slate-500)]"
                   }`}>Sans match</p>
                   <p className={`mt-1 text-lg font-bold ${
-                    linkSummary.unmatched_count > 0 ? "text-red-600" : "text-[var(--slate-900)]"
+                    linkSummary.unmatched_count > 0 ? "text-danger" : "text-[var(--slate-900)]"
                   }`}>{linkSummary.unmatched_count}</p>
                 </div>
               </div>

@@ -86,7 +86,7 @@ async function fetcher<T>(url: string): Promise<T> {
 function TrendChart({ data }: { data: TrendPeriod[] }) {
   if (data.length === 0) {
     return (
-      <div className="flex h-48 items-center justify-center text-sm text-gray-400">
+      <div className="flex h-48 items-center justify-center text-sm text-slate-400">
         Aucune donnee de tendance disponible.
       </div>
     );
@@ -136,7 +136,7 @@ function TrendChart({ data }: { data: TrendPeriod[] }) {
               x={x + barWidth}
               y={chartHeight + 16}
               textAnchor="middle"
-              className="fill-gray-500"
+              className="fill-muted-foreground"
               fontSize={10}
             >
               {d.period.slice(5)}
@@ -234,10 +234,10 @@ export function AnomalyHistoryClient({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-2xl font-bold text-foreground">
             Historique des anomalies
           </h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-muted-foreground">
             Suivi qualite des chiffrages pour le tenant.
           </p>
         </div>
@@ -245,7 +245,7 @@ export function AnomalyHistoryClient({
           type="button"
           onClick={handleExportCsv}
           disabled={isExporting || isLoading}
-          className="inline-flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
         >
           {isExporting ? "Export en cours..." : "Exporter CSV"}
         </button>
@@ -261,12 +261,12 @@ export function AnomalyHistoryClient({
           <KpiCard
             label="Bloquantes"
             value={data.summary.blockingCount}
-            color="text-red-600"
+            color="text-danger"
           />
           <KpiCard
             label="Avertissements"
             value={data.summary.warningCount}
-            color="text-amber-600"
+            color="text-warning"
           />
           <KpiCard
             label="Devis concernes"
@@ -276,10 +276,10 @@ export function AnomalyHistoryClient({
       )}
 
       {/* Filter Bar */}
-      <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <div className="rounded-xl border border-border bg-surface p-4">
         <div className="flex flex-wrap items-end gap-4">
           <div className="min-w-0 flex-1">
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label className="mb-1 block text-xs font-medium text-slate-600">
               Recherche
             </label>
             <input
@@ -287,11 +287,11 @@ export function AnomalyHistoryClient({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Projet ou version..."
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label className="mb-1 block text-xs font-medium text-slate-600">
               Chiffreur (user ID)
             </label>
             <input
@@ -299,29 +299,29 @@ export function AnomalyHistoryClient({
               value={ownerUserId}
               onChange={(e) => setOwnerUserId(e.target.value)}
               placeholder="UUID..."
-              className="w-48 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              className="w-48 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label className="mb-1 block text-xs font-medium text-slate-600">
               Du
             </label>
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label className="mb-1 block text-xs font-medium text-slate-600">
               Au
             </label>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
             />
           </div>
         </div>
@@ -333,8 +333,8 @@ export function AnomalyHistoryClient({
               onClick={() => handleFlagTypeToggle(opt.value)}
               className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
                 selectedFlagTypes.includes(opt.value)
-                  ? "border-blue-500 bg-blue-50 text-blue-700"
-                  : "border-gray-300 bg-white text-gray-600 hover:bg-gray-50"
+                  ? "border-blue-500 bg-info-light text-info"
+                  : "border-slate-300 bg-surface text-slate-600 hover:bg-surface-subtle"
               }`}
             >
               {opt.label}
@@ -345,12 +345,12 @@ export function AnomalyHistoryClient({
 
       {/* Loading / Error */}
       {isLoading && (
-        <div className="flex h-32 items-center justify-center text-sm text-gray-400">
+        <div className="flex h-32 items-center justify-center text-sm text-slate-400">
           Chargement...
         </div>
       )}
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="rounded-lg border border-danger/30 bg-error-light p-4 text-sm text-danger">
           {(error as Error).message ?? "Erreur lors du chargement."}
         </div>
       )}
@@ -358,32 +358,32 @@ export function AnomalyHistoryClient({
       {data && (
         <>
           {/* Current Anomalies Table */}
-          <div className="rounded-xl border border-gray-200 bg-white">
-            <div className="border-b border-gray-200 px-4 py-3">
-              <h2 className="text-sm font-semibold text-gray-900">
+          <div className="rounded-xl border border-border bg-surface">
+            <div className="border-b border-border px-4 py-3">
+              <h2 className="text-sm font-semibold text-foreground">
                 Anomalies courantes
               </h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-gray-200 bg-gray-50">
+                <thead className="border-b border-border bg-surface-subtle">
                   <tr>
-                    <th className="px-4 py-2 font-medium text-gray-600">
+                    <th className="px-4 py-2 font-medium text-slate-600">
                       Devis
                     </th>
-                    <th className="px-4 py-2 font-medium text-gray-600">
+                    <th className="px-4 py-2 font-medium text-slate-600">
                       Projet
                     </th>
-                    <th className="px-4 py-2 font-medium text-gray-600">
+                    <th className="px-4 py-2 font-medium text-slate-600">
                       Chiffreur
                     </th>
-                    <th className="px-4 py-2 font-medium text-gray-600">
+                    <th className="px-4 py-2 font-medium text-slate-600">
                       Anomalie
                     </th>
-                    <th className="px-4 py-2 font-medium text-gray-600">
+                    <th className="px-4 py-2 font-medium text-slate-600">
                       Severite
                     </th>
-                    <th className="px-4 py-2 text-right font-medium text-gray-600">
+                    <th className="px-4 py-2 text-right font-medium text-slate-600">
                       Nb lignes
                     </th>
                   </tr>
@@ -393,7 +393,7 @@ export function AnomalyHistoryClient({
                     <tr>
                       <td
                         colSpan={6}
-                        className="px-4 py-8 text-center text-gray-400"
+                        className="px-4 py-8 text-center text-slate-400"
                       >
                         Aucune anomalie detectee.
                       </td>
@@ -402,31 +402,31 @@ export function AnomalyHistoryClient({
                     data.currentAnomalies.map((row) => (
                       <tr
                         key={`${row.versionId}-${row.flagKey}`}
-                        className="cursor-pointer border-b border-gray-100 transition hover:bg-gray-50"
+                        className="cursor-pointer border-b border-border transition hover:bg-surface-subtle"
                         onClick={() =>
                           router.push(
                             `/dashboard/estimates/${row.versionId}`
                           )
                         }
                       >
-                        <td className="px-4 py-2 font-mono text-xs text-gray-600">
+                        <td className="px-4 py-2 font-mono text-xs text-slate-600">
                           {row.versionLabel}
                         </td>
-                        <td className="px-4 py-2 text-gray-900">
+                        <td className="px-4 py-2 text-foreground">
                           {row.projectName}
                         </td>
-                        <td className="px-4 py-2 text-gray-700">
+                        <td className="px-4 py-2 text-secondary-foreground">
                           {row.ownerName}
                         </td>
-                        <td className="px-4 py-2 text-gray-700">
+                        <td className="px-4 py-2 text-secondary-foreground">
                           {row.flagLabel}
                         </td>
                         <td className="px-4 py-2">
                           <span
                             className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                               row.severity === "blocking"
-                                ? "bg-red-100 text-red-700"
-                                : "bg-amber-100 text-amber-700"
+                                ? "bg-error-light text-danger"
+                                : "bg-warning-light text-warning"
                             }`}
                           >
                             {row.severity === "blocking"
@@ -434,7 +434,7 @@ export function AnomalyHistoryClient({
                               : "Avertissement"}
                           </span>
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-gray-900">
+                        <td className="px-4 py-2 text-right tabular-nums text-foreground">
                           {row.itemCount}
                         </td>
                       </tr>
@@ -446,16 +446,16 @@ export function AnomalyHistoryClient({
           </div>
 
           {/* Trend Chart */}
-          <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <h2 className="mb-3 text-sm font-semibold text-gray-900">
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <h2 className="mb-3 text-sm font-semibold text-foreground">
               Tendance mensuelle
             </h2>
             <div className="flex items-center gap-4 mb-3">
-              <div className="flex items-center gap-1.5 text-xs text-gray-600">
+              <div className="flex items-center gap-1.5 text-xs text-slate-600">
                 <span className="inline-block h-3 w-3 rounded-sm bg-red-500" />
                 Apparues
               </div>
-              <div className="flex items-center gap-1.5 text-xs text-gray-600">
+              <div className="flex items-center gap-1.5 text-xs text-slate-600">
                 <span className="inline-block h-3 w-3 rounded-sm bg-green-500" />
                 Resolues
               </div>
@@ -465,20 +465,20 @@ export function AnomalyHistoryClient({
 
           {/* Average Resolution Stats */}
           {data.avgResolution.length > 0 && (
-            <div className="rounded-xl border border-gray-200 bg-white">
-              <div className="border-b border-gray-200 px-4 py-3">
-                <h2 className="text-sm font-semibold text-gray-900">
+            <div className="rounded-xl border border-border bg-surface">
+              <div className="border-b border-border px-4 py-3">
+                <h2 className="text-sm font-semibold text-foreground">
                   Temps moyen de resolution
                 </h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                  <thead className="border-b border-gray-200 bg-gray-50">
+                  <thead className="border-b border-border bg-surface-subtle">
                     <tr>
-                      <th className="px-4 py-2 font-medium text-gray-600">
+                      <th className="px-4 py-2 font-medium text-slate-600">
                         Type d&apos;anomalie
                       </th>
-                      <th className="px-4 py-2 text-right font-medium text-gray-600">
+                      <th className="px-4 py-2 text-right font-medium text-slate-600">
                         Delai moyen (jours)
                       </th>
                     </tr>
@@ -487,12 +487,12 @@ export function AnomalyHistoryClient({
                     {data.avgResolution.map((row) => (
                       <tr
                         key={row.flagKey}
-                        className="border-b border-gray-100"
+                        className="border-b border-border"
                       >
-                        <td className="px-4 py-2 text-gray-700">
+                        <td className="px-4 py-2 text-secondary-foreground">
                           {row.flagLabel}
                         </td>
-                        <td className="px-4 py-2 text-right tabular-nums text-gray-900">
+                        <td className="px-4 py-2 text-right tabular-nums text-foreground">
                           {row.avgDays}
                         </td>
                       </tr>
@@ -522,9 +522,9 @@ function KpiCard({
   color?: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <div className="text-xs font-medium text-gray-500">{label}</div>
-      <div className={`mt-1 text-2xl font-bold ${color ?? "text-gray-900"}`}>
+    <div className="rounded-xl border border-border bg-surface p-4">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-2xl font-bold ${color ?? "text-foreground"}`}>
         {value}
       </div>
     </div>

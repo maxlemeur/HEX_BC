@@ -186,7 +186,7 @@ export function AssemblyPicker({
         onClick={onClose}
         aria-label="Fermer le picker assemblages"
       />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-3xl flex-col bg-white shadow-2xl">
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-3xl flex-col bg-surface shadow-2xl">
         <div className="flex items-start justify-between border-b border-[var(--slate-200)] px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold text-[var(--slate-800)]">Assemblages</h2>
@@ -232,8 +232,8 @@ export function AssemblyPicker({
                     type="button"
                     className={`mb-2 w-full rounded-lg border px-3 py-2 text-left ${
                       selectedAssemblyId === assembly.id
-                        ? "border-[var(--brand-blue)] bg-blue-50"
-                        : "border-[var(--slate-200)] bg-white"
+                        ? "border-[var(--brand-blue)] bg-info-light"
+                        : "border-[var(--slate-200)] bg-surface"
                     }`}
                     onClick={() => setSelectedAssemblyId(assembly.id)}
                   >

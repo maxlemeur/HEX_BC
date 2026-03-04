@@ -283,7 +283,7 @@ export function PlanSetCard({
         {/* Delete set button */}
         <button
           type="button"
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--slate-400)] transition hover:bg-[var(--slate-100)] hover:text-red-600"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--slate-400)] transition hover:bg-[var(--slate-100)] hover:text-danger"
           aria-label={`Supprimer le jeu "${planSet.name}"`}
           onClick={() => setDeleteSetModalOpen(true)}
         >

@@ -48,7 +48,7 @@ export function DeleteOrderButton({
           Supprimer {orderReference} ?
         </span>
         <button
-          className="btn btn-sm h-8 rounded-lg bg-[var(--error)] px-3 text-xs font-bold text-white hover:bg-red-600"
+          className="btn btn-sm h-8 rounded-lg bg-[var(--error)] px-3 text-xs font-bold text-white hover:bg-danger"
           disabled={deleting}
           onClick={handleDelete}
           type="button"

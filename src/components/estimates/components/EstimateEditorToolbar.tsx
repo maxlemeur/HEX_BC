@@ -154,7 +154,7 @@ export function EstimateEditorToolbar({
       {/* Row 1 — Edit actions */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Undo / Redo group */}
-        <div className="flex items-center gap-1 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-1">
+        <div className="flex items-center gap-1 rounded-lg border border-border bg-surface-subtle px-2 py-1">
           <button
             className="btn btn-ghost btn-sm px-2"
             type="button"
@@ -179,7 +179,7 @@ export function EstimateEditorToolbar({
           </button>
         </div>
 
-        <div className="h-5 w-px bg-[var(--slate-200)]" />
+        <div className="h-5 w-px bg-slate-200" />
 
         {/* Primary actions */}
         <button
@@ -207,7 +207,7 @@ export function EstimateEditorToolbar({
         {/* Settings button */}
         {onOpenSettings && (
           <>
-            <div className="h-5 w-px bg-[var(--slate-200)]" />
+            <div className="h-5 w-px bg-slate-200" />
             <button
               className="btn btn-ghost btn-sm flex items-center gap-1.5"
               type="button"
@@ -241,7 +241,7 @@ export function EstimateEditorToolbar({
           </button>
           {columnsOpen && (
             <div
-              className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-2 rounded-xl border border-[var(--slate-200)] bg-white p-3 shadow-xl"
+              className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 shadow-xl"
               style={{ minWidth: "200px" }}
             >
               {(Object.keys(columnPresetLabels) as ColumnPreset[]).map((preset) => (
@@ -255,9 +255,9 @@ export function EstimateEditorToolbar({
                 </button>
               ))}
               {columnPreset === "custom" && (
-                <div className="mt-2 border-t border-[var(--slate-200)] pt-2 space-y-1">
+                <div className="mt-2 border-t border-border pt-2 space-y-1">
                   {allAdvancedColumns.map((col) => (
-                    <label key={col} className="flex items-center gap-2 text-sm text-[var(--slate-700)] cursor-pointer">
+                    <label key={col} className="flex items-center gap-2 text-sm text-secondary-foreground cursor-pointer">
                       <input
                         type="checkbox"
                         checked={columnVisibleColumns.has(col)}
@@ -289,19 +289,19 @@ export function EstimateEditorToolbar({
             </button>
             {anomaliesOpen && (
               <div
-                className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl"
+                className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-border bg-surface p-2 shadow-xl"
                 style={{ minWidth: "260px" }}
               >
                 <button
                   type="button"
-                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${qualityFilter === "all_lines" ? "bg-[var(--slate-100)] font-semibold text-[var(--slate-800)]" : "text-[var(--slate-700)] hover:bg-[var(--slate-50)]"}`}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${qualityFilter === "all_lines" ? "bg-secondary font-semibold text-foreground" : "text-secondary-foreground hover:bg-surface-subtle"}`}
                   onClick={() => { onQualityFilterChange("all_lines"); anomaliesToggle(); }}
                 >
                   Toutes les lignes ({qualityCounts.linesCount})
                 </button>
                 <button
                   type="button"
-                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${qualityFilter === "with_anomalies" ? "bg-orange-100 font-semibold text-orange-800" : "text-[var(--slate-700)] hover:bg-[var(--slate-50)]"}`}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${qualityFilter === "with_anomalies" ? "bg-orange-100 font-semibold text-orange-800" : "text-secondary-foreground hover:bg-surface-subtle"}`}
                   onClick={() => { onQualityFilterChange("with_anomalies"); anomaliesToggle(); }}
                 >
                   Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
@@ -310,7 +310,7 @@ export function EstimateEditorToolbar({
                   <button
                     key={flag}
                     type="button"
-                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${qualityFilter === flag ? "bg-orange-100 font-semibold text-orange-800" : "text-[var(--slate-700)] hover:bg-[var(--slate-50)]"}`}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-left transition-colors ${qualityFilter === flag ? "bg-orange-100 font-semibold text-orange-800" : "text-secondary-foreground hover:bg-surface-subtle"}`}
                     onClick={() => { onQualityFilterChange(flag); anomaliesToggle(); }}
                   >
                     {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
@@ -330,12 +330,12 @@ export function EstimateEditorToolbar({
           </button>
           {toolsOpen && (
             <div
-              className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-[var(--slate-200)] bg-white p-4 shadow-xl"
+              className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-xl"
               style={{ minWidth: "320px" }}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <label
-                  className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+                  className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
                   htmlFor="estimate-quality-filter"
                 >
                   Filtre qualité
@@ -417,12 +417,12 @@ export function EstimateEditorToolbar({
       {/* Bulk selection bar */}
       {state.hasSelectedLines ? (
         <>
-        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--slate-200)] bg-white px-6 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
+        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-surface px-6 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
           <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-[var(--slate-700)]">
+          <span className="text-xs font-semibold text-secondary-foreground">
             {state.selectedLineCount} sélection(s)
           </span>
-          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
+          <div className="mx-1 h-4 w-px bg-slate-300" />
           <input
             className="estimate-input"
             style={{ width: "92px" }}
@@ -443,9 +443,9 @@ export function EstimateEditorToolbar({
           >
             Appliquer majoration
           </button>
-          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
+          <div className="mx-1 h-4 w-px bg-slate-300" />
           <label
-            className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+            className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
             htmlFor="estimate-bulk-move-target"
           >
             Déplacer
@@ -472,9 +472,9 @@ export function EstimateEditorToolbar({
           >
             Appliquer
           </button>
-          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
+          <div className="mx-1 h-4 w-px bg-slate-300" />
           <label
-            className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+            className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
             htmlFor="estimate-bulk-category"
           >
             Catégorie
@@ -502,9 +502,9 @@ export function EstimateEditorToolbar({
           >
             Appliquer
           </button>
-          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
+          <div className="mx-1 h-4 w-px bg-slate-300" />
           <label
-            className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--slate-500)]"
+            className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
             htmlFor="estimate-bulk-labor-role"
           >
             Rôle MO
@@ -533,7 +533,7 @@ export function EstimateEditorToolbar({
           >
             Appliquer
           </button>
-          <div className="mx-1 h-4 w-px bg-[var(--slate-300)]" />
+          <div className="mx-1 h-4 w-px bg-slate-300" />
           <button
             className="btn btn-danger btn-sm"
             type="button"
@@ -588,9 +588,9 @@ function KeyboardShortcutsButton() {
             if (e.target === e.currentTarget) setIsOpen(false);
           }}
         >
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-[var(--slate-800)]">
+              <h3 className="text-lg font-semibold text-foreground">
                 Raccourcis clavier
               </h3>
               <button
@@ -606,14 +606,14 @@ function KeyboardShortcutsButton() {
               {KEYBOARD_SHORTCUTS.map(({ keys, description }) => (
                 <div
                   key={keys.join("+")}
-                  className="flex items-center justify-between gap-4 rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--slate-50)]"
+                  className="flex items-center justify-between gap-4 rounded-lg px-2 py-1.5 text-sm hover:bg-surface-subtle"
                 >
-                  <span className="text-[var(--slate-600)]">{description}</span>
+                  <span className="text-slate-600">{description}</span>
                   <span className="flex items-center gap-1">
                     {keys.map((key) => (
                       <kbd
                         key={key}
-                        className="inline-flex min-w-[24px] items-center justify-center rounded-md border border-[var(--slate-300)] bg-[var(--slate-50)] px-1.5 py-0.5 text-xs font-medium text-[var(--slate-700)]"
+                        className="inline-flex min-w-[24px] items-center justify-center rounded-md border border-slate-300 bg-surface-subtle px-1.5 py-0.5 text-xs font-medium text-secondary-foreground"
                       >
                         {key}
                       </kbd>

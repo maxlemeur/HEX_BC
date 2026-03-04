@@ -1078,7 +1078,7 @@ function MoreActionsDropdown({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-lg z-50">
+        <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-lg z-50">
           <button
             type="button"
             className={menuItemClass}
@@ -1116,7 +1116,7 @@ function MoreActionsDropdown({
               <div className="my-1 border-t border-[var(--slate-200)]" />
               <button
                 type="button"
-                className={`${menuItemClass} text-red-600 hover:bg-red-50`}
+                className={`${menuItemClass} text-danger hover:bg-error-light`}
                 onClick={() => {
                   setIsOpen(false);
                   onArchive();
@@ -6833,7 +6833,7 @@ export default function EditEstimatePage() {
             role="dialog"
             aria-modal="true"
             aria-label="Paramétrage du devis"
-            className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-[var(--slate-200)] bg-white shadow-xl"
+            className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-[var(--slate-200)] bg-surface shadow-xl"
             onKeyDown={(e) => { if (e.key === "Escape") setIsSettingsDrawerOpen(false); }}
             tabIndex={-1}
           >

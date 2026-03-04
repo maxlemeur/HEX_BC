@@ -10,10 +10,10 @@ export function HubBreadcrumb({
   currentLabel: string;
 }) {
   return (
-    <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-500">
+    <nav className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground">
       <Link
         href={hubHref}
-        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-slate-100 hover:text-slate-700"
+        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-secondary hover:text-secondary-foreground"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -31,7 +31,7 @@ export function HubBreadcrumb({
         {hubLabel}
       </Link>
       <span className="text-slate-300">/</span>
-      <span className="font-medium text-slate-700">{currentLabel}</span>
+      <span className="font-medium text-secondary-foreground">{currentLabel}</span>
     </nav>
   );
 }

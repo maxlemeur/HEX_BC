@@ -416,7 +416,7 @@ export default function EstimatesPage() {
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </summary>
-            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl" style={{ minWidth: "240px" }}>
+            <div className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl" style={{ minWidth: "240px" }}>
               <Link className="flex w-full flex-col items-start rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--slate-50)]" href="/dashboard/estimates/dashboard">
                 <span className="font-medium text-[var(--slate-800)]">Dashboard</span>
                 <span className="text-[11px] text-[var(--slate-400)]">Vue analytique des chiffrages</span>
@@ -747,7 +747,7 @@ export default function EstimatesPage() {
                               {statusLabel(estimate.status)}
                             </span>
                             {expState === "expired" ? (
-                              <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                              <span className="inline-flex items-center rounded-full bg-error-light px-2 py-0.5 text-[10px] font-semibold text-danger">
                                 Expiré
                               </span>
                             ) : expState === "expiring_soon" ? (
@@ -793,7 +793,7 @@ export default function EstimatesPage() {
                                   <circle cx="12" cy="19" r="1" />
                                 </svg>
                               </summary>
-                              <div className="absolute right-0 bottom-full z-20 mb-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl" style={{ minWidth: "140px" }}>
+                              <div className="absolute right-0 bottom-full z-20 mb-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl" style={{ minWidth: "140px" }}>
                                 <button
                                   className="btn btn-ghost btn-sm w-full justify-start"
                                   type="button"
@@ -891,7 +891,7 @@ export default function EstimatesPage() {
                           {statusLabel(estimate.status)}
                         </span>
                         {mobileExpState === "expired" ? (
-                          <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                          <span className="inline-flex items-center rounded-full bg-error-light px-2 py-0.5 text-[10px] font-semibold text-danger">
                             Expiré
                           </span>
                         ) : mobileExpState === "expiring_soon" ? (

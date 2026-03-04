@@ -6,15 +6,15 @@ type ButtonSize = "sm" | "md" | "lg";
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary: "bg-primary text-primary-foreground hover:brightness-110",
   secondary:
-    "border border-[var(--border)] bg-white text-[var(--slate-700)] hover:bg-[var(--slate-50)]",
-  ghost: "bg-transparent text-[var(--slate-600)] hover:bg-[var(--slate-100)] hover:text-[var(--slate-900)]",
-  danger: "border border-danger/30 bg-white text-danger hover:bg-[var(--error-light)]",
+    "border border-border bg-surface text-slate-700 hover:bg-slate-50",
+  ghost: "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+  danger: "border border-danger/30 bg-surface text-danger hover:bg-error-light",
 };
 
 const BUTTON_SIZES: Record<ButtonSize, string> = {
-  sm: "h-9 rounded-[10px] px-3 text-xs",
-  md: "h-11 rounded-[12px] px-5 text-sm",
-  lg: "h-[52px] rounded-[14px] px-7 text-sm",
+  sm: "h-9 rounded-button-sm px-3 text-xs",
+  md: "h-11 rounded-button px-5 text-sm",
+  lg: "h-[52px] rounded-button-lg px-7 text-sm",
 };
 
 export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -45,7 +45,7 @@ export function Button({
       ref={ref}
       className={cn(
         "inline-flex items-center justify-center gap-2 font-semibold transition duration-200",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "disabled:pointer-events-none disabled:opacity-60",
         BUTTON_VARIANTS[variant],
         BUTTON_SIZES[size],

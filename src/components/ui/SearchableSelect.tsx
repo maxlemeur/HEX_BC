@@ -114,15 +114,15 @@ export function SearchableSelect({
   return (
     <div className="space-y-1.5" ref={rootRef}>
       {label ? (
-        <label className="block text-xs font-semibold text-[var(--slate-700)]" htmlFor={inputId}>
+        <label className="block text-xs font-semibold text-slate-700" htmlFor={inputId}>
           {label}
         </label>
       ) : null}
 
       <div
         className={cn(
-          "relative flex h-11 items-center rounded-[12px] border bg-white transition",
-          "border-[var(--slate-200)] hover:border-[var(--slate-300)] focus-within:border-[var(--ring)]",
+          "relative flex h-11 items-center rounded-button border bg-surface transition",
+          "border-slate-200 hover:border-slate-300 focus-within:border-ring",
           error ? "border-danger" : null,
           disabled ? "opacity-70" : null
         )}
@@ -131,7 +131,7 @@ export function SearchableSelect({
           id={inputId}
           role="combobox"
           className={cn(
-            "h-full w-full rounded-[12px] bg-transparent px-3 pr-10 text-sm",
+            "h-full w-full rounded-button bg-transparent px-3 pr-10 text-sm",
             "focus-visible:outline-none",
             className
           )}
@@ -197,7 +197,7 @@ export function SearchableSelect({
           }}
         />
 
-        <span className="pointer-events-none absolute right-3 text-[var(--slate-400)]">▾</span>
+        <span className="pointer-events-none absolute right-3 text-slate-400">▾</span>
 
         {name ? (
           <input
@@ -213,10 +213,10 @@ export function SearchableSelect({
           <div
             role="listbox"
             id={listboxId}
-            className="absolute left-0 top-full z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-[var(--slate-200)] bg-white p-1 shadow-lg"
+            className="absolute left-0 top-full z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-surface p-1 shadow-lg"
           >
             {filteredOptions.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-[var(--slate-500)]">{emptyMessage}</p>
+              <p className="px-3 py-2 text-xs text-slate-500">{emptyMessage}</p>
             ) : (
               filteredOptions.map((option) => {
                 const isSelected = selectedValue === option.value;
@@ -234,10 +234,10 @@ export function SearchableSelect({
                     className={cn(
                       "flex w-full items-center rounded-lg px-3 py-2 text-left text-sm",
                       option.disabled
-                        ? "cursor-not-allowed text-[var(--slate-400)]"
-                        : "text-[var(--slate-700)] hover:bg-[var(--slate-50)]",
-                      isSelected ? "bg-[var(--info-light)] text-[var(--slate-900)]" : null,
-                      isActive ? "bg-[var(--slate-100)]" : null
+                        ? "cursor-not-allowed text-slate-400"
+                        : "text-slate-700 hover:bg-slate-50",
+                      isSelected ? "bg-info-light text-slate-900" : null,
+                      isActive ? "bg-slate-100" : null
                     )}
                     aria-selected={isSelected}
                     disabled={option.disabled}
@@ -260,7 +260,7 @@ export function SearchableSelect({
       ) : null}
 
       {!error && helperText ? (
-        <p id={helperId ?? undefined} className="text-xs text-[var(--slate-500)]">
+        <p id={helperId ?? undefined} className="text-xs text-slate-500">
           {helperText}
         </p>
       ) : null}

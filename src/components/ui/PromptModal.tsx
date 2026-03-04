@@ -62,11 +62,11 @@ function PromptModalInner({
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >
       <form
-        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+        className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-xl"
         onSubmit={handleSubmit}
       >
-        <h3 className="text-lg font-semibold text-[var(--slate-800)]">{title}</h3>
-        <label className="mt-4 block text-sm font-medium text-[var(--slate-600)]">
+        <h3 className="text-lg font-semibold text-slate-800">{title}</h3>
+        <label className="mt-4 block text-sm font-medium text-slate-600">
           {label}
         </label>
         <input

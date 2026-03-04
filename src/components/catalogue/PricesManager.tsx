@@ -110,7 +110,7 @@ function FreshnessBadge({ level, ageDays }: { level: "fresh" | "aging" | "stale"
     );
   }
   return (
-    <span className="inline-flex rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+    <span className="inline-flex rounded-full border border-danger/30 bg-error-light px-2 py-0.5 text-xs font-medium text-danger">
       Ancien ({ageDays}j)
     </span>
   );
@@ -533,7 +533,7 @@ export function PricesManager() {
           </div>
           <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
             <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Anciens (&gt; 90j)</p>
-            <p className="mt-1 text-lg font-semibold text-red-600">{stats.stale}</p>
+            <p className="mt-1 text-lg font-semibold text-danger">{stats.stale}</p>
           </div>
           <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
             <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">Fournisseurs couverts</p>

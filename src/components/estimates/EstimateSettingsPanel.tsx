@@ -174,7 +174,7 @@ export function EstimateSettingsPanel({
       )}
 
       {!glossaryDismissed && (
-        <div className="mb-6 flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+        <div className="mb-6 flex items-start gap-3 rounded-lg border border-info/30 bg-info-light p-3 text-xs text-info">
           <div className="flex-1">
             <p className="font-semibold">Glossaire</p>
             <ul className="mt-1 space-y-0.5">
@@ -186,7 +186,7 @@ export function EstimateSettingsPanel({
           </div>
           <button
             type="button"
-            className="shrink-0 text-blue-400 hover:text-blue-600"
+            className="shrink-0 text-info/50 hover:text-info"
             onClick={() => {
               setGlossaryDismissed(true);
               try { localStorage.setItem(GLOSSARY_DISMISSED_STORAGE_KEY, "1"); } catch {}
@@ -326,10 +326,10 @@ export function EstimateSettingsPanel({
               <label className="form-label" htmlFor="estimate-margin">
                 Marge
               </label>
-              <p className="mb-1 text-xs text-[var(--slate-500)]">
+              <p className="mb-1 text-xs text-muted-foreground">
                 Multiplicateur appliqué au coût. Ex : 1.20 = marge de 20%.
               </p>
-              <p className="mb-2 text-xs text-[var(--slate-500)]">
+              <p className="mb-2 text-xs text-muted-foreground">
                 Ex : Coût 1 000 € × 1.20 = Vente 1 200 € (200 € de marge)
               </p>
               <div className="flex items-center gap-3">
@@ -347,7 +347,7 @@ export function EstimateSettingsPanel({
                     })
                   }
                 />
-                <span className="shrink-0 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2 text-sm font-medium text-[var(--slate-600)]">
+                <span className="shrink-0 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm font-medium text-slate-600">
                   {settings.margin_multiplier > 0
                     ? `${((settings.margin_multiplier - 1) * 100).toFixed(0)}%`
                     : "0%"}
@@ -391,7 +391,7 @@ export function EstimateSettingsPanel({
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-[var(--slate-500)]">
+                <p className="text-sm text-muted-foreground">
                   Aucune tranche de marge configuree.
                 </p>
               )}
@@ -487,7 +487,7 @@ export function EstimateSettingsPanel({
                   {discountStepsBp.map((stepBp, index) => (
                     <div
                       key={`discount-step-${index}`}
-                      className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-3"
+                      className="rounded-lg border border-border bg-surface-subtle p-3"
                     >
                       <div className="flex flex-wrap items-end gap-3">
                         <div className="min-w-[180px] flex-1">
@@ -518,7 +518,7 @@ export function EstimateSettingsPanel({
                             }}
                           />
                         </div>
-                        <div className="min-w-[170px] flex-1 rounded-md border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-600)]">
+                        <div className="min-w-[170px] flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm text-slate-600">
                           Total apres etape:{" "}
                           <strong>
                             {formatCurrency(

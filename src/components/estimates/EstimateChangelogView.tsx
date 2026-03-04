@@ -78,7 +78,7 @@ export function EstimateChangelogView({
 }: Readonly<EstimateChangelogViewProps>) {
   if (changelog.summary.totalChangeCount === 0) {
     return (
-      <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
+      <section className="dashboard-card p-6 text-sm text-slate-600">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p>Aucun changement detecte entre les deux versions.</p>
           {exportPdfHref ? (
@@ -101,10 +101,10 @@ export function EstimateChangelogView({
       <section className="dashboard-card p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+            <h2 className="text-sm font-semibold text-foreground">
               Changelog automatique
             </h2>
-            <p className="mt-1 text-xs text-[var(--slate-500)]">
+            <p className="mt-1 text-xs text-muted-foreground">
               Groupement par section, avec deltas HT/TTC et champs avant/apres.
             </p>
           </div>
@@ -121,26 +121,26 @@ export function EstimateChangelogView({
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Ajouts</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Ajouts</p>
             <p className="text-lg font-semibold text-emerald-700">
               {changelog.summary.addedCount}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Suppressions</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Suppressions</p>
             <p className="text-lg font-semibold text-rose-700">
               {changelog.summary.removedCount}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Modifications</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Modifications</p>
             <p className="text-lg font-semibold text-amber-700">
               {changelog.summary.modifiedCount}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Delta HT total</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Delta HT total</p>
             <p
               className={`text-lg font-semibold ${
                 changelog.summary.deltaHtCents >= 0 ? "text-emerald-700" : "text-rose-700"
@@ -149,8 +149,8 @@ export function EstimateChangelogView({
               {formatDelta(changelog.summary.deltaHtCents)}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Delta TTC total</p>
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Delta TTC total</p>
             <p
               className={`text-lg font-semibold ${
                 changelog.summary.deltaTtcCents >= 0 ? "text-emerald-700" : "text-rose-700"
@@ -159,9 +159,9 @@ export function EstimateChangelogView({
               {formatDelta(changelog.summary.deltaTtcCents)}
             </p>
           </div>
-          <div className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2">
-            <p className="text-xs text-[var(--slate-500)]">Lignes du changelog</p>
-            <p className="text-lg font-semibold text-[var(--slate-800)]">
+          <div className="rounded-lg border border-border bg-surface px-3 py-2">
+            <p className="text-xs text-muted-foreground">Lignes du changelog</p>
+            <p className="text-lg font-semibold text-foreground">
               {changelog.summary.totalChangeCount}
             </p>
           </div>
@@ -174,17 +174,17 @@ export function EstimateChangelogView({
           className="dashboard-card overflow-hidden"
           open={sectionIndex === 0}
         >
-          <summary className="cursor-pointer list-none border-b border-[var(--slate-200)] px-4 py-3">
+          <summary className="cursor-pointer list-none border-b border-border px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                   Section
                 </p>
-                <p className="text-sm font-semibold text-[var(--slate-900)]">{section.label}</p>
+                <p className="text-sm font-semibold text-foreground">{section.label}</p>
               </div>
               <div className="grid grid-cols-2 gap-2 text-right text-xs">
                 <div>
-                  <p className="text-[var(--slate-500)]">Delta HT</p>
+                  <p className="text-muted-foreground">Delta HT</p>
                   <p
                     className={`font-semibold ${
                       section.deltaHtCents >= 0 ? "text-emerald-700" : "text-rose-700"
@@ -194,7 +194,7 @@ export function EstimateChangelogView({
                   </p>
                 </div>
                 <div>
-                  <p className="text-[var(--slate-500)]">Delta TTC</p>
+                  <p className="text-muted-foreground">Delta TTC</p>
                   <p
                     className={`font-semibold ${
                       section.deltaTtcCents >= 0 ? "text-emerald-700" : "text-rose-700"
@@ -211,7 +211,7 @@ export function EstimateChangelogView({
             {section.changes.map((change) => (
               <article
                 key={change.key}
-                className="rounded-xl border border-[var(--slate-200)] bg-white p-3"
+                className="rounded-xl border border-border bg-surface p-3"
               >
                 <header className="flex flex-wrap items-start justify-between gap-2">
                   <div className="space-y-1">
@@ -221,11 +221,11 @@ export function EstimateChangelogView({
                       >
                         {changeTypeLabel(change.changeType)}
                       </span>
-                      <span className="text-xs font-semibold uppercase tracking-[0.04em] text-[var(--slate-500)]">
+                      <span className="text-xs font-semibold uppercase tracking-[0.04em] text-muted-foreground">
                         {entityTypeLabel(change.entityType)}
                       </span>
                     </div>
-                    <h3 className="text-sm font-semibold text-[var(--slate-900)]">
+                    <h3 className="text-sm font-semibold text-foreground">
                       {change.designation}
                     </h3>
                   </div>
@@ -249,7 +249,7 @@ export function EstimateChangelogView({
                 </header>
 
                 {change.fields.length > 0 ? (
-                  <div className="mt-3 overflow-hidden rounded-lg border border-[var(--slate-200)]">
+                  <div className="mt-3 overflow-hidden rounded-lg border border-border">
                     <table className="data-table w-full">
                       <thead>
                         <tr>
@@ -262,10 +262,10 @@ export function EstimateChangelogView({
                         {change.fields.map((field) => (
                           <tr key={`${change.key}:${field.field}`}>
                             <td className="font-medium">{field.label}</td>
-                            <td className="text-[var(--slate-500)]">
+                            <td className="text-muted-foreground">
                               {formatFieldValue(field, field.beforeValue)}
                             </td>
-                            <td className="font-semibold text-[var(--slate-900)]">
+                            <td className="font-semibold text-foreground">
                               {formatFieldValue(field, field.afterValue)}
                             </td>
                           </tr>
@@ -274,7 +274,7 @@ export function EstimateChangelogView({
                     </table>
                   </div>
                 ) : (
-                  <p className="mt-3 text-xs text-[var(--slate-500)]">
+                  <p className="mt-3 text-xs text-muted-foreground">
                     Aucun detail champ disponible.
                   </p>
                 )}

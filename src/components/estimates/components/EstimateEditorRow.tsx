@@ -2135,7 +2135,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
               <circle cx="12" cy="19" r="1" />
             </svg>
           </summary>
-          <div className="absolute right-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-white p-2 shadow-xl" style={{ minWidth: "140px" }}>
+          <div className="absolute right-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl" style={{ minWidth: "140px" }}>
             <button
               className="btn btn-ghost btn-sm w-full justify-start"
               type="button"

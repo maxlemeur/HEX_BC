@@ -245,7 +245,7 @@ export function PlanFileUploadZone({
           {entries.map((entry) => (
             <div
               key={entry.id}
-              className="flex items-center gap-3 rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm"
+              className="flex items-center gap-3 rounded-lg border border-[var(--slate-200)] bg-surface px-3 py-2 text-sm"
             >
               <span className="min-w-0 flex-1 truncate text-[var(--slate-700)]">
                 {entry.file.name}
@@ -280,7 +280,7 @@ export function PlanFileUploadZone({
 
               {entry.status === "done" && (
                 <svg
-                  className="h-4 w-4 shrink-0 text-green-600"
+                  className="h-4 w-4 shrink-0 text-success"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -292,7 +292,7 @@ export function PlanFileUploadZone({
               )}
 
               {entry.status === "error" && (
-                <span className="shrink-0 text-xs font-medium text-red-600">
+                <span className="shrink-0 text-xs font-medium text-danger">
                   {entry.error}
                 </span>
               )}

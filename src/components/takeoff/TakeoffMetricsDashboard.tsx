@@ -144,7 +144,7 @@ function PeriodSelector({
           onClick={() => onChange(p)}
           className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
             value === p
-              ? "bg-white text-[var(--slate-800)] shadow-sm"
+              ? "bg-surface text-[var(--slate-800)] shadow-sm"
               : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
           }`}
         >
@@ -166,7 +166,7 @@ function LevelSelector({
     <label className="inline-flex items-center gap-2 text-xs text-[var(--slate-600)]">
       Niveau
       <select
-        className="rounded-md border border-[var(--slate-300)] bg-white px-2 py-1 text-xs font-medium text-[var(--slate-700)]"
+        className="rounded-md border border-[var(--slate-300)] bg-surface px-2 py-1 text-xs font-medium text-[var(--slate-700)]"
         value={value}
         onChange={(event) => onChange(event.target.value as "all" | TakeoffLevel)}
       >
@@ -205,7 +205,7 @@ function MetricCard({
   variant?: MetricCardVariant;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--slate-200)] bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-[var(--slate-200)] bg-surface p-4 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
         {label}
       </p>
@@ -467,15 +467,15 @@ function ErrorsTable({ errors }: { errors: TakeoffMetricsErrorEntry[] }) {
 
 const STATUS_BADGE_CLASSES: Record<string, string> = {
   completed: "bg-emerald-100 text-emerald-700",
-  applied: "bg-blue-100 text-blue-700",
-  failed: "bg-red-100 text-red-700",
-  canceled: "bg-slate-100 text-slate-500",
-  processing: "bg-amber-100 text-amber-700",
-  pending: "bg-slate-100 text-slate-600",
+  applied: "bg-info-light text-info",
+  failed: "bg-error-light text-danger",
+  canceled: "bg-secondary text-muted-foreground",
+  processing: "bg-amber-100 text-warning",
+  pending: "bg-secondary text-slate-600",
 };
 
 function StatusBadge({ status }: { status: string }) {
-  const classes = STATUS_BADGE_CLASSES[status] ?? "bg-slate-100 text-slate-500";
+  const classes = STATUS_BADGE_CLASSES[status] ?? "bg-secondary text-muted-foreground";
   return (
     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${classes}`}>
       {status}

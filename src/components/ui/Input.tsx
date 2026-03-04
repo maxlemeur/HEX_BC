@@ -32,28 +32,28 @@ export function Input({
   return (
     <div className="space-y-1.5">
       {label ? (
-        <label className="block text-xs font-semibold text-[var(--slate-700)]" htmlFor={inputId}>
+        <label className="block text-xs font-semibold text-slate-700" htmlFor={inputId}>
           {label}
         </label>
       ) : null}
 
       <div
         className={cn(
-          "group flex h-11 items-center rounded-[12px] border bg-white transition",
-          "border-[var(--slate-200)] hover:border-[var(--slate-300)] focus-within:border-[var(--ring)]",
+          "group flex h-11 items-center rounded-button border bg-surface transition",
+          "border-slate-200 hover:border-slate-300 focus-within:border-ring",
           error ? "border-danger" : null
         )}
       >
         {prefix ? (
-          <span className="flex h-full items-center pl-3 text-[var(--slate-500)]">{prefix}</span>
+          <span className="flex h-full items-center pl-3 text-slate-500">{prefix}</span>
         ) : null}
 
         <input
           id={inputId}
           ref={ref}
           className={cn(
-            "h-full w-full border-0 bg-transparent px-3 py-0 text-sm text-[var(--slate-800)]",
-            "placeholder:text-[var(--slate-400)]",
+            "h-full w-full border-0 bg-transparent px-3 py-0 text-sm text-slate-800",
+            "placeholder:text-slate-400",
             "focus-visible:outline-none focus-visible:ring-0",
             prefix ? "pl-2" : null,
             suffix ? "pr-2" : null,
@@ -65,7 +65,7 @@ export function Input({
         />
 
         {suffix ? (
-          <span className="flex h-full items-center pr-3 text-[var(--slate-500)]">{suffix}</span>
+          <span className="flex h-full items-center pr-3 text-slate-500">{suffix}</span>
         ) : null}
       </div>
 
@@ -76,7 +76,7 @@ export function Input({
       ) : null}
 
       {!error && helperText ? (
-        <p id={helperId ?? undefined} className="text-xs text-[var(--slate-500)]">
+        <p id={helperId ?? undefined} className="text-xs text-slate-500">
           {helperText}
         </p>
       ) : null}

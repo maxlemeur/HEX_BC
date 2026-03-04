@@ -330,14 +330,14 @@ export default function LoginPage() {
             <motion.h1
               custom={reduced}
               variants={formItemVariants}
-              className="font-display text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl"
+              className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl"
             >
               Connexion
             </motion.h1>
             <motion.p
               custom={reduced}
               variants={formItemVariants}
-              className="mt-2 text-sm text-slate-500 sm:text-base"
+              className="mt-2 text-sm text-muted-foreground sm:text-base"
             >
               Connectez-vous pour accéder au tableau de bord.
             </motion.p>
@@ -345,11 +345,11 @@ export default function LoginPage() {
 
           {/* Email */}
           <motion.label custom={reduced} variants={formItemVariants} className="block">
-            <span className="text-sm font-semibold text-slate-700">Email</span>
+            <span className="text-sm font-semibold text-secondary-foreground">Email</span>
             <motion.input
               whileFocus={{ scale: 1.01, boxShadow: "0 0 0 3px rgba(30,58,95,0.1)" }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none transition-colors hover:border-slate-300 focus:border-[#1E3A5F]"
+              className="mt-2 h-12 w-full rounded-xl border border-border bg-white px-4 text-sm outline-none transition-colors hover:border-slate-300 focus:border-[#1E3A5F]"
               autoComplete="email"
               inputMode="email"
               name="email"
@@ -363,12 +363,12 @@ export default function LoginPage() {
 
           {/* Password */}
           <motion.label custom={reduced} variants={formItemVariants} className="block">
-            <span className="text-sm font-semibold text-slate-700">Mot de passe</span>
+            <span className="text-sm font-semibold text-secondary-foreground">Mot de passe</span>
             <div className="relative mt-2">
               <motion.input
                 whileFocus={{ scale: 1.01, boxShadow: "0 0 0 3px rgba(30,58,95,0.1)" }}
                 transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 pr-24 text-sm outline-none transition-colors hover:border-slate-300 focus:border-[#1E3A5F]"
+                className="h-12 w-full rounded-xl border border-border bg-white px-4 pr-24 text-sm outline-none transition-colors hover:border-slate-300 focus:border-[#1E3A5F]"
                 autoComplete="current-password"
                 id="password"
                 name="password"
@@ -381,7 +381,7 @@ export default function LoginPage() {
                 aria-controls="password"
                 aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                 aria-pressed={showPassword}
-                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-sm font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
               >
@@ -401,7 +401,7 @@ export default function LoginPage() {
                 exit="exit"
                 role="alert"
                 aria-live="assertive"
-                className="overflow-hidden rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+                className="overflow-hidden rounded-xl border border-danger/30 bg-error-light px-4 py-3 text-sm font-medium text-danger"
               >
                 {error}
               </motion.p>
@@ -436,7 +436,7 @@ export default function LoginPage() {
           <motion.p
             custom={reduced}
             variants={formItemVariants}
-            className="text-center text-sm text-slate-500"
+            className="text-center text-sm text-muted-foreground"
           >
             Pas de compte ?{" "}
             <Link

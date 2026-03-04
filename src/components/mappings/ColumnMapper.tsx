@@ -201,7 +201,7 @@ export function ColumnMapper({
                     key={sourceColumn}
                     className={
                       hasDuplicateConflict
-                        ? "bg-amber-50"
+                        ? "bg-warning-light"
                         : isMapped
                           ? "bg-emerald-50/50"
                           : ""
@@ -242,12 +242,12 @@ export function ColumnMapper({
                           ))}
                         </select>
                         {isRequiredTarget ? (
-                          <span className="text-[11px] text-red-500">
+                          <span className="text-[11px] text-danger">
                             Champ requis
                           </span>
                         ) : null}
                         {hasDuplicateConflict ? (
-                          <div className="flex items-center gap-2 text-[11px] text-amber-600">
+                          <div className="flex items-center gap-2 text-[11px] text-warning">
                             <span>
                               Conflit : &laquo;{getTargetLabel(currentTarget)}&raquo; aussi assigne a {duplicateSources.filter((s) => s !== sourceColumn).join(", ")}
                             </span>

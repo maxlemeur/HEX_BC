@@ -186,8 +186,8 @@ export function PurchaseOrderDocument({
             className="h-[100px] w-auto object-contain print:h-[80px]"
             priority
           />
-          <div className="max-w-[220px] rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-right text-sm print:px-3 print:py-2 print:text-xs">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="max-w-[220px] rounded-lg border border-border bg-surface-subtle px-4 py-3 text-right text-sm print:px-3 print:py-2 print:text-xs">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Etablissement principal :
             </p>
             <p className="text-slate-600">{COMPANY_INFO.address.street}</p>
@@ -205,24 +205,24 @@ export function PurchaseOrderDocument({
         <div className="mt-4 flex items-start print:mt-3">
           {/* Émis par */}
           <div className="w-[200px] shrink-0 text-sm">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Emis par
             </p>
             <p className="text-lg font-bold text-brand-blue">{issuerName}</p>
-            <p className="text-slate-500">{issuerRole}</p>
-            {issuerPhone && <p className="text-slate-500">{issuerPhone}</p>}
-            {issuerEmail && <p className="text-slate-500">{issuerEmail}</p>}
-            <p className="mt-2 text-xs font-medium text-slate-500">
+            <p className="text-muted-foreground">{issuerRole}</p>
+            {issuerPhone && <p className="text-muted-foreground">{issuerPhone}</p>}
+            {issuerEmail && <p className="text-muted-foreground">{issuerEmail}</p>}
+            <p className="mt-2 text-xs font-medium text-muted-foreground">
               Le {formatDate(orderDate)}
             </p>
           </div>
 
           {/* Titre - centré */}
           <div className="flex-1 text-center self-center">
-            <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-slate-800 print:mb-1 print:text-[25px]">
+            <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-foreground print:mb-1 print:text-[25px]">
               Bon de Commande
             </h2>
-            <p className="inline-block rounded-lg border border-slate-200 bg-slate-50 px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-slate-500">
+            <p className="inline-block rounded-lg border border-border bg-surface-subtle px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-muted-foreground">
               REF :{" "}
               <span className="font-bold text-brand-orange">
                 {reference ?? "AUTO-GENEREE"}
@@ -238,7 +238,7 @@ export function PurchaseOrderDocument({
       {/* Info Grid: Supplier + Delivery */}
       <div className="mb-8 grid grid-cols-2 gap-8 print:mb-3">
         {/* Supplier Box */}
-        <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50 p-6 print:p-4">
+        <div className="flex flex-col justify-between rounded-xl border border-border bg-surface-subtle p-6 print:p-4">
           <div>
             <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
               Fournisseur
@@ -270,28 +270,28 @@ export function PurchaseOrderDocument({
                 ) : null}
               </div>
             ) : (
-              <p className="mb-1 text-2xl font-extrabold text-slate-500">
+              <p className="mb-1 text-2xl font-extrabold text-muted-foreground">
                 {supplier?.name ?? "-"}
               </p>
             )}
             {supplier && (
               <>
                 {supplier.address && (
-                  <p className="font-medium text-slate-500">{supplier.address}</p>
+                  <p className="font-medium text-muted-foreground">{supplier.address}</p>
                 )}
-                <p className="font-medium text-slate-500">
+                <p className="font-medium text-muted-foreground">
                   {supplier.postal_code} {supplier.city}
                 </p>
                 {supplier.contact_name && (
-                  <p className="mt-2 font-medium text-slate-500">
+                  <p className="mt-2 font-medium text-muted-foreground">
                     Contact: {supplier.contact_name}
                   </p>
                 )}
                 {supplier.phone && (
-                  <p className="font-medium text-slate-500">{supplier.phone}</p>
+                  <p className="font-medium text-muted-foreground">{supplier.phone}</p>
                 )}
                 {supplier.email && (
-                  <p className="font-medium text-slate-500">{supplier.email}</p>
+                  <p className="font-medium text-muted-foreground">{supplier.email}</p>
                 )}
               </>
             )}
@@ -299,14 +299,14 @@ export function PurchaseOrderDocument({
         </div>
 
         {/* Delivery & Project Box */}
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 print:p-4">
+        <div className="rounded-xl border border-border bg-surface-subtle p-6 print:p-4">
           <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
             informations livraison
           </h4>
           <div className="space-y-4 print:space-y-2">
             <div>
               <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Livraison le
                 </p>
                 {!editable &&
@@ -323,7 +323,7 @@ export function PurchaseOrderDocument({
                       </span>
                     </div>
                   ) : (
-                    <p className="text-sm text-slate-500">Non définie</p>
+                    <p className="text-sm text-muted-foreground">Non définie</p>
                   ))}
               </div>
               {editable ? (
@@ -355,7 +355,7 @@ export function PurchaseOrderDocument({
               ) : null}
             </div>
             <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 adresse
               </p>
               {editable ? (
@@ -384,7 +384,7 @@ export function PurchaseOrderDocument({
                       {deliverySite.postal_code} {deliverySite.city}
                     </p>
                   )}
-                  <p className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <p className="mb-1 mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     contact sur site
                   </p>
                   {deliverySite.contact_name || deliverySite.contact_phone ? (
@@ -395,7 +395,7 @@ export function PurchaseOrderDocument({
                         : ""}
                     </p>
                   ) : (
-                    <p className="text-slate-500">-</p>
+                    <p className="text-muted-foreground">-</p>
                   )}
                 </div>
               )}
@@ -406,13 +406,13 @@ export function PurchaseOrderDocument({
 
       {/* Notes / Instructions */}
       {(editable || notes) && (
-        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 print:mb-3 print:p-3">
+        <div className="mb-6 rounded-xl border border-border bg-surface p-5 print:mb-3 print:p-3">
           <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-blue print:mb-1">
             Instructions complémentaires
           </h4>
           {editable ? (
             <textarea
-              className="doc-input min-h-[60px] w-full resize-none whitespace-pre-wrap text-sm leading-snug text-slate-700 print:min-h-[40px] print:text-xs"
+              className="doc-input min-h-[60px] w-full resize-none whitespace-pre-wrap text-sm leading-snug text-secondary-foreground print:min-h-[40px] print:text-xs"
               placeholder="Informations complémentaires, consignes de livraison..."
               rows={MAX_NOTES_LINES}
               value={notes ?? ""}
@@ -422,7 +422,7 @@ export function PurchaseOrderDocument({
               }}
             />
           ) : (
-            <p className="min-h-[40px] whitespace-pre-wrap text-sm leading-snug text-slate-700 print:min-h-[32px] print:text-xs">
+            <p className="min-h-[40px] whitespace-pre-wrap text-sm leading-snug text-secondary-foreground print:min-h-[32px] print:text-xs">
               {notes}
             </p>
           )}
@@ -430,7 +430,7 @@ export function PurchaseOrderDocument({
       )}
 
       {/* Items Table */}
-      <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 shadow-sm print:mb-3">
+      <div className="mb-6 overflow-hidden rounded-xl border border-border shadow-sm print:mb-3">
         <table className="w-full">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
@@ -441,13 +441,13 @@ export function PurchaseOrderDocument({
               {editable && <th className="w-12 px-4 py-4 align-middle"></th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 text-sm print:text-slate-900">
+          <tbody className="divide-y divide-border text-sm print:text-foreground">
             {items.map((item) => (
               <tr
                 key={item.key}
                 className={editable ? "doc-table-row-editable" : ""}
               >
-                <td className="px-6 py-4 font-medium text-slate-800 break-words print:px-4 print:py-2 print:text-slate-900">
+                <td className="px-6 py-4 font-medium text-foreground break-words print:px-4 print:py-2 print:text-foreground">
                   {editable ? (
                     <input
                       type="text"
@@ -511,7 +511,7 @@ export function PurchaseOrderDocument({
                   <td className="px-4 py-4">
                     <button
                       type="button"
-                      className="doc-remove-btn text-red-500 hover:text-red-700"
+                      className="doc-remove-btn text-danger hover:text-danger"
                       onClick={() => onItemRemove?.(item.key)}
                       title="Supprimer"
                     >
@@ -535,7 +535,7 @@ export function PurchaseOrderDocument({
           </tbody>
         </table>
         {editable && (
-          <div className="border-t border-slate-200 bg-slate-50 px-6 py-3">
+          <div className="border-t border-border bg-surface-subtle px-6 py-3">
             <button
               type="button"
               className="text-sm font-medium text-brand-orange hover:underline"
@@ -551,7 +551,7 @@ export function PurchaseOrderDocument({
       <div className="mb-8 flex justify-end print:mb-4">
         <div className="w-full max-w-[320px] space-y-2">
           {/* Totals Table */}
-          <div className="rounded-xl border border-slate-200 overflow-hidden">
+          <div className="rounded-xl border border-border overflow-hidden">
             {/* Total HT - Highlighted for B2B */}
             <div className="flex justify-between items-center px-5 py-3 bg-brand-blue print-color-adjust">
               <span className="text-xs font-bold uppercase tracking-wide text-white/80">
@@ -562,8 +562,8 @@ export function PurchaseOrderDocument({
               </span>
             </div>
             {/* TVA */}
-            <div className="flex justify-between items-center px-5 py-2 bg-slate-50 border-b border-slate-100">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="flex justify-between items-center px-5 py-2 bg-surface-subtle border-b border-border">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 TVA
               </span>
               <span className="text-sm font-medium text-slate-600">
@@ -571,8 +571,8 @@ export function PurchaseOrderDocument({
               </span>
             </div>
             {/* Total TTC */}
-            <div className="flex justify-between items-center px-5 py-2 bg-slate-50">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="flex justify-between items-center px-5 py-2 bg-surface-subtle">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Total TTC
               </span>
               <span className="text-sm font-semibold text-slate-600">
@@ -611,7 +611,7 @@ export function PurchaseOrderDocument({
       </div>
 
       {/* Footer */}
-      <div className="mt-auto border-t border-slate-200 pt-5 text-center text-xs font-semibold uppercase tracking-wide text-slate-500 print:pt-3">
+      <div className="mt-auto border-t border-border pt-5 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground print:pt-3">
         <p className="mb-1">Siège social : 17 rue Dupin 75006 Paris</p>
         <p>
           SIRET {COMPANY_INFO.legal.siret} - TVA {COMPANY_INFO.legal.vat}

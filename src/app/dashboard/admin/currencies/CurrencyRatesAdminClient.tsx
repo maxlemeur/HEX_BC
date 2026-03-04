@@ -816,7 +816,7 @@ export function CurrencyRatesAdminClient() {
                             </button>
                             <button
                               type="button"
-                              className="btn btn-ghost btn-sm text-red-700"
+                              className="btn btn-ghost btn-sm text-danger"
                               onClick={() => void handleDelete(rate)}
                               disabled={isUpdating || isDeleting}
                             >
