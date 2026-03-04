@@ -2,6 +2,12 @@
 
 import { useMemo, useState } from "react";
 
+import type {
+  MappingConfidenceBand,
+  MappingSuggestionConfidence,
+  MappingSuggestionOrigin,
+} from "@/lib/mappings/server";
+
 type TargetFieldOption = {
   value: string;
   label: string;
@@ -9,6 +15,51 @@ type TargetFieldOption = {
 };
 
 export type ColumnMapping = Record<string, string>;
+
+/* ------------------------------------------------------------------ */
+/*  Confidence badge helpers (UX2-010)                                 */
+/* ------------------------------------------------------------------ */
+
+const EMPTY_SAMPLE_VALUES: Record<string, string[]> = {};
+
+const CONFIDENCE_LABELS: Record<MappingConfidenceBand, string> = {
+  high: "Confiance elevee",
+  medium: "Confiance moyenne",
+  low: "Confiance faible",
+};
+
+const CONFIDENCE_COLORS: Record<MappingConfidenceBand, string> = {
+  high: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  medium: "bg-amber-100 text-amber-800 border-amber-200",
+  low: "bg-red-100 text-red-800 border-red-200",
+};
+
+const ORIGIN_LABELS: Record<MappingSuggestionOrigin, string> = {
+  template: "Template",
+  memory: "Memoire",
+  heuristic: "Heuristique",
+};
+
+function ConfidenceBadge({ confidence }: { confidence: MappingSuggestionConfidence }) {
+  const label = CONFIDENCE_LABELS[confidence.band];
+  const colors = CONFIDENCE_COLORS[confidence.band];
+  const originLabel = ORIGIN_LABELS[confidence.origin];
+  const scorePercent = Math.round(confidence.score * 100);
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium leading-tight ${colors}`}
+      role="status"
+      aria-label={`${label} (${scorePercent}%) - origine : ${originLabel}`}
+      title={`${scorePercent}% - ${originLabel}`}
+    >
+      <span aria-hidden="true">
+        {confidence.band === "high" ? "\u2713" : confidence.band === "medium" ? "\u223C" : "\u2717"}
+      </span>
+      {label}
+    </span>
+  );
+}
 
 type FilterMode = "all" | "mapped" | "unmapped";
 
@@ -33,7 +84,8 @@ export function ColumnMapper({
   sourceColumns,
   mapping,
   targetFields,
-  sampleValues = {},
+  sampleValues = EMPTY_SAMPLE_VALUES,
+  confidenceBySource,
   disabled = false,
   onChange,
 }: {
@@ -41,6 +93,7 @@ export function ColumnMapper({
   mapping: ColumnMapping;
   targetFields: TargetFieldOption[];
   sampleValues?: Record<string, string[]>;
+  confidenceBySource?: Record<string, MappingSuggestionConfidence>;
   disabled?: boolean;
   onChange: (next: ColumnMapping) => void;
 }) {
@@ -184,6 +237,7 @@ export function ColumnMapper({
               <tr>
                 <th>Colonne source</th>
                 <th>Apercu</th>
+                {confidenceBySource && <th>Confiance</th>}
                 <th>Champ cible</th>
               </tr>
             </thead>
@@ -195,6 +249,7 @@ export function ColumnMapper({
                 const duplicateSources = currentTarget ? duplicateTargetMap.get(currentTarget) : undefined;
                 const hasDuplicateConflict = duplicateSources && duplicateSources.length > 1;
                 const samples = sampleValues[sourceColumn] ?? [];
+                const confidence = confidenceBySource?.[sourceColumn] ?? null;
 
                 return (
                   <tr
@@ -225,6 +280,15 @@ export function ColumnMapper({
                         <span className="text-xs text-[var(--slate-300)]">-</span>
                       )}
                     </td>
+                    {confidenceBySource && (
+                      <td>
+                        {confidence ? (
+                          <ConfidenceBadge confidence={confidence} />
+                        ) : (
+                          <span className="text-xs text-[var(--slate-300)]">-</span>
+                        )}
+                      </td>
+                    )}
                     <td>
                       <div className="flex flex-col gap-1">
                         <select

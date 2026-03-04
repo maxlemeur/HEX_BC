@@ -2,10 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 import { ColumnMapper, type ColumnMapping } from "@/components/mappings/ColumnMapper";
 import { DataPreview } from "@/components/mappings/DataPreview";
+import { useUiMode } from "@/hooks/useUiMode";
+import type {
+  MappingAutoValidation,
+  MappingSuggestionConfidence,
+  MappingTemplateExactMatch,
+} from "@/lib/mappings/server";
 
 type ImportListItem = {
   id: string;
@@ -174,14 +179,12 @@ async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
   return record.data as T;
 }
 
-export function MappingWizard() {
-  // M-09: Accept ?import_id= query param
-  const searchParams = useSearchParams();
-  const importIdFromUrl = searchParams.get("import_id");
+export function MappingWizard({ initialImportId = null }: { initialImportId?: string | null }) {
+  const { isSimplified } = useUiMode();
 
   const [imports, setImports] = useState<ImportListItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
-  const [selectedImportId, setSelectedImportId] = useState(importIdFromUrl ?? "");
+  const [selectedImportId, setSelectedImportId] = useState(initialImportId ?? "");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [mapping, setMapping] = useState<ColumnMapping>({});
   const [sourceColumns, setSourceColumns] = useState<string[]>([]);
@@ -201,6 +204,14 @@ export function MappingWizard() {
   const [autoMappedColumns, setAutoMappedColumns] = useState<Array<{ source: string; target: string }>>([]);
   const [sampleValues, setSampleValues] = useState<Record<string, string[]>>({});
   const [showAutoMapDetails, setShowAutoMapDetails] = useState(false);
+  // UX2-010: confidence metadata
+  const [confidenceBySource, setConfidenceBySource] = useState<
+    Record<string, MappingSuggestionConfidence>
+  >({});
+  const [templateExactMatch, setTemplateExactMatch] =
+    useState<MappingTemplateExactMatch | null>(null);
+  const [autoValidation, setAutoValidation] =
+    useState<MappingAutoValidation | null>(null);
   const previewRequestIdRef = useRef(0);
 
   const visibleMapping = useMemo(
@@ -250,7 +261,7 @@ export function MappingWizard() {
       setTemplates(mappingsData.templates ?? []);
 
       setSelectedImportId((current) =>
-        resolveSelectedImportId(importsData, importIdFromUrl, current)
+        resolveSelectedImportId(importsData, initialImportId, current)
       );
     } catch (loadError) {
       setError(
@@ -261,7 +272,7 @@ export function MappingWizard() {
     } finally {
       setIsLoading(false);
     }
-  }, [importIdFromUrl]);
+  }, [initialImportId]);
 
   const refreshSuggestions = useCallback(async (importId: string) => {
     const data = await fetchApi<{
@@ -269,6 +280,9 @@ export function MappingWizard() {
       source_columns: string[];
       templates: TemplateItem[];
       sample_values: Record<string, string[]>;
+      confidence_by_source: Record<string, MappingSuggestionConfidence>;
+      template_exact_match: MappingTemplateExactMatch | null;
+      auto_validation: MappingAutoValidation;
     }>("/api/mappings", {
       method: "POST",
       headers: {
@@ -282,6 +296,9 @@ export function MappingWizard() {
 
     setSourceColumns(data.source_columns ?? []);
     setSampleValues(data.sample_values ?? {});
+    setConfidenceBySource(data.confidence_by_source ?? {});
+    setTemplateExactMatch(data.template_exact_match ?? null);
+    setAutoValidation(data.auto_validation ?? null);
     setTemplates((previousTemplates) => {
       if (!data.templates || data.templates.length === 0) return previousTemplates;
       return data.templates;
@@ -364,6 +381,9 @@ export function MappingWizard() {
     setAutoMappedCount(0);
     setAutoMappedColumns([]);
     setSampleValues({});
+    setConfidenceBySource({});
+    setTemplateExactMatch(null);
+    setAutoValidation(null);
 
     void (async () => {
       try {
@@ -474,6 +494,39 @@ export function MappingWizard() {
         </div>
       ) : null}
 
+      {/* UX2-010: Template exact match banner */}
+      {templateExactMatch && (
+        <div
+          className="rounded-xl border border-[var(--success)]/20 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+          role="status"
+          aria-label={`Mapping applique depuis le template ${templateExactMatch.name}`}
+        >
+          <p className="font-medium">
+            Mapping applique depuis le template &laquo;{templateExactMatch.name}&raquo;
+            {templateExactMatch.supplier_name && (
+              <span className="ml-1 font-normal text-emerald-600">
+                ({templateExactMatch.supplier_name})
+              </span>
+            )}
+          </p>
+        </div>
+      )}
+
+      {/* UX2-010: Auto-validated state (simplified mode) */}
+      {isSimplified && autoValidation?.can_auto_validate && (
+        <div
+          className="rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/5 px-4 py-3 text-sm text-[var(--slate-700)]"
+          role="status"
+          aria-label="Mapping auto-valide"
+        >
+          <p className="font-medium">Mapping auto-valide</p>
+          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+            Tous les champs requis sont mappes avec une confiance elevee.
+            Verifiez le mapping puis cliquez sur &laquo;Enregistrer le mapping&raquo;.
+          </p>
+        </div>
+      )}
+
       <section className="dashboard-card p-6">
         <div className="grid gap-4 lg:grid-cols-2">
           <div>
@@ -575,6 +628,7 @@ export function MappingWizard() {
         mapping={visibleMapping}
         targetFields={[...TARGET_FIELDS]}
         sampleValues={sampleValues}
+        confidenceBySource={confidenceBySource}
         onChange={setMapping}
         disabled={isLoading || !selectedImportId}
       />

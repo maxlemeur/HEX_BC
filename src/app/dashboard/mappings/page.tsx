@@ -33,7 +33,7 @@ export default async function DashboardMappingsPage({ searchParams }: DashboardM
         </p>
       </div>
 
-      <MappingWizard />
+      <MappingWizard initialImportId={importId} />
     </div>
   );
 }
