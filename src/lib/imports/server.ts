@@ -74,6 +74,7 @@ const IMPORT_SELECT_COLUMNS = [
   "parse_mode",
   "storage_path",
   "file_size_bytes",
+  "project_id",
 ].join(", ");
 
 export class ImportsApiError extends Error {
@@ -280,6 +281,25 @@ function parseOptionalHeaderRowNumber(value: unknown): number | null {
   }
 
   return parsed;
+}
+
+function parseOptionalProjectId(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value !== "string") {
+    throw badRequest("projectId invalide. Utiliser un UUID.");
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(trimmed)) {
+    throw badRequest("projectId invalide. Utiliser un UUID.");
+  }
+
+  return trimmed;
 }
 
 function normalizeSourceFormat(value: unknown, fallback: ImportSourceFormat): ImportSourceFormat {
@@ -501,6 +521,7 @@ export async function createImportFromJsonBody(body: unknown) {
   const sourceFormat = resolveSourceFormatInput(input);
   const storagePath = toOptionalNonEmptyString(input.storagePath);
   const fileSizeBytes = parseFileSizeBytes(input.fileSizeBytes);
+  const projectId = parseOptionalProjectId(input.projectId ?? input.project_id ?? null);
   const { supabase, userId, tenantId } = await getAuthenticatedContext();
 
   let importRecord: ImportRow | null = null;
@@ -518,6 +539,7 @@ export async function createImportFromJsonBody(body: unknown) {
       parse_mode: "worker",
       storage_path: storagePath,
       file_size_bytes: fileSizeBytes,
+      project_id: projectId,
     });
 
     await insertRawRows(supabase, importRecord.id, normalizedRows);
@@ -549,6 +571,9 @@ export async function createImportFromMultipartFormData(formData: FormData) {
 
   const headerRowNumber = parseOptionalHeaderRowNumber(
     formData.get("headerRowNumber")
+  );
+  const projectId = parseOptionalProjectId(
+    formData.get("projectId") ?? formData.get("project_id")
   );
 
   validateImportFile(fileEntry);
@@ -586,6 +611,7 @@ export async function createImportFromMultipartFormData(formData: FormData) {
       parse_mode: "server",
       storage_path: storagePath,
       file_size_bytes: fileEntry.size,
+      project_id: projectId,
     });
 
     const parsed = await parseImportFile(fileEntry, {

@@ -606,6 +606,7 @@ export type Database = {
           parse_mode: string;
           storage_path: string | null;
           file_size_bytes: number | null;
+          project_id: string | null;
         };
         Insert: {
           id?: string;
@@ -621,6 +622,7 @@ export type Database = {
           parse_mode: string;
           storage_path?: string | null;
           file_size_bytes?: number | null;
+          project_id?: string | null;
         };
         Update: {
           id?: string;
@@ -636,6 +638,7 @@ export type Database = {
           parse_mode?: string;
           storage_path?: string | null;
           file_size_bytes?: number | null;
+          project_id?: string | null;
         };
         Relationships: [];
       };

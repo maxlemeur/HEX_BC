@@ -12,6 +12,10 @@ export type ImportFileOptions = {
   headerRowNumber?: number | null;
 };
 
+export type UseImportFlowOptions = {
+  projectId?: string | null;
+};
+
 export type ImportExecutionMode = "worker" | "server" | "unknown";
 
 export type ImportListItem = {
@@ -225,7 +229,8 @@ async function postWorkerImport(
   file: File,
   rows: ParsedImportRow[],
   parser: "csv" | "xlsx",
-  headerRowNumber?: number | null
+  headerRowNumber?: number | null,
+  projectId?: string | null
 ): Promise<string | null> {
   const response = await fetch("/api/imports", {
     method: "POST",
@@ -241,6 +246,7 @@ async function postWorkerImport(
       mimeType: file.type || null,
       fileSizeBytes: file.size,
       headerRowNumber: headerRowNumber ?? null,
+      projectId: projectId ?? null,
       rows,
     }),
   });
@@ -255,7 +261,8 @@ async function postWorkerImport(
 async function postServerFallback(
   file: File,
   reason: "worker_error" | "file_too_large",
-  headerRowNumber?: number | null
+  headerRowNumber?: number | null,
+  projectId?: string | null
 ): Promise<string | null> {
   const formData = new FormData();
   formData.append("file", file);
@@ -264,6 +271,9 @@ async function postServerFallback(
   formData.append("fallbackReason", reason);
   if (typeof headerRowNumber === "number" && Number.isInteger(headerRowNumber)) {
     formData.append("headerRowNumber", String(headerRowNumber));
+  }
+  if (typeof projectId === "string" && projectId.trim().length > 0) {
+    formData.append("projectId", projectId.trim());
   }
 
   const response = await fetch("/api/imports", {
@@ -278,8 +288,9 @@ async function postServerFallback(
   return extractCreatedImportId(response);
 }
 
-export function useImportFlow() {
+export function useImportFlow(options?: UseImportFlowOptions) {
   const { parseFile } = useFileParser();
+  const projectId = options?.projectId ?? null;
 
   const [imports, setImports] = useState<ImportListItem[]>([]);
   const [isLoadingImports, setIsLoadingImports] = useState(true);
@@ -344,7 +355,8 @@ export function useImportFlow() {
               file,
               parsed.rows,
               parsed.parser,
-              headerRowNumber
+              headerRowNumber,
+              projectId
             );
             setModeMessage(
               "Fichier traite dans votre navigateur, envoi termine."
@@ -359,7 +371,8 @@ export function useImportFlow() {
             createdImportId = await postServerFallback(
               file,
               "worker_error",
-              headerRowNumber
+              headerRowNumber,
+              projectId
             );
             setModeMessage(
               "Fichier envoye au serveur pour traitement."
@@ -370,7 +383,8 @@ export function useImportFlow() {
           createdImportId = await postServerFallback(
             file,
             "file_too_large",
-            headerRowNumber
+            headerRowNumber,
+            projectId
           );
           setModeMessage(
             "Fichier volumineux, envoye au serveur pour traitement."
@@ -409,7 +423,7 @@ export function useImportFlow() {
         setIsSubmitting(false);
       }
     },
-    [parseFile]
+    [parseFile, projectId]
   );
 
   useEffect(() => {
