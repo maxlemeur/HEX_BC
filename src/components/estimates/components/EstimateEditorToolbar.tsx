@@ -75,6 +75,8 @@ type EstimateEditorToolbarProps = {
   allAdvancedColumns: ColumnKey[];
   columnLabels: Record<ColumnKey, string>;
   onToggleColumn: (key: ColumnKey) => void;
+  hiddenAdvancedCount: number;
+  onToggleAdvancedColumns: () => void;
   /* UX2-022: Quick insert pickers */
   isQuickTemplatePickerOpen?: boolean;
   onToggleQuickTemplatePicker?: () => void;
@@ -147,6 +149,8 @@ export function EstimateEditorToolbar({
   allAdvancedColumns,
   columnLabels,
   onToggleColumn,
+  hiddenAdvancedCount,
+  onToggleAdvancedColumns,
   isQuickTemplatePickerOpen,
   onToggleQuickTemplatePicker,
   isQuickAssemblyPickerOpen,
@@ -334,46 +338,61 @@ export function EstimateEditorToolbar({
             {quickAssemblyPickerNode}
           </div>
         )}
-        <div className="relative" ref={columnsContainerRef}>
+        {isSimplifiedMode ? (
           <button
-            className="btn btn-secondary btn-sm"
+            className={`btn btn-sm ${hiddenAdvancedCount === 0 ? "btn-primary" : "btn-secondary"}`}
             type="button"
-            onClick={columnsToggle}
+            onClick={onToggleAdvancedColumns}
           >
-            Colonnes
+            Colonnes avancées
+            {hiddenAdvancedCount > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary/15 px-1.5 text-[10px] font-bold leading-4 text-primary">
+                +{hiddenAdvancedCount}
+              </span>
+            )}
           </button>
-          {columnsOpen && (
-            <div
-              className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 shadow-xl"
-              style={{ minWidth: "200px" }}
+        ) : (
+          <div className="relative" ref={columnsContainerRef}>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={columnsToggle}
             >
-              {availableColumnPresets.map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  className={`btn btn-sm w-full text-left${columnPreset === preset ? " btn-primary" : " btn-secondary"}`}
-                  onClick={() => onColumnPresetChange(preset)}
-                >
-                  {columnPresetLabels[preset]}
-                </button>
-              ))}
-              {columnPreset === "custom" && (
-                <div className="mt-2 border-t border-border pt-2 space-y-1">
-                  {allAdvancedColumns.map((col) => (
-                    <label key={col} className="flex items-center gap-2 text-sm text-secondary-foreground cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={columnVisibleColumns.has(col)}
-                        onChange={() => onToggleColumn(col)}
-                      />
-                      {columnLabels[col]}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+              Colonnes
+            </button>
+            {columnsOpen && (
+              <div
+                className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 shadow-xl"
+                style={{ minWidth: "200px" }}
+              >
+                {availableColumnPresets.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    className={`btn btn-sm w-full text-left${columnPreset === preset ? " btn-primary" : " btn-secondary"}`}
+                    onClick={() => onColumnPresetChange(preset)}
+                  >
+                    {columnPresetLabels[preset]}
+                  </button>
+                ))}
+                {columnPreset === "custom" && (
+                  <div className="mt-2 border-t border-border pt-2 space-y-1">
+                    {allAdvancedColumns.map((col) => (
+                      <label key={col} className="flex items-center gap-2 text-sm text-secondary-foreground cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={columnVisibleColumns.has(col)}
+                          onChange={() => onToggleColumn(col)}
+                        />
+                        {columnLabels[col]}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {!isSimplifiedMode && qualityCounts.linesWithAnomaliesCount > 0 && (
           <div className="relative" ref={anomaliesContainerRef}>
             <button

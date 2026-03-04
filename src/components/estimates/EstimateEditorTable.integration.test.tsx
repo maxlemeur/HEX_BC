@@ -295,6 +295,7 @@ describe("EstimateEditorTable integration", () => {
 
   it("renders super-header spacers and nowrap/wrap header labels", () => {
     localStorage.setItem("est-col-vis", "full");
+    localStorage.setItem("est-col-override", "true");
     renderEstimateEditorTable();
 
     const superHead = document.querySelector(".estimate-table__super-head");

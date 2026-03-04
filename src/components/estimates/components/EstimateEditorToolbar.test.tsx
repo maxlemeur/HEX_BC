@@ -91,6 +91,8 @@ function renderToolbar(overrides?: { hasSelectedLines?: boolean }) {
         allAdvancedColumns={[]}
         columnLabels={{} as Record<import("@/hooks/useColumnVisibility").ColumnKey, string>}
         onToggleColumn={vi.fn()}
+        hiddenAdvancedCount={5}
+        onToggleAdvancedColumns={vi.fn()}
       />
     </EstimateEditorProvider>
   );

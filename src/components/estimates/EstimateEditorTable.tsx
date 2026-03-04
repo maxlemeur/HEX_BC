@@ -806,7 +806,7 @@ export function EstimateEditorTable({
 }: EstimateEditorTableProps) {
   const columnVisibility = useColumnVisibility();
   const columnPreset = columnVisibility.preset;
-  const setColumnPreset = columnVisibility.setPreset;
+  const setColumnPresetAuto = columnVisibility.setPresetAuto;
   const { mode: uiMode, isSimplified } = useUiMode();
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
   const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
@@ -912,6 +912,12 @@ export function EstimateEditorTable({
   const previousSimplifiedRef = useRef<boolean | null>(null);
 
   useEffect(() => {
+    if (columnVisibility.hasManualOverride) {
+      previousSimplifiedRef.current = isSimplified;
+      hasInitializedPresetRef.current = true;
+      return;
+    }
+
     const hasPreviousValue = previousSimplifiedRef.current !== null;
     const hasModeChanged = previousSimplifiedRef.current !== isSimplified;
 
@@ -919,22 +925,22 @@ export function EstimateEditorTable({
       hasInitializedPresetRef.current = true;
 
       if (isSimplified && columnPreset !== "essential") {
-        setColumnPreset("essential");
+        setColumnPresetAuto("essential");
       }
       if (!isSimplified && columnPreset === "essential") {
-        setColumnPreset("standard");
+        setColumnPresetAuto("standard");
       }
     } else if (hasPreviousValue && hasModeChanged) {
       if (isSimplified && columnPreset !== "essential") {
-        setColumnPreset("essential");
+        setColumnPresetAuto("essential");
       }
       if (!isSimplified && columnPreset === "essential") {
-        setColumnPreset("standard");
+        setColumnPresetAuto("standard");
       }
     }
 
     previousSimplifiedRef.current = isSimplified;
-  }, [columnPreset, isSimplified, setColumnPreset]);
+  }, [columnPreset, columnVisibility.hasManualOverride, isSimplified, setColumnPresetAuto]);
 
   // Compute super-header FO/MO group spans for the grid
   const superHeaderSpans = useMemo(() => {
@@ -2250,6 +2256,8 @@ export function EstimateEditorTable({
           allAdvancedColumns={columnVisibility.allAdvancedColumns}
           columnLabels={columnVisibility.columnLabels}
           onToggleColumn={columnVisibility.toggleColumn}
+          hiddenAdvancedCount={columnVisibility.hiddenAdvancedCount}
+          onToggleAdvancedColumns={columnVisibility.toggleAdvancedColumns}
           onOpenSettings={onOpenSettings}
           isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}
           onToggleQuickTemplatePicker={() => {
