@@ -126,7 +126,10 @@ function createItem(partial: Partial<EstimateItem>): EstimateItem {
   } as EstimateItem;
 }
 
-function renderEstimateEditorTable(options?: { currency?: "EUR" | "USD" | "GBP" }) {
+function renderEstimateEditorTable(options?: {
+  currency?: "EUR" | "USD" | "GBP";
+  uiMode?: "expert" | "simplified";
+}) {
   const onPatchItem = vi.fn();
   const onApplyBulkMajoration = vi.fn().mockResolvedValue(undefined);
 
@@ -140,7 +143,7 @@ function renderEstimateEditorTable(options?: { currency?: "EUR" | "USD" | "GBP" 
         job_title: null,
         work_email: "integration@test.local",
         role: "buyer",
-        ui_mode: "expert",
+        ui_mode: options?.uiMode ?? "expert",
         tenant_id: "tenant-1",
         tenant_role: "admin",
       }}
@@ -310,5 +313,15 @@ describe("EstimateEditorTable integration", () => {
     expect(screen.getByText("Majoration MO (%)").closest("span")).toHaveClass(
       "whitespace-normal"
     );
+  });
+
+  it("migrates legacy full preset to manual override when override key is missing", () => {
+    localStorage.setItem("est-col-vis", "full");
+    localStorage.removeItem("est-col-override");
+
+    renderEstimateEditorTable({ uiMode: "simplified" });
+
+    expect(localStorage.getItem("est-col-override")).toBe("true");
+    expect(localStorage.getItem("est-col-vis")).toBe("full");
   });
 });

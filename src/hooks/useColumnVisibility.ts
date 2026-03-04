@@ -67,10 +67,20 @@ function saveCustomColumnsToStorage(columns: ColumnKey[]) {
   }
 }
 
-function loadOverrideFromStorage(): boolean {
+function loadOverrideFromStorage(preset: ColumnPreset): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return localStorage.getItem(STORAGE_KEY_OVERRIDE) === "true";
+    const stored = localStorage.getItem(STORAGE_KEY_OVERRIDE);
+    if (stored === "true") return true;
+    if (stored === "false") return false;
+
+    // Migration path for users who already had a non-default preset before
+    // the override key existed.
+    const shouldInferLegacyOverride = preset === "full" || preset === "custom";
+    if (shouldInferLegacyOverride) {
+      localStorage.setItem(STORAGE_KEY_OVERRIDE, "true");
+      return true;
+    }
   } catch {
     // ignore
   }
@@ -111,7 +121,7 @@ function savePresetToStorage(preset: ColumnPreset) {
 export function useColumnVisibility() {
   const [preset, setPresetState] = useState<ColumnPreset>(loadPresetFromStorage);
   const [customColumns, setCustomColumnsState] = useState<ColumnKey[]>(loadCustomColumnsFromStorage);
-  const [hasManualOverride, setHasManualOverrideState] = useState<boolean>(loadOverrideFromStorage);
+  const [hasManualOverride, setHasManualOverrideState] = useState<boolean>(() => loadOverrideFromStorage(preset));
 
   const setCustomColumns = useCallback((cols: ColumnKey[]) => {
     setCustomColumnsState(cols);

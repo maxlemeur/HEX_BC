@@ -2258,6 +2258,7 @@ export function EstimateEditorTable({
           onToggleColumn={columnVisibility.toggleColumn}
           hiddenAdvancedCount={columnVisibility.hiddenAdvancedCount}
           onToggleAdvancedColumns={columnVisibility.toggleAdvancedColumns}
+          isLaborSplitEnabled={isLaborSplitEnabled}
           onOpenSettings={onOpenSettings}
           isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}
           onToggleQuickTemplatePicker={() => {

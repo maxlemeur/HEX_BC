@@ -8,7 +8,11 @@ afterEach(() => {
   cleanup();
 });
 
-function renderToolbar(overrides?: { hasSelectedLines?: boolean }) {
+function renderToolbar(overrides?: {
+  hasSelectedLines?: boolean;
+  uiMode?: "expert" | "simplified";
+  isLaborSplitEnabled?: boolean;
+}) {
   const actions = {
     setBulkMajorationPercent: vi.fn(),
     setBulkMoveParentId: vi.fn(),
@@ -43,7 +47,7 @@ function renderToolbar(overrides?: { hasSelectedLines?: boolean }) {
       }}
     >
       <EstimateEditorToolbar
-        uiMode="expert"
+        uiMode={overrides?.uiMode ?? "expert"}
         qualityCounts={{
           linesCount: 2,
           linesWithAnomaliesCount: 1,
@@ -93,6 +97,7 @@ function renderToolbar(overrides?: { hasSelectedLines?: boolean }) {
         onToggleColumn={vi.fn()}
         hiddenAdvancedCount={5}
         onToggleAdvancedColumns={vi.fn()}
+        isLaborSplitEnabled={overrides?.isLaborSplitEnabled}
       />
     </EstimateEditorProvider>
   );
@@ -119,6 +124,13 @@ describe("EstimateEditorToolbar", () => {
     renderToolbar({ hasSelectedLines: false });
     expect(
       screen.queryByRole("button", { name: "Appliquer majoration" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides simplified advanced-columns toggle when labor split is enabled", () => {
+    renderToolbar({ uiMode: "simplified", isLaborSplitEnabled: true });
+    expect(
+      screen.queryByRole("button", { name: "Colonnes avancées" })
     ).not.toBeInTheDocument();
   });
 });

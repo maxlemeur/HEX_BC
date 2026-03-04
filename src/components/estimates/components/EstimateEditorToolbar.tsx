@@ -77,6 +77,7 @@ type EstimateEditorToolbarProps = {
   onToggleColumn: (key: ColumnKey) => void;
   hiddenAdvancedCount: number;
   onToggleAdvancedColumns: () => void;
+  isLaborSplitEnabled?: boolean;
   /* UX2-022: Quick insert pickers */
   isQuickTemplatePickerOpen?: boolean;
   onToggleQuickTemplatePicker?: () => void;
@@ -151,6 +152,7 @@ export function EstimateEditorToolbar({
   onToggleColumn,
   hiddenAdvancedCount,
   onToggleAdvancedColumns,
+  isLaborSplitEnabled = false,
   isQuickTemplatePickerOpen,
   onToggleQuickTemplatePicker,
   isQuickAssemblyPickerOpen,
@@ -339,18 +341,20 @@ export function EstimateEditorToolbar({
           </div>
         )}
         {isSimplifiedMode ? (
-          <button
-            className={`btn btn-sm ${hiddenAdvancedCount === 0 ? "btn-primary" : "btn-secondary"}`}
-            type="button"
-            onClick={onToggleAdvancedColumns}
-          >
-            Colonnes avancées
-            {hiddenAdvancedCount > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary/15 px-1.5 text-[10px] font-bold leading-4 text-primary">
-                +{hiddenAdvancedCount}
-              </span>
-            )}
-          </button>
+          isLaborSplitEnabled ? null : (
+            <button
+              className={`btn btn-sm ${hiddenAdvancedCount === 0 ? "btn-primary" : "btn-secondary"}`}
+              type="button"
+              onClick={onToggleAdvancedColumns}
+            >
+              Colonnes avancées
+              {hiddenAdvancedCount > 0 && (
+                <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary/15 px-1.5 text-[10px] font-bold leading-4 text-primary">
+                  +{hiddenAdvancedCount}
+                </span>
+              )}
+            </button>
+          )
         ) : (
           <div className="relative" ref={columnsContainerRef}>
             <button
