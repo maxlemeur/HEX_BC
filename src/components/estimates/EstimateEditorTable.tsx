@@ -43,6 +43,11 @@ import {
 } from "@/components/estimates/SupplierComparisonPanel";
 import { EstimateEditorProvider } from "@/components/estimates/context/EstimateEditorContext";
 import {
+  EstimateEditorRowActionsProvider,
+  type EstimateEditorRowActionsContextValue,
+} from "@/components/estimates/context/EstimateEditorRowActionsContext";
+import { EstimateSpreadsheetProvider } from "@/components/estimates/context/EstimateSpreadsheetContext";
+import {
   useEstimateClipboard,
 } from "@/components/estimates/hooks/useEstimateClipboard";
 import {
@@ -94,6 +99,9 @@ import {
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+type EstimateEditorItemMeta = {
+  _pendingCreate?: boolean;
+};
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
@@ -643,6 +651,10 @@ function getEstimateItemAid(item: EstimateItem) {
   return trimmed.length > 0 ? trimmed : "";
 }
 
+function isPendingCreateItem(item: EstimateItem) {
+  return (item as EstimateItem & EstimateEditorItemMeta)._pendingCreate === true;
+}
+
 function matchesQuickFilter(item: EstimateItem, normalizedTerm: string) {
   if (!normalizedTerm) return true;
   const title = item.title.toLowerCase();
@@ -902,7 +914,12 @@ export function EstimateEditorTable({
     return { foStart, foSpan, moStart, moSpan, puStart };
   }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
 
-  const canReorder = !isReadOnly && qualityFilter === "all_lines";
+  const hasPendingCreateItems = useMemo(
+    () => items.some((item) => isPendingCreateItem(item)),
+    [items]
+  );
+  const canReorder =
+    !isReadOnly && qualityFilter === "all_lines" && !hasPendingCreateItems;
   const itemNumberById = useMemo(
     () => computeEstimateItemNumbering(items),
     [items]
@@ -1759,6 +1776,49 @@ export function EstimateEditorTable({
     insertionAnchorItemIdRef.current = insertionAnchorItemId;
   }, [insertionAnchorItemId]);
 
+  const openSectionContextMenuForRow = useCallback(
+    (sectionId: string, position: { x: number; y: number }) => {
+      if (isViewerMode) return;
+      handleOpenSectionContextMenu(sectionId, position);
+    },
+    [handleOpenSectionContextMenu, isViewerMode]
+  );
+
+  const rowActionsContextValue = useMemo<EstimateEditorRowActionsContextValue>(
+    () => ({
+      onDeleteItem,
+      onOpenSupplierComparisonPanel: openSupplierComparisonPanel,
+      onOpenSupplierComparisonContextMenu: handleOpenSupplierComparisonContextMenu,
+      onOpenSectionContextMenu: openSectionContextMenuForRow,
+      onPatchItem: patchItemWithSuggestionTracking,
+      onUnitChange: handleUnitDraftChange,
+      onUnitCommit: handleUnitCommit,
+      onSupplyTypeChange: handleSupplyTypeDraftChange,
+      onSupplyTypeCommit: handleSupplyTypeCommit,
+      onAddLine,
+      onAddSection,
+      onConvertLineToSection: handleConvertLineToSection,
+      onToggleOutlierDismiss,
+      onLineSelectionInteraction: handleLineSelectionInteraction,
+    }),
+    [
+      handleConvertLineToSection,
+      handleLineSelectionInteraction,
+      handleOpenSupplierComparisonContextMenu,
+      handleSupplyTypeCommit,
+      handleSupplyTypeDraftChange,
+      handleUnitCommit,
+      handleUnitDraftChange,
+      onAddLine,
+      onAddSection,
+      onDeleteItem,
+      onToggleOutlierDismiss,
+      openSectionContextMenuForRow,
+      openSupplierComparisonPanel,
+      patchItemWithSuggestionTracking,
+    ]
+  );
+
   const renderSortableRow = useCallback(
     (
       item: EstimateItem,
@@ -1789,35 +1849,15 @@ export function EstimateEditorTable({
           dismissedOutlierFlags={dismissedOutlierFlagsByItemId[item.id] ?? []}
           supplyTypeById={supplyTypeById}
           laborRoles={laborRoles}
-          navigation={spreadsheetNavigation}
           isLineSelected={item.item_type === "line" && isLineSelected(item.id)}
           hasSupplierComparisonMismatch={hasSupplierComparisonMismatch}
-          onDeleteItem={onDeleteItem}
-          onOpenSupplierComparisonPanel={openSupplierComparisonPanel}
-          onOpenSupplierComparisonContextMenu={
-            handleOpenSupplierComparisonContextMenu
-          }
-          onOpenSectionContextMenu={
-            isViewerMode
-              ? () => undefined
-              : handleOpenSectionContextMenu
-          }
-          onPatchItem={patchItemWithSuggestionTracking}
-          onUnitChange={handleUnitDraftChange}
-          onUnitCommit={handleUnitCommit}
-          onSupplyTypeChange={handleSupplyTypeDraftChange}
-          onSupplyTypeCommit={handleSupplyTypeCommit}
-          onAddLine={onAddLine}
-          onAddSection={onAddSection}
-          onConvertLineToSection={handleConvertLineToSection}
-          onToggleOutlierDismiss={onToggleOutlierDismiss}
-          onLineSelectionInteraction={handleLineSelectionInteraction}
           sectionTotals={sectionTotals}
-          isDragDisabled={!canReorder}
+          isDragDisabled={!canReorder || isPendingCreateItem(item)}
           isOutlierActionPending={Boolean(outlierActionPendingByItemId[item.id])}
           isReadOnly={isReadOnly}
           hideEditingActions={isViewerMode}
           isLaborSplitEnabled={isLaborSplitEnabled}
+          isPendingCreate={isPendingCreateItem(item)}
           visibleColumns={isLaborSplitEnabled ? undefined : columnVisibility.visibleColumns}
           isSearchMatch={
             normalizedSearchTerm.length > 0 &&
@@ -1835,29 +1875,14 @@ export function EstimateEditorTable({
       columnVisibility.visibleColumns,
       detectedOutlierFlagsByItemId,
       dismissedOutlierFlagsByItemId,
-      handleOpenSectionContextMenu,
-      onAddLine,
-      onAddSection,
-      handleOpenSupplierComparisonContextMenu,
-      handleSupplyTypeCommit,
-      handleSupplyTypeDraftChange,
-      handleLineSelectionInteraction,
-      handleUnitCommit,
-      handleUnitDraftChange,
-      handleConvertLineToSection,
       itemNumberById,
       isLaborSplitEnabled,
       isViewerMode,
       isLineSelected,
       isReadOnly,
       laborRoles,
-      openSupplierComparisonPanel,
-      onDeleteItem,
-      patchItemWithSuggestionTracking,
-      onToggleOutlierDismiss,
       outlierActionPendingByItemId,
       normalizedSearchTerm,
-      spreadsheetNavigation,
       supplyTypeById,
       currency,
       versionId,
@@ -1985,7 +2010,9 @@ export function EstimateEditorTable({
 
   return (
     <EstimateEditorProvider value={estimateEditorContextValue}>
-      <div ref={tableCardRef}>
+      <EstimateEditorRowActionsProvider value={rowActionsContextValue}>
+        <EstimateSpreadsheetProvider navigation={spreadsheetNavigation}>
+          <div ref={tableCardRef}>
       <div className="dashboard-card p-6">
         <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
@@ -2519,6 +2546,8 @@ export function EstimateEditorTable({
       {/* Spacer so table content isn't hidden behind the fixed bulk-selection bar */}
       {hasSelectedLines && <div className="h-16" />}
       </div>
+        </EstimateSpreadsheetProvider>
+      </EstimateEditorRowActionsProvider>
     </EstimateEditorProvider>
   );
 }

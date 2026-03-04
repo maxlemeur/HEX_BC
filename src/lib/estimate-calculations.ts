@@ -496,6 +496,18 @@ export type ComputeSectionTotalsInput = {
   laborRateChantierById?: Map<string, number>;
 };
 
+export type ComputeAllSectionTotalsInput = {
+  items: EstimateItemRecord[];
+  marginMultiplier: number;
+  taxRateBp: number;
+  discountCents: number;
+  laborRateById: Map<string, number>;
+  isLaborSplitEnabled?: boolean;
+  laborRateAtelierById?: Map<string, number>;
+  laborRateChantierById?: Map<string, number>;
+  sectionIds?: Iterable<string>;
+};
+
 type SectionLineSplit = {
   foSaleLineCents: number;
   moSaleLineCents: number;
@@ -504,6 +516,167 @@ type SectionLineSplit = {
   saleLineCents: number;
   taxLineCents: number;
 };
+
+type SectionSubtotalAccumulator = {
+  foSaleSubtotalCents: number;
+  moSaleSubtotalCents: number;
+  moAtelierSaleSubtotalCents: number;
+  moChantierSaleSubtotalCents: number;
+  htSubtotalCents: number;
+  taxSubtotalCents: number;
+  foSaleSubtotalBySupplyType: Map<string, number>;
+};
+
+const ZERO_SECTION_TOTALS: SectionTotals = {
+  foTotalCents: 0,
+  moTotalCents: 0,
+  moAtelierTotalCents: 0,
+  moChantierTotalCents: 0,
+  totalHtCents: 0,
+  totalTtcCents: 0,
+  supplyTypeFoTotalsCents: {},
+};
+
+function createSectionSubtotalAccumulator(): SectionSubtotalAccumulator {
+  return {
+    foSaleSubtotalCents: 0,
+    moSaleSubtotalCents: 0,
+    moAtelierSaleSubtotalCents: 0,
+    moChantierSaleSubtotalCents: 0,
+    htSubtotalCents: 0,
+    taxSubtotalCents: 0,
+    foSaleSubtotalBySupplyType: new Map<string, number>(),
+  };
+}
+
+function mergeSectionSubtotalAccumulators(
+  target: SectionSubtotalAccumulator,
+  source: SectionSubtotalAccumulator
+) {
+  target.foSaleSubtotalCents += source.foSaleSubtotalCents;
+  target.moSaleSubtotalCents += source.moSaleSubtotalCents;
+  target.moAtelierSaleSubtotalCents += source.moAtelierSaleSubtotalCents;
+  target.moChantierSaleSubtotalCents += source.moChantierSaleSubtotalCents;
+  target.htSubtotalCents += source.htSubtotalCents;
+  target.taxSubtotalCents += source.taxSubtotalCents;
+
+  source.foSaleSubtotalBySupplyType.forEach((value, key) => {
+    target.foSaleSubtotalBySupplyType.set(
+      key,
+      (target.foSaleSubtotalBySupplyType.get(key) ?? 0) + value
+    );
+  });
+}
+
+function convertSectionSubtotalToTotals(input: {
+  subtotal: SectionSubtotalAccumulator;
+  estimateSaleSubtotalCents: number;
+  safeDiscount: number;
+  safeTaxRate: number;
+}): SectionTotals {
+  const sectionBeforeDiscount = input.subtotal;
+  if (sectionBeforeDiscount.htSubtotalCents <= 0) {
+    return { ...ZERO_SECTION_TOTALS, supplyTypeFoTotalsCents: {} };
+  }
+
+  const sectionDiscountCents =
+    input.safeDiscount > 0 && input.estimateSaleSubtotalCents > 0
+      ? Math.min(
+          sectionBeforeDiscount.htSubtotalCents,
+          Math.round(
+            (input.safeDiscount * sectionBeforeDiscount.htSubtotalCents) /
+              input.estimateSaleSubtotalCents
+          )
+        )
+      : 0;
+
+  const totalHtCents = Math.max(
+    sectionBeforeDiscount.htSubtotalCents - sectionDiscountCents,
+    0
+  );
+
+  const foDiscountCents =
+    sectionDiscountCents > 0 && sectionBeforeDiscount.htSubtotalCents > 0
+      ? Math.min(
+          sectionBeforeDiscount.foSaleSubtotalCents,
+          Math.round(
+            (sectionDiscountCents * sectionBeforeDiscount.foSaleSubtotalCents) /
+              sectionBeforeDiscount.htSubtotalCents
+          )
+        )
+      : 0;
+
+  const foTotalCents = Math.min(
+    Math.max(sectionBeforeDiscount.foSaleSubtotalCents - foDiscountCents, 0),
+    totalHtCents
+  );
+  const moTotalCents = totalHtCents - foTotalCents;
+  const moDiscountCents = Math.max(sectionDiscountCents - foDiscountCents, 0);
+  const moAtelierDiscountCents =
+    moDiscountCents > 0 && sectionBeforeDiscount.moSaleSubtotalCents > 0
+      ? Math.min(
+          sectionBeforeDiscount.moAtelierSaleSubtotalCents,
+          Math.round(
+            (moDiscountCents * sectionBeforeDiscount.moAtelierSaleSubtotalCents) /
+              sectionBeforeDiscount.moSaleSubtotalCents
+          )
+        )
+      : 0;
+
+  const moAtelierTotalCents = Math.min(
+    Math.max(
+      sectionBeforeDiscount.moAtelierSaleSubtotalCents - moAtelierDiscountCents,
+      0
+    ),
+    moTotalCents
+  );
+  const moChantierTotalCents = moTotalCents - moAtelierTotalCents;
+  const discountTaxCents = computeTaxCents(sectionDiscountCents, input.safeTaxRate);
+  const taxAfterDiscountCents = Math.max(
+    sectionBeforeDiscount.taxSubtotalCents - discountTaxCents,
+    0
+  );
+  const totalTtcCents = totalHtCents + taxAfterDiscountCents;
+
+  const supplyTypeFoTotalsCents: Record<string, number> = {};
+  const groupedEntries = Array.from(
+    sectionBeforeDiscount.foSaleSubtotalBySupplyType.entries()
+  );
+
+  if (groupedEntries.length > 0 && sectionBeforeDiscount.foSaleSubtotalCents > 0) {
+    let allocatedDiscount = 0;
+    let allocatedTotals = 0;
+
+    groupedEntries.forEach(([key, subtotal], index) => {
+      const isLast = index === groupedEntries.length - 1;
+      const discountShare = isLast
+        ? Math.max(foDiscountCents - allocatedDiscount, 0)
+        : Math.min(
+            subtotal,
+            Math.round(
+              (foDiscountCents * subtotal) / sectionBeforeDiscount.foSaleSubtotalCents
+            )
+          );
+      allocatedDiscount += discountShare;
+
+      const netTotal = isLast
+        ? Math.max(foTotalCents - allocatedTotals, 0)
+        : Math.max(subtotal - discountShare, 0);
+      allocatedTotals += netTotal;
+      supplyTypeFoTotalsCents[key] = netTotal;
+    });
+  }
+
+  return {
+    foTotalCents,
+    moTotalCents,
+    moAtelierTotalCents,
+    moChantierTotalCents,
+    totalHtCents,
+    totalTtcCents,
+    supplyTypeFoTotalsCents,
+  };
+}
 
 function computeSectionLineSplit(
   item: EstimateItemRecord,
@@ -631,36 +804,71 @@ export function computeSectionTotals({
   laborRateAtelierById = laborRateById,
   laborRateChantierById = laborRateById,
 }: ComputeSectionTotalsInput): SectionTotals {
-  const section = items.find(
-    (item) => item.id === sectionId && item.item_type === "section"
-  );
-  if (!section) {
-    return {
-      foTotalCents: 0,
-      moTotalCents: 0,
-      moAtelierTotalCents: 0,
-      moChantierTotalCents: 0,
-      totalHtCents: 0,
-      totalTtcCents: 0,
-      supplyTypeFoTotalsCents: {},
-    };
+  const totalsBySectionId = computeAllSectionTotals({
+    items,
+    marginMultiplier,
+    taxRateBp,
+    discountCents,
+    laborRateById,
+    isLaborSplitEnabled,
+    laborRateAtelierById,
+    laborRateChantierById,
+    sectionIds: [sectionId],
+  });
+
+  return totalsBySectionId.get(sectionId) ?? {
+    ...ZERO_SECTION_TOTALS,
+    supplyTypeFoTotalsCents: {},
+  };
+}
+
+/**
+ * Compute HT/TTC totals for multiple sections in a single pass.
+ * This is optimized for editor rendering paths where many section totals are needed.
+ */
+export function computeAllSectionTotals({
+  items,
+  marginMultiplier,
+  taxRateBp,
+  discountCents,
+  laborRateById,
+  isLaborSplitEnabled = false,
+  laborRateAtelierById = laborRateById,
+  laborRateChantierById = laborRateById,
+  sectionIds,
+}: ComputeAllSectionTotalsInput): Map<string, SectionTotals> {
+  const result = new Map<string, SectionTotals>();
+  if (items.length === 0) {
+    return result;
   }
 
-  const safeMargin = clampMarginMultiplier(marginMultiplier);
-  const safeTaxRate = Math.max(toSafeNumber(taxRateBp, 0), 0);
-  const safeDiscount = Math.max(toSafeNumber(discountCents, 0), 0);
+  const sectionIdFilter = sectionIds ? new Set(sectionIds) : null;
+  const sectionSet = new Set<string>();
+  const sectionIdsInSource: string[] = [];
   const childrenByParent = new Map<string, EstimateItemRecord[]>();
+  const allLines: EstimateItemRecord[] = [];
 
   items.forEach((item) => {
+    if (item.item_type === "section") {
+      sectionSet.add(item.id);
+      sectionIdsInSource.push(item.id);
+    } else if (item.item_type === "line") {
+      allLines.push(item);
+    }
+
     if (!item.parent_id) return;
     const siblings = childrenByParent.get(item.parent_id) ?? [];
     siblings.push(item);
     childrenByParent.set(item.parent_id, siblings);
   });
 
-  const allLines = items.filter(
-    (item): item is EstimateItemRecord => item.item_type === "line"
-  );
+  if (sectionSet.size === 0) {
+    return result;
+  }
+
+  const safeMargin = clampMarginMultiplier(marginMultiplier);
+  const safeTaxRate = Math.max(toSafeNumber(taxRateBp, 0), 0);
+  const safeDiscount = Math.max(toSafeNumber(discountCents, 0), 0);
 
   const lineSplitById = new Map<string, SectionLineSplit>();
   const estimateSaleSubtotalCents = allLines.reduce((sum, item) => {
@@ -676,165 +884,123 @@ export function computeSectionTotals({
     return sum + split.saleLineCents;
   }, 0);
 
-  const sectionLines: EstimateItemRecord[] = [];
-  const visitedSectionIds = new Set<string>();
-  const sectionStack: string[] = [sectionId];
+  const sectionTotalsBeforeDiscountById = new Map<
+    string,
+    SectionSubtotalAccumulator
+  >();
+  const rootSectionIds = sectionIdsInSource.filter((id) => {
+    const section = items.find((item) => item.id === id);
+    if (!section || section.item_type !== "section") return false;
+    if (!section.parent_id) return true;
+    return !sectionSet.has(section.parent_id);
+  });
 
-  while (sectionStack.length > 0) {
-    const currentSectionId = sectionStack.pop();
-    if (!currentSectionId || visitedSectionIds.has(currentSectionId)) continue;
-    visitedSectionIds.add(currentSectionId);
-
-    const children = childrenByParent.get(currentSectionId) ?? [];
-    children.forEach((child) => {
-      if (child.item_type === "line") {
-        sectionLines.push(child);
-        return;
-      }
-      if (child.item_type === "section") {
-        sectionStack.push(child.id);
-      }
-    });
-  }
-
-  if (sectionLines.length === 0) {
-    return {
-      foTotalCents: 0,
-      moTotalCents: 0,
-      moAtelierTotalCents: 0,
-      moChantierTotalCents: 0,
-      totalHtCents: 0,
-      totalTtcCents: 0,
-      supplyTypeFoTotalsCents: {},
-    };
-  }
-
-  const foSaleSubtotalBySupplyType = new Map<string, number>();
-  const sectionBeforeDiscount = sectionLines.reduce(
-    (acc, line) => {
-      const split = lineSplitById.get(line.id);
-      if (!split) return acc;
-      acc.foSaleSubtotalCents += split.foSaleLineCents;
-      acc.moSaleSubtotalCents += split.moSaleLineCents;
-      acc.moAtelierSaleSubtotalCents += split.moAtelierSaleLineCents;
-      acc.moChantierSaleSubtotalCents += split.moChantierSaleLineCents;
-      acc.htSubtotalCents += split.saleLineCents;
-      acc.taxSubtotalCents += split.taxLineCents;
-
-      if (split.foSaleLineCents > 0) {
-        const key = line.supply_type_id ?? UNASSIGNED_SUPPLY_TYPE_KEY;
-        foSaleSubtotalBySupplyType.set(
-          key,
-          (foSaleSubtotalBySupplyType.get(key) ?? 0) + split.foSaleLineCents
-        );
-      }
-      return acc;
-    },
-    {
-      foSaleSubtotalCents: 0,
-      moSaleSubtotalCents: 0,
-      moAtelierSaleSubtotalCents: 0,
-      moChantierSaleSubtotalCents: 0,
-      htSubtotalCents: 0,
-      taxSubtotalCents: 0,
+  const visited = new Set<string>();
+  const traversalRoots = [...rootSectionIds];
+  sectionIdsInSource.forEach((sectionId) => {
+    if (!visited.has(sectionId)) {
+      traversalRoots.push(sectionId);
     }
-  );
+  });
 
-  const sectionDiscountCents =
-    safeDiscount > 0 &&
-    sectionBeforeDiscount.htSubtotalCents > 0 &&
-    estimateSaleSubtotalCents > 0
-      ? Math.min(
-          sectionBeforeDiscount.htSubtotalCents,
-          Math.round(
-            (safeDiscount * sectionBeforeDiscount.htSubtotalCents) /
-              estimateSaleSubtotalCents
-          )
-        )
-      : 0;
+  traversalRoots.forEach((rootSectionId) => {
+    if (visited.has(rootSectionId)) return;
 
-  const totalHtCents = Math.max(
-    sectionBeforeDiscount.htSubtotalCents - sectionDiscountCents,
-    0
-  );
+    const stack: Array<{ sectionId: string; visitedChildren: boolean }> = [
+      { sectionId: rootSectionId, visitedChildren: false },
+    ];
 
-  const foDiscountCents =
-    sectionDiscountCents > 0 && sectionBeforeDiscount.htSubtotalCents > 0
-      ? Math.min(
-          sectionBeforeDiscount.foSaleSubtotalCents,
-          Math.round(
-            (sectionDiscountCents * sectionBeforeDiscount.foSaleSubtotalCents) /
-              sectionBeforeDiscount.htSubtotalCents
-          )
-        )
-      : 0;
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) continue;
 
-  const foTotalCents = Math.min(
-    Math.max(sectionBeforeDiscount.foSaleSubtotalCents - foDiscountCents, 0),
-    totalHtCents
-  );
-  const moTotalCents = totalHtCents - foTotalCents;
-  const moDiscountCents = Math.max(sectionDiscountCents - foDiscountCents, 0);
-  const moAtelierDiscountCents =
-    moDiscountCents > 0 && sectionBeforeDiscount.moSaleSubtotalCents > 0
-      ? Math.min(
-          sectionBeforeDiscount.moAtelierSaleSubtotalCents,
-          Math.round(
-            (moDiscountCents * sectionBeforeDiscount.moAtelierSaleSubtotalCents) /
-              sectionBeforeDiscount.moSaleSubtotalCents
-          )
-        )
-      : 0;
-  const moAtelierTotalCents = Math.min(
-    Math.max(
-      sectionBeforeDiscount.moAtelierSaleSubtotalCents - moAtelierDiscountCents,
-      0
-    ),
-    moTotalCents
-  );
-  const moChantierTotalCents = moTotalCents - moAtelierTotalCents;
-  const discountTaxCents = computeTaxCents(sectionDiscountCents, safeTaxRate);
-  const taxAfterDiscountCents = Math.max(
-    sectionBeforeDiscount.taxSubtotalCents - discountTaxCents,
-    0
-  );
-  const totalTtcCents = totalHtCents + taxAfterDiscountCents;
+      if (!current.visitedChildren) {
+        if (visited.has(current.sectionId)) continue;
+        stack.push({
+          sectionId: current.sectionId,
+          visitedChildren: true,
+        });
+        const children = childrenByParent.get(current.sectionId) ?? [];
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+          const child = children[index];
+          if (child.item_type === "section") {
+            stack.push({
+              sectionId: child.id,
+              visitedChildren: false,
+            });
+          }
+        }
+        continue;
+      }
 
-  const supplyTypeFoTotalsCents: Record<string, number> = {};
-  const groupedEntries = Array.from(foSaleSubtotalBySupplyType.entries());
-  if (groupedEntries.length > 0 && sectionBeforeDiscount.foSaleSubtotalCents > 0) {
-    let allocatedDiscount = 0;
-    let allocatedTotals = 0;
+      const subtotal = createSectionSubtotalAccumulator();
+      const children = childrenByParent.get(current.sectionId) ?? [];
 
-    groupedEntries.forEach(([key, subtotal], index) => {
-      const isLast = index === groupedEntries.length - 1;
-      const discountShare = isLast
-        ? Math.max(foDiscountCents - allocatedDiscount, 0)
-        : Math.min(
-            subtotal,
-            Math.round(
-              (foDiscountCents * subtotal) / sectionBeforeDiscount.foSaleSubtotalCents
-            )
-          );
-      allocatedDiscount += discountShare;
+      children.forEach((child) => {
+        if (child.item_type === "line") {
+          const split = lineSplitById.get(child.id);
+          if (!split) return;
 
-      const netTotal = isLast
-        ? Math.max(foTotalCents - allocatedTotals, 0)
-        : Math.max(subtotal - discountShare, 0);
-      allocatedTotals += netTotal;
-      supplyTypeFoTotalsCents[key] = netTotal;
+          subtotal.foSaleSubtotalCents += split.foSaleLineCents;
+          subtotal.moSaleSubtotalCents += split.moSaleLineCents;
+          subtotal.moAtelierSaleSubtotalCents += split.moAtelierSaleLineCents;
+          subtotal.moChantierSaleSubtotalCents += split.moChantierSaleLineCents;
+          subtotal.htSubtotalCents += split.saleLineCents;
+          subtotal.taxSubtotalCents += split.taxLineCents;
+
+          if (split.foSaleLineCents > 0) {
+            const key = child.supply_type_id ?? UNASSIGNED_SUPPLY_TYPE_KEY;
+            subtotal.foSaleSubtotalBySupplyType.set(
+              key,
+              (subtotal.foSaleSubtotalBySupplyType.get(key) ?? 0) +
+                split.foSaleLineCents
+            );
+          }
+          return;
+        }
+
+        const childTotalsBeforeDiscount =
+          sectionTotalsBeforeDiscountById.get(child.id);
+        if (!childTotalsBeforeDiscount) return;
+        mergeSectionSubtotalAccumulators(subtotal, childTotalsBeforeDiscount);
+      });
+
+      sectionTotalsBeforeDiscountById.set(current.sectionId, subtotal);
+      visited.add(current.sectionId);
+    }
+  });
+
+  sectionIdsInSource.forEach((sectionId) => {
+    if (sectionIdFilter && !sectionIdFilter.has(sectionId)) {
+      return;
+    }
+
+    const subtotal =
+      sectionTotalsBeforeDiscountById.get(sectionId) ??
+      createSectionSubtotalAccumulator();
+    result.set(
+      sectionId,
+      convertSectionSubtotalToTotals({
+        subtotal,
+        estimateSaleSubtotalCents,
+        safeDiscount,
+        safeTaxRate,
+      })
+    );
+  });
+
+  if (sectionIdFilter) {
+    sectionIdFilter.forEach((sectionId) => {
+      if (!result.has(sectionId)) {
+        result.set(sectionId, {
+          ...ZERO_SECTION_TOTALS,
+          supplyTypeFoTotalsCents: {},
+        });
+      }
     });
   }
 
-  return {
-    foTotalCents,
-    moTotalCents,
-    moAtelierTotalCents,
-    moChantierTotalCents,
-    totalHtCents,
-    totalTtcCents,
-    supplyTypeFoTotalsCents,
-  };
+  return result;
 }
 
 /**

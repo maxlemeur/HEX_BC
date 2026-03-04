@@ -73,7 +73,7 @@ describe("resolveEstimateEditorVirtualizationConfig", () => {
       })
     ).toEqual({
       enabled: false,
-      mode: "off",
+      mode: "auto",
       autoThreshold: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_AUTO_THRESHOLD,
       rowEstimate: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_ROW_ESTIMATE,
       overscan: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_OVERSCAN,
@@ -191,7 +191,7 @@ describe("resolveEstimateEditorVirtualizationRuntimeConfig", () => {
       })
     ).toEqual({
       enabled: false,
-      mode: "off",
+      mode: "auto",
       autoThreshold: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_AUTO_THRESHOLD,
       rowEstimate: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_ROW_ESTIMATE,
       overscan: ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_OVERSCAN,

@@ -804,12 +804,22 @@ export function useSpreadsheetNavigation({
     [editingCellId]
   );
 
-  return {
-    activeCell,
-    editingCell,
-    isCellActive,
-    isCellEditing,
-    getCellProps,
-    getEditorProps,
-  };
+  return useMemo(
+    () => ({
+      activeCell,
+      editingCell,
+      isCellActive,
+      isCellEditing,
+      getCellProps,
+      getEditorProps,
+    }),
+    [
+      activeCell,
+      editingCell,
+      getCellProps,
+      getEditorProps,
+      isCellActive,
+      isCellEditing,
+    ]
+  );
 }

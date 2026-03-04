@@ -1,3 +1,4 @@
+import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +7,7 @@ import {
   resolveSpreadsheetKeyCommand,
   resolveSpreadsheetNextCellId,
   resolveSpreadsheetPointerCommand,
+  useSpreadsheetNavigation,
 } from "@/hooks/useSpreadsheetNavigation";
 
 describe("useSpreadsheetNavigation helpers", () => {
@@ -79,6 +81,25 @@ describe("useSpreadsheetNavigation helpers", () => {
     expect(resolveSpreadsheetNextCellId(model, "row-1::title", "up")).toBe(
       "row-1::title"
     );
+  });
+
+  it("keeps stable handlers and API references when rows are unchanged", () => {
+    const rows = [{ rowId: "row-1", columnKeys: ["title", "quantity"] }];
+    const { result, rerender } = renderHook(() =>
+      useSpreadsheetNavigation({
+        rows,
+      })
+    );
+
+    const first = result.current;
+    rerender();
+    const second = result.current;
+
+    expect(second).toBe(first);
+    expect(second.getCellProps).toBe(first.getCellProps);
+    expect(second.getEditorProps).toBe(first.getEditorProps);
+    expect(second.isCellActive).toBe(first.isCellActive);
+    expect(second.isCellEditing).toBe(first.isCellEditing);
   });
 
   it("starts editing on single click for editable cell container", () => {

@@ -1,6 +1,6 @@
 export const ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_ROW_ESTIMATE = 56;
 export const ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_OVERSCAN = 8;
-export const ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_AUTO_THRESHOLD = 800;
+export const ESTIMATE_EDITOR_VIRTUALIZATION_DEFAULT_AUTO_THRESHOLD = 120;
 
 export const ESTIMATE_EDITOR_VIRTUALIZATION_MODE_FLAG_KEY =
   "EST_264_EDITOR_VIRTUALIZATION_MODE";
@@ -88,7 +88,7 @@ function resolveEstimateEditorVirtualizationModeFromEnv(
 ): EstimateEditorVirtualizationMode {
   return (
     parseEstimateEditorVirtualizationMode(env.mode) ??
-    (parseBooleanFeatureFlag(env.enabled) ? "on" : "off")
+    (parseBooleanFeatureFlag(env.enabled) ? "on" : "auto")
   );
 }
 

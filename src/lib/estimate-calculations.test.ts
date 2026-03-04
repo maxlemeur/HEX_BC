@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  computeAllSectionTotals,
   computeEstimateLineValues,
   computeEstimateTotals,
   computeCascadeDiscountCents,
@@ -1048,6 +1049,80 @@ describe("estimate calculations", () => {
         [UNASSIGNED_SUPPLY_TYPE_KEY]: 1500,
       },
     });
+  });
+
+  it("computeAllSectionTotals matches computeSectionTotals on nested sections", () => {
+    const parentSectionId = "section-parent";
+    const childSectionId = "section-child";
+    const siblingSectionId = "section-sibling";
+    const items: EstimateItemRecord[] = [
+      createSectionRecord({ id: parentSectionId, parent_id: null, position: 1 }),
+      createSectionRecord({ id: childSectionId, parent_id: parentSectionId, position: 1 }),
+      createSectionRecord({ id: siblingSectionId, parent_id: null, position: 2 }),
+      createItemRecord({
+        id: "line-parent",
+        parent_id: parentSectionId,
+        position: 2,
+        quantity: 2,
+        unit_price_ht_cents: 1000,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+        labor_role_id: null,
+      }),
+      createItemRecord({
+        id: "line-child",
+        parent_id: childSectionId,
+        position: 1,
+        quantity: 1,
+        unit_price_ht_cents: 500,
+        k_fo: 1,
+        h_mo: 1,
+        k_mo: 1,
+        labor_role_id: "role-a",
+      }),
+      createItemRecord({
+        id: "line-sibling",
+        parent_id: siblingSectionId,
+        position: 1,
+        quantity: 3,
+        unit_price_ht_cents: 200,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+        labor_role_id: null,
+      }),
+    ];
+
+    const input = {
+      items,
+      marginMultiplier: 1.2,
+      taxRateBp: 2000,
+      discountCents: 350,
+      laborRateById: new Map([["role-a", 450]]),
+    };
+
+    const expectedParent = computeSectionTotals({
+      ...input,
+      sectionId: parentSectionId,
+    });
+    const expectedChild = computeSectionTotals({
+      ...input,
+      sectionId: childSectionId,
+    });
+    const expectedSibling = computeSectionTotals({
+      ...input,
+      sectionId: siblingSectionId,
+    });
+
+    const computed = computeAllSectionTotals({
+      ...input,
+      sectionIds: [parentSectionId, childSectionId, siblingSectionId],
+    });
+
+    expect(computed.get(parentSectionId)).toEqual(expectedParent);
+    expect(computed.get(childSectionId)).toEqual(expectedChild);
+    expect(computed.get(siblingSectionId)).toEqual(expectedSibling);
   });
 });
 

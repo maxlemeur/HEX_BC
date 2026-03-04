@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { UserProvider } from "@/components/UserContext";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
+import { useEstimateEditorRowActions } from "@/components/estimates/context/EstimateEditorRowActionsContext";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -38,12 +39,24 @@ vi.mock("@/components/estimates/components/EstimateEditorBody", () => ({
 
 vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
   getSpreadsheetColumnKeys: () => ["title"],
-  EstimateEditorRow: ({ item, estimateCurrency, onPatchItem, onLineSelectionInteraction }: {
+  EstimateEditorRow: ({ item, estimateCurrency }: {
     item: EstimateItem;
     estimateCurrency: string;
-    onPatchItem: (itemId: string, patch: { title: string }, options?: { persist?: boolean }) => void;
-    onLineSelectionInteraction: (input: { id: string; ctrlKey?: boolean }) => void;
   }) => (
+    <MockRow item={item} estimateCurrency={estimateCurrency} />
+  ),
+}));
+
+function MockRow({
+  item,
+  estimateCurrency,
+}: {
+  item: EstimateItem;
+  estimateCurrency: string;
+}) {
+  const { onPatchItem, onLineSelectionInteraction } = useEstimateEditorRowActions();
+
+  return (
     <div data-estimate-item-id={item.id}>
       <span>Currency {estimateCurrency}</span>
       <button
@@ -61,8 +74,8 @@ vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
         </button>
       ) : null}
     </div>
-  ),
-}));
+  );
+}
 
 vi.mock("@/components/estimates/hooks/useEstimateDndVirtualization", () => ({
   useEstimateDndVirtualization: () => ({

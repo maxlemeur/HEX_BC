@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
+  startTransition,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -30,6 +32,10 @@ import {
   type DiscountMode,
   type EstimateSettingsState,
 } from "@/components/estimates/EstimateSettingsPanel";
+import {
+  EstimateSettingsSummaryBar,
+  type SettingsSection,
+} from "@/components/estimates/EstimateSettingsSummaryBar";
 import { LaborRolesManager } from "@/components/estimates/LaborRolesManager";
 import { MarginTiersManager } from "@/components/estimates/MarginTiersManager";
 import {
@@ -39,6 +45,7 @@ import {
 import { ExportDropdown } from "@/components/ExportDropdown";
 import { useUserContext } from "@/components/UserContext";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { useUiMode } from "@/hooks/useUiMode";
 import { useAutoSaveNavigationGuard } from "@/hooks/useAutoSaveNavigationGuard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useUndoRedo, type UndoRedoCommand } from "@/hooks/useUndoRedo";
@@ -146,6 +153,11 @@ import {
 type EstimateVersionRow =
   Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+type EditorEstimateItem = EstimateItem & {
+  _optimistic?: boolean;
+  _pendingCreate?: boolean;
+  _tempId?: string;
+};
 type EstimateCategory =
   Database["public"]["Tables"]["estimate_categories"]["Row"];
 type SupplyType = Database["public"]["Tables"]["supply_types"]["Row"];
@@ -512,6 +524,20 @@ function toNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function createTempEstimateItemId() {
+  return `tmp:${crypto.randomUUID()}`;
+}
+
+function isTempEstimateItemId(itemId: string) {
+  return itemId.startsWith("tmp:");
+}
+
+function isPendingCreateEstimateItem(
+  item: EstimateItem | (EstimateItem & { _pendingCreate?: boolean })
+) {
+  return (item as EstimateItem & { _pendingCreate?: boolean })._pendingCreate === true;
 }
 
 function toFiniteNumber(value: unknown, fallback: number) {
@@ -1257,6 +1283,109 @@ function buildEstimateItemInsertPayload(
   return payload;
 }
 
+function createOptimisticSectionItem(input: {
+  tempId: string;
+  tenantId: string;
+  versionId: string;
+  parentId: string | null;
+  position: number;
+  title: string;
+}): EditorEstimateItem {
+  const timestamp = new Date().toISOString();
+  return {
+    id: input.tempId,
+    created_at: timestamp,
+    updated_at: timestamp,
+    tenant_id: input.tenantId,
+    version_id: input.versionId,
+    parent_id: input.parentId,
+    item_type: "section",
+    position: input.position,
+    title: input.title,
+    aid: null,
+    description: null,
+    quantity: null,
+    unit_price_ht_cents: null,
+    tax_rate_bp: null,
+    k_fo: null,
+    h_mo: null,
+    h_mo_majoration: 1,
+    k_mo: null,
+    h_mo_atelier: null,
+    k_mo_atelier: null,
+    labor_role_atelier_id: null,
+    h_mo_chantier: null,
+    k_mo_chantier: null,
+    labor_role_chantier_id: null,
+    pu_ht_cents: null,
+    labor_role_id: null,
+    category_id: null,
+    supply_type_id: null,
+    selected_supplier_price_id: null,
+    line_total_ht_cents: null,
+    line_tax_cents: null,
+    line_total_ttc_cents: null,
+    _optimistic: true,
+    _pendingCreate: true,
+    _tempId: input.tempId,
+  };
+}
+
+function createOptimisticLineItem(input: {
+  tempId: string;
+  tenantId: string;
+  versionId: string;
+  parentId: string | null;
+  position: number;
+  title: string;
+  quantity: number;
+  taxRateBp: number;
+  puHtCents: number;
+  lineTotalHtCents: number;
+  lineTaxCents: number;
+  lineTotalTtcCents: number;
+  isLaborSplitEnabled: boolean;
+}): EditorEstimateItem {
+  const timestamp = new Date().toISOString();
+  return {
+    id: input.tempId,
+    created_at: timestamp,
+    updated_at: timestamp,
+    tenant_id: input.tenantId,
+    version_id: input.versionId,
+    parent_id: input.parentId,
+    item_type: "line",
+    position: input.position,
+    title: input.title,
+    aid: null,
+    description: null,
+    quantity: input.quantity,
+    unit_price_ht_cents: 0,
+    tax_rate_bp: input.taxRateBp,
+    k_fo: 1,
+    h_mo: 0,
+    h_mo_majoration: 1,
+    k_mo: 1,
+    h_mo_atelier: input.isLaborSplitEnabled ? 0 : null,
+    k_mo_atelier: input.isLaborSplitEnabled ? 1 : null,
+    labor_role_atelier_id: null,
+    h_mo_chantier: input.isLaborSplitEnabled ? 0 : null,
+    k_mo_chantier: input.isLaborSplitEnabled ? 1 : null,
+    labor_role_chantier_id: null,
+    pu_ht_cents: input.puHtCents,
+    labor_role_id: null,
+    category_id: null,
+    supply_type_id: null,
+    selected_supplier_price_id: null,
+    line_total_ht_cents: input.lineTotalHtCents,
+    line_tax_cents: input.lineTaxCents,
+    line_total_ttc_cents: input.lineTotalTtcCents,
+    _optimistic: true,
+    _pendingCreate: true,
+    _tempId: input.tempId,
+  };
+}
+
 function applyInterParentMoveOptimistically(
   sourceItems: EstimateItem[],
   move: EstimateItemMovePayload
@@ -1310,6 +1439,7 @@ export default function EditEstimatePage() {
   const versionId = Array.isArray(rawVersionId) ? rawVersionId[0] : rawVersionId;
   const resolvedVersionId = typeof versionId === "string" ? versionId : "";
   const { profile } = useUserContext();
+  const { isExpert } = useUiMode();
   const { enabled: isLaborSplitEnabled } = useFeatureFlag(LABOR_SPLIT_FLAG_KEY);
   const {
     enabled: isVirtualizationModeFlagEnabled,
@@ -1323,7 +1453,7 @@ export default function EditEstimatePage() {
   const [settings, setSettings] = useState<EstimateSettingsState | null>(null);
   const [savedSettings, setSavedSettings] =
     useState<EstimateSettingsState | null>(null);
-  const [items, setItems] = useState<EstimateItem[]>([]);
+  const [items, setItems] = useState<EditorEstimateItem[]>([]);
   const [categories, setCategories] = useState<EstimateCategory[]>([]);
   const [supplyTypes, setSupplyTypes] = useState<SupplyType[]>([]);
   const [laborRoles, setLaborRoles] = useState<LaborRole[]>([]);
@@ -1340,6 +1470,7 @@ export default function EditEstimatePage() {
   const [qualityFilter, setQualityFilter] =
     useState<EstimateQualityFilter>("all_lines");
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
+  const [drawerScrollTarget, setDrawerScrollTarget] = useState<SettingsSection | null>(null);
   const [isChecklistCollapsed, setIsChecklistCollapsed] = useState(true);
   const [checklistScrollTargetItemId, setChecklistScrollTargetItemId] =
     useState<string | null>(null);
@@ -1409,7 +1540,7 @@ export default function EditEstimatePage() {
     maxStackSize: 50,
   });
 
-  const itemsRef = useRef<EstimateItem[]>([]);
+  const itemsRef = useRef<EditorEstimateItem[]>([]);
   const versionRef = useRef<EstimateVersionView | null>(null);
   const persistedTotalsRef = useRef<EstimateTotals | null>(null);
   const isSaveBlockedRef = useRef(false);
@@ -1417,10 +1548,14 @@ export default function EditEstimatePage() {
   const pendingItemUpdatesRef = useRef<Map<string, EstimateItemUpdatePayload>>(
     new Map()
   );
+  const queuedPatchesByTempIdRef = useRef<Map<string, EstimateItemUpdatePayload>>(
+    new Map()
+  );
+  const removedTempItemIdsRef = useRef<Set<string>>(new Set());
   const pendingBufferedUpdateCountRef = useRef(0);
   const isFlushingBufferedUpdatesRef = useRef(false);
   const applyPendingBufferedUpdatesToItems = useCallback(
-    (sourceItems: EstimateItem[]) =>
+    (sourceItems: EditorEstimateItem[]) =>
       applyBufferedUpdatesToItems(
         sourceItems,
         serializeBufferedUpdates(pendingItemUpdatesRef.current)
@@ -1920,10 +2055,53 @@ export default function EditEstimatePage() {
       threshold: nextThreshold,
     }));
   }, []);
+  const handleOpenSettingsDrawer = useCallback((section?: SettingsSection) => {
+    setIsSettingsDrawerOpen(true);
+    setDrawerScrollTarget(section ?? null);
+  }, []);
+  const drawerScrollTargetRef = useRef<SettingsSection | null>(null);
+  useEffect(() => {
+    drawerScrollTargetRef.current = drawerScrollTarget;
+  }, [drawerScrollTarget]);
+  useEffect(() => {
+    if (!isSettingsDrawerOpen) return;
+    const target = drawerScrollTargetRef.current;
+    if (!target) return;
+    drawerScrollTargetRef.current = null;
+    setDrawerScrollTarget(null);
+    const sectionIdMap: Record<SettingsSection, string> = {
+      margin: "estimate-margin",
+      discount: "estimate-discount",
+      tax: "estimate-tax",
+      rounding: "estimate-rounding",
+      general: "estimate-project-name",
+    };
+    const targetId = sectionIdMap[target];
+    const scrollToTarget = () => {
+      const el = document.getElementById(targetId);
+      if (!el) return;
+      let scrollable: HTMLElement | null = el.parentElement;
+      while (scrollable) {
+        const ov = getComputedStyle(scrollable).overflowY;
+        if (ov === "auto" || ov === "scroll") break;
+        scrollable = scrollable.parentElement;
+      }
+      if (scrollable) {
+        const containerRect = scrollable.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const offset = elRect.top - containerRect.top + scrollable.scrollTop - containerRect.height / 2;
+        scrollable.scrollTo({ top: Math.max(0, offset), behavior: "smooth" });
+      }
+    };
+    // Retry at increasing delays to handle drawer animation and async renders
+    const delays = [50, 150, 350];
+    const timers = delays.map((delay) => setTimeout(scrollToTarget, delay));
+    return () => timers.forEach(clearTimeout);
+  }, [isSettingsDrawerOpen]);
   const handleChecklistCriterionClick = useCallback(
     (criterion: EstimateChecklistCriterion) => {
       if (!criterion.targetItemId) {
-        setIsSettingsDrawerOpen(true);
+        handleOpenSettingsDrawer();
         return;
       }
       if (criterion.qualityFlag) {
@@ -1931,7 +2109,7 @@ export default function EditEstimatePage() {
       }
       setChecklistScrollTargetItemId(criterion.targetItemId);
     },
-    []
+    [handleOpenSettingsDrawer]
   );
   const handleChecklistScrollHandled = useCallback(() => {
     setChecklistScrollTargetItemId(null);
@@ -2222,14 +2400,17 @@ export default function EditEstimatePage() {
     return map;
   }, [laborRoles]);
 
+  const deferredItems = useDeferredValue(items);
+  const isDerivationPending = deferredItems !== items;
+
   const bulkSuggestPreview = useMemo(
     () =>
       buildBulkSuggestPreview({
-        items,
+        items: deferredItems,
         suggestionRules,
         categories,
       }),
-    [categories, items, suggestionRules]
+    [categories, deferredItems, suggestionRules]
   );
 
   const bulkSuggestionEligibleCount = bulkSuggestPreview.length;
@@ -2237,20 +2418,20 @@ export default function EditEstimatePage() {
   const detectedOutlierFlagsByItemId = useMemo(
     () =>
       detectEstimateOutliers({
-        items,
+        items: deferredItems,
         categories,
         config: outlierConfig,
       }),
-    [categories, items, outlierConfig]
+    [categories, deferredItems, outlierConfig]
   );
 
   const qualityFlagsByItemId = useMemo(
     () =>
-      computeEstimateQualityFlagsByItemId(items, {
+      computeEstimateQualityFlagsByItemId(deferredItems, {
         outlierFlagsByItemId: detectedOutlierFlagsByItemId,
         dismissedOutlierFlagsByItemId,
       }),
-    [detectedOutlierFlagsByItemId, dismissedOutlierFlagsByItemId, items]
+    [deferredItems, detectedOutlierFlagsByItemId, dismissedOutlierFlagsByItemId]
   );
 
   const qualityCounts = useMemo(
@@ -2261,11 +2442,11 @@ export default function EditEstimatePage() {
   const checklist = useMemo(
     () =>
       computeEstimateChecklist({
-        items,
+        items: deferredItems,
         qualityFlagsByItemId,
         settings,
       }),
-    [items, qualityFlagsByItemId, settings]
+    [deferredItems, qualityFlagsByItemId, settings]
   );
 
   const buildLineCalculationInput = useCallback(
@@ -4083,68 +4264,108 @@ export default function EditEstimatePage() {
       }
       setActionError(null);
       const position = getNextPosition(parentId);
+      const tempId = createTempEstimateItemId();
+      const optimisticSection = createOptimisticSectionItem({
+        tempId,
+        tenantId: version.tenant_id,
+        versionId: version.id,
+        parentId,
+        position,
+        title: parentId ? "Nouveau sous-chapitre" : "Nouveau chapitre",
+      });
 
-      let data: EstimateItem;
+      setItems((prev) => [...prev, optimisticSection]);
+
       try {
-        data = await createEstimateItem(version.id, {
+        const created = await createEstimateItem(version.id, {
           version_id: version.id,
           parent_id: parentId,
           item_type: "section",
           position,
-          title: parentId ? "Nouveau sous-chapitre" : "Nouveau chapitre",
+          title: optimisticSection.title,
+        });
+
+        if (removedTempItemIdsRef.current.has(tempId)) {
+          removedTempItemIdsRef.current.delete(tempId);
+          queuedPatchesByTempIdRef.current.delete(tempId);
+          try {
+            await deleteEstimateItem(version.id, created.id);
+          } catch {
+            // Best effort cleanup only.
+          }
+          return;
+        }
+
+        const queuedPatch = queuedPatchesByTempIdRef.current.get(tempId);
+        queuedPatchesByTempIdRef.current.delete(tempId);
+
+        const restoredItem: EditorEstimateItem = {
+          ...created,
+          ...(queuedPatch ?? {}),
+          _optimistic: false,
+          _pendingCreate: false,
+        };
+
+        setItems((previous) =>
+          previous.map((item) => (item.id === tempId ? restoredItem : item))
+        );
+
+        if (queuedPatch) {
+          enqueueBufferedItemUpdate(created.id, queuedPatch);
+        }
+
+        let currentSectionId = created.id;
+        pushHistoryCommand({
+          label: "add-section",
+          undo: async () => {
+            const versionSnapshot = versionRef.current;
+            if (!versionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const snapshot = itemsRef.current;
+            const idsToRemove = collectSubtreeItemIds(snapshot, currentSectionId);
+            setItems((previous) =>
+              previous.filter((item) => !idsToRemove.has(item.id))
+            );
+
+            try {
+              await deleteEstimateItem(versionSnapshot.id, currentSectionId);
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              setItems(snapshot);
+              throw error;
+            }
+          },
+          redo: async () => {
+            const versionSnapshot = versionRef.current;
+            if (!versionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const payload = buildEstimateItemInsertPayload(versionSnapshot.id, created, {
+              parentId,
+              position: created.position,
+              title: created.title,
+            });
+            const recreated = await createEstimateItem(versionSnapshot.id, payload);
+            currentSectionId = recreated.id;
+            setItems((previous) => [...previous, recreated]);
+            setTotalsOutOfSync(false);
+          },
         });
       } catch (error) {
+        queuedPatchesByTempIdRef.current.delete(tempId);
+        setItems((previous) => previous.filter((item) => item.id !== tempId));
         setActionError(
           resolveEstimateActionError(
             error instanceof Error ? error.message : "Impossible de creer le chapitre."
           )
         );
-        return;
       }
-
-      setItems((prev) => [...prev, data]);
-      let currentSectionId = data.id;
-      pushHistoryCommand({
-        label: "add-section",
-        undo: async () => {
-          const versionSnapshot = versionRef.current;
-          if (!versionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const snapshot = itemsRef.current;
-          const idsToRemove = collectSubtreeItemIds(snapshot, currentSectionId);
-          setItems((previous) =>
-            previous.filter((item) => !idsToRemove.has(item.id))
-          );
-
-          try {
-            await deleteEstimateItem(versionSnapshot.id, currentSectionId);
-            setTotalsOutOfSync(false);
-          } catch (error) {
-            setItems(snapshot);
-            throw error;
-          }
-        },
-        redo: async () => {
-          const versionSnapshot = versionRef.current;
-          if (!versionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const payload = buildEstimateItemInsertPayload(versionSnapshot.id, data, {
-            parentId,
-            position: data.position,
-            title: data.title,
-          });
-          const recreated = await createEstimateItem(versionSnapshot.id, payload);
-          currentSectionId = recreated.id;
-          setItems((previous) => [...previous, recreated]);
-          setTotalsOutOfSync(false);
-        },
-      });
     },
     [
+      enqueueBufferedItemUpdate,
       getNextPosition,
       isReadOnly,
       pushHistoryCommand,
@@ -4190,8 +4411,25 @@ export default function EditEstimatePage() {
         newLineInput,
         lineComputationOptions
       );
+      const tempId = createTempEstimateItemId();
+      const optimisticLine = createOptimisticLineItem({
+        tempId,
+        tenantId: version.tenant_id,
+        versionId: version.id,
+        parentId,
+        position,
+        title: "Nouvelle ligne",
+        quantity: 1,
+        taxRateBp: settings.tax_rate_bp,
+        puHtCents: lineValues.puHtCents,
+        lineTotalHtCents: lineValues.saleLineCents,
+        lineTaxCents: lineValues.taxLineCents,
+        lineTotalTtcCents: lineValues.ttcLineCents,
+        isLaborSplitEnabled,
+      });
 
-      let data: EstimateItem;
+      setItems((prev) => [...prev, optimisticLine]);
+
       try {
         const createPayload: Database["public"]["Tables"]["estimate_items"]["Insert"] &
           LaborSplitItemFields = {
@@ -4199,7 +4437,7 @@ export default function EditEstimatePage() {
           parent_id: parentId,
           item_type: "line",
           position,
-          title: "Nouvelle ligne",
+          title: optimisticLine.title,
           description: null,
           quantity: 1,
           unit_price_ht_cents: 0,
@@ -4225,57 +4463,88 @@ export default function EditEstimatePage() {
           createPayload.k_mo_chantier = 1;
           createPayload.labor_role_chantier_id = null;
         }
-        data = await createEstimateItem(version.id, createPayload);
+
+        const created = await createEstimateItem(version.id, createPayload);
+
+        if (removedTempItemIdsRef.current.has(tempId)) {
+          removedTempItemIdsRef.current.delete(tempId);
+          queuedPatchesByTempIdRef.current.delete(tempId);
+          try {
+            await deleteEstimateItem(version.id, created.id);
+          } catch {
+            // Best effort cleanup only.
+          }
+          return;
+        }
+
+        const queuedPatch = queuedPatchesByTempIdRef.current.get(tempId);
+        queuedPatchesByTempIdRef.current.delete(tempId);
+
+        const restoredItem: EditorEstimateItem = {
+          ...created,
+          ...(queuedPatch ?? {}),
+          _optimistic: false,
+          _pendingCreate: false,
+        };
+
+        setItems((previous) =>
+          previous.map((item) => (item.id === tempId ? restoredItem : item))
+        );
+
+        if (queuedPatch) {
+          enqueueBufferedItemUpdate(created.id, queuedPatch);
+        }
+
+        let currentLineId = created.id;
+        pushHistoryCommand({
+          label: "add-line",
+          undo: async () => {
+            const versionSnapshot = versionRef.current;
+            if (!versionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const snapshot = itemsRef.current;
+            setItems((previous) =>
+              previous.filter((item) => item.id !== currentLineId)
+            );
+            try {
+              await deleteEstimateItem(versionSnapshot.id, currentLineId);
+              setTotalsOutOfSync(false);
+            } catch (error) {
+              setItems(snapshot);
+              throw error;
+            }
+          },
+          redo: async () => {
+            const versionSnapshot = versionRef.current;
+            if (!versionSnapshot) {
+              throw new Error("Version introuvable.");
+            }
+
+            const payload = buildEstimateItemInsertPayload(versionSnapshot.id, created, {
+              parentId,
+              position: created.position,
+              title: created.title,
+            });
+            const recreated = await createEstimateItem(versionSnapshot.id, payload);
+            currentLineId = recreated.id;
+            setItems((previous) => [...previous, recreated]);
+            setTotalsOutOfSync(false);
+          },
+        });
       } catch (error) {
+        queuedPatchesByTempIdRef.current.delete(tempId);
+        setItems((previous) => previous.filter((item) => item.id !== tempId));
         setActionError(
           resolveEstimateActionError(
             error instanceof Error ? error.message : "Impossible d'ajouter la ligne."
           )
         );
-        return;
       }
-
-      setItems((prev) => [...prev, data]);
-      let currentLineId = data.id;
-      pushHistoryCommand({
-        label: "add-line",
-        undo: async () => {
-          const versionSnapshot = versionRef.current;
-          if (!versionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const snapshot = itemsRef.current;
-          setItems((previous) =>
-            previous.filter((item) => item.id !== currentLineId)
-          );
-          try {
-            await deleteEstimateItem(versionSnapshot.id, currentLineId);
-            setTotalsOutOfSync(false);
-          } catch (error) {
-            setItems(snapshot);
-            throw error;
-          }
-        },
-        redo: async () => {
-          const versionSnapshot = versionRef.current;
-          if (!versionSnapshot) {
-            throw new Error("Version introuvable.");
-          }
-
-          const payload = buildEstimateItemInsertPayload(versionSnapshot.id, data, {
-            parentId,
-            position: data.position,
-            title: data.title,
-          });
-          const recreated = await createEstimateItem(versionSnapshot.id, payload);
-          currentLineId = recreated.id;
-          setItems((previous) => [...previous, recreated]);
-          setTotalsOutOfSync(false);
-        },
-      });
     },
     [
+      enqueueBufferedItemUpdate,
       getNextPosition,
       isLaborSplitEnabled,
       isReadOnly,
@@ -4715,6 +4984,19 @@ export default function EditEstimatePage() {
       });
       setItems((prev) => prev.filter((item) => !idsToRemove.has(item.id)));
 
+      const removedTempIds = Array.from(idsToRemove).filter((id) =>
+        isTempEstimateItemId(id)
+      );
+      removedTempIds.forEach((tempId) => {
+        removedTempItemIdsRef.current.add(tempId);
+        queuedPatchesByTempIdRef.current.delete(tempId);
+      });
+
+      if (isTempEstimateItemId(itemId)) {
+        setTotalsOutOfSync(false);
+        return;
+      }
+
       if (!version?.id) {
         setActionError("Version introuvable.");
         await reloadItems();
@@ -4819,7 +5101,7 @@ export default function EditEstimatePage() {
       if (!current) return;
       const previousItem = current;
 
-      let updated: EstimateItem = { ...current, ...patch };
+      let updated: EditorEstimateItem = { ...current, ...patch };
 
       if (updated.item_type === "line") {
         const taxRate =
@@ -4848,11 +5130,31 @@ export default function EditEstimatePage() {
         };
       }
 
-      setItems((prev) =>
-        prev.map((item) => (item.id === itemId ? updated : item))
-      );
+      const applyLocalItemPatch = () => {
+        setItems((prev) =>
+          prev.map((item) => (item.id === itemId ? updated : item))
+        );
+      };
 
-      if (!persist) return;
+      if (!persist) {
+        startTransition(() => {
+          applyLocalItemPatch();
+        });
+        return;
+      }
+
+      applyLocalItemPatch();
+
+      if (isTempEstimateItemId(itemId) || isPendingCreateEstimateItem(current)) {
+        const queuedPayload = buildEstimateItemUpdatePayload(updated);
+        const existingPayload = queuedPatchesByTempIdRef.current.get(itemId) ?? {};
+        queuedPatchesByTempIdRef.current.set(itemId, {
+          ...existingPayload,
+          ...queuedPayload,
+        });
+        setTotalsOutOfSync(false);
+        return;
+      }
 
       if (!version?.id) {
         setActionError("Version introuvable.");
@@ -5474,6 +5776,17 @@ export default function EditEstimatePage() {
         return;
       }
       const snapshot = itemsRef.current;
+      const hasPendingCreation = orderedIds.some((id) => {
+        const item = snapshot.find((candidate) => candidate.id === id);
+        if (!item) return false;
+        return isPendingCreateEstimateItem(item) || isTempEstimateItemId(item.id);
+      });
+      if (hasPendingCreation) {
+        setActionError(
+          "Impossible de reordonner tant que des elements en creation ne sont pas synchronises."
+        );
+        return;
+      }
       const previousOrderedIds = snapshot
         .filter((item) => item.parent_id === parentId)
         .sort((left, right) => left.position - right.position)
@@ -5575,6 +5888,19 @@ export default function EditEstimatePage() {
       }
 
       const snapshot = itemsRef.current;
+      const hasPendingCreation = [itemId, ...orderedSourceIds, ...orderedTargetIds].some(
+        (id) => {
+          const item = snapshot.find((candidate) => candidate.id === id);
+          if (!item) return false;
+          return isPendingCreateEstimateItem(item) || isTempEstimateItemId(item.id);
+        }
+      );
+      if (hasPendingCreation) {
+        setActionError(
+          "Impossible de deplacer tant que des elements en creation ne sont pas synchronises."
+        );
+        return;
+      }
       const movedItem = snapshot.find((item) => item.id === itemId);
       if (!movedItem) return;
 
@@ -6352,7 +6678,7 @@ export default function EditEstimatePage() {
       scrollToItemId: checklistScrollTargetItemId,
       onScrollToItemHandled: handleChecklistScrollHandled,
       virtualization: editorTableVirtualization,
-      onOpenSettings: () => setIsSettingsDrawerOpen(true),
+      onOpenSettings: () => handleOpenSettingsDrawer(),
       headerRight: (
         <EstimateChecklist
           checklist={checklist}
@@ -6391,6 +6717,7 @@ export default function EditEstimatePage() {
       handleOutlierThresholdChange,
       handleQualityFilterChange,
       handleChecklistScrollHandled,
+      handleOpenSettingsDrawer,
       handleReorder,
       handleMoveItem,
       handleOpenBulkSuggestDialog,
@@ -6821,6 +7148,14 @@ export default function EditEstimatePage() {
           {actionError}
         </div>
       )}
+
+      <EstimateSettingsSummaryBar
+        totals={totals}
+        currency={settings?.currency ?? DEFAULT_ESTIMATE_CURRENCY}
+        taxRateBp={settings?.tax_rate_bp ?? 2000}
+        isExpert={isExpert}
+        onOpenSettings={handleOpenSettingsDrawer}
+      />
 
       <div className="mt-6">
         <EstimateEditorTable {...editorTableProps} />

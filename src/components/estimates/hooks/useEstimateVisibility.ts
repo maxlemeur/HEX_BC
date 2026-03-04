@@ -3,7 +3,7 @@
 import { useCallback, useMemo } from "react";
 
 import {
-  computeSectionTotals,
+  computeAllSectionTotals,
   type EstimateItemRecord,
   type SectionTotals,
 } from "@/lib/estimate-calculations";
@@ -171,23 +171,16 @@ export function useEstimateVisibility({
   }, [qualityFilter, visibleLineIds, visibleSourceItemsByParent]);
 
   const sectionTotalsById = useMemo(() => {
-    const map = new Map<string, SectionTotals>();
     const calcItems = items as EstimateItemRecord[];
-    visibleSectionIds.forEach((sectionId) => {
-      map.set(
-        sectionId,
-        computeSectionTotals({
-          items: calcItems,
-          sectionId,
-          marginMultiplier,
-          discountCents,
-          taxRateBp,
-          laborRateById,
-          isLaborSplitEnabled,
-        })
-      );
+    return computeAllSectionTotals({
+      items: calcItems,
+      marginMultiplier,
+      discountCents,
+      taxRateBp,
+      laborRateById,
+      isLaborSplitEnabled,
+      sectionIds: visibleSectionIds,
     });
-    return map;
   }, [
     discountCents,
     isLaborSplitEnabled,

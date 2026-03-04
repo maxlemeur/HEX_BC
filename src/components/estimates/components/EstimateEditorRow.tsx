@@ -20,8 +20,12 @@ import {
   type SectionTotals,
 } from "@/lib/estimate-calculations";
 import { EditableCell } from "@/components/estimates/EditableCell";
+import {
+  useEstimateEditorRowActions,
+  type EstimateEditorRowItemPatch,
+} from "@/components/estimates/context/EstimateEditorRowActionsContext";
+import { useEstimateSpreadsheetNavigation } from "@/components/estimates/context/EstimateSpreadsheetContext";
 import { TakeoffSourceBadge } from "@/components/takeoff/TakeoffSourceBadge";
-import { type MultiSelectItemInteraction } from "@/hooks/useMultiSelect";
 import {
   type SpreadsheetCell,
   type SpreadsheetNavigationResult,
@@ -66,27 +70,7 @@ type LaborSplitItemFields = {
   labor_role_chantier_id?: string | null;
 };
 
-type ItemPatch = Partial<
-  Pick<
-    EstimateItem,
-    | "title"
-    | "aid"
-    | "description"
-    | "quantity"
-    | "unit_price_ht_cents"
-    | "tax_rate_bp"
-    | "k_fo"
-    | "h_mo"
-    | "h_mo_majoration"
-    | "k_mo"
-    | "pu_ht_cents"
-    | "labor_role_id"
-    | "category_id"
-    | "supply_type_id"
-    | "selected_supplier_price_id"
-  >
-> &
-  LaborSplitItemFields;
+type ItemPatch = EstimateEditorRowItemPatch & LaborSplitItemFields;
 
 type SupplierAlternativeKind =
   | "best_price"
@@ -500,48 +484,95 @@ export type EstimateEditorRowProps = {
   dismissedOutlierFlags: EstimateOutlierFlagKey[];
   supplyTypeById: Map<string, SupplyType>;
   laborRoles: LaborRole[];
-  navigation: SpreadsheetNavigationResult;
   isLineSelected: boolean;
   hasSupplierComparisonMismatch: boolean;
   visibleColumns?: ColumnVisibilitySet;
-  onDeleteItem: (itemId: string) => void;
-  onOpenSupplierComparisonPanel: (itemId: string) => void;
-  onOpenSupplierComparisonContextMenu: (
-    itemId: string,
-    position: { x: number; y: number }
-  ) => void;
-  onOpenSectionContextMenu: (
-    sectionId: string,
-    position: { x: number; y: number }
-  ) => void;
-  onPatchItem: (
-    itemId: string,
-    patch: ItemPatch,
-    options?: { persist?: boolean }
-  ) => void;
-  onUnitChange: (itemId: string, value: string) => void;
-  onUnitCommit: (itemId: string) => void;
-  onSupplyTypeChange: (itemId: string, value: string) => void;
-  onSupplyTypeCommit: (itemId: string) => void;
-  onToggleOutlierDismiss: (
-    itemId: string,
-    flagKey: EstimateOutlierFlagKey,
-    dismissed: boolean
-  ) => void;
-  onAddLine: (parentId: string | null) => void;
-  onAddSection: (parentId: string | null) => void;
-  onConvertLineToSection: (lineId: string) => void;
-  onLineSelectionInteraction: (interaction: MultiSelectItemInteraction) => void;
   sectionTotals: SectionTotals | null;
   isDragDisabled: boolean;
   isOutlierActionPending: boolean;
   isReadOnly: boolean;
   hideEditingActions?: boolean;
   isLaborSplitEnabled: boolean;
+  isPendingCreate?: boolean;
   isSearchMatch?: boolean;
   isLastChild?: boolean;
   parentIsLastChild?: boolean;
 };
+
+function areStringArraysEqual(left: string[], right: string[]) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function areSectionTotalsEqual(
+  left: SectionTotals | null,
+  right: SectionTotals | null
+) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+
+  if (
+    left.foTotalCents !== right.foTotalCents ||
+    left.moTotalCents !== right.moTotalCents ||
+    left.moAtelierTotalCents !== right.moAtelierTotalCents ||
+    left.moChantierTotalCents !== right.moChantierTotalCents ||
+    left.totalHtCents !== right.totalHtCents ||
+    left.totalTtcCents !== right.totalTtcCents
+  ) {
+    return false;
+  }
+
+  const leftSupplyTypeTotals = left.supplyTypeFoTotalsCents ?? {};
+  const rightSupplyTypeTotals = right.supplyTypeFoTotalsCents ?? {};
+  const leftKeys = Object.keys(leftSupplyTypeTotals);
+  const rightKeys = Object.keys(rightSupplyTypeTotals);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  for (const key of leftKeys) {
+    if (leftSupplyTypeTotals[key] !== rightSupplyTypeTotals[key]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areEstimateEditorRowPropsEqual(
+  previous: EstimateEditorRowProps,
+  next: EstimateEditorRowProps
+) {
+  return (
+    previous.versionId === next.versionId &&
+    previous.estimateCurrency === next.estimateCurrency &&
+    previous.item === next.item &&
+    previous.itemNumber === next.itemNumber &&
+    previous.depth === next.depth &&
+    previous.unitValue === next.unitValue &&
+    previous.supplyTypeValue === next.supplyTypeValue &&
+    areStringArraysEqual(previous.qualityFlags, next.qualityFlags) &&
+    areStringArraysEqual(previous.detectedOutlierFlags, next.detectedOutlierFlags) &&
+    areStringArraysEqual(previous.dismissedOutlierFlags, next.dismissedOutlierFlags) &&
+    previous.supplyTypeById === next.supplyTypeById &&
+    previous.laborRoles === next.laborRoles &&
+    previous.isLineSelected === next.isLineSelected &&
+    previous.hasSupplierComparisonMismatch === next.hasSupplierComparisonMismatch &&
+    previous.visibleColumns === next.visibleColumns &&
+    areSectionTotalsEqual(previous.sectionTotals, next.sectionTotals) &&
+    previous.isDragDisabled === next.isDragDisabled &&
+    previous.isOutlierActionPending === next.isOutlierActionPending &&
+    previous.isReadOnly === next.isReadOnly &&
+    previous.hideEditingActions === next.hideEditingActions &&
+    previous.isLaborSplitEnabled === next.isLaborSplitEnabled &&
+    previous.isPendingCreate === next.isPendingCreate &&
+    previous.isSearchMatch === next.isSearchMatch &&
+    previous.isLastChild === next.isLastChild &&
+    previous.parentIsLastChild === next.parentIsLastChild
+  );
+}
 
 export const EstimateEditorRow = memo(function EstimateEditorRow({
   versionId,
@@ -556,23 +587,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   dismissedOutlierFlags,
   supplyTypeById,
   laborRoles,
-  navigation,
   isLineSelected,
   hasSupplierComparisonMismatch,
-  onDeleteItem,
-  onOpenSupplierComparisonPanel,
-  onOpenSupplierComparisonContextMenu,
-  onOpenSectionContextMenu,
-  onPatchItem,
-  onUnitChange,
-  onUnitCommit,
-  onSupplyTypeChange,
-  onSupplyTypeCommit,
-  onAddLine,
-  onAddSection,
-  onConvertLineToSection,
-  onToggleOutlierDismiss,
-  onLineSelectionInteraction,
   sectionTotals,
   isDragDisabled,
   isOutlierActionPending,
@@ -580,10 +596,29 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   hideEditingActions = false,
   isLaborSplitEnabled,
   visibleColumns,
+  isPendingCreate = false,
   isSearchMatch,
   isLastChild,
   parentIsLastChild,
 }: EstimateEditorRowProps) {
+  const navigation = useEstimateSpreadsheetNavigation();
+  const {
+    onDeleteItem,
+    onOpenSupplierComparisonPanel,
+    onOpenSupplierComparisonContextMenu,
+    onOpenSectionContextMenu,
+    onPatchItem,
+    onUnitChange,
+    onUnitCommit,
+    onSupplyTypeChange,
+    onSupplyTypeCommit,
+    onAddLine,
+    onAddSection,
+    onConvertLineToSection,
+    onToggleOutlierDismiss,
+    onLineSelectionInteraction,
+  } = useEstimateEditorRowActions();
+
   const {
     attributes,
     listeners,
@@ -886,6 +921,9 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           if (hideEditingActions) {
             return;
           }
+          if (isPendingCreate) {
+            return;
+          }
 
           event.preventDefault();
           onOpenSectionContextMenu(item.id, {
@@ -1039,13 +1077,16 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             className="estimate-section-more-btn"
             type="button"
             onClick={(event) => {
+              if (isPendingCreate) {
+                return;
+              }
               const rect = event.currentTarget.getBoundingClientRect();
               onOpenSectionContextMenu(item.id, {
                 x: rect.right,
                 y: rect.bottom + 4,
               });
             }}
-            disabled={isReadOnly}
+            disabled={isReadOnly || isPendingCreate}
             aria-label="Actions"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -2168,7 +2209,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 className="btn btn-ghost btn-sm w-full justify-start"
                 type="button"
                 onClick={() => onConvertLineToSection(item.id)}
-                disabled={isReadOnly}
+                disabled={isReadOnly || isPendingCreate}
               >
                 Convertir en section
               </button>
@@ -2186,7 +2227,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       </div>
     </div>
   );
-});
+}, areEstimateEditorRowPropsEqual);
 
 DragHandle.displayName = "DragHandle";
 EstimateEditorRow.displayName = "EstimateEditorRow";
