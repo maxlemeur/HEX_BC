@@ -23,6 +23,45 @@ type QuickCreateAffaireDialogProps = {
   onOpenChange: (open: boolean) => void;
 };
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function extractMappings(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+
+  const root = asRecord(payload);
+  if (!root) return [];
+
+  if (Array.isArray(root.mappings)) return root.mappings;
+
+  const data = asRecord(root.data);
+  if (data && Array.isArray(data.mappings)) return data.mappings;
+
+  return [];
+}
+
+async function isImportMappingReady(importId: string): Promise<boolean> {
+  try {
+    const params = new URLSearchParams({
+      import_id: importId,
+      limit: "1",
+    });
+
+    const response = await fetch(`/api/mappings?${params.toString()}`, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) return false;
+
+    const payload = await response.json();
+    return extractMappings(payload).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -69,23 +108,36 @@ export function QuickCreateAffaireDialog({
             ? (json as unknown[])
             : [];
 
-        const items: ImportOption[] = rawItems
-          .filter((item): item is Record<string, unknown> => {
-            if (!item || typeof item !== "object") return false;
-            const entry = item as Record<string, unknown>;
+        const candidateImports = rawItems.filter((item): item is Record<string, unknown> => {
+          const entry = asRecord(item);
+          if (!entry) return false;
 
-            const status = typeof entry.status === "string" ? entry.status : null;
-            const projectId =
-              typeof entry.project_id === "string"
-                ? entry.project_id
-                : typeof entry.projectId === "string"
-                  ? entry.projectId
-                  : null;
+          const status = typeof entry.status === "string" ? entry.status : null;
+          const projectId =
+            typeof entry.project_id === "string"
+              ? entry.project_id
+              : typeof entry.projectId === "string"
+                ? entry.projectId
+                : null;
+          const importId = typeof entry.id === "string" ? entry.id : null;
 
-            // Quick create accepts only unlinked imports with completed parsing.
-            return status === "completed" && !projectId;
+          // Quick create accepts only unlinked imports with completed parsing.
+          return status === "completed" && !projectId && Boolean(importId);
+        });
+
+        const readyCandidates = await Promise.all(
+          candidateImports.map(async (item) => {
+            const mappingReady = await isImportMappingReady(item.id as string);
+            return {
+              item,
+              mappingReady,
+            };
           })
-          .map((item) => {
+        );
+
+        const items: ImportOption[] = readyCandidates
+          .filter(({ mappingReady }) => mappingReady)
+          .map(({ item }) => {
             const rowCount =
               typeof item.row_count === "number"
                 ? item.row_count
@@ -94,14 +146,18 @@ export function QuickCreateAffaireDialog({
                   : typeof item.rowsCount === "number"
                     ? item.rowsCount
                     : null;
+            const filename =
+              typeof item.filename === "string"
+                ? item.filename
+                : typeof item.file_name === "string"
+                  ? item.file_name
+                  : typeof item.fileName === "string"
+                    ? item.fileName
+                    : "Import";
 
             return {
               id: item.id as string,
-              fileName:
-                (item.filename as string) ??
-                (item.file_name as string) ??
-                (item.fileName as string) ??
-                "Import",
+              fileName: filename,
               rowsCount: rowCount,
             };
           });
@@ -154,6 +210,16 @@ export function QuickCreateAffaireDialog({
 
     startTransition(async () => {
       try {
+        if (selectedImportId) {
+          const mappingReady = await isImportMappingReady(selectedImportId);
+          if (!mappingReady) {
+            setServerError(
+              "Cet import n'est pas pret pour la creation rapide. Finalisez le mapping puis reessayez."
+            );
+            return;
+          }
+        }
+
         await quickCreateAffaire({
           projectName: trimmedName,
           clientName: clientName.trim() || null,
@@ -234,7 +300,7 @@ export function QuickCreateAffaireDialog({
                     <p className="text-xs text-slate-500">Chargement...</p>
                   ) : imports.length === 0 ? (
                     <p className="text-xs text-slate-500">
-                      Aucun import termine disponible.
+                      Aucun import termine et mappe disponible.
                     </p>
                   ) : (
                     <select
