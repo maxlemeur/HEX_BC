@@ -536,10 +536,12 @@ export async function fetchAffaireHubTimeline(
   projectId: string,
   page?: number
 ): Promise<AffaireHubTimelineResult> {
+  const context = await getAuthenticatedContext();
   const safePage = normalizeHubTimelinePage(page);
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
 
   return listEstimateProjectVersions({
-    projectId,
+    projectId: project.id,
     page: safePage,
   });
 }
