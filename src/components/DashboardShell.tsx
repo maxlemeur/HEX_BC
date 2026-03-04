@@ -6,10 +6,12 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
+import { useUserContext } from "@/components/UserContext";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
+import { buildNavGroups } from "@/lib/navigation/build-nav-groups";
 
 // ---------------------------------------------------------------------------
 // Text-editing guard (shared with useCommandPalette)
@@ -36,210 +38,6 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 
-type NavGroup = {
-  key: string;
-  label: string;
-  items: { href: string; label: string; icon: React.ReactNode; title?: string }[];
-};
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    key: "chiffrages",
-    label: "Chiffrages",
-    items: [
-      {
-        href: "/dashboard/estimates",
-        label: "Chiffrages",
-        icon: (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect width="16" height="20" x="4" y="2" rx="2" />
-            <path d="M8 7h8" />
-            <path d="M8 11h2" />
-            <path d="M14 11h2" />
-            <path d="M8 15h2" />
-            <path d="M14 15h2" />
-          </svg>
-        ),
-      },
-      {
-        href: "/dashboard/imports",
-        label: "Imports DPGF",
-        title: "Décomposition du Prix Global et Forfaitaire",
-        icon: (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <path d="m7 10 5 5 5-5" />
-            <path d="M12 15V3" />
-          </svg>
-        ),
-      },
-      {
-        href: "/dashboard/mappings",
-        label: "Mappings",
-        icon: (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M8 3 4 7l4 4" />
-            <path d="M16 3l4 4-4 4" />
-            <path d="M12 19v-4" />
-            <path d="M9 19h6" />
-            <path d="M12 15V7" />
-          </svg>
-        ),
-      },
-    ],
-  },
-  {
-    key: "commandes",
-    label: "Commandes",
-    items: [
-      {
-        href: "/dashboard/orders",
-        label: "Bons de commande",
-        icon: (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-            <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-            <path d="M10 9H8" />
-            <path d="M16 13H8" />
-            <path d="M16 17H8" />
-          </svg>
-        ),
-      },
-    ],
-  },
-  {
-    key: "configurer",
-    label: "Configurer",
-    items: [
-      {
-        href: "/dashboard/referentiel",
-        label: "Référentiel",
-        icon: (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <ellipse cx="12" cy="5" rx="9" ry="3" />
-            <path d="M3 5v14a9 3 0 0 0 18 0V5" />
-            <path d="M3 12a9 3 0 0 0 18 0" />
-          </svg>
-        ),
-      },
-      {
-        href: "/dashboard/tarifs",
-        label: "Tarifs",
-        icon: (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M12 2 2 7l10 5 10-5-10-5Z" />
-            <path d="m2 17 10 5 10-5" />
-            <path d="m2 12 10 5 10-5" />
-          </svg>
-        ),
-      },
-      {
-        href: "/dashboard/admin",
-        label: "Administration",
-        icon: (
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-        ),
-      },
-    ],
-  },
-];
-
-const TAKEOFF_NAV_ITEM: NavGroup["items"][number] = {
-  href: "/dashboard/takeoff",
-  label: "Métrés plans",
-  icon: (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 20V8l8-4 8 4v12" />
-      <path d="M10 20v-6h4v6" />
-      <path d="M2 20h20" />
-      <path d="M8 10h.01" />
-      <path d="M16 10h.01" />
-    </svg>
-  ),
-};
 
 
 function buildInitials(value: string) {
@@ -266,6 +64,8 @@ export function DashboardShell({
   );
   const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
   const { setMode, isExpert, isSimplified } = useUiMode();
+  const { profile } = useUserContext();
+  const tenantRole = profile?.tenant_role ?? null;
 
   const [collapsed, setCollapsed] = useState(false);
   const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);
@@ -314,22 +114,17 @@ export function DashboardShell({
 
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
-  const navGroups = useMemo(() => {
-    if (takeoffStatus !== "ready" || !isTakeoffEnabled) {
-      return NAV_GROUPS;
-    }
-
-    return NAV_GROUPS.map((group) => {
-      if (group.key === "chiffrages") {
-        return {
-          ...group,
-          items: [...group.items, TAKEOFF_NAV_ITEM],
-        };
-      }
-
-      return group;
-    });
-  }, [isTakeoffEnabled, takeoffStatus]);
+  const navGroups = useMemo(
+    () =>
+      buildNavGroups({
+        role: tenantRole,
+        uiMode: isExpert ? "expert" : "simplified",
+        featureFlags: {
+          takeoffEnabled: takeoffStatus === "ready" && isTakeoffEnabled,
+        },
+      }),
+    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled]
+  );
 
   function isActive(href: string) {
     if (href === "/dashboard/orders") {
