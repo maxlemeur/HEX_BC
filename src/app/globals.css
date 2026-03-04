@@ -604,6 +604,15 @@ body {
   animation: slideOutRight 0.2s ease-in forwards;
 }
 
+@keyframes toastExit {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(12px); }
+}
+
+.animate-toast-exit {
+  animation: toastExit 0.2s ease-in forwards;
+}
+
 /* Staggered animation delays */
 .stagger-1 { animation-delay: 0.05s; }
 .stagger-2 { animation-delay: 0.1s; }
@@ -651,7 +660,9 @@ body {
 
   .animate-fade-in,
   .animate-fade-in-static,
-  .animate-slide-in {
+  .animate-slide-in,
+  .animate-slide-in-right,
+  .animate-toast-exit {
     animation: none;
     opacity: 1;
     transform: none;
@@ -1412,6 +1423,176 @@ body {
   margin-top: 12px;
   font-size: 13px;
   color: var(--slate-500);
+}
+
+/* ---------- estimate summary bar (UX2-013) ---------- */
+
+.estimate-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--slate-200);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.estimate-summary-bar__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.estimate-summary-bar__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--slate-200);
+  background: var(--surface, #fff);
+  color: var(--slate-600);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+
+.estimate-summary-bar__chip:hover {
+  background: var(--slate-50);
+  border-color: var(--slate-300);
+}
+
+.estimate-summary-bar__chip:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 1px;
+}
+
+.estimate-summary-bar__chip-label {
+  color: var(--slate-500);
+}
+
+.estimate-summary-bar__chip-value {
+  font-weight: 600;
+  color: var(--slate-700);
+}
+
+.estimate-summary-bar__chip--primary .estimate-summary-bar__chip-value {
+  font-weight: 700;
+  color: var(--slate-800);
+}
+
+.estimate-summary-bar__chip--highlight {
+  background: var(--brand-blue);
+  border-color: var(--brand-blue);
+}
+
+.estimate-summary-bar__chip--highlight .estimate-summary-bar__chip-label {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.estimate-summary-bar__chip--highlight .estimate-summary-bar__chip-value {
+  font-weight: 700;
+  color: #fff;
+}
+
+.estimate-summary-bar__chip--highlight:hover {
+  background: var(--slate-800);
+  border-color: var(--slate-800);
+}
+
+.estimate-summary-bar__gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--slate-200);
+  background: var(--surface, #fff);
+  color: var(--slate-500);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.estimate-summary-bar__gear:hover {
+  background: var(--slate-50);
+  color: var(--slate-700);
+}
+
+.estimate-summary-bar__gear:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 1px;
+}
+
+.estimate-summary-bar__skeleton {
+  width: 80px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--slate-100);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.estimate-summary-bar__popover-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+}
+
+.estimate-summary-bar__popover-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--slate-600);
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.estimate-summary-bar__popover-row:hover {
+  background: var(--slate-50);
+}
+
+.estimate-summary-bar__popover-row strong {
+  font-weight: 600;
+  color: var(--slate-800);
+}
+
+@media (max-width: 640px) {
+  .estimate-summary-bar {
+    padding: 8px 12px;
+    gap: 6px;
+  }
+
+  .estimate-summary-bar__chip {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+
+  .estimate-summary-bar__gear {
+    width: 28px;
+    height: 28px;
+  }
+
+  .estimate-summary-bar__skeleton {
+    width: 64px;
+    height: 24px;
+  }
 }
 
 .estimate-toggle {
