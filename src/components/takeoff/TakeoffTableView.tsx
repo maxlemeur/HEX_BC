@@ -79,6 +79,14 @@ function resolveEditableField(header: string): EditableColumnField | null {
 function buildEditableColumnMap(headers: string[]) {
   const editableByIndex = new Map<number, EditableColumnField>();
   const takenFields = new Set<EditableColumnField>();
+  const assignFallbackField = (index: number, field: EditableColumnField) => {
+    if (takenFields.has(field)) return;
+    if (index >= headers.length) return;
+    if (editableByIndex.has(index)) return;
+
+    editableByIndex.set(index, field);
+    takenFields.add(field);
+  };
 
   headers.forEach((header, index) => {
     const resolvedField = resolveEditableField(header);
@@ -89,19 +97,9 @@ function buildEditableColumnMap(headers: string[]) {
   });
 
   // Fallback to the default first columns when headers are ambiguous.
-  if (!takenFields.has("designation") && headers.length > 0) {
-    editableByIndex.set(0, "designation");
-    takenFields.add("designation");
-  }
-
-  if (!takenFields.has("quantity") && headers.length > 1) {
-    editableByIndex.set(1, "quantity");
-    takenFields.add("quantity");
-  }
-
-  if (!takenFields.has("unit") && headers.length > 2) {
-    editableByIndex.set(2, "unit");
-  }
+  assignFallbackField(0, "designation");
+  assignFallbackField(1, "quantity");
+  assignFallbackField(2, "unit");
 
   return editableByIndex;
 }

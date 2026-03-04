@@ -415,6 +415,34 @@ describe("TakeoffTableView", () => {
     );
   });
 
+  it("does not overwrite detected unit mapping when quantity fallback is missing", () => {
+    render(
+      <TakeoffTableView
+        tables={[
+          makeTable({
+            headers: ["Designation", "Unite", "Prix"],
+            rows: [{ row_index: 0, cells: ["Carrelage 30x30", "m2", "18.5"] }],
+          }),
+        ]}
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, metadata: { table_index: 0, row_index: 0 } }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const unitInput = screen.getByLabelText("Unite");
+    fireEvent.change(unitInput, { target: { value: "m3" } });
+    fireEvent.blur(unitInput);
+
+    expect(defaultProps.onUpdateItem).toHaveBeenCalledWith(ITEM_ID_1, "unit", "m3");
+    expect(defaultProps.onUpdateItem).not.toHaveBeenCalledWith(
+      ITEM_ID_1,
+      "quantity",
+      expect.any(Number)
+    );
+  });
+
   it("shows empty state when no tables", () => {
     render(
       <TakeoffTableView
