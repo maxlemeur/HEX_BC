@@ -2,25 +2,45 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/estimates/server", () => ({
   getAuthenticatedContext: vi.fn(),
+  listEstimateProjectVersions: vi.fn(),
 }));
 
 import { ApiError } from "@/lib/estimates/errors";
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import {
+  getAuthenticatedContext,
+  listEstimateProjectVersions,
+} from "@/lib/estimates/server";
 import { normalizeAffaireListQuery, parseAffaireListQuery } from "@/lib/affaires/schemas";
 import {
   fetchAffaireCounters,
+  fetchAffaireHubDpgfSource,
+  fetchAffaireHubPageData,
+  fetchAffaireHubSummary,
+  fetchAffaireHubTimeline,
   fetchAffaireList,
   fetchAffairePageData,
 } from "@/lib/affaires/server";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
+const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 type TenantRole = "admin" | "engineer" | "viewer";
 
 type RpcResult = {
   data: unknown;
   error: null;
+};
+
+type QueryResult = {
+  data: unknown;
+  error: unknown | null;
+  count?: number | null;
+};
+
+type TableQueryScenario = {
+  limit?: QueryResult;
+  maybeSingle?: QueryResult;
 };
 
 function createContext(options?: { role?: TenantRole; rpcResult?: RpcResult }) {
@@ -34,10 +54,67 @@ function createContext(options?: { role?: TenantRole; rpcResult?: RpcResult }) {
   return {
     supabase: {
       rpc,
+      from: vi.fn(),
     },
     userId: USER_ID,
     tenantId: TENANT_ID,
     tenantRole: options?.role ?? "engineer",
+  };
+}
+
+function createFromMock(
+  tableScenarios: Record<string, TableQueryScenario[]>
+) {
+  return vi.fn((table: string) => {
+    const queue = tableScenarios[table];
+    if (!queue || queue.length === 0) {
+      throw new Error(`Unexpected from() table call: ${table}`);
+    }
+
+    const scenario = queue.shift()!;
+    const defaultResult: QueryResult = {
+      data: null,
+      error: null,
+      count: null,
+    };
+
+    const builder = {
+      select: vi.fn(),
+      eq: vi.fn(),
+      order: vi.fn(),
+      limit: vi.fn(),
+      maybeSingle: vi.fn(),
+      then: undefined as
+        | ((onfulfilled?: (value: QueryResult) => unknown, onrejected?: (reason: unknown) => unknown) => Promise<unknown>)
+        | undefined,
+    };
+
+    builder.select.mockReturnValue(builder);
+    builder.eq.mockReturnValue(builder);
+    builder.order.mockReturnValue(builder);
+    builder.limit.mockReturnValue(builder);
+    builder.maybeSingle.mockImplementation(
+      async () => scenario.maybeSingle ?? defaultResult
+    );
+    builder.then = (onfulfilled, onrejected) =>
+      Promise.resolve(scenario.limit ?? defaultResult).then(onfulfilled, onrejected);
+
+    return builder;
+  });
+}
+
+function createHubContext(options: {
+  role?: TenantRole;
+  tableScenarios: Record<string, TableQueryScenario[]>;
+}) {
+  return {
+    supabase: {
+      rpc: vi.fn(),
+      from: createFromMock(options.tableScenarios),
+    },
+    userId: USER_ID,
+    tenantId: TENANT_ID,
+    tenantRole: options.role ?? "engineer",
   };
 }
 
@@ -103,7 +180,7 @@ describe("affaires query schemas", () => {
   });
 });
 
-describe("affaires server", () => {
+describe("affaires server (list + counters)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -307,5 +384,405 @@ describe("affaires server", () => {
     expect(context.supabase.rpc).toHaveBeenCalledTimes(2);
     expect(result.list.items).toHaveLength(1);
     expect(result.counters.totalCount).toBe(1);
+  });
+});
+
+describe("affaires hub server", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns hub summary with current, accepted and line count", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Alpha",
+                reference: "AFF-001",
+                client_name: "Client Alpha",
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            limit: {
+              data: null,
+              count: 3,
+              error: null,
+            },
+          },
+          {
+            maybeSingle: {
+              data: {
+                id: "v3",
+                project_id: PROJECT_ID,
+                version_number: 3,
+                status: "draft",
+                total_ht_cents: 250_000,
+                margin_multiplier: 1.18,
+                updated_at: "2026-03-04T10:00:00+00:00",
+              },
+              error: null,
+            },
+          },
+          {
+            maybeSingle: {
+              data: {
+                id: "v2",
+                project_id: PROJECT_ID,
+                version_number: 2,
+                status: "accepted",
+                total_ht_cents: 220_000,
+                margin_multiplier: 1.14,
+                updated_at: "2026-03-03T09:00:00+00:00",
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_items: [
+          {
+            limit: {
+              data: null,
+              count: 42,
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubSummary(PROJECT_ID);
+
+    expect(summary.project).toEqual({
+      id: PROJECT_ID,
+      name: "Affaire Alpha",
+      reference: "AFF-001",
+      clientName: "Client Alpha",
+    });
+    expect(summary.versionsCount).toBe(3);
+    expect(summary.lineCount).toBe(42);
+    expect(summary.currentVersion).toMatchObject({
+      id: "v3",
+      versionNumber: 3,
+      status: "draft",
+      totalHtCents: 250_000,
+      marginMultiplier: 1.18,
+    });
+    expect(summary.acceptedVersion).toMatchObject({
+      id: "v2",
+      versionNumber: 2,
+      status: "accepted",
+    });
+  });
+
+  it("returns summary with no versions and no accepted version", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Vide",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            limit: {
+              data: null,
+              count: 0,
+              error: null,
+            },
+          },
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubSummary(PROJECT_ID);
+
+    expect(summary.currentVersion).toBeNull();
+    expect(summary.acceptedVersion).toBeNull();
+    expect(summary.versionsCount).toBe(0);
+    expect(summary.lineCount).toBe(0);
+  });
+
+  it("returns null DPGF source when no linked import exists", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Sans DPGF",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        dpgf_imports: [
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const source = await fetchAffaireHubDpgfSource(PROJECT_ID);
+
+    expect(source).toBeNull();
+  });
+
+  it("returns latest DPGF source and latest mapping status", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire DPGF",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        dpgf_imports: [
+          {
+            maybeSingle: {
+              data: {
+                id: "import-1",
+                filename: "source.csv",
+                source_format: "csv",
+                status: "completed",
+                created_at: "2026-03-04T08:00:00+00:00",
+                parse_mode: "server",
+                row_count: 33,
+                tenant_id: TENANT_ID,
+                project_id: PROJECT_ID,
+              },
+              error: null,
+            },
+          },
+        ],
+        dpgf_mappings: [
+          {
+            maybeSingle: {
+              data: {
+                id: "mapping-1",
+                status: "validated",
+                created_at: "2026-03-04T08:20:00+00:00",
+                updated_at: "2026-03-04T08:21:00+00:00",
+                tenant_id: TENANT_ID,
+                import_id: "import-1",
+              },
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const source = await fetchAffaireHubDpgfSource(PROJECT_ID);
+
+    expect(source).toEqual({
+      importId: "import-1",
+      filename: "source.csv",
+      sourceFormat: "csv",
+      importStatus: "completed",
+      mappingStatus: "validated",
+      importedAt: "2026-03-04T08:00:00+00:00",
+      mappingUpdatedAt: "2026-03-04T08:21:00+00:00",
+      parseMode: "server",
+      rowCount: 33,
+    });
+  });
+
+  it("returns NOT_FOUND when project is not accessible", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    await expect(fetchAffaireHubSummary(PROJECT_ID)).rejects.toBeInstanceOf(ApiError);
+    await fetchAffaireHubSummary(PROJECT_ID).catch((error: unknown) => {
+      if (error instanceof ApiError) {
+        expect(error.code).toBe("NOT_FOUND");
+      }
+    });
+  });
+
+  it("wraps project timeline fetch and validates page", async () => {
+    vi.mocked(listEstimateProjectVersions).mockResolvedValue({
+      items: [],
+      pagination: {
+        page: 2,
+        page_size: 10,
+        total_count: 0,
+        total_pages: 1,
+        has_prev: false,
+        has_next: false,
+      },
+    });
+
+    const timeline = await fetchAffaireHubTimeline(PROJECT_ID, 2);
+
+    expect(listEstimateProjectVersions).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      page: 2,
+    });
+    expect(timeline.pagination.page).toBe(2);
+
+    await expect(fetchAffaireHubTimeline(PROJECT_ID, 0)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("aggregates hub page data with Promise.all", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Hub",
+                reference: "HUB-001",
+                client_name: "Client Hub",
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            limit: {
+              data: null,
+              count: 1,
+              error: null,
+            },
+          },
+          {
+            maybeSingle: {
+              data: {
+                id: "v1",
+                project_id: PROJECT_ID,
+                version_number: 1,
+                status: "draft",
+                total_ht_cents: 100_000,
+                margin_multiplier: 1.1,
+                updated_at: "2026-03-04T10:00:00+00:00",
+              },
+              error: null,
+            },
+          },
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+        estimate_items: [
+          {
+            limit: {
+              data: null,
+              count: 12,
+              error: null,
+            },
+          },
+        ],
+        dpgf_imports: [
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    vi.mocked(listEstimateProjectVersions).mockResolvedValue({
+      items: [],
+      pagination: {
+        page: 1,
+        page_size: 10,
+        total_count: 1,
+        total_pages: 1,
+        has_prev: false,
+        has_next: false,
+      },
+    });
+
+    const pageData = await fetchAffaireHubPageData(PROJECT_ID, 1);
+
+    expect(pageData.summary.project.name).toBe("Affaire Hub");
+    expect(pageData.summary.versionsCount).toBe(1);
+    expect(pageData.summary.lineCount).toBe(12);
+    expect(pageData.timeline.pagination.page).toBe(1);
+    expect(pageData.dpgfSource).toBeNull();
   });
 });

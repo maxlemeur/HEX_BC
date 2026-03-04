@@ -1,5 +1,9 @@
-import { badRequest, mapSupabaseError } from "@/lib/estimates/errors";
-import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
+import {
+  getAuthenticatedContext,
+  listEstimateProjectVersions,
+  type ListEstimateProjectVersionsResult,
+} from "@/lib/estimates/server";
 import type { Database } from "@/types/database";
 
 import {
@@ -18,6 +22,10 @@ type ListAffairesPageRow =
   Database["public"]["Functions"]["list_affaires_page"]["Returns"][number];
 type AffaireCountersRow =
   Database["public"]["Functions"]["get_affaires_counters"]["Returns"][number];
+type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
+type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
+type DpgfImportRow = Database["public"]["Tables"]["dpgf_imports"]["Row"];
+type DpgfMappingRow = Database["public"]["Tables"]["dpgf_mappings"]["Row"];
 
 export type AffaireListItem = {
   projectId: string;
@@ -50,6 +58,86 @@ export type AffaireCountersResult = {
 export type AffairePageDataResult = {
   list: AffaireListPageResult;
   counters: AffaireCountersResult;
+};
+
+type AffaireHubProjectRow = Pick<
+  EstimateProjectRow,
+  "id" | "tenant_id" | "user_id" | "name" | "reference" | "client_name" | "is_archived"
+>;
+
+type AffaireHubVersionRow = Pick<
+  EstimateVersionRow,
+  | "id"
+  | "project_id"
+  | "version_number"
+  | "status"
+  | "total_ht_cents"
+  | "margin_multiplier"
+  | "updated_at"
+>;
+
+type AffaireHubDpgfImportRow = Pick<
+  DpgfImportRow,
+  | "id"
+  | "filename"
+  | "source_format"
+  | "status"
+  | "created_at"
+  | "parse_mode"
+  | "row_count"
+  | "tenant_id"
+  | "project_id"
+>;
+
+type AffaireHubDpgfMappingRow = Pick<
+  DpgfMappingRow,
+  "id" | "status" | "created_at" | "updated_at" | "tenant_id" | "import_id"
+>;
+
+export type AffaireHubProject = {
+  id: string;
+  name: string;
+  reference: string | null;
+  clientName: string | null;
+};
+
+export type AffaireHubVersionSummary = {
+  id: string;
+  projectId: string;
+  versionNumber: number;
+  status: AffaireStatus;
+  totalHtCents: number;
+  marginMultiplier: number;
+  marginPercent: number;
+  updatedAt: string;
+};
+
+export type AffaireHubSummaryResult = {
+  project: AffaireHubProject;
+  currentVersion: AffaireHubVersionSummary | null;
+  acceptedVersion: AffaireHubVersionSummary | null;
+  versionsCount: number;
+  lineCount: number;
+};
+
+export type AffaireHubDpgfSourceResult = {
+  importId: string;
+  filename: string;
+  sourceFormat: string;
+  importStatus: string;
+  mappingStatus: string | null;
+  importedAt: string;
+  mappingUpdatedAt: string | null;
+  parseMode: string;
+  rowCount: number;
+} | null;
+
+export type AffaireHubTimelineResult = ListEstimateProjectVersionsResult;
+
+export type AffaireHubPageDataResult = {
+  summary: AffaireHubSummaryResult;
+  timeline: AffaireHubTimelineResult;
+  dpgfSource: AffaireHubDpgfSourceResult;
 };
 
 function toSafeInteger(value: number | string | null | undefined): number {
@@ -123,6 +211,204 @@ function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {
       row.accepted_version_number === null
         ? null
         : toSafeInteger(row.accepted_version_number),
+  };
+}
+
+function normalizeHubTimelinePage(page: number | undefined): number {
+  if (page === undefined) return 1;
+  if (!Number.isFinite(page) || page < 1) {
+    throw badRequest("Le parametre page est invalide.", undefined, "BAD_REQUEST");
+  }
+
+  return Math.trunc(page);
+}
+
+function toAffaireHubVersionSummary(row: AffaireHubVersionRow): AffaireHubVersionSummary {
+  const marginMultiplier = Number.isFinite(row.margin_multiplier)
+    ? row.margin_multiplier
+    : 1;
+
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    versionNumber: toSafeInteger(row.version_number),
+    status: row.status,
+    totalHtCents: toSafeInteger(row.total_ht_cents),
+    marginMultiplier,
+    marginPercent: (marginMultiplier - 1) * 100,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function fetchAffaireHubProjectOrThrow(
+  context: AffaireContext,
+  projectId: string
+): Promise<AffaireHubProjectRow> {
+  let query = context.supabase
+    .from("estimate_projects")
+    .select("id, tenant_id, user_id, name, reference, client_name, is_archived")
+    .eq("id", projectId)
+    .eq("tenant_id", context.tenantId)
+    .eq("is_archived", false);
+
+  const ownerScopeUserId = getOwnerScopeUserId(context);
+  if (ownerScopeUserId) {
+    query = query.eq("user_id", ownerScopeUserId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger le projet affaire.");
+  }
+
+  const project = (data ?? null) as AffaireHubProjectRow | null;
+  if (!project) {
+    throw notFound("Affaire introuvable.");
+  }
+
+  return project;
+}
+
+async function fetchAffaireHubSummaryWithContext(
+  context: AffaireContext,
+  project: AffaireHubProjectRow
+): Promise<AffaireHubSummaryResult> {
+  const [versionsCountResult, currentVersionResult, acceptedVersionResult] = await Promise.all([
+    context.supabase
+      .from("estimate_versions")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", context.tenantId)
+      .eq("project_id", project.id)
+      .limit(1),
+    context.supabase
+      .from("estimate_versions")
+      .select(
+        "id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at"
+      )
+      .eq("tenant_id", context.tenantId)
+      .eq("project_id", project.id)
+      .order("version_number", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    context.supabase
+      .from("estimate_versions")
+      .select(
+        "id, project_id, version_number, status, total_ht_cents, margin_multiplier, updated_at"
+      )
+      .eq("tenant_id", context.tenantId)
+      .eq("project_id", project.id)
+      .eq("status", "accepted")
+      .order("version_number", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (versionsCountResult.error) {
+    throw mapSupabaseError(
+      versionsCountResult.error,
+      "Impossible de compter les versions affaire."
+    );
+  }
+
+  if (currentVersionResult.error) {
+    throw mapSupabaseError(
+      currentVersionResult.error,
+      "Impossible de charger la version courante."
+    );
+  }
+
+  if (acceptedVersionResult.error) {
+    throw mapSupabaseError(
+      acceptedVersionResult.error,
+      "Impossible de charger la derniere version acceptee."
+    );
+  }
+
+  const currentVersion = (currentVersionResult.data ?? null) as AffaireHubVersionRow | null;
+  const acceptedVersion = (acceptedVersionResult.data ?? null) as AffaireHubVersionRow | null;
+
+  let lineCount = 0;
+  if (currentVersion) {
+    const { count, error } = await context.supabase
+      .from("estimate_items")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", context.tenantId)
+      .eq("version_id", currentVersion.id)
+      .eq("item_type", "line")
+      .limit(1);
+
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de compter les lignes de la version.");
+    }
+
+    lineCount = count ?? 0;
+  }
+
+  return {
+    project: {
+      id: project.id,
+      name: project.name,
+      reference: project.reference,
+      clientName: project.client_name,
+    },
+    currentVersion: currentVersion ? toAffaireHubVersionSummary(currentVersion) : null,
+    acceptedVersion: acceptedVersion ? toAffaireHubVersionSummary(acceptedVersion) : null,
+    versionsCount: versionsCountResult.count ?? 0,
+    lineCount,
+  };
+}
+
+async function fetchAffaireHubDpgfSourceWithContext(
+  context: AffaireContext,
+  project: AffaireHubProjectRow
+): Promise<AffaireHubDpgfSourceResult> {
+  const { data: importData, error: importError } = await context.supabase
+    .from("dpgf_imports")
+    .select(
+      "id, filename, source_format, status, created_at, parse_mode, row_count, tenant_id, project_id"
+    )
+    .eq("tenant_id", context.tenantId)
+    .eq("project_id", project.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (importError) {
+    throw mapSupabaseError(importError, "Impossible de charger la source DPGF.");
+  }
+
+  const latestImport = (importData ?? null) as AffaireHubDpgfImportRow | null;
+  if (!latestImport) {
+    return null;
+  }
+
+  const { data: mappingData, error: mappingError } = await context.supabase
+    .from("dpgf_mappings")
+    .select("id, status, created_at, updated_at, tenant_id, import_id")
+    .eq("tenant_id", context.tenantId)
+    .eq("import_id", latestImport.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (mappingError) {
+    throw mapSupabaseError(mappingError, "Impossible de charger le statut de mapping DPGF.");
+  }
+
+  const latestMapping = (mappingData ?? null) as AffaireHubDpgfMappingRow | null;
+
+  return {
+    importId: latestImport.id,
+    filename: latestImport.filename,
+    sourceFormat: latestImport.source_format,
+    importStatus: latestImport.status,
+    mappingStatus: latestMapping?.status ?? null,
+    importedAt: latestImport.created_at,
+    mappingUpdatedAt: latestMapping?.updated_at ?? null,
+    parseMode: latestImport.parse_mode,
+    rowCount: toSafeInteger(latestImport.row_count),
   };
 }
 
@@ -235,5 +521,57 @@ export async function fetchAffairePageData(
   return {
     list,
     counters,
+  };
+}
+
+export async function fetchAffaireHubSummary(
+  projectId: string
+): Promise<AffaireHubSummaryResult> {
+  const context = await getAuthenticatedContext();
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+  return fetchAffaireHubSummaryWithContext(context, project);
+}
+
+export async function fetchAffaireHubTimeline(
+  projectId: string,
+  page?: number
+): Promise<AffaireHubTimelineResult> {
+  const safePage = normalizeHubTimelinePage(page);
+
+  return listEstimateProjectVersions({
+    projectId,
+    page: safePage,
+  });
+}
+
+export async function fetchAffaireHubDpgfSource(
+  projectId: string
+): Promise<AffaireHubDpgfSourceResult> {
+  const context = await getAuthenticatedContext();
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+  return fetchAffaireHubDpgfSourceWithContext(context, project);
+}
+
+export async function fetchAffaireHubPageData(
+  projectId: string,
+  page?: number
+): Promise<AffaireHubPageDataResult> {
+  const context = await getAuthenticatedContext();
+  const safePage = normalizeHubTimelinePage(page);
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+
+  const [summary, timeline, dpgfSource] = await Promise.all([
+    fetchAffaireHubSummaryWithContext(context, project),
+    listEstimateProjectVersions({
+      projectId: project.id,
+      page: safePage,
+    }),
+    fetchAffaireHubDpgfSourceWithContext(context, project),
+  ]);
+
+  return {
+    summary,
+    timeline,
+    dpgfSource,
   };
 }
