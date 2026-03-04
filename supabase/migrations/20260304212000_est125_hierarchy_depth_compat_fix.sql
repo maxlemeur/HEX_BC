@@ -667,3 +667,64 @@ grant execute on function public.move_estimate_item(
   uuid[],
   uuid[]
 ) to authenticated;
+
+-- Recompute max_section_depth for already-populated versions to match current tree depth.
+alter table public.estimate_versions
+  disable trigger guard_estimate_versions_readonly;
+
+with recursive section_tree as (
+  select
+    item.id,
+    item.version_id,
+    1 as section_level
+  from public.estimate_items item
+  where item.item_type = 'section'
+    and item.parent_id is null
+  union all
+  select
+    child.id,
+    child.version_id,
+    section_tree.section_level + 1
+  from public.estimate_items child
+  join section_tree on section_tree.id = child.parent_id
+  where child.item_type = 'section'
+    and child.version_id = section_tree.version_id
+),
+section_levels as (
+  select
+    section_tree.version_id,
+    max(section_tree.section_level)::integer as max_section_level
+  from section_tree
+  group by section_tree.version_id
+),
+line_parent_levels as (
+  select
+    line.version_id,
+    max(section_tree.section_level)::integer as max_line_parent_level
+  from public.estimate_items line
+  join section_tree
+    on section_tree.id = line.parent_id
+    and section_tree.version_id = line.version_id
+  where line.item_type = 'line'
+  group by line.version_id
+)
+update public.estimate_versions ev
+set max_section_depth = least(
+  4,
+  greatest(
+    1,
+    coalesce(section_levels.max_section_level, 1),
+    coalesce(line_parent_levels.max_line_parent_level, 1)
+  )
+)::integer
+from section_levels
+full join line_parent_levels
+  on line_parent_levels.version_id = section_levels.version_id
+where ev.id = coalesce(section_levels.version_id, line_parent_levels.version_id);
+
+update public.estimate_versions
+set max_section_depth = 1
+where max_section_depth is null;
+
+alter table public.estimate_versions
+  enable trigger guard_estimate_versions_readonly;
