@@ -387,6 +387,36 @@ async function getCurrentMembershipOrThrow(
   return membership;
 }
 
+async function ensureProjectCanBeLinked(params: {
+  supabase: Supabase;
+  projectId: string | null;
+  tenantId: string;
+  userId: string;
+  isTenantAdmin: boolean;
+}) {
+  const { supabase, projectId, tenantId, userId, isTenantAdmin } = params;
+  if (!projectId) return;
+
+  let projectQuery = supabase
+    .from("estimate_projects")
+    .select("id")
+    .eq("id", projectId)
+    .eq("tenant_id", tenantId)
+    .eq("is_archived", false);
+
+  if (!isTenantAdmin) {
+    projectQuery = projectQuery.eq("user_id", userId);
+  }
+
+  const { data: project, error } = await projectQuery.maybeSingle();
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de verifier le projet cible.");
+  }
+  if (!project) {
+    throw badRequest("Projet cible introuvable ou non autorise.");
+  }
+}
+
 async function createImportRecord(
   supabase: Supabase,
   payload: ImportInsert
@@ -522,11 +552,19 @@ export async function createImportFromJsonBody(body: unknown) {
   const storagePath = toOptionalNonEmptyString(input.storagePath);
   const fileSizeBytes = parseFileSizeBytes(input.fileSizeBytes);
   const projectId = parseOptionalProjectId(input.projectId ?? input.project_id ?? null);
-  const { supabase, userId, tenantId } = await getAuthenticatedContext();
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
 
   let importRecord: ImportRow | null = null;
 
   try {
+    await ensureProjectCanBeLinked({
+      supabase,
+      projectId,
+      tenantId,
+      userId,
+      isTenantAdmin,
+    });
+
     const normalizedRows = normalizeRowsFromJson(rawRows);
 
     importRecord = await createImportRecord(supabase, {
@@ -578,7 +616,7 @@ export async function createImportFromMultipartFormData(formData: FormData) {
 
   validateImportFile(fileEntry);
 
-  const { supabase, userId, tenantId } = await getAuthenticatedContext();
+  const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
   const filename = sanitizeFilename(
     toOptionalNonEmptyString(formData.get("filename")) ??
       toOptionalNonEmptyString(fileEntry.name) ??
@@ -586,6 +624,14 @@ export async function createImportFromMultipartFormData(formData: FormData) {
   );
   const sourceFormat = detectImportSourceFormat(fileEntry.name, fileEntry.type);
   const storagePath = buildStoragePath(userId, filename);
+
+  await ensureProjectCanBeLinked({
+    supabase,
+    projectId,
+    tenantId,
+    userId,
+    isTenantAdmin,
+  });
 
   const { error: uploadError } = await supabase.storage
     .from(DPGF_IMPORTS_BUCKET)
