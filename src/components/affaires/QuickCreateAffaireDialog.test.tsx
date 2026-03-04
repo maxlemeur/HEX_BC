@@ -1,14 +1,26 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { quickCreateAffaireMock, useUiModeMock } = vi.hoisted(() => ({
+const { quickCreateAffaireMock, routerPushMock, useImportFlowMock, useUiModeMock } = vi.hoisted(() => ({
   quickCreateAffaireMock: vi.fn(),
+  routerPushMock: vi.fn(),
+  useImportFlowMock: vi.fn(),
   useUiModeMock: vi.fn(),
 }));
 
 vi.mock("@/app/dashboard/affaires/_actions/quick-create-affaire", () => ({
   quickCreateAffaire: quickCreateAffaireMock,
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: routerPushMock,
+  }),
+}));
+
+vi.mock("@/hooks/useImportFlow", () => ({
+  useImportFlow: useImportFlowMock,
 }));
 
 vi.mock("@/hooks/useUiMode", () => ({
@@ -38,6 +50,11 @@ function buildMappingsUrl(importId: string) {
 describe("QuickCreateAffaireDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useImportFlowMock.mockReturnValue({
+      imports: [],
+      importFile: vi.fn().mockResolvedValue(false),
+      lastImportId: null,
+    });
     useUiModeMock.mockReturnValue({
       mode: "expert",
       setMode: vi.fn(),
@@ -199,5 +216,185 @@ describe("QuickCreateAffaireDialog", () => {
     });
 
     expect(quickCreateAffaireMock).not.toHaveBeenCalled();
+  });
+
+  it("handles upload-flow redirect without unhandled rejection by pushing route", async () => {
+    const importId = "66666666-6666-4666-8666-666666666666";
+    const importFileMock = vi.fn().mockResolvedValue(true);
+    useImportFlowMock.mockReturnValue({
+      imports: [{ id: importId, status: "parsed" }],
+      importFile: importFileMock,
+      lastImportId: importId,
+    });
+    useUiModeMock.mockReturnValue({
+      mode: "simplified",
+      setMode: vi.fn(),
+      isExpert: false,
+      isSimplified: true,
+    });
+
+    const redirectError = new Error("NEXT_REDIRECT");
+    (redirectError as Error & { digest?: string }).digest =
+      "NEXT_REDIRECT;replace;/dashboard/affaires/created?created=1;false";
+    quickCreateAffaireMock.mockRejectedValue(redirectError);
+
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === "/api/mappings") {
+        return jsonResponse({
+          data: {
+            suggestions: { designation: "description" },
+            auto_validation: { can_auto_validate: true },
+          },
+        });
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const unhandledRejections: unknown[] = [];
+    const unhandledHandler = (event: PromiseRejectionEvent) => {
+      unhandledRejections.push(event.reason);
+      event.preventDefault();
+    };
+    window.addEventListener("unhandledrejection", unhandledHandler);
+
+    try {
+      const user = userEvent.setup();
+      const { container } = render(
+        <QuickCreateAffaireDialog
+          open={true}
+          onOpenChange={vi.fn()}
+        />
+      );
+
+      const fileInput = container.querySelector<HTMLInputElement>("input[type='file']");
+      expect(fileInput).not.toBeNull();
+      await user.upload(
+        fileInput!,
+        new File(["designation;quantite\nposte;1"], "dpgf.csv", { type: "text/csv" }),
+      );
+      await user.type(screen.getByLabelText("Nom du projet *"), "Affaire redirect");
+      await user.click(screen.getByRole("button", { name: "Creer l'affaire" }));
+
+      await waitFor(() => {
+        expect(routerPushMock).toHaveBeenCalledWith(
+          "/dashboard/affaires/created?created=1",
+        );
+      });
+      expect(unhandledRejections).toEqual([]);
+    } finally {
+      window.removeEventListener("unhandledrejection", unhandledHandler);
+    }
+  });
+
+  it("fails fast when parsing import cannot be found after upload", async () => {
+    const realSetTimeout = window.setTimeout;
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(
+      ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+        const delay = timeout === 12000 ? 1 : timeout;
+        return realSetTimeout(handler, delay, ...args);
+      }) as typeof window.setTimeout,
+    );
+
+    try {
+      const importId = "77777777-7777-4777-8777-777777777777";
+      const importFileMock = vi.fn().mockResolvedValue(true);
+      useImportFlowMock.mockReturnValue({
+        imports: [],
+        importFile: importFileMock,
+        lastImportId: importId,
+      });
+      useUiModeMock.mockReturnValue({
+        mode: "simplified",
+        setMode: vi.fn(),
+        isExpert: false,
+        isSimplified: true,
+      });
+
+      const { container } = render(
+        <QuickCreateAffaireDialog
+          open={true}
+          onOpenChange={vi.fn()}
+        />
+      );
+
+      const fileInput = container.querySelector<HTMLInputElement>("input[type='file']");
+      expect(fileInput).not.toBeNull();
+      fireEvent.change(fileInput!, {
+        target: {
+          files: [
+            new File(["designation;quantite\nposte;1"], "dpgf.csv", {
+              type: "text/csv",
+            }),
+          ],
+        },
+      });
+      fireEvent.change(screen.getByLabelText("Nom du projet *"), {
+        target: { value: "Affaire timeout" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Creer l'affaire" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Analyse du fichier\u2026")).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toHaveTextContent(
+          /Import introuvable apres l['’]upload\. Veuillez reessayer\./i,
+        );
+      });
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
+  it("does not close on Escape while busy during upload", async () => {
+    const neverResolvingImport = new Promise<boolean>(() => undefined);
+    const importFileMock = vi.fn().mockReturnValue(neverResolvingImport);
+    const onOpenChange = vi.fn();
+
+    useImportFlowMock.mockReturnValue({
+      imports: [],
+      importFile: importFileMock,
+      lastImportId: null,
+    });
+    useUiModeMock.mockReturnValue({
+      mode: "simplified",
+      setMode: vi.fn(),
+      isExpert: false,
+      isSimplified: true,
+    });
+
+    const { container } = render(
+      <QuickCreateAffaireDialog
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    );
+
+    const fileInput = container.querySelector<HTMLInputElement>("input[type='file']");
+    expect(fileInput).not.toBeNull();
+    fireEvent.change(fileInput!, {
+      target: {
+        files: [
+          new File(["designation;quantite\nposte;1"], "dpgf.csv", {
+            type: "text/csv",
+          }),
+        ],
+      },
+    });
+    fireEvent.change(screen.getByLabelText("Nom du projet *"), {
+      target: { value: "Affaire busy" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Creer l'affaire" }));
+
+    await waitFor(() => {
+      expect(importFileMock).toHaveBeenCalledTimes(1);
+    });
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 });

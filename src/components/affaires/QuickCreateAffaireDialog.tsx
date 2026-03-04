@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import { quickCreateAffaire } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
@@ -18,6 +19,7 @@ const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls"]);
 const ACCEPTED_FILE_TYPES =
   ".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const TERMINAL_IMPORT_STATUSES = new Set(["parsed", "imported", "completed"]);
+const PARSING_IMPORT_LOOKUP_TIMEOUT_MS = 12000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,6 +79,42 @@ async function isImportMappingReady(importId: string): Promise<boolean> {
 function getFileExtension(name: string): string | null {
   const ext = name.split(".").pop()?.trim().toLowerCase();
   return ext && ext.length > 0 ? ext : null;
+}
+
+type RedirectErrorLike = Error & {
+  digest?: string;
+};
+
+function isRedirectErrorLike(error: unknown): error is RedirectErrorLike {
+  if (!(error instanceof Error)) return false;
+  const digest = (error as RedirectErrorLike).digest;
+  return (
+    error.message.includes("NEXT_REDIRECT") ||
+    error.message.includes("redirect") ||
+    (typeof digest === "string" && digest.includes("NEXT_REDIRECT"))
+  );
+}
+
+function extractRedirectUrl(error: RedirectErrorLike): string | null {
+  if (typeof error.digest === "string") {
+    const parts = error.digest.split(";");
+    const candidate = parts[2]?.trim();
+    if (
+      candidate &&
+      (candidate.startsWith("/") ||
+        candidate.startsWith("http://") ||
+        candidate.startsWith("https://"))
+    ) {
+      return candidate;
+    }
+  }
+
+  const marker = "NEXT_REDIRECT:";
+  const markerIndex = error.message.indexOf(marker);
+  if (markerIndex === -1) return null;
+
+  const candidate = error.message.slice(markerIndex + marker.length).trim();
+  return candidate.length > 0 ? candidate : null;
 }
 
 const PHASE_MESSAGES: Record<DialogPhase, string> = {
@@ -231,6 +269,7 @@ export function QuickCreateAffaireDialog({
   open,
   onOpenChange,
 }: Readonly<QuickCreateAffaireDialogProps>) {
+  const router = useRouter();
   const { isExpert } = useUiMode();
   const [isPending, startTransition] = useTransition();
 
@@ -261,6 +300,12 @@ export function QuickCreateAffaireDialog({
 
   // Ref to track the importId we're waiting on for file upload flow
   const pendingImportIdRef = useRef<string | null>(null);
+  const latestImportsRef = useRef(imports);
+  const isCompletingParsingRef = useRef(false);
+
+  useEffect(() => {
+    latestImportsRef.current = imports;
+  }, [imports]);
 
   // -- Load available existing imports in expert mode --
   useEffect(() => {
@@ -352,17 +397,52 @@ export function QuickCreateAffaireDialog({
   useEffect(() => {
     if (phase !== "parsing" || !pendingImportIdRef.current) return;
 
-    const match = imports.find((i) => i.id === pendingImportIdRef.current);
+    const pendingImportId = pendingImportIdRef.current;
+    const match = imports.find((i) => i.id === pendingImportId);
     if (!match) return;
+    if (isCompletingParsingRef.current) return;
 
     if (TERMINAL_IMPORT_STATUSES.has(match.status)) {
-      void handleParsingComplete(pendingImportIdRef.current);
+      isCompletingParsingRef.current = true;
+      void (async () => {
+        try {
+          await handleParsingComplete(pendingImportId, { rethrowRedirect: false });
+        } finally {
+          isCompletingParsingRef.current = false;
+        }
+      })();
     } else if (match.status === "failed" || match.status === "error") {
+      pendingImportIdRef.current = null;
       setPhase("idle");
       setServerError("Le fichier n\u2019a pas pu etre analyse.");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, imports]);
+
+  // If upload succeeded but refresh never exposes the created import, recover.
+  useEffect(() => {
+    if (phase !== "parsing" || !pendingImportIdRef.current) return;
+
+    const pendingImportId = pendingImportIdRef.current;
+    const timeoutId = window.setTimeout(() => {
+      if (pendingImportIdRef.current !== pendingImportId) return;
+
+      const hasMatch = latestImportsRef.current.some(
+        (item) => item.id === pendingImportId,
+      );
+      if (hasMatch) return;
+
+      pendingImportIdRef.current = null;
+      setPhase("idle");
+      setServerError(
+        "Import introuvable apres l\u2019upload. Veuillez reessayer.",
+      );
+    }, PARSING_IMPORT_LOOKUP_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [phase]);
 
   // Update pending ref when lastImportId changes during upload
   useEffect(() => {
@@ -394,7 +474,11 @@ export function QuickCreateAffaireDialog({
 
   // -- Async flow: parsing complete → fetch suggestions → create --
 
-  async function handleParsingComplete(importId: string) {
+  async function handleParsingComplete(
+    importId: string,
+    options?: { rethrowRedirect?: boolean },
+  ) {
+    const rethrowRedirect = options?.rethrowRedirect ?? true;
     setPhase("fetching_suggestions");
 
     try {
@@ -441,13 +525,17 @@ export function QuickCreateAffaireDialog({
         });
       }
     } catch (err) {
-      if (
-        err instanceof Error &&
-        (err.message.includes("NEXT_REDIRECT") ||
-          err.message.includes("redirect"))
-      ) {
-        throw err;
+      if (isRedirectErrorLike(err)) {
+        if (rethrowRedirect) {
+          throw err;
+        }
+        const redirectUrl = extractRedirectUrl(err);
+        if (redirectUrl) {
+          router.push(redirectUrl);
+        }
+        return;
       }
+      pendingImportIdRef.current = null;
       setPhase("idle");
       setServerError(
         err instanceof Error ? err.message : "Erreur lors de la creation.",
@@ -492,11 +580,7 @@ export function QuickCreateAffaireDialog({
           sectionTitle: sectionTitle.trim() || null,
         });
       } catch (err) {
-        if (
-          err instanceof Error &&
-          (err.message.includes("NEXT_REDIRECT") ||
-            err.message.includes("redirect"))
-        ) {
+        if (isRedirectErrorLike(err)) {
           throw err;
         }
         setServerError(
@@ -518,11 +602,7 @@ export function QuickCreateAffaireDialog({
           importId: null,
         });
       } catch (err) {
-        if (
-          err instanceof Error &&
-          (err.message.includes("NEXT_REDIRECT") ||
-            err.message.includes("redirect"))
-        ) {
+        if (isRedirectErrorLike(err)) {
           throw err;
         }
         setServerError(
@@ -562,6 +642,10 @@ export function QuickCreateAffaireDialog({
   // -- Reset --
 
   function handleOpenChange(next: boolean) {
+    if (!next && (phase !== "idle" || isPending)) {
+      return;
+    }
+
     if (!next) {
       setProjectName("");
       setClientName("");
@@ -589,7 +673,8 @@ export function QuickCreateAffaireDialog({
     <Modal.Root open={open} onOpenChange={handleOpenChange}>
       <Modal.Content
         className="max-w-lg"
-        closeOnOverlayClick={phase === "idle"}
+        closeOnOverlayClick={!isBusy}
+        closeOnEscapeKey={!isBusy}
       >
         <Modal.Header>
           <Modal.Title>Nouvelle affaire</Modal.Title>

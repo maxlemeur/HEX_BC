@@ -86,12 +86,14 @@ function Root({ open, onOpenChange, children }: Readonly<ModalRootProps>) {
 type ModalContentProps = React.HTMLAttributes<HTMLDivElement> & {
   children: React.ReactNode;
   closeOnOverlayClick?: boolean;
+  closeOnEscapeKey?: boolean;
 };
 
 function Content({
   children,
   className,
   closeOnOverlayClick = true,
+  closeOnEscapeKey = true,
   ...props
 }: Readonly<ModalContentProps>) {
   const { open, onOpenChange, titleId, contentRef } = useModalContext();
@@ -99,7 +101,7 @@ function Content({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4">
       <button
         aria-hidden="true"
         data-ui-modal-overlay="true"
@@ -130,7 +132,9 @@ function Content({
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
-            onOpenChange(false);
+            if (closeOnEscapeKey) {
+              onOpenChange(false);
+            }
           }
 
           if (event.key === "Tab") {
