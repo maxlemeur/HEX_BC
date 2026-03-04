@@ -143,17 +143,29 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
     setToasts((previous) => {
       const target = previous.find((t) => t.id === id);
       if (!target || target.exiting) return previous;
+
+      const currentlyVisibleIds = new Set<string>();
+      for (const toast of previous) {
+        if (!toast.exiting && currentlyVisibleIds.size < MAX_VISIBLE) {
+          currentlyVisibleIds.add(toast.id);
+        }
+      }
+
+      // Remove queued toasts immediately instead of briefly rendering them as exiting.
+      if (!currentlyVisibleIds.has(id)) {
+        return previous.filter((t) => t.id !== id);
+      }
+
       return previous.map((t) => (t.id === id ? { ...t, exiting: true } : t));
     });
 
     // Clear auto-dismiss timer if running
     const existingTid = timeoutIdsRef.current.get(id);
-    if (existingTid) clearTimeout(existingTid);
-
-    // Fallback removal for environments where onAnimationEnd doesn't fire
-    const fallbackTid = setTimeout(() => removeToast(id), EXIT_ANIMATION_MS + 50);
-    timeoutIdsRef.current.set(id, fallbackTid);
-  }, [removeToast]);
+    if (existingTid) {
+      clearTimeout(existingTid);
+      timeoutIdsRef.current.delete(id);
+    }
+  }, []);
 
   /* Called by ToastViewport when exit animation completes */
   const handleExitEnd = useCallback((id: string) => {
@@ -197,12 +209,21 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
   /* Start auto-dismiss timers only when a toast becomes visible */
   useEffect(() => {
     for (const toast of toasts) {
-      if (visibleIds.has(toast.id) && !toast.exiting && !timeoutIdsRef.current.has(toast.id)) {
+      if (timeoutIdsRef.current.has(toast.id)) continue;
+
+      if (toast.exiting) {
+        // Fallback for environments where onAnimationEnd doesn't fire.
+        const tid = setTimeout(() => removeToast(toast.id), EXIT_ANIMATION_MS + 50);
+        timeoutIdsRef.current.set(toast.id, tid);
+        continue;
+      }
+
+      if (visibleIds.has(toast.id)) {
         const tid = setTimeout(() => startExit(toast.id), toast.durationMs);
         timeoutIdsRef.current.set(toast.id, tid);
       }
     }
-  }, [toasts, visibleIds, startExit]);
+  }, [toasts, visibleIds, startExit, removeToast]);
 
   /* Cleanup all timeouts on unmount */
   useEffect(() => {

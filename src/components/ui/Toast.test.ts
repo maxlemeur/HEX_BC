@@ -159,6 +159,43 @@ describe("ui/Toast", () => {
     expect(getToastTitles(renderer)).toEqual(["Toast 1", "Toast 2", "Toast 3"]);
   });
 
+  it("dismisses a queued toast by id without rendering it as exiting", async () => {
+    vi.useFakeTimers();
+
+    const { renderer, getToastApi } = await renderHarness();
+    const toastApi = getToastApi();
+
+    const ids: string[] = [];
+    await act(async () => {
+      for (let i = 0; i < 4; i++) {
+        ids.push(toastApi.success({ title: `Toast ${i}`, durationMs: 60_000 }));
+      }
+    });
+
+    expect(countToasts(renderer)).toBe(3);
+    expect(getToastTitles(renderer)).toEqual(["Toast 0", "Toast 1", "Toast 2"]);
+
+    // Dismiss queued toast (Toast 3). It must not appear briefly as exiting.
+    await act(async () => {
+      toastApi.dismiss(ids[3]);
+    });
+
+    expect(countToasts(renderer)).toBe(3);
+    expect(getToastTitles(renderer)).toEqual(["Toast 0", "Toast 1", "Toast 2"]);
+
+    // Dismissing a visible toast should no longer promote Toast 3 because it is already removed.
+    await act(async () => {
+      toastApi.dismiss(ids[0]);
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(countToasts(renderer)).toBe(2);
+    expect(getToastTitles(renderer)).toEqual(["Toast 1", "Toast 2"]);
+  });
+
   it("handles rapid-fire pushes via functional setState", async () => {
     vi.useFakeTimers();
 
