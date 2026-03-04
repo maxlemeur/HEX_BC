@@ -71,6 +71,25 @@ function createImportSelectBuilder(projectId: string | null) {
   return builder;
 }
 
+function createImportUpdateBuilder() {
+  const builder = {
+    update: vi.fn(),
+    eq: vi.fn(),
+    select: vi.fn(),
+    maybeSingle: vi.fn(),
+  };
+
+  builder.update.mockReturnValue(builder);
+  builder.eq.mockReturnValue(builder);
+  builder.select.mockReturnValue(builder);
+  builder.maybeSingle.mockResolvedValue({
+    data: { id: IMPORT_ID },
+    error: null,
+  });
+
+  return builder;
+}
+
 function createMappedRowsBuilder(rows: unknown[]) {
   const builder = {
     select: vi.fn(),
@@ -133,6 +152,7 @@ function createEstimateProjectsInsertBuilder(projectId: string) {
 function createSupabaseStub(input: {
   role: "engineer" | "admin" | "viewer";
   importProjectId?: string | null;
+  enableImportLinkUpdate?: boolean;
   mappedRows?: unknown[];
   createdProjectId?: string;
   latestMappingId?: string | null;
@@ -143,6 +163,9 @@ function createSupabaseStub(input: {
     input.importProjectId !== undefined
       ? createImportSelectBuilder(input.importProjectId)
       : null;
+  const importUpdateBuilder = input.enableImportLinkUpdate
+    ? createImportUpdateBuilder()
+    : null;
   const mappedRowsBuilder = input.mappedRows
     ? createMappedRowsBuilder(input.mappedRows)
     : null;
@@ -156,7 +179,10 @@ function createSupabaseStub(input: {
 
   const tableQueues: Record<string, unknown[]> = {
     tenant_memberships: [membershipBuilder],
-    dpgf_imports: importBuilder ? [importBuilder] : [],
+    dpgf_imports: [
+      ...(importBuilder ? [importBuilder] : []),
+      ...(importUpdateBuilder ? [importUpdateBuilder] : []),
+    ],
     dpgf_rows_mapped: mappedRowsBuilder ? [mappedRowsBuilder] : [],
     dpgf_mappings: latestMappingBuilder ? [latestMappingBuilder] : [],
     estimate_projects: [projectInsertBuilder],
@@ -193,6 +219,7 @@ function createSupabaseStub(input: {
   return {
     supabase,
     projectInsertBuilder,
+    importUpdateBuilder,
   };
 }
 
@@ -233,6 +260,29 @@ describe("quickCreateAffaire", () => {
     expect(revalidatePath).toHaveBeenCalledWith(
       `/dashboard/affaires/${CREATED_PROJECT_ID}`
     );
+  });
+
+  it("links uploaded import when creating an empty project from low-confidence flow", async () => {
+    const { supabase, importUpdateBuilder } = createSupabaseStub({
+      role: "engineer",
+      importProjectId: null,
+      enableImportLinkUpdate: true,
+      createdProjectId: CREATED_PROJECT_ID,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      quickCreateAffaire({
+        projectName: "Affaire import lie",
+        importId: null,
+        linkImportId: IMPORT_ID,
+      })
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`);
+
+    expect(importUpdateBuilder?.update).toHaveBeenCalledWith({
+      project_id: CREATED_PROJECT_ID,
+    });
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
   it("creates project+version from import and redirects to estimate editor", async () => {

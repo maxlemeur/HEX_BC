@@ -136,6 +136,7 @@ describe("QuickCreateAffaireDialog", () => {
     );
 
     await user.click(screen.getByText("Import DPGF (optionnel)"));
+    await user.click(screen.getByRole("button", { name: "Import existant" }));
 
     await waitFor(() => {
       expect(screen.getByRole("option", { name: "ready.xlsx (12 lignes)" })).toBeInTheDocument();
@@ -200,6 +201,7 @@ describe("QuickCreateAffaireDialog", () => {
     );
 
     await user.click(screen.getByText("Import DPGF (optionnel)"));
+    await user.click(screen.getByRole("button", { name: "Import existant" }));
 
     await waitFor(() => {
       expect(screen.getByRole("option", { name: "stale.xlsx (6 lignes)" })).toBeInTheDocument();
@@ -286,6 +288,63 @@ describe("QuickCreateAffaireDialog", () => {
     } finally {
       window.removeEventListener("unhandledrejection", unhandledHandler);
     }
+  });
+
+  it("keeps uploaded import linked in low-confidence upload flow", async () => {
+    const importId = "67676767-6767-4676-8676-676767676767";
+    const importFileMock = vi.fn().mockResolvedValue(true);
+    quickCreateAffaireMock.mockResolvedValue(undefined);
+    useImportFlowMock.mockReturnValue({
+      imports: [{ id: importId, status: "parsed" }],
+      importFile: importFileMock,
+      lastImportId: importId,
+    });
+    useUiModeMock.mockReturnValue({
+      mode: "simplified",
+      setMode: vi.fn(),
+      isExpert: false,
+      isSimplified: true,
+    });
+
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === "/api/mappings") {
+        return jsonResponse({
+          data: {
+            suggestions: {},
+            auto_validation: { can_auto_validate: false },
+          },
+        });
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    const { container } = render(
+      <QuickCreateAffaireDialog
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const fileInput = container.querySelector<HTMLInputElement>("input[type='file']");
+    expect(fileInput).not.toBeNull();
+    await user.upload(
+      fileInput!,
+      new File(["designation;quantite\nposte;1"], "dpgf.csv", { type: "text/csv" }),
+    );
+    await user.type(screen.getByLabelText("Nom du projet *"), "Affaire faible confiance");
+    await user.click(screen.getByRole("button", { name: "Creer l'affaire" }));
+
+    await waitFor(() => {
+      expect(quickCreateAffaireMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          importId: null,
+          linkImportId: importId,
+        }),
+      );
+    });
   });
 
   it("fails fast when parsing import cannot be found after upload", async () => {

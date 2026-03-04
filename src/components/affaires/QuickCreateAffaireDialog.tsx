@@ -516,12 +516,13 @@ export function QuickCreateAffaireDialog({
           sectionTitle: sectionTitle.trim() || null,
         });
       } else {
-        // Low confidence — create empty project, user can import from hub
+        // Low confidence — create empty project but keep uploaded import linked to the affaire
         await quickCreateAffaire({
           projectName: projectName.trim(),
           clientName: clientName.trim() || null,
           reference: reference.trim() || null,
           importId: null,
+          linkImportId: importId,
         });
       }
     } catch (err) {

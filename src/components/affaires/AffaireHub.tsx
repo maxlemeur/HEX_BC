@@ -70,6 +70,9 @@ const STATUS_CSS: Record<string, string> = {
   archived: "status-badge status-archived",
 };
 
+// Prevent duplicate "created" toast when React remounts in development Strict Mode.
+const shownCreatedToastProjectIds = new Set<string>();
+
 /* ------------------------------------------------------------------ */
 /*  Section: Back to list                                              */
 /* ------------------------------------------------------------------ */
@@ -725,14 +728,26 @@ export function AffaireHub({
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
 
   useEffect(() => {
-    if (justCreated) {
-      toast.success({
-        title: "Affaire creee",
-        description: "Commencez le chiffrage ou importez un DPGF.",
+    if (!justCreated) return;
+
+    const currentUrl = new URL(window.location.href);
+    if (currentUrl.searchParams.has("created")) {
+      currentUrl.searchParams.delete("created");
+      const nextQuery = currentUrl.searchParams.toString();
+      router.replace(nextQuery ? `${currentUrl.pathname}?${nextQuery}` : currentUrl.pathname, {
+        scroll: false,
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount
-  }, []);
+
+    const projectId = summary.project.id;
+    if (shownCreatedToastProjectIds.has(projectId)) return;
+
+    shownCreatedToastProjectIds.add(projectId);
+    toast.success({
+      title: "Affaire creee",
+      description: "Commencez le chiffrage ou importez un DPGF.",
+    });
+  }, [justCreated, router, summary.project.id, toast]);
 
   const [showImportFlow, setShowImportFlow] = useState(false);
   const [importResult, setImportResult] =

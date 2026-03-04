@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_MARGIN_MULTIPLIER,
   DEFAULT_TAX_RATE_BP,
+  ensureImportProjectLink,
   fetchLatestMappingId,
   fetchMappedRowsForImport,
   getCurrentMembershipOrThrow,
@@ -38,6 +39,7 @@ const quickCreateAffaireSchema = z.object({
   clientName: z.string().trim().max(200).nullable().optional(),
   reference: z.string().trim().max(200).nullable().optional(),
   importId: z.string().uuid("importId invalide.").nullable().optional(),
+  linkImportId: z.string().uuid("linkImportId invalide.").nullable().optional(),
   mapping: z.record(z.string(), z.union([z.string(), z.null()])).optional(),
   versionTitle: z.string().trim().max(200).nullable().optional(),
   sectionTitle: z.string().trim().max(200).nullable().optional(),
@@ -81,11 +83,13 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
 
   const membership = await getCurrentMembershipOrThrow(supabase, user.id);
   ensureEngineerOrAdmin(membership.role);
+  const isTenantAdmin = membership.role === "admin";
 
   const projectName = parsed.data.projectName.trim();
   const clientName = normalizeNullableText(parsed.data.clientName);
   const reference = normalizeNullableText(parsed.data.reference);
   const importId = parsed.data.importId ?? null;
+  const linkImportId = importId ? null : (parsed.data.linkImportId ?? null);
 
   if (!importId) {
     const { data: project, error: projectError } = await supabase
@@ -106,6 +110,31 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
       throw new Error("Impossible de creer la nouvelle affaire.");
     }
 
+    if (linkImportId) {
+      const importRow = await getImportOrThrow({
+        supabase,
+        importId: linkImportId,
+        tenantId: membership.tenant_id,
+        userId: user.id,
+        isTenantAdmin,
+      });
+
+      if (importRow.project_id && importRow.project_id !== project.id) {
+        throw new Error("Cet import est deja lie a une autre affaire.");
+      }
+
+      if (!importRow.project_id) {
+        await ensureImportProjectLink({
+          supabase,
+          importId: linkImportId,
+          projectId: project.id,
+          tenantId: membership.tenant_id,
+          userId: user.id,
+          isTenantAdmin,
+        });
+      }
+    }
+
     revalidateQuickCreatePaths(project.id, null);
     redirect(`/dashboard/affaires/${project.id}?created=1`);
   }
@@ -115,7 +144,7 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
     importId,
     tenantId: membership.tenant_id,
     userId: user.id,
-    isTenantAdmin: membership.role === "admin",
+    isTenantAdmin,
   });
 
   if (importRow.project_id) {
