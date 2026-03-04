@@ -372,24 +372,47 @@ function normalizeTemplateMapping(value: unknown): SourceToTargetMapping {
 function remapMappingToDetectedSourceColumns(
   mapping: SourceToTargetMapping,
   sourceColumns: string[]
-): SourceToTargetMapping {
+): SourceToTargetMapping | null {
   if (sourceColumns.length === 0) return {};
   if (Object.keys(mapping).length === 0) return {};
 
-  const normalizedSourceToActual = new Map<string, string>();
+  const sourceColumnsByNormalizedKey = new Map<string, string[]>();
   for (const sourceColumn of sourceColumns) {
-    const normalized = normalizeSourceColumnKey(sourceColumn);
-    if (!normalizedSourceToActual.has(normalized)) {
-      normalizedSourceToActual.set(normalized, sourceColumn);
+    const normalizedKey = normalizeSourceColumnKey(sourceColumn);
+    const columnsForKey = sourceColumnsByNormalizedKey.get(normalizedKey);
+    if (columnsForKey) {
+      columnsForKey.push(sourceColumn);
+    } else {
+      sourceColumnsByNormalizedKey.set(normalizedKey, [sourceColumn]);
     }
   }
 
+  const consumedSourceColumns = new Set<string>();
   const output: SourceToTargetMapping = {};
+
   for (const [sourceColumn, targetField] of Object.entries(mapping)) {
-    const normalized = normalizeSourceColumnKey(sourceColumn);
-    const actualSourceColumn = normalizedSourceToActual.get(normalized);
-    if (!actualSourceColumn) continue;
+    if (!sourceColumns.includes(sourceColumn) || consumedSourceColumns.has(sourceColumn)) {
+      continue;
+    }
+    output[sourceColumn] = targetField;
+    consumedSourceColumns.add(sourceColumn);
+  }
+
+  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
+    if (sourceColumn in output) continue;
+
+    const normalizedKey = normalizeSourceColumnKey(sourceColumn);
+    const candidates = (sourceColumnsByNormalizedKey.get(normalizedKey) ?? []).filter(
+      (candidate) => !consumedSourceColumns.has(candidate)
+    );
+
+    if (candidates.length !== 1) {
+      return null;
+    }
+
+    const [actualSourceColumn] = candidates;
     output[actualSourceColumn] = targetField;
+    consumedSourceColumns.add(actualSourceColumn);
   }
 
   return output;
@@ -401,31 +424,40 @@ function findTemplateExactMatch(
 ): { template: TemplateRow; mapping: SourceToTargetMapping } | null {
   if (sourceColumns.length === 0 || templates.length === 0) return null;
 
-  const expectedSet = new Set(sourceColumns.map((column) => normalizeSourceColumnKey(column)));
+  const expectedCounts = new Map<string, number>();
+  for (const sourceColumn of sourceColumns) {
+    const normalizedKey = normalizeSourceColumnKey(sourceColumn);
+    expectedCounts.set(normalizedKey, (expectedCounts.get(normalizedKey) ?? 0) + 1);
+  }
 
   for (const template of templates) {
     const templateMapping = normalizeTemplateMapping(template.mapping);
     const templateColumns = Object.keys(templateMapping);
-    if (templateColumns.length !== expectedSet.size) continue;
+    if (templateColumns.length !== sourceColumns.length) continue;
 
-    const templateSet = new Set(
-      templateColumns.map((column) => normalizeSourceColumnKey(column))
-    );
+    const templateCounts = new Map<string, number>();
+    for (const templateColumn of templateColumns) {
+      const normalizedKey = normalizeSourceColumnKey(templateColumn);
+      templateCounts.set(normalizedKey, (templateCounts.get(normalizedKey) ?? 0) + 1);
+    }
 
-    if (templateSet.size !== expectedSet.size) continue;
+    if (templateCounts.size !== expectedCounts.size) continue;
 
-    let exactMatch = true;
-    for (const expected of expectedSet) {
-      if (!templateSet.has(expected)) {
-        exactMatch = false;
+    let hasSameNormalizedColumns = true;
+    for (const [expectedKey, expectedCount] of expectedCounts.entries()) {
+      if ((templateCounts.get(expectedKey) ?? 0) !== expectedCount) {
+        hasSameNormalizedColumns = false;
         break;
       }
     }
-    if (!exactMatch) continue;
+    if (!hasSameNormalizedColumns) continue;
+
+    const remapped = remapMappingToDetectedSourceColumns(templateMapping, sourceColumns);
+    if (!remapped || Object.keys(remapped).length !== sourceColumns.length) continue;
 
     return {
       template,
-      mapping: remapMappingToDetectedSourceColumns(templateMapping, sourceColumns),
+      mapping: remapped,
     };
   }
 

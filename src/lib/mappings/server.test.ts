@@ -594,6 +594,52 @@ describe("mapping server workflows", () => {
     expect(result.auto_validation.can_auto_validate).toBe(true);
   });
 
+  it("does not apply exact template match when normalized source columns collide", async () => {
+    const supabase = createSupabaseMock({
+      rawRows: [
+        {
+          row_index: 1,
+          payload: {
+            Code: "A-001",
+            code: "A-ALT",
+            Designation: "Cable cuivre",
+          },
+        },
+      ],
+      templates: [
+        {
+          id: "tpl-collision",
+          name: "Template collision",
+          supplier_name: "ARCUS",
+          mapping: {
+            Code: "hex_code",
+            Designation: "designation",
+          },
+        },
+      ],
+      memoryRows: [
+        {
+          source_column: "Code",
+          target_field: "hex_code",
+          usage_count: 10,
+          confidence: 0.95,
+          last_used_at: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await suggestMapping({
+      import_id: IMPORT_ID,
+    });
+
+    expect(result.template_exact_match).toBeNull();
+    expect(result.auto_validation.can_auto_validate).toBe(false);
+    expect(Object.values(result.confidence_by_source).some((entry) => entry.origin === "template")).toBe(
+      false
+    );
+  });
+
   it("keeps only the best score when two columns target the same field", async () => {
     const supabase = createSupabaseMock({
       rawRows: [
