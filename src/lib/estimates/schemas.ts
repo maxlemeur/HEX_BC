@@ -178,15 +178,55 @@ const createEstimateVersionSchema = z
     }
   });
 
-export const createEstimateSchema = z.object({
-  project: z.object({
-    name: requiredTextSchema,
-    reference: optionalNullableTextSchema.optional(),
-    client_name: optionalNullableTextSchema.optional(),
-    notes: optionalNullableTextSchema.optional(),
-  }),
-  version: createEstimateVersionSchema.optional(),
+const createEstimateProjectSchema = z.object({
+  name: requiredTextSchema,
+  reference: optionalNullableTextSchema.optional(),
+  client_name: optionalNullableTextSchema.optional(),
+  notes: optionalNullableTextSchema.optional(),
 });
+
+const createEstimateSelectorSchema = z.union([
+  z.object({
+    project_id: uuidSchema,
+  }),
+  z.object({
+    project: createEstimateProjectSchema,
+  }),
+]);
+
+const createEstimatePayloadSchema = z
+  .object({
+    project_id: uuidSchema.optional(),
+    project: createEstimateProjectSchema.optional(),
+    version: createEstimateVersionSchema.optional(),
+  })
+  .superRefine((payload, ctx) => {
+    if (payload.project_id || payload.project) {
+      return;
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "project ou project_id est requis.",
+      path: ["project"],
+    });
+  });
+
+export const createEstimateSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      project_id: record.project_id ?? record.projectId,
+      project: record.project,
+      version: record.version,
+    };
+  },
+  createEstimatePayloadSchema.and(createEstimateSelectorSchema)
+);
 
 export const patchEstimateVersionSchema = z
   .object({
@@ -775,6 +815,7 @@ export const instantiateEstimateFromTemplateSchema = z.preprocess(
 
     const record = value as Record<string, unknown>;
     return {
+      project_id: record.project_id ?? record.projectId,
       project_name: record.project_name ?? record.projectName,
       version_title: record.version_title ?? record.versionTitle,
       date_devis: record.date_devis ?? record.dateDevis,
@@ -782,13 +823,36 @@ export const instantiateEstimateFromTemplateSchema = z.preprocess(
       project_notes: record.project_notes ?? record.projectNotes,
     };
   },
-  z.object({
-    project_name: requiredTextSchema,
-    version_title: optionalNullableTextSchema.optional(),
-    date_devis: dateOnlySchema.optional(),
-    validite_jours: positiveIntegerSchema.optional(),
-    project_notes: optionalNullableTextSchema.optional(),
-  })
+  z
+    .object({
+      project_id: uuidSchema.optional(),
+      project_name: optionalNullableTextSchema.optional(),
+      version_title: optionalNullableTextSchema.optional(),
+      date_devis: dateOnlySchema.optional(),
+      validite_jours: positiveIntegerSchema.optional(),
+      project_notes: optionalNullableTextSchema.optional(),
+    })
+    .superRefine((payload, ctx) => {
+      if (payload.project_id || payload.project_name) {
+        return;
+      }
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "project_name ou project_id est requis.",
+        path: ["project_name"],
+      });
+    })
+    .and(
+      z.union([
+        z.object({
+          project_id: uuidSchema,
+        }),
+        z.object({
+          project_name: z.string().trim().min(1, "Champ obligatoire."),
+        }),
+      ])
+    )
 );
 export const instantiateEstimateTemplateSchema =
   instantiateEstimateFromTemplateSchema;

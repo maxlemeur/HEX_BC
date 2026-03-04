@@ -44,6 +44,44 @@ describe("generateOpenApiDocument", () => {
     expect(document.components.schemas).toHaveProperty("MoveEstimateItemRequest");
     expect(document.components.schemas).toHaveProperty("ApiFailureResponse");
 
+    const createEstimateSchema = document.components.schemas[
+      "CreateEstimateRequest"
+    ] as {
+      allOf?: Array<{ anyOf?: Array<{ required?: string[] }> }>;
+    };
+    const createEstimateSelectorSchema = createEstimateSchema.allOf?.find(
+      (schemaPart) => Array.isArray(schemaPart.anyOf)
+    );
+    expect(createEstimateSelectorSchema?.anyOf).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          required: expect.arrayContaining(["project_id"]),
+        }),
+        expect.objectContaining({
+          required: expect.arrayContaining(["project"]),
+        }),
+      ])
+    );
+
+    const instantiateTemplateSchema = document.components.schemas[
+      "InstantiateEstimateFromTemplateRequest"
+    ] as {
+      allOf?: Array<{ anyOf?: Array<{ required?: string[] }> }>;
+    };
+    const instantiateTemplateSelectorSchema = instantiateTemplateSchema.allOf?.find(
+      (schemaPart) => Array.isArray(schemaPart.anyOf)
+    );
+    expect(instantiateTemplateSelectorSchema?.anyOf).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          required: expect.arrayContaining(["project_id"]),
+        }),
+        expect.objectContaining({
+          required: expect.arrayContaining(["project_name"]),
+        }),
+      ])
+    );
+
     const patchOperation = document.paths["/api/estimates/{versionId}"]?.patch as
       | Record<string, unknown>
       | undefined;
