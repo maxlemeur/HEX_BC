@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -18,6 +18,7 @@ import type {
 } from "@/lib/affaires/server";
 import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 
+import { useToast } from "@/components/ui/Toast";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { UnifiedImportFlow } from "./UnifiedImportFlow";
 
@@ -33,6 +34,7 @@ type AffaireHubProps = {
     timeline?: string;
     dpgfSource?: string;
   };
+  justCreated?: boolean;
 };
 
 /* ------------------------------------------------------------------ */
@@ -214,7 +216,7 @@ function VersionTimelineCard({
         </h2>
         <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]">
           {pagination.total_count} version
-          {pagination.total_count > 1 ? "s" : ""}
+          {pagination.total_count !== 1 ? "s" : ""}
         </span>
       </div>
 
@@ -715,10 +717,22 @@ export function AffaireHub({
   timeline,
   dpgfSource,
   sectionErrors,
+  justCreated,
 }: AffaireHubProps) {
   const router = useRouter();
+  const toast = useToast();
   const currentVersionId = summary.currentVersion?.id ?? null;
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
+
+  useEffect(() => {
+    if (justCreated) {
+      toast.success({
+        title: "Affaire creee",
+        description: "Commencez le chiffrage ou importez un DPGF.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once on mount
+  }, []);
 
   const [showImportFlow, setShowImportFlow] = useState(false);
   const [importResult, setImportResult] =

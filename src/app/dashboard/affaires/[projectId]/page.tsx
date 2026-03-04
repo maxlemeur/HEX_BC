@@ -16,6 +16,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const { projectId } = await params;
   const search = await searchParams;
 
+  const justCreated =
+    typeof search.created === "string" && search.created === "1";
+
   const timelinePageRaw =
     typeof search.timelinePage === "string"
       ? Number.parseInt(search.timelinePage, 10)
@@ -75,6 +78,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       timeline={timeline}
       dpgfSource={dpgfSource}
       sectionErrors={sectionErrors}
+      justCreated={justCreated}
     />
   );
 }

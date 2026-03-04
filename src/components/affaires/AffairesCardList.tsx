@@ -113,7 +113,7 @@ export function AffairesCardList({
                 )}
               </div>
               <span className="text-xs text-[var(--slate-400)] shrink-0">
-                {item.versionCount} version{item.versionCount > 1 ? "s" : ""}
+                {item.versionCount} version{item.versionCount !== 1 ? "s" : ""}
               </span>
             </div>
 
