@@ -34,6 +34,7 @@ export type AnomalyType =
   | "empty_designation";
 
 type InclusionFilter = "all" | "included" | "excluded";
+type VerificationFilter = "all" | "verified" | "unverified";
 type AnomalyFilter = "all" | "with_anomalies" | "without_anomalies";
 type ConfidenceFilter = "all" | "high" | "medium" | "low" | "missing";
 type SortField = "designation" | "quantity" | "category" | "confidence";
@@ -51,6 +52,10 @@ export const ANOMALY_LABELS: Record<AnomalyType, string> = {
   zero_quantity: "Quantite nulle ou negative",
   empty_designation: "Designation vide",
 };
+
+function getConfidenceSortValue(confidence: number | null): number {
+  return confidence === null ? 2 : confidence;
+}
 
 // ---------------------------------------------------------------------------
 // Anomaly detection (exported for reuse)
@@ -227,9 +232,11 @@ export default function TakeoffReviewTable({
   // ---- Filter/sort state
   const [searchQuery, setSearchQuery] = useState("");
   const [inclusionFilter, setInclusionFilter] = useState<InclusionFilter>("all");
+  const [verificationFilter, setVerificationFilter] =
+    useState<VerificationFilter>("all");
   const [anomalyFilter, setAnomalyFilter] = useState<AnomalyFilter>("all");
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all");
-  const [sortField, setSortField] = useState<SortField>("designation");
+  const [sortField, setSortField] = useState<SortField>("confidence");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [pageFilter, setPageFilter] = useState<string>("all");
   const [tableFilter, setTableFilter] = useState<string>("all");
@@ -289,6 +296,13 @@ export default function TakeoffReviewTable({
       result = result.filter((i) => i.is_excluded);
     }
 
+    // Verification filter
+    if (verificationFilter === "verified") {
+      result = result.filter((i) => i.is_verified);
+    } else if (verificationFilter === "unverified") {
+      result = result.filter((i) => !i.is_verified);
+    }
+
     // Category filter
     if (categoryFilter !== "all") {
       result = result.filter(
@@ -342,13 +356,25 @@ export default function TakeoffReviewTable({
         const cb = (typeof b.metadata.category === "string" ? b.metadata.category : "") as string;
         cmp = ca.localeCompare(cb, "fr");
       } else if (sortField === "confidence") {
-        cmp = (a.confidence ?? 0) - (b.confidence ?? 0);
+        cmp = getConfidenceSortValue(a.confidence) - getConfidenceSortValue(b.confidence);
       }
       return sortDirection === "asc" ? cmp : -cmp;
     });
 
     return result;
-  }, [items, searchQuery, inclusionFilter, categoryFilter, pageFilter, tableFilter, anomalyFilter, confidenceFilter, sortField, sortDirection]);
+  }, [
+    items,
+    searchQuery,
+    inclusionFilter,
+    verificationFilter,
+    categoryFilter,
+    pageFilter,
+    tableFilter,
+    anomalyFilter,
+    confidenceFilter,
+    sortField,
+    sortDirection,
+  ]);
 
   // ---- Spreadsheet navigation
   const navigationRows: SpreadsheetNavigationRow[] = useMemo(
@@ -434,6 +460,15 @@ export default function TakeoffReviewTable({
     [sortField]
   );
 
+  const handleSortFieldSelect = useCallback(
+    (field: SortField) => {
+      if (field === sortField) return;
+      setSortField(field);
+      setSortDirection("asc");
+    },
+    [sortField]
+  );
+
   const selectedCount = selectedIds.size;
   const filteredSelectedCount = filteredItems.filter((i) =>
     selectedIds.has(i.id)
@@ -461,6 +496,19 @@ export default function TakeoffReviewTable({
           <option value="all">Toutes</option>
           <option value="included">Incluses</option>
           <option value="excluded">Exclues</option>
+        </select>
+
+        {/* Verification filter */}
+        <select
+          className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
+          value={verificationFilter}
+          onChange={(e) =>
+            setVerificationFilter(e.target.value as VerificationFilter)
+          }
+        >
+          <option value="all">Tous statuts verif</option>
+          <option value="verified">Verifies</option>
+          <option value="unverified">Non verifies</option>
         </select>
 
         {/* Category filter */}
@@ -539,7 +587,7 @@ export default function TakeoffReviewTable({
         <select
           className="h-9 rounded-lg border border-[var(--border)] bg-white px-2 text-sm"
           value={sortField}
-          onChange={(e) => handleSortChange(e.target.value as SortField)}
+          onChange={(e) => handleSortFieldSelect(e.target.value as SortField)}
         >
           <option value="designation">Tri: Designation</option>
           <option value="quantity">Tri: Quantite</option>

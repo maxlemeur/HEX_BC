@@ -71,6 +71,22 @@ describe("TakeoffReviewTable (controlled)", () => {
     expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
   });
 
+  it("sorts by confidence ascending by default (low first)", () => {
+    render(
+      <TakeoffReviewTable
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, confidence: 0.92, designation: "High" }),
+          makeReviewItem({ id: ITEM_ID_2, confidence: 0.21, designation: "Low" }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const rows = screen.getAllByRole("row").slice(1);
+    const firstDesignation = rows[0]?.textContent ?? "";
+    expect(firstDesignation).toContain("Low");
+  });
+
   it("displays correct confidence badge colors", () => {
     render(
       <TakeoffReviewTable
@@ -121,6 +137,32 @@ describe("TakeoffReviewTable (controlled)", () => {
 
     expect(screen.queryByText("Included")).toBeNull();
     expect(screen.getByText("Excluded")).toBeDefined();
+  });
+
+  it("filters items by verification status", () => {
+    render(
+      <TakeoffReviewTable
+        items={[
+          makeReviewItem({ id: ITEM_ID_1, designation: "Verified item", is_verified: true }),
+          makeReviewItem({ id: ITEM_ID_2, designation: "Pending item", is_verified: false }),
+        ]}
+        {...defaultProps}
+      />
+    );
+
+    const allOptions = document.querySelectorAll("option");
+    let verificationSelect: HTMLSelectElement | null = null;
+    for (const option of allOptions) {
+      if (option.textContent?.trim() === "Non verifies") {
+        verificationSelect = option.closest("select");
+        break;
+      }
+    }
+    expect(verificationSelect).not.toBeNull();
+    fireEvent.change(verificationSelect!, { target: { value: "verified" } });
+
+    expect(screen.getByText("Verified item")).toBeDefined();
+    expect(screen.queryByText("Pending item")).toBeNull();
   });
 
   it("sorts items by quantity", () => {

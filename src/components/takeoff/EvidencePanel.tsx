@@ -47,6 +47,86 @@ function getBarColor(confidence: number | null): string {
   return "var(--danger)";
 }
 
+const SIGNED_DOCUMENT_URL_KEYS = [
+  "signed_document_url",
+  "source_signed_url",
+  "source_document_url",
+  "source_file_signed_url",
+  "download_url",
+  "signed_url",
+] as const;
+
+const SIGNED_DOCUMENT_NESTED_KEYS = [
+  "source",
+  "document",
+  "signed_document",
+  "source_document",
+] as const;
+
+const NESTED_URL_KEYS = [
+  "signed_url",
+  "signedUrl",
+  "download_url",
+  "downloadUrl",
+  "url",
+] as const;
+
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function toSafeHttpUrl(value: unknown): string | null {
+  const normalized = toNonEmptyString(value);
+  if (!normalized) return null;
+
+  try {
+    const url = new URL(normalized);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+function resolveSignedDocumentUrl(metadata: Record<string, unknown>): string | null {
+  for (const key of SIGNED_DOCUMENT_URL_KEYS) {
+    const directUrl = toSafeHttpUrl(metadata[key]);
+    if (directUrl) return directUrl;
+  }
+
+  for (const containerKey of SIGNED_DOCUMENT_NESTED_KEYS) {
+    const container = metadata[containerKey];
+    if (!container || typeof container !== "object" || Array.isArray(container)) {
+      continue;
+    }
+    const containerRecord = container as Record<string, unknown>;
+    for (const nestedKey of NESTED_URL_KEYS) {
+      const nestedUrl = toSafeHttpUrl(containerRecord[nestedKey]);
+      if (nestedUrl) return nestedUrl;
+    }
+  }
+
+  return null;
+}
+
+function buildSignedDocumentHref(url: string, sourcePage: number | null): string {
+  if (!sourcePage || sourcePage < 1 || url.includes("#")) {
+    return url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    parsed.hash = `page=${sourcePage}`;
+    return parsed.toString();
+  } catch {
+    return `${url}#page=${sourcePage}`;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -112,6 +192,10 @@ export function EvidencePanel({
   const { label: confLabel, variant: confVariant } = getConfidenceLabel(item.confidence);
   const pct = item.confidence !== null ? Math.round(item.confidence * 100) : null;
   const barColor = getBarColor(item.confidence);
+  const signedDocumentUrl = resolveSignedDocumentUrl(item.metadata);
+  const signedDocumentHref = signedDocumentUrl
+    ? buildSignedDocumentHref(signedDocumentUrl, item.source_page)
+    : null;
 
   return (
     <>
@@ -216,7 +300,7 @@ export function EvidencePanel({
           </div>
 
           {/* Source */}
-          {(item.source_file_name || item.source_page !== null) && (
+          {(item.source_file_name || item.source_page !== null || signedDocumentHref) && (
             <div>
               <label className="text-xs font-medium uppercase text-[var(--slate-500)]">
                 Source
@@ -231,6 +315,16 @@ export function EvidencePanel({
                   </span>
                 )}
               </p>
+              {signedDocumentHref && (
+                <a
+                  href={signedDocumentHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex text-xs font-medium text-[var(--info)] hover:underline"
+                >
+                  Ouvrir document signe
+                </a>
+              )}
             </div>
           )}
 
@@ -333,4 +427,3 @@ export function EvidencePanel({
     </>
   );
 }
-

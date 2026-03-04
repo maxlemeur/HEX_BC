@@ -127,6 +127,64 @@ describe("EvidencePanel", () => {
     expect(screen.getByText("page 3")).toBeDefined();
   });
 
+  it("displays signed document link from metadata with page anchor", () => {
+    render(
+      <EvidencePanel
+        item={makeItem({
+          metadata: {
+            category: "tuyauterie",
+            signed_document_url: "https://files.example.com/plan.pdf?token=abc",
+          },
+          source_page: 3,
+        })}
+        {...defaultProps}
+      />
+    );
+
+    const link = screen.getByRole("link", { name: /ouvrir document signe/i });
+    expect(link.getAttribute("href")).toBe(
+      "https://files.example.com/plan.pdf?token=abc#page=3"
+    );
+  });
+
+  it("displays signed document link even when source file/page are absent", () => {
+    render(
+      <EvidencePanel
+        item={makeItem({
+          source_file_name: null,
+          source_page: null,
+          metadata: {
+            category: "tuyauterie",
+            signed_document_url: "https://files.example.com/plan.pdf",
+          },
+        })}
+        {...defaultProps}
+      />
+    );
+
+    expect(
+      screen.getByRole("link", { name: /ouvrir document signe/i })
+    ).toBeDefined();
+  });
+
+  it("does not render signed document link for unsafe urls", () => {
+    render(
+      <EvidencePanel
+        item={makeItem({
+          metadata: {
+            category: "tuyauterie",
+            signed_document_url: "javascript:alert('x')",
+          },
+        })}
+        {...defaultProps}
+      />
+    );
+
+    expect(
+      screen.queryByRole("link", { name: /ouvrir document signe/i })
+    ).toBeNull();
+  });
+
   it("displays evidence text when present", () => {
     render(<EvidencePanel item={makeItem()} {...defaultProps} />);
     expect(

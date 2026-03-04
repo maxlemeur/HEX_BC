@@ -77,6 +77,8 @@ describe("TakeoffExchangeSchema", () => {
           designation: "Fenetre aluminium",
           quantity: 12,
           unit: "u",
+          confidence: 0.74,
+          source_page: 3,
           evidence: "Comptage visuel sur plan RDC et R+1.",
         },
       ],
@@ -105,6 +107,8 @@ describe("TakeoffExchangeSchema", () => {
           designation: "Fenetre aluminium",
           quantity: 12,
           unit: "u",
+          confidence: 0.74,
+          source_page: 3,
           evidence: "Comptage visuel sur plan RDC et R+1.",
         },
       ],
@@ -125,6 +129,8 @@ describe("TakeoffExchangeSchema", () => {
           designation: "Fenetre aluminium",
           quantity: 12,
           unit: "u",
+          confidence: 0.74,
+          source_page: 3,
         },
       ],
     };
@@ -135,6 +141,52 @@ describe("TakeoffExchangeSchema", () => {
     expect(parsed.error.issues.some((issue) => issue.path.join(".") === "items.0.evidence")).toBe(
       true
     );
+  });
+
+  it("rejects level C payloads without item confidence", () => {
+    const payload = {
+      ...createBasePayload("C"),
+      confidence: 0.62,
+      items: [
+        {
+          designation: "Fenetre aluminium",
+          quantity: 12,
+          unit: "u",
+          source_page: 3,
+          evidence: "Comptage visuel sur plan RDC et R+1.",
+        },
+      ],
+    };
+    const parsed = TakeoffExchangeSchema.safeParse(payload);
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) => issue.path.join(".") === "items.0.confidence")
+    ).toBe(true);
+  });
+
+  it("rejects level C payloads without item source_page", () => {
+    const payload = {
+      ...createBasePayload("C"),
+      confidence: 0.62,
+      items: [
+        {
+          designation: "Fenetre aluminium",
+          quantity: 12,
+          unit: "u",
+          confidence: 0.74,
+          evidence: "Comptage visuel sur plan RDC et R+1.",
+        },
+      ],
+    };
+    const parsed = TakeoffExchangeSchema.safeParse(payload);
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) => issue.path.join(".") === "items.0.source_page")
+    ).toBe(true);
   });
 
   it("rejects quantity <= 0", () => {
@@ -178,6 +230,8 @@ describe("TakeoffExchangeSchema", () => {
           designation: "Fenetre aluminium",
           quantity: 12,
           unit: "u",
+          confidence: 0.74,
+          source_page: 3,
           evidence: "Comptage visuel sur plan RDC et R+1.",
         },
       ],

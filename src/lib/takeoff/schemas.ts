@@ -124,6 +124,22 @@ export const TakeoffExchangeSchema = takeoffExchangeBaseSchema.superRefine(
       }
 
       payload.items.forEach((item, index) => {
+        if (item.confidence === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "confidence est requis pour chaque item au niveau C.",
+            path: ["items", index, "confidence"],
+          });
+        }
+
+        if (item.source_page === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "source_page est requis pour chaque item au niveau C.",
+            path: ["items", index, "source_page"],
+          });
+        }
+
         if (!item.evidence || item.evidence.trim().length === 0) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
