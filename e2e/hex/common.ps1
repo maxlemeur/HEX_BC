@@ -262,6 +262,39 @@ function Get-VersionIdFromUrl {
   throw "Unable to parse version id from url: $Url"
 }
 
+function Wait-ForSelector {
+  param(
+    [string]$Session,
+    [string]$Selector,
+    [int]$TimeoutSeconds = 10
+  )
+
+  $selectorJson = ConvertTo-Json $Selector -Compress
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+  while ((Get-Date) -lt $deadline) {
+    $isVisible = Invoke-AB $Session "eval" @"
+(() => {
+  const selector = $selectorJson;
+  const element = document.querySelector(selector);
+  if (!element) return false;
+  const style = window.getComputedStyle(element);
+  if (!style) return true;
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
+  return true;
+})();
+"@
+
+    if ($isVisible -eq $true -or "$isVisible" -eq "true") {
+      return
+    }
+
+    Start-Sleep -Milliseconds 250
+  }
+
+  throw "Timeout waiting selector '$Selector'"
+}
+
 function New-Estimate {
   param(
     [string]$BaseUrl,
@@ -275,11 +308,40 @@ function New-Estimate {
   Invoke-AB $Session "open" "$BaseUrl/dashboard/estimates/new" | Out-Null
   Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/new" | Out-Null
 
-  Invoke-AB $Session "find" "label" "Nom projet" "fill" $Project | Out-Null
-  Invoke-AB $Session "find" "label" "Titre" "fill" $Title | Out-Null
-  Invoke-AB $Session "find" "label" "Date devis" "fill" $Date | Out-Null
-  Invoke-AB $Session "find" "label" "Validite" "fill" $Validite | Out-Null
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Creer le chiffrage" | Out-Null
+  Wait-ForSelector -Session $Session -Selector "#wiz-title" -TimeoutSeconds 20
+
+  $hasProjectNameField = Invoke-AB $Session "eval" "Boolean(document.querySelector('#wiz-project-name'))"
+  if ($hasProjectNameField -eq $true -or "$hasProjectNameField" -eq "true") {
+    Invoke-AB $Session "fill" "#wiz-project-name" $Project | Out-Null
+  }
+  Invoke-AB $Session "fill" "#wiz-title" $Title | Out-Null
+
+  Wait-ForButtonEnabledByText -Session $Session -ButtonText "Suivant" -ScopeSelector "main" -TimeoutSeconds 20
+  Click-FirstEnabledButtonByText -Session $Session -ButtonText "Suivant" -ScopeSelector "main"
+
+  Wait-ForSelector -Session $Session -Selector "#wiz-date-devis" -TimeoutSeconds 20
+  Invoke-AB $Session "fill" "#wiz-date-devis" $Date | Out-Null
+  Invoke-AB $Session "fill" "#wiz-validite" $Validite | Out-Null
+
+  Wait-ForButtonEnabledByText -Session $Session -ButtonText "Suivant" -ScopeSelector "main" -TimeoutSeconds 20
+  Click-FirstEnabledButtonByText -Session $Session -ButtonText "Suivant" -ScopeSelector "main"
+
+  $createLabels = @("Créer le chiffrage", "Creer le chiffrage")
+  $didClickCreate = $false
+  foreach ($label in $createLabels) {
+    try {
+      Wait-ForButtonEnabledByText -Session $Session -ButtonText $label -ScopeSelector "main" -TimeoutSeconds 6
+      Click-FirstEnabledButtonByText -Session $Session -ButtonText $label -ScopeSelector "main"
+      $didClickCreate = $true
+      break
+    } catch {
+      continue
+    }
+  }
+
+  if (-not $didClickCreate) {
+    throw "Unable to find create button in estimate wizard."
+  }
 
   $url = Wait-ForUrlRegex -Session $Session -Pattern "/dashboard/estimates/[^/]+/edit" -TimeoutSeconds 60
   return Get-VersionIdFromUrl -Url $url
@@ -297,14 +359,157 @@ function Open-EstimatePrint {
   Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/$VersionId/print" | Out-Null
 }
 
+function Test-EditorSurfaceVisible {
+  param([string]$Session)
+
+  $isVisible = Invoke-AB $Session "eval" @"
+(() => {
+  const root = document.querySelector('main') ?? document;
+  if (root.querySelector('input.estimate-input--title')) return true;
+  if (root.querySelector('.estimate-editor-table')) return true;
+  if (root.querySelector('button[title=\"Paramétrage\"]')) return true;
+  if (root.querySelector('button[title=\"Parametrage\"]')) return true;
+  return Array.from(root.querySelectorAll('button')).some((button) => {
+    const text = String(button.textContent ?? '').replace(/\s+/g, ' ').trim();
+    return (
+      text === '+ Chapitre' ||
+      text === '+ Ligne' ||
+      text === '+ Ajouter un Lot' ||
+      text === '+ Ajouter un Chapitre' ||
+      text === '+ AID'
+    );
+  });
+})();
+"@
+
+  return ($isVisible -eq $true -or "$isVisible" -eq "true")
+}
+
+function Wait-ForEditorSurface {
+  param(
+    [string]$Session,
+    [int]$TimeoutSeconds = 45
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  $lastSnippet = ""
+
+  while ((Get-Date) -lt $deadline) {
+    if (Test-EditorSurfaceVisible -Session $Session) {
+      return
+    }
+
+    $snippet = Invoke-AB $Session "eval" "(document.querySelector('main')?.innerText || '').slice(0, 240)"
+    if ($snippet) {
+      $lastSnippet = [string]$snippet
+    }
+
+    Start-Sleep -Milliseconds 300
+  }
+
+  if ($lastSnippet) {
+    throw "Timeout waiting editor surface. Last main text: $lastSnippet"
+  }
+
+  throw "Timeout waiting editor surface."
+}
+
+function Try-ClickButtonByLabels {
+  param(
+    [string]$Session,
+    [string[]]$Labels,
+    [string]$ScopeSelector = "main",
+    [int]$TimeoutPerLabelSeconds = 6
+  )
+
+  foreach ($label in $Labels) {
+    try {
+      Wait-ForButtonEnabledByText -Session $Session -ButtonText $label -ScopeSelector $ScopeSelector -TimeoutSeconds $TimeoutPerLabelSeconds
+      Click-FirstEnabledButtonByText -Session $Session -ButtonText $label -ScopeSelector $ScopeSelector
+      return $true
+    } catch {
+      continue
+    }
+  }
+
+  return $false
+}
+
+function Try-ClickButtonByLabelsAnyVisibility {
+  param(
+    [string]$Session,
+    [string[]]$Labels,
+    [string]$ScopeSelector = "main"
+  )
+
+  foreach ($label in $Labels) {
+    $labelJson = ConvertTo-Json $label -Compress
+    $scopeSelectorJson = ConvertTo-Json $ScopeSelector -Compress
+    $clicked = Invoke-AB $Session "eval" @"
+(() => {
+  const text = $labelJson;
+  const scopeSelector = $scopeSelectorJson;
+  const root = scopeSelector ? document.querySelector(scopeSelector) : document;
+  if (!root) return false;
+  const button = Array.from(root.querySelectorAll('button')).find((candidate) => {
+    const candidateText = String(candidate.textContent ?? '').replace(/\s+/g, ' ').trim();
+    return candidateText === text && !candidate.disabled;
+  });
+  if (!button) return false;
+  button.click();
+  return true;
+})();
+"@
+    if ($clicked -eq $true -or "$clicked" -eq "true") {
+      return $true
+    }
+  }
+
+  return $false
+}
+
 function Go-EditorTab {
   param([string]$Session)
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Editeur" | Out-Null
+
+  Try-ClickButtonByLabels -Session $Session -Labels @("Editeur", "Éditeur") | Out-Null
+  Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
 }
 
 function Go-ParamsTab {
   param([string]$Session)
-  Invoke-AB $Session "find" "role" "button" "click" "--name" "Parametrage" | Out-Null
+
+  Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
+  $clicked = Try-ClickButtonByLabels -Session $Session -Labels @("Parametrage", "Paramétrage")
+
+  if (-not $clicked) {
+    $clickedByTitle = Invoke-AB $Session "eval" @"
+(() => {
+  const selectors = [
+    'button[title="Paramétrage"]',
+    'button[title="Parametrage"]'
+  ];
+  for (const selector of selectors) {
+    const button = document.querySelector(selector);
+    if (button && !button.disabled) {
+      button.click();
+      return true;
+    }
+  }
+  return false;
+})();
+"@
+    $clicked = ($clickedByTitle -eq $true -or "$clickedByTitle" -eq "true")
+  }
+
+  if (-not $clicked) {
+    $alreadyOpen = Invoke-AB $Session "eval" "Boolean(document.querySelector('[aria-label=\"Paramétrage du devis\"]'))"
+    if ($alreadyOpen -eq $true -or "$alreadyOpen" -eq "true") {
+      return
+    }
+    throw "Unable to find settings access button."
+  }
+
+  Wait-ForSelector -Session $Session -Selector "[aria-label='Paramétrage du devis']" -TimeoutSeconds 20
 }
 
 function Set-EditableTitleValue {
@@ -489,19 +694,76 @@ function Click-FirstEnabledButtonByText {
 
 function Add-Chapter {
   param([string]$Session, [string]$Title)
+
+  Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
   $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
-  Wait-ForButtonEnabledByText -Session $Session -ButtonText "+ Chapitre" -ScopeSelector "main" -TimeoutSeconds 20
-  Click-FirstEnabledButtonByText -Session $Session -ButtonText "+ Chapitre" -ScopeSelector "main"
+  $clicked = Try-ClickButtonByLabels -Session $Session -Labels @(
+    "+ Chapitre",
+    "+ Ajouter un Lot",
+    "+ Ajouter un Chapitre"
+  ) -ScopeSelector "main" -TimeoutPerLabelSeconds 8
+
+  if (-not $clicked) {
+    throw "Unable to find chapter creation button."
+  }
+
   Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 10
   Set-EditableTitleValue -Session $Session -Value $Title
 }
 
 function Add-Line {
   param([string]$Session, [string]$Designation)
+
+  Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
   $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
-  Wait-ForButtonEnabledByText -Session $Session -ButtonText "+ Ligne" -ScopeSelector "main" -TimeoutSeconds 20
-  Click-FirstEnabledButtonByText -Session $Session -ButtonText "+ Ligne" -ScopeSelector "main"
-  Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 10
+  $beforeRows = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row').length")
+  $lineLabels = @("+ Ligne", "+ Ajouter une ligne", "+ Ajouter une ligne Lot")
+  $clicked = Try-ClickButtonByLabels -Session $Session -Labels $lineLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 6
+
+  if (-not $clicked) {
+    $actionsOpened = Invoke-AB $Session "eval" @"
+(() => {
+  const actionButton = Array.from(document.querySelectorAll('main button')).find((button) => {
+    const ariaLabel = String(button.getAttribute('aria-label') ?? '').trim();
+    return ariaLabel === 'Actions' && !button.disabled;
+  });
+  if (!actionButton) return false;
+  actionButton.click();
+  return true;
+})();
+"@
+    if ($actionsOpened -eq $true -or "$actionsOpened" -eq "true") {
+      $clicked = Try-ClickButtonByLabels -Session $Session -Labels $lineLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 4
+      if (-not $clicked) {
+        $clicked = Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels $lineLabels -ScopeSelector "main"
+      }
+    }
+  }
+
+  if (-not $clicked) {
+    $clicked = Try-ClickButtonByLabels -Session $Session -Labels @("+ AID") -ScopeSelector "main" -TimeoutPerLabelSeconds 4
+    if (-not $clicked) {
+      $clicked = Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels @("+ AID") -ScopeSelector "main"
+    }
+  }
+
+  if (-not $clicked) {
+    throw "Unable to find line creation button."
+  }
+
+  try {
+    Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 10
+  } catch {
+    $deadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $deadline) {
+      $rowsNow = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row').length")
+      if ($rowsNow -gt $beforeRows) {
+        break
+      }
+      Start-Sleep -Milliseconds 250
+    }
+  }
+
   Set-EditableTitleValue -Session $Session -Value $Designation
 }
 
