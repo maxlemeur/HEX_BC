@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+
+import { useUserContext } from "@/components/UserContext";
+import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
+import { useUiMode } from "@/hooks/useUiMode";
+import {
+  buildNavGroups,
+  type BuildNavGroupsInput,
+  type NavGroup as SidebarNavGroup,
+} from "@/lib/navigation/build-nav-groups";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,74 +33,26 @@ export type CommandGroup = {
 };
 
 // ---------------------------------------------------------------------------
-// Nav items (mirrors DashboardShell NAV_GROUPS without importing icons)
+// Nav + action items
 // ---------------------------------------------------------------------------
 
-const NAVIGATION_ITEMS: CommandItem[] = [
-  {
-    id: "nav-estimates",
-    group: "navigation",
-    label: "Chiffrages",
-    keywords: ["estimate", "devis", "chiffrage"],
-    href: "/dashboard/estimates",
-  },
-  {
-    id: "nav-imports",
-    group: "navigation",
-    label: "Imports DPGF",
-    keywords: ["import", "dpgf", "decomposition", "prix"],
-    href: "/dashboard/imports",
-  },
-  {
-    id: "nav-mappings",
-    group: "navigation",
-    label: "Mappings",
-    keywords: ["mapping", "correspondance"],
-    href: "/dashboard/mappings",
-  },
-  {
-    id: "nav-orders",
-    group: "navigation",
-    label: "Bons de commande",
-    keywords: ["order", "commande", "bon"],
-    href: "/dashboard/orders",
-  },
-  {
-    id: "nav-referentiel",
-    group: "navigation",
-    label: "Référentiel",
-    keywords: ["referentiel", "produit", "catalogue", "fournisseur"],
-    href: "/dashboard/referentiel",
-  },
-  {
-    id: "nav-tarifs",
-    group: "navigation",
-    label: "Tarifs",
-    keywords: ["tarif", "prix", "price", "indice"],
-    href: "/dashboard/tarifs",
-  },
-  {
-    id: "nav-admin",
-    group: "navigation",
-    label: "Administration",
-    keywords: ["admin", "parametres", "settings", "tenant"],
-    href: "/dashboard/admin",
-  },
-  {
-    id: "nav-takeoff",
-    group: "navigation",
-    label: "Métrés plans",
-    keywords: ["takeoff", "metre", "plan"],
-    href: "/dashboard/takeoff",
-  },
-  {
-    id: "nav-profile",
-    group: "navigation",
-    label: "Mon profil",
-    keywords: ["profile", "profil", "compte"],
-    href: "/dashboard/profile",
-  },
-];
+const NAVIGATION_KEYWORDS_BY_HREF: Readonly<Record<string, string[]>> = {
+  "/dashboard/affaires": ["affaire", "project", "projet", "chiffrage", "devis"],
+  "/dashboard/takeoff": ["takeoff", "metre", "plan"],
+  "/dashboard/orders": ["order", "commande", "bon"],
+  "/dashboard/referentiel": ["referentiel", "produit", "catalogue", "fournisseur"],
+  "/dashboard/tarifs": ["tarif", "prix", "price", "indice"],
+  "/dashboard/admin": ["admin", "parametres", "settings", "tenant"],
+  "/dashboard/profile": ["profile", "profil", "compte"],
+};
+
+const PROFILE_NAV_ITEM: CommandItem = {
+  id: "nav-profile",
+  group: "navigation",
+  label: "Mon profil",
+  keywords: NAVIGATION_KEYWORDS_BY_HREF["/dashboard/profile"],
+  href: "/dashboard/profile",
+};
 
 const ACTION_ITEMS: CommandItem[] = [
   {
@@ -108,14 +69,34 @@ const ACTION_ITEMS: CommandItem[] = [
     keywords: ["creer", "nouveau", "chiffrage", "estimate", "devis"],
     href: "/dashboard/estimates/new",
   },
-  {
-    id: "action-new-import",
-    group: "actions",
-    label: "Nouvel import DPGF",
-    keywords: ["importer", "dpgf", "nouveau"],
-    href: "/dashboard/imports/new",
-  },
 ];
+
+function toNavigationItemId(href: string) {
+  const normalized = href.replace(/^\/+/, "").replace(/[^a-zA-Z0-9]+/g, "-");
+  return `nav-${normalized}`;
+}
+
+export function buildNavigationItemsFromNavGroups(
+  navGroups: SidebarNavGroup[]
+): CommandItem[] {
+  const navigationItems: CommandItem[] = navGroups.flatMap((group) =>
+    group.items.map((item) => ({
+      id: toNavigationItemId(item.href),
+      group: "navigation" as const,
+      label: item.label,
+      keywords: NAVIGATION_KEYWORDS_BY_HREF[item.href] ?? [],
+      href: item.href,
+    }))
+  );
+
+  navigationItems.push(PROFILE_NAV_ITEM);
+
+  return navigationItems;
+}
+
+export function buildNavigationItems(input: BuildNavGroupsInput): CommandItem[] {
+  return buildNavigationItemsFromNavGroups(buildNavGroups(input));
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -163,14 +144,13 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
   );
 }
 
-function loadRecents(): CommandItem[] {
+function loadRecents(allItems: CommandItem[]): CommandItem[] {
   try {
     const raw = localStorage.getItem(RECENTS_KEY);
     if (!raw) return [];
     const ids: string[] = JSON.parse(raw);
-    const all = [...ACTION_ITEMS, ...NAVIGATION_ITEMS];
     return ids
-      .map((id) => all.find((item) => item.id === id))
+      .map((id) => allItems.find((item) => item.id === id))
       .filter((item): item is CommandItem => item != null)
       .map((item) => ({ ...item, group: "recent" as const }));
   } catch {
@@ -196,6 +176,27 @@ function saveRecent(id: string) {
 export function useCommandPalette() {
   const router = useRouter();
   const pathname = usePathname();
+  const { profile } = useUserContext();
+  const { isExpert } = useUiMode();
+  const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
+  const tenantRole = profile?.tenant_role ?? null;
+
+  const navigationItems = useMemo(
+    () =>
+      buildNavigationItems({
+        role: tenantRole,
+        uiMode: isExpert ? "expert" : "simplified",
+        featureFlags: {
+          takeoffEnabled: takeoffStatus === "ready" && isTakeoffEnabled,
+        },
+      }),
+    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled]
+  );
+  const allItems = useMemo(
+    () => [...ACTION_ITEMS, ...navigationItems],
+    [navigationItems]
+  );
+
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -203,11 +204,11 @@ export function useCommandPalette() {
 
   // Reset state when opening
   const openPalette = useCallback(() => {
-    setRecents(loadRecents());
+    setRecents(loadRecents(allItems));
     setQuery("");
     setSelectedIndex(0);
     setOpen(true);
-  }, []);
+  }, [allItems]);
 
   const closePalette = useCallback(() => {
     setOpen(false);
@@ -215,7 +216,6 @@ export function useCommandPalette() {
 
   // Build filtered + grouped results
   const groups: CommandGroup[] = useMemo(() => {
-    const allItems = [...ACTION_ITEMS, ...NAVIGATION_ITEMS];
     const filtered = query
       ? allItems.filter((item) => fuzzyMatch(query, item))
       : allItems;
@@ -242,7 +242,7 @@ export function useCommandPalette() {
     }
 
     return result;
-  }, [query, recents]);
+  }, [query, recents, allItems]);
 
   // Flat list for keyboard nav
   const flatItems = useMemo(

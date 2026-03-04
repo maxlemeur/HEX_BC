@@ -127,6 +127,12 @@ export function DashboardShell({
   );
 
   function isActive(href: string) {
+    if (href === "/dashboard/affaires") {
+      return (
+        pathname.startsWith("/dashboard/affaires") ||
+        pathname.startsWith("/dashboard/estimates")
+      );
+    }
     if (href === "/dashboard/orders") {
       return pathname === "/dashboard" || pathname.startsWith("/dashboard/orders");
     }

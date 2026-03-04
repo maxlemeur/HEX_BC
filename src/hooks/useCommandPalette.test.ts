@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { fuzzyMatch, type CommandItem } from "@/hooks/useCommandPalette";
+import {
+  buildNavigationItems,
+  fuzzyMatch,
+  type CommandItem,
+} from "@/hooks/useCommandPalette";
 
 function makeItem(overrides: Partial<CommandItem> = {}): CommandItem {
   return {
@@ -48,5 +52,41 @@ describe("fuzzyMatch", () => {
 
   it("does not match irrelevant text", () => {
     expect(fuzzyMatch("administration", makeItem())).toBe(false);
+  });
+});
+
+describe("buildNavigationItems", () => {
+  function hrefs(items: CommandItem[]) {
+    return items.map((item) => item.href);
+  }
+
+  it("matches simplified engineer sidebar destinations", () => {
+    const items = buildNavigationItems({
+      role: "engineer",
+      uiMode: "simplified",
+      featureFlags: { takeoffEnabled: false },
+    });
+    const navigationHrefs = hrefs(items);
+
+    expect(navigationHrefs).toContain("/dashboard/affaires");
+    expect(navigationHrefs).toContain("/dashboard/orders");
+    expect(navigationHrefs).toContain("/dashboard/profile");
+    expect(navigationHrefs).not.toContain("/dashboard/imports");
+    expect(navigationHrefs).not.toContain("/dashboard/mappings");
+    expect(navigationHrefs).not.toContain("/dashboard/admin");
+  });
+
+  it("includes expert/admin-only destinations when allowed", () => {
+    const items = buildNavigationItems({
+      role: "admin",
+      uiMode: "expert",
+      featureFlags: { takeoffEnabled: true },
+    });
+    const navigationHrefs = hrefs(items);
+
+    expect(navigationHrefs).toContain("/dashboard/referentiel");
+    expect(navigationHrefs).toContain("/dashboard/tarifs");
+    expect(navigationHrefs).toContain("/dashboard/admin");
+    expect(navigationHrefs).toContain("/dashboard/takeoff");
   });
 });
