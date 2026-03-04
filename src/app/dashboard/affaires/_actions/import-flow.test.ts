@@ -113,9 +113,15 @@ function createMappedRowsBuilder(rows: unknown[]) {
 
   builder.select.mockReturnValue(builder);
   builder.eq.mockReturnValue(builder);
-  builder.order.mockResolvedValue({
-    data: rows,
-    error: null,
+  builder.order.mockImplementation((_column: string) => {
+    if (builder.order.mock.calls.length === 1) {
+      return builder;
+    }
+
+    return Promise.resolve({
+      data: rows,
+      error: null,
+    });
   });
 
   return builder;
@@ -331,6 +337,65 @@ describe("confirmUnifiedImportFlow", () => {
     expect(revalidatePath).toHaveBeenCalledWith(`/dashboard/estimates/${VERSION_ID}/edit`);
   });
 
+  it("sorts RPC lines by row_index before version creation", async () => {
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      importBuilder: createImportSelectBuilder(PROJECT_ID),
+      projectBuilder: createProjectSelectBuilder(true),
+      latestMappingBuilder: createLatestMappingBuilder("mapping-latest"),
+      mappedRowsBuilder: createMappedRowsBuilder([
+        {
+          id: "mapped-b",
+          payload: {
+            row_index: 2,
+            mapped_row: {
+              designation: "Poste B",
+              quantity: "1",
+              unit_price_ht: "10",
+            },
+          },
+        },
+        {
+          id: "mapped-a",
+          payload: {
+            row_index: 1,
+            mapped_row: {
+              designation: "Poste A",
+              quantity: "1",
+              unit_price_ht: "5",
+            },
+          },
+        },
+      ]),
+      versionContextBuilder: createVersionContextBuilder(1, 2000),
+      rpcResult: {
+        data: [
+          {
+            version_id: VERSION_ID,
+            section_id: "77777777-7777-4777-8777-777777777777",
+            inserted_count: 2,
+            total_ht_cents: 1500,
+            total_tax_cents: 300,
+            total_ttc_cents: 1800,
+          },
+        ],
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await confirmUnifiedImportFlow({
+      importId: IMPORT_ID,
+      projectId: PROJECT_ID,
+      createEstimate: true,
+    });
+
+    const rpcCall = vi.mocked(supabase.rpc).mock.calls[0];
+    const payload = rpcCall?.[1] as { p_lines: Array<{ row_index: number }> } | undefined;
+    expect(payload?.p_lines.map((line) => line.row_index)).toEqual([1, 2]);
+  });
+
   it("rejects import linked to another project", async () => {
     const supabase = createSupabaseStub({
       membershipBuilder: createMembershipBuilder(),
@@ -379,4 +444,3 @@ describe("confirmUnifiedImportFlow", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 });
-

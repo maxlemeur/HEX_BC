@@ -197,7 +197,7 @@ begin
     null,
     null,
     null,
-    null,
+    1.0,
     null,
     null,
     null,
@@ -336,4 +336,3 @@ grant execute on function public.create_estimate_version_from_import_lines(
   text,
   jsonb
 ) to authenticated;
-

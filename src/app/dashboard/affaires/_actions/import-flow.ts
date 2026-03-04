@@ -236,7 +236,8 @@ async function fetchMappedRowsForImport(input: {
     .select("id, payload")
     .eq("tenant_id", input.tenantId)
     .eq("import_id", input.importId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
   if (error) {
     throw new Error("Impossible de charger les lignes mappees.");
@@ -246,6 +247,16 @@ async function fetchMappedRowsForImport(input: {
     id: row.id,
     payload: row.payload,
   }));
+}
+
+function sortValidLinesForEstimateCreation(lines: ValidImportFlowLine[]): ValidImportFlowLine[] {
+  return [...lines].sort((left, right) => {
+    if (left.rowIndex !== right.rowIndex) {
+      return left.rowIndex - right.rowIndex;
+    }
+
+    return left.mappedRowId.localeCompare(right.mappedRowId);
+  });
 }
 
 async function fetchLatestMappingId(input: {
@@ -448,7 +459,7 @@ export async function confirmUnifiedImportFlow(
     projectId,
     versionTitle: normalizeNullableText(parsed.data.versionTitle),
     sectionTitle: normalizeNullableText(parsed.data.sectionTitle),
-    lines: normalizedRows.validLines,
+    lines: sortValidLinesForEstimateCreation(normalizedRows.validLines),
   });
 
   const stats = buildImportFlowStats(normalizedRows, createdVersion.inserted_count);
