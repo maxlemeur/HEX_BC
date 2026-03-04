@@ -464,11 +464,13 @@ function UploadStep({
 function MappingStep({
   importId,
   isSimplified,
+  initialMapping,
   forceShowMapping,
   onNext,
 }: {
   importId: string;
   isSimplified: boolean;
+  initialMapping?: ColumnMapping;
   forceShowMapping?: boolean;
   onNext: (result: {
     mapping: ColumnMapping;
@@ -477,7 +479,7 @@ function MappingStep({
   }) => void;
 }) {
   const [sourceColumns, setSourceColumns] = useState<string[]>([]);
-  const [mapping, setMapping] = useState<ColumnMapping>({});
+  const [mapping, setMapping] = useState<ColumnMapping>(initialMapping ?? {});
   const [sampleValues, setSampleValues] = useState<Record<string, string[]>>(
     {},
   );
@@ -494,6 +496,7 @@ function MappingStep({
   // Initial loading state = true (data fetched immediately on mount)
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hasInitialMapping = Object.keys(initialMapping ?? {}).length > 0;
 
   // Validate mapping: required fields present + no duplicate targets
   const isMappingValid = useMemo(() => {
@@ -528,7 +531,7 @@ function MappingStep({
         if (cancelled) return;
         setSourceColumns(data.source_columns ?? []);
         setSampleValues(data.sample_values ?? {});
-        setMapping(data.suggestions ?? {});
+        setMapping(hasInitialMapping ? (initialMapping ?? {}) : (data.suggestions ?? {}));
         setConfidenceBySource(data.confidence_by_source ?? {});
         setTemplateExactMatch(data.template_exact_match ?? null);
         setAutoValidation(data.auto_validation ?? null);
@@ -556,7 +559,7 @@ function MappingStep({
     return () => {
       cancelled = true;
     };
-  }, [importId, isSimplified]);
+  }, [importId, isSimplified, hasInitialMapping, initialMapping]);
 
   // UX2-010: auto-advance to preview once loaded + eligible
   useEffect(() => {
@@ -1003,8 +1006,10 @@ export function UnifiedImportFlow({
 
   const handleImportReady = useCallback((id: string) => {
     setImportId(id);
+    setCurrentMapping({});
     setWasAutoAdvanced(false);
     setAutoAppliedTemplateMatch(null);
+    setPreviewData(null);
     startTransition(() => setStep("mapping"));
   }, []);
 
@@ -1091,7 +1096,8 @@ export function UnifiedImportFlow({
         <MappingStep
           importId={importId}
           isSimplified={isSimplified}
-          forceShowMapping={!wasAutoAdvanced}
+          initialMapping={currentMapping}
+          forceShowMapping={Object.keys(currentMapping).length > 0}
           onNext={handleMappingNext}
         />
       )}
