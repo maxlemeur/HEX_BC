@@ -1918,6 +1918,27 @@ export type Database = {
         };
         Returns: number;
       };
+      get_affaires_counters: {
+        Args: {
+          p_tenant_id: string;
+          p_owner_user_id: string | null;
+          p_search?: string | null;
+          p_statuses?: (
+            | "draft"
+            | "sent"
+            | "accepted"
+            | "archived"
+          )[] | null;
+        };
+        Returns: {
+          total_count: number;
+          filtered_count: number;
+          draft_count: number;
+          sent_count: number;
+          accepted_count: number;
+          archived_count: number;
+        }[];
+      };
       get_suggestion_learnings: {
         Args: {
           target_tenant_id?: string;
@@ -2090,6 +2111,36 @@ export type Database = {
           ordered_devis_ids: string[];
         };
         Returns: number;
+      };
+      list_affaires_page: {
+        Args: {
+          p_tenant_id: string;
+          p_owner_user_id: string | null;
+          p_limit?: number;
+          p_search?: string | null;
+          p_statuses?: (
+            | "draft"
+            | "sent"
+            | "accepted"
+            | "archived"
+          )[] | null;
+          p_cursor_updated_at?: string | null;
+          p_cursor_project_id?: string | null;
+        };
+        Returns: {
+          project_id: string;
+          project_name: string;
+          project_reference: string | null;
+          project_client: string | null;
+          version_count: number;
+          current_version_id: string;
+          current_version_number: number;
+          current_status: "draft" | "sent" | "accepted" | "archived";
+          current_total_ht_cents: number;
+          current_updated_at: string;
+          accepted_version_id: string | null;
+          accepted_version_number: number | null;
+        }[];
       };
     };
     Enums: {
