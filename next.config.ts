@@ -9,13 +9,8 @@ const nextConfig: NextConfig = {
         permanent: false,
       },
       {
-        source: "/dashboard/imports/:path*",
-        destination: "/dashboard/affaires",
-        permanent: false,
-      },
-      {
-        source: "/dashboard/mappings/:path*",
-        destination: "/dashboard/affaires",
+        source: "/dashboard/estimates/dashboard",
+        destination: "/dashboard/analytics",
         permanent: false,
       },
     ];
