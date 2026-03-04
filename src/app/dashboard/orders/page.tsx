@@ -12,6 +12,7 @@ import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { PurchaseOrderStatusUpdater } from "@/components/PurchaseOrderStatusUpdater";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { FilterConfig, SortOption } from "@/components/TableFilterBar";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
   exportToCSV,
@@ -300,6 +301,8 @@ export default function OrdersPage() {
   const [showUploaderForOrder, setShowUploaderForOrder] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [downloadingOrderId, setDownloadingOrderId] = useState<string | null>(null);
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const [confirmDeleteOrder, setConfirmDeleteOrder] = useState<{ id: string; reference: string } | null>(null);
   const [menuPlacement, setMenuPlacement] = useState<"down" | "up">("down");
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -567,6 +570,27 @@ export default function OrdersPage() {
       setOpenMenuId(null);
     }
   }, [downloadingOrderId]);
+
+  const handleDeleteOrder = useCallback(async () => {
+    if (!confirmDeleteOrder) return;
+    setDeletingOrderId(confirmDeleteOrder.id);
+    try {
+      const res = await fetch(`/api/purchase-orders/${confirmDeleteOrder.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Echec de la suppression.");
+      }
+      setConfirmDeleteOrder(null);
+      setOpenMenuId(null);
+      void mutate();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setDeletingOrderId(null);
+    }
+  }, [confirmDeleteOrder, mutate]);
 
   useEffect(() => {
     setPortalTarget(typeof document === "undefined" ? null : document.body);
@@ -937,6 +961,36 @@ export default function OrdersPage() {
                           }}
                         />
                       </div>
+                      {order.status === "draft" && (
+                        <>
+                          <div className="action-menu__divider" />
+                          <button
+                            className="action-menu__item action-menu__item--danger"
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                              setOpenMenuId(null);
+                              setConfirmDeleteOrder({ id: order.id, reference: order.reference });
+                            }}
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                            </svg>
+                            Supprimer
+                          </button>
+                        </>
+                      )}
                     </div>
                   ) : null;
 
@@ -1292,6 +1346,21 @@ export default function OrdersPage() {
         open={previewDevis !== null}
         onClose={() => setPreviewDevis(null)}
         devis={previewDevis}
+      />
+
+      {/* Delete confirmation */}
+      <ConfirmModal
+        open={confirmDeleteOrder !== null}
+        title="Supprimer le bon de commande"
+        message={
+          confirmDeleteOrder
+            ? `Etes-vous sur de vouloir supprimer le bon « ${confirmDeleteOrder.reference} » ? Cette action est irreversible.`
+            : ""
+        }
+        confirmLabel={deletingOrderId ? "Suppression..." : "Supprimer"}
+        variant="danger"
+        onConfirm={handleDeleteOrder}
+        onCancel={() => setConfirmDeleteOrder(null)}
       />
     </div>
   );
