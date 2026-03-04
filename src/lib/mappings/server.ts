@@ -1,5 +1,6 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { cache } from "react";
 import { ZodError } from "zod";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -7,6 +8,7 @@ import type { Database, Json } from "@/types/database";
 
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
+  mappingTargetFieldSchema,
   type MappingTargetField,
   type SourceToTargetMapping,
 } from "./schemas";
@@ -84,7 +86,53 @@ export type MappingSuggestion = {
   source_columns: string[];
   templates: TemplateRow[];
   sample_values: Record<string, string[]>;
+  confidence_by_source: Record<string, MappingSuggestionConfidence>;
+  template_exact_match: MappingTemplateExactMatch | null;
+  auto_validation: MappingAutoValidation;
 };
+
+export type MappingConfidenceBand = "high" | "medium" | "low";
+export type MappingSuggestionOrigin = "template" | "memory" | "heuristic";
+
+export type MappingSuggestionConfidence = {
+  target_field: MappingTargetField;
+  score: number;
+  band: MappingConfidenceBand;
+  origin: MappingSuggestionOrigin;
+  usage_count: number | null;
+  memory_confidence: number | null;
+};
+
+export type MappingTemplateExactMatch = {
+  id: string;
+  name: string;
+  supplier_name: string | null;
+  score: number;
+};
+
+export type MappingAutoValidation = {
+  can_auto_validate: boolean;
+  threshold: number;
+  required_fields: MappingTargetField[];
+  missing_required_fields: MappingTargetField[];
+  low_confidence_required_fields: MappingTargetField[];
+};
+
+type MappingSuggestionCandidate = {
+  source_column: string;
+  target_field: MappingTargetField;
+  score: number;
+  origin: MappingSuggestionOrigin;
+  usage_count: number | null;
+  memory_confidence: number | null;
+};
+
+const HIGH_CONFIDENCE_THRESHOLD = 0.8;
+const MEDIUM_CONFIDENCE_THRESHOLD = 0.5;
+const MEMORY_CONFIDENCE_WEIGHT = 0.4;
+const MEMORY_USAGE_WEIGHT = 0.6;
+const MEMORY_USAGE_LOG_BASE = Math.log(6);
+const MAPPING_TARGET_FIELD_SET = new Set<MappingTargetField>(mappingTargetFieldSchema.options);
 
 export class MappingsApiError extends Error {
   readonly status: 400 | 401 | 403 | 404 | 409 | 500;
@@ -261,6 +309,25 @@ function normalizeComparisonToken(value: unknown): string {
   return normalizeText(value).toLowerCase();
 }
 
+function clampScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+function roundScore(value: number): number {
+  return Number(clampScore(value).toFixed(4));
+}
+
+function getConfidenceBand(score: number): MappingConfidenceBand {
+  if (score > HIGH_CONFIDENCE_THRESHOLD) return "high";
+  if (score >= MEDIUM_CONFIDENCE_THRESHOLD) return "medium";
+  return "low";
+}
+
+function normalizeSourceColumnKey(sourceColumn: string): string {
+  return stripAccents(sourceColumn.trim().toLowerCase()).replace(/\s+/g, " ");
+}
+
 function toJsonValue(value: unknown): Json {
   if (value === null) return null;
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -282,6 +349,183 @@ function toJsonValue(value: unknown): Json {
 
 function stripAccents(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeTemplateMapping(value: unknown): SourceToTargetMapping {
+  const record = asRecord(value);
+  if (!record) return {};
+
+  const normalized: SourceToTargetMapping = {};
+
+  for (const [sourceColumn, targetField] of Object.entries(record)) {
+    const source = sourceColumn.trim();
+    const target = typeof targetField === "string" ? targetField.trim() : "";
+    if (!source || !target) continue;
+    if (!MAPPING_TARGET_FIELD_SET.has(target as MappingTargetField)) continue;
+
+    normalized[source] = target as MappingTargetField;
+  }
+
+  return normalized;
+}
+
+function remapMappingToDetectedSourceColumns(
+  mapping: SourceToTargetMapping,
+  sourceColumns: string[]
+): SourceToTargetMapping {
+  if (sourceColumns.length === 0) return {};
+  if (Object.keys(mapping).length === 0) return {};
+
+  const normalizedSourceToActual = new Map<string, string>();
+  for (const sourceColumn of sourceColumns) {
+    const normalized = normalizeSourceColumnKey(sourceColumn);
+    if (!normalizedSourceToActual.has(normalized)) {
+      normalizedSourceToActual.set(normalized, sourceColumn);
+    }
+  }
+
+  const output: SourceToTargetMapping = {};
+  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
+    const normalized = normalizeSourceColumnKey(sourceColumn);
+    const actualSourceColumn = normalizedSourceToActual.get(normalized);
+    if (!actualSourceColumn) continue;
+    output[actualSourceColumn] = targetField;
+  }
+
+  return output;
+}
+
+function findTemplateExactMatch(
+  sourceColumns: string[],
+  templates: TemplateRow[]
+): { template: TemplateRow; mapping: SourceToTargetMapping } | null {
+  if (sourceColumns.length === 0 || templates.length === 0) return null;
+
+  const expectedSet = new Set(sourceColumns.map((column) => normalizeSourceColumnKey(column)));
+
+  for (const template of templates) {
+    const templateMapping = normalizeTemplateMapping(template.mapping);
+    const templateColumns = Object.keys(templateMapping);
+    if (templateColumns.length !== expectedSet.size) continue;
+
+    const templateSet = new Set(
+      templateColumns.map((column) => normalizeSourceColumnKey(column))
+    );
+
+    if (templateSet.size !== expectedSet.size) continue;
+
+    let exactMatch = true;
+    for (const expected of expectedSet) {
+      if (!templateSet.has(expected)) {
+        exactMatch = false;
+        break;
+      }
+    }
+    if (!exactMatch) continue;
+
+    return {
+      template,
+      mapping: remapMappingToDetectedSourceColumns(templateMapping, sourceColumns),
+    };
+  }
+
+  return null;
+}
+
+function getCandidateOriginPriority(origin: MappingSuggestionOrigin): number {
+  if (origin === "template") return 3;
+  if (origin === "memory") return 2;
+  return 1;
+}
+
+function computeMemorySuggestionScore(memoryRow: Pick<MemoryRow, "usage_count" | "confidence">) {
+  const usageCount = Math.max(0, Number(memoryRow.usage_count ?? 0));
+  const confidence = clampScore(Number(memoryRow.confidence ?? 0));
+
+  const usageSignal =
+    MEMORY_USAGE_LOG_BASE > 0
+      ? Math.min(1, Math.log(usageCount + 1) / MEMORY_USAGE_LOG_BASE)
+      : 0;
+
+  const score =
+    MEMORY_CONFIDENCE_WEIGHT * confidence +
+    MEMORY_USAGE_WEIGHT * usageSignal;
+
+  return {
+    score: roundScore(score),
+    usage_count: usageCount,
+    memory_confidence: roundScore(confidence),
+  };
+}
+
+function chooseBestCandidatePerTarget(
+  candidatesBySource: Map<string, MappingSuggestionCandidate>
+) {
+  const sortedCandidates = Array.from(candidatesBySource.values()).sort((left, right) => {
+    if (left.score !== right.score) return right.score - left.score;
+
+    const priorityDiff =
+      getCandidateOriginPriority(right.origin) -
+      getCandidateOriginPriority(left.origin);
+    if (priorityDiff !== 0) return priorityDiff;
+
+    if ((left.usage_count ?? 0) !== (right.usage_count ?? 0)) {
+      return (right.usage_count ?? 0) - (left.usage_count ?? 0);
+    }
+
+    if ((left.memory_confidence ?? 0) !== (right.memory_confidence ?? 0)) {
+      return (right.memory_confidence ?? 0) - (left.memory_confidence ?? 0);
+    }
+
+    return left.source_column.localeCompare(right.source_column);
+  });
+
+  const selectedBySource = new Map<string, MappingSuggestionCandidate>();
+  const usedTargets = new Set<MappingTargetField>();
+
+  for (const candidate of sortedCandidates) {
+    if (usedTargets.has(candidate.target_field)) continue;
+    usedTargets.add(candidate.target_field);
+    selectedBySource.set(candidate.source_column, candidate);
+  }
+
+  return selectedBySource;
+}
+
+function buildAutoValidationSummary(
+  suggestions: SourceToTargetMapping,
+  confidenceBySource: Record<string, MappingSuggestionConfidence>
+): MappingAutoValidation {
+  const missingRequiredFields: MappingTargetField[] = [];
+  const lowConfidenceRequiredFields: MappingTargetField[] = [];
+
+  for (const requiredField of REQUIRED_MAPPING_TARGET_FIELDS) {
+    const sourceEntry = Object.entries(suggestions).find(
+      ([, targetField]) => targetField === requiredField
+    );
+
+    if (!sourceEntry) {
+      missingRequiredFields.push(requiredField);
+      continue;
+    }
+
+    const [sourceColumn] = sourceEntry;
+    const metadata = confidenceBySource[sourceColumn];
+    const score = metadata?.score ?? 0;
+    if (score <= HIGH_CONFIDENCE_THRESHOLD) {
+      lowConfidenceRequiredFields.push(requiredField);
+    }
+  }
+
+  return {
+    can_auto_validate:
+      missingRequiredFields.length === 0 &&
+      lowConfidenceRequiredFields.length === 0,
+    threshold: HIGH_CONFIDENCE_THRESHOLD,
+    required_fields: [...REQUIRED_MAPPING_TARGET_FIELDS],
+    missing_required_fields: missingRequiredFields,
+    low_confidence_required_fields: lowConfidenceRequiredFields,
+  };
 }
 
 function toSourceColumns(rows: Array<{ payload: unknown }>) {
@@ -474,7 +718,9 @@ function computeDuplicateGroupsFromPreview(rows: MappingPreviewRow[]) {
   return duplicates;
 }
 
-export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetField | null {
+function guessTargetFieldWithScore(
+  sourceColumn: string
+): { target: MappingTargetField; score: number } | null {
   const normalized = stripAccents(sourceColumn.trim().toLowerCase()).replace(/[^a-z0-9]+/g, " ");
   const words = normalized.split(" ").filter(Boolean);
   const wordSet = new Set(words);
@@ -486,14 +732,14 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
     (wordSet.has("type") && wordSet.has("fo")) ||
     (wordSet.has("famille") && wordSet.has("fo"))
   ) {
-    return "supply_type";
+    return { target: "supply_type", score: 0.58 };
   }
 
   if (
     (wordSet.has("majoration") && wordSet.has("mo")) ||
     (wordSet.has("temps") && hasWordPrefix("major"))
   ) {
-    return "h_mo_majoration";
+    return { target: "h_mo_majoration", score: 0.57 };
   }
 
   if (
@@ -504,7 +750,7 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
         normalized.includes("produit"))) ||
     normalized === "hex"
   ) {
-    return "hex_code";
+    return { target: "hex_code", score: normalized === "hex" ? 0.58 : 0.56 };
   }
 
   if (
@@ -513,7 +759,7 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
     normalized.includes("libelle") ||
     normalized.includes("intitule")
   ) {
-    return "designation";
+    return { target: "designation", score: 0.56 };
   }
 
   if (
@@ -522,7 +768,10 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
     normalized.includes("quantite") ||
     normalized.includes("quantity")
   ) {
-    return "quantity";
+    return {
+      target: "quantity",
+      score: normalized === "qt" || normalized === "qte" ? 0.58 : 0.56,
+    };
   }
 
   if (
@@ -530,7 +779,7 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
     normalized.includes("unite") ||
     normalized.includes("unit")
   ) {
-    return "unit";
+    return { target: "unit", score: normalized === "u" ? 0.55 : 0.52 };
   }
 
   if (
@@ -538,19 +787,19 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
     wordSet.has("pu") ||
     normalized.includes("unit price")
   ) {
-    return "unit_price_ht";
+    return { target: "unit_price_ht", score: wordSet.has("pu") ? 0.58 : 0.55 };
   }
 
   if (normalized.includes("montant") || normalized.includes("total")) {
-    return "total_ht";
+    return { target: "total_ht", score: 0.54 };
   }
 
   if (normalized.includes("categorie") || normalized.includes("famille")) {
-    return "category";
+    return { target: "category", score: 0.5 };
   }
 
   if (normalized.includes("ref") || normalized.includes("reference")) {
-    return "supplier_ref";
+    return { target: "supplier_ref", score: 0.45 };
   }
 
   if (
@@ -559,14 +808,18 @@ export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetF
     normalized.includes("main oeuvre") ||
     normalized.includes("labor")
   ) {
-    return "labor_hours";
+    return { target: "labor_hours", score: 0.53 };
   }
 
   if (normalized.includes("note") || normalized.includes("comment")) {
-    return "notes";
+    return { target: "notes", score: 0.45 };
   }
 
   return null;
+}
+
+export function guessTargetFieldFromColumn(sourceColumn: string): MappingTargetField | null {
+  return guessTargetFieldWithScore(sourceColumn)?.target ?? null;
 }
 
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
@@ -694,6 +947,74 @@ async function loadAllImportRows(
   return rows;
 }
 
+const loadMappingTemplatesForSuggest = cache(
+  async (
+    supabase: Supabase,
+    tenantId: string,
+    userId: string,
+    isTenantAdmin: boolean
+  ): Promise<TemplateRow[]> => {
+    let templatesQuery = supabase
+      .from("mapping_templates")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("updated_at", { ascending: false })
+      .limit(20);
+
+    if (!isTenantAdmin) {
+      templatesQuery = templatesQuery.eq("user_id", userId);
+    }
+
+    const { data: templates, error: templatesError } = await templatesQuery;
+    if (templatesError) {
+      throw mapSupabaseError(
+        templatesError,
+        "Impossible de charger les templates de mapping."
+      );
+    }
+
+    return (templates ?? []) as TemplateRow[];
+  }
+);
+
+const loadMappingMemoryForSuggest = cache(
+  async (
+    supabase: Supabase,
+    tenantId: string,
+    userId: string,
+    isTenantAdmin: boolean,
+    sourceColumnsCacheKey: string
+  ): Promise<MemoryRow[]> => {
+    const sourceColumns = JSON.parse(sourceColumnsCacheKey) as string[];
+    if (!Array.isArray(sourceColumns) || sourceColumns.length === 0) {
+      return [];
+    }
+
+    let memoryQuery = supabase
+      .from("mapping_memory")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .in("source_column", sourceColumns)
+      .order("usage_count", { ascending: false })
+      .order("confidence", { ascending: false })
+      .order("last_used_at", { ascending: false });
+
+    if (!isTenantAdmin) {
+      memoryQuery = memoryQuery.eq("user_id", userId);
+    }
+
+    const { data: memoryRows, error: memoryError } = await memoryQuery;
+    if (memoryError) {
+      throw mapSupabaseError(
+        memoryError,
+        "Impossible de charger les suggestions de mapping."
+      );
+    }
+
+    return (memoryRows ?? []) as MemoryRow[];
+  }
+);
+
 function buildPreviewRows(
   rows: Array<{ row_index: number; payload: unknown }>,
   mapping: SourceToTargetMapping
@@ -725,96 +1046,28 @@ async function touchMappingMemory(
   const entries = Object.entries(mapping);
   if (entries.length === 0) return;
 
-  const sourceColumns = entries.map(([source]) => source);
-  const nowIso = new Date().toISOString();
-
-  // T-11: Single batch query to load all existing memory entries
-  const { data: existingRows, error: existingError } = await supabase
-    .from("mapping_memory")
-    .select("id, source_column, target_field, usage_count, confidence")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", userId)
-    .in("source_column", sourceColumns);
-
-  if (existingError) {
-    throw mapSupabaseError(existingError, "Impossible de mettre a jour la memoire de mapping.");
-  }
-
-  const existingMap = new Map<string, { id: string; usage_count: number; confidence: number }>();
-  for (const row of existingRows ?? []) {
-    const key = `${row.source_column}::${row.target_field}`;
-    existingMap.set(key, {
-      id: row.id as string,
-      usage_count: (row.usage_count as number) ?? 0,
-      confidence: Number(row.confidence ?? 0),
-    });
-  }
-
-  // T-11: Batch updates for existing entries
-  const updates: Array<{ id: string; usage_count: number; confidence: number; last_used_at: string }> = [];
-  const inserts: Array<{
+  const payload: Array<{
     tenant_id: string;
     user_id: string;
     source_column: string;
     target_field: string;
-    usage_count: number;
-    confidence: number;
-    last_used_at: string;
   }> = [];
 
   for (const [sourceColumn, targetField] of entries) {
-    const key = `${sourceColumn}::${targetField}`;
-    const existing = existingMap.get(key);
-
-    if (existing) {
-      updates.push({
-        id: existing.id,
-        usage_count: existing.usage_count + 1,
-        confidence: Number(Math.min(1, existing.confidence + 0.02).toFixed(4)),
-        last_used_at: nowIso,
-      });
-    } else {
-      inserts.push({
-        tenant_id: tenantId,
-        user_id: userId,
-        source_column: sourceColumn,
-        target_field: targetField,
-        usage_count: 1,
-        confidence: 1,
-        last_used_at: nowIso,
-      });
-    }
+    payload.push({
+      tenant_id: tenantId,
+      user_id: userId,
+      source_column: sourceColumn,
+      target_field: targetField,
+    });
   }
 
-  // T-11: Batch update existing entries
-  if (updates.length > 0) {
-    await Promise.all(
-      updates.map(async (entry) => {
-        const { error } = await supabase
-          .from("mapping_memory")
-          .update({
-            usage_count: entry.usage_count,
-            confidence: entry.confidence,
-            last_used_at: entry.last_used_at,
-          })
-          .eq("id", entry.id);
+  const { error } = await supabase.rpc("upsert_mapping_memory_bulk", {
+    p_entries: payload,
+  });
 
-        if (error) {
-          throw mapSupabaseError(error, "Impossible de mettre a jour la memoire de mapping.");
-        }
-      })
-    );
-  }
-
-  // T-11: Batch insert new entries
-  if (inserts.length > 0) {
-    const { error: insertError } = await supabase
-      .from("mapping_memory")
-      .insert(inserts);
-
-    if (insertError) {
-      throw mapSupabaseError(insertError, "Impossible de mettre a jour la memoire de mapping.");
-    }
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de mettre a jour la memoire de mapping.");
   }
 }
 
@@ -994,89 +1247,131 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
 
   const sampleRows = await loadImportRows(supabase, input.import_id, tenantId, 100);
   const sourceColumns = toSourceColumns(sampleRows);
+  const sourceColumnsCacheKey = JSON.stringify(
+    [...sourceColumns].sort((left, right) => left.localeCompare(right))
+  );
 
-  const suggestions: SourceToTargetMapping = {};
+  const [memoryRows, templates] = await Promise.all([
+    loadMappingMemoryForSuggest(
+      supabase,
+      tenantId,
+      userId,
+      isTenantAdmin,
+      sourceColumnsCacheKey
+    ),
+    loadMappingTemplatesForSuggest(supabase, tenantId, userId, isTenantAdmin),
+  ]);
 
-  if (sourceColumns.length > 0) {
-    let memoryQuery = supabase
-      .from("mapping_memory")
-      .select("*")
-      .eq("tenant_id", tenantId)
-      .in("source_column", sourceColumns)
-      .order("usage_count", { ascending: false })
-      .order("confidence", { ascending: false })
-      .order("last_used_at", { ascending: false });
+  const candidatesBySource = new Map<string, MappingSuggestionCandidate>();
+  const exactTemplateMatch = findTemplateExactMatch(sourceColumns, templates);
 
-    if (!isTenantAdmin) {
-      memoryQuery = memoryQuery.eq("user_id", userId);
+  if (exactTemplateMatch) {
+    for (const [sourceColumn, targetField] of Object.entries(exactTemplateMatch.mapping)) {
+      candidatesBySource.set(sourceColumn, {
+        source_column: sourceColumn,
+        target_field: targetField,
+        score: 1,
+        origin: "template",
+        usage_count: null,
+        memory_confidence: null,
+      });
     }
+  } else if (sourceColumns.length > 0) {
+    const memoryByNormalizedSource = new Map<string, MemoryRow[]>();
 
-    const { data: memoryRows, error: memoryError } = await memoryQuery;
-
-    if (memoryError) {
-      throw mapSupabaseError(memoryError, "Impossible de charger les suggestions de mapping.");
-    }
-
-    const memoryBySource = new Map<string, MemoryRow[]>();
-
-    for (const row of (memoryRows ?? []) as MemoryRow[]) {
-      const existing = memoryBySource.get(row.source_column) ?? [];
-      existing.push(row);
-      memoryBySource.set(row.source_column, existing);
+    for (const memoryRow of memoryRows) {
+      const normalizedSource = normalizeSourceColumnKey(memoryRow.source_column);
+      const rowsForSource = memoryByNormalizedSource.get(normalizedSource) ?? [];
+      rowsForSource.push(memoryRow);
+      memoryByNormalizedSource.set(normalizedSource, rowsForSource);
     }
 
     for (const sourceColumn of sourceColumns) {
-      const memory = memoryBySource.get(sourceColumn);
-      if (memory && memory.length > 0) {
-        const bestTarget = memory[0].target_field as MappingTargetField;
-        suggestions[sourceColumn] = bestTarget;
+      const normalizedSource = normalizeSourceColumnKey(sourceColumn);
+      const memoryCandidates = memoryByNormalizedSource.get(normalizedSource) ?? [];
+
+      let bestMemoryCandidate: MappingSuggestionCandidate | null = null;
+
+      for (const memoryCandidate of memoryCandidates) {
+        const targetField = memoryCandidate.target_field as MappingTargetField;
+        if (!MAPPING_TARGET_FIELD_SET.has(targetField)) continue;
+
+        const computedScore = computeMemorySuggestionScore(memoryCandidate);
+        const candidate: MappingSuggestionCandidate = {
+          source_column: sourceColumn,
+          target_field: targetField,
+          score: computedScore.score,
+          origin: "memory",
+          usage_count: computedScore.usage_count,
+          memory_confidence: computedScore.memory_confidence,
+        };
+
+        if (
+          !bestMemoryCandidate ||
+          candidate.score > bestMemoryCandidate.score ||
+          (candidate.score === bestMemoryCandidate.score &&
+            (candidate.usage_count ?? 0) > (bestMemoryCandidate.usage_count ?? 0)) ||
+          (candidate.score === bestMemoryCandidate.score &&
+            (candidate.usage_count ?? 0) === (bestMemoryCandidate.usage_count ?? 0) &&
+            (candidate.memory_confidence ?? 0) >
+              (bestMemoryCandidate.memory_confidence ?? 0))
+        ) {
+          bestMemoryCandidate = candidate;
+        }
+      }
+
+      if (bestMemoryCandidate) {
+        candidatesBySource.set(sourceColumn, bestMemoryCandidate);
         continue;
       }
 
-      const heuristic = guessTargetFieldFromColumn(sourceColumn);
-      if (heuristic) {
-        suggestions[sourceColumn] = heuristic;
-      }
-    }
+      const heuristicSuggestion = guessTargetFieldWithScore(sourceColumn);
+      if (!heuristicSuggestion) continue;
 
-    // Deduplication: if multiple sources map to the same target, keep only the first
-    const targetToSource = new Map<string, string>();
-    const sourcesToRemove: string[] = [];
-    for (const [source, target] of Object.entries(suggestions)) {
-      const existingSource = targetToSource.get(target);
-      if (existingSource) {
-        sourcesToRemove.push(source);
-      } else {
-        targetToSource.set(target, source);
-      }
-    }
-    for (const source of sourcesToRemove) {
-      delete suggestions[source];
+      candidatesBySource.set(sourceColumn, {
+        source_column: sourceColumn,
+        target_field: heuristicSuggestion.target,
+        score: roundScore(heuristicSuggestion.score),
+        origin: "heuristic",
+        usage_count: null,
+        memory_confidence: null,
+      });
     }
   }
 
-  let templatesQuery = supabase
-    .from("mapping_templates")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .order("updated_at", { ascending: false })
-    .limit(20);
+  const selectedCandidates = chooseBestCandidatePerTarget(candidatesBySource);
+  const suggestions: SourceToTargetMapping = {};
+  const confidenceBySource: Record<string, MappingSuggestionConfidence> = {};
 
-  if (!isTenantAdmin) {
-    templatesQuery = templatesQuery.eq("user_id", userId);
+  for (const candidate of selectedCandidates.values()) {
+    suggestions[candidate.source_column] = candidate.target_field;
+    confidenceBySource[candidate.source_column] = {
+      target_field: candidate.target_field,
+      score: candidate.score,
+      band: getConfidenceBand(candidate.score),
+      origin: candidate.origin,
+      usage_count: candidate.usage_count,
+      memory_confidence: candidate.memory_confidence,
+    };
   }
 
-  const { data: templates, error: templatesError } = await templatesQuery;
-
-  if (templatesError) {
-    throw mapSupabaseError(templatesError, "Impossible de charger les templates de mapping.");
-  }
+  const autoValidation = buildAutoValidationSummary(suggestions, confidenceBySource);
 
   return {
     suggestions,
     source_columns: sourceColumns,
-    templates: (templates ?? []) as TemplateRow[],
+    templates,
     sample_values: extractSampleValues(sampleRows),
+    confidence_by_source: confidenceBySource,
+    template_exact_match: exactTemplateMatch
+      ? {
+          id: exactTemplateMatch.template.id,
+          name: exactTemplateMatch.template.name,
+          supplier_name: exactTemplateMatch.template.supplier_name,
+          score: 1,
+        }
+      : null,
+    auto_validation: autoValidation,
   };
 }
 

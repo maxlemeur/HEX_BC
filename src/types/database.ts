@@ -2163,6 +2163,19 @@ export type Database = {
           accepted_version_number: number | null;
         }[];
       };
+      upsert_mapping_memory_bulk: {
+        Args: {
+          p_entries: Json;
+        };
+        Returns: {
+          tenant_id: string;
+          user_id: string;
+          source_column: string;
+          target_field: string;
+          usage_count: number;
+          confidence: number;
+        }[];
+      };
     };
     Enums: {
       purchase_order_status: "draft" | "sent" | "confirmed" | "received" | "canceled";

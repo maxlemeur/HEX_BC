@@ -12,6 +12,7 @@ import {
   listMappings,
   ok,
   previewMapping,
+  saveTemplate,
   suggestMapping,
   toErrorResponse,
   validateMapping,
@@ -214,6 +215,10 @@ function createSupabaseMock(input?: {
       }
 
       throw new Error(`Unexpected table: ${table}`);
+    }),
+    rpc: vi.fn().mockResolvedValue({
+      data: [],
+      error: null,
     }),
   };
 }
@@ -506,6 +511,209 @@ describe("mapping server workflows", () => {
     expect(result.suggestions["Code article"]).toBe("hex_code");
     expect(result.suggestions.Description).toBe("designation");
     expect(result.templates).toEqual([{ id: "tpl-1" }]);
+    expect(result.template_exact_match).toBeNull();
+    expect(result.confidence_by_source["Code article"]).toMatchObject({
+      target_field: "hex_code",
+      origin: "memory",
+      band: "high",
+    });
+    expect(result.confidence_by_source.Description).toMatchObject({
+      target_field: "designation",
+      origin: "heuristic",
+      band: "medium",
+    });
+    expect(result.auto_validation).toEqual({
+      can_auto_validate: false,
+      threshold: 0.8,
+      required_fields: ["hex_code", "designation"],
+      missing_required_fields: [],
+      low_confidence_required_fields: ["designation"],
+    });
+  });
+
+  it("applies an exact template match with full confidence", async () => {
+    const supabase = createSupabaseMock({
+      rawRows: [
+        {
+          row_index: 1,
+          payload: {
+            Code: "A-001",
+            Designation: "Cable cuivre",
+          },
+        },
+      ],
+      templates: [
+        {
+          id: "tpl-exact",
+          name: "Template exact",
+          supplier_name: "ARCUS",
+          mapping: {
+            Code: "hex_code",
+            Designation: "designation",
+          },
+        },
+      ],
+      memoryRows: [
+        {
+          source_column: "Code",
+          target_field: "hex_code",
+          usage_count: 1,
+          confidence: 0.6,
+          last_used_at: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await suggestMapping({
+      import_id: IMPORT_ID,
+    });
+
+    expect(result.suggestions).toEqual({
+      Code: "hex_code",
+      Designation: "designation",
+    });
+    expect(result.template_exact_match).toEqual({
+      id: "tpl-exact",
+      name: "Template exact",
+      supplier_name: "ARCUS",
+      score: 1,
+    });
+    expect(result.confidence_by_source.Code).toMatchObject({
+      target_field: "hex_code",
+      score: 1,
+      origin: "template",
+      band: "high",
+    });
+    expect(result.confidence_by_source.Designation).toMatchObject({
+      target_field: "designation",
+      score: 1,
+      origin: "template",
+      band: "high",
+    });
+    expect(result.auto_validation.can_auto_validate).toBe(true);
+  });
+
+  it("keeps only the best score when two columns target the same field", async () => {
+    const supabase = createSupabaseMock({
+      rawRows: [
+        {
+          row_index: 1,
+          payload: {
+            "Code article": "A-001",
+            Reference: "A-ALT",
+          },
+        },
+      ],
+      memoryRows: [
+        {
+          source_column: "Code article",
+          target_field: "hex_code",
+          usage_count: 10,
+          confidence: 0.95,
+          last_used_at: "2026-03-01T00:00:00.000Z",
+        },
+        {
+          source_column: "Reference",
+          target_field: "hex_code",
+          usage_count: 1,
+          confidence: 0.6,
+          last_used_at: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await suggestMapping({
+      import_id: IMPORT_ID,
+    });
+
+    expect(result.suggestions["Code article"]).toBe("hex_code");
+    expect(result.suggestions.Reference).toBeUndefined();
+  });
+
+  it("uses the atomic RPC to upsert mapping memory when saving a template", async () => {
+    const membershipBuilder = createMembershipBuilder(false);
+    const mappingTemplatePayload = {
+      id: "tpl-atomic",
+      created_at: "2026-03-04T00:00:00.000Z",
+      updated_at: "2026-03-04T00:00:00.000Z",
+      tenant_id: TENANT_ID,
+      user_id: USER_ID,
+      name: "Template atomique",
+      supplier_name: null,
+      mapping: {
+        Code: "hex_code",
+        Designation: "designation",
+      },
+      is_default: false,
+      last_used_at: "2026-03-04T00:00:00.000Z",
+    };
+
+    const mappingTemplatesBuilder = {
+      upsert: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({
+            data: mappingTemplatePayload,
+            error: null,
+          }),
+        }),
+      }),
+    };
+
+    const supabase = {
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: USER_ID } },
+          error: null,
+        }),
+      },
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => membershipBuilder),
+          };
+        }
+
+        if (table === "mapping_templates") {
+          return mappingTemplatesBuilder;
+        }
+
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn().mockResolvedValue({
+        data: [],
+        error: null,
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await saveTemplate({
+      name: "Template atomique",
+      mapping: {
+        Code: "hex_code",
+        Designation: "designation",
+      },
+      is_default: false,
+    });
+
+    expect(supabase.rpc).toHaveBeenCalledWith("upsert_mapping_memory_bulk", {
+      p_entries: [
+        {
+          tenant_id: TENANT_ID,
+          user_id: USER_ID,
+          source_column: "Code",
+          target_field: "hex_code",
+        },
+        {
+          tenant_id: TENANT_ID,
+          user_id: USER_ID,
+          source_column: "Designation",
+          target_field: "designation",
+        },
+      ],
+    });
   });
 
   it("computes duplicate summary for mapped preview rows", async () => {
