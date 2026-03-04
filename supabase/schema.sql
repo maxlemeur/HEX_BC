@@ -3849,12 +3849,6 @@ create policy "Users can view estimate items"
           p.user_id = (select auth.uid())
           or (select public.has_tenant_role(v.tenant_id, array['admin'::public.tenant_role]))
         )
-        and (
-          select public.has_tenant_role(
-            v.tenant_id,
-            array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
-          )
-        )
     )
   );
 
@@ -3874,6 +3868,12 @@ create policy "Users can insert draft estimate items"
         and (
           p.user_id = (select auth.uid())
           or (select public.has_tenant_role(v.tenant_id, array['admin'::public.tenant_role]))
+        )
+        and (
+          select public.has_tenant_role(
+            v.tenant_id,
+            array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+          )
         )
     )
   );
