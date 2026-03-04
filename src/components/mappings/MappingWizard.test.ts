@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveSelectedImportId } from "@/components/mappings/MappingWizard";
+import {
+  filterMappingToSourceColumns,
+  resolveSelectedImportId,
+} from "@/components/mappings/MappingWizard";
 
 const importsData = [
   {
@@ -33,5 +36,33 @@ describe("resolveSelectedImportId", () => {
   it("returns empty id when no imports are available", () => {
     const resolved = resolveSelectedImportId([], "missing-id", "missing-id");
     expect(resolved).toBe("");
+  });
+});
+
+describe("filterMappingToSourceColumns", () => {
+  it("removes mappings for columns not present in source columns", () => {
+    const filtered = filterMappingToSourceColumns(
+      {
+        Code: "hex_code",
+        Designation: "designation",
+        LegacyColumn: "notes",
+      },
+      ["Code", "Designation"]
+    );
+
+    expect(filtered).toEqual({
+      Code: "hex_code",
+      Designation: "designation",
+    });
+  });
+
+  it("returns the original mapping when all keys are visible", () => {
+    const mapping = {
+      Code: "hex_code",
+      Designation: "designation",
+    };
+
+    const filtered = filterMappingToSourceColumns(mapping, ["Code", "Designation"]);
+    expect(filtered).toBe(mapping);
   });
 });

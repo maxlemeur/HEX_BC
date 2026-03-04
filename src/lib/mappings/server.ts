@@ -349,6 +349,30 @@ function applyMappingToPayload(payload: JsonRecord, mapping: SourceToTargetMappi
   return mapped;
 }
 
+function filterMappingToSourceColumns(
+  mapping: SourceToTargetMapping,
+  sourceColumns: string[]
+): SourceToTargetMapping {
+  if (sourceColumns.length === 0 || Object.keys(mapping).length === 0) {
+    return mapping;
+  }
+
+  const sourceSet = new Set(sourceColumns);
+  const filteredMapping: SourceToTargetMapping = {};
+  let removedEntries = false;
+
+  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
+    if (!sourceSet.has(sourceColumn)) {
+      removedEntries = true;
+      continue;
+    }
+
+    filteredMapping[sourceColumn] = targetField;
+  }
+
+  return removedEntries ? filteredMapping : mapping;
+}
+
 function computeValidation(mapping: SourceToTargetMapping): MappingValidation {
   const targetToSources = new Map<MappingTargetField, string[]>();
 
@@ -943,12 +967,14 @@ export async function previewMapping(input: {
   });
 
   const rows = await loadImportRows(supabase, input.import_id, tenantId, input.limit);
-  const previewRows = buildPreviewRows(rows, input.mapping);
+  const sourceColumns = toSourceColumns(rows);
+  const scopedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
+  const previewRows = buildPreviewRows(rows, scopedMapping);
   const duplicateGroups = computeDuplicateGroupsFromPreview(previewRows);
 
   return {
-    source_columns: toSourceColumns(rows),
-    validation: computeValidation(input.mapping),
+    source_columns: sourceColumns,
+    validation: computeValidation(scopedMapping),
     rows: previewRows,
     duplicates: {
       groups: duplicateGroups,
@@ -1071,7 +1097,9 @@ export async function findDuplicates(input: {
   });
 
   const rows = await loadImportRows(supabase, input.import_id, tenantId, input.limit);
-  const previewRows = buildPreviewRows(rows, input.mapping);
+  const sourceColumns = toSourceColumns(rows);
+  const scopedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
+  const previewRows = buildPreviewRows(rows, scopedMapping);
   const duplicateGroups = computeDuplicateGroupsFromPreview(previewRows);
 
   return {
@@ -1098,12 +1126,15 @@ export async function createMapping(input: {
     isTenantAdmin,
   });
 
-  const validation = computeValidation(input.mapping);
+  const rawRows = await loadAllImportRows(supabase, input.import_id, tenantId);
+  const sourceColumns = toSourceColumns(rawRows);
+  const scopedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
+  const validation = computeValidation(scopedMapping);
   ensureCreateIsValid(validation);
 
   const duplicates = await findDuplicates({
     import_id: input.import_id,
-    mapping: input.mapping,
+    mapping: scopedMapping,
     limit: 10000,
   });
 
@@ -1118,7 +1149,7 @@ export async function createMapping(input: {
     savedTemplate = await upsertTemplate(supabase, tenantId, userId, {
       name: input.template_name,
       supplier_name: input.supplier_name ?? null,
-      mapping: input.mapping,
+      mapping: scopedMapping,
       is_default: false,
     });
 
@@ -1129,7 +1160,7 @@ export async function createMapping(input: {
     import_id: input.import_id,
     template_id: resolvedTemplateId,
     status: "validated",
-    column_mapping: input.mapping,
+    column_mapping: scopedMapping,
     required_fields_present: true,
     missing_required_fields: [],
     duplicate_count: duplicates.total_groups,
@@ -1151,10 +1182,9 @@ export async function createMapping(input: {
   }
 
   // T-10: Build mapped rows, then delete+insert with safety
-  const rawRows = await loadAllImportRows(supabase, input.import_id, tenantId);
   const mappedRowsPayload: MappedRowInsert[] = rawRows.map((row) => {
     const rawRow = asRecord(row.payload) ?? {};
-    const mappedRow = applyMappingToPayload(rawRow, input.mapping);
+    const mappedRow = applyMappingToPayload(rawRow, scopedMapping);
     const rawRowJson = toJsonValue(rawRow) as Record<string, Json>;
     const mappedRowJson = toJsonValue(mappedRow) as Record<string, Json>;
     const reference = normalizeText(mappedRow.reference ?? mappedRow.hex_code);
@@ -1227,7 +1257,7 @@ export async function createMapping(input: {
     }
   }
 
-  await touchMappingMemory(supabase, tenantId, userId, input.mapping);
+  await touchMappingMemory(supabase, tenantId, userId, scopedMapping);
 
   return {
     mapping: data as MappingRow,

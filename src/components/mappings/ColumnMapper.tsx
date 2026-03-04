@@ -107,6 +107,8 @@ export function ColumnMapper({
   const mappedTargetCount = mappedTargets.size;
 
   function setMapping(sourceColumn: string, nextTarget: string) {
+    if (disabled) return;
+
     const next = { ...mapping };
 
     if (!nextTarget) {
@@ -251,8 +253,9 @@ export function ColumnMapper({
                             </span>
                             <button
                               type="button"
-                              className="font-medium underline underline-offset-2 hover:no-underline"
+                              className="font-medium underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-60 hover:no-underline"
                               onClick={() => setMapping(sourceColumn, "")}
+                              disabled={disabled}
                             >
                               Retirer
                             </button>

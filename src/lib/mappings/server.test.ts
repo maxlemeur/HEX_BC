@@ -445,6 +445,34 @@ describe("mapping server workflows", () => {
     expect(result.rows).toHaveLength(3);
   });
 
+  it("ignores hidden mapping entries outside import source columns during validation", async () => {
+    const supabase = createSupabaseMock({
+      rawRows: [
+        {
+          row_index: 1,
+          payload: {
+            Code: "A-001",
+            Libelle: "Cable cuivre",
+          },
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await previewMapping({
+      import_id: IMPORT_ID,
+      mapping: {
+        Code: "hex_code",
+        Libelle: "designation",
+        LegacyCode: "hex_code",
+      },
+      limit: 20,
+    });
+
+    expect(result.validation.is_valid).toBe(true);
+    expect(result.validation.duplicate_target_assignments).toEqual([]);
+  });
+
   it("merges mapping memory with heuristic suggestions", async () => {
     const supabase = createSupabaseMock({
       rawRows: [

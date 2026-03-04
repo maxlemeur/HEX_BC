@@ -64,7 +64,7 @@ export function resolveSelectedImportId(
 }
 
 const TARGET_FIELDS = [
-  { value: "hex_code", label: "Code HEX", required: true },
+  { value: "hex_code", label: "Reference article", required: true },
   { value: "designation", label: "Designation", required: true },
   { value: "quantity", label: "Quantite" },
   { value: "unit", label: "Unite" },
@@ -104,6 +104,30 @@ function toTemplateMapping(value: unknown): Record<string, string> {
   }
 
   return result;
+}
+
+export function filterMappingToSourceColumns(
+  mapping: ColumnMapping,
+  sourceColumns: string[]
+): ColumnMapping {
+  if (sourceColumns.length === 0 || Object.keys(mapping).length === 0) {
+    return mapping;
+  }
+
+  const sourceSet = new Set(sourceColumns);
+  const filteredMapping: ColumnMapping = {};
+  let removedEntries = false;
+
+  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
+    if (!sourceSet.has(sourceColumn)) {
+      removedEntries = true;
+      continue;
+    }
+
+    filteredMapping[sourceColumn] = targetField;
+  }
+
+  return removedEntries ? filteredMapping : mapping;
 }
 
 async function extractErrorMessage(response: Response, fallback: string) {
@@ -179,14 +203,14 @@ export function MappingWizard() {
   const [showAutoMapDetails, setShowAutoMapDetails] = useState(false);
   const previewRequestIdRef = useRef(0);
 
-  const selectedImport = useMemo(
-    () => imports.find((item) => item.id === selectedImportId) ?? null,
-    [imports, selectedImportId]
+  const visibleMapping = useMemo(
+    () => filterMappingToSourceColumns(mapping, sourceColumns),
+    [mapping, sourceColumns]
   );
 
   // Compute whether the mapping is valid (required fields mapped, no duplicate targets)
   const isMappingValid = useMemo(() => {
-    const mappedValues = Object.values(mapping);
+    const mappedValues = Object.values(visibleMapping);
     if (mappedValues.length === 0) return false;
 
     const requiredFields = TARGET_FIELDS.filter((f) => "required" in f && f.required).map((f) => f.value);
@@ -201,7 +225,7 @@ export function MappingWizard() {
     const hasDuplicates = Array.from(targetCounts.values()).some((count) => count > 1);
 
     return hasAllRequired && !hasDuplicates;
-  }, [mapping]);
+  }, [visibleMapping]);
 
   const loadBaseData = useCallback(async () => {
     setIsLoading(true);
@@ -356,15 +380,13 @@ export function MappingWizard() {
 
   useEffect(() => {
     if (!selectedImportId) return;
-    void refreshPreview(selectedImportId, mapping, previewLimit);
-  }, [selectedImportId, mapping, previewLimit, refreshPreview]);
+    void refreshPreview(selectedImportId, visibleMapping, previewLimit);
+  }, [selectedImportId, visibleMapping, previewLimit, refreshPreview]);
 
-  // M-10: Combined "Apercu" action (refresh + validate + doublons)
-  async function handleRefreshAll() {
-    if (!selectedImportId) return;
-    setError(null);
-    await refreshPreview(selectedImportId, mapping, previewLimit);
-  }
+  useEffect(() => {
+    if (sourceColumns.length === 0) return;
+    setMapping((current) => filterMappingToSourceColumns(current, sourceColumns));
+  }, [sourceColumns]);
 
   // M-10: Single "Enregistrer le mapping" action
   async function handleCreateMapping() {
@@ -383,7 +405,7 @@ export function MappingWizard() {
         body: JSON.stringify({
           action: "create",
           import_id: selectedImportId,
-          mapping,
+          mapping: visibleMapping,
           save_template: saveAsTemplate,
           template_name: saveAsTemplate ? templateName : null,
           supplier_name: saveAsTemplate ? templateSupplierName : null,
@@ -393,7 +415,7 @@ export function MappingWizard() {
 
       setSuccess("Mapping enregistre avec succes. Vous pouvez passer a la liaison catalogue.");
       await loadBaseData();
-      await refreshPreview(selectedImportId, mapping, previewLimit);
+      await refreshPreview(selectedImportId, visibleMapping, previewLimit);
     } catch (createError) {
       setError(
         createError instanceof Error
@@ -413,7 +435,9 @@ export function MappingWizard() {
       return;
     }
 
-    setMapping(toTemplateMapping(selectedTemplate.mapping));
+    setMapping(
+      filterMappingToSourceColumns(toTemplateMapping(selectedTemplate.mapping), sourceColumns)
+    );
   }
 
   return (
@@ -548,7 +572,7 @@ export function MappingWizard() {
 
       <ColumnMapper
         sourceColumns={sourceColumns}
-        mapping={mapping}
+        mapping={visibleMapping}
         targetFields={[...TARGET_FIELDS]}
         sampleValues={sampleValues}
         onChange={setMapping}
@@ -580,7 +604,7 @@ export function MappingWizard() {
           <div className="flex items-center gap-4">
             <span className="hidden text-xs text-[var(--slate-500)] sm:inline">
               {(() => {
-                const mappedValues = Object.values(mapping);
+                const mappedValues = Object.values(visibleMapping);
                 const mappedTargetSet = new Set(mappedValues);
                 return `${mappedTargetSet.size}/${TARGET_FIELDS.length} champs mappes`;
               })()}
@@ -590,7 +614,7 @@ export function MappingWizard() {
               className="btn btn-primary"
               onClick={() => void handleCreateMapping()}
               disabled={isSubmitting || !selectedImportId || !isMappingValid}
-              title={!isMappingValid ? "Mappez les champs requis (Code HEX, Designation) et resolvez les conflits avant d'enregistrer." : undefined}
+              title={!isMappingValid ? "Mappez les champs requis (Reference article, Designation) et resolvez les conflits avant d'enregistrer." : undefined}
             >
               {isSubmitting ? "Enregistrement..." : "Enregistrer le mapping"}
             </button>
