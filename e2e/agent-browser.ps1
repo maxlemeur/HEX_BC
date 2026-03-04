@@ -155,6 +155,15 @@ function Test-IsTransientAgentBrowserError {
   return $false
 }
 
+function Use-AgentBrowserDebug {
+  $raw = "$env:E2E_AGENT_BROWSER_DEBUG".Trim()
+  if (-not $raw) {
+    return $false
+  }
+
+  return @("1", "true", "yes", "on").Contains($raw.ToLowerInvariant())
+}
+
 function Invoke-AgentBrowser {
   param(
     [Parameter(Mandatory = $true)][string]$Session,
@@ -162,6 +171,10 @@ function Invoke-AgentBrowser {
   )
 
   $baseCmd = @()
+  $debugEnabled = Use-AgentBrowserDebug
+  if ($debugEnabled) {
+    $baseCmd += "--debug"
+  }
   if ($Session -and $env:E2E_DISABLE_SESSION -ne "1") {
     $baseCmd += @("--session", $Session)
   }
@@ -195,9 +208,18 @@ function Invoke-AgentBrowser {
   }
 
   for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    if ($debugEnabled) {
+      Write-Host "[agent-browser][debug] attempt ${attempt}/${maxAttempts}: agent-browser $($cmd -join ' ')"
+    }
+
     $output = & agent-browser @cmd 2>&1
     $exitCode = $LASTEXITCODE
     $outputText = ConvertTo-AgentBrowserText -RawOutput $output
+
+    if ($debugEnabled -and $outputText) {
+      Write-Host "[agent-browser][debug] exit=$exitCode output=$outputText"
+    }
+
     if ($exitCode -eq 0) {
       return (Select-AgentBrowserStablePayload -RawText $outputText)
     }

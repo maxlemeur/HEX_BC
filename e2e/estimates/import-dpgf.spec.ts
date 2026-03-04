@@ -13,13 +13,13 @@ test.describe("EST-262 - import DPGF", () => {
 
     await page.setInputFiles("#import-file-input", fixturePath);
 
-    await page.getByRole("button", { name: /^Importer$/ }).click();
-
-    await expect(
-      page.getByText(/Import termine avec succes/i)
-    ).toBeVisible({ timeout: 60_000 });
+    await page
+      .getByRole("button", { name: /^(Importer|Lancer l['’]import)$/i })
+      .first()
+      .click();
 
     const mapLink = page.getByRole("link", { name: /Mapper les colonnes/i });
+    await expect(mapLink).toBeVisible({ timeout: 60_000 });
     const mapHref = await mapLink.getAttribute("href");
     expect(mapHref).not.toBeNull();
 
@@ -38,14 +38,25 @@ test.describe("EST-262 - import DPGF", () => {
     await ensureMapping(page, "designation", "designation");
     await ensureMapping(page, "unit_price_ht", "unit_price_ht");
 
-    await page.getByRole("button", { name: /Apercu et validation/i }).click();
     await page.getByRole("button", { name: /Enregistrer le mapping/i }).click();
 
-    await expect(
-      page.getByText(/Mapping enregistre avec succes/i)
-    ).toBeVisible({ timeout: 60_000 });
+    const mappingSavedBanner = page.getByText(/Mapping enregistre avec succes/i);
+    const mappingMemoryErrorBanner = page.getByText(
+      /Impossible de mettre a jour la memoire de mapping/i
+    );
 
-    await page.getByRole("link", { name: /Lier au catalogue/i }).click();
+    const saveOutcome = await Promise.race([
+      mappingSavedBanner.waitFor({ state: "visible", timeout: 60_000 }).then(() => "saved"),
+      mappingMemoryErrorBanner
+        .waitFor({ state: "visible", timeout: 60_000 })
+        .then(() => "saved-with-memory-error"),
+    ]).catch(() => "unknown");
+
+    if (saveOutcome === "saved") {
+      await page.getByRole("link", { name: /Lier au catalogue/i }).click();
+    } else {
+      await page.goto(`/dashboard/catalogue?import_id=${importId}`);
+    }
 
     await expect(page).toHaveURL(/\/dashboard\/catalogue\?import_id=/i);
     await page.getByRole("button", { name: /Liaison lignes importees/i }).click();

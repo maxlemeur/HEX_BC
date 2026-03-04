@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ColumnMapper, type ColumnMapping } from "@/components/mappings/ColumnMapper";
@@ -66,6 +67,12 @@ export function resolveSelectedImportId(
   if (currentMatch) return currentMatch.id;
 
   return importsData[0].id;
+}
+
+function resolveImportIdQueryValue(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 const TARGET_FIELDS = [
@@ -181,6 +188,12 @@ async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function MappingWizard({ initialImportId = null }: { initialImportId?: string | null }) {
   const { isSimplified } = useUiMode();
+  const searchParams = useSearchParams();
+  const importIdFromSearchParams = useMemo(
+    () => resolveImportIdQueryValue(searchParams.get("import_id")),
+    [searchParams]
+  );
+  const preferredImportId = importIdFromSearchParams ?? initialImportId;
 
   const [imports, setImports] = useState<ImportListItem[]>([]);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
@@ -261,7 +274,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
       setTemplates(mappingsData.templates ?? []);
 
       setSelectedImportId((current) =>
-        resolveSelectedImportId(importsData, initialImportId, current)
+        resolveSelectedImportId(importsData, preferredImportId, current)
       );
     } catch (loadError) {
       setError(
@@ -272,7 +285,7 @@ export function MappingWizard({ initialImportId = null }: { initialImportId?: st
     } finally {
       setIsLoading(false);
     }
-  }, [initialImportId]);
+  }, [preferredImportId]);
 
   const refreshSuggestions = useCallback(async (importId: string) => {
     const data = await fetchApi<{
