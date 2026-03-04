@@ -1,7 +1,6 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
@@ -13,6 +12,7 @@ import {
 } from "react";
 
 import { useUiMode } from "@/hooks/useUiMode";
+import { QuickCreateAffaireDialog } from "./QuickCreateAffaireDialog";
 import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ResultCount } from "@/components/TableFilterBar/ResultCount";
@@ -117,6 +117,7 @@ export function AffairesPageClient({
     key: "updatedAt",
     direction: initialDir,
   });
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   // Use server-passed data directly (page.tsx refetches on navigation)
   const data = initialData;
@@ -276,12 +277,15 @@ export function AffairesPageClient({
             Suivez vos affaires et leurs versions de chiffrage.
           </p>
         </div>
-        <Link
+        <button
+          type="button"
           className="btn btn-primary btn-lg shrink-0"
-          href="/dashboard/estimates/new"
+          onClick={() => setShowCreateDialog(true)}
+          aria-haspopup="dialog"
+          aria-expanded={showCreateDialog}
         >
           + Nouvelle affaire
-        </Link>
+        </button>
       </div>
 
       {/* Filter toolbar */}
@@ -378,6 +382,11 @@ export function AffairesPageClient({
           </button>
         </div>
       </div>
+
+      <QuickCreateAffaireDialog
+        open={showCreateDialog}
+        onOpenChange={setShowCreateDialog}
+      />
     </div>
   );
 }

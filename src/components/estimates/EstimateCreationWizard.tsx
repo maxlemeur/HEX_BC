@@ -81,6 +81,7 @@ type StepErrors = Record<string, string>;
 
 type EstimateCreationWizardProps = {
   onCreated: (versionId: string) => void;
+  projectId?: string;
 };
 
 const FIELD_STEP_INDEX: Record<keyof WizardData, number> = {
@@ -321,6 +322,7 @@ function ReadOnlyMarginTiers({ tiers }: { tiers: MarginTier[] }) {
 
 export function EstimateCreationWizard({
   onCreated,
+  projectId,
 }: EstimateCreationWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [validatedSteps, setValidatedSteps] = useState<Set<number>>(
@@ -417,12 +419,16 @@ export function EstimateCreationWizard({
       setErrors({});
       try {
         if (step === 0) {
-          wizardStep1Schema.parse({
-            projectName: data.projectName,
-            clientName: data.clientName || null,
-            reference: data.reference || null,
-            title: data.title || null,
-          });
+          if (projectId) {
+            // No project name validation when adding to existing project
+          } else {
+            wizardStep1Schema.parse({
+              projectName: data.projectName,
+              clientName: data.clientName || null,
+              reference: data.reference || null,
+              title: data.title || null,
+            });
+          }
         } else if (step === 1) {
           wizardStep2Schema.parse({
             dateDevis: data.dateDevis,
@@ -452,7 +458,7 @@ export function EstimateCreationWizard({
         return false;
       }
     },
-    [data]
+    [data, projectId]
   );
 
   // Navigation
@@ -481,7 +487,9 @@ export function EstimateCreationWizard({
         const result = await instantiateEstimateFromTemplate(
           data.selectedTemplateId,
           {
-            projectName: data.projectName.trim(),
+            ...(projectId
+              ? { projectId }
+              : { projectName: data.projectName.trim() }),
             versionTitle: data.title.trim() || null,
             dateDevis: data.dateDevis,
             validiteJours: Number(data.validiteJours),
@@ -492,12 +500,16 @@ export function EstimateCreationWizard({
       } else {
         const marginBpNum = data.marginBp ? Number(data.marginBp) : 0;
         versionId = await createEstimate({
-          projectName: data.projectName.trim(),
+          ...(projectId
+            ? { projectId }
+            : { projectName: data.projectName.trim() }),
           title: data.title.trim() || null,
           dateDevis: data.dateDevis,
           validiteJours: Number(data.validiteJours),
-          clientName: data.clientName.trim() || null,
-          reference: data.reference.trim() || null,
+          ...(!projectId && {
+            clientName: data.clientName.trim() || null,
+            reference: data.reference.trim() || null,
+          }),
           marginMode: data.marginMode,
           marginBp: marginBpNum > 0 ? marginBpNum : undefined,
           marginMultiplier: marginBpNum > 0 ? 1 + marginBpNum / 10000 : undefined,
@@ -525,7 +537,7 @@ export function EstimateCreationWizard({
 
   // Quick create (skip wizard)
   async function handleQuickCreate() {
-    if (!data.projectName.trim()) {
+    if (!projectId && !data.projectName.trim()) {
       setErrors({ projectName: "Le nom du projet est obligatoire." });
       setCurrentStep(0);
       return;
@@ -536,7 +548,9 @@ export function EstimateCreationWizard({
 
     try {
       const versionId = await createEstimate({
-        projectName: data.projectName.trim(),
+        ...(projectId
+          ? { projectId }
+          : { projectName: data.projectName.trim() }),
         title: null,
         dateDevis: todayISO(),
         validiteJours: DEFAULT_VALIDITE_JOURS,
@@ -576,6 +590,32 @@ export function EstimateCreationWizard({
   // -------------------------------------------------------------------------
 
   function renderStep1() {
+    if (projectId) {
+      return (
+        <div className="grid gap-6">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm text-slate-600">
+              Version ajoutee au projet existant.
+            </p>
+          </div>
+          <div>
+            <label className="form-label" htmlFor="wiz-title">
+              Titre de la version
+            </label>
+            <input
+              id="wiz-title"
+              ref={projectNameInputRef}
+              className="form-input"
+              placeholder="Titre de la version (optionnel)"
+              value={data.title}
+              onChange={(e) => updateField("title", e.target.value)}
+              autoFocus
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="sm:col-span-2">
@@ -933,7 +973,9 @@ export function EstimateCreationWizard({
           <dl className="grid gap-2 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-[var(--slate-500)]">Projet</dt>
-              <dd className="font-medium">{data.projectName || "-"}</dd>
+              <dd className="font-medium">
+                {projectId ? "Projet existant" : data.projectName || "-"}
+              </dd>
             </div>
             {data.clientName && (
               <div>
