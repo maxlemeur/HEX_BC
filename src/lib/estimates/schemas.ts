@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { SUPPORTED_ESTIMATE_CURRENCIES } from "@/lib/money";
+import {
+  DEFAULT_MAX_SECTION_DEPTH,
+  MAX_SECTION_DEPTH,
+  MIN_SECTION_DEPTH,
+} from "@/lib/estimates/hierarchy";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 const AID_TOO_LONG_ERROR_MESSAGE = "AID trop long.";
@@ -72,6 +77,11 @@ const positiveIntegerSchema = z
   .number()
   .int("Entier attendu.")
   .min(1, "Doit etre >= 1.");
+const sectionDepthSchema = z
+  .number()
+  .int("Entier attendu.")
+  .min(MIN_SECTION_DEPTH, `Doit etre >= ${MIN_SECTION_DEPTH}.`)
+  .max(MAX_SECTION_DEPTH, `Doit etre <= ${MAX_SECTION_DEPTH}.`);
 
 const uuidSchema = z.string().uuid(UUID_ERROR_MESSAGE);
 const nullableUuidSchema = z.union([uuidSchema, z.null()]);
@@ -153,6 +163,7 @@ const createEstimateVersionSchema = z
     tax_rate_bp: taxRateBpSchema.optional(),
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
+    max_section_depth: sectionDepthSchema.optional().default(DEFAULT_MAX_SECTION_DEPTH),
   })
   .superRefine((payload, ctx) => {
     const mode = payload.discount_mode ?? "simple";
@@ -193,6 +204,7 @@ export const patchEstimateVersionSchema = z
     tax_rate_bp: taxRateBpSchema.optional(),
     rounding_mode: estimateRoundingModeSchema.optional(),
     rounding_step_cents: positiveIntegerSchema.optional(),
+    max_section_depth: sectionDepthSchema.optional(),
     total_ht_cents: nonNegativeIntegerSchema.optional(),
     total_tax_cents: nonNegativeIntegerSchema.optional(),
     total_ttc_cents: nonNegativeIntegerSchema.optional(),
@@ -980,6 +992,24 @@ export const listEstimateAssembliesQuerySchema = z.object({
 });
 
 export const insertAssemblyIntoVersionSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      version_id: record.version_id ?? record.versionId,
+      after_item_id: record.after_item_id ?? record.afterItemId ?? null,
+    };
+  },
+  z.object({
+    version_id: uuidSchema,
+    after_item_id: nullableUuidSchema.optional(),
+  })
+);
+
+export const insertTemplateIntoVersionSchema = z.preprocess(
   (value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return value;

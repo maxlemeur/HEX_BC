@@ -10,6 +10,16 @@ import {
   computeEstimateTotals,
   computeInitialDiscountCents,
 } from "@/lib/estimate-calculations";
+import {
+  DEFAULT_MAX_SECTION_DEPTH,
+  clampMaxSectionDepth,
+  buildHierarchyIndex,
+  collectSubtreeMetrics,
+  getDefaultSectionTitleForLevel,
+  isAncestorOrSelf,
+  resolveItemDepth,
+  resolveSectionLevel,
+} from "@/lib/estimates/hierarchy";
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
 import {
   getFeatureFlagValueForTenant,
@@ -181,6 +191,7 @@ type VersionAccessRow = Pick<
   | "status"
   | "margin_mode"
   | "margin_multiplier"
+  | "max_section_depth"
   | "tax_rate_bp"
   | "updated_at"
   | "total_ht_cents"
@@ -2115,7 +2126,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, margin_mode, margin_multiplier, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -2262,20 +2273,23 @@ async function getNextItemPosition(
 
 async function ensureParentIsValid({
   supabase,
+  tenantId,
   versionId,
   parentId,
   itemId,
 }: {
   supabase: Supabase;
+  tenantId: string;
   versionId: string;
   parentId: string | null;
   itemId?: string;
 }) {
-  if (parentId === null) return;
+  if (parentId === null) return null;
 
   const { data, error } = await supabase
     .from("estimate_items")
-    .select("id, version_id, item_type")
+    .select("id, version_id, item_type, parent_id")
+    .eq("tenant_id", tenantId)
     .eq("id", parentId)
     .single();
 
@@ -2293,6 +2307,107 @@ async function ensureParentIsValid({
 
   if (itemId && data.id === itemId) {
     throw badRequest("Un element ne peut pas etre son propre parent.");
+  }
+
+  return data as Pick<EstimateItemRow, "id" | "parent_id" | "item_type">;
+}
+
+async function loadHierarchyItems(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_items")
+    .select("id, parent_id, item_type")
+    .eq("tenant_id", input.tenantId)
+    .eq("version_id", input.versionId);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de verifier la hierarchie.");
+  }
+
+  return (
+    (data ?? []) as Array<
+      Pick<EstimateItemRow, "id" | "parent_id" | "item_type">
+    >
+  );
+}
+
+async function resolveSectionLevelFromParent(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+  parent:
+    | Pick<EstimateItemRow, "id" | "parent_id" | "item_type">
+    | null;
+}) {
+  if (!input.parent) return null;
+
+  const hierarchyItems = await loadHierarchyItems({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+  });
+  const hierarchy = buildHierarchyIndex(hierarchyItems);
+  return resolveSectionLevel(hierarchy, input.parent.id);
+}
+
+function assertSectionPlacementAllowed(input: {
+  maxSectionDepth: number;
+  nextSectionLevel: number;
+}) {
+  if (input.nextSectionLevel <= input.maxSectionDepth) {
+    return;
+  }
+
+  throw badRequest(
+    `Impossible de creer ce niveau: profondeur max ${input.maxSectionDepth}.`
+  );
+}
+
+function assertLinePlacementAllowed(input: {
+  maxSectionDepth: number;
+  parentSectionLevel: number | null;
+}) {
+  if (input.parentSectionLevel === null) {
+    throw badRequest("Une ligne doit etre ajoutee sous une section.");
+  }
+
+  if (input.parentSectionLevel !== input.maxSectionDepth) {
+    throw badRequest(
+      `Une ligne doit etre sous une section de niveau ${input.maxSectionDepth}.`
+    );
+  }
+}
+
+function assertSectionSubtreePlacementAllowed(input: {
+  hierarchyIndex: ReturnType<typeof buildHierarchyIndex>;
+  sectionId: string;
+  nextSectionLevel: number;
+  maxSectionDepth: number;
+}) {
+  const metrics = collectSubtreeMetrics(input.hierarchyIndex, input.sectionId);
+
+  if (
+    input.nextSectionLevel + metrics.maxSectionRelativeDepth >
+    input.maxSectionDepth
+  ) {
+    throw badRequest(
+      `Ce deplacement depasse la profondeur max ${input.maxSectionDepth}.`
+    );
+  }
+
+  const hasInvalidLineDepth = metrics.lineRelativeDepths.some((relativeDepth) => {
+    const expectedParentSectionLevel =
+      input.nextSectionLevel + Math.max(relativeDepth - 1, 0);
+    return expectedParentSectionLevel !== input.maxSectionDepth;
+  });
+
+  if (hasInvalidLineDepth) {
+    throw badRequest(
+      `Les lignes doivent rester sous une section de niveau ${input.maxSectionDepth}.`
+    );
   }
 }
 
@@ -3811,6 +3926,88 @@ export async function insertAssemblyIntoVersion(input: {
   };
 }
 
+export async function insertTemplateIntoVersion(input: {
+  templateId: string;
+  versionId: string;
+  afterItemId?: string | null;
+}) {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+  const { version } = await getVersionAccessOrThrow(
+    supabase,
+    input.versionId,
+    context
+  );
+
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId: input.versionId,
+    userId,
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC added in migration, types not yet regenerated
+  const { data, error } = await (supabase.rpc as any)(
+    "insert_estimate_template_into_version",
+    {
+      p_version_id: input.versionId,
+      p_template_id: input.templateId,
+      p_after_item_id: input.afterItemId ?? null,
+    }
+  );
+
+  if (error) {
+    if (errorMessageContains(error, "template not found")) {
+      throw notFound(
+        "Template introuvable.",
+        error,
+        "ESTIMATE_TEMPLATE_NOT_FOUND"
+      );
+    }
+    if (errorMessageContains(error, "estimate version not found")) {
+      throw notFound("Version de chiffrage introuvable.", error);
+    }
+    if (errorMessageContains(error, "after_item_id invalide")) {
+      throw badRequest("afterItemId invalide.", error);
+    }
+    throw mapSupabaseError(error, "Impossible d'inserer le template.");
+  }
+
+  const insertedItems = Array.isArray(data) ? (data as EstimateItemRow[]) : [];
+  const insertedItemIds = insertedItems.map((item) => item.id);
+
+  if (insertedItemIds.length === 0) {
+    throw internalError(
+      "Impossible d'inserer le template.",
+      { data },
+      "ESTIMATE_TEMPLATE_INSERT_FAILED"
+    );
+  }
+
+  const { data: reloadedItems, error: reloadError } = await supabase
+    .from("estimate_items")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .eq("version_id", input.versionId)
+    .in("id", insertedItemIds);
+
+  if (reloadError) {
+    throw mapSupabaseError(reloadError, "Impossible d'inserer le template.");
+  }
+
+  const reloadedItemsById = new Map(
+    ((reloadedItems ?? []) as EstimateItemRow[]).map((item) => [item.id, item])
+  );
+  const orderedItems = insertedItemIds
+    .map((id) => reloadedItemsById.get(id))
+    .filter((item): item is EstimateItemRow => Boolean(item));
+
+  return {
+    items: orderedItems,
+  };
+}
+
 export async function duplicateEstimateVersion(
   versionId: string,
   options?: { as_variant?: boolean }
@@ -4357,6 +4554,10 @@ export async function createEstimate(input: CreateEstimateInput) {
     rounding_mode: input.version?.rounding_mode ?? DEFAULT_ROUNDING_MODE,
     rounding_step_cents:
       input.version?.rounding_step_cents ?? DEFAULT_ROUNDING_STEP_CENTS,
+    max_section_depth: clampMaxSectionDepth(
+      input.version?.max_section_depth,
+      DEFAULT_MAX_SECTION_DEPTH
+    ),
     total_ht_cents: 0,
     total_tax_cents: 0,
     total_ttc_cents: 0,
@@ -5192,6 +5393,12 @@ export async function patchEstimateVersion(
   if ("rounding_step_cents" in input) {
     payload.rounding_step_cents = input.rounding_step_cents;
   }
+  if ("max_section_depth" in input) {
+    payload.max_section_depth = clampMaxSectionDepth(
+      input.max_section_depth,
+      DEFAULT_MAX_SECTION_DEPTH
+    );
+  }
   if ("total_ht_cents" in input) {
     payload.total_ht_cents = input.total_ht_cents;
   }
@@ -6025,10 +6232,21 @@ export async function createEstimateItem(
   });
 
   const parentId = input.parent_id ?? null;
-  await ensureParentIsValid({
+  const parent = await ensureParentIsValid({
     supabase,
+    tenantId,
     versionId,
     parentId,
+  });
+  const maxSectionDepth = clampMaxSectionDepth(
+    version.max_section_depth,
+    DEFAULT_MAX_SECTION_DEPTH
+  );
+  const parentSectionLevel = await resolveSectionLevelFromParent({
+    supabase,
+    tenantId,
+    versionId,
+    parent,
   });
 
   const position = input.position ?? (await getNextItemPosition(supabase, versionId, parentId));
@@ -6045,7 +6263,14 @@ export async function createEstimateItem(
   const sourcePage = input.source_page ?? null;
 
   if (input.item_type === "section") {
-    const title = input.title ?? (parentId ? "Nouveau sous-chapitre" : "Nouveau chapitre");
+    const nextSectionLevel =
+      parentSectionLevel === null ? 1 : parentSectionLevel + 1;
+    assertSectionPlacementAllowed({
+      maxSectionDepth,
+      nextSectionLevel,
+    });
+    const title =
+      input.title ?? getDefaultSectionTitleForLevel(nextSectionLevel);
 
     const { data, error } = await supabase
       .from("estimate_items")
@@ -6096,6 +6321,10 @@ export async function createEstimateItem(
   const categoryId = input.category_id ?? null;
   const supplyTypeId = input.supply_type_id ?? null;
   const selectedSupplierPriceId = input.selected_supplier_price_id ?? null;
+  assertLinePlacementAllowed({
+    maxSectionDepth,
+    parentSectionLevel,
+  });
   const isLaborSplitEnabled = isLaborSplitEnabledForItem({
     h_mo_atelier: hMoAtelier,
     k_mo_atelier: kMoAtelier,
@@ -6105,27 +6334,33 @@ export async function createEstimateItem(
     labor_role_chantier_id: laborRoleChantierId,
   });
 
-  await ensureCategoryIsValid(supabase, categoryId, context, project.user_id);
-  await ensureSupplyTypeIsValid(supabase, supplyTypeId, context);
-  await ensureSupplierPriceIsValid(supabase, selectedSupplierPriceId, context);
-  const laborRateLegacyCents = await resolveLaborRateCents(
-    supabase,
-    laborRoleId,
-    context,
-    project.user_id
-  );
-  const laborRateAtelierCents = await resolveLaborRateCents(
-    supabase,
-    laborRoleAtelierId,
-    context,
-    project.user_id
-  );
-  const laborRateChantierCents = await resolveLaborRateCents(
-    supabase,
-    laborRoleChantierId,
-    context,
-    project.user_id
-  );
+  const [
+    laborRateLegacyCents,
+    laborRateAtelierCents,
+    laborRateChantierCents,
+  ] = await Promise.all([
+    (async () => {
+      await Promise.all([
+        ensureCategoryIsValid(supabase, categoryId, context, project.user_id),
+        ensureSupplyTypeIsValid(supabase, supplyTypeId, context),
+        ensureSupplierPriceIsValid(supabase, selectedSupplierPriceId, context),
+      ]);
+
+      return resolveLaborRateCents(supabase, laborRoleId, context, project.user_id);
+    })(),
+    resolveLaborRateCents(
+      supabase,
+      laborRoleAtelierId,
+      context,
+      project.user_id
+    ),
+    resolveLaborRateCents(
+      supabase,
+      laborRoleChantierId,
+      context,
+      project.user_id
+    ),
+  ]);
 
   const lineValues = computeEstimateLineValues(
     {
@@ -6266,11 +6501,22 @@ export async function updateEstimateItem(
   const nextParentId =
     "parent_id" in input ? (input.parent_id ?? null) : currentItem.parent_id;
 
-  await ensureParentIsValid({
+  const nextParent = await ensureParentIsValid({
     supabase,
+    tenantId,
     versionId,
     parentId: nextParentId,
     itemId: currentItem.id,
+  });
+  const maxSectionDepth = clampMaxSectionDepth(
+    version.max_section_depth,
+    DEFAULT_MAX_SECTION_DEPTH
+  );
+  const parentSectionLevel = await resolveSectionLevelFromParent({
+    supabase,
+    tenantId,
+    versionId,
+    parent: nextParent,
   });
   const aidRegex = await resolveEstimateItemAidRegex({ tenantId, supabase });
 
@@ -6281,7 +6527,45 @@ export async function updateEstimateItem(
   const isConvertingSectionToLine =
     currentItem.item_type === "section" && targetItemType === "line";
 
+  let hierarchyIndexForStructureChecks:
+    | ReturnType<typeof buildHierarchyIndex>
+    | null = null;
+  const resolveHierarchyIndexForStructureChecks = async () => {
+    if (hierarchyIndexForStructureChecks) {
+      return hierarchyIndexForStructureChecks;
+    }
+
+    const hierarchyItems = await loadHierarchyItems({
+      supabase,
+      tenantId,
+      versionId,
+    });
+    hierarchyIndexForStructureChecks = buildHierarchyIndex(hierarchyItems);
+    return hierarchyIndexForStructureChecks;
+  };
+
   if (targetItemType === "section") {
+    const nextSectionLevel = parentSectionLevel === null ? 1 : parentSectionLevel + 1;
+    assertSectionPlacementAllowed({
+      maxSectionDepth,
+      nextSectionLevel,
+    });
+
+    if (currentItem.item_type === "section") {
+      const hierarchyIndex = await resolveHierarchyIndexForStructureChecks();
+      if (isAncestorOrSelf(hierarchyIndex, currentItem.id, nextParentId)) {
+        throw badRequest(
+          "Une section ne peut pas etre deplacee dans sa propre descendance."
+        );
+      }
+      assertSectionSubtreePlacementAllowed({
+        hierarchyIndex,
+        sectionId: currentItem.id,
+        nextSectionLevel,
+        maxSectionDepth,
+      });
+    }
+
     const containsLineFields = SECTION_ONLY_FORBIDDEN_FIELDS.some((fieldName) => {
       return fieldName in input;
     });
@@ -6474,6 +6758,35 @@ export async function updateEstimateItem(
   const nextPosition =
     ("position" in input ? input.position : currentItem.position) ??
     currentItem.position;
+
+  assertLinePlacementAllowed({
+    maxSectionDepth,
+    parentSectionLevel,
+  });
+
+  if (isConvertingSectionToLine) {
+    const { data: sectionChildren, error: sectionChildrenError } = await supabase
+      .from("estimate_items")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("version_id", versionId)
+      .eq("parent_id", currentItem.id)
+      .limit(1);
+
+    if (sectionChildrenError) {
+      throw mapSupabaseError(
+        sectionChildrenError,
+        "Impossible de verifier les enfants de la section."
+      );
+    }
+
+    if ((sectionChildren ?? []).length > 0) {
+      throw badRequest(
+        "Une section avec enfants ne peut pas etre convertie en ligne."
+      );
+    }
+  }
+
   const isLaborSplitEnabled = isLaborSplitEnabledForItem({
     h_mo_atelier: nextHMoAtelier,
     k_mo_atelier: nextKMoAtelier,
@@ -6483,27 +6796,37 @@ export async function updateEstimateItem(
     labor_role_chantier_id: nextLaborRoleChantierId,
   });
 
-  await ensureCategoryIsValid(supabase, nextCategoryId, context, project.user_id);
-  await ensureSupplyTypeIsValid(supabase, nextSupplyTypeId, context);
-  await ensureSupplierPriceIsValid(supabase, nextSelectedSupplierPriceId, context);
-  const laborRateLegacyCents = await resolveLaborRateCents(
-    supabase,
-    nextLaborRoleId,
-    context,
-    project.user_id
-  );
-  const laborRateAtelierCents = await resolveLaborRateCents(
-    supabase,
-    nextLaborRoleAtelierId,
-    context,
-    project.user_id
-  );
-  const laborRateChantierCents = await resolveLaborRateCents(
-    supabase,
-    nextLaborRoleChantierId,
-    context,
-    project.user_id
-  );
+  const [
+    laborRateLegacyCents,
+    laborRateAtelierCents,
+    laborRateChantierCents,
+  ] = await Promise.all([
+    (async () => {
+      await Promise.all([
+        ensureCategoryIsValid(supabase, nextCategoryId, context, project.user_id),
+        ensureSupplyTypeIsValid(supabase, nextSupplyTypeId, context),
+        ensureSupplierPriceIsValid(supabase, nextSelectedSupplierPriceId, context),
+      ]);
+      return resolveLaborRateCents(
+        supabase,
+        nextLaborRoleId,
+        context,
+        project.user_id
+      );
+    })(),
+    resolveLaborRateCents(
+      supabase,
+      nextLaborRoleAtelierId,
+      context,
+      project.user_id
+    ),
+    resolveLaborRateCents(
+      supabase,
+      nextLaborRoleChantierId,
+      context,
+      project.user_id
+    ),
+  ]);
 
   const lineValues = computeEstimateLineValues(
     {
@@ -6561,130 +6884,28 @@ export async function updateEstimateItem(
     line_tax_cents: lineValues.taxLineCents,
     line_total_ttc_cents: lineValues.ttcLineCents,
   };
+  const { data, error } = await supabase
+    .from("estimate_items")
+    .update(payload)
+    .eq("tenant_id", tenantId)
+    .eq("id", currentItem.id)
+    .eq("version_id", versionId)
+    .select("*")
+    .single();
 
-  const reassignedChildren: Array<{
-    id: string;
-    previous_parent_id: string | null;
-    previous_position: number;
-    parent_id: string | null;
-    position: number;
-  }> = [];
-
-  if (isConvertingSectionToLine) {
-    const { data: childItemsData, error: childItemsError } = await supabase
-      .from("estimate_items")
-      .select("id, parent_id, position")
-      .eq("tenant_id", tenantId)
-      .eq("version_id", versionId)
-      .eq("parent_id", currentItem.id)
-      .order("position", { ascending: true })
-      .order("id", { ascending: true });
-
-    if (childItemsError) {
-      throw mapSupabaseError(
-        childItemsError,
-        "Impossible de reaffecter les enfants de la section."
-      );
+  if (error || !data) {
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de mettre a jour la ligne.");
     }
-
-    const childItems = (childItemsData ?? []) as Array<{
-      id: string;
-      parent_id: string | null;
-      position: number;
-    }>;
-
-    if (childItems.length > 0) {
-      let nextChildPosition = await getNextItemPosition(supabase, versionId, nextParentId);
-      childItems.forEach((child) => {
-        reassignedChildren.push({
-          id: child.id,
-          previous_parent_id: child.parent_id ?? null,
-          previous_position: child.position,
-          parent_id: nextParentId,
-          position: nextChildPosition,
-        });
-        nextChildPosition += 1;
-      });
-    }
+    throw badRequest("Impossible de mettre a jour la ligne.");
   }
 
-  const rollbackChildren = async () => {
-    if (reassignedChildren.length === 0) return;
-    for (const child of reassignedChildren) {
-      const { error } = await supabase
-        .from("estimate_items")
-        .update({
-          parent_id: child.previous_parent_id,
-          position: child.previous_position,
-        } as EstimateItemUpdate)
-        .eq("tenant_id", tenantId)
-        .eq("id", child.id)
-        .eq("version_id", versionId);
-
-      if (error) {
-        console.error("Failed to rollback converted section children", {
-          versionId,
-          sectionId: currentItem.id,
-          childId: child.id,
-          error,
-        });
-      }
-    }
+  return {
+    item: data,
+    ...(isConvertingSectionToLine
+      ? { converted_from_item_type: "section" as const }
+      : {}),
   };
-
-  try {
-    for (const child of reassignedChildren) {
-      const { error: childUpdateError } = await supabase
-        .from("estimate_items")
-        .update({
-          parent_id: child.parent_id,
-          position: child.position,
-        } as EstimateItemUpdate)
-        .eq("tenant_id", tenantId)
-        .eq("id", child.id)
-        .eq("version_id", versionId);
-
-      if (childUpdateError) {
-        throw mapSupabaseError(
-          childUpdateError,
-          "Impossible de reaffecter les enfants de la section."
-        );
-      }
-    }
-
-    const { data, error } = await supabase
-      .from("estimate_items")
-      .update(payload)
-      .eq("tenant_id", tenantId)
-      .eq("id", currentItem.id)
-      .eq("version_id", versionId)
-      .select("*")
-      .single();
-
-    if (error || !data) {
-      if (error) {
-        throw mapSupabaseError(error, "Impossible de mettre a jour la ligne.");
-      }
-      throw badRequest("Impossible de mettre a jour la ligne.");
-    }
-
-    return {
-      item: data,
-      ...(isConvertingSectionToLine
-        ? {
-            converted_from_item_type: "section" as const,
-            reassigned_children: reassignedChildren.map((child) => ({
-              id: child.id,
-              parent_id: child.parent_id,
-              position: child.position,
-            })),
-          }
-        : {}),
-    };
-  } catch (error) {
-    await rollbackChildren();
-    throw error;
-  }
 }
 
 export async function bulkUpdateEstimateItems(
@@ -6872,6 +7093,7 @@ export async function reorderEstimateItems(
 
   await ensureParentIsValid({
     supabase,
+    tenantId,
     versionId,
     parentId,
   });
@@ -6990,80 +7212,50 @@ export async function moveEstimateItem(
     });
   }
 
-  let targetParent:
-    | Pick<EstimateItemRow, "id" | "version_id" | "parent_id" | "item_type">
-    | null = null;
+  const targetParent = await ensureParentIsValid({
+    supabase,
+    tenantId,
+    versionId,
+    parentId: toParentId,
+    itemId: item.id,
+  });
+  const maxSectionDepth = clampMaxSectionDepth(
+    version.max_section_depth,
+    DEFAULT_MAX_SECTION_DEPTH
+  );
+  const hierarchyItems = await loadHierarchyItems({
+    supabase,
+    tenantId,
+    versionId,
+  });
+  const hierarchyIndex = buildHierarchyIndex(hierarchyItems);
+  const targetParentSectionLevel =
+    targetParent === null ? null : resolveSectionLevel(hierarchyIndex, targetParent.id);
 
-  if (toParentId !== null) {
-    const { data: parent, error: parentError } = await supabase
-      .from("estimate_items")
-      .select("id, version_id, parent_id, item_type")
-      .eq("tenant_id", tenantId)
-      .eq("id", toParentId)
-      .eq("version_id", versionId)
-      .single();
-
-    if (parentError || !parent) {
-      throw badRequest("to_parent_id invalide.");
-    }
-
-    if (parent.item_type !== "section") {
-      throw badRequest("Le parent cible doit etre de type section.");
-    }
-
-    if (parent.id === item.id) {
-      throw badRequest("Un element ne peut pas etre son propre parent.");
-    }
-
-    targetParent = parent;
-  }
-
-  if (item.item_type === "section" && targetParent !== null) {
-    if (targetParent.parent_id !== null) {
+  if (item.item_type === "section") {
+    if (isAncestorOrSelf(hierarchyIndex, item.id, toParentId)) {
       throw badRequest(
-        "Une section ne peut etre enfant que de la racine ou d'une section racine."
+        "Une section ne peut pas etre deplacee dans sa propre descendance."
       );
     }
 
-    const { data: sectionChildren, error: sectionChildrenError } = await supabase
-      .from("estimate_items")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .eq("version_id", versionId)
-      .eq("parent_id", item.id)
-      .eq("item_type", "section")
-      .limit(1);
-
-    if (sectionChildrenError) {
-      throw mapSupabaseError(
-        sectionChildrenError,
-        "Impossible de verifier la profondeur de la section."
-      );
-    }
-
-    if ((sectionChildren ?? []).length > 0) {
-      throw badRequest(
-        "Une section contenant des sous-sections ne peut pas devenir une sous-section."
-      );
-    }
-  }
-
-  if (item.item_type === "line" && targetParent !== null && targetParent.parent_id !== null) {
-    const { data: grandParent, error: grandParentError } = await supabase
-      .from("estimate_items")
-      .select("id, parent_id, item_type")
-      .eq("tenant_id", tenantId)
-      .eq("id", targetParent.parent_id)
-      .eq("version_id", versionId)
-      .single();
-
-    if (grandParentError || !grandParent || grandParent.item_type !== "section") {
-      throw badRequest("Le parent cible depasse la profondeur maximale autorisee.");
-    }
-
-    if (grandParent.parent_id !== null) {
-      throw badRequest("Le parent cible depasse la profondeur maximale autorisee.");
-    }
+    const nextSectionLevel =
+      targetParentSectionLevel === null ? 1 : targetParentSectionLevel + 1;
+    assertSectionPlacementAllowed({
+      maxSectionDepth,
+      nextSectionLevel,
+    });
+    assertSectionSubtreePlacementAllowed({
+      hierarchyIndex,
+      sectionId: item.id,
+      nextSectionLevel,
+      maxSectionDepth,
+    });
+  } else {
+    assertLinePlacementAllowed({
+      maxSectionDepth,
+      parentSectionLevel: targetParentSectionLevel,
+    });
   }
 
   const loadSiblingIds = async (parentId: string | null) => {

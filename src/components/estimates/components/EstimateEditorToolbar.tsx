@@ -62,6 +62,9 @@ type EstimateEditorToolbarProps = {
   onOpenAssemblyPicker: () => void;
   onOpenImportFromEstimateDialog?: () => void;
   onAddRootSection: () => void;
+  rootAddSectionLabel?: string;
+  onExpandAllSections?: () => void;
+  onCollapseAllSections?: () => void;
   onOpenSettings?: () => void;
   columnPreset: ColumnPreset;
   columnPresetLabels: Record<ColumnPreset, string>;
@@ -72,6 +75,13 @@ type EstimateEditorToolbarProps = {
   allAdvancedColumns: ColumnKey[];
   columnLabels: Record<ColumnKey, string>;
   onToggleColumn: (key: ColumnKey) => void;
+  /* UX2-022: Quick insert pickers */
+  isQuickTemplatePickerOpen?: boolean;
+  onToggleQuickTemplatePicker?: () => void;
+  isQuickAssemblyPickerOpen?: boolean;
+  onToggleQuickAssemblyPicker?: () => void;
+  quickTemplatePickerNode?: React.ReactNode;
+  quickAssemblyPickerNode?: React.ReactNode;
 };
 
 const ROOT_KEY = "root";
@@ -124,6 +134,9 @@ export function EstimateEditorToolbar({
   onOpenAssemblyPicker,
   onOpenImportFromEstimateDialog,
   onAddRootSection,
+  rootAddSectionLabel = "+ Ajouter un Lot",
+  onExpandAllSections,
+  onCollapseAllSections,
   onOpenSettings,
   columnPreset,
   columnPresetLabels,
@@ -134,6 +147,12 @@ export function EstimateEditorToolbar({
   allAdvancedColumns,
   columnLabels,
   onToggleColumn,
+  isQuickTemplatePickerOpen,
+  onToggleQuickTemplatePicker,
+  isQuickAssemblyPickerOpen,
+  onToggleQuickAssemblyPicker,
+  quickTemplatePickerNode,
+  quickAssemblyPickerNode,
 }: EstimateEditorToolbarProps) {
   const state = useEstimateEditorState();
   const actions = useEstimateEditorActions();
@@ -223,8 +242,26 @@ export function EstimateEditorToolbar({
           onClick={onAddRootSection}
           disabled={meta.isReadOnly}
         >
-          + Chapitre
+          {rootAddSectionLabel}
         </button>
+        {onExpandAllSections ? (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={onExpandAllSections}
+          >
+            Tout deplier
+          </button>
+        ) : null}
+        {onCollapseAllSections ? (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={onCollapseAllSections}
+          >
+            Tout replier
+          </button>
+        ) : null}
         {onOpenImportFromEstimateDialog ? (
           <button
             className="btn btn-secondary btn-sm"
@@ -266,6 +303,37 @@ export function EstimateEditorToolbar({
           value={searchTerm}
           onChange={(e) => onSearchChange(e.target.value)}
         />
+        {/* UX2-022: Quick insert buttons — Expert mode only */}
+        {!isSimplifiedMode && onToggleQuickTemplatePicker && (
+          <div className="relative">
+            <button
+              className={`btn btn-sm ${isQuickTemplatePickerOpen ? "btn-primary" : "btn-secondary"}`}
+              type="button"
+              onClick={onToggleQuickTemplatePicker}
+              disabled={meta.isReadOnly}
+              title="Inserer un template"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+              <span className="text-xs">+ Template</span>
+            </button>
+            {quickTemplatePickerNode}
+          </div>
+        )}
+        {!isSimplifiedMode && onToggleQuickAssemblyPicker && (
+          <div className="relative">
+            <button
+              className={`btn btn-sm ${isQuickAssemblyPickerOpen ? "btn-primary" : "btn-secondary"}`}
+              type="button"
+              onClick={onToggleQuickAssemblyPicker}
+              disabled={meta.isReadOnly}
+              title="Inserer un assemblage"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><path d="M17 12h.01"/><path d="M7 12h.01"/></svg>
+              <span className="text-xs">+ Assemblage</span>
+            </button>
+            {quickAssemblyPickerNode}
+          </div>
+        )}
         <div className="relative" ref={columnsContainerRef}>
           <button
             className="btn btn-secondary btn-sm"

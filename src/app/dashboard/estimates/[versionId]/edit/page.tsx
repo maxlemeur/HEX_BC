@@ -125,6 +125,7 @@ import {
   exportEstimate,
   importEstimateSections,
   insertAssemblyIntoVersion,
+  insertTemplateIntoVersion,
   isEstimateApiError,
   moveEstimateItem,
   reorderEstimateItems,
@@ -4731,6 +4732,174 @@ export default function EditEstimatePage() {
     ]
   );
 
+  const handleInsertTemplate = useCallback(
+    async (templateId: string, afterItemId: string | null) => {
+      if (!version?.id) {
+        setActionError("Version introuvable.");
+        return;
+      }
+      if (isReadOnly) {
+        setActionError(readOnlyActionErrorMessage);
+        return;
+      }
+      if (isConflictLocked) {
+        setActionError(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+        return;
+      }
+
+      setActionError(null);
+      const snapshot = itemsRef.current;
+      let insertedItems: EstimateItem[] = [];
+
+      try {
+        insertedItems = await insertTemplateIntoVersion(templateId, {
+          versionId: version.id,
+          afterItemId,
+        });
+
+        if (insertedItems.length === 0) {
+          return;
+        }
+
+        const insertedIds = new Set(insertedItems.map((item) => item.id));
+        const insertedSection =
+          insertedItems.find((item) => item.item_type === "section") ??
+          insertedItems[0];
+
+        const targetParentId = insertedSection.parent_id ?? null;
+        const targetPosition = insertedSection.position;
+
+        const shiftedExistingItems = snapshot.map((item) => {
+          if (insertedIds.has(item.id)) return item;
+          if ((item.parent_id ?? null) !== targetParentId) return item;
+          if (item.position < targetPosition) return item;
+          return {
+            ...item,
+            position: item.position + 1,
+          };
+        });
+
+        setItems([...shiftedExistingItems, ...insertedItems]);
+        setTotalsOutOfSync(false);
+      } catch (error) {
+        if (!handleVersionConflict(error, { persistDraft: true })) {
+          setActionError(
+            resolveEstimateActionError(
+              error instanceof Error
+                ? error.message
+                : "Impossible d'inserer le template."
+            )
+          );
+        }
+        return;
+      }
+
+      await refreshVersionTokenAfterAssemblyInsert(version.id, {
+        fetchEstimateEditorData,
+        onVersionToken: (updatedAt) => {
+          applyVersionToken(updatedAt);
+        },
+        onError: (error) => {
+          console.error(
+            "Impossible de rafraichir le jeton de version apres insertion de template.",
+            error
+          );
+        },
+      });
+
+      if (insertedItems.length === 0) return;
+
+      const latestInsertedRoots = resolveTopLevelItemIds(insertedItems);
+      pushHistoryCommand({
+        label: "insert-template",
+        undo: async () => {
+          const versionSnapshot = versionRef.current;
+          if (!versionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const undoSnapshot = itemsRef.current;
+          const idsToRemove = new Set<string>();
+          latestInsertedRoots.forEach((rootId) => {
+            collectSubtreeItemIds(undoSnapshot, rootId).forEach((id) => {
+              idsToRemove.add(id);
+            });
+          });
+          setItems((previous) =>
+            previous.filter((item) => !idsToRemove.has(item.id))
+          );
+
+          try {
+            for (const rootId of latestInsertedRoots) {
+              await deleteEstimateItem(versionSnapshot.id, rootId);
+            }
+            setTotalsOutOfSync(false);
+          } catch (error) {
+            setItems(undoSnapshot);
+            throw error;
+          }
+        },
+        redo: async () => {
+          const versionSnapshot = versionRef.current;
+          if (!versionSnapshot) {
+            throw new Error("Version introuvable.");
+          }
+
+          const redoSnapshot = itemsRef.current;
+          const recreated = await insertTemplateIntoVersion(templateId, {
+            versionId: versionSnapshot.id,
+            afterItemId,
+          });
+          if (recreated.length === 0) return;
+
+          const recreatedIds = new Set(recreated.map((item) => item.id));
+          const insertedSection =
+            recreated.find((item) => item.item_type === "section") ?? recreated[0];
+          const redoTargetParentId = insertedSection?.parent_id ?? null;
+          const redoTargetPosition = insertedSection?.position ?? 1;
+
+          const shiftedExistingItems = redoSnapshot.map((item) => {
+            if (recreatedIds.has(item.id)) return item;
+            if ((item.parent_id ?? null) !== redoTargetParentId) return item;
+            if (item.position < redoTargetPosition) return item;
+            return {
+              ...item,
+              position: item.position + 1,
+            };
+          });
+
+          setItems([...shiftedExistingItems, ...recreated]);
+          setTotalsOutOfSync(false);
+
+          await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
+            fetchEstimateEditorData,
+            onVersionToken: (updatedAt) => {
+              applyVersionToken(updatedAt);
+            },
+            onError: (error) => {
+              console.error(
+                "Impossible de rafraichir le jeton de version apres reinsertion de template.",
+                error
+              );
+            },
+          });
+        },
+      });
+    },
+    [
+      applyVersionToken,
+      conflictState?.message,
+      handleVersionConflict,
+      isConflictLocked,
+      isReadOnly,
+      pushHistoryCommand,
+      readOnlyActionErrorMessage,
+      version?.id,
+    ]
+  );
+
   const handleDuplicateSection = useCallback<
     NonNullable<EstimateEditorTableProps["onDuplicateSection"]>
   >(
@@ -6671,6 +6840,7 @@ export default function EditEstimatePage() {
       onAddSection: handleAddSection,
       onAddLine: handleAddLine,
       onInsertAssembly: handleInsertAssembly,
+      onInsertTemplate: handleInsertTemplate,
       sectionDuplicateTargets,
       onDuplicateSection: handleDuplicateSection,
       onDuplicateSectionToVersion: handleDuplicateSectionToVersion,
@@ -6718,6 +6888,7 @@ export default function EditEstimatePage() {
       handleAddLine,
       handleAddSection,
       handleInsertAssembly,
+      handleInsertTemplate,
       handleDuplicateSection,
       handleDuplicateSectionToVersion,
       handleOpenImportFromEstimateDialog,

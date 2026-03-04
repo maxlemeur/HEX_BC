@@ -205,6 +205,7 @@ function renderEstimateEditorTable(options?: { currency?: "EUR" | "USD" | "GBP" 
         onBulkSetCategory={vi.fn().mockResolvedValue(undefined)}
         onBulkSetLaborRole={vi.fn().mockResolvedValue(undefined)}
         onInsertAssembly={vi.fn().mockResolvedValue(undefined)}
+        onInsertTemplate={vi.fn().mockResolvedValue(undefined)}
         onPasteRows={vi.fn().mockResolvedValue(undefined)}
         onUndo={vi.fn().mockResolvedValue(undefined)}
         onRedo={vi.fn().mockResolvedValue(undefined)}

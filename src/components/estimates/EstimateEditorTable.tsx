@@ -37,6 +37,8 @@ import {
   sendEstimateSuggestionRuleFeedback,
 } from "@/lib/estimates/client";
 import { AssemblyPicker } from "@/components/estimates/AssemblyPicker";
+import { QuickTemplatePicker } from "@/components/estimates/editor/QuickTemplatePicker";
+import { QuickAssemblyPicker } from "@/components/estimates/editor/QuickAssemblyPicker";
 import {
   SupplierComparisonPanel,
   type SupplierComparisonAlternative,
@@ -90,6 +92,13 @@ import {
   type EstimateOutlierMethod,
 } from "@/lib/estimates/outlier-detection";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
+import {
+  DEFAULT_MAX_SECTION_DEPTH,
+  clampMaxSectionDepth,
+  formatAddLineLabelForSectionLevel,
+  formatAddSectionLabelForLevel,
+  formatAddSectionLabelForLevel as formatRootSectionLabelForLevel,
+} from "@/lib/estimates/hierarchy";
 import {
   rankSuggestions,
 } from "@/lib/estimates/suggestion-scoring";
@@ -260,6 +269,10 @@ type EstimateEditorTableProps = {
   onBulkSetLaborRole: (itemIds: string[], laborRoleId: string | null) => Promise<void>;
   onInsertAssembly: (
     assemblyId: string,
+    afterItemId: string | null
+  ) => Promise<void>;
+  onInsertTemplate: (
+    templateId: string,
     afterItemId: string | null
   ) => Promise<void>;
   onPasteRows: (input: {
@@ -772,6 +785,7 @@ export function EstimateEditorTable({
   onBulkSetCategory,
   onBulkSetLaborRole,
   onInsertAssembly,
+  onInsertTemplate,
   onPasteRows,
   onUndo,
   onRedo,
@@ -796,6 +810,8 @@ export function EstimateEditorTable({
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
   const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
   const [isAssemblyPickerOpen, setIsAssemblyPickerOpen] = useState(false);
+  const [isQuickTemplatePickerOpen, setIsQuickTemplatePickerOpen] = useState(false);
+  const [isQuickAssemblyPickerOpen, setIsQuickAssemblyPickerOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [dismissedSuggestionsByItemId, setDismissedSuggestionsByItemId] = useState<
     Record<string, Record<string, boolean>>
@@ -2054,6 +2070,36 @@ export function EstimateEditorTable({
           columnLabels={columnVisibility.columnLabels}
           onToggleColumn={columnVisibility.toggleColumn}
           onOpenSettings={onOpenSettings}
+          isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}
+          onToggleQuickTemplatePicker={() => {
+            setIsQuickTemplatePickerOpen((prev) => !prev);
+            setIsQuickAssemblyPickerOpen(false);
+          }}
+          isQuickAssemblyPickerOpen={isQuickAssemblyPickerOpen}
+          onToggleQuickAssemblyPicker={() => {
+            setIsQuickAssemblyPickerOpen((prev) => !prev);
+            setIsQuickTemplatePickerOpen(false);
+          }}
+          quickTemplatePickerNode={
+            <QuickTemplatePicker
+              isOpen={isQuickTemplatePickerOpen}
+              isReadOnly={isReadOnly}
+              onInsert={(templateId) =>
+                onInsertTemplate(templateId, insertionAnchorItemId)
+              }
+              onClose={() => setIsQuickTemplatePickerOpen(false)}
+            />
+          }
+          quickAssemblyPickerNode={
+            <QuickAssemblyPicker
+              isOpen={isQuickAssemblyPickerOpen}
+              isReadOnly={isReadOnly}
+              onInsert={(assemblyId) =>
+                onInsertAssembly(assemblyId, insertionAnchorItemId)
+              }
+              onClose={() => setIsQuickAssemblyPickerOpen(false)}
+            />
+          }
         />
         </div>
         {headerRight && (

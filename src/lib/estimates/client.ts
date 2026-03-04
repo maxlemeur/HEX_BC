@@ -3460,6 +3460,31 @@ export async function instantiateEstimateFromTemplate(
   return parseInstantiateTemplateResult(payload);
 }
 
+export async function insertTemplateIntoVersion(
+  templateId: string,
+  input: {
+    versionId: string;
+    afterItemId?: string | null;
+  }
+): Promise<EstimateItem[]> {
+  const params = new URLSearchParams();
+  params.set("versionId", input.versionId);
+
+  const payload = await requestJson<unknown>(
+    `/api/estimates/templates/${templateId}/insert?${params.toString()}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        afterItemId: input.afterItemId ?? null,
+      }),
+    },
+    "Impossible d'inserer le template."
+  );
+
+  return parseEstimateItems(payload);
+}
+
 function toAssemblyItemRequestPayload(
   item: CreateEstimateAssemblyPayload["items"][number]
 ) {
