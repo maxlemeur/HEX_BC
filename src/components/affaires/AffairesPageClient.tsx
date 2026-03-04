@@ -1,0 +1,388 @@
+"use client";
+
+import dynamic from "next/dynamic";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import { useUiMode } from "@/hooks/useUiMode";
+import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
+import { SortControl } from "@/components/TableFilterBar/SortControl";
+import { ResultCount } from "@/components/TableFilterBar/ResultCount";
+import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips";
+import { Badge } from "@/components/ui/Badge";
+import { AffairesCardList } from "./AffairesCardList";
+import type {
+  AffairePageDataResult,
+  AffairePageSize,
+  AffaireStatus,
+} from "./types";
+import type { SortOption, SortState } from "@/components/TableFilterBar/types";
+import type { EstimateStatus } from "@/lib/estimates/client";
+
+const AffairesDenseTable = dynamic(
+  () =>
+    import("./AffairesDenseTable").then((m) => ({
+      default: m.AffairesDenseTable,
+    })),
+  { ssr: false }
+);
+
+// -- Constants --
+
+const PAGE_SIZE_OPTIONS: AffairePageSize[] = [20, 50, 100];
+const DEFAULT_PAGE_SIZE: AffairePageSize = 20;
+const PAGE_SIZE_STORAGE_KEY = "affaires-page-size";
+
+const SORT_OPTIONS: SortOption[] = [
+  { key: "updatedAt", label: "Date MAJ", defaultDirection: "desc" },
+];
+
+const DISABLED_SORTS = [
+  { key: "name", label: "Nom" },
+  { key: "totalHtCents", label: "Montant" },
+];
+
+// -- Helpers --
+
+function readStoredPageSize(): AffairePageSize {
+  try {
+    const stored = Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+    if (PAGE_SIZE_OPTIONS.includes(stored as AffairePageSize))
+      return stored as AffairePageSize;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_PAGE_SIZE;
+}
+
+function writeStoredPageSize(size: AffairePageSize) {
+  try {
+    localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(size));
+  } catch {
+    /* ignore */
+  }
+}
+
+function parseStatusParam(param: string | null): AffaireStatus[] {
+  if (!param) return [];
+  const all: AffaireStatus[] = ["draft", "sent", "accepted", "archived"];
+  return param
+    .split(",")
+    .filter((s): s is AffaireStatus => all.includes(s as AffaireStatus));
+}
+
+// -- Props --
+
+type Props = {
+  initialData: AffairePageDataResult;
+  initialQ: string;
+  initialStatuses: AffaireStatus[];
+  initialCursor: string | null;
+  initialSize: AffairePageSize;
+};
+
+export function AffairesPageClient({
+  initialData,
+  initialQ,
+  initialStatuses,
+  initialCursor,
+  initialSize,
+}: Readonly<Props>) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { isExpert } = useUiMode();
+
+  // -- State --
+
+  const [searchValue, setSearchValue] = useState(initialQ);
+  const deferredSearch = useDeferredValue(searchValue);
+  const isSearchPending = searchValue !== deferredSearch;
+
+  const [selectedStatuses, setSelectedStatuses] =
+    useState<AffaireStatus[]>(initialStatuses);
+
+  const [pageSize, setPageSize] = useState<AffairePageSize>(initialSize);
+  const [cursorStack, setCursorStack] = useState<string[]>(
+    initialCursor ? [] : []
+  );
+  const [currentCursor, setCurrentCursor] = useState<string | null>(
+    initialCursor
+  );
+
+  const [sortState, setSortState] = useState<SortState>({
+    key: "updatedAt",
+    direction: "desc",
+  });
+
+  // Use server-passed data directly (page.tsx refetches on navigation)
+  const data = initialData;
+
+  // Hydrate page size from localStorage on mount
+  useEffect(() => {
+    const urlSize = Number(searchParams.get("size"));
+    if (PAGE_SIZE_OPTIONS.includes(urlSize as AffairePageSize)) {
+      setPageSize(urlSize as AffairePageSize);
+    } else {
+      setPageSize(readStoredPageSize());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // -- Sync URL --
+
+  const prevSearchRef = useRef(deferredSearch);
+  const prevStatusRef = useRef(selectedStatuses);
+  const prevSortRef = useRef(sortState);
+  const prevSizeRef = useRef(pageSize);
+  const prevCursorRef = useRef(currentCursor);
+
+  useEffect(() => {
+    const searchChanged = prevSearchRef.current !== deferredSearch;
+    const statusChanged = prevStatusRef.current !== selectedStatuses;
+    const sortChanged = prevSortRef.current !== sortState;
+    const sizeChanged = prevSizeRef.current !== pageSize;
+    const cursorChanged = prevCursorRef.current !== currentCursor;
+
+    prevSearchRef.current = deferredSearch;
+    prevStatusRef.current = selectedStatuses;
+    prevSortRef.current = sortState;
+    prevSizeRef.current = pageSize;
+    prevCursorRef.current = currentCursor;
+
+    if (
+      !searchChanged &&
+      !statusChanged &&
+      !sortChanged &&
+      !sizeChanged &&
+      !cursorChanged
+    ) {
+      return;
+    }
+
+    // Reset cursor when filters change
+    if (searchChanged || statusChanged || sizeChanged) {
+      setCursorStack([]);
+      setCurrentCursor(null);
+    }
+
+    const params = new URLSearchParams();
+    if (deferredSearch) params.set("q", deferredSearch);
+    if (selectedStatuses.length > 0)
+      params.set("status", selectedStatuses.join(","));
+    if (sortState && sortState.direction !== "desc")
+      params.set("dir", sortState.direction);
+    if (pageSize !== DEFAULT_PAGE_SIZE) params.set("size", String(pageSize));
+
+    // Only set cursor if not resetting
+    const effectiveCursor =
+      searchChanged || statusChanged || sizeChanged ? null : currentCursor;
+    if (effectiveCursor) params.set("cursor", effectiveCursor);
+
+    const qs = params.toString();
+    const currentQs = searchParams.toString();
+    if (qs === currentQs) return;
+
+    const newPath = qs ? `${pathname}?${qs}` : pathname;
+    router.replace(newPath, { scroll: false });
+  }, [
+    deferredSearch,
+    selectedStatuses,
+    sortState,
+    pageSize,
+    currentCursor,
+    pathname,
+    router,
+    searchParams,
+  ]);
+
+  // -- Handlers --
+
+  const handleStatusChange = useCallback((statuses: EstimateStatus[]) => {
+    setSelectedStatuses(statuses as AffaireStatus[]);
+  }, []);
+
+  const handlePageSizeChange = useCallback(
+    (size: AffairePageSize) => {
+      setPageSize(size);
+      writeStoredPageSize(size);
+      setCursorStack([]);
+      setCurrentCursor(null);
+    },
+    []
+  );
+
+  const handleNextPage = useCallback(() => {
+    if (!data.list.nextCursor) return;
+    setCursorStack((prev) => [
+      ...prev,
+      ...(currentCursor ? [currentCursor] : [""]),
+    ]);
+    setCurrentCursor(data.list.nextCursor);
+  }, [data.list.nextCursor, currentCursor]);
+
+  const handlePrevPage = useCallback(() => {
+    setCursorStack((prev) => {
+      const next = [...prev];
+      const prevCursor = next.pop();
+      setCurrentCursor(prevCursor === "" ? null : prevCursor ?? null);
+      return next;
+    });
+  }, []);
+
+  const handleClearAll = useCallback(() => {
+    setSearchValue("");
+    setSelectedStatuses([]);
+    setCursorStack([]);
+    setCurrentCursor(null);
+  }, []);
+
+  const handleSortChange = useCallback(
+    (key: string, direction?: "asc" | "desc") => {
+      setSortState({ key, direction: direction ?? "desc" });
+    },
+    []
+  );
+
+  const handleSortToggle = useCallback(() => {
+    setSortState((prev) =>
+      prev
+        ? { ...prev, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { key: "updatedAt", direction: "desc" }
+    );
+  }, []);
+
+  // -- Computed --
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedStatuses.length > 0) count += selectedStatuses.length;
+    return count;
+  }, [selectedStatuses]);
+
+  const hasPrevPage = cursorStack.length > 0;
+  const hasNextPage = data.list.hasNextPage;
+
+  return (
+    <div className="animate-fade-in">
+      {/* Header */}
+      <div className="page-header flex items-start justify-between gap-6">
+        <div>
+          <h1 className="page-title">Affaires</h1>
+          <p className="page-description">
+            Suivez vos affaires et leurs versions de chiffrage.
+          </p>
+        </div>
+        <Link
+          className="btn btn-primary btn-lg shrink-0"
+          href="/dashboard/estimates/new"
+        >
+          + Nouvelle affaire
+        </Link>
+      </div>
+
+      {/* Filter toolbar */}
+      <div className="flex flex-wrap items-center gap-3 mt-6 mb-4">
+        <FilterSearch
+          value={searchValue}
+          onChange={setSearchValue}
+          placeholder="Rechercher par nom ou client..."
+          isPending={isSearchPending}
+        />
+        <EstimateStatusChips
+          counts={data.counters.statusCounts as Record<EstimateStatus, number>}
+          selected={selectedStatuses as EstimateStatus[]}
+          onChange={handleStatusChange}
+        />
+        <div className="flex items-center gap-2">
+          <SortControl
+            options={SORT_OPTIONS}
+            value={sortState}
+            onSortChange={handleSortChange}
+            onDirectionToggle={handleSortToggle}
+          />
+          {DISABLED_SORTS.map((s) => (
+            <span
+              key={s.key}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs text-[var(--slate-400)] bg-[var(--slate-50)] cursor-not-allowed"
+              title="Tri a venir"
+            >
+              {s.label}
+              <Badge variant="neutral" size="sm">
+                a venir
+              </Badge>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Result count */}
+      <ResultCount
+        filteredCount={data.counters.filteredCount}
+        totalCount={data.counters.totalCount}
+        label="affaires"
+        activeFilterCount={activeFilterCount}
+        searchValue={searchValue}
+        onClearAll={handleClearAll}
+      />
+
+      {/* Content */}
+      <div className="mt-4">
+        {isExpert ? (
+          <AffairesDenseTable items={data.list.items} />
+        ) : (
+          <AffairesCardList items={data.list.items} />
+        )}
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between mt-6">
+        <div className="flex items-center gap-2 text-sm text-[var(--slate-500)]">
+          <span>Afficher</span>
+          {PAGE_SIZE_OPTIONS.map((size) => (
+            <button
+              key={size}
+              type="button"
+              onClick={() => handlePageSizeChange(size)}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                pageSize === size
+                  ? "bg-[var(--slate-900)] text-white"
+                  : "bg-[var(--slate-100)] text-[var(--slate-600)] hover:bg-[var(--slate-200)]"
+              }`}
+            >
+              {size}
+            </button>
+          ))}
+          <span>par page</span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handlePrevPage}
+            disabled={!hasPrevPage}
+            className="btn btn-secondary btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Precedent
+          </button>
+          <button
+            type="button"
+            onClick={handleNextPage}
+            disabled={!hasNextPage}
+            className="btn btn-secondary btn-sm disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Suivant
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
