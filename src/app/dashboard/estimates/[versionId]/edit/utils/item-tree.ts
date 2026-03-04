@@ -41,6 +41,48 @@ export function resolveTopLevelItemIds(sourceItems: EstimateItem[]): string[] {
     .map((item) => item.id);
 }
 
+export function createTopLevelItemIdsTracker(sourceItems: EstimateItem[]) {
+  let currentRootIds = resolveTopLevelItemIds(sourceItems);
+
+  return {
+    getCurrent() {
+      return currentRootIds;
+    },
+    replace(sourceItemsSnapshot: EstimateItem[]) {
+      currentRootIds = resolveTopLevelItemIds(sourceItemsSnapshot);
+      return currentRootIds;
+    },
+  };
+}
+
+export function applyOptimisticTemplateInsertion(
+  snapshot: EstimateItem[],
+  insertedItems: EstimateItem[]
+) {
+  if (insertedItems.length === 0) {
+    return snapshot;
+  }
+
+  const insertedRootCount = resolveTopLevelItemIds(insertedItems).length;
+  const insertedIds = new Set(insertedItems.map((item) => item.id));
+  const insertedSection =
+    insertedItems.find((item) => item.item_type === "section") ?? insertedItems[0];
+  const targetParentId = insertedSection.parent_id ?? null;
+  const targetPosition = insertedSection.position;
+
+  const shiftedExistingItems = snapshot.map((item) => {
+    if (insertedIds.has(item.id)) return item;
+    if ((item.parent_id ?? null) !== targetParentId) return item;
+    if (item.position < targetPosition) return item;
+    return {
+      ...item,
+      position: item.position + insertedRootCount,
+    };
+  });
+
+  return [...shiftedExistingItems, ...insertedItems];
+}
+
 export function buildSiblingOrderByParent(sourceItems: EstimateItem[]) {
   const siblingsByParent = new Map<string | null, EstimateItem[]>();
 

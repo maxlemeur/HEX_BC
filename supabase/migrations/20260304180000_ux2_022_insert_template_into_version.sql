@@ -17,12 +17,12 @@ declare
   anchor_item record;
   target_parent_id uuid;
   target_position integer;
-  tpl_section record;
-  tpl_line record;
+  tpl_item record;
   inserted_item public.estimate_items%rowtype;
   -- Mapping from template_item_id -> new estimate_item_id (for parent references)
   id_map jsonb := '{}'::jsonb;
   new_parent_id uuid;
+  root_min_position integer := 1;
   section_offset integer := 0;
 begin
   if current_user_id is null then
@@ -95,8 +95,9 @@ begin
   end if;
 
   -- Count root-level template items to know how many positions to shift
-  select count(*)::integer
-    into section_offset
+  -- and normalize root insertion positions relative to the first root.
+  select coalesce(min(ti.position), 1), count(*)::integer
+    into root_min_position, section_offset
   from public.estimate_template_items ti
   where ti.template_id = source_template.id
     and ti.tenant_id = source_template.tenant_id
@@ -133,15 +134,41 @@ begin
       and position >= target_position;
   end if;
 
-  -- Insert root-level template items (sections) first, in position order
-  for tpl_section in
-    select ti.*
-    from public.estimate_template_items ti
-    where ti.template_id = source_template.id
-      and ti.tenant_id = source_template.tenant_id
-      and ti.parent_id is null
-    order by ti.position asc, ti.created_at asc
+  -- Insert all template items in parent-first order so nested descendants
+  -- keep their full hierarchy in the target version.
+  for tpl_item in
+    with recursive template_tree as (
+      select
+        ti.*,
+        lpad(greatest(ti.position, 1)::text, 10, '0') || '_' || ti.id::text as sort_path
+      from public.estimate_template_items ti
+      where ti.template_id = source_template.id
+        and ti.tenant_id = source_template.tenant_id
+        and ti.parent_id is null
+
+      union all
+
+      select
+        child.*,
+        template_tree.sort_path || '.' || lpad(greatest(child.position, 1)::text, 10, '0') || '_' || child.id::text as sort_path
+      from public.estimate_template_items child
+      inner join template_tree on template_tree.id = child.parent_id
+      where child.template_id = source_template.id
+        and child.tenant_id = source_template.tenant_id
+    )
+    select *
+    from template_tree
+    order by sort_path asc
   loop
+    if tpl_item.parent_id is null then
+      new_parent_id := target_parent_id;
+    else
+      new_parent_id := nullif(id_map ->> tpl_item.parent_id::text, '')::uuid;
+      if new_parent_id is null then
+        raise exception 'Estimate template hierarchy is invalid';
+      end if;
+    end if;
+
     insert into public.estimate_items (
       tenant_id, version_id, parent_id, item_type, position, title, description,
       quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
@@ -153,98 +180,44 @@ begin
     values (
       target_version.tenant_id,
       target_version.id,
-      target_parent_id,
-      tpl_section.item_type,
-      target_position + tpl_section.position - (
-        select min(ti2.position)
-        from public.estimate_template_items ti2
-        where ti2.template_id = source_template.id
-          and ti2.tenant_id = source_template.tenant_id
-          and ti2.parent_id is null
-      ),
-      tpl_section.title,
-      tpl_section.description,
+      new_parent_id,
+      tpl_item.item_type,
+      case
+        when tpl_item.parent_id is null
+          then target_position + greatest(tpl_item.position, 1) - root_min_position
+        else greatest(tpl_item.position, 1)
+      end,
+      tpl_item.title,
+      tpl_item.description,
       -- Sections have null numeric fields
-      case when tpl_section.item_type = 'section' then null else tpl_section.quantity end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.unit_price_ht_cents end,
-      case when tpl_section.item_type = 'section' then null else coalesce(tpl_section.tax_rate_bp, target_version.tax_rate_bp, 2000) end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.k_fo end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.h_mo end,
-      case when tpl_section.item_type = 'section' then 1.0 else coalesce(tpl_section.h_mo_majoration, 1.0) end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.k_mo end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.h_mo_atelier end,
-      case when tpl_section.item_type = 'section' then 1.0 else coalesce(tpl_section.k_mo_atelier, 1.0) end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.labor_role_atelier_id end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.h_mo_chantier end,
-      case when tpl_section.item_type = 'section' then 1.0 else coalesce(tpl_section.k_mo_chantier, 1.0) end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.labor_role_chantier_id end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.pu_ht_cents end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.labor_role_id end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.category_id end,
-      case when tpl_section.item_type = 'section' then null else tpl_section.supply_type_id end,
-      case when tpl_section.item_type = 'section' then null else coalesce(tpl_section.line_total_ht_cents, 0) end,
-      case when tpl_section.item_type = 'section' then null else coalesce(tpl_section.line_tax_cents, 0) end,
-      case when tpl_section.item_type = 'section' then null else coalesce(tpl_section.line_total_ttc_cents, 0) end
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.quantity, 1) end,
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.unit_price_ht_cents, 0) end,
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.tax_rate_bp, target_version.tax_rate_bp, 2000) end,
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.k_fo, 1) end,
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.h_mo, 0) end,
+      case when tpl_item.item_type = 'section' then 1.0 else coalesce(tpl_item.h_mo_majoration, 1.0) end,
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.k_mo, 1) end,
+      case when tpl_item.item_type = 'section' then null else tpl_item.h_mo_atelier end,
+      case when tpl_item.item_type = 'section' then 1.0 else coalesce(tpl_item.k_mo_atelier, 1.0) end,
+      case when tpl_item.item_type = 'section' then null else tpl_item.labor_role_atelier_id end,
+      case when tpl_item.item_type = 'section' then null else tpl_item.h_mo_chantier end,
+      case when tpl_item.item_type = 'section' then 1.0 else coalesce(tpl_item.k_mo_chantier, 1.0) end,
+      case when tpl_item.item_type = 'section' then null else tpl_item.labor_role_chantier_id end,
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.pu_ht_cents, 0) end,
+      case when tpl_item.item_type = 'section' then null else tpl_item.labor_role_id end,
+      case when tpl_item.item_type = 'section' then null else tpl_item.category_id end,
+      case when tpl_item.item_type = 'section' then null else tpl_item.supply_type_id end,
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.line_total_ht_cents, 0) end,
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.line_tax_cents, 0) end,
+      case when tpl_item.item_type = 'section' then null else coalesce(tpl_item.line_total_ttc_cents, 0) end
     )
     returning *
     into inserted_item;
 
     -- Store mapping: template_item_id -> new_item_id
-    id_map := id_map || jsonb_build_object(tpl_section.id::text, inserted_item.id::text);
+    id_map := id_map || jsonb_build_object(tpl_item.id::text, inserted_item.id::text);
 
     return next inserted_item;
-
-    -- Insert child lines for this section
-    for tpl_line in
-      select ti.*
-      from public.estimate_template_items ti
-      where ti.template_id = source_template.id
-        and ti.tenant_id = source_template.tenant_id
-        and ti.parent_id = tpl_section.id
-      order by ti.position asc, ti.created_at asc
-    loop
-      insert into public.estimate_items (
-        tenant_id, version_id, parent_id, item_type, position, title, description,
-        quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo,
-        h_mo_atelier, k_mo_atelier, labor_role_atelier_id,
-        h_mo_chantier, k_mo_chantier, labor_role_chantier_id,
-        pu_ht_cents, labor_role_id, category_id, supply_type_id,
-        line_total_ht_cents, line_tax_cents, line_total_ttc_cents
-      )
-      values (
-        target_version.tenant_id,
-        target_version.id,
-        inserted_item.id,  -- Parent is the newly inserted section
-        tpl_line.item_type,
-        greatest(tpl_line.position, 1),
-        tpl_line.title,
-        tpl_line.description,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.quantity, 1) end,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.unit_price_ht_cents, 0) end,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.tax_rate_bp, target_version.tax_rate_bp, 2000) end,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.k_fo, 1) end,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.h_mo, 0) end,
-        case when tpl_line.item_type = 'section' then 1.0 else coalesce(tpl_line.h_mo_majoration, 1.0) end,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.k_mo, 1) end,
-        case when tpl_line.item_type = 'section' then null else tpl_line.h_mo_atelier end,
-        case when tpl_line.item_type = 'section' then 1.0 else coalesce(tpl_line.k_mo_atelier, 1.0) end,
-        case when tpl_line.item_type = 'section' then null else tpl_line.labor_role_atelier_id end,
-        case when tpl_line.item_type = 'section' then null else tpl_line.h_mo_chantier end,
-        case when tpl_line.item_type = 'section' then 1.0 else coalesce(tpl_line.k_mo_chantier, 1.0) end,
-        case when tpl_line.item_type = 'section' then null else tpl_line.labor_role_chantier_id end,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.pu_ht_cents, 0) end,
-        case when tpl_line.item_type = 'section' then null else tpl_line.labor_role_id end,
-        case when tpl_line.item_type = 'section' then null else tpl_line.category_id end,
-        case when tpl_line.item_type = 'section' then null else tpl_line.supply_type_id end,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.line_total_ht_cents, 0) end,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.line_tax_cents, 0) end,
-        case when tpl_line.item_type = 'section' then null else coalesce(tpl_line.line_total_ttc_cents, 0) end
-      )
-      returning *
-      into inserted_item;
-
-      return next inserted_item;
-    end loop;
   end loop;
 
   -- Update version timestamp

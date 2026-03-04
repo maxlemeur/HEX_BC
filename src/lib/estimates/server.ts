@@ -228,6 +228,25 @@ type EstimateProjectOwnerRow = Pick<
   "id" | "tenant_id" | "user_id"
 >;
 
+type CreateEstimateLatestVersionDefaultsRow = Pick<
+  EstimateVersionRow,
+  | "version_number"
+  | "date_devis"
+  | "validite_jours"
+  | "margin_multiplier"
+  | "margin_mode"
+  | "currency"
+  | "margin_bp"
+  | "discount_bp"
+  | "discount_mode"
+  | "discount_steps"
+  | "global_coefficient"
+  | "tax_rate_bp"
+  | "rounding_mode"
+  | "rounding_step_cents"
+  | "max_section_depth"
+>;
+
 type EstimateProjectVersionTimelineRow = Pick<
   EstimateVersionRow,
   | "id"
@@ -1912,6 +1931,17 @@ function throwTemplateNotFoundIfNeeded(error: PostgrestError): never | void {
   throw notFound("Template introuvable.", error, "ESTIMATE_TEMPLATE_NOT_FOUND");
 }
 
+function throwTemplateTargetProjectNotFoundIfNeeded(
+  error: PostgrestError
+): never | void {
+  if (!errorMessageContains(error, "target project not found")) return;
+  throw notFound(
+    "Projet cible introuvable.",
+    error,
+    "ESTIMATE_TEMPLATE_TARGET_PROJECT_NOT_FOUND"
+  );
+}
+
 function toRpcUuid(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
@@ -3497,17 +3527,42 @@ export async function instantiateEstimateFromTemplate(
   input: InstantiateEstimateFromTemplateInput
 ) {
   const { supabase, tenantId } = await getAuthenticatedContext();
+  const targetProjectId = input.project_id ?? null;
+  const projectName = toNullableText(input.project_name);
 
-  const { data, error } = await supabase.rpc("instantiate_estimate_from_template", {
-    p_template_id: templateId,
-    p_project_name: input.project_name.trim(),
-    p_version_title: toNullableText(input.version_title),
-    p_date_devis: input.date_devis ?? null,
-    p_validite_jours: input.validite_jours ?? null,
-  });
+  if (!targetProjectId && !projectName) {
+    throw badRequest(
+      "project_name ou project_id est requis.",
+      undefined,
+      "ESTIMATE_TEMPLATE_PROJECT_REQUIRED"
+    );
+  }
+
+  const rpcName = targetProjectId
+    ? "instantiate_estimate_template_into_project"
+    : "instantiate_estimate_from_template";
+
+  const rpcPayload = targetProjectId
+    ? {
+        p_template_id: templateId,
+        p_project_id: targetProjectId,
+        p_version_title: toNullableText(input.version_title),
+        p_date_devis: input.date_devis ?? null,
+        p_validite_jours: input.validite_jours ?? null,
+      }
+    : {
+        p_template_id: templateId,
+        p_project_name: projectName!,
+        p_version_title: toNullableText(input.version_title),
+        p_date_devis: input.date_devis ?? null,
+        p_validite_jours: input.validite_jours ?? null,
+      };
+
+  const { data, error } = await supabase.rpc(rpcName, rpcPayload);
 
   if (error) {
     throwTemplateNotFoundIfNeeded(error);
+    throwTemplateTargetProjectNotFoundIfNeeded(error);
     throw internalError(
       "Impossible d'instancier le template.",
       error,
@@ -3534,7 +3589,7 @@ export async function instantiateEstimateFromTemplate(
   }
 
   const projectNotes = toNullableText(input.project_notes);
-  if (projectNotes) {
+  if (projectNotes && !targetProjectId) {
     const { error: projectUpdateError } = await supabase
       .from("estimate_projects")
       .update({
@@ -3945,6 +4000,96 @@ export async function insertTemplateIntoVersion(input: {
     versionId: input.versionId,
     userId,
   });
+
+  await loadEstimateTemplateOrThrow({
+    supabase,
+    tenantId,
+    templateId: input.templateId,
+  });
+  const templateItems = await loadEstimateTemplateItems({
+    supabase,
+    tenantId,
+    templateId: input.templateId,
+  });
+
+  if (templateItems.length === 0) {
+    throw badRequest("Ce template ne contient aucun element.");
+  }
+
+  let targetParentId: string | null = null;
+  if (input.afterItemId) {
+    const { data: anchorItem, error: anchorError } = await supabase
+      .from("estimate_items")
+      .select("id, parent_id")
+      .eq("tenant_id", tenantId)
+      .eq("version_id", input.versionId)
+      .eq("id", input.afterItemId)
+      .maybeSingle();
+
+    if (anchorError) {
+      throw mapSupabaseError(
+        anchorError,
+        "Impossible de verifier la position d'insertion du template."
+      );
+    }
+    if (!anchorItem) {
+      throw badRequest("afterItemId invalide.");
+    }
+
+    targetParentId = anchorItem.parent_id ?? null;
+  }
+
+  const targetParent = await ensureParentIsValid({
+    supabase,
+    tenantId,
+    versionId: input.versionId,
+    parentId: targetParentId,
+  });
+  const maxSectionDepth = clampMaxSectionDepth(
+    version.max_section_depth,
+    DEFAULT_MAX_SECTION_DEPTH
+  );
+  const targetParentSectionLevel = await resolveSectionLevelFromParent({
+    supabase,
+    tenantId,
+    versionId: input.versionId,
+    parent: targetParent,
+  });
+  const templateHierarchyIndex = buildHierarchyIndex(
+    templateItems.map((item) => ({
+      id: item.id,
+      parent_id: item.parent_id,
+      item_type: item.item_type,
+    }))
+  );
+  const templateRootItems = templateItems.filter((item) => item.parent_id === null);
+
+  if (templateRootItems.length === 0) {
+    throw badRequest("Le template est invalide: aucun element racine.");
+  }
+
+  const rootSectionLevel =
+    targetParentSectionLevel === null ? 1 : targetParentSectionLevel + 1;
+  for (const rootItem of templateRootItems) {
+    if (rootItem.item_type === "section") {
+      assertSectionPlacementAllowed({
+        maxSectionDepth,
+        nextSectionLevel: rootSectionLevel,
+      });
+      assertSectionSubtreePlacementAllowed({
+        hierarchyIndex: templateHierarchyIndex,
+        sectionId: rootItem.id,
+        nextSectionLevel: rootSectionLevel,
+        maxSectionDepth,
+      });
+      continue;
+    }
+
+    assertLinePlacementAllowed({
+      maxSectionDepth,
+      parentSectionLevel: targetParentSectionLevel,
+    });
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC added in migration, types not yet regenerated
   const { data, error } = await (supabase.rpc as any)(
@@ -4503,58 +4648,167 @@ export async function promoteEstimateVariant(versionId: string) {
 }
 
 export async function createEstimate(input: CreateEstimateInput) {
-  const { supabase, userId, tenantId } = await getAuthenticatedContext();
+  const context = await getAuthenticatedContext();
+  const { supabase, userId, tenantId } = context;
+  const targetProjectId = input.project_id ?? null;
+  const requestedCurrency = input.version?.currency;
+
+  if (requestedCurrency !== undefined) {
+    normalizeEstimateCurrencyOrThrow(requestedCurrency, {
+      fallback: DEFAULT_CURRENCY,
+    });
+  }
+
+  let project: EstimateProjectRow | null = null;
+  let createdProjectId: string | null = null;
+  let latestProjectVersionDefaults: CreateEstimateLatestVersionDefaultsRow | null = null;
+
+  if (targetProjectId) {
+    const { data: existingProject, error: existingProjectError } = await supabase
+      .from("estimate_projects")
+      .select("*")
+      .eq("id", targetProjectId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+
+    if (existingProjectError) {
+      throw mapSupabaseError(
+        existingProjectError,
+        "Impossible de charger le projet de chiffrage."
+      );
+    }
+
+    if (
+      !existingProject ||
+      existingProject.is_archived ||
+      !canAccessOwnerResource({
+        context,
+        resourceUserId: existingProject.user_id,
+      })
+    ) {
+      throw notFound("Projet de chiffrage introuvable.");
+    }
+
+    project = existingProject as EstimateProjectRow;
+
+    const { data: latestVersionData, error: latestVersionError } = await supabase
+      .from("estimate_versions")
+      .select(
+        "version_number, date_devis, validite_jours, margin_multiplier, margin_mode, currency, margin_bp, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, max_section_depth"
+      )
+      .eq("tenant_id", tenantId)
+      .eq("project_id", project.id)
+      .order("version_number", { ascending: false })
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestVersionError) {
+      throw mapSupabaseError(
+        latestVersionError,
+        "Impossible de charger la version courante du projet."
+      );
+    }
+
+    latestProjectVersionDefaults = (latestVersionData ??
+      null) as CreateEstimateLatestVersionDefaultsRow | null;
+  } else {
+    if (!input.project) {
+      throw badRequest("project ou project_id est requis.");
+    }
+
+    const { data: createdProject, error: projectError } = await supabase
+      .from("estimate_projects")
+      .insert({
+        tenant_id: tenantId,
+        user_id: userId,
+        name: input.project.name,
+        reference: toNullableText(input.project.reference),
+        client_name: toNullableText(input.project.client_name),
+        notes: toNullableText(input.project.notes),
+        is_archived: false,
+      })
+      .select("*")
+      .single();
+
+    if (projectError || !createdProject) {
+      if (projectError) {
+        throw mapSupabaseError(projectError, "Impossible de creer le projet de chiffrage.");
+      }
+      throw badRequest("Impossible de creer le projet de chiffrage.");
+    }
+
+    project = createdProject as EstimateProjectRow;
+    createdProjectId = createdProject.id;
+  }
+
+  if (!project) {
+    throw badRequest("Projet de chiffrage introuvable.");
+  }
+
   const normalizedCurrency = normalizeEstimateCurrencyOrThrow(
-    input.version?.currency,
+    requestedCurrency ?? latestProjectVersionDefaults?.currency,
     {
       fallback: DEFAULT_CURRENCY,
     }
   );
 
-  const { data: project, error: projectError } = await supabase
-    .from("estimate_projects")
-    .insert({
-      tenant_id: tenantId,
-      user_id: userId,
-      name: input.project.name,
-      reference: toNullableText(input.project.reference),
-      client_name: toNullableText(input.project.client_name),
-      notes: toNullableText(input.project.notes),
-      is_archived: false,
-    })
-    .select("*")
-    .single();
-
-  if (projectError || !project) {
-    if (projectError) {
-      throw mapSupabaseError(projectError, "Impossible de creer le projet de chiffrage.");
-    }
-    throw badRequest("Impossible de creer le projet de chiffrage.");
-  }
-
   const versionPayload: EstimateVersionInsert = {
     tenant_id: tenantId,
     project_id: project.id,
-    version_number: 1,
+    version_number: targetProjectId
+      ? (latestProjectVersionDefaults?.version_number ?? 0) + 1
+      : 1,
     status: "draft",
     title: toNullableText(input.version?.title),
-    date_devis: input.version?.date_devis ?? todayDateOnly(),
-    validite_jours: input.version?.validite_jours ?? DEFAULT_VALIDITE_JOURS,
-    margin_multiplier: input.version?.margin_multiplier ?? DEFAULT_MARGIN_MULTIPLIER,
-    margin_mode: input.version?.margin_mode ?? DEFAULT_MARGIN_MODE,
+    date_devis:
+      input.version?.date_devis ??
+      latestProjectVersionDefaults?.date_devis ??
+      todayDateOnly(),
+    validite_jours:
+      input.version?.validite_jours ??
+      latestProjectVersionDefaults?.validite_jours ??
+      DEFAULT_VALIDITE_JOURS,
+    margin_multiplier:
+      input.version?.margin_multiplier ??
+      latestProjectVersionDefaults?.margin_multiplier ??
+      DEFAULT_MARGIN_MULTIPLIER,
+    margin_mode:
+      input.version?.margin_mode ??
+      latestProjectVersionDefaults?.margin_mode ??
+      DEFAULT_MARGIN_MODE,
     currency: normalizedCurrency,
-    margin_bp: input.version?.margin_bp ?? 0,
-    discount_bp: input.version?.discount_bp ?? 0,
-    discount_mode: input.version?.discount_mode ?? DEFAULT_DISCOUNT_MODE,
-    discount_steps: input.version?.discount_steps ?? [],
+    margin_bp:
+      input.version?.margin_bp ?? latestProjectVersionDefaults?.margin_bp ?? 0,
+    discount_bp:
+      input.version?.discount_bp ?? latestProjectVersionDefaults?.discount_bp ?? 0,
+    discount_mode:
+      input.version?.discount_mode ??
+      latestProjectVersionDefaults?.discount_mode ??
+      DEFAULT_DISCOUNT_MODE,
+    discount_steps:
+      input.version?.discount_steps ??
+      latestProjectVersionDefaults?.discount_steps ??
+      [],
     global_coefficient:
-      input.version?.global_coefficient ?? DEFAULT_GLOBAL_COEFFICIENT,
-    tax_rate_bp: input.version?.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
-    rounding_mode: input.version?.rounding_mode ?? DEFAULT_ROUNDING_MODE,
+      input.version?.global_coefficient ??
+      latestProjectVersionDefaults?.global_coefficient ??
+      DEFAULT_GLOBAL_COEFFICIENT,
+    tax_rate_bp:
+      input.version?.tax_rate_bp ??
+      latestProjectVersionDefaults?.tax_rate_bp ??
+      DEFAULT_TAX_RATE_BP,
+    rounding_mode:
+      input.version?.rounding_mode ??
+      latestProjectVersionDefaults?.rounding_mode ??
+      DEFAULT_ROUNDING_MODE,
     rounding_step_cents:
-      input.version?.rounding_step_cents ?? DEFAULT_ROUNDING_STEP_CENTS,
+      input.version?.rounding_step_cents ??
+      latestProjectVersionDefaults?.rounding_step_cents ??
+      DEFAULT_ROUNDING_STEP_CENTS,
     max_section_depth: clampMaxSectionDepth(
-      input.version?.max_section_depth,
+      input.version?.max_section_depth ??
+        latestProjectVersionDefaults?.max_section_depth,
       DEFAULT_MAX_SECTION_DEPTH
     ),
     total_ht_cents: 0,
@@ -4569,7 +4823,9 @@ export async function createEstimate(input: CreateEstimateInput) {
     .single();
 
   if (versionError || !version) {
-    await supabase.from("estimate_projects").delete().eq("id", project.id);
+    if (createdProjectId) {
+      await supabase.from("estimate_projects").delete().eq("id", createdProjectId);
+    }
 
     if (versionError) {
       throw mapSupabaseError(versionError, "Impossible de creer la version initiale.");
@@ -4596,7 +4852,15 @@ export async function createEstimate(input: CreateEstimateInput) {
     });
 
   if (categoriesError) {
-    await supabase.from("estimate_projects").delete().eq("id", project.id);
+    if (createdProjectId) {
+      await supabase.from("estimate_projects").delete().eq("id", createdProjectId);
+    } else {
+      await supabase
+        .from("estimate_versions")
+        .delete()
+        .eq("id", version.id)
+        .eq("tenant_id", tenantId);
+    }
     throw mapSupabaseError(categoriesError, "Impossible de preparer les categories par defaut.");
   }
 

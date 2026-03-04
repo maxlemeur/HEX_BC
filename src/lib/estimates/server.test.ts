@@ -9,6 +9,8 @@ import {
   createEstimate,
   createEstimateItem,
   insertAssemblyIntoVersion,
+  insertTemplateIntoVersion,
+  instantiateEstimateFromTemplate,
   listEstimateItems,
   patchEstimateVersion,
   updateEstimateAssembly,
@@ -28,9 +30,13 @@ const LABOR_ROLE_ID = "99999999-9999-4999-8999-999999999999";
 const ASSEMBLY_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const INSERTED_SECTION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const INSERTED_LINE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const TEMPLATE_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const TEMPLATE_VERSION_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const VERSION_UPDATED_AT = "2026-02-20T10:00:00.000Z";
 const NEXT_VERSION_UPDATED_AT = "2026-02-20T10:00:01.000Z";
 const LOCK_EXPIRES_AT = "2099-02-20T10:00:00.000Z";
+const ROOT_SECTION_ID = "f0f0f0f0-f0f0-4f0f-8f0f-f0f0f0f0f0f0";
+const SECOND_LEVEL_SECTION_ID = "f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1";
 
 function createSupabaseMock(input: {
   rpcResult: {
@@ -365,6 +371,156 @@ function createCreateEstimateSupabaseMock() {
       estimateProjectInsert,
       estimateVersionInsert,
       estimateCategoriesUpsert,
+    },
+  };
+
+  return supabase;
+}
+
+function createCreateEstimateIntoExistingProjectSupabaseMock() {
+  const tenantMembershipBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+  };
+
+  tenantMembershipBuilder.eq.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.order.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.limit.mockResolvedValue({
+    data: [
+      {
+        tenant_id: TENANT_ID,
+        role: "engineer",
+        is_default: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    error: null,
+  });
+
+  const estimateProjectSelectBuilder = {
+    eq: vi.fn(),
+    maybeSingle: vi.fn(),
+  };
+  estimateProjectSelectBuilder.eq.mockReturnValue(estimateProjectSelectBuilder);
+  estimateProjectSelectBuilder.maybeSingle.mockResolvedValue({
+    data: {
+      id: PROJECT_ID,
+      tenant_id: TENANT_ID,
+      user_id: USER_ID,
+      name: "Projet existant",
+      reference: "AFF-1",
+      client_name: "Client",
+      notes: null,
+      is_archived: false,
+      created_at: "2026-02-01T00:00:00.000Z",
+      updated_at: "2026-02-01T00:00:00.000Z",
+    },
+    error: null,
+  });
+
+  const latestVersionBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+    maybeSingle: vi.fn(),
+  };
+  latestVersionBuilder.eq.mockReturnValue(latestVersionBuilder);
+  latestVersionBuilder.order.mockReturnValue(latestVersionBuilder);
+  latestVersionBuilder.limit.mockReturnValue(latestVersionBuilder);
+  latestVersionBuilder.maybeSingle.mockResolvedValue({
+    data: {
+      version_number: 3,
+      date_devis: "2026-02-21",
+      validite_jours: 45,
+      margin_multiplier: 1.12,
+      margin_mode: "fixed",
+      currency: "EUR",
+      margin_bp: 50,
+      discount_bp: 75,
+      discount_mode: "cascade",
+      discount_steps: [200, 100],
+      global_coefficient: 1.05,
+      tax_rate_bp: 2000,
+      rounding_mode: "nearest",
+      rounding_step_cents: 100,
+      max_section_depth: 3,
+    },
+    error: null,
+  });
+
+  const estimateVersionInsertSingle = vi.fn().mockResolvedValue({
+    data: {
+      id: VERSION_ID,
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_number: 4,
+      status: "draft",
+      updated_at: NEXT_VERSION_UPDATED_AT,
+    },
+    error: null,
+  });
+
+  const estimateVersionInsert = vi.fn(() => ({
+    select: vi.fn(() => ({
+      single: estimateVersionInsertSingle,
+    })),
+  }));
+
+  const estimateVersionDelete = vi.fn(() => ({
+    eq: vi.fn(() => ({
+      eq: vi.fn().mockResolvedValue({ error: null }),
+    })),
+  }));
+
+  const estimateCategoriesUpsert = vi.fn().mockResolvedValue({
+    error: null,
+  });
+
+  const supabase = {
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user: {
+            id: USER_ID,
+          },
+        },
+        error: null,
+      }),
+    },
+    from: vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => tenantMembershipBuilder),
+        };
+      }
+
+      if (table === "estimate_projects") {
+        return {
+          select: vi.fn(() => estimateProjectSelectBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => latestVersionBuilder),
+          insert: estimateVersionInsert,
+          delete: estimateVersionDelete,
+        };
+      }
+
+      if (table === "estimate_categories") {
+        return {
+          upsert: estimateCategoriesUpsert,
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+    __mocks: {
+      estimateVersionInsert,
+      estimateCategoriesUpsert,
+      estimateProjectSelectBuilder,
     },
   };
 
@@ -1082,6 +1238,214 @@ describe("createEstimate payload", () => {
 
     expect(supabase.__mocks.estimateProjectInsert).not.toHaveBeenCalled();
     expect(supabase.__mocks.estimateVersionInsert).not.toHaveBeenCalled();
+  });
+
+  it("creates a new version on an existing project when project_id is provided", async () => {
+    const supabase = createCreateEstimateIntoExistingProjectSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createEstimate({
+        project_id: PROJECT_ID,
+        version: {
+          title: "V4",
+          max_section_depth: 3,
+        },
+      })
+    ).resolves.toMatchObject({
+      project: {
+        id: PROJECT_ID,
+      },
+      version: {
+        id: VERSION_ID,
+        project_id: PROJECT_ID,
+      },
+    });
+
+    expect(supabase.__mocks.estimateVersionInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project_id: PROJECT_ID,
+        version_number: 4,
+        title: "V4",
+        validite_jours: 45,
+        margin_multiplier: 1.12,
+        margin_mode: "fixed",
+        currency: "EUR",
+        margin_bp: 50,
+        discount_bp: 75,
+        discount_mode: "cascade",
+        discount_steps: [200, 100],
+        global_coefficient: 1.05,
+        tax_rate_bp: 2000,
+        rounding_mode: "nearest",
+        rounding_step_cents: 100,
+        max_section_depth: 3,
+      })
+    );
+    expect(supabase.__mocks.estimateProjectSelectBuilder.eq).toHaveBeenCalledWith(
+      "id",
+      PROJECT_ID
+    );
+  });
+});
+
+describe("instantiateEstimateFromTemplate with existing project", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses instantiate_estimate_template_into_project when project_id is provided", async () => {
+    const tenantMembershipBuilder = {
+      eq: vi.fn(),
+      order: vi.fn(),
+      limit: vi.fn(),
+    };
+    tenantMembershipBuilder.eq.mockReturnValue(tenantMembershipBuilder);
+    tenantMembershipBuilder.order.mockReturnValue(tenantMembershipBuilder);
+    tenantMembershipBuilder.limit.mockResolvedValue({
+      data: [
+        {
+          tenant_id: TENANT_ID,
+          role: "engineer",
+          is_default: true,
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      error: null,
+    });
+
+    const estimateProjectsUpdate = vi.fn(() => ({
+      eq: vi.fn(() => ({
+        eq: vi.fn().mockResolvedValue({ error: null }),
+      })),
+    }));
+
+    const supabase = {
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: {
+            user: {
+              id: USER_ID,
+            },
+          },
+          error: null,
+        }),
+      },
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => tenantMembershipBuilder),
+          };
+        }
+
+        if (table === "estimate_projects") {
+          return {
+            update: estimateProjectsUpdate,
+          };
+        }
+
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn().mockResolvedValue({
+        data: [
+          {
+            project_id: PROJECT_ID,
+            version_id: TEMPLATE_VERSION_ID,
+          },
+        ],
+        error: null,
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await instantiateEstimateFromTemplate(TEMPLATE_ID, {
+      project_id: PROJECT_ID,
+      version_title: "Option B",
+      date_devis: "2026-03-04",
+      validite_jours: 60,
+      project_notes: "A ignorer pour projet existant",
+    });
+
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "instantiate_estimate_template_into_project",
+      {
+        p_template_id: TEMPLATE_ID,
+        p_project_id: PROJECT_ID,
+        p_version_title: "Option B",
+        p_date_devis: "2026-03-04",
+        p_validite_jours: 60,
+      }
+    );
+    expect(estimateProjectsUpdate).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      projectId: PROJECT_ID,
+      versionId: TEMPLATE_VERSION_ID,
+      redirectTo: `/dashboard/estimates/${TEMPLATE_VERSION_ID}/edit`,
+    });
+  });
+
+  it("maps inaccessible target project errors to NOT_FOUND", async () => {
+    const tenantMembershipBuilder = {
+      eq: vi.fn(),
+      order: vi.fn(),
+      limit: vi.fn(),
+    };
+    tenantMembershipBuilder.eq.mockReturnValue(tenantMembershipBuilder);
+    tenantMembershipBuilder.order.mockReturnValue(tenantMembershipBuilder);
+    tenantMembershipBuilder.limit.mockResolvedValue({
+      data: [
+        {
+          tenant_id: TENANT_ID,
+          role: "engineer",
+          is_default: true,
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      error: null,
+    });
+
+    const supabase = {
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: {
+            user: {
+              id: USER_ID,
+            },
+          },
+          error: null,
+        }),
+      },
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => tenantMembershipBuilder),
+          };
+        }
+
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn().mockResolvedValue({
+        data: null,
+        error: {
+          code: "P0001",
+          message: "Target project not found or access denied",
+          details: null,
+          hint: null,
+        },
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      instantiateEstimateFromTemplate(TEMPLATE_ID, {
+        project_id: PROJECT_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "ESTIMATE_TEMPLATE_TARGET_PROJECT_NOT_FOUND",
+    });
   });
 });
 
@@ -2056,6 +2420,416 @@ describe("estimate assemblies insertion", () => {
       code: "BAD_REQUEST",
       message: "afterItemId invalide.",
     });
+  });
+});
+
+function createTemplateInsertSupabaseMock(input?: {
+  versionStatus?: "draft" | "sent" | "accepted" | "archived";
+  versionMaxSectionDepth?: number;
+  draftLockUserId?: string | null;
+  templateItems?: Array<{
+    id: string;
+    parent_id: string | null;
+    item_type: "section" | "line";
+    position: number;
+  }>;
+  afterItemId?: string | null;
+  anchorExists?: boolean;
+  anchorParentId?: string | null;
+  parentItem?: {
+    id: string;
+    version_id: string;
+    parent_id: string | null;
+    item_type: "section" | "line";
+  };
+  hierarchyItems?: Array<{
+    id: string;
+    parent_id: string | null;
+    item_type: "section" | "line";
+  }>;
+  rpcError?: {
+    code: string;
+    message: string;
+    details: string | null;
+    hint: string | null;
+  } | null;
+}) {
+  const tenantMembershipBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+  };
+  tenantMembershipBuilder.eq.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.order.mockReturnValue(tenantMembershipBuilder);
+  tenantMembershipBuilder.limit.mockResolvedValue({
+    data: [
+      {
+        tenant_id: TENANT_ID,
+        role: "admin",
+        is_default: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    error: null,
+  });
+
+  const estimateVersionAccessBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        id: VERSION_ID,
+        project_id: PROJECT_ID,
+        status: input?.versionStatus ?? "draft",
+        margin_multiplier: 1,
+        tax_rate_bp: 2000,
+        max_section_depth: input?.versionMaxSectionDepth ?? 3,
+        updated_at: VERSION_UPDATED_AT,
+        total_ht_cents: 0,
+        total_tax_cents: 0,
+        total_ttc_cents: 0,
+        estimate_projects: {
+          id: PROJECT_ID,
+          tenant_id: TENANT_ID,
+          user_id: OWNER_USER_ID,
+          name: "Project",
+          reference: null,
+          client_name: null,
+          notes: null,
+          is_archived: false,
+        },
+      },
+      error: null,
+    }),
+  };
+  estimateVersionAccessBuilder.eq.mockReturnValue(estimateVersionAccessBuilder);
+
+  const draftLocksBuilder = {
+    eq: vi.fn(),
+    gt: vi.fn(),
+    maybeSingle: vi.fn().mockResolvedValue({
+      data:
+        input?.draftLockUserId === null
+          ? null
+          : {
+              id: "lock-template",
+              version_id: VERSION_ID,
+              user_id: input?.draftLockUserId ?? USER_ID,
+              locked_at: VERSION_UPDATED_AT,
+              expires_at: LOCK_EXPIRES_AT,
+            },
+      error: null,
+    }),
+  };
+  draftLocksBuilder.eq.mockReturnValue(draftLocksBuilder);
+  draftLocksBuilder.gt.mockReturnValue(draftLocksBuilder);
+
+  const templateBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        id: TEMPLATE_ID,
+        tenant_id: TENANT_ID,
+        name: "Template test",
+        description: null,
+        source_version_id: null,
+        created_by: USER_ID,
+        margin_multiplier: 1,
+        margin_mode: "fixed",
+        currency: "EUR",
+        margin_bp: 0,
+        discount_bp: 0,
+        discount_mode: "simple",
+        discount_steps: [],
+        global_coefficient: 1,
+        tax_rate_bp: 2000,
+        rounding_mode: "none",
+        rounding_step_cents: 1,
+        validite_jours: 30,
+        created_at: VERSION_UPDATED_AT,
+        updated_at: VERSION_UPDATED_AT,
+      },
+      error: null,
+    }),
+  };
+  templateBuilder.eq.mockReturnValue(templateBuilder);
+
+  const defaultTemplateItems = [
+    {
+      id: ROOT_SECTION_ID,
+      parent_id: null,
+      item_type: "section" as const,
+      position: 1,
+    },
+    {
+      id: "abababab-abab-4aba-8aba-abababababab",
+      parent_id: ROOT_SECTION_ID,
+      item_type: "line" as const,
+      position: 1,
+    },
+  ];
+  let templateItemsOrderCalls = 0;
+  const templateItemsBuilder = {
+    eq: vi.fn(),
+    order: vi.fn(() => {
+      templateItemsOrderCalls += 1;
+      if (templateItemsOrderCalls >= 2) {
+        return Promise.resolve({
+          data: input?.templateItems ?? defaultTemplateItems,
+          error: null,
+        });
+      }
+      return templateItemsBuilder;
+    }),
+  };
+  templateItemsBuilder.eq.mockReturnValue(templateItemsBuilder);
+
+  const anchorBuilder = {
+    eq: vi.fn(),
+    maybeSingle: vi.fn().mockResolvedValue(
+      input?.anchorExists === false
+        ? { data: null, error: null }
+        : {
+            data: {
+              id: input?.afterItemId ?? ITEM_ID_1,
+              parent_id: input?.anchorParentId ?? null,
+            },
+            error: null,
+          }
+    ),
+  };
+  anchorBuilder.eq.mockReturnValue(anchorBuilder);
+
+  const parentBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data:
+        input?.parentItem ??
+        (input?.anchorParentId
+          ? {
+              id: input.anchorParentId,
+              version_id: VERSION_ID,
+              parent_id: null,
+              item_type: "section",
+            }
+          : null),
+      error: null,
+    }),
+  };
+  parentBuilder.eq.mockReturnValue(parentBuilder);
+
+  const hierarchyBuilder = {
+    eq: vi.fn(),
+    data: input?.hierarchyItems ?? [],
+    error: null,
+  };
+  hierarchyBuilder.eq.mockReturnValue(hierarchyBuilder);
+
+  const rpcData = [
+    {
+      id: INSERTED_SECTION_ID,
+      item_type: "section" as const,
+      parent_id: null,
+      position: 2,
+      labor_role_id: null,
+    },
+    {
+      id: INSERTED_LINE_ID,
+      item_type: "line" as const,
+      parent_id: INSERTED_SECTION_ID,
+      position: 1,
+      labor_role_id: null,
+    },
+  ];
+  const rpc = vi.fn().mockResolvedValue({
+    data: rpcData,
+    error: input?.rpcError ?? null,
+  });
+
+  const estimateItemsSelectIn = vi.fn().mockResolvedValue({
+    data: rpcData,
+    error: null,
+  });
+  const estimateItemsSelectBuilder = {
+    eq: vi.fn(),
+    in: estimateItemsSelectIn,
+  };
+  estimateItemsSelectBuilder.eq.mockReturnValue(estimateItemsSelectBuilder);
+
+  const supabase = {
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user: {
+            id: USER_ID,
+          },
+        },
+        error: null,
+      }),
+    },
+    from: vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => tenantMembershipBuilder),
+        };
+      }
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => estimateVersionAccessBuilder),
+        };
+      }
+      if (table === "draft_locks") {
+        return {
+          select: vi.fn(() => draftLocksBuilder),
+        };
+      }
+      if (table === "estimate_templates") {
+        return {
+          select: vi.fn(() => templateBuilder),
+        };
+      }
+      if (table === "estimate_template_items") {
+        return {
+          select: vi.fn(() => templateItemsBuilder),
+        };
+      }
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn((columns: string) => {
+            if (columns === "id, parent_id") {
+              return anchorBuilder;
+            }
+            if (columns === "id, version_id, item_type, parent_id") {
+              return parentBuilder;
+            }
+            if (columns === "id, parent_id, item_type") {
+              return hierarchyBuilder;
+            }
+            if (columns === "*") {
+              return estimateItemsSelectBuilder;
+            }
+            throw new Error(`Unexpected estimate_items select: ${columns}`);
+          }),
+        };
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+    rpc,
+  };
+
+  return supabase;
+}
+
+describe("estimate templates insertion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("inserts a structurally valid template", async () => {
+    const supabase = createTemplateInsertSupabaseMock({
+      versionMaxSectionDepth: 1,
+      afterItemId: ITEM_ID_1,
+      anchorParentId: null,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await insertTemplateIntoVersion({
+      templateId: TEMPLATE_ID,
+      versionId: VERSION_ID,
+      afterItemId: ITEM_ID_1,
+    });
+
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      "insert_estimate_template_into_version",
+      expect.objectContaining({
+        p_version_id: VERSION_ID,
+        p_template_id: TEMPLATE_ID,
+        p_after_item_id: ITEM_ID_1,
+      })
+    );
+    expect(result.items).toEqual([
+      expect.objectContaining({ id: INSERTED_SECTION_ID }),
+      expect.objectContaining({ id: INSERTED_LINE_ID }),
+    ]);
+  });
+
+  it("rejects template insertion when a root line is not under a section leaf", async () => {
+    const supabase = createTemplateInsertSupabaseMock({
+      versionMaxSectionDepth: 3,
+      templateItems: [
+        {
+          id: "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1",
+          parent_id: null,
+          item_type: "line",
+          position: 1,
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      insertTemplateIntoVersion({
+        templateId: TEMPLATE_ID,
+        versionId: VERSION_ID,
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "Une ligne doit etre ajoutee sous une section.",
+    });
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects insertion when adding a root section would exceed max depth", async () => {
+    const supabase = createTemplateInsertSupabaseMock({
+      versionMaxSectionDepth: 3,
+      afterItemId: ITEM_ID_1,
+      anchorParentId: PARENT_ID_1,
+      parentItem: {
+        id: PARENT_ID_1,
+        version_id: VERSION_ID,
+        parent_id: SECOND_LEVEL_SECTION_ID,
+        item_type: "section",
+      },
+      hierarchyItems: [
+        {
+          id: ROOT_SECTION_ID,
+          parent_id: null,
+          item_type: "section",
+        },
+        {
+          id: SECOND_LEVEL_SECTION_ID,
+          parent_id: ROOT_SECTION_ID,
+          item_type: "section",
+        },
+        {
+          id: PARENT_ID_1,
+          parent_id: SECOND_LEVEL_SECTION_ID,
+          item_type: "section",
+        },
+      ],
+      templateItems: [
+        {
+          id: "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2",
+          parent_id: null,
+          item_type: "section",
+          position: 1,
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      insertTemplateIntoVersion({
+        templateId: TEMPLATE_ID,
+        versionId: VERSION_ID,
+        afterItemId: ITEM_ID_1,
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "Impossible de creer ce niveau: profondeur max 3.",
+    });
+    expect(supabase.rpc).not.toHaveBeenCalled();
   });
 });
 

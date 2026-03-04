@@ -151,8 +151,10 @@ import { refreshVersionTokenAfterAssemblyInsert } from "@/lib/estimates/editor-v
 import { useDraftLock } from "@/hooks/useDraftLock";
 import type { Database } from "@/types/database";
 import {
+  applyOptimisticTemplateInsertion,
   buildSiblingOrderByParent,
   collectSubtreeItemIds,
+  createTopLevelItemIdsTracker,
   resolveTopLevelItemIds,
   sortItemsForTreeRecreation,
 } from "./utils/item-tree";
@@ -4776,6 +4778,7 @@ export default function EditEstimatePage() {
       setActionError(null);
       const snapshot = itemsRef.current;
       let insertedItems: EstimateItem[] = [];
+      let insertedRootsTracker = createTopLevelItemIdsTracker([]);
 
       try {
         insertedItems = await insertTemplateIntoVersion(templateId, {
@@ -4787,25 +4790,8 @@ export default function EditEstimatePage() {
           return;
         }
 
-        const insertedIds = new Set(insertedItems.map((item) => item.id));
-        const insertedSection =
-          insertedItems.find((item) => item.item_type === "section") ??
-          insertedItems[0];
-
-        const targetParentId = insertedSection.parent_id ?? null;
-        const targetPosition = insertedSection.position;
-
-        const shiftedExistingItems = snapshot.map((item) => {
-          if (insertedIds.has(item.id)) return item;
-          if ((item.parent_id ?? null) !== targetParentId) return item;
-          if (item.position < targetPosition) return item;
-          return {
-            ...item,
-            position: item.position + 1,
-          };
-        });
-
-        setItems([...shiftedExistingItems, ...insertedItems]);
+        insertedRootsTracker = createTopLevelItemIdsTracker(insertedItems);
+        setItems(applyOptimisticTemplateInsertion(snapshot, insertedItems));
         setTotalsOutOfSync(false);
       } catch (error) {
         if (!handleVersionConflict(error, { persistDraft: true })) {
@@ -4835,7 +4821,6 @@ export default function EditEstimatePage() {
 
       if (insertedItems.length === 0) return;
 
-      const latestInsertedRoots = resolveTopLevelItemIds(insertedItems);
       pushHistoryCommand({
         label: "insert-template",
         undo: async () => {
@@ -4846,6 +4831,7 @@ export default function EditEstimatePage() {
 
           const undoSnapshot = itemsRef.current;
           const idsToRemove = new Set<string>();
+          const latestInsertedRoots = insertedRootsTracker.getCurrent();
           latestInsertedRoots.forEach((rootId) => {
             collectSubtreeItemIds(undoSnapshot, rootId).forEach((id) => {
               idsToRemove.add(id);
@@ -4878,23 +4864,8 @@ export default function EditEstimatePage() {
           });
           if (recreated.length === 0) return;
 
-          const recreatedIds = new Set(recreated.map((item) => item.id));
-          const insertedSection =
-            recreated.find((item) => item.item_type === "section") ?? recreated[0];
-          const redoTargetParentId = insertedSection?.parent_id ?? null;
-          const redoTargetPosition = insertedSection?.position ?? 1;
-
-          const shiftedExistingItems = redoSnapshot.map((item) => {
-            if (recreatedIds.has(item.id)) return item;
-            if ((item.parent_id ?? null) !== redoTargetParentId) return item;
-            if (item.position < redoTargetPosition) return item;
-            return {
-              ...item,
-              position: item.position + 1,
-            };
-          });
-
-          setItems([...shiftedExistingItems, ...recreated]);
+          insertedRootsTracker.replace(recreated);
+          setItems(applyOptimisticTemplateInsertion(redoSnapshot, recreated));
           setTotalsOutOfSync(false);
 
           await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
