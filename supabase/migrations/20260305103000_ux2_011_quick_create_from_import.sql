@@ -30,6 +30,7 @@ declare
   v_total_ht_cents integer := 0;
   v_total_tax_cents integer := 0;
   v_total_ttc_cents integer := 0;
+  v_import_claimed_rows integer := 0;
   v_current_user_id uuid := (select auth.uid());
   v_resolved_project_name text;
   v_resolved_version_title text;
@@ -64,7 +65,8 @@ begin
     and (
       di.user_id = v_current_user_id
       or (select public.has_tenant_role(di.tenant_id, array['admin'::public.tenant_role]))
-    );
+    )
+  for update;
 
   if not found then
     raise exception 'DPGF import not found or access denied';
@@ -111,7 +113,13 @@ begin
   update public.dpgf_imports di
   set project_id = v_project_id
   where di.id = v_import.id
-    and di.tenant_id = v_import.tenant_id;
+    and di.tenant_id = v_import.tenant_id
+    and di.project_id is null;
+
+  get diagnostics v_import_claimed_rows = row_count;
+  if v_import_claimed_rows <> 1 then
+    raise exception 'DPGF import already linked to a project';
+  end if;
 
   insert into public.estimate_versions (
     id,
