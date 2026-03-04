@@ -43,6 +43,7 @@ function renderToolbar(overrides?: { hasSelectedLines?: boolean }) {
       }}
     >
       <EstimateEditorToolbar
+        uiMode="expert"
         qualityCounts={{
           linesCount: 2,
           linesWithAnomaliesCount: 1,

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { SignOutButton } from "@/components/SignOutButton";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
+import { useUiMode } from "@/hooks/useUiMode";
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
 
@@ -240,6 +241,7 @@ export function DashboardShell({
     "FEATURE_FLAGS_SIDEBAR_INDICATOR"
   );
   const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
+  const { setMode, isExpert, isSimplified } = useUiMode();
 
   const [collapsed, setCollapsed] = useState(false);
   const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);
@@ -439,8 +441,28 @@ export function DashboardShell({
                 <p className="truncate text-sm font-medium text-white">
                   {displayName || "Compte"}
                 </p>
+                <p className="truncate text-[11px] font-medium text-white/60">
+                  {isSimplified ? "Simplifie ○" : "Expert ●"}
+                </p>
               </div>
             </Link>
+            <button
+              type="button"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-xs font-semibold text-white transition-colors hover:bg-white/20"
+              title={
+                isExpert
+                  ? "Passer en mode Simplifie"
+                  : "Passer en mode Expert"
+              }
+              aria-label={
+                isExpert
+                  ? "Passer en mode Simplifie"
+                  : "Passer en mode Expert"
+              }
+              onClick={() => setMode(isExpert ? "simplified" : "expert")}
+            >
+              {isExpert ? "●" : "○"}
+            </button>
             <div className="sidebar-label">
               <SignOutButton />
             </div>

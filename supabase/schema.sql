@@ -129,7 +129,9 @@ create table public.profiles (
   phone text,
   job_title text,
   work_email text,
-  role employee_role not null default 'buyer'
+  role employee_role not null default 'buyer',
+  ui_mode text not null default 'simplified'
+    check (ui_mode in ('simplified', 'expert'))
 );
 
 create or replace function public.guard_profile_role_update()

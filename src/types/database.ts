@@ -19,6 +19,7 @@ export type Database = {
           job_title: string | null;
           work_email: string | null;
           role: "buyer" | "site_manager" | "admin";
+          ui_mode: "simplified" | "expert";
         };
         Insert: {
           id: string;
@@ -29,6 +30,7 @@ export type Database = {
           job_title?: string | null;
           work_email?: string | null;
           role?: "buyer" | "site_manager" | "admin";
+          ui_mode?: "simplified" | "expert";
         };
         Update: {
           id?: string;
@@ -39,6 +41,7 @@ export type Database = {
           job_title?: string | null;
           work_email?: string | null;
           role?: "buyer" | "site_manager" | "admin";
+          ui_mode?: "simplified" | "expert";
         };
         Relationships: [];
       };

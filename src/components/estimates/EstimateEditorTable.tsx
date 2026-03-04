@@ -73,6 +73,7 @@ import {
   useColumnVisibility,
   type ColumnKey,
 } from "@/hooks/useColumnVisibility";
+import { useUiMode } from "@/hooks/useUiMode";
 import {
   type EstimateQualityFlagCounts,
   type EstimateQualityFlagKey,
@@ -775,6 +776,9 @@ export function EstimateEditorTable({
   onOpenSettings,
 }: EstimateEditorTableProps) {
   const columnVisibility = useColumnVisibility();
+  const columnPreset = columnVisibility.preset;
+  const setColumnPreset = columnVisibility.setPreset;
+  const { mode: uiMode, isSimplified } = useUiMode();
   const [unitDrafts, setUnitDrafts] = useState<Record<string, string>>({});
   const [supplyTypeDrafts, setSupplyTypeDrafts] = useState<Record<string, string>>({});
   const [isAssemblyPickerOpen, setIsAssemblyPickerOpen] = useState(false);
@@ -847,6 +851,34 @@ export function EstimateEditorTable({
       "--estimate-min-width": `${minWidth}px`,
     } as React.CSSProperties;
   }, [columnVisibility.visibleColumns, isLaborSplitEnabled]);
+
+  const hasInitializedPresetRef = useRef(false);
+  const previousSimplifiedRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    const hasPreviousValue = previousSimplifiedRef.current !== null;
+    const hasModeChanged = previousSimplifiedRef.current !== isSimplified;
+
+    if (!hasInitializedPresetRef.current) {
+      hasInitializedPresetRef.current = true;
+
+      if (isSimplified && columnPreset !== "essential") {
+        setColumnPreset("essential");
+      }
+      if (!isSimplified && columnPreset === "essential") {
+        setColumnPreset("standard");
+      }
+    } else if (hasPreviousValue && hasModeChanged) {
+      if (isSimplified && columnPreset !== "essential") {
+        setColumnPreset("essential");
+      }
+      if (!isSimplified && columnPreset === "essential") {
+        setColumnPreset("standard");
+      }
+    }
+
+    previousSimplifiedRef.current = isSimplified;
+  }, [columnPreset, isSimplified, setColumnPreset]);
 
   // Compute super-header FO/MO group spans for the grid
   const superHeaderSpans = useMemo(() => {
@@ -1950,6 +1982,7 @@ export function EstimateEditorTable({
         <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
         <EstimateEditorToolbar
+          uiMode={uiMode}
           qualityCounts={qualityCounts}
           qualityFilter={qualityFilter}
           outlierDetectionMethod={outlierDetectionMethod}

@@ -19,6 +19,7 @@ import {
 } from "@/components/estimates/context/EstimateEditorContext";
 import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
 import { usePopover } from "@/hooks/usePopover";
+import type { UiMode } from "@/lib/ui-mode";
 
 type EstimateCategory = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type LaborRole = Database["public"]["Tables"]["labor_roles"]["Row"];
@@ -34,6 +35,7 @@ type BulkMoveDestination = {
 };
 
 type EstimateEditorToolbarProps = {
+  uiMode: UiMode;
   qualityCounts: EstimateQualityFlagCounts;
   qualityFilter: EstimateQualityFilter;
   outlierDetectionMethod: EstimateOutlierMethod;
@@ -94,6 +96,7 @@ function parseNumberInput(value: string) {
 }
 
 export function EstimateEditorToolbar({
+  uiMode,
   qualityCounts,
   qualityFilter,
   outlierDetectionMethod,
@@ -148,9 +151,13 @@ export function EstimateEditorToolbar({
     toggle: anomaliesToggle,
     setContainerRef: anomaliesContainerRef,
   } = usePopover();
+  const isSimplifiedMode = uiMode === "simplified";
+  const availableColumnPresets = isSimplifiedMode
+    ? (["essential"] as const)
+    : (Object.keys(columnPresetLabels) as ColumnPreset[]);
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className={`flex flex-col ${isSimplifiedMode ? "gap-1" : "gap-2"}`}>
       {/* Row 1 — Edit actions */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Undo / Redo group */}
@@ -222,7 +229,7 @@ export function EstimateEditorToolbar({
       </div>
 
       {/* Row 2 — View & filter */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={`flex flex-wrap items-center ${isSimplifiedMode ? "gap-1.5" : "gap-2"}`}>
         <input
           type="search"
           className="form-input h-8 text-sm"
@@ -244,7 +251,7 @@ export function EstimateEditorToolbar({
               className="absolute left-0 top-full z-20 mt-2 flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 shadow-xl"
               style={{ minWidth: "200px" }}
             >
-              {(Object.keys(columnPresetLabels) as ColumnPreset[]).map((preset) => (
+              {availableColumnPresets.map((preset) => (
                 <button
                   key={preset}
                   type="button"
@@ -271,7 +278,7 @@ export function EstimateEditorToolbar({
             </div>
           )}
         </div>
-        {qualityCounts.linesWithAnomaliesCount > 0 && (
+        {!isSimplifiedMode && qualityCounts.linesWithAnomaliesCount > 0 && (
           <div className="relative" ref={anomaliesContainerRef}>
             <button
               type="button"
@@ -320,97 +327,99 @@ export function EstimateEditorToolbar({
             )}
           </div>
         )}
-        <div className="relative" ref={toolsContainerRef}>
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={toolsToggle}
-          >
-            Outils
-          </button>
-          {toolsOpen && (
-            <div
-              className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-xl"
-              style={{ minWidth: "320px" }}
+        {!isSimplifiedMode && (
+          <div className="relative" ref={toolsContainerRef}>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={toolsToggle}
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <label
-                  className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
-                  htmlFor="estimate-quality-filter"
-                >
-                  Filtre qualité
-                </label>
-                <select
-                  id="estimate-quality-filter"
-                  className="estimate-input estimate-select"
-                  style={{ width: "auto", minWidth: "260px" }}
-                  value={qualityFilter}
-                  onChange={(event) => onQualityFilterChange(parseEstimateQualityFilter(event.target.value))}
-                >
-                  <option value="all_lines">Toutes les lignes ({qualityCounts.linesCount})</option>
-                  <option value="with_anomalies">
-                    Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
-                  </option>
-                  {ESTIMATE_QUALITY_FLAG_KEYS.map((flag) => (
-                    <option key={flag} value={flag}>
-                      {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
+              Outils
+            </button>
+            {toolsOpen && (
+              <div
+                className="absolute right-0 top-full z-20 mt-2 flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-xl"
+                style={{ minWidth: "320px" }}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+                    htmlFor="estimate-quality-filter"
+                  >
+                    Filtre qualité
+                  </label>
+                  <select
+                    id="estimate-quality-filter"
+                    className="estimate-input estimate-select"
+                    style={{ width: "auto", minWidth: "260px" }}
+                    value={qualityFilter}
+                    onChange={(event) => onQualityFilterChange(parseEstimateQualityFilter(event.target.value))}
+                  >
+                    <option value="all_lines">Toutes les lignes ({qualityCounts.linesCount})</option>
+                    <option value="with_anomalies">
+                      Lignes avec anomalies ({qualityCounts.linesWithAnomaliesCount})
                     </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
-                <label
-                  className="text-xs font-semibold uppercase tracking-[0.08em] text-orange-700"
-                  htmlFor="estimate-outlier-method"
-                >
-                  Outliers
-                </label>
-                <select
-                  id="estimate-outlier-method"
-                  className="estimate-input estimate-select"
-                  style={{ width: "auto", minWidth: "104px" }}
-                  value={outlierDetectionMethod}
-                  disabled={meta.isReadOnly}
-                  onChange={(event) => onOutlierDetectionMethodChange(parseOutlierMethod(event.target.value))}
-                >
-                  <option value="iqr">IQR</option>
-                  <option value="zscore">Z-score</option>
-                </select>
-                <input
-                  className="estimate-input"
-                  style={{ width: "92px" }}
-                  type="number"
-                  step="0.1"
-                  min={0.1}
-                  value={outlierThreshold}
-                  disabled={meta.isReadOnly}
-                  onChange={(event) => onOutlierThresholdChange(parseNumberInput(event.target.value))}
-                  aria-label="Seuil de detection des outliers"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {bulkSuggestionEligibleCount > 0 ? (
+                    {ESTIMATE_QUALITY_FLAG_KEYS.map((flag) => (
+                      <option key={flag} value={flag}>
+                        {ESTIMATE_QUALITY_FLAG_META[flag].label} ({qualityCounts.byFlag[flag]})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+                  <label
+                    className="text-xs font-semibold uppercase tracking-[0.08em] text-orange-700"
+                    htmlFor="estimate-outlier-method"
+                  >
+                    Outliers
+                  </label>
+                  <select
+                    id="estimate-outlier-method"
+                    className="estimate-input estimate-select"
+                    style={{ width: "auto", minWidth: "104px" }}
+                    value={outlierDetectionMethod}
+                    disabled={meta.isReadOnly}
+                    onChange={(event) => onOutlierDetectionMethodChange(parseOutlierMethod(event.target.value))}
+                  >
+                    <option value="iqr">IQR</option>
+                    <option value="zscore">Z-score</option>
+                  </select>
+                  <input
+                    className="estimate-input"
+                    style={{ width: "92px" }}
+                    type="number"
+                    step="0.1"
+                    min={0.1}
+                    value={outlierThreshold}
+                    disabled={meta.isReadOnly}
+                    onChange={(event) => onOutlierThresholdChange(parseNumberInput(event.target.value))}
+                    aria-label="Seuil de detection des outliers"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {bulkSuggestionEligibleCount > 0 ? (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      type="button"
+                      onClick={onOpenBulkSuggestDialog}
+                      disabled={meta.isReadOnly}
+                    >
+                      Suggestions ({bulkSuggestionEligibleCount})
+                    </button>
+                  ) : null}
                   <button
                     className="btn btn-secondary btn-sm"
                     type="button"
-                    onClick={onOpenBulkSuggestDialog}
+                    onClick={onOpenAssemblyPicker}
                     disabled={meta.isReadOnly}
                   >
-                    Suggestions ({bulkSuggestionEligibleCount})
+                    Assemblages
                   </button>
-                ) : null}
-                <button
-                  className="btn btn-secondary btn-sm"
-                  type="button"
-                  onClick={onOpenAssemblyPicker}
-                  disabled={meta.isReadOnly}
-                >
-                  Assemblages
-                </button>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
         <KeyboardShortcutsButton />
       </div>
 

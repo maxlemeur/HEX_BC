@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { normalizeUiMode, type UiMode } from "@/lib/ui-mode";
 import type { Database } from "@/types/database";
 
 export type UserProfile = {
@@ -11,6 +12,7 @@ export type UserProfile = {
   job_title: string | null;
   work_email: string | null;
   role: "buyer" | "site_manager" | "admin";
+  ui_mode: UiMode;
   tenant_id: string | null;
   tenant_role: Database["public"]["Enums"]["tenant_role"] | null;
 };
@@ -34,7 +36,7 @@ export const getUserProfile = cache(async (userId: string) => {
   const supabase = await getSupabase();
   const { data: profileData } = await supabase
     .from("profiles")
-    .select("id, full_name, phone, job_title, work_email, role")
+    .select("id, full_name, phone, job_title, work_email, role, ui_mode")
     .eq("id", userId)
     .single();
 
@@ -54,6 +56,7 @@ export const getUserProfile = cache(async (userId: string) => {
 
   return {
     ...profileData,
+    ui_mode: normalizeUiMode(profileData.ui_mode),
     tenant_id: membership?.tenant_id ?? null,
     tenant_role: membership?.role ?? null,
   } as UserProfile;
