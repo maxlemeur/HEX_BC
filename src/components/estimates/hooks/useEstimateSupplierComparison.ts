@@ -220,13 +220,13 @@ export function useEstimateSupplierComparison({
 
     window.addEventListener("mousedown", handleMouseDown);
     window.addEventListener("resize", closeMenu);
-    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("scroll", closeMenu, { capture: true, passive: true });
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
       window.removeEventListener("mousedown", handleMouseDown);
       window.removeEventListener("resize", closeMenu);
-      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("scroll", closeMenu, { capture: true } as EventListenerOptions);
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [supplierComparisonMenu]);

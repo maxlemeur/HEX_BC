@@ -18,6 +18,7 @@ import {
   useEstimateEditorState,
 } from "@/components/estimates/context/EstimateEditorContext";
 import type { ColumnKey, ColumnPreset } from "@/hooks/useColumnVisibility";
+import { useIsTablet } from "@/hooks/useIsTablet";
 import { usePopover } from "@/hooks/usePopover";
 import type { UiMode } from "@/lib/ui-mode";
 
@@ -163,6 +164,7 @@ export function EstimateEditorToolbar({
   const state = useEstimateEditorState();
   const actions = useEstimateEditorActions();
   const meta = useEstimateEditorMeta();
+  const isTablet = useIsTablet();
   const {
     isOpen: columnsOpen,
     toggle: columnsToggle,
@@ -177,6 +179,11 @@ export function EstimateEditorToolbar({
     isOpen: anomaliesOpen,
     toggle: anomaliesToggle,
     setContainerRef: anomaliesContainerRef,
+  } = usePopover();
+  const {
+    isOpen: overflowOpen,
+    toggle: overflowToggle,
+    setContainerRef: overflowContainerRef,
   } = usePopover();
   const isSimplifiedMode = uiMode === "simplified";
   const availableColumnPresets = isSimplifiedMode
@@ -309,6 +316,80 @@ export function EstimateEditorToolbar({
           value={searchTerm}
           onChange={(e) => onSearchChange(e.target.value)}
         />
+        {/* Tablet overflow menu — groups Quick Insert, Colonnes, Anomalies, Outils into a single popover */}
+        {isTablet && !isSimplifiedMode ? (
+          <div className="relative" ref={overflowContainerRef}>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={overflowToggle}
+              aria-expanded={overflowOpen}
+              aria-haspopup="true"
+            >
+              Plus...
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`ml-0.5 transition-transform ${overflowOpen ? "rotate-180" : ""}`}><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            {overflowOpen && (
+              <div
+                className="absolute left-0 top-full z-30 mt-2 flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 shadow-xl"
+                style={{ minWidth: "260px" }}
+              >
+                {/* Quick insert buttons */}
+                {onToggleQuickTemplatePicker && (
+                  <button
+                    className={`btn btn-sm w-full text-left ${isQuickTemplatePickerOpen ? "btn-primary" : "btn-secondary"}`}
+                    type="button"
+                    onClick={() => { overflowToggle(); onToggleQuickTemplatePicker(); }}
+                    disabled={meta.isReadOnly}
+                  >
+                    + Template
+                  </button>
+                )}
+                {onToggleQuickAssemblyPicker && (
+                  <button
+                    className={`btn btn-sm w-full text-left ${isQuickAssemblyPickerOpen ? "btn-primary" : "btn-secondary"}`}
+                    type="button"
+                    onClick={() => { overflowToggle(); onToggleQuickAssemblyPicker(); }}
+                    disabled={meta.isReadOnly}
+                  >
+                    + Assemblage
+                  </button>
+                )}
+                <div className="border-t border-border my-1" />
+                {/* Colonnes */}
+                <button
+                  className="btn btn-secondary btn-sm w-full text-left"
+                  type="button"
+                  onClick={() => { overflowToggle(); columnsToggle(); }}
+                >
+                  Colonnes
+                </button>
+                {/* Anomalies */}
+                {qualityCounts.linesWithAnomaliesCount > 0 && (
+                  <button
+                    className={`btn btn-sm w-full text-left ${qualityFilter !== "all_lines" ? "btn-primary" : "btn-secondary"}`}
+                    type="button"
+                    onClick={() => { overflowToggle(); anomaliesToggle(); }}
+                  >
+                    Anomalies ({qualityCounts.linesWithAnomaliesCount})
+                  </button>
+                )}
+                {/* Outils */}
+                <button
+                  className="btn btn-secondary btn-sm w-full text-left"
+                  type="button"
+                  onClick={() => { overflowToggle(); toolsToggle(); }}
+                >
+                  Outils
+                </button>
+              </div>
+            )}
+            {/* Picker nodes rendered outside overflow for correct positioning */}
+            {quickTemplatePickerNode}
+            {quickAssemblyPickerNode}
+          </div>
+        ) : (
+          <>
         {/* UX2-022: Quick insert buttons — Expert mode only */}
         {!isSimplifiedMode && onToggleQuickTemplatePicker && (
           <div className="relative">
@@ -538,6 +619,8 @@ export function EstimateEditorToolbar({
               </div>
             )}
           </div>
+        )}
+          </>
         )}
         <KeyboardShortcutsButton />
       </div>

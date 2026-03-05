@@ -834,6 +834,7 @@ export function EstimateEditorTable({
     () => new Set()
   );
   const tableCardRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const insertionAnchorItemIdRef = useRef<string | null>(null);
   const appliedSuggestionContextByItemIdRef = useRef<
     Record<string, AppliedSuggestionContext>
@@ -2208,6 +2209,28 @@ export function EstimateEditorTable({
     sectionLevelById,
   ]);
 
+  // Scroll shadow detection for horizontal overflow indicator
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const updateShadow = () => {
+      const hasOverflow = el.scrollWidth > el.clientWidth;
+      const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+      el.classList.toggle("estimate-table-scroll--has-overflow", hasOverflow && !atEnd);
+      el.classList.toggle("estimate-table-scroll--scrolled-end", hasOverflow && atEnd);
+    };
+
+    updateShadow();
+    el.addEventListener("scroll", updateShadow, { passive: true });
+    window.addEventListener("resize", updateShadow, { passive: true } as AddEventListenerOptions);
+
+    return () => {
+      el.removeEventListener("scroll", updateShadow);
+      window.removeEventListener("resize", updateShadow);
+    };
+  }, []);
+
   return (
     <EstimateEditorProvider value={estimateEditorContextValue}>
       <EstimateEditorRowActionsProvider value={rowActionsContextValue}>
@@ -2323,7 +2346,7 @@ export function EstimateEditorTable({
 
       </div>
 
-      <div className="estimate-table-scroll mt-2 overflow-x-auto">
+      <div ref={scrollContainerRef} className="estimate-table-scroll mt-2 overflow-x-auto">
       <div
         className={`estimate-table${isLaborSplitEnabled ? " estimate-table--labor-split" : ""}`}
         style={dynamicGridStyle}

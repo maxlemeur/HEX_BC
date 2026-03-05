@@ -568,8 +568,8 @@ body {
 
 /* Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes fadeInStatic {
@@ -2926,6 +2926,106 @@ body {
   flex-direction: column;
   gap: 12px;
   align-items: center;
+}
+
+/* ========================================
+   Scroll shadow indicator (all viewports)
+   ======================================== */
+.estimate-table-scroll {
+  position: relative;
+}
+
+.estimate-table-scroll--has-overflow::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 20px;
+  pointer-events: none;
+  background: linear-gradient(to left, rgba(0, 0, 0, 0.08), transparent);
+  z-index: 5;
+  transition: opacity 0.2s ease;
+}
+
+.estimate-table-scroll--scrolled-end::after {
+  opacity: 0;
+}
+
+/* ========================================
+   Tablet Responsive — Estimate Editor
+   (768px – 1024px)
+   ======================================== */
+@media (min-width: 768px) and (max-width: 1024px) {
+  /* Compressed grid for tablet */
+  .estimate-table {
+    --estimate-grid: minmax(240px, 3fr) 70px 70px 90px 120px 76px 70px 110px 110px 80px 90px 100px 44px;
+    --tree-indent: 28px;
+  }
+
+  .estimate-table__head,
+  .estimate-table__body,
+  .estimate-table__footer,
+  .estimate-table__super-head {
+    min-width: 900px;
+  }
+
+  .estimate-table--labor-split .estimate-table__head,
+  .estimate-table--labor-split .estimate-table__body,
+  .estimate-table--labor-split .estimate-table__footer {
+    min-width: 1400px;
+  }
+
+  /* Reduce header padding & font size */
+  .estimate-table__head > div {
+    padding: 10px 10px;
+    font-size: 10px;
+  }
+
+  .estimate-table__footer > div {
+    padding: 10px 10px;
+    font-size: 12px;
+  }
+
+  /* Reduce cell padding */
+  .estimate-cell {
+    padding: 4px 4px;
+    font-size: 12px;
+  }
+
+  /* Touch targets — min 44px height */
+  .estimate-input,
+  .estimate-select {
+    min-height: 44px;
+  }
+
+  .estimate-cell {
+    min-height: 44px;
+  }
+
+  .editable-cell__display {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  .estimate-drag-handle {
+    height: 44px;
+    width: 36px;
+  }
+
+  .btn-sm {
+    height: 44px;
+  }
+
+  /* Touch action for drag handles and table body */
+  .estimate-drag-handle {
+    touch-action: none;
+  }
+
+  .estimate-table__body {
+    touch-action: pan-y;
+  }
 }
 
 /* Responsive */
