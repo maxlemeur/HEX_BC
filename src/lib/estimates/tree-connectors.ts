@@ -45,9 +45,9 @@ export function buildTreeConnectorSegments(meta: TreeConnectorMeta): TreeConnect
 
   const verticalSegments: TreeVerticalConnectorSegment[] = [];
 
-  // Keep ancestor trunks visible only when the ancestor still has following siblings.
+  // Keep ancestor trunks visible only when the path node beneath that trunk has following siblings.
   for (let column = 0; column < Math.max(depth - 1, 0); column += 1) {
-    if (ancestorLastChildFlags[column]) continue;
+    if (ancestorLastChildFlags[column + 1]) continue;
     verticalSegments.push({
       axis: "vertical",
       column,

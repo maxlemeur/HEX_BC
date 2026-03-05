@@ -96,14 +96,7 @@ describe("buildTreeConnectorSegments", () => {
       verticalSegments: [
         {
           axis: "vertical",
-          column: 0,
-          from: "top",
-          to: "bottom",
-          tone: "d0",
-        },
-        {
-          axis: "vertical",
-          column: 2,
+          column: 1,
           from: "top",
           to: "bottom",
           tone: "d1",
@@ -119,6 +112,39 @@ describe("buildTreeConnectorSegments", () => {
       horizontalSegment: {
         axis: "horizontal",
         column: 3,
+        tone: "d1",
+      },
+    });
+  });
+
+  it("keeps outer trunk visible for non-last chapter under single root", () => {
+    expect(
+      buildTreeConnectorSegments({
+        depth: 2,
+        isLastChild: false,
+        ancestorLastChildFlags: [true, false],
+        hasVisibleChildren: false,
+      })
+    ).toEqual({
+      verticalSegments: [
+        {
+          axis: "vertical",
+          column: 0,
+          from: "top",
+          to: "bottom",
+          tone: "d0",
+        },
+        {
+          axis: "vertical",
+          column: 1,
+          from: "top",
+          to: "bottom",
+          tone: "d1",
+        },
+      ],
+      horizontalSegment: {
+        axis: "horizontal",
+        column: 1,
         tone: "d1",
       },
     });
