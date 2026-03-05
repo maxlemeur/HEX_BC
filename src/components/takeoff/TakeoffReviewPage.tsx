@@ -211,6 +211,8 @@ export default function TakeoffReviewPage({
     viewParam === "tables" || viewParam === "items" || viewParam === "compare" || viewParam === "dpgf"
       ? viewParam
       : "items";
+  const isExpertOnlyTab = activeTab !== "items";
+  const [isExpertSessionOverride, setExpertSessionOverride] = useState(false);
 
   const compareWithJobId = useMemo(() => {
     if (!compareWithParam) return null;
@@ -263,6 +265,34 @@ export default function TakeoffReviewPage({
     },
     [router, searchParams]
   );
+
+  useEffect(() => {
+    if (isSimplified && isExpertOnlyTab && !isExpertSessionOverride) {
+      setExpertSessionOverride(true);
+    }
+  }, [isExpertOnlyTab, isExpertSessionOverride, isSimplified]);
+
+  useEffect(() => {
+    if (!isSimplified && isExpertSessionOverride) {
+      setExpertSessionOverride(false);
+    }
+  }, [isExpertSessionOverride, isSimplified]);
+
+  const isShowingSimplified = isSimplified && !isExpertOnlyTab && !isExpertSessionOverride;
+
+  const handleToggleReviewMode = useCallback(() => {
+    if (isShowingSimplified) {
+      setMode("expert");
+      return;
+    }
+
+    setExpertSessionOverride(false);
+    setMode("simplified");
+
+    if (activeTab !== "items") {
+      setActiveTab("items");
+    }
+  }, [activeTab, isShowingSimplified, setActiveTab, setMode]);
 
   // ---- Data state
   const [items, setItems] = useState<ReviewItem[]>([]);
@@ -1036,10 +1066,10 @@ export default function TakeoffReviewPage({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setMode(isSimplified ? "expert" : "simplified")}
-            aria-label={isSimplified ? "Passer en vue avancee" : "Passer en vue simplifiee"}
+            onClick={handleToggleReviewMode}
+            aria-label={isShowingSimplified ? "Passer en vue avancee" : "Passer en vue simplifiee"}
           >
-            {isSimplified ? "Vue avancee" : "Vue simplifiee"}
+            {isShowingSimplified ? "Vue avancee" : "Vue simplifiee"}
           </Button>
           <Link
             href={`/dashboard/estimates/${versionId}/takeoff/${jobId}`}
@@ -1056,7 +1086,7 @@ export default function TakeoffReviewPage({
       )}
 
       {/* ---- Mode-conditional content ---- */}
-      {isSimplified ? (
+      {isShowingSimplified ? (
         <TakeoffReviewSimplified
           items={items}
           onExcludeItems={handleExcludeItems}
