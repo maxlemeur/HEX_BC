@@ -320,6 +320,8 @@ function toAffaireHubVersionSummary(row: AffaireHubVersionRow): AffaireHubVersio
   };
 }
 
+const PLAN_FILE_SUM_BATCH_SIZE = 500;
+
 async function fetchAffaireHubProjectOrThrow(
   context: AffaireContext,
   projectId: string
@@ -496,12 +498,13 @@ async function fetchAffaireHubPlansSummaryWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
 ): Promise<AffaireHubPlansSummaryResult> {
-  const [planSetsResult, latestJobResult] = await Promise.all([
+  const [planSetsCountResult, latestJobResult] = await Promise.all([
     context.supabase
       .from("plan_sets" as never)
-      .select("id" as never)
+      .select("id" as never, { count: "exact", head: true })
       .eq("tenant_id" as never, context.tenantId as never)
-      .eq("project_id" as never, project.id as never),
+      .eq("project_id" as never, project.id as never)
+      .limit(1),
     context.supabase
       .from("takeoff_jobs" as never)
       .select(
@@ -514,41 +517,68 @@ async function fetchAffaireHubPlansSummaryWithContext(
       .maybeSingle(),
   ]);
 
-  if (planSetsResult.error) {
-    throw mapSupabaseError(planSetsResult.error, "Impossible de charger les jeux de plans.");
+  if (planSetsCountResult.error) {
+    throw mapSupabaseError(
+      planSetsCountResult.error,
+      "Impossible de compter les jeux de plans."
+    );
   }
 
   if (latestJobResult.error) {
     throw mapSupabaseError(latestJobResult.error, "Impossible de charger le dernier job takeoff.");
   }
 
-  const planSetIds = ((planSetsResult.data ?? []) as Array<{ id: string | null }>)
-    .map((row) => row.id)
-    .filter((id): id is string => typeof id === "string");
+  const planSetCount = planSetsCountResult.count ?? 0;
 
   let planFileCount = 0;
   let totalSizeBytes = 0;
 
-  if (planSetIds.length > 0) {
-    const { data: planFilesData, count: planFilesCount, error: planFilesError } =
-      await context.supabase
-        .from("plan_files" as never)
-        .select("file_size_bytes" as never, { count: "exact" })
-        .eq("tenant_id" as never, context.tenantId as never)
-        .in("plan_set_id" as never, planSetIds as never);
+  if (planSetCount > 0) {
+    const { count: planFilesCount, error: planFilesCountError } = await context.supabase
+      .from("plan_files" as never)
+      .select("id, plan_sets!inner(project_id)" as never, { count: "exact", head: true })
+      .eq("tenant_id" as never, context.tenantId as never)
+      .eq("plan_sets.project_id" as never, project.id as never)
+      .limit(1);
 
-    if (planFilesError) {
-      throw mapSupabaseError(planFilesError, "Impossible de charger les fichiers de plans.");
+    if (planFilesCountError) {
+      throw mapSupabaseError(
+        planFilesCountError,
+        "Impossible de compter les fichiers de plans."
+      );
     }
 
-    const rows = (planFilesData ?? []) as Array<{
-      file_size_bytes: number | string | null;
-    }>;
-    planFileCount = planFilesCount ?? rows.length;
-    totalSizeBytes = rows.reduce(
-      (total, row) => total + toSafeInteger(row.file_size_bytes),
-      0
-    );
+    planFileCount = planFilesCount ?? 0;
+
+    let offset = 0;
+    while (offset < planFileCount) {
+      const end = offset + PLAN_FILE_SUM_BATCH_SIZE - 1;
+      const { data: planFilesData, error: planFilesError } = await context.supabase
+        .from("plan_files" as never)
+        .select("file_size_bytes, plan_sets!inner(project_id)" as never)
+        .eq("tenant_id" as never, context.tenantId as never)
+        .eq("plan_sets.project_id" as never, project.id as never)
+        .order("id" as never, { ascending: true })
+        .range(offset, end);
+
+      if (planFilesError) {
+        throw mapSupabaseError(planFilesError, "Impossible de charger les fichiers de plans.");
+      }
+
+      const rows = (planFilesData ?? []) as Array<{
+        file_size_bytes: number | string | null;
+      }>;
+
+      if (rows.length === 0) {
+        break;
+      }
+
+      totalSizeBytes += rows.reduce(
+        (total, row) => total + toSafeInteger(row.file_size_bytes),
+        0
+      );
+      offset += rows.length;
+    }
   }
 
   const latestJobRow = (latestJobResult.data ?? null) as {
@@ -582,7 +612,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
   }
 
   return {
-    planSetCount: planSetIds.length,
+    planSetCount,
     planFileCount,
     totalSizeBytes,
     latestJob,
@@ -700,6 +730,19 @@ export async function fetchAffairePageData(
     counters,
   };
 }
+
+export const fetchAffaireProjectBasic = cache(
+  async (projectId: string): Promise<AffaireHubProject> => {
+    const context = await getAuthenticatedContext();
+    const row = await fetchAffaireHubProjectOrThrow(context, projectId);
+    return {
+      id: row.id,
+      name: row.name,
+      reference: row.reference,
+      clientName: row.client_name,
+    };
+  }
+);
 
 export async function fetchAffaireHubSummary(
   projectId: string

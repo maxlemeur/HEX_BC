@@ -86,6 +86,7 @@ function createFromMock(
       in: vi.fn(),
       order: vi.fn(),
       limit: vi.fn(),
+      range: vi.fn(),
       maybeSingle: vi.fn(),
       then: undefined as
         | ((onfulfilled?: (value: QueryResult) => unknown, onrejected?: (reason: unknown) => unknown) => Promise<unknown>)
@@ -97,6 +98,7 @@ function createFromMock(
     builder.in.mockReturnValue(builder);
     builder.order.mockReturnValue(builder);
     builder.limit.mockReturnValue(builder);
+    builder.range.mockReturnValue(builder);
     builder.maybeSingle.mockImplementation(
       async () => scenario.maybeSingle ?? defaultResult
     );
@@ -712,7 +714,8 @@ describe("affaires hub server", () => {
         plan_sets: [
           {
             limit: {
-              data: [{ id: "set-1" }, { id: "set-2" }],
+              data: null,
+              count: 2,
               error: null,
             },
           },
@@ -734,8 +737,14 @@ describe("affaires hub server", () => {
         plan_files: [
           {
             limit: {
-              data: [{ file_size_bytes: 1200 }, { file_size_bytes: 3400 }],
+              data: null,
               count: 2,
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [{ file_size_bytes: 1200 }, { file_size_bytes: 3400 }],
               error: null,
             },
           },
@@ -793,7 +802,8 @@ describe("affaires hub server", () => {
         plan_sets: [
           {
             limit: {
-              data: [],
+              data: null,
+              count: 0,
               error: null,
             },
           },
@@ -817,6 +827,159 @@ describe("affaires hub server", () => {
       planSetCount: 0,
       planFileCount: 0,
       totalSizeBytes: 0,
+      latestJob: null,
+    });
+  });
+
+  it("aggregates plan file sizes across multiple paged responses", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Plans Pagination",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: {
+              data: null,
+              count: 1,
+              error: null,
+            },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          {
+            limit: {
+              data: null,
+              count: 3,
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [{ file_size_bytes: 100 }, { file_size_bytes: 200 }],
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [{ file_size_bytes: 300 }],
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary).toEqual({
+      planSetCount: 1,
+      planFileCount: 3,
+      totalSizeBytes: 600,
+      latestJob: null,
+    });
+  });
+
+  it("non-regression: keeps exact plan set count and full size sum beyond paged API limits", async () => {
+    const firstPage = Array.from({ length: 500 }, () => ({ file_size_bytes: 10 }));
+    const secondPage = Array.from({ length: 500 }, () => ({ file_size_bytes: 20 }));
+
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Plans Non Regression",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: {
+              data: null,
+              count: 1201,
+              error: null,
+            },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          {
+            limit: {
+              data: null,
+              count: 1001,
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: firstPage,
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: secondPage,
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [{ file_size_bytes: 30 }],
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary).toEqual({
+      planSetCount: 1201,
+      planFileCount: 1001,
+      totalSizeBytes: 15030,
       latestJob: null,
     });
   });
