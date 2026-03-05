@@ -9,6 +9,9 @@ function readSql(filePath: string) {
 
 describe("schema regressions", () => {
   const schemaSql = readSql("supabase/schema.sql");
+  const planSetsStorageCompatMigrationSql = readSql(
+    "supabase/migrations/20260305134000_v3_006_plan_sets_scope_storage_compat.sql"
+  );
 
   it("drops tenant and catalogue tables in schema reset block", () => {
     expect(schemaSql).toMatch(/drop table if exists public\.tenants cascade;/);
@@ -62,5 +65,36 @@ describe("schema regressions", () => {
     expect(schemaSql).toMatch(/create or replace function public\.assign_tenant_id\(\)/);
     expect(schemaSql).toMatch(/elsif tg_table_name = 'audit_logs' then/);
     expect(schemaSql).toMatch(/to_jsonb\(new\)->>'estimate_version_id'/);
+  });
+
+  it("keeps plan-files storage policies compatible with project-only plan sets", () => {
+    const policySections = [
+      "create policy \"Tenant members can view plan files storage\"",
+      "create policy \"Tenant members can insert plan files storage\"",
+      "create policy \"Tenant members can update plan files storage\"",
+      "create policy \"Tenant members can delete plan files storage\"",
+    ].map((policyMarker) => {
+      const sectionStart = planSetsStorageCompatMigrationSql.indexOf(policyMarker);
+      expect(sectionStart).toBeGreaterThanOrEqual(0);
+
+      const nextSectionStart = planSetsStorageCompatMigrationSql.indexOf(
+        "create policy \"",
+        sectionStart + policyMarker.length
+      );
+
+      return planSetsStorageCompatMigrationSql.slice(
+        sectionStart,
+        nextSectionStart === -1 ? undefined : nextSectionStart
+      );
+    });
+
+    for (const section of policySections) {
+      expect(section).toContain(
+        "can_access_takeoff_project(ps.project_id, ps.tenant_id)"
+      );
+      expect(section).toContain(
+        "can_access_takeoff_estimate_version(ps.estimate_version_id, ps.tenant_id)"
+      );
+    }
   });
 });
