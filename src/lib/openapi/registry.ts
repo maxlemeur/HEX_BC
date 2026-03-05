@@ -24,6 +24,7 @@ import {
   purgeSuggestionLearningSchema,
   reviewSuggestionLearningSchema,
   reorderEstimateItemsSchema,
+  sendEstimateSchema,
   suggestionLearningFieldSchema,
   suggestionRuleFeedbackSchema,
   trackSuggestionCorrectionsSchema,
@@ -832,6 +833,10 @@ const estimateVersionDetailsDataSchema = z.object({
 
 const estimateVersionIdDataSchema = z.object({
   version_id: uuidSchema,
+});
+
+const estimateSendDataSchema = z.object({
+  message_id: z.string().nullable(),
 });
 
 const deletedIdDataSchema = z.object({
@@ -1688,6 +1693,10 @@ const apiEstimateVersionIdSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateVersionIdResponse",
   estimateVersionIdDataSchema
 );
+const apiEstimateSendSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateSendResponse",
+  estimateSendDataSchema
+);
 const apiDeletedIdSchemaDefinition = successResponseSchemaDefinition(
   "ApiDeletedIdResponse",
   deletedIdDataSchema
@@ -2259,6 +2268,12 @@ const patchEstimateStatusBody = jsonBody({
   name: "PatchEstimateStatusRequest",
   description: "Nouveau statut cible pour la version.",
   schema: patchEstimateStatusSchema,
+});
+
+const sendEstimateBody = jsonBody({
+  name: "SendEstimateRequest",
+  description: "Payload d'envoi d'email de devis (to/cc/subject/message).",
+  schema: sendEstimateSchema,
 });
 
 const createVariantBody = jsonBody({
@@ -3074,6 +3089,22 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Statut de version mis a jour.",
         apiEstimateVersionSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/estimates/{versionId}/send",
+    summary: "Envoyer une version par email",
+    description:
+      "Envoie le devis par email (avec piece jointe PDF et message personnalise).",
+    tags: ["Estimate Versions"],
+    parameters: [versionIdPathParameter],
+    requestBody: sendEstimateBody,
+    responses: {
+      "200": jsonResponse(
+        "Email du devis envoye avec succes.",
+        apiEstimateSendSchemaDefinition
       ),
     },
   },
