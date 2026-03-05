@@ -18,7 +18,7 @@ import type { PlanFileListItem, PlanSetListItem } from "@/lib/takeoff/types";
 
 type PlanSetCardProps = {
   planSet: PlanSetListItem;
-  versionId: string;
+  versionId?: string | null;
   onDeleted: () => void;
   onFilesChanged: () => void;
   onUpdated: () => void;
@@ -417,7 +417,7 @@ export function PlanSetCard({
             )}
 
             {/* Extraction link */}
-            {files && files.length > 0 && (
+            {files && files.length > 0 && versionId && (
               <div className="mt-4 flex justify-end">
                 <Link
                   href={`/dashboard/estimates/${versionId}/takeoff/new?plan_set_id=${planSet.id}`}
