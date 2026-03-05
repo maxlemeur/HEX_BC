@@ -42,7 +42,14 @@ export async function POST(
 
     let body: AcceptBody;
     try {
-      body = await request.json();
+      const parsed: unknown = await request.json();
+      if (!parsed || typeof parsed !== "object") {
+        return NextResponse.json(
+          { error: "Payload JSON invalide." },
+          { status: 400 }
+        );
+      }
+      body = parsed as AcceptBody;
     } catch {
       return NextResponse.json(
         { error: "Payload JSON invalide." },
@@ -107,7 +114,31 @@ export async function POST(
       );
     }
 
-    // 2. Upload signature if provided
+    // 2. Capture client IP
+    const clientIp = resolveClientIp(request);
+
+    // 3. Claim the token FIRST (concurrency guard) — before any side effects
+    const acceptedAt = new Date().toISOString();
+    const { data: updated, error: updateError } = await supabase
+      .from("portal_tokens")
+      .update({
+        status: "accepted",
+        accepted_at: acceptedAt,
+        accepted_ip: clientIp,
+      })
+      .eq("id", portalToken.id)
+      .eq("status", "pending")
+      .select("id")
+      .single();
+
+    if (updateError || !updated) {
+      return NextResponse.json(
+        { error: "Ce devis a deja ete traite." },
+        { status: 409 }
+      );
+    }
+
+    // 4. Upload signature if provided (after concurrency guard to avoid orphans)
     let signatureUrl: string | null = null;
 
     if (body.signature_base64) {
@@ -124,49 +155,35 @@ export async function POST(
 
       if (uploadError) {
         console.error("Signature upload error:", uploadError);
-        return NextResponse.json(
-          { error: "Erreur lors de l'upload de la signature." },
-          { status: 500 }
-        );
+        // Token is already claimed — don't fail the acceptance, just skip signature
+      } else {
+        signatureUrl = storagePath;
+
+        // Patch the token with the signature URL
+        await supabase
+          .from("portal_tokens")
+          .update({ signature_url: signatureUrl })
+          .eq("id", portalToken.id);
       }
-
-      signatureUrl = storagePath;
-    }
-
-    // 3. Capture client IP
-    const clientIp = resolveClientIp(request);
-
-    // 4. Update portal token — WHERE status='pending' is the concurrency guard
-    const acceptedAt = new Date().toISOString();
-    const { data: updated, error: updateError } = await supabase
-      .from("portal_tokens")
-      .update({
-        status: "accepted",
-        accepted_at: acceptedAt,
-        accepted_ip: clientIp,
-        signature_url: signatureUrl,
-      })
-      .eq("id", portalToken.id)
-      .eq("status", "pending")
-      .select("id")
-      .single();
-
-    if (updateError || !updated) {
-      return NextResponse.json(
-        { error: "Ce devis a deja ete traite." },
-        { status: 409 }
-      );
     }
 
     // 5. Update estimate version status
-    await supabase
+    const { error: versionUpdateError } = await supabase
       .from("estimate_versions")
       .update({ status: "accepted" })
       .eq("id", portalToken.version_id)
       .eq("status", "sent");
 
+    if (versionUpdateError) {
+      console.error("Version status update error:", versionUpdateError);
+      return NextResponse.json(
+        { error: "Erreur lors de la mise a jour du statut du devis." },
+        { status: 500 }
+      );
+    }
+
     // 6. Log 'accepted' event
-    await supabase.rpc("log_estimate_version_event", {
+    const { error: eventError } = await supabase.rpc("log_estimate_version_event", {
       p_estimate_version_id: portalToken.version_id,
       p_event_type: "accepted",
       p_created_by: null,
@@ -178,6 +195,11 @@ export async function POST(
         ...(signatureUrl ? { signature_url: signatureUrl } : {}),
       },
     });
+
+    if (eventError) {
+      console.error("Event log error:", eventError);
+      // Non-fatal: token and version are already updated
+    }
 
     // 7. Send confirmation email (best-effort)
     try {
@@ -212,28 +234,38 @@ export async function POST(
           );
 
           const resend = new Resend(apiKey);
-          const { data: emailResult } = await resend.emails.send({
-            from: emailFrom,
-            to: portalToken.email,
-            subject: `Confirmation - Devis ${projectName} accepte`,
-            react: AcceptanceConfirmationEmailTemplate({
-              projectName,
-              versionNumber: versionData.version_number,
-              totalTtcFormatted: totalFormatted,
-              acceptedAt: formattedDate,
-              companyName: COMPANY_INFO.name,
-            }),
-          });
+          const emailSubject = `Confirmation - Devis ${projectName} accepte`;
+          const { data: emailResult, error: emailSendError } =
+            await resend.emails.send({
+              from: emailFrom,
+              to: portalToken.email,
+              subject: emailSubject,
+              react: AcceptanceConfirmationEmailTemplate({
+                projectName,
+                versionNumber: versionData.version_number,
+                totalTtcFormatted: totalFormatted,
+                acceptedAt: formattedDate,
+                companyName: COMPANY_INFO.name,
+              }),
+            });
 
-          // Log email to estimate_emails
+          // Log email with accurate status
+          const emailStatus = emailSendError ? "failed" : "sent";
           await supabase.from("estimate_emails").insert({
             version_id: portalToken.version_id,
             recipient: portalToken.email,
-            subject: `Confirmation - Devis ${projectName} accepte`,
+            subject: emailSubject,
             type: "acceptance_confirmation",
-            status: "sent",
+            status: emailStatus,
             provider_id: emailResult?.id ?? null,
           });
+
+          if (emailSendError) {
+            console.error(
+              "Resend returned error for acceptance confirmation:",
+              emailSendError
+            );
+          }
         }
       }
     } catch (emailError) {

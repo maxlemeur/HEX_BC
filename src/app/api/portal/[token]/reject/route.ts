@@ -23,7 +23,10 @@ export async function POST(
 
     let body: RejectBody = {};
     try {
-      body = await request.json();
+      const parsed: unknown = await request.json();
+      if (parsed && typeof parsed === "object") {
+        body = parsed as RejectBody;
+      }
     } catch {
       // Body is optional for reject
     }
@@ -83,14 +86,22 @@ export async function POST(
     }
 
     // 3. Archive the estimate version (no 'rejected' status in estimate enum)
-    await supabase
+    const { error: versionUpdateError } = await supabase
       .from("estimate_versions")
       .update({ status: "archived" })
       .eq("id", portalToken.version_id)
       .eq("status", "sent");
 
+    if (versionUpdateError) {
+      console.error("Version status update error:", versionUpdateError);
+      return NextResponse.json(
+        { error: "Erreur lors de la mise a jour du statut du devis." },
+        { status: 500 }
+      );
+    }
+
     // 4. Log 'rejected' event
-    await supabase.rpc("log_estimate_version_event", {
+    const { error: eventError } = await supabase.rpc("log_estimate_version_event", {
       p_estimate_version_id: portalToken.version_id,
       p_event_type: "rejected",
       p_created_by: null,
@@ -100,6 +111,11 @@ export async function POST(
         ...(reason ? { reason } : {}),
       },
     });
+
+    if (eventError) {
+      console.error("Event log error:", eventError);
+      // Non-fatal: token and version are already updated
+    }
 
     return NextResponse.json({ status: "rejected" });
   } catch (error) {
