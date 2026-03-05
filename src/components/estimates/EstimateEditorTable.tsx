@@ -2235,8 +2235,8 @@ export function EstimateEditorTable({
     <EstimateEditorProvider value={estimateEditorContextValue}>
       <EstimateEditorRowActionsProvider value={rowActionsContextValue}>
         <EstimateSpreadsheetProvider navigation={spreadsheetNavigation}>
-          <div ref={tableCardRef}>
-      <div className="dashboard-card p-6">
+          <div ref={tableCardRef} data-testid="estimate-editor-table-shell">
+      <div className="dashboard-card p-6" data-testid="estimate-editor-table-card">
         <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
         <EstimateEditorToolbar
@@ -2324,7 +2324,7 @@ export function EstimateEditorTable({
         </div>
 
       {actionError && (
-        <div className="alert alert-error mt-4">
+        <div className="alert alert-error mt-4" data-testid="estimate-editor-table-error-alert">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="18"
@@ -2344,10 +2344,15 @@ export function EstimateEditorTable({
 
       </div>
 
-      <div ref={scrollContainerRef} className="estimate-table-scroll mt-2 overflow-x-auto">
+      <div
+        ref={scrollContainerRef}
+        className="estimate-table-scroll mt-2 overflow-x-auto"
+        data-testid="estimate-editor-table-scroll"
+      >
       <div
         className={`estimate-table${isLaborSplitEnabled ? " estimate-table--labor-split" : ""}`}
         style={dynamicGridStyle}
+        data-testid="estimate-editor-table"
       >
         {/* Super-header: FO / MO column group labels */}
         <div className="estimate-table__super-head" aria-hidden="true">
@@ -2372,7 +2377,7 @@ export function EstimateEditorTable({
             style={{ gridColumn: `${superHeaderSpans.puStart} / span 3` }}
           />
         </div>
-        <div className="estimate-table__head">
+        <div className="estimate-table__head" data-testid="estimate-editor-table-head">
           <div className="relative flex items-center gap-2">
             <input
               type="checkbox"
@@ -2381,6 +2386,7 @@ export function EstimateEditorTable({
               onChange={(event) => toggleAllVisibleLines(event.target.checked)}
               disabled={isReadOnly || visibleLineIdList.length === 0}
               aria-label="Sélectionner toutes les lignes visibles"
+              data-testid="estimate-editor-select-all-visible-lines-checkbox"
             />
             <ColumnHeaderHelp label="Désignation" tooltip={COLUMN_HEADER_TOOLTIPS["Désignation"]} />
           </div>
@@ -2447,7 +2453,7 @@ export function EstimateEditorTable({
           renderList={() => renderList(null)}
         />
         {hasVisibleRowsForRender ? (
-          <div className="estimate-table__footer">
+          <div className="estimate-table__footer" data-testid="estimate-editor-table-footer">
             <div className="font-semibold text-[var(--slate-800)]">Total</div>
             <div></div>
             <div></div>
@@ -2487,6 +2493,7 @@ export function EstimateEditorTable({
           className="estimate-supplier-comparison-context-menu estimate-section-context-menu"
           role="menu"
           aria-label="Actions de section"
+          data-testid="estimate-section-context-menu"
           style={{
             right: `${sectionContextMenu.right}px`,
             top: `${sectionContextMenu.y}px`,
@@ -2502,6 +2509,7 @@ export function EstimateEditorTable({
               onAddLine(id);
             }}
             disabled={isReadOnly || !sectionContextMeta?.canAddLine}
+            data-testid="estimate-section-context-add-line-button"
           >
             {sectionContextMeta?.addLineLabel ?? "+ Ajouter une ligne"}
           </button>
@@ -2516,6 +2524,7 @@ export function EstimateEditorTable({
                 onAddSection(id);
               }}
               disabled={isReadOnly}
+              data-testid="estimate-section-context-add-section-button"
             >
               {sectionContextMeta.addSectionLabel}
             </button>
@@ -2535,6 +2544,7 @@ export function EstimateEditorTable({
                 ? "Conversion impossible: la section contient des enfants."
                 : undefined
             }
+            data-testid="estimate-section-context-convert-to-line-button"
           >
             Convertir en ligne
           </button>
@@ -2545,6 +2555,7 @@ export function EstimateEditorTable({
             role="menuitem"
             onClick={() => void handleDuplicateSectionInPlace()}
             disabled={!onDuplicateSection}
+            data-testid="estimate-section-context-duplicate-button"
           >
             Dupliquer la section
           </button>
@@ -2557,6 +2568,7 @@ export function EstimateEditorTable({
               !onDuplicateSectionToVersion ||
               availableSectionDuplicateTargets.length === 0
             }
+            data-testid="estimate-section-context-duplicate-to-version-button"
           >
             Dupliquer vers un autre devis
           </button>
@@ -2565,6 +2577,7 @@ export function EstimateEditorTable({
             className="estimate-supplier-comparison-context-menu__action"
             role="menuitem"
             onClick={handleOpenSaveAsAssemblyDialog}
+            data-testid="estimate-section-context-save-as-assembly-button"
           >
             Enregistrer comme assemblage
           </button>
@@ -2581,6 +2594,7 @@ export function EstimateEditorTable({
               }
             }}
             disabled={isReadOnly}
+            data-testid="estimate-section-context-delete-button"
           >
             Supprimer la section
           </button>
@@ -2588,12 +2602,16 @@ export function EstimateEditorTable({
       ) : null}
 
       {duplicateSectionDialogSectionId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4"
+          data-testid="estimate-duplicate-section-dialog-backdrop"
+        >
           <div
             className="dashboard-card w-full max-w-xl p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="duplicate-section-dialog-title"
+            data-testid="estimate-duplicate-section-dialog"
           >
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
@@ -2668,12 +2686,16 @@ export function EstimateEditorTable({
       ) : null}
 
       {saveAsAssemblyDialogSectionId ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4"
+          data-testid="estimate-save-as-assembly-dialog-backdrop"
+        >
           <div
             className="dashboard-card w-full max-w-xl p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="save-as-assembly-dialog-title"
+            data-testid="estimate-save-as-assembly-dialog"
           >
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
@@ -2736,6 +2758,7 @@ export function EstimateEditorTable({
           className="estimate-supplier-comparison-context-menu"
           role="menu"
           aria-label="Actions de comparaison fournisseurs"
+          data-testid="estimate-supplier-comparison-context-menu"
           style={{
             left: `${supplierComparisonMenu.x}px`,
             top: `${supplierComparisonMenu.y}px`,

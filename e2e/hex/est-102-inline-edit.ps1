@@ -92,7 +92,7 @@ function Initialize-InlineSelectors {
   $raw = [string](Invoke-AB $Session "eval" @"
 (() => {
   const lineTitleInputs = Array.from(
-    document.querySelectorAll('.estimate-row input.estimate-input--title')
+    document.querySelectorAll('[data-testid="estimate-line-title-input"], .estimate-row input.estimate-input--title')
   ).filter((input) => !input.closest('.estimate-row--section'));
 
   const lineTitleInput = lineTitleInputs[0];
@@ -100,12 +100,12 @@ function Initialize-InlineSelectors {
     throw new Error('Missing line title input.');
   }
 
-  const row = lineTitleInput.closest('.estimate-row');
+  const row = lineTitleInput.closest('[data-testid="estimate-line-row"]') ?? lineTitleInput.closest('.estimate-row');
   if (!row) {
     throw new Error('Missing line row.');
   }
 
-  const titleCell = row.querySelector('[data-cell-id$="::title"]');
+  const titleCell = row.querySelector('[data-cell-column-key="title"]') ?? row.querySelector('[data-cell-id$="::title"]');
   if (!titleCell) {
     throw new Error('Missing title cell.');
   }
@@ -113,6 +113,7 @@ function Initialize-InlineSelectors {
   lineTitleInput.setAttribute('data-inline-id', 'inline-title-input');
 
   const unitPriceCell =
+    row.querySelector('[data-cell-column-key="unit_price"]') ??
     row.querySelector('[data-cell-id$="::unit_price"]') ??
     row.querySelector('[data-cell-id*="::unit_price"]') ??
     row.querySelector('[data-cell-id*="unit_price_ht_cents"]') ??
@@ -158,6 +159,7 @@ function Initialize-InlineSelectors {
   }
 
   const puCell =
+    row.querySelector('[data-cell-column-key="pu_ht"]') ??
     row.querySelector('.estimate-cell--pu-separator') ??
     row.querySelector('[data-cell-id$="::pu_ht"]') ??
     row.querySelector('[data-cell-id*="::pu_ht"]') ??
@@ -178,6 +180,7 @@ function Initialize-InlineSelectors {
   puInput.setAttribute('data-inline-id', 'inline-pu-input');
 
   const totalCell =
+    row.querySelector('[data-cell-column-key="line_total_ht"]') ??
     row.querySelector('[data-cell-id$="::line_total_ht"]') ??
     row.querySelector('.estimate-cell--total');
   if (!totalCell) {
@@ -295,10 +298,14 @@ function Set-CellInputValue {
   const blur = $blurJson;
   const suffixMatch = String(cellId ?? '').match(/::([^:]+)$/);
   const suffix = suffixMatch ? ('::' + suffixMatch[1]) : '';
+  const columnKey = suffixMatch ? suffixMatch[1] : '';
   const input =
     document.querySelector('[data-cell-id="' + cellId + '"] input.estimate-input') ??
+    (columnKey ? document.querySelector('[data-cell-column-key="' + columnKey + '"] input.estimate-input') : null) ??
     (suffix ? document.querySelector('[data-cell-id$="' + suffix + '"] input.estimate-input') : null) ??
-    (suffix === '::title' ? document.querySelector('.estimate-row input.estimate-input--title') : null);
+    (suffix === '::title'
+      ? (document.querySelector('[data-testid="estimate-line-title-input"]') ?? document.querySelector('.estimate-row input.estimate-input--title'))
+      : null);
   if (!input) {
     throw new Error('Input not found for cell ' + cellId);
   }
@@ -328,9 +335,12 @@ function Wait-ForFormattedPrice {
   const cellId = $unitPriceCellIdJson;
   const suffixMatch = String(cellId ?? '').match(/::([^:]+)$/);
   const suffix = suffixMatch ? ('::' + suffixMatch[1]) : '';
+  const columnKey = suffixMatch ? suffixMatch[1] : '';
   const input =
     document.querySelector('[data-cell-id="' + cellId + '"] input.estimate-input') ??
+    (columnKey ? document.querySelector('[data-cell-column-key="' + columnKey + '"] input.estimate-input') : null) ??
     (suffix ? document.querySelector('[data-cell-id$="' + suffix + '"] input.estimate-input') : null) ??
+    document.querySelector('[data-cell-column-key="unit_price"] input.estimate-input') ??
     document.querySelector('[data-cell-id$="::unit_price"] input.estimate-input') ??
     document.querySelector('[data-cell-id*="unit_price_ht_cents"] input.estimate-input');
   return input ? String(input.value ?? '') : '';
@@ -369,6 +379,9 @@ function Get-ActiveInlineTarget {
     if (exact) return exact;
     const suffixMatch = String(cellId ?? '').match(/::([^:]+)$/);
     if (suffixMatch) {
+      const columnKey = suffixMatch[1];
+      const byColumnKey = document.querySelector('[data-cell-column-key="' + columnKey + '"]');
+      if (byColumnKey) return byColumnKey;
       const suffix = '::' + suffixMatch[1];
       const bySuffix = document.querySelector('[data-cell-id$="' + suffix + '"]');
       if (bySuffix) return bySuffix;

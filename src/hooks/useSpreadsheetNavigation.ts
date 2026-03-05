@@ -73,7 +73,10 @@ export type SpreadsheetCellProps = {
   onMouseDown: (event: MouseEvent<SpreadsheetCellElement>) => void;
   onClick: (event: MouseEvent<SpreadsheetCellElement>) => void;
   onDoubleClick: (event: MouseEvent<SpreadsheetCellElement>) => void;
+  "data-testid": "estimate-cell";
   "data-cell-id": string;
+  "data-cell-row-id": string;
+  "data-cell-column-key": string;
 };
 
 export type SpreadsheetEditorProps<T extends SpreadsheetEditorElement> = {
@@ -755,7 +758,10 @@ export function useSpreadsheetNavigation({
             startEditing(cellId, command.selectAll);
           }
         },
+        "data-testid": "estimate-cell",
         "data-cell-id": cellId,
+        "data-cell-row-id": cell.rowId,
+        "data-cell-column-key": cell.columnKey,
       };
     },
     [

@@ -58,9 +58,9 @@ export function EstimateEditorAlerts({
   actionError,
 }: EstimateEditorAlertsProps) {
   return (
-    <>
+    <div data-testid="estimate-editor-alerts">
       {statusError && (
-        <div className="alert alert-error mb-6">
+        <div className="alert alert-error mb-6" data-testid="estimate-editor-alert-status-error">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10" />
             <path d="m15 9-6 6" />
@@ -71,19 +71,22 @@ export function EstimateEditorAlerts({
       )}
 
       {isViewerReadOnly ? (
-        <div className="alert alert-info mb-6">
+        <div className="alert alert-info mb-6" data-testid="estimate-editor-alert-viewer-read-only">
           Mode consultation — vous ne pouvez pas modifier ce chiffrage.
         </div>
       ) : null}
 
       {canSend && isSendBlockedForCurrentUser ? (
-        <div className="alert alert-warning mb-6">
+        <div className="alert alert-warning mb-6" data-testid="estimate-editor-alert-send-blocked">
           Des anomalies bloquantes sont détectées. Corrigez-les avant envoi ou demandez un administrateur pour forcer l&apos;envoi.
         </div>
       ) : null}
 
       {isDraftLockedByOther && (
-        <div className="alert alert-warning mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div
+          className="alert alert-warning mb-6 flex flex-wrap items-center justify-between gap-3"
+          data-testid="estimate-editor-alert-draft-locked"
+        >
           <div className="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -98,6 +101,7 @@ export function EstimateEditorAlerts({
               type="button"
               onClick={onForceUnlockDraftLock}
               disabled={isForcingDraftUnlock || isDraftLockAcquiring}
+              data-testid="estimate-editor-alert-force-unlock-button"
             >
               {isForcingDraftUnlock ? "Deverrouillage..." : "Forcer le deverrouillage"}
             </button>
@@ -106,7 +110,7 @@ export function EstimateEditorAlerts({
       )}
 
       {draftLockError && !isDraftLockedByOther ? (
-        <div className="alert alert-warning mb-6">
+        <div className="alert alert-warning mb-6" data-testid="estimate-editor-alert-draft-lock-error">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
             <line x1="12" y1="9" x2="12" y2="13" />
@@ -117,7 +121,10 @@ export function EstimateEditorAlerts({
       ) : null}
 
       {conflictMessage ? (
-        <div className="alert alert-warning mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div
+          className="alert alert-warning mb-6 flex flex-wrap items-center justify-between gap-3"
+          data-testid="estimate-editor-alert-conflict"
+        >
           <div className="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -133,6 +140,7 @@ export function EstimateEditorAlerts({
             type="button"
             onClick={onReloadAfterConflict}
             disabled={isReloadingVersion}
+            data-testid="estimate-editor-alert-reload-button"
           >
             {isReloadingVersion ? "Rechargement..." : "Recharger"}
           </button>
@@ -140,7 +148,10 @@ export function EstimateEditorAlerts({
       ) : null}
 
       {hasRestorableDraft && !conflictMessage ? (
-        <div className="alert alert-info mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div
+          className="alert alert-info mb-6 flex flex-wrap items-center justify-between gap-3"
+          data-testid="estimate-editor-alert-restorable-draft"
+        >
           <div className="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />
@@ -149,14 +160,19 @@ export function EstimateEditorAlerts({
             </svg>
             <span>Des modifications locales ont ete conservees en memoire de session.</span>
           </div>
-          <button className="btn btn-secondary btn-sm" type="button" onClick={onRestoreConflictDraft}>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={onRestoreConflictDraft}
+            data-testid="estimate-editor-alert-restore-draft-button"
+          >
             Restaurer mes changements
           </button>
         </div>
       ) : null}
 
       {totalsOutOfSync && !isSaveBlocked ? (
-        <div className="alert alert-warning mb-6 flex items-center justify-between">
+        <div className="alert alert-warning mb-6 flex items-center justify-between" data-testid="estimate-editor-alert-totals-out-of-sync">
           <div className="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -165,14 +181,19 @@ export function EstimateEditorAlerts({
             </svg>
             Les totaux n&apos;ont pas pu etre sauvegardes. Vos modifications locales sont conservees.
           </div>
-          <button className="btn btn-secondary btn-sm" type="button" onClick={onRetryTotalsSave}>
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={onRetryTotalsSave}
+            data-testid="estimate-editor-alert-retry-save-button"
+          >
             Reessayer
           </button>
         </div>
       ) : null}
 
       {isStatusReadOnly ? (
-        <div className="alert alert-info mb-6">
+        <div className="alert alert-info mb-6" data-testid="estimate-editor-alert-status-read-only">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10" />
             <path d="M12 8v4" />
@@ -183,7 +204,10 @@ export function EstimateEditorAlerts({
       ) : null}
 
       {bulkSuggestAppliedCount ? (
-        <div className="alert alert-info mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div
+          className="alert alert-info mb-6 flex flex-wrap items-center justify-between gap-3"
+          data-testid="estimate-editor-alert-bulk-suggest-applied"
+        >
           <div className="flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" />
@@ -197,6 +221,7 @@ export function EstimateEditorAlerts({
             type="button"
             onClick={onUndoBulkSuggest}
             disabled={isUndoingBulkSuggest || isUndoBulkSuggestDisabled}
+            data-testid="estimate-editor-alert-undo-bulk-suggest-button"
           >
             {isUndoingBulkSuggest ? "Annulation..." : "Annuler les suggestions"}
           </button>
@@ -204,11 +229,13 @@ export function EstimateEditorAlerts({
       ) : null}
 
       {importSummaryMessage ? (
-        <div className="alert alert-info mt-4">{importSummaryMessage}</div>
+        <div className="alert alert-info mt-4" data-testid="estimate-editor-alert-import-summary">
+          {importSummaryMessage}
+        </div>
       ) : null}
 
       {actionError ? (
-        <div className="alert alert-error mt-4">
+        <div className="alert alert-error mt-4" data-testid="estimate-editor-alert-action-error">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="12" r="10" />
             <path d="m15 9-6 6" />
@@ -217,6 +244,6 @@ export function EstimateEditorAlerts({
           {actionError}
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

@@ -86,13 +86,14 @@ function MoreActionsDropdown({
     "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[var(--slate-700)] hover:bg-[var(--slate-50)] transition-colors";
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative" data-testid="estimate-page-toolbar-more-actions">
       <button
         type="button"
         className="btn btn-secondary btn-sm"
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-haspopup="true"
+        data-testid="estimate-page-toolbar-more-actions-button"
       >
         Plus d&apos;actions
         <svg
@@ -112,7 +113,10 @@ function MoreActionsDropdown({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-lg z-50">
+        <div
+          className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-lg z-50"
+          data-testid="estimate-page-toolbar-more-actions-menu"
+        >
           <button
             type="button"
             className={menuItemClass}
@@ -121,6 +125,7 @@ function MoreActionsDropdown({
               onExportDpgf();
             }}
             disabled={isExportDisabled}
+            data-testid="estimate-page-toolbar-export-dpgf-button"
           >
             {isExporting && activeExportMode === "dpgf"
               ? "Export DPGF..."
@@ -134,6 +139,7 @@ function MoreActionsDropdown({
               onExportBdc();
             }}
             disabled={isExportDisabled}
+            data-testid="estimate-page-toolbar-export-bdc-button"
           >
             {isExporting && activeExportMode === "bdc"
               ? "Export BDC V1.1..."
@@ -156,6 +162,7 @@ function MoreActionsDropdown({
                   onArchive();
                 }}
                 disabled={isArchiveDisabled}
+                data-testid="estimate-page-toolbar-archive-button"
               >
                 Archiver
               </button>
@@ -231,9 +238,12 @@ export function EstimateEditorToolbar({
   versionId,
 }: EstimateEditorToolbarProps) {
   return (
-    <div className="page-header flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 className="page-title">Éditer le chiffrage</h1>
+    <div
+      className="page-header flex flex-wrap items-start justify-between gap-4"
+      data-testid="estimate-page-toolbar"
+    >
+      <div data-testid="estimate-page-toolbar-heading">
+        <h1 className="page-title" data-testid="estimate-page-toolbar-title">Éditer le chiffrage</h1>
         <p className="page-description">
           {projectName ? (
             <>
@@ -246,10 +256,12 @@ export function EstimateEditorToolbar({
           )}
         </p>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={estimateStatusClass(status)}>{estimateStatusLabel(status)}</span>
+      <div className="flex flex-wrap items-center gap-2" data-testid="estimate-page-toolbar-actions">
+        <span className={estimateStatusClass(status)} data-testid="estimate-page-toolbar-status-badge">
+          {estimateStatusLabel(status)}
+        </span>
         {showAutoSaveStatus ? (
-          <span className={autoSaveStatusClassName}>
+          <span className={autoSaveStatusClassName} data-testid="estimate-page-toolbar-autosave-status">
             {autoSaveStatus === "saving" ? (
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -278,6 +290,7 @@ export function EstimateEditorToolbar({
             type="button"
             onClick={onImportDpgfSource}
             disabled={isImportDpgfSourceDisabled}
+            data-testid="estimate-page-toolbar-import-dpgf-source-button"
           >
             {isImportingDpgfSource
               ? "Importer le DPGF source..."
@@ -290,6 +303,7 @@ export function EstimateEditorToolbar({
             type="button"
             onClick={onSend}
             disabled={isStatusActionsDisabled}
+            data-testid="estimate-page-toolbar-send-button"
           >
             Envoyer
           </button>
@@ -300,6 +314,7 @@ export function EstimateEditorToolbar({
             type="button"
             onClick={onAccept}
             disabled={isStatusActionsDisabled}
+            data-testid="estimate-page-toolbar-accept-button"
           >
             Accepter
           </button>
@@ -315,7 +330,11 @@ export function EstimateEditorToolbar({
           onArchive={onArchive}
           isArchiveDisabled={isStatusActionsDisabled}
         />
-        <Link className="btn btn-secondary btn-sm" href="/dashboard/estimates">
+        <Link
+          className="btn btn-secondary btn-sm"
+          href="/dashboard/estimates"
+          data-testid="estimate-page-toolbar-back-to-list-link"
+        >
           Retour à la liste
         </Link>
       </div>

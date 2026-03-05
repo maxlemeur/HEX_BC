@@ -153,12 +153,16 @@ export function PastePreviewDialog({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4"
+      data-testid="paste-preview-dialog-backdrop"
+    >
       <div
         className="dashboard-card w-full max-w-7xl p-6"
         role="dialog"
         aria-modal="true"
         aria-labelledby="paste-preview-dialog-title"
+        data-testid="paste-preview-dialog"
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
@@ -179,13 +183,14 @@ export function PastePreviewDialog({
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={onClose}
+            data-testid="paste-preview-dialog-close-button"
           >
             Fermer
           </button>
         </div>
 
         {hasErrors ? (
-          <div className="mb-4 space-y-2">
+          <div className="mb-4 space-y-2" data-testid="paste-preview-dialog-errors">
             {errors.map((error, index) => (
               <div key={`${error}-${index}`} className="alert alert-error">
                 {error}
@@ -195,13 +200,16 @@ export function PastePreviewDialog({
         ) : null}
 
         {hasDuplicateMapping ? (
-          <div className="alert alert-error mb-4">
+          <div className="alert alert-error mb-4" data-testid="paste-preview-dialog-duplicate-mapping-error">
             Plusieurs colonnes pointent vers le meme champ cible. Corrigez le mapping avant de confirmer.
           </div>
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-          <section className="overflow-hidden rounded-xl border border-[var(--slate-200)]">
+          <section
+            className="overflow-hidden rounded-xl border border-[var(--slate-200)]"
+            data-testid="paste-preview-mapping-section"
+          >
             <div className="border-b border-[var(--slate-200)] px-4 py-3">
               <h3 className="text-sm font-semibold text-[var(--slate-800)]">
                 Mapping des colonnes
@@ -212,11 +220,11 @@ export function PastePreviewDialog({
             </div>
 
             {mapping.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-[var(--slate-500)]">
+              <div className="px-4 py-6 text-sm text-[var(--slate-500)]" data-testid="paste-preview-mapping-empty">
                 Aucun mapping a afficher.
               </div>
             ) : (
-              <div className="table-scroll max-h-[430px]">
+              <div className="table-scroll max-h-[430px]" data-testid="paste-preview-mapping-table">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -249,6 +257,7 @@ export function PastePreviewDialog({
                                   event.target.value || null
                                 )
                               }
+                              data-testid="paste-preview-mapping-select"
                             >
                               <option value="">Ignorer</option>
                               {entry.targetOptions.map((option) => (
@@ -277,7 +286,10 @@ export function PastePreviewDialog({
             )}
           </section>
 
-          <section className="overflow-hidden rounded-xl border border-[var(--slate-200)]">
+          <section
+            className="overflow-hidden rounded-xl border border-[var(--slate-200)]"
+            data-testid="paste-preview-rows-section"
+          >
             <div className="border-b border-[var(--slate-200)] px-4 py-3">
               <h3 className="text-sm font-semibold text-[var(--slate-800)]">
                 Apercu des lignes
@@ -288,11 +300,11 @@ export function PastePreviewDialog({
             </div>
 
             {rows.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-[var(--slate-500)]">
+              <div className="px-4 py-6 text-sm text-[var(--slate-500)]" data-testid="paste-preview-rows-empty">
                 Aucune ligne detectee.
               </div>
             ) : (
-              <div className="table-scroll max-h-[430px]">
+              <div className="table-scroll max-h-[430px]" data-testid="paste-preview-rows-table">
                 <table className="data-table">
                   <thead>
                     <tr>
@@ -322,6 +334,7 @@ export function PastePreviewDialog({
                                 onToggleRow(row.id, event.target.checked)
                               }
                               aria-label={`Inclure la ligne ${row.rowNumber}`}
+                              data-testid="paste-preview-row-include-checkbox"
                             />
                           </td>
                           <td>{row.rowNumber}</td>
@@ -382,6 +395,7 @@ export function PastePreviewDialog({
               type="button"
               className="btn btn-secondary"
               onClick={onClose}
+              data-testid="paste-preview-dialog-cancel-button"
             >
               Annuler
             </button>
@@ -390,6 +404,7 @@ export function PastePreviewDialog({
               className="btn btn-primary"
               onClick={onConfirm}
               disabled={!canConfirm}
+              data-testid="paste-preview-dialog-confirm-button"
             >
               Confirmer import
             </button>

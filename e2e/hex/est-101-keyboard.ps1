@@ -80,16 +80,21 @@ try {
 
   $setupJs = @"
 (() => {
-  const sectionRow = document.querySelector('.estimate-row.estimate-row--section');
-  const lineRow = Array.from(document.querySelectorAll('.estimate-row')).find((row) => {
+  const sectionRow = document.querySelector('[data-testid="estimate-section-row"]') ??
+    document.querySelector('.estimate-row.estimate-row--section');
+  const lineRow = Array.from(
+    document.querySelectorAll('[data-testid="estimate-line-row"], .estimate-row')
+  ).find((row) => {
     return !row.classList.contains('estimate-row--section');
   });
   if (!sectionRow || !lineRow) {
     return 'setupReady=false||reason=missing_rows';
   }
 
-  const sectionTitle = sectionRow.querySelector('input.estimate-input--title');
-  const lineTitle = lineRow.querySelector('input.estimate-input--title');
+  const sectionTitle = sectionRow.querySelector('[data-testid="estimate-section-title-input"]') ??
+    sectionRow.querySelector('input.estimate-input--title');
+  const lineTitle = lineRow.querySelector('[data-testid="estimate-line-title-input"]') ??
+    lineRow.querySelector('input.estimate-input--title');
   if (!sectionTitle || !lineTitle) {
     return 'setupReady=false||reason=missing_title_inputs';
   }
@@ -98,14 +103,14 @@ try {
   lineTitle.setAttribute('data-kbd-id', 'line-title');
 
   const lineCellMappings = [
-    { id: 'line-quantity', selectors: ['[data-cell-id$=\"::quantity\"] input.estimate-input'] },
-    { id: 'line-unit', selectors: ['[data-cell-id$=\"::unit\"] input.estimate-input', '[data-cell-id$=\"::unit\"] select.estimate-input'] },
-    { id: 'line-price', selectors: ['[data-cell-id$=\"::unit_price\"] input.estimate-input', '[data-cell-id*=\"unit_price_ht_cents\"] input.estimate-input'] },
-    { id: 'line-category', selectors: ['[data-cell-id$=\"::supply_type\"] select.estimate-input', '[data-cell-id$=\"::supply_type\"] input.estimate-input'] },
-    { id: 'line-kfo', selectors: ['[data-cell-id$=\"::k_fo\"] input.estimate-input'] },
-    { id: 'line-hmo', selectors: ['[data-cell-id$=\"::h_mo\"] input.estimate-input'] },
-    { id: 'line-role', selectors: ['[data-cell-id$=\"::labor_role\"] select.estimate-input'] },
-    { id: 'line-kmo', selectors: ['[data-cell-id$=\"::k_mo\"] input.estimate-input'] }
+    { id: 'line-quantity', selectors: ['[data-cell-column-key=\"quantity\"] input.estimate-input', '[data-cell-id$=\"::quantity\"] input.estimate-input'] },
+    { id: 'line-unit', selectors: ['[data-cell-column-key=\"unit\"] input.estimate-input', '[data-cell-column-key=\"unit\"] select.estimate-input', '[data-cell-id$=\"::unit\"] input.estimate-input', '[data-cell-id$=\"::unit\"] select.estimate-input'] },
+    { id: 'line-price', selectors: ['[data-cell-column-key=\"unit_price\"] input.estimate-input', '[data-cell-id$=\"::unit_price\"] input.estimate-input', '[data-cell-id*=\"unit_price_ht_cents\"] input.estimate-input'] },
+    { id: 'line-category', selectors: ['[data-cell-column-key=\"supply_type\"] select.estimate-input', '[data-cell-column-key=\"supply_type\"] input.estimate-input', '[data-cell-id$=\"::supply_type\"] select.estimate-input', '[data-cell-id$=\"::supply_type\"] input.estimate-input'] },
+    { id: 'line-kfo', selectors: ['[data-cell-column-key=\"k_fo\"] input.estimate-input', '[data-cell-id$=\"::k_fo\"] input.estimate-input'] },
+    { id: 'line-hmo', selectors: ['[data-cell-column-key=\"h_mo\"] input.estimate-input', '[data-cell-id$=\"::h_mo\"] input.estimate-input'] },
+    { id: 'line-role', selectors: ['[data-cell-column-key=\"labor_role\"] select.estimate-input', '[data-cell-id$=\"::labor_role\"] select.estimate-input'] },
+    { id: 'line-kmo', selectors: ['[data-cell-column-key=\"k_mo\"] input.estimate-input', '[data-cell-id$=\"::k_mo\"] input.estimate-input'] }
   ];
 
   let mappedFieldCount = 1;
@@ -140,7 +145,8 @@ try {
     }
   }
 
-  const addLineButton = Array.from(sectionRow.querySelectorAll('button')).find((button) => {
+  const addLineButton = sectionRow.querySelector('[data-testid="estimate-section-add-line-button"]') ??
+    Array.from(sectionRow.querySelectorAll('button')).find((button) => {
     const text = String(button.textContent ?? '').replace(/\\s+/g, ' ').trim().toLowerCase();
     return text.startsWith('+ ligne') || text.startsWith('+ ajouter une ligne');
   });
@@ -152,8 +158,8 @@ try {
     'setupReady=true',
     'sectionInputCount=' + String(sectionRow.querySelectorAll('input.estimate-input').length),
     'lineFieldCount=' + String(mappedFieldCount),
-    'lineTitleCellId=' + String(lineRow.querySelector('[data-cell-id$="::title"]')?.getAttribute('data-cell-id') ?? ''),
-    'lineQuantityCellId=' + String(lineRow.querySelector('[data-cell-id$="::quantity"]')?.getAttribute('data-cell-id') ?? ''),
+    'lineTitleCellId=' + String((lineRow.querySelector('[data-cell-column-key=\"title\"]') ?? lineRow.querySelector('[data-cell-id$="::title"]'))?.getAttribute('data-cell-id') ?? ''),
+    'lineQuantityCellId=' + String((lineRow.querySelector('[data-cell-column-key=\"quantity\"]') ?? lineRow.querySelector('[data-cell-id$="::quantity"]'))?.getAttribute('data-cell-id') ?? ''),
     'sectionAddLineAvailable=' + String(Boolean(addLineButton)),
     'hasQuantityMapping=' + String(hasQuantityMapping)
   ].join('||');
@@ -181,11 +187,13 @@ try {
 
   $focusLineTitleJs = @"
 (() => {
-  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+  const row = Array.from(document.querySelectorAll('[data-testid="estimate-line-row"], .estimate-row')).find((candidate) => {
     return !candidate.classList.contains('estimate-row--section') &&
-      Boolean(candidate.querySelector('input.estimate-input--title'));
+      Boolean(candidate.querySelector('[data-testid="estimate-line-title-input"]') ?? candidate.querySelector('input.estimate-input--title'));
   });
-  const el = row?.querySelector('input.estimate-input--title') ?? document.querySelector('[data-kbd-id="line-title"]');
+  const el = row?.querySelector('[data-testid="estimate-line-title-input"]') ??
+    row?.querySelector('input.estimate-input--title') ??
+    document.querySelector('[data-kbd-id="line-title"]');
   if (!el) throw new Error('line-title not found');
   el.focus();
   return document.activeElement?.getAttribute('data-kbd-id') || '';
@@ -228,11 +236,12 @@ try {
 
   $quantityInitJs = @"
 (() => {
-  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+  const row = Array.from(document.querySelectorAll('[data-testid="estimate-line-row"], .estimate-row')).find((candidate) => {
     return !candidate.classList.contains('estimate-row--section') &&
-      Boolean(candidate.querySelector('input.estimate-input--title'));
+      Boolean(candidate.querySelector('[data-testid="estimate-line-title-input"]') ?? candidate.querySelector('input.estimate-input--title'));
   });
-  const input = row?.querySelector('[data-cell-id$="::quantity"] input.estimate-input') ??
+  const input = row?.querySelector('[data-cell-column-key="quantity"] input.estimate-input') ??
+    row?.querySelector('[data-cell-id$="::quantity"] input.estimate-input') ??
     row?.querySelector('[data-cell-id*="::quantity"] input.estimate-input') ??
     document.querySelector('[data-kbd-id="line-quantity"]');
   if (!input) throw new Error('line-quantity not found');
@@ -245,11 +254,12 @@ try {
   [double]$qtyBefore = Invoke-AB $Session "eval" $quantityInitJs
   $readQuantityJs = @"
 (() => {
-  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+  const row = Array.from(document.querySelectorAll('[data-testid="estimate-line-row"], .estimate-row')).find((candidate) => {
     return !candidate.classList.contains('estimate-row--section') &&
-      Boolean(candidate.querySelector('input.estimate-input--title'));
+      Boolean(candidate.querySelector('[data-testid="estimate-line-title-input"]') ?? candidate.querySelector('input.estimate-input--title'));
   });
-  const input = row?.querySelector('[data-cell-id$="::quantity"] input.estimate-input') ??
+  const input = row?.querySelector('[data-cell-column-key="quantity"] input.estimate-input') ??
+    row?.querySelector('[data-cell-id$="::quantity"] input.estimate-input') ??
     row?.querySelector('[data-cell-id*="::quantity"] input.estimate-input') ??
     document.querySelector('[data-kbd-id="line-quantity"]');
   return Number(input?.value ?? '0');
@@ -265,11 +275,13 @@ try {
 
   $caretInitJs = @"
 (() => {
-  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+  const row = Array.from(document.querySelectorAll('[data-testid="estimate-line-row"], .estimate-row')).find((candidate) => {
     return !candidate.classList.contains('estimate-row--section') &&
-      Boolean(candidate.querySelector('input.estimate-input--title'));
+      Boolean(candidate.querySelector('[data-testid="estimate-line-title-input"]') ?? candidate.querySelector('input.estimate-input--title'));
   });
-  const input = row?.querySelector('input.estimate-input--title') ?? document.querySelector('[data-kbd-id="line-title"]');
+  const input = row?.querySelector('[data-testid="estimate-line-title-input"]') ??
+    row?.querySelector('input.estimate-input--title') ??
+    document.querySelector('[data-kbd-id="line-title"]');
   if (!input) throw new Error('line-title not found');
   input.focus();
   input.value = 'CLAVIER';
@@ -286,11 +298,13 @@ try {
   [int]$caretInitLen = $caretInitParts[1]
   $readTitleCaretJs = @"
 (() => {
-  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+  const row = Array.from(document.querySelectorAll('[data-testid="estimate-line-row"], .estimate-row')).find((candidate) => {
     return !candidate.classList.contains('estimate-row--section') &&
-      Boolean(candidate.querySelector('input.estimate-input--title'));
+      Boolean(candidate.querySelector('[data-testid="estimate-line-title-input"]') ?? candidate.querySelector('input.estimate-input--title'));
   });
-  const input = row?.querySelector('input.estimate-input--title') ?? document.querySelector('[data-kbd-id="line-title"]');
+  const input = row?.querySelector('[data-testid="estimate-line-title-input"]') ??
+    row?.querySelector('input.estimate-input--title') ??
+    document.querySelector('[data-kbd-id="line-title"]');
   return Number(input?.selectionStart ?? -1);
 })();
 "@
@@ -300,8 +314,8 @@ try {
   Invoke-AB $Session "press" "ArrowRight" | Out-Null
   [int]$caretRight = Invoke-AB $Session "eval" $readTitleCaretJs
 
-  [int]$titlesBeforeEnter = Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length"
-  Invoke-AB $Session "eval" "document.querySelector('[data-kbd-id=\"section-title\"]')?.focus(); document.activeElement?.getAttribute('data-kbd-id') || ''" | Out-Null
+  [int]$titlesBeforeEnter = Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length"
+  Invoke-AB $Session "eval" "document.querySelector('[data-testid=\"estimate-section-title-input\"]')?.focus(); document.activeElement?.getAttribute('data-kbd-id') || ''" | Out-Null
   Invoke-AB $Session "press" "Tab" | Out-Null
   $active = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" "document.activeElement?.getAttribute('data-kbd-id') || ''"))
   Assert-True -Condition ($active -eq "section-add-line" -or $active -eq "") -Message "Section tab navigation should remain stable"
@@ -309,7 +323,7 @@ try {
   if ($sectionAddLineAvailable) {
     $focusAddLine = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" @"
 (() => {
-  const button = document.querySelector('[data-kbd-id="section-add-line"]');
+  const button = document.querySelector('[data-testid="estimate-section-add-line-button"]') ?? document.querySelector('[data-kbd-id="section-add-line"]');
   if (!button) {
     return '';
   }
@@ -320,18 +334,26 @@ try {
     Assert-Equal -Actual $focusAddLine -Expected "section-add-line" -Message "Add line button should be focusable"
 
     Invoke-AB $Session "press" "Enter" | Out-Null
-    [int]$titlesAfterEnter = Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length"
+    [int]$titlesAfterEnter = Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length"
     $deadline = (Get-Date).AddSeconds(4)
     while ($titlesAfterEnter -le $titlesBeforeEnter -and (Get-Date) -lt $deadline) {
       Start-Sleep -Milliseconds 200
-      [int]$titlesAfterEnter = Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length"
+      [int]$titlesAfterEnter = Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length"
     }
     if ($titlesAfterEnter -le $titlesBeforeEnter) {
-      Invoke-AB $Session "click" "[data-kbd-id='section-add-line']" | Out-Null
+      Invoke-AB $Session "eval" @"
+(() => {
+  const button = document.querySelector('[data-testid="estimate-section-add-line-button"]');
+  if (button instanceof HTMLButtonElement && !button.disabled) {
+    button.click();
+  }
+  return true;
+})()
+"@ | Out-Null
       $deadline = (Get-Date).AddSeconds(4)
       while ($titlesAfterEnter -le $titlesBeforeEnter -and (Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 200
-        [int]$titlesAfterEnter = Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length"
+        [int]$titlesAfterEnter = Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length"
       }
     }
     Assert-True -Condition ($titlesAfterEnter -gt $titlesBeforeEnter) -Message "Enter on section add-line should create a new line"

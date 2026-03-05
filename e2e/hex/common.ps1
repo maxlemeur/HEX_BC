@@ -453,6 +453,11 @@ function Test-EditorSurfaceVisible {
   const root = document.querySelector('main') ?? document;
   const mainText = String(root.innerText ?? '');
   if (mainText.includes('Chargement du chiffrage...')) return false;
+  if (root.querySelector('[data-testid=\"estimate-editor-page\"]')) return true;
+  if (root.querySelector('[data-testid=\"estimate-editor-table\"]')) return true;
+  if (root.querySelector('[data-testid=\"estimate-editor-body\"]')) return true;
+  if (root.querySelector('[data-testid=\"estimate-line-title-input\"]')) return true;
+  if (root.querySelector('[data-testid=\"estimate-editor-settings-button\"]')) return true;
   if (root.querySelector('input.estimate-input--title')) return true;
   if (root.querySelector('.estimate-editor-table')) return true;
   if (root.querySelector('button[title=\"Paramétrage\"]')) return true;
@@ -678,7 +683,9 @@ function Try-ClickLatestSectionButtonText {
     return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
   };
 
-  const sectionRows = Array.from(document.querySelectorAll('.estimate-row.estimate-row--section'));
+  const sectionRows = Array.from(
+    document.querySelectorAll('[data-testid=\"estimate-section-row\"], .estimate-row.estimate-row--section')
+  );
   if (sectionRows.length === 0) return "";
 
   const targetRow = sectionRows[sectionRows.length - 1];
@@ -724,6 +731,22 @@ function Go-ParamsTab {
   param([string]$Session)
 
   Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
+  $clickedByTestId = Invoke-AB $Session "eval" @"
+(() => {
+  const button = document.querySelector('[data-testid="estimate-editor-settings-button"]');
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return false;
+  }
+  button.click();
+  return true;
+})();
+"@
+  $clicked = ($clickedByTestId -eq $true -or "$clickedByTestId" -eq "true")
+  if ($clicked) {
+    Wait-ForSelector -Session $Session -Selector "[data-testid='estimate-editor-drawer']" -TimeoutSeconds 20
+    return
+  }
+
   $clicked = Try-ClickButtonByLabels -Session $Session -Labels @("Parametrage", "Paramétrage")
 
   if (-not $clicked) {
@@ -785,7 +808,7 @@ function Set-EditableTitleValue {
   }
 
   for (const el of document.querySelectorAll(
-    'input.estimate-input--title, input[type=\"text\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'
+    '[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title, input[type=\"text\"], textarea, [contenteditable=\"true\"], [role=\"textbox\"]'
   )) {
     if (!isEditable(el) || !isVisible(el)) continue;
     if (!candidates.includes(el)) {
@@ -823,13 +846,16 @@ function Set-LatestSectionTitleValue {
   $valueJson = ConvertTo-Json $Value -Compress
   Invoke-AB $Session "eval" @"
 (() => {
-  const sectionRows = Array.from(document.querySelectorAll('.estimate-row.estimate-row--section'));
+  const sectionRows = Array.from(
+    document.querySelectorAll('[data-testid=\"estimate-section-row\"], .estimate-row.estimate-row--section')
+  );
   if (sectionRows.length === 0) {
     throw new Error('No section row found');
   }
 
   const targetRow = sectionRows[sectionRows.length - 1];
-  const input = targetRow.querySelector('input.estimate-input--title');
+  const input = targetRow.querySelector('[data-testid=\"estimate-section-title-input\"]') ??
+    targetRow.querySelector('input.estimate-input--title');
   if (!input) {
     throw new Error('No section title input found');
   }
@@ -852,16 +878,22 @@ function Set-LatestLineTitleValue {
   $valueJson = ConvertTo-Json $Value -Compress
   Invoke-AB $Session "eval" @"
 (() => {
-  const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
+  const lineRows = Array.from(
+    document.querySelectorAll('[data-testid=\"estimate-line-row\"], .estimate-row')
+  ).filter((row) => {
     if (row.classList.contains('estimate-row--section')) return false;
-    return Boolean(row.querySelector('input.estimate-input--title'));
+    return Boolean(
+      row.querySelector('[data-testid=\"estimate-line-title-input\"]') ??
+      row.querySelector('input.estimate-input--title')
+    );
   });
   if (lineRows.length === 0) {
     throw new Error('No line row found');
   }
 
   const targetRow = lineRows[lineRows.length - 1];
-  const input = targetRow.querySelector('input.estimate-input--title');
+  const input = targetRow.querySelector('[data-testid=\"estimate-line-title-input\"]') ??
+    targetRow.querySelector('input.estimate-input--title');
   if (!input) {
     throw new Error('No line title input found');
   }
@@ -879,9 +911,14 @@ function Get-LineRowCount {
   param([string]$Session)
 
   return [int](Invoke-AB $Session "eval" @"
-(() => Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
+(() => Array.from(document.querySelectorAll('[data-testid=\"estimate-line-row\"], .estimate-row')).filter((row) => {
+  const hasStableLineMarker = row.matches('[data-testid=\"estimate-line-row\"]');
+  if (hasStableLineMarker) return true;
   if (row.classList.contains('estimate-row--section')) return false;
-  return Boolean(row.querySelector('input.estimate-input--title'));
+  return Boolean(
+    row.querySelector('[data-testid=\"estimate-line-title-input\"]') ??
+    row.querySelector('input.estimate-input--title')
+  );
 }).length)()
 "@)
 }
@@ -965,7 +1002,7 @@ function Wait-ForTitleInputsAtLeast {
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 
   while ((Get-Date) -lt $deadline) {
-    $count = Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length"
+    $count = Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length"
     if ([int]$count -ge $MinCount) {
       return
     }
@@ -1036,7 +1073,22 @@ function Add-Chapter {
   param([string]$Session, [string]$Title)
 
   Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
-  $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
+  $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length")
+  $clickedStable = Invoke-AB $Session "eval" @"
+(() => {
+  const button = document.querySelector('[data-testid=\"estimate-editor-add-lot-button\"]')
+    ?? document.querySelector('[data-testid=\"estimate-editor-add-root-section-button\"]');
+  if (!(button instanceof HTMLButtonElement) || button.disabled) return false;
+  button.click();
+  return true;
+})();
+"@
+  if ($clickedStable -eq $true -or "$clickedStable" -eq "true") {
+    Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 20
+    Set-LatestSectionTitleValue -Session $Session -Value $Title
+    return
+  }
+
   $chapterLabels = @(
     "+ Ajouter une section",
     "+ Ajouter un Lot",
@@ -1073,7 +1125,7 @@ function Try-CreateLineViaApi {
 
   const versionId = match[1];
   const sectionRows = Array.from(
-    document.querySelectorAll('.estimate-row.estimate-row--section[data-estimate-item-id]')
+    document.querySelectorAll('[data-testid=\"estimate-section-row\"][data-estimate-item-id], .estimate-row.estimate-row--section[data-estimate-item-id]')
   );
   if (sectionRows.length === 0) return false;
 
@@ -1110,13 +1162,13 @@ function Add-Line {
   param([string]$Session, [string]$Designation)
 
   Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
-  $sectionCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row.estimate-row--section').length")
+  $sectionCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-section-row\"], .estimate-row.estimate-row--section').length")
   if ($sectionCount -eq 0) {
     Add-Chapter -Session $Session -Title "Nouveau lot"
   }
 
-  $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
-  $beforeRows = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row').length")
+  $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length")
+  $beforeRows = [int](Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-row\"], [data-testid=\"estimate-section-row\"], .estimate-row').length")
   $lineBefore = Get-LineRowCount -Session $Session
   $versionId = Get-CurrentEstimateVersionId -Session $Session
   $persistedBefore = if ($versionId) {
@@ -1182,13 +1234,16 @@ function Add-Line {
 
     $actionsOpened = Invoke-AB $Session "eval" @"
 (() => {
-  const sectionRows = Array.from(document.querySelectorAll('.estimate-row.estimate-row--section'));
+  const sectionRows = Array.from(
+    document.querySelectorAll('[data-testid=\"estimate-section-row\"], .estimate-row.estimate-row--section')
+  );
   if (sectionRows.length === 0) return false;
   const targetRow = sectionRows[sectionRows.length - 1];
   const rect = targetRow.getBoundingClientRect();
   targetRow.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: rect.left + 8, clientY: rect.top + 8 }));
   targetRow.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: rect.left + 8, clientY: rect.top + 8 }));
-  const target = targetRow.querySelector('button[aria-label="Actions"]');
+  const target = targetRow.querySelector('[data-testid=\"estimate-section-actions-button\"]')
+    ?? targetRow.querySelector('button[aria-label="Actions"]');
   if (!(target instanceof HTMLButtonElement) || target.disabled) return false;
   target.click();
   return true;
@@ -1228,7 +1283,7 @@ function Add-Line {
     }
     try {
       Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 20
-      $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
+      $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-title-input\"], [data-testid=\"estimate-section-title-input\"], input.estimate-input--title').length")
     } catch {
       Start-Sleep -Milliseconds 600
     }
@@ -1256,7 +1311,7 @@ function Add-Line {
     }
   }
 
-  $rowsNow = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row').length")
+  $rowsNow = [int](Invoke-AB $Session "eval" "document.querySelectorAll('[data-testid=\"estimate-line-row\"], [data-testid=\"estimate-section-row\"], .estimate-row').length")
   if ($rowsNow -le $beforeRows) {
     Start-Sleep -Milliseconds 500
   }
@@ -1328,9 +1383,12 @@ function Set-LineValues {
 
   $js = @"
 (() => {
-  const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
+  const lineRows = Array.from(document.querySelectorAll('[data-testid=\"estimate-line-row\"], .estimate-row')).filter((row) => {
     if (row.classList.contains('estimate-row--section')) return false;
-    return Boolean(row.querySelector('input.estimate-input--title'));
+    return Boolean(
+      row.querySelector('[data-testid=\"estimate-line-title-input\"]') ??
+      row.querySelector('input.estimate-input--title')
+    );
   });
   if (lineRows.length === 0) throw new Error('No line row found');
   const row = lineRows[lineRows.length - 1];

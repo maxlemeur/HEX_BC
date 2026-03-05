@@ -74,28 +74,31 @@ export function EstimateEditorBody({
         aria-readonly={isReadOnly}
         aria-rowcount={spreadsheetRowCount}
         aria-label="Lignes de devis"
+        data-testid="estimate-editor-body"
       >
         {items.length === 0 ? (
-          <div className="estimate-empty">
+          <div className="estimate-empty" data-testid="estimate-editor-empty-state">
             <p>Aucune ligne pour le moment.</p>
             {!hideEditingActions ? (
               <button
-                className="btn btn-primary btn-sm"
+                className="btn btn-secondary btn-sm"
                 type="button"
                 onClick={onAddRootSection}
                 disabled={isReadOnly}
+                data-testid="estimate-editor-add-root-section-button"
               >
                 {rootAddSectionLabel}
               </button>
             ) : null}
           </div>
         ) : !hasVisibleRows ? (
-          <div className="estimate-empty">
+          <div className="estimate-empty" data-testid="estimate-editor-empty-filtered-state">
             <p>Aucune ligne ne correspond au filtre qualite actif.</p>
             <button
               className="btn btn-secondary btn-sm"
               type="button"
               onClick={onResetQualityFilter}
+              data-testid="estimate-editor-reset-quality-filter-button"
             >
               Afficher toutes les lignes
             </button>
@@ -136,6 +139,19 @@ export function EstimateEditorBody({
           </SortableContext>
         ) : (
           renderList()
+        )}
+        {items.length > 0 && !hideEditingActions && (
+          <div className="estimate-table__add-lot-row" data-testid="estimate-editor-add-lot-row">
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={onAddRootSection}
+              disabled={isReadOnly}
+              data-testid="estimate-editor-add-lot-button"
+            >
+              {rootAddSectionLabel}
+            </button>
+          </div>
         )}
       </div>
     </DndContext>

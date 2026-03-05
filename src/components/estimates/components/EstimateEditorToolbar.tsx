@@ -62,8 +62,6 @@ type EstimateEditorToolbarProps = {
   onOpenBulkSuggestDialog: () => void;
   onOpenAssemblyPicker: () => void;
   onOpenImportFromEstimateDialog?: () => void;
-  onAddRootSection: () => void;
-  rootAddSectionLabel?: string;
   onExpandAllSections?: () => void;
   onCollapseAllSections?: () => void;
   onOpenSettings?: () => void;
@@ -137,8 +135,6 @@ export function EstimateEditorToolbar({
   onOpenBulkSuggestDialog,
   onOpenAssemblyPicker,
   onOpenImportFromEstimateDialog,
-  onAddRootSection,
-  rootAddSectionLabel = "+ Ajouter un Lot",
   onExpandAllSections,
   onCollapseAllSections,
   onOpenSettings,
@@ -192,7 +188,7 @@ export function EstimateEditorToolbar({
 
   if (isViewerMode) {
     return (
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" data-testid="estimate-editor-table-toolbar">
         <input
           type="search"
           className="form-input h-8 text-sm"
@@ -200,6 +196,7 @@ export function EstimateEditorToolbar({
           placeholder="Rechercher..."
           value={searchTerm}
           onChange={(event) => onSearchChange(event.target.value)}
+          data-testid="estimate-editor-search-input"
         />
         <div className="flex-1 min-w-0" />
         {onOpenSettings ? (
@@ -207,6 +204,7 @@ export function EstimateEditorToolbar({
             className="btn btn-secondary btn-sm"
             type="button"
             onClick={onOpenSettings}
+            data-testid="estimate-editor-settings-button"
           >
             Parametres
           </button>
@@ -217,7 +215,7 @@ export function EstimateEditorToolbar({
   }
 
   return (
-    <div className={`flex flex-col ${isSimplifiedMode ? "gap-1" : "gap-2"}`}>
+    <div className={`flex flex-col ${isSimplifiedMode ? "gap-1" : "gap-2"}`} data-testid="estimate-editor-table-toolbar">
       {/* Row 1 — Edit actions */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Undo / Redo group */}
@@ -229,6 +227,7 @@ export function EstimateEditorToolbar({
             disabled={meta.isReadOnly || isUndoRedoBusy || !canUndo}
             aria-label="Annuler la dernière action"
             title="Annuler (Ctrl+Z)"
+            data-testid="estimate-editor-undo-button"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
             <span className="text-xs">Annuler</span>
@@ -240,6 +239,7 @@ export function EstimateEditorToolbar({
             disabled={meta.isReadOnly || isUndoRedoBusy || !canRedo}
             aria-label="Rétablir la dernière action"
             title="Rétablir (Ctrl+Y)"
+            data-testid="estimate-editor-redo-button"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></svg>
             <span className="text-xs">Rétablir</span>
@@ -249,19 +249,12 @@ export function EstimateEditorToolbar({
         <div className="h-5 w-px bg-slate-200" />
 
         {/* Primary actions */}
-        <button
-          className="btn btn-secondary btn-sm"
-          type="button"
-          onClick={onAddRootSection}
-          disabled={meta.isReadOnly}
-        >
-          {rootAddSectionLabel}
-        </button>
         {onExpandAllSections ? (
           <button
             className="btn btn-ghost btn-sm"
             type="button"
             onClick={onExpandAllSections}
+            data-testid="estimate-editor-expand-all-sections-button"
           >
             Tout deplier
           </button>
@@ -271,6 +264,7 @@ export function EstimateEditorToolbar({
             className="btn btn-ghost btn-sm"
             type="button"
             onClick={onCollapseAllSections}
+            data-testid="estimate-editor-collapse-all-sections-button"
           >
             Tout replier
           </button>
@@ -281,6 +275,7 @@ export function EstimateEditorToolbar({
             type="button"
             onClick={onOpenImportFromEstimateDialog}
             disabled={meta.isReadOnly}
+            data-testid="estimate-editor-import-from-estimate-button"
           >
             Importer depuis...
           </button>
@@ -298,6 +293,7 @@ export function EstimateEditorToolbar({
               type="button"
               onClick={onOpenSettings}
               title="Paramétrage"
+              data-testid="estimate-editor-settings-button"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
               <span>Paramétrage</span>
@@ -315,6 +311,7 @@ export function EstimateEditorToolbar({
           placeholder="Rechercher..."
           value={searchTerm}
           onChange={(e) => onSearchChange(e.target.value)}
+          data-testid="estimate-editor-search-input"
         />
         {/* Tablet overflow menu — groups Quick Insert, Colonnes, Anomalies, Outils into a single popover */}
         {isTablet && !isSimplifiedMode ? (
@@ -325,6 +322,7 @@ export function EstimateEditorToolbar({
               onClick={overflowToggle}
               aria-expanded={overflowOpen}
               aria-haspopup="true"
+              data-testid="estimate-editor-overflow-button"
             >
               Plus...
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`ml-0.5 transition-transform ${overflowOpen ? "rotate-180" : ""}`}><polyline points="6 9 12 15 18 9"/></svg>
@@ -341,6 +339,7 @@ export function EstimateEditorToolbar({
                     type="button"
                     onClick={() => { overflowToggle(); onToggleQuickTemplatePicker(); }}
                     disabled={meta.isReadOnly}
+                    data-testid="estimate-editor-quick-template-button"
                   >
                     + Template
                   </button>
@@ -351,6 +350,7 @@ export function EstimateEditorToolbar({
                     type="button"
                     onClick={() => { overflowToggle(); onToggleQuickAssemblyPicker(); }}
                     disabled={meta.isReadOnly}
+                    data-testid="estimate-editor-quick-assembly-button"
                   >
                     + Assemblage
                   </button>
@@ -361,6 +361,7 @@ export function EstimateEditorToolbar({
                   className="btn btn-secondary btn-sm w-full text-left"
                   type="button"
                   onClick={() => { overflowToggle(); columnsToggle(); }}
+                  data-testid="estimate-editor-columns-button"
                 >
                   Colonnes
                 </button>
@@ -370,6 +371,7 @@ export function EstimateEditorToolbar({
                     className={`btn btn-sm w-full text-left ${qualityFilter !== "all_lines" ? "btn-primary" : "btn-secondary"}`}
                     type="button"
                     onClick={() => { overflowToggle(); anomaliesToggle(); }}
+                    data-testid="estimate-editor-anomalies-button"
                   >
                     Anomalies ({qualityCounts.linesWithAnomaliesCount})
                   </button>
@@ -379,6 +381,7 @@ export function EstimateEditorToolbar({
                   className="btn btn-secondary btn-sm w-full text-left"
                   type="button"
                   onClick={() => { overflowToggle(); toolsToggle(); }}
+                  data-testid="estimate-editor-tools-button"
                 >
                   Outils
                 </button>
@@ -399,6 +402,7 @@ export function EstimateEditorToolbar({
               onClick={onToggleQuickTemplatePicker}
               disabled={meta.isReadOnly}
               title="Inserer un template"
+              data-testid="estimate-editor-quick-template-button"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
               <span className="text-xs">+ Template</span>
@@ -414,6 +418,7 @@ export function EstimateEditorToolbar({
               onClick={onToggleQuickAssemblyPicker}
               disabled={meta.isReadOnly}
               title="Inserer un assemblage"
+              data-testid="estimate-editor-quick-assembly-button"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M12 12h.01"/><path d="M17 12h.01"/><path d="M7 12h.01"/></svg>
               <span className="text-xs">+ Assemblage</span>
@@ -427,6 +432,7 @@ export function EstimateEditorToolbar({
               className={`btn btn-sm ${hiddenAdvancedCount === 0 ? "btn-primary" : "btn-secondary"}`}
               type="button"
               onClick={onToggleAdvancedColumns}
+              data-testid="estimate-editor-toggle-advanced-columns-button"
             >
               Colonnes avancées
               {hiddenAdvancedCount > 0 && (
@@ -442,6 +448,7 @@ export function EstimateEditorToolbar({
               className="btn btn-secondary btn-sm"
               type="button"
               onClick={columnsToggle}
+              data-testid="estimate-editor-columns-button"
             >
               Colonnes
             </button>
@@ -489,6 +496,7 @@ export function EstimateEditorToolbar({
               }`}
               onClick={anomaliesToggle}
               title="Filtrer par anomalies"
+              data-testid="estimate-editor-anomalies-button"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               {qualityCounts.linesWithAnomaliesCount} anomalie{qualityCounts.linesWithAnomaliesCount > 1 ? "s" : ""}
@@ -533,6 +541,7 @@ export function EstimateEditorToolbar({
               className="btn btn-secondary btn-sm"
               type="button"
               onClick={toolsToggle}
+              data-testid="estimate-editor-tools-button"
             >
               Outils
             </button>
@@ -598,12 +607,13 @@ export function EstimateEditorToolbar({
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {bulkSuggestionEligibleCount > 0 ? (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      type="button"
-                      onClick={onOpenBulkSuggestDialog}
-                      disabled={meta.isReadOnly}
-                    >
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={onOpenBulkSuggestDialog}
+                    disabled={meta.isReadOnly}
+                    data-testid="estimate-editor-bulk-suggestions-button"
+                  >
                       Suggestions ({bulkSuggestionEligibleCount})
                     </button>
                   ) : null}
@@ -612,6 +622,7 @@ export function EstimateEditorToolbar({
                     type="button"
                     onClick={onOpenAssemblyPicker}
                     disabled={meta.isReadOnly}
+                    data-testid="estimate-editor-assemblies-button"
                   >
                     Assemblages
                   </button>
@@ -628,7 +639,10 @@ export function EstimateEditorToolbar({
       {/* Bulk selection bar */}
       {!isViewerMode && state.hasSelectedLines ? (
         <>
-        <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-surface px-6 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
+        <div
+          className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-surface px-6 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]"
+          data-testid="estimate-editor-bulk-selection-bar"
+        >
           <div className="mx-auto flex max-w-[1400px] flex-wrap items-center gap-2">
           <span className="text-xs font-semibold text-secondary-foreground">
             {state.selectedLineCount} sélection(s)
@@ -645,12 +659,14 @@ export function EstimateEditorToolbar({
             placeholder="100"
             disabled={meta.isReadOnly}
             aria-label="Majoration MO en pourcentage"
+            data-testid="estimate-editor-bulk-majoration-input"
           />
           <button
             className="btn btn-secondary btn-sm"
             type="button"
             onClick={() => void onApplyBulkMajoration()}
             disabled={meta.isReadOnly || !state.hasSelectedLines}
+            data-testid="estimate-editor-bulk-majoration-apply-button"
           >
             Appliquer majoration
           </button>
@@ -680,6 +696,7 @@ export function EstimateEditorToolbar({
             type="button"
             onClick={() => void onApplyBulkMove()}
             disabled={meta.isReadOnly || !state.hasSelectedLines}
+            data-testid="estimate-editor-bulk-move-apply-button"
           >
             Appliquer
           </button>
@@ -710,6 +727,7 @@ export function EstimateEditorToolbar({
             type="button"
             onClick={() => void onApplyBulkCategory()}
             disabled={meta.isReadOnly || !state.hasSelectedLines}
+            data-testid="estimate-editor-bulk-category-apply-button"
           >
             Appliquer
           </button>
@@ -741,6 +759,7 @@ export function EstimateEditorToolbar({
             type="button"
             onClick={() => void onApplyBulkLaborRole()}
             disabled={meta.isReadOnly || !state.hasSelectedLines}
+            data-testid="estimate-editor-bulk-labor-role-apply-button"
           >
             Appliquer
           </button>
@@ -750,6 +769,7 @@ export function EstimateEditorToolbar({
             type="button"
             onClick={() => void onBulkDeleteSelection()}
             disabled={meta.isReadOnly || !state.hasSelectedLines}
+            data-testid="estimate-editor-bulk-delete-selection-button"
           >
             Supprimer sélection
           </button>
@@ -788,6 +808,7 @@ function KeyboardShortcutsButton() {
         onClick={() => setIsOpen(true)}
         title="Raccourcis clavier"
         aria-label="Raccourcis clavier"
+        data-testid="estimate-editor-keyboard-shortcuts-button"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
       </button>

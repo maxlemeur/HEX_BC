@@ -85,7 +85,6 @@ function renderToolbar(overrides?: {
         onApplyBulkLaborRole={vi.fn().mockResolvedValue(undefined)}
         onOpenBulkSuggestDialog={vi.fn()}
         onOpenAssemblyPicker={vi.fn()}
-        onAddRootSection={vi.fn()}
         columnPreset="standard"
         columnPresetLabels={{ essential: "Essentiel", standard: "Standard", full: "Complet", custom: "Personnalisé" }}
         onColumnPresetChange={vi.fn()}

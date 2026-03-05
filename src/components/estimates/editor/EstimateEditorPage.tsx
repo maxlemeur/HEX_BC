@@ -26,20 +26,30 @@ export function EstimateEditorPage({ versionId }: EstimateEditorPageProps) {
   const model = useEstimateEditorState({ versionId });
   const readyMeta = model.meta.kind === "ready" ? model.meta : null;
   const alertsRegion = useMemo(
-    () => (readyMeta ? <MemoizedEstimateEditorAlerts {...readyMeta.alertsProps} /> : null),
+    () =>
+      readyMeta ? (
+        <div data-testid="estimate-editor-alerts-region">
+          <MemoizedEstimateEditorAlerts {...readyMeta.alertsProps} />
+        </div>
+      ) : null,
     [readyMeta]
   );
   const tableRegion = useMemo(
     () =>
       readyMeta ? (
-        <div className="mt-6">
+        <div className="mt-6" data-testid="estimate-editor-table-region">
           <MemoizedEstimateEditorTable {...readyMeta.editorTableProps} />
         </div>
       ) : null,
     [readyMeta]
   );
   const drawerRegion = useMemo(
-    () => (readyMeta ? <MemoizedEstimateEditorDrawer {...readyMeta.drawerProps} /> : null),
+    () =>
+      readyMeta ? (
+        <div data-testid="estimate-editor-drawer-region">
+          <MemoizedEstimateEditorDrawer {...readyMeta.drawerProps} />
+        </div>
+      ) : null,
     [readyMeta]
   );
 
@@ -98,7 +108,7 @@ export function EstimateEditorPage({ versionId }: EstimateEditorPageProps) {
   }
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in" data-testid="estimate-editor-page">
       {readyMeta.projectId && (
         <AffaireBreadcrumb
           projectId={readyMeta.projectId}
@@ -109,14 +119,22 @@ export function EstimateEditorPage({ versionId }: EstimateEditorPageProps) {
       )}
       <EstimateEditorToolbar {...readyMeta.toolbarProps} />
       {alertsRegion}
-      <EstimateSettingsSummaryBar {...readyMeta.summaryBarProps} />
+      <div data-testid="estimate-editor-summary-bar">
+        <EstimateSettingsSummaryBar {...readyMeta.summaryBarProps} />
+      </div>
       {tableRegion}
       {drawerRegion}
-      <BulkSuggestDialog {...readyMeta.bulkSuggestDialogProps} />
+      <div data-testid="estimate-editor-bulk-suggest-dialog-region">
+        <BulkSuggestDialog {...readyMeta.bulkSuggestDialogProps} />
+      </div>
       {readyMeta.importFromEstimateDialogProps ? (
-        <ImportFromEstimateDialog {...readyMeta.importFromEstimateDialogProps} />
+        <div data-testid="estimate-editor-import-from-estimate-dialog-region">
+          <ImportFromEstimateDialog {...readyMeta.importFromEstimateDialogProps} />
+        </div>
       ) : null}
-      <EstimateSendGatingDialog {...readyMeta.sendGatingDialogProps} />
+      <div data-testid="estimate-editor-send-gating-dialog-region">
+        <EstimateSendGatingDialog {...readyMeta.sendGatingDialogProps} />
+      </div>
     </div>
   );
 }

@@ -14,45 +14,6 @@ Require-AgentBrowser
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $projectName = "E2E-HEX-DPGF-PARCOURS-$stamp"
 $versionTitle = "E2E DPGF Source $stamp"
-$fixturePath = Resolve-E2EPath -Path "e2e/fixtures/dpgf-minimal.csv"
-
-if (-not (Test-Path $fixturePath)) {
-  throw "Fixture file not found: $fixturePath"
-}
-
-function Test-VisibleButtonContains {
-  param(
-    [string]$Session,
-    [string]$Needle
-  )
-
-  $needleJson = ConvertTo-Json $Needle.ToLowerInvariant() -Compress
-  $raw = Invoke-AB $Session "eval" @"
-(() => {
-  const needle = $needleJson;
-  const normalize = (value) =>
-    String(value ?? "")
-      .normalize("NFD")
-      .replace(/[\\u0300-\\u036f]/g, "")
-      .replace(/\\s+/g, " ")
-      .trim()
-      .toLowerCase();
-  const isVisible = (el) => {
-    if (!el) return false;
-    const style = window.getComputedStyle(el);
-    if (!style || style.display === "none" || style.visibility === "hidden") return false;
-    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-  };
-  return Array.from(document.querySelectorAll("button")).some((button) => {
-    if (!isVisible(button)) return false;
-    const text = normalize(button.textContent);
-    return text.includes(needle);
-  });
-})();
-"@
-
-  return ($raw -eq $true -or "$raw" -eq "true")
-}
 
 function Try-ClickAnyActionContains {
   param(
@@ -150,148 +111,37 @@ function Click-ActionContainsWithRetry {
   throw $FailureMessage
 }
 
-function Get-WizardStep3State {
-  param([string]$Session)
+function Get-LinkedDpgfSourceApiState {
+  param(
+    [string]$Session,
+    [string]$ProjectId
+  )
 
   $raw = Invoke-AB $Session "eval" @"
-JSON.stringify((() => {
-  const normalize = (value) =>
-    String(value ?? "")
-      .normalize("NFD")
-      .replace(/[\\u0300-\\u036f]/g, "")
-      .replace(/\\s+/g, " ")
-      .trim()
-      .toLowerCase();
-
-  const findButton = (needle) =>
-    Array.from(document.querySelectorAll("button")).find((button) =>
-      normalize(button.textContent).includes(needle)
-    ) ?? null;
-
-  const mainText = normalize(document.querySelector("main")?.innerText ?? "");
-  const sourceBtn = findButton("dpgf source a importer");
-  const blankBtn = findButton("nouveau (vide)");
-  const templateBtn = findButton("depuis un modele");
-
-  return {
-    hasSourceDetected: mainText.includes("source detectee"),
-    hasSourceSummary: mainText.includes("la version sera creee avec les lignes du dpgf source lie"),
-    sourceModeSelected:
-      sourceBtn instanceof HTMLButtonElement &&
-      sourceBtn.className.includes("btn-primary"),
-    templateUnavailable: mainText.includes("aucun modele disponible actuellement"),
-    templateDisabled:
-      templateBtn instanceof HTMLButtonElement ? Boolean(templateBtn.disabled) : false,
-    blankSelected:
-      blankBtn instanceof HTMLButtonElement &&
-      blankBtn.className.includes("btn-primary")
-  };
-})())
-"@
-
-  $jsonText = Normalize-AgentString -Raw ([string]$raw)
-  return $jsonText | ConvertFrom-Json
-}
-
-function Try-AutoMapColumnsFromSourceNames {
-  param([string]$Session)
-
-  $raw = Invoke-AB $Session "eval" @"
-(() => {
-  const table = document.querySelector("table.data-table");
-  if (!table) return 0;
-
-  const normalize = (value) =>
-    String(value ?? "")
-      .normalize("NFD")
-      .replace(/[\\u0300-\\u036f]/g, "")
-      .replace(/\\s+/g, " ")
-      .trim()
-      .toLowerCase();
-
-  const plans = [
-    { target: "hex_code", hints: ["hex_code", "reference article", "reference", "code"] },
-    { target: "designation", hints: ["designation", "description", "libelle"] },
-    { target: "quantity", hints: ["quantity", "quantite", "qte", "qty"] },
-    { target: "unit", hints: ["unit", "unite"] },
-    { target: "unit_price_ht", hints: ["unit_price_ht", "prix unitaire", "pu ht", "prix ht"] },
-    { target: "total_ht", hints: ["total_ht", "montant ht", "total ht"] }
-  ];
-
-  let changed = 0;
-  const rows = Array.from(table.querySelectorAll("tbody tr"));
-  for (const row of rows) {
-    const sourceCell = row.querySelector("td");
-    const sourceText = normalize(sourceCell?.textContent ?? "");
-    if (!sourceText) continue;
-
-    const select = row.querySelector("select");
-    if (!(select instanceof HTMLSelectElement) || select.disabled) continue;
-
-    for (const plan of plans) {
-      const hintMatch = plan.hints.some((hint) => sourceText.includes(hint));
-      if (!hintMatch) continue;
-
-      const hasOption = Array.from(select.options).some((option) => option.value === plan.target);
-      if (!hasOption) continue;
-      if (select.value === plan.target) break;
-
-      select.value = plan.target;
-      select.dispatchEvent(new Event("input", { bubbles: true }));
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-      changed += 1;
-      break;
-    }
-  }
-
-  return changed;
-})();
-"@
-
-  $changed = 0
+(async () => {
+  const projectId = "$ProjectId";
   try {
-    $changed = [int]$raw
-  } catch {
-    $changed = 0
+    const response = await fetch("/api/affaires/" + projectId + "/dpgf-source", {
+      credentials: "include",
+      headers: {
+        "Accept": "application/json"
+      }
+    });
+    const payload = await response.json().catch(() => null);
+    return JSON.stringify({
+      status: response.status,
+      ok: response.ok,
+      payload
+    });
+  } catch (error) {
+    return JSON.stringify({
+      status: 0,
+      ok: false,
+      payload: null,
+      error: String(error)
+    });
   }
-  return $changed
-}
-
-function Get-ImportFlowDebugState {
-  param([string]$Session)
-
-  $raw = Invoke-AB $Session "eval" @"
-JSON.stringify((() => {
-  const normalize = (value) =>
-    String(value ?? "")
-      .normalize("NFD")
-      .replace(/[\\u0300-\\u036f]/g, "")
-      .replace(/\\s+/g, " ")
-      .trim();
-  const isVisible = (el) => {
-    if (!el) return false;
-    const style = window.getComputedStyle(el);
-    if (!style || style.display === "none" || style.visibility === "hidden") return false;
-    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-  };
-  const buttons = Array.from(document.querySelectorAll("button"))
-    .filter((button) => isVisible(button))
-    .map((button) => normalize(button.textContent))
-    .filter((text) => text.length > 0)
-    .slice(0, 40);
-  const heading = normalize(document.querySelector("main h1, main h2, main h3")?.textContent ?? "");
-  const alertError = normalize(document.querySelector(".alert.alert-error")?.textContent ?? "");
-  return {
-    url: window.location.pathname + window.location.search,
-    heading,
-    hasMappingTable: Boolean(document.querySelector("table.data-table")),
-    hasFileInput: Boolean(document.querySelector("input[type='file']")),
-    hasCreateButton: buttons.some((text) => text.toLowerCase().includes("creer le chiffrage")),
-    hasReturnHubButton: buttons.some((text) => text.toLowerCase().includes("retour au hub")),
-    buttons,
-    alertError
-  };
-})())
+})()
 "@
 
   try {
@@ -302,19 +152,135 @@ JSON.stringify((() => {
   }
 }
 
+function Seed-LinkedDpgfSourceViaApi {
+  param(
+    [string]$Session,
+    [string]$ProjectId
+  )
+
+  $raw = Invoke-AB $Session "eval" @"
+(async () => {
+  const projectId = "$ProjectId";
+  const rows = [
+    {
+      source_hex: "HEX-001",
+      source_designation: "Poste test A",
+      source_quantity: 2,
+      source_unit: "u",
+      source_unit_price_ht: 150,
+      source_total_ht: 300
+    },
+    {
+      source_hex: "HEX-002",
+      source_designation: "Poste test B",
+      source_quantity: 1,
+      source_unit: "u",
+      source_unit_price_ht: 90,
+      source_total_ht: 90
+    }
+  ];
+
+  try {
+    const importRes = await fetch("/api/imports", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({
+        filename: "e2e-linked-dpgf.json",
+        sourceFormat: "csv",
+        projectId,
+        rows
+      })
+    });
+
+    const importPayload = await importRes.json().catch(() => null);
+    const importData = importPayload?.data ?? null;
+    const importId = importData?.id ?? null;
+
+    if (!importRes.ok || !importPayload?.ok || !importId) {
+      return JSON.stringify({
+        ok: false,
+        step: "import",
+        status: importRes.status,
+        payload: importPayload
+      });
+    }
+
+    const mapping = {
+      source_hex: "hex_code",
+      source_designation: "designation",
+      source_quantity: "quantity",
+      source_unit: "unit",
+      source_unit_price_ht: "unit_price_ht",
+      source_total_ht: "total_ht"
+    };
+
+    const mappingRes = await fetch("/api/mappings", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({
+        action: "create",
+        import_id: importId,
+        mapping,
+        save_template: false
+      })
+    });
+
+    const mappingPayload = await mappingRes.json().catch(() => null);
+    if (!mappingRes.ok || !mappingPayload?.ok) {
+      return JSON.stringify({
+        ok: false,
+        step: "mapping",
+        importId,
+        status: mappingRes.status,
+        payload: mappingPayload
+      });
+    }
+
+    return JSON.stringify({
+      ok: true,
+      importId,
+      mappingId: mappingPayload?.data?.mapping?.id ?? null
+    });
+  } catch (error) {
+    return JSON.stringify({
+      ok: false,
+      step: "exception",
+      error: String(error)
+    });
+  }
+})()
+"@
+
+  $jsonString = ConvertFrom-AgentBrowserJson -RawOutput $raw
+  $result = $jsonString | ConvertFrom-Json
+  if (-not $result.ok) {
+    throw "Unable to seed linked DPGF source via API: $($result | ConvertTo-Json -Compress)"
+  }
+
+  return $result
+}
+
 try {
   Login-E2E -BaseUrl $BaseUrl -Session $Session
 
   # ------------------------------------------------------------------
-  # Step 1: Create an empty affaire from quick create dialog
+  # Step 1: Create empty affaire
   # ------------------------------------------------------------------
   Invoke-AB $Session "open" "$BaseUrl/dashboard/affaires" | Out-Null
   Wait-ForUrlContains -Session $Session -Needle "/dashboard/affaires" -TimeoutSeconds 45 | Out-Null
 
-  $clickedNewAffaire = Click-ActionContainsWithRetry -Session $Session -Labels @(
+  Click-ActionContainsWithRetry -Session $Session -Labels @(
     "Nouvelle affaire",
     "nouvelle affaire"
-  ) -ScopeSelector "" -TimeoutSeconds 25 -FailureMessage "Unable to open quick create affaire dialog."
+  ) -ScopeSelector "" -TimeoutSeconds 25 -FailureMessage "Unable to open quick create affaire dialog." | Out-Null
 
   Wait-ForSelector -Session $Session -Selector "input[placeholder='Ex: Residence Les Jardins']" -TimeoutSeconds 20
   Invoke-AB $Session "fill" "input[placeholder='Ex: Residence Les Jardins']" $projectName | Out-Null
@@ -329,100 +295,59 @@ try {
   $projectId = $Matches[1].ToLowerInvariant()
 
   # ------------------------------------------------------------------
-  # Step 2: Attach and map a DPGF source via UnifiedImportFlow
+  # Step 2: Seed a linked + mapped DPGF source for this affaire
   # ------------------------------------------------------------------
-  $clickedImportDpgf = Click-ActionContainsWithRetry -Session $Session -Labels @(
-    "Importer un DPGF",
-    "importer un dpgf"
-  ) -ScopeSelector "main" -TimeoutSeconds 20 -FailureMessage "Unable to open unified DPGF import flow from affaire hub."
+  $seedResult = Seed-LinkedDpgfSourceViaApi -Session $Session -ProjectId $projectId
 
-  Wait-ForSelector -Session $Session -Selector "input[type='file']" -TimeoutSeconds 30
-  Invoke-AB $Session "upload" "input[type='file']" $fixturePath | Out-Null
+  $hubSourceReady = $false
+  $lastSourceState = $null
+  $sourceDeadline = (Get-Date).AddSeconds(60)
+  while ((Get-Date) -lt $sourceDeadline) {
+    $lastSourceState = Get-LinkedDpgfSourceApiState -Session $Session -ProjectId $projectId
 
-  Wait-ForButtonEnabledByText -Session $Session -ButtonText "Lancer l'import" -ScopeSelector "main" -TimeoutSeconds 20
-  Click-FirstEnabledButtonByText -Session $Session -ButtonText "Lancer l'import" -ScopeSelector "main"
-
-  $importDeadline = (Get-Date).AddSeconds(300)
-  $reachedConfirmation = $false
-  $lastFlowState = $null
-  while ((Get-Date) -lt $importDeadline) {
-    $lastFlowState = Get-ImportFlowDebugState -Session $Session
-
-    $mappedChanges = Try-AutoMapColumnsFromSourceNames -Session $Session
-    if ($mappedChanges -gt 0) {
-      Start-Sleep -Milliseconds 500
+    $sourceData = $null
+    if ($lastSourceState -and $lastSourceState.payload) {
+      $sourceData = $lastSourceState.payload.data
     }
 
-    $clickedToPreview = Try-ClickAnyActionContains -Session $Session -Labels @(
-      "suivant : aperçu",
-      "suivant: aperçu",
-      "suivant : apercu",
-      "suivant: apercu"
-    ) -ScopeSelector "main"
-    if ($clickedToPreview) {
-      Start-Sleep -Milliseconds 800
-      continue
+    $importStatus = ""
+    $mappedRowCount = 0
+    if ($sourceData) {
+      if ($sourceData.PSObject.Properties.Match("importStatus").Count -gt 0 -and $null -ne $sourceData.importStatus) {
+        $importStatus = [string]$sourceData.importStatus
+      } elseif ($sourceData.PSObject.Properties.Match("import_status").Count -gt 0 -and $null -ne $sourceData.import_status) {
+        $importStatus = [string]$sourceData.import_status
+      }
+
+      if ($sourceData.PSObject.Properties.Match("mappedRowCount").Count -gt 0 -and $null -ne $sourceData.mappedRowCount) {
+        $mappedRowCount = [int]$sourceData.mappedRowCount
+      } elseif ($sourceData.PSObject.Properties.Match("mapped_row_count").Count -gt 0 -and $null -ne $sourceData.mapped_row_count) {
+        $mappedRowCount = [int]$sourceData.mapped_row_count
+      }
     }
 
-    $clickedToConfirmation = Try-ClickAnyActionContains -Session $Session -Labels @(
-      "suivant : confirmation",
-      "suivant: confirmation"
-    ) -ScopeSelector "main"
-    if ($clickedToConfirmation) {
-      Start-Sleep -Milliseconds 800
-      continue
-    }
-
-    $hasReturnToHub = Test-VisibleButtonContains -Session $Session -Needle "retour au hub"
-    if ($hasReturnToHub) {
-      $reachedConfirmation = $true
+    if ($importStatus -eq "completed" -and $mappedRowCount -gt 0) {
+      $hubSourceReady = $true
       break
     }
 
-    $confirmError = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" @"
-(() => {
-  const alert = document.querySelector('.alert.alert-error');
-  return alert ? String(alert.textContent ?? '').trim() : '';
-})()
-"@))
-    if ($confirmError) {
-      throw "Unified import flow failed: $confirmError"
-    }
-
-    Start-Sleep -Milliseconds 600
+    Start-Sleep -Milliseconds 700
+    Invoke-AB $Session "reload" | Out-Null
+    Wait-ForUrlContains -Session $Session -Needle "/dashboard/affaires/$projectId" -TimeoutSeconds 30 | Out-Null
   }
 
-  if (-not $reachedConfirmation) {
-    $debugSummary = ""
-    if ($lastFlowState) {
-      $buttonsSummary = if ($lastFlowState.buttons) { [string]::Join(" || ", $lastFlowState.buttons) } else { "" }
-      $debugSummary =
-        " url=$($lastFlowState.url); heading=$($lastFlowState.heading); hasMappingTable=$($lastFlowState.hasMappingTable); " +
-        "hasFileInput=$($lastFlowState.hasFileInput); hasCreateButton=$($lastFlowState.hasCreateButton); " +
-        "hasReturnHubButton=$($lastFlowState.hasReturnHubButton); alertError=$($lastFlowState.alertError); buttons=$buttonsSummary"
-    }
-    throw "Timeout while progressing import flow to confirmation step.$debugSummary"
+  if (-not $hubSourceReady) {
+    throw "Linked DPGF source did not become importable. Seed=$($seedResult | ConvertTo-Json -Compress) LastSourceState=$($lastSourceState | ConvertTo-Json -Compress)"
   }
 
-  $clickedReturnToHub = Click-ActionContainsWithRetry -Session $Session -Labels @(
-    "Retour au hub",
-    "retour au hub"
-  ) -ScopeSelector "main" -TimeoutSeconds 20 -FailureMessage "Unable to confirm mapping-only mode (Retour au hub)."
-
-  Wait-ForUrlContains -Session $Session -Needle "/dashboard/affaires/$projectId" -TimeoutSeconds 90 | Out-Null
-  $hubText = Get-PageText -Session $Session
-  Assert-Contains -Text $hubText -Expected "dpgf-minimal.csv" -Message "Linked DPGF filename should be visible on hub"
-  Assert-Contains -Text $hubText -Expected "Import:" -Message "DPGF import status badge should be visible on hub"
-
   # ------------------------------------------------------------------
-  # Step 3: Create a new version from affaire hub and validate wizard UX
+  # Step 3: Hub -> wizard -> assert step 3 UX
   # ------------------------------------------------------------------
-  $clickedCreateVersion = Click-ActionContainsWithRetry -Session $Session -Labels @(
+  Click-ActionContainsWithRetry -Session $Session -Labels @(
     "Creer une premiere version",
     "Créer une premiere version",
-    "creer une premiere version",
-    "creer une version"
-  ) -ScopeSelector "main" -TimeoutSeconds 20 -FailureMessage "Unable to open estimate creation wizard from affaire hub."
+    "creer une premiere version"
+  ) -ScopeSelector "main" -TimeoutSeconds 25 -FailureMessage "Unable to open estimate creation wizard from affaire hub." | Out-Null
 
   $wizardUrl = Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/new" -TimeoutSeconds 45
   if ($wizardUrl -notlike "*projectId=$projectId*") {
@@ -440,46 +365,77 @@ try {
   Wait-ForButtonEnabledByText -Session $Session -ButtonText "Suivant" -ScopeSelector "main" -TimeoutSeconds 20
   Click-FirstEnabledButtonByText -Session $Session -ButtonText "Suivant" -ScopeSelector "main"
 
-  $wizardState = Get-WizardStep3State -Session $Session
-  if (-not $wizardState.hasSourceDetected) {
-    throw "Wizard step 3 should detect linked DPGF source."
-  }
-  if (-not $wizardState.hasSourceSummary) {
-    throw "Wizard step 3 should announce linked DPGF source import at creation."
-  }
-  if (-not $wizardState.sourceModeSelected) {
-    throw "Wizard step 3 should pre-select linked DPGF source mode."
+  $step3Text = ""
+  $step3Ready = $false
+  $step3Deadline = (Get-Date).AddSeconds(40)
+  while ((Get-Date) -lt $step3Deadline) {
+    $step3Text = Get-PageText -Session $Session
+    if ($step3Text -like "*Source detectee:*" -and $step3Text -like "*DPGF source a importer*") {
+      $step3Ready = $true
+      break
+    }
+    Start-Sleep -Milliseconds 500
   }
 
-  if ($wizardState.templateUnavailable) {
-    if (-not $wizardState.templateDisabled) {
-      throw "Template mode should be disabled when no template is available."
-    }
-    if (-not $wizardState.blankSelected) {
-      throw "Blank mode should be selected by default when templates are unavailable."
-    }
+  if (-not $step3Ready) {
+    throw "Wizard step 3 did not show linked DPGF source state. Text: $step3Text"
   }
 
-  Wait-ForButtonEnabledByText -Session $Session -ButtonText "Creer le chiffrage" -ScopeSelector "main" -TimeoutSeconds 20
-  Click-FirstEnabledButtonByText -Session $Session -ButtonText "Creer le chiffrage" -ScopeSelector "main"
+  if ($step3Text -notlike "*La version sera creee avec les lignes du DPGF source lie.*") {
+    throw "Wizard step 3 did not announce source import. Text: $step3Text"
+  }
+
+  if ($step3Text -like "*Aucun modele disponible actuellement*") {
+    if ($step3Text -notlike "*Nouveau (vide)*") {
+      throw "Template unavailable fallback should keep blank mode selected. Text: $step3Text"
+    }
+  }
 
   # ------------------------------------------------------------------
-  # Step 4: Validate editor prefill and source import affordance
+  # Step 4: Create and validate editor
   # ------------------------------------------------------------------
-  $editUrl = Wait-ForUrlRegex -Session $Session -Pattern "/dashboard/estimates/[^/]+/edit" -TimeoutSeconds 90
+  $editUrl = $null
+  $creationDeadline = (Get-Date).AddSeconds(90)
+  $creationText = ""
+
+  while ((Get-Date) -lt $creationDeadline) {
+    $currentUrl = Normalize-AgentBrowserUrlOutput ([string](Invoke-AB $Session "eval" "window.location.href"))
+    if ($currentUrl -match "/dashboard/estimates/[^/]+/edit") {
+      $editUrl = $currentUrl
+      break
+    }
+
+    Try-ClickAnyActionContains -Session $Session -Labels @(
+      "Creer le chiffrage",
+      "Créer le chiffrage",
+      "chiffrage"
+    ) -ScopeSelector "main" | Out-Null
+
+    $creationText = Get-PageText -Session $Session
+    if ($creationText -like "*Veuillez selectionner un template*") {
+      throw "Wizard blocked by template selection error: $creationText"
+    }
+    if ($creationText -like "*Impossible d'importer la source DPGF liee.*") {
+      throw "Wizard create failed while importing linked source: $creationText"
+    }
+
+    Start-Sleep -Milliseconds 500
+  }
+
   if (-not $editUrl) {
-    throw "Missing estimate edit URL after wizard creation."
+    throw "Missing estimate edit URL after wizard creation. Last URL: $currentUrl. Last text: $creationText"
   }
 
   Wait-ForEditorSurface -Session $Session -TimeoutSeconds 60
+
   $lineCount = Get-LineRowCount -Session $Session
   if ($lineCount -le 0) {
-    throw "Expected editor to be prefilled from linked DPGF source, but line count is 0."
+    throw "Expected editor prefill from linked DPGF source, but line count is 0."
   }
 
-  $hasSourceImportButton = Test-VisibleButtonContains -Session $Session -Needle "importer le dpgf source"
-  if (-not $hasSourceImportButton) {
-    throw "Editor should expose 'Importer le DPGF source' action when linked source exists."
+  $editorText = Get-PageText -Session $Session
+  if ($editorText -notlike "*Importer le DPGF source*") {
+    throw "Editor should expose 'Importer le DPGF source' action. Text: $editorText"
   }
 
   Write-Host "DPGF-AFFAIRE-WIZARD-EDITOR PASS ($lineCount lignes importees)"

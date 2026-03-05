@@ -140,7 +140,7 @@ function Get-PasteDialogState {
 
   $raw = [string](Invoke-AB $Session "eval" @"
 JSON.stringify((() => {
-  const dialog = document.querySelector('[role="dialog"]');
+  const dialog = document.querySelector('[data-testid="paste-preview-dialog"]') ?? document.querySelector('[role="dialog"]');
   if (!dialog) {
     return {
       isOpen: false,
@@ -200,9 +200,9 @@ try {
 
   Invoke-AB $Session "eval" @"
 (() => {
-  const dialog = document.querySelector('[role="dialog"]');
+  const dialog = document.querySelector('[data-testid="paste-preview-dialog"]') ?? document.querySelector('[role="dialog"]');
   if (!dialog) throw new Error('Paste dialog missing.');
-  const mappingSelects = Array.from(dialog.querySelectorAll('section select'));
+  const mappingSelects = Array.from(dialog.querySelectorAll('[data-testid="paste-preview-mapping-select"], section select'));
   if (mappingSelects.length < 2) {
     throw new Error('Mapping selects not found.');
   }
@@ -220,28 +220,31 @@ try {
 
   Invoke-AB $Session "eval" @"
 (() => {
-  const dialog = document.querySelector('[role="dialog"]');
+  const dialog = document.querySelector('[data-testid="paste-preview-dialog"]') ?? document.querySelector('[role="dialog"]');
   if (!dialog) throw new Error('Paste dialog missing.');
-  const mappingSelects = Array.from(dialog.querySelectorAll('section select'));
+  const mappingSelects = Array.from(dialog.querySelectorAll('[data-testid="paste-preview-mapping-select"], section select'));
   if (mappingSelects.length < 2) throw new Error('Not enough mapping selects.');
   mappingSelects[0].value = 'designation';
   mappingSelects[0].dispatchEvent(new Event('change', { bubbles: true }));
   mappingSelects[1].value = 'quantity';
   mappingSelects[1].dispatchEvent(new Event('change', { bubbles: true }));
 
-  const previewRows = Array.from(dialog.querySelectorAll('section table tbody tr'));
+  const previewRows = Array.from(
+    dialog.querySelectorAll('[data-testid="paste-preview-rows-table"] table tbody tr, section table tbody tr')
+  );
   previewRows.forEach((row) => {
     const invalid = row.querySelector('p.text-rose-600');
     if (!invalid) return;
-    const includeToggle = row.querySelector('input[type="checkbox"]');
+    const includeToggle = row.querySelector('[data-testid="paste-preview-row-include-checkbox"], input[type="checkbox"]');
     if (includeToggle instanceof HTMLInputElement && includeToggle.checked) {
       includeToggle.click();
     }
   });
 
-  const confirmButton = Array.from(dialog.querySelectorAll('button')).find((button) =>
-    String(button.textContent ?? '').trim() === 'Confirmer import'
-  );
+  const confirmButton = dialog.querySelector('[data-testid="paste-preview-dialog-confirm-button"]') ??
+    Array.from(dialog.querySelectorAll('button')).find((button) =>
+      String(button.textContent ?? '').trim() === 'Confirmer import'
+    );
   if (!confirmButton) throw new Error('Confirm import button missing.');
   if (confirmButton.disabled) {
     throw new Error('Confirm import button is disabled.');
@@ -262,11 +265,12 @@ try {
   }
   Invoke-AB $Session "eval" @"
 (() => {
-  const dialog = document.querySelector('[role="dialog"]');
+  const dialog = document.querySelector('[data-testid="paste-preview-dialog"]') ?? document.querySelector('[role="dialog"]');
   if (!dialog) return true;
-  const closeButton = Array.from(dialog.querySelectorAll('button')).find((button) =>
-    String(button.textContent ?? '').trim() === 'Fermer'
-  );
+  const closeButton = dialog.querySelector('[data-testid="paste-preview-dialog-close-button"]') ??
+    Array.from(dialog.querySelectorAll('button')).find((button) =>
+      String(button.textContent ?? '').trim() === 'Fermer'
+    );
   if (closeButton) {
     closeButton.click();
   }
@@ -311,22 +315,24 @@ try {
     existingClipboard.writeText = writeText;
   }
 
-  const lineRow = Array.from(document.querySelectorAll('.estimate-row')).find((row) => {
+  const lineRow = Array.from(document.querySelectorAll('[data-testid="estimate-line-row"], .estimate-row')).find((row) => {
     return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-input--title'));
+      Boolean(row.querySelector('[data-testid="estimate-line-title-input"]') ?? row.querySelector('input.estimate-input--title'));
   });
   if (!lineRow) {
     throw new Error('No line row found.');
   }
 
-  const checkbox = lineRow.querySelector('input.estimate-line-checkbox');
+  const checkbox = lineRow.querySelector('[data-testid="estimate-line-checkbox"]') ??
+    lineRow.querySelector('input.estimate-line-checkbox');
   if (checkbox instanceof HTMLInputElement) {
     checkbox.click();
     checkbox.focus();
     return true;
   }
 
-  const titleInput = lineRow.querySelector('input.estimate-input--title');
+  const titleInput = lineRow.querySelector('[data-testid="estimate-line-title-input"]') ??
+    lineRow.querySelector('input.estimate-input--title');
   if (titleInput instanceof HTMLInputElement) {
     titleInput.focus();
   }

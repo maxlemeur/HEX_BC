@@ -261,6 +261,7 @@ const DragHandle = memo(function DragHandle({
       {...listeners}
       disabled={disabled}
       aria-label="Glisser pour réordonner"
+      data-testid="estimate-row-drag-handle"
     >
       <svg viewBox="0 0 16 16" fill="currentColor">
         <circle cx="5" cy="4" r="1.2" />
@@ -926,6 +927,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         style={style}
         className="estimate-row estimate-row--section"
         data-estimate-item-id={item.id}
+        data-testid="estimate-section-row"
         data-depth={depth}
         data-section-level={sectionLevel ?? undefined}
         data-is-last-child={isLastChild || undefined}
@@ -1002,6 +1004,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 value={item.title}
                 title={item.title}
                 disabled={isReadOnly}
+                data-testid="estimate-section-title-input"
                 onFocus={titleEditorProps.onFocus}
                 onKeyDown={titleEditorProps.onKeyDown}
                 onChange={(event) =>
@@ -1023,6 +1026,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                   type="button"
                   onClick={() => onAddLine(item.id)}
                   disabled={isReadOnly}
+                  data-testid="estimate-section-add-line-button"
                 >
                   {addLineLabel}
                 </button>
@@ -1033,6 +1037,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                   type="button"
                   onClick={() => onAddSection(item.id)}
                   disabled={isReadOnly}
+                  data-testid="estimate-section-add-section-button"
                 >
                   {addSectionLabel}
                 </button>
@@ -1043,6 +1048,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                   type="button"
                   onClick={handleRevealAidEditor}
                   disabled={isReadOnly}
+                  data-testid="estimate-section-add-aid-button"
                 >
                   + AID
                 </button>
@@ -1125,6 +1131,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
             }}
             disabled={isReadOnly || isPendingCreate}
             aria-label="Actions"
+            data-testid="estimate-section-actions-button"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <circle cx="3" cy="8" r="1.5" />
@@ -1344,6 +1351,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       style={style}
       className={`estimate-row${isLineSelected ? " estimate-row--selected" : ""}${isSearchMatch ? " ring-2 ring-yellow-300 rounded" : ""}`}
       data-estimate-item-id={item.id}
+      data-testid="estimate-line-row"
       data-depth={depth}
       data-is-last-child={isLastChild || undefined}
       data-parent-is-last-child={parentIsLastChild || undefined}
@@ -1370,6 +1378,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           readOnly
           disabled={isReadOnly}
           aria-label={`Sélectionner la ligne ${item.title || "sans titre"}`}
+          data-testid="estimate-line-checkbox"
         />
         {!hideEditingActions ? (
           <DragHandle
@@ -1390,6 +1399,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
               value={item.title}
               title={item.title}
               disabled={isReadOnly}
+              data-testid="estimate-line-title-input"
               placeholder="Obligatoire"
               onFocus={handleLineTitleFocus}
               onKeyDown={handleLineTitleKeyDown}
@@ -1613,6 +1623,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 type="button"
                 onClick={handleRevealAidEditor}
                 disabled={isReadOnly}
+                data-testid="estimate-line-add-aid-button"
               >
                 + AID
               </button>
