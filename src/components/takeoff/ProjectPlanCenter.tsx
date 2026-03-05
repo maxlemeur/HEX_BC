@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import useSWR from "swr";
 
+import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanSetCard } from "@/components/takeoff/PlanSetCard";
 import { PlanSetFormModal } from "@/components/takeoff/PlanSetFormModal";
 import { Button } from "@/components/ui/Button";
@@ -90,6 +91,9 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
   const totalFiles = sets
     ? sets.reduce((acc, s) => acc + s.file_count, 0)
     : 0;
+  const totalSizeBytes = sets
+    ? sets.reduce((acc, s) => acc + s.total_size_bytes, 0)
+    : 0;
 
   return (
     <section>
@@ -103,6 +107,10 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
           <span>
             <strong className="text-[var(--slate-800)]">{totalFiles}</strong>{" "}
             {totalFiles === 1 ? "fichier" : "fichiers"} au total
+          </span>
+          <span>
+            <strong className="text-[var(--slate-800)]">{formatFileSize(totalSizeBytes)}</strong>{" "}
+            au total
           </span>
         </div>
       )}

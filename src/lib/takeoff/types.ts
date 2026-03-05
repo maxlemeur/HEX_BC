@@ -425,6 +425,7 @@ export type PlanSetListItem = {
   metadata: Record<string, unknown>;
   created_by: string | null;
   file_count: number;
+  total_size_bytes: number;
 };
 
 export type PlanFileListItem = {

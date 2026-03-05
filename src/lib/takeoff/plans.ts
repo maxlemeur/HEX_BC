@@ -513,30 +513,33 @@ async function listPlanFilesBySetId(input: {
   return normalizePlanFileRows((data ?? []) as unknown[]);
 }
 
-async function getPlanFileCountsBySetIds(input: {
+async function getPlanFileStatsBySetIds(input: {
   supabase: Supabase;
   setIds: string[];
 }) {
   if (input.setIds.length === 0) {
-    return new Map<string, number>();
+    return new Map<string, { fileCount: number; totalSizeBytes: number }>();
   }
 
   const { data, error } = await input.supabase
     .from("plan_files" as never)
-    .select("id, plan_set_id" as never)
+    .select("id, plan_set_id, file_size_bytes" as never)
     .in("plan_set_id" as never, input.setIds as never);
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de compter les fichiers de plan.");
   }
 
-  const counts = new Map<string, number>();
-  for (const row of (data ?? []) as Array<{ id?: string; plan_set_id?: string }>) {
+  const stats = new Map<string, { fileCount: number; totalSizeBytes: number }>();
+  for (const row of (data ?? []) as Array<{ id?: string; plan_set_id?: string; file_size_bytes?: number }>) {
     if (typeof row.plan_set_id !== "string") continue;
-    counts.set(row.plan_set_id, (counts.get(row.plan_set_id) ?? 0) + 1);
+    const existing = stats.get(row.plan_set_id) ?? { fileCount: 0, totalSizeBytes: 0 };
+    existing.fileCount += 1;
+    existing.totalSizeBytes += (typeof row.file_size_bytes === "number" ? row.file_size_bytes : 0);
+    stats.set(row.plan_set_id, existing);
   }
 
-  return counts;
+  return stats;
 }
 
 async function deletePlanFileMetadataById(input: {
@@ -756,16 +759,20 @@ export async function listPlanSets(input: ListPlanSetsQuery) {
   }
 
   const planSets = normalizePlanSetRows((data ?? []) as unknown[]);
-  const fileCounts = await getPlanFileCountsBySetIds({
+  const fileStats = await getPlanFileStatsBySetIds({
     supabase,
     setIds: planSets.map((item) => item.id),
   });
 
   return {
-    plan_sets: planSets.map((item) => ({
-      ...item,
-      file_count: fileCounts.get(item.id) ?? 0,
-    })),
+    plan_sets: planSets.map((item) => {
+      const stats = fileStats.get(item.id);
+      return {
+        ...item,
+        file_count: stats?.fileCount ?? 0,
+        total_size_bytes: stats?.totalSizeBytes ?? 0,
+      };
+    }),
   };
 }
 
@@ -798,10 +805,16 @@ export async function getPlanSet(setId: string) {
     setId,
   });
 
+  const totalSizeBytes = planFiles.reduce(
+    (acc, f) => acc + (typeof f.file_size_bytes === "number" ? f.file_size_bytes : 0),
+    0
+  );
+
   return {
     plan_set: {
       ...planSet,
       file_count: planFiles.length,
+      total_size_bytes: totalSizeBytes,
     },
   };
 }

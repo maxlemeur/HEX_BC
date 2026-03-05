@@ -44,6 +44,7 @@ function makePlanSet(
     metadata: {},
     created_by: null,
     file_count: 2,
+    total_size_bytes: 0,
     ...overrides,
   };
 }

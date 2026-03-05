@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import useSWR from "swr";
 
+import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanSetCard } from "@/components/takeoff/PlanSetCard";
 import { PlanSetFormModal } from "@/components/takeoff/PlanSetFormModal";
 import { Button } from "@/components/ui/Button";
@@ -17,10 +18,12 @@ type PlanCenterProps = {
   versionId: string;
 };
 
-function formatTotalSize(sets: PlanSetListItem[]) {
-  // We don't have total_size_bytes on the set list — show file count only
-  const totalFiles = sets.reduce((acc, s) => acc + s.file_count, 0);
-  return totalFiles;
+function computeTotalFiles(sets: PlanSetListItem[]) {
+  return sets.reduce((acc, s) => acc + s.file_count, 0);
+}
+
+function computeTotalSizeBytes(sets: PlanSetListItem[]) {
+  return sets.reduce((acc, s) => acc + s.total_size_bytes, 0);
 }
 
 function SkeletonCard() {
@@ -91,7 +94,8 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
 
   /* Metrics */
   const totalSets = sets?.length ?? 0;
-  const totalFiles = sets ? formatTotalSize(sets) : 0;
+  const totalFiles = sets ? computeTotalFiles(sets) : 0;
+  const totalSizeBytes = sets ? computeTotalSizeBytes(sets) : 0;
 
   return (
     <section>
@@ -105,6 +109,10 @@ export function PlanCenter({ versionId }: PlanCenterProps) {
           <span>
             <strong className="text-[var(--slate-800)]">{totalFiles}</strong>{" "}
             {totalFiles === 1 ? "fichier" : "fichiers"} au total
+          </span>
+          <span>
+            <strong className="text-[var(--slate-800)]">{formatFileSize(totalSizeBytes)}</strong>{" "}
+            au total
           </span>
         </div>
       )}

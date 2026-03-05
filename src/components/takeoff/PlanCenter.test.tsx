@@ -41,6 +41,7 @@ function makeSet(
     metadata: {},
     created_by: null,
     file_count: 0,
+    total_size_bytes: 0,
     ...overrides,
   };
 }

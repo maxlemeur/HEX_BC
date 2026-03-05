@@ -668,7 +668,7 @@ export async function createPlanSet(
     },
     "Impossible de creer le jeu de plans."
   );
-  return { ...response.plan_set, file_count: response.plan_set.file_count ?? 0 };
+  return { ...response.plan_set, file_count: response.plan_set.file_count ?? 0, total_size_bytes: response.plan_set.total_size_bytes ?? 0 };
 }
 
 export async function deletePlanSet(

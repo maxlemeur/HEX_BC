@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useId, useState } from "react";
 import useSWR from "swr";
 
-import { PlanFileCard } from "@/components/takeoff/PlanFileCard";
+import { PlanFileCard, formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanFileUploadZone } from "@/components/takeoff/PlanFileUploadZone";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Button } from "@/components/ui/Button";
@@ -69,6 +69,16 @@ async function updatePlanSetRequest(input: {
       toApiErrorMessage(payload, "Impossible de mettre a jour le jeu de plans.")
     );
   }
+}
+
+const absoluteDateFormatter = new Intl.DateTimeFormat("fr-FR", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+function formatAbsoluteDate(isoDate: string) {
+  return absoluteDateFormatter.format(new Date(isoDate));
 }
 
 function formatRelativeTime(isoDate: string) {
@@ -250,6 +260,12 @@ export function PlanSetCard({
             <span>
               {planSet.file_count}{" "}
               {planSet.file_count === 1 ? "plan" : "plans"}
+            </span>
+            <span className="hidden sm:inline">
+              {formatFileSize(planSet.total_size_bytes)}
+            </span>
+            <span className="hidden md:inline" title={formatRelativeTime(planSet.created_at)}>
+              {formatAbsoluteDate(planSet.created_at)}
             </span>
             <span className="hidden sm:inline">
               {formatRelativeTime(planSet.updated_at)}
