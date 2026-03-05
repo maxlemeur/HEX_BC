@@ -8,7 +8,7 @@ type PlanFileCardProps = {
   deleting?: boolean;
 };
 
-function formatFileSize(bytes: number) {
+export function formatFileSize(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "-";
   if (bytes < 1024) return `${bytes} o`;
   const kb = bytes / 1024;
