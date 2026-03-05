@@ -39,7 +39,7 @@ function AffairesEmptyState({
 }) {
   return (
     <tr>
-      <td colSpan={9} className="py-16 text-center">
+      <td colSpan={10} className="py-16 text-center">
         {emptyVariant === "no-data" ? (
           <EmptyState
             icon={
@@ -118,6 +118,9 @@ export function AffairesDenseTable({
               <th className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Versions
               </th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+                DPGF
+              </th>
               <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Statut courant
               </th>
@@ -170,6 +173,15 @@ export function AffairesDenseTable({
                     </td>
                     <td className="px-4 py-3 text-center text-[var(--slate-600)]">
                       {item.versionCount}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {item.hasDpgf ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
+                          DPGF
+                        </span>
+                      ) : (
+                        <span className="text-xs text-[var(--slate-300)]">-</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {hasCurrentVersion ? (

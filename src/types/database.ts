@@ -2376,6 +2376,7 @@ export type Database = {
           current_updated_at: string;
           accepted_version_id: string | null;
           accepted_version_number: number | null;
+          has_dpgf: boolean;
         }[];
       };
       get_chiffreur_analytics_kpis: {

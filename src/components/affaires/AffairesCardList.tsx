@@ -121,6 +121,14 @@ export function AffairesCardList({
                 )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {item.hasDpgf && (
+                  <span
+                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200"
+                    title="DPGF charge"
+                  >
+                    DPGF
+                  </span>
+                )}
                 <span className="text-xs text-[var(--slate-400)]">
                   {item.versionCount} version{item.versionCount !== 1 ? "s" : ""}
                 </span>
