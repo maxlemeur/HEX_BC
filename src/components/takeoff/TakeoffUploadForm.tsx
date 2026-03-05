@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -109,6 +109,7 @@ export function TakeoffUploadForm({
   const router = useRouter();
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const isSubmittingRef = useRef(false);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileFingerprint, setSelectedFileFingerprint] = useState("");
@@ -139,9 +140,23 @@ export function TakeoffUploadForm({
     return "Lancer l'extraction";
   })();
 
+  const notifySubmittingChange = useCallback(
+    (isSubmitting: boolean) => {
+      if (isSubmittingRef.current === isSubmitting) {
+        return;
+      }
+
+      isSubmittingRef.current = isSubmitting;
+      onSubmittingChange?.(isSubmitting);
+    },
+    [onSubmittingChange]
+  );
+
   useEffect(() => {
-    onSubmittingChange?.(submitState === "loading");
-  }, [onSubmittingChange, submitState]);
+    return () => {
+      notifySubmittingChange(false);
+    };
+  }, [notifySubmittingChange]);
 
   function resetTransientState() {
     setSubmitState("idle");
@@ -203,6 +218,7 @@ export function TakeoffUploadForm({
 
     const validationMessage = validateTakeoffFile(selectedFile);
     if (validationMessage) {
+      notifySubmittingChange(false);
       setSubmitState("error");
       setErrorMessage(validationMessage);
       setAnnouncement(validationMessage);
@@ -210,11 +226,13 @@ export function TakeoffUploadForm({
     }
 
     if (!selectedFile) {
+      notifySubmittingChange(false);
       setSubmitState("error");
       setErrorMessage("Aucun fichier selectionne.");
       return;
     }
 
+    notifySubmittingChange(true);
     setSubmitState("loading");
     setUploadProgress(0);
     setErrorMessage(null);
@@ -249,6 +267,8 @@ export function TakeoffUploadForm({
       setSubmitState("error");
       setErrorMessage(message);
       setAnnouncement(message);
+    } finally {
+      notifySubmittingChange(false);
     }
   }
 
