@@ -1,12 +1,15 @@
 import { notFound } from "next/navigation";
 
 import { AffaireHub } from "@/components/affaires/AffaireHub";
+import { getUserContext } from "@/lib/auth/server";
 import {
   fetchAffaireHubDpgfSource,
   fetchAffaireHubMarginAnalysis,
+  fetchAffaireHubPlansSummary,
   fetchAffaireHubSummary,
   fetchAffaireHubTimeline,
 } from "@/lib/affaires/server";
+import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -14,8 +17,15 @@ type Props = {
 };
 
 export default async function AffaireHubPage({ params, searchParams }: Props) {
-  const { projectId } = await params;
-  const search = await searchParams;
+  const [{ projectId }, search, { tenantId }] = await Promise.all([
+    params,
+    searchParams,
+    getUserContext(),
+  ]);
+
+  if (!tenantId) {
+    notFound();
+  }
 
   const justCreated =
     typeof search.created === "string" && search.created === "1";
@@ -35,9 +45,21 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const timelinePromise = fetchAffaireHubTimeline(projectId, timelinePage);
   const dpgfSourcePromise = fetchAffaireHubDpgfSource(projectId);
   const marginAnalysisPromise = fetchAffaireHubMarginAnalysis(projectId);
+  const takeoffEnabledPromise = isTakeoffEnabled(tenantId);
 
-  const [summaryResult, timelineResult, dpgfSourceResult, marginResult] =
-    await Promise.allSettled([summaryPromise, timelinePromise, dpgfSourcePromise, marginAnalysisPromise]);
+  const [
+    summaryResult,
+    timelineResult,
+    dpgfSourceResult,
+    marginResult,
+    takeoffEnabledResult,
+  ] = await Promise.allSettled([
+    summaryPromise,
+    timelinePromise,
+    dpgfSourcePromise,
+    marginAnalysisPromise,
+    takeoffEnabledPromise,
+  ]);
 
   if (summaryResult.status === "rejected") {
     const err = summaryResult.reason as unknown;
@@ -60,11 +82,17 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     dpgfSourceResult.status === "fulfilled" ? dpgfSourceResult.value : null;
   const marginAnalysis =
     marginResult.status === "fulfilled" ? marginResult.value : null;
+  const takeoffEnabled =
+    takeoffEnabledResult.status === "fulfilled" && takeoffEnabledResult.value;
+
+  let plansSummary: Awaited<ReturnType<typeof fetchAffaireHubPlansSummary>> | null =
+    null;
 
   const sectionErrors: {
     timeline?: string;
     dpgfSource?: string;
     marginAnalysis?: string;
+    plansSummary?: string;
   } = {};
 
   if (timelineResult.status === "rejected") {
@@ -82,12 +110,27 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       "Impossible de charger l'analyse de marge pour le moment.";
   }
 
+  if (takeoffEnabled) {
+    const plansSummaryResult = await Promise.allSettled([
+      fetchAffaireHubPlansSummary(projectId),
+    ]);
+
+    if (plansSummaryResult[0].status === "fulfilled") {
+      plansSummary = plansSummaryResult[0].value;
+    } else {
+      sectionErrors.plansSummary =
+        "Impossible de charger le resume plans & metres pour le moment.";
+    }
+  }
+
   return (
     <AffaireHub
       summary={summary}
       timeline={timeline}
       dpgfSource={dpgfSource}
       marginAnalysis={marginAnalysis}
+      plansSummary={plansSummary}
+      takeoffEnabled={takeoffEnabled}
       sectionErrors={sectionErrors}
       justCreated={justCreated}
     />

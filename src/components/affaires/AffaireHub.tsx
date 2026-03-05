@@ -23,6 +23,8 @@ import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_a
 import { useToast } from "@/components/ui/Toast";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
+import { PlansMetresCard } from "./PlansMetresCard";
+import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import { UnifiedImportFlow } from "./UnifiedImportFlow";
 
 /* ------------------------------------------------------------------ */
@@ -34,10 +36,13 @@ type AffaireHubProps = {
   timeline: AffaireHubTimelineResult | null;
   dpgfSource: AffaireHubDpgfSourceResult;
   marginAnalysis?: AffaireHubMarginAnalysisResult | null;
+  plansSummary?: AffaireHubPlansSummaryData | null;
+  takeoffEnabled?: boolean;
   sectionErrors?: {
     timeline?: string;
     dpgfSource?: string;
     marginAnalysis?: string;
+    plansSummary?: string;
   };
   justCreated?: boolean;
 };
@@ -725,6 +730,8 @@ export function AffaireHub({
   timeline,
   dpgfSource,
   marginAnalysis,
+  plansSummary,
+  takeoffEnabled = false,
   sectionErrors,
   justCreated,
 }: AffaireHubProps) {
@@ -896,6 +903,13 @@ export function AffaireHub({
                 setShowImportFlow(true);
               }}
             />
+            {takeoffEnabled ? (
+              <PlansMetresCard
+                plans={plansSummary ?? null}
+                projectId={summary.project.id}
+                errorMessage={sectionErrors?.plansSummary}
+              />
+            ) : null}
             <QuickActionsCard summary={summary} />
           </div>
         </div>

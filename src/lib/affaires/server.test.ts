@@ -15,6 +15,7 @@ import {
   fetchAffaireCounters,
   fetchAffaireHubDpgfSource,
   fetchAffaireHubMarginAnalysis,
+  fetchAffaireHubPlansSummary,
   fetchAffaireHubPageData,
   fetchAffaireHubSummary,
   fetchAffaireHubTimeline,
@@ -686,6 +687,137 @@ describe("affaires hub server", () => {
       mappingUpdatedAt: "2026-03-04T08:21:00+00:00",
       parseMode: "server",
       rowCount: 33,
+    });
+  });
+
+  it("returns plans summary with latest takeoff job and item count", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Plans",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: {
+              data: [{ id: "set-1" }, { id: "set-2" }],
+              error: null,
+            },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-1",
+                status: "completed",
+                level: "B",
+                source_file_name: "Lot-CVC.pdf",
+                created_at: "2026-03-05T11:00:00+00:00",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          {
+            limit: {
+              data: [{ file_size_bytes: 1200 }, { file_size_bytes: 3400 }],
+              count: 2,
+              error: null,
+            },
+          },
+        ],
+        takeoff_items: [
+          {
+            limit: {
+              data: null,
+              count: 7,
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary).toEqual({
+      planSetCount: 2,
+      planFileCount: 2,
+      totalSizeBytes: 4600,
+      latestJob: {
+        id: "job-1",
+        status: "completed",
+        level: "B",
+        source_file_name: "Lot-CVC.pdf",
+        items_count: 7,
+        created_at: "2026-03-05T11:00:00+00:00",
+      },
+    });
+  });
+
+  it("returns empty plans summary when no plan set or job exists", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Sans Plans",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: {
+              data: [],
+              error: null,
+            },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary).toEqual({
+      planSetCount: 0,
+      planFileCount: 0,
+      totalSizeBytes: 0,
+      latestJob: null,
     });
   });
 

@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import {
   computeAllSectionTotals,
   computeStoredDiscountCents,
@@ -46,6 +48,7 @@ export type AffaireListItem = {
   currentUpdatedAt: string;
   acceptedVersionId: string | null;
   acceptedVersionNumber: number | null;
+  hasDpgf: boolean;
 };
 
 export type AffaireListPageResult = {
@@ -137,6 +140,20 @@ export type AffaireHubDpgfSourceResult = {
   parseMode: string;
   rowCount: number;
 } | null;
+
+export type AffaireHubPlansSummaryResult = {
+  planSetCount: number;
+  planFileCount: number;
+  totalSizeBytes: number;
+  latestJob: {
+    id: string;
+    status: string;
+    level: string;
+    source_file_name: string | null;
+    items_count: number;
+    created_at: string;
+  } | null;
+};
 
 export type AffaireHubTimelineResult = ListEstimateProjectVersionsResult;
 
@@ -273,6 +290,7 @@ function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {
       row.accepted_version_number === null
         ? null
         : toSafeInteger(row.accepted_version_number),
+    hasDpgf: row.has_dpgf ?? false,
   };
 }
 
@@ -474,6 +492,103 @@ async function fetchAffaireHubDpgfSourceWithContext(
   };
 }
 
+async function fetchAffaireHubPlansSummaryWithContext(
+  context: AffaireContext,
+  project: AffaireHubProjectRow
+): Promise<AffaireHubPlansSummaryResult> {
+  const [planSetsResult, latestJobResult] = await Promise.all([
+    context.supabase
+      .from("plan_sets" as never)
+      .select("id" as never)
+      .eq("tenant_id" as never, context.tenantId as never)
+      .eq("project_id" as never, project.id as never),
+    context.supabase
+      .from("takeoff_jobs" as never)
+      .select(
+        "id, status, level, source_file_name, created_at, estimate_versions!inner(project_id)" as never
+      )
+      .eq("tenant_id" as never, context.tenantId as never)
+      .eq("estimate_versions.project_id" as never, project.id as never)
+      .order("created_at" as never, { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  if (planSetsResult.error) {
+    throw mapSupabaseError(planSetsResult.error, "Impossible de charger les jeux de plans.");
+  }
+
+  if (latestJobResult.error) {
+    throw mapSupabaseError(latestJobResult.error, "Impossible de charger le dernier job takeoff.");
+  }
+
+  const planSetIds = ((planSetsResult.data ?? []) as Array<{ id: string | null }>)
+    .map((row) => row.id)
+    .filter((id): id is string => typeof id === "string");
+
+  let planFileCount = 0;
+  let totalSizeBytes = 0;
+
+  if (planSetIds.length > 0) {
+    const { data: planFilesData, count: planFilesCount, error: planFilesError } =
+      await context.supabase
+        .from("plan_files" as never)
+        .select("file_size_bytes" as never, { count: "exact" })
+        .eq("tenant_id" as never, context.tenantId as never)
+        .in("plan_set_id" as never, planSetIds as never);
+
+    if (planFilesError) {
+      throw mapSupabaseError(planFilesError, "Impossible de charger les fichiers de plans.");
+    }
+
+    const rows = (planFilesData ?? []) as Array<{
+      file_size_bytes: number | string | null;
+    }>;
+    planFileCount = planFilesCount ?? rows.length;
+    totalSizeBytes = rows.reduce(
+      (total, row) => total + toSafeInteger(row.file_size_bytes),
+      0
+    );
+  }
+
+  const latestJobRow = (latestJobResult.data ?? null) as {
+    id: string;
+    status: string;
+    level: string;
+    source_file_name: string | null;
+    created_at: string;
+  } | null;
+
+  let latestJob: AffaireHubPlansSummaryResult["latestJob"] = null;
+  if (latestJobRow) {
+    const { count: itemCount, error: itemCountError } = await context.supabase
+      .from("takeoff_items" as never)
+      .select("id" as never, { count: "exact", head: true })
+      .eq("tenant_id" as never, context.tenantId as never)
+      .eq("job_id" as never, latestJobRow.id as never);
+
+    if (itemCountError) {
+      throw mapSupabaseError(itemCountError, "Impossible de compter les items du dernier job.");
+    }
+
+    latestJob = {
+      id: latestJobRow.id,
+      status: latestJobRow.status,
+      level: latestJobRow.level,
+      source_file_name: latestJobRow.source_file_name,
+      items_count: itemCount ?? 0,
+      created_at: latestJobRow.created_at,
+    };
+  }
+
+  return {
+    planSetCount: planSetIds.length,
+    planFileCount,
+    totalSizeBytes,
+    latestJob,
+  };
+}
+
 async function fetchAffaireListWithContext(
   context: AffaireContext,
   query: NormalizedAffaireListQuery
@@ -615,6 +730,14 @@ export async function fetchAffaireHubDpgfSource(
   const project = await fetchAffaireHubProjectOrThrow(context, projectId);
   return fetchAffaireHubDpgfSourceWithContext(context, project);
 }
+
+export const fetchAffaireHubPlansSummary = cache(
+  async (projectId: string): Promise<AffaireHubPlansSummaryResult> => {
+    const context = await getAuthenticatedContext();
+    const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+    return fetchAffaireHubPlansSummaryWithContext(context, project);
+  }
+);
 
 export async function fetchAffaireHubPageData(
   projectId: string,
