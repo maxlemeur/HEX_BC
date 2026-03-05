@@ -70,6 +70,65 @@ function decodeSupabaseSessionFromCookie(cookieValue: string) {
   };
 }
 
+function readSupabaseAuthCookieValue(
+  cookies: Array<{
+    name: string;
+    value: string;
+  }>
+) {
+  const byBaseName = new Map<
+    string,
+    {
+      fullValue: string | null;
+      chunks: Map<number, string>;
+    }
+  >();
+
+  for (const cookie of cookies) {
+    const match = cookie.name.match(/^(sb-.*-auth-token)(?:\.(\d+))?$/i);
+    if (!match) continue;
+
+    const baseName = match[1] ?? cookie.name;
+    const chunkIndexRaw = match[2];
+    const existing = byBaseName.get(baseName) ?? {
+      fullValue: null,
+      chunks: new Map<number, string>(),
+    };
+
+    if (typeof chunkIndexRaw === "string") {
+      existing.chunks.set(Number.parseInt(chunkIndexRaw, 10), cookie.value);
+    } else {
+      existing.fullValue = cookie.value;
+    }
+
+    byBaseName.set(baseName, existing);
+  }
+
+  for (const candidate of byBaseName.values()) {
+    if (candidate.chunks.size === 0) {
+      if (candidate.fullValue) return candidate.fullValue;
+      continue;
+    }
+
+    const parts: string[] = [];
+    let index = 0;
+    while (candidate.chunks.has(index)) {
+      parts.push(candidate.chunks.get(index) ?? "");
+      index += 1;
+    }
+
+    if (parts.length === candidate.chunks.size && parts.length > 0) {
+      return parts.join("");
+    }
+
+    if (candidate.fullValue) {
+      return candidate.fullValue;
+    }
+  }
+
+  return null;
+}
+
 function extractJwtSubject(token: string) {
   const segments = token.split(".");
   if (segments.length < 2) return null;
@@ -108,14 +167,12 @@ async function bootstrapTenantMembershipIfMissing(page: Page) {
     );
   }
 
-  const authCookie = (await page.context().cookies()).find((cookie) =>
-    /sb-.*-auth-token/i.test(cookie.name)
-  );
-  if (!authCookie) {
+  const authCookieValue = readSupabaseAuthCookieValue(await page.context().cookies());
+  if (!authCookieValue) {
     throw new Error("Missing Supabase auth cookie for tenant bootstrap.");
   }
 
-  const session = decodeSupabaseSessionFromCookie(authCookie.value);
+  const session = decodeSupabaseSessionFromCookie(authCookieValue);
   const accessToken =
     session && typeof session.access_token === "string"
       ? session.access_token

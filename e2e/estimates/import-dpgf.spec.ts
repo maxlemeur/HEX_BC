@@ -52,6 +52,12 @@ test.describe("EST-262 - import DPGF", () => {
         .then(() => "saved-with-memory-error"),
     ]).catch(() => "unknown");
 
+    if (saveOutcome === "unknown") {
+      throw new Error(
+        "Le mapping n'a pas pu etre confirme: aucun message de succes detecte apres l'enregistrement."
+      );
+    }
+
     if (saveOutcome === "saved") {
       await page.getByRole("link", { name: /Lier au catalogue/i }).click();
     } else {
