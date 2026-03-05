@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { AcceptEstimateModal } from "@/components/portal/AcceptEstimateModal";
 import { RejectEstimateModal } from "@/components/portal/RejectEstimateModal";
 
 type PortalActionsProps = {
@@ -20,9 +21,15 @@ export function PortalActions({
 }: PortalActionsProps) {
   const router = useRouter();
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [acceptModalOpen, setAcceptModalOpen] = useState(false);
 
   const handleRejected = useCallback(() => {
     setRejectModalOpen(false);
+    router.refresh();
+  }, [router]);
+
+  const handleAccepted = useCallback(() => {
+    setAcceptModalOpen(false);
     router.refresh();
   }, [router]);
 
@@ -142,7 +149,7 @@ export function PortalActions({
         <button
           type="button"
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
-          onClick={() => router.push(`/portal/${token}/accept`)}
+          onClick={() => setAcceptModalOpen(true)}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -166,6 +173,14 @@ export function PortalActions({
         onClose={() => setRejectModalOpen(false)}
         token={token}
         onRejected={handleRejected}
+      />
+      <AcceptEstimateModal
+        open={acceptModalOpen}
+        onClose={() => setAcceptModalOpen(false)}
+        token={token}
+        onAccepted={handleAccepted}
+        totalTtcFormatted={totalTtcFormatted}
+        projectReference={projectReference}
       />
     </>
   );
