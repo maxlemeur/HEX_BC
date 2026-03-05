@@ -92,6 +92,7 @@ realise par l'equipe.
 
 ### Criteres d'acceptation
 
+**Assemblage de base :**
 - [ ] Un assemblage est un groupe nomme de lignes avec des valeurs par defaut
       (designation, unite, coefficients k_fo/k_mo, role MO, quantite par defaut optionnelle)
 - [ ] Une page bibliotheque d'assemblages `/dashboard/estimates/assemblies` permet le
@@ -111,14 +112,25 @@ realise par l'equipe.
 - [ ] Apres insertion, recalcul version declenche immediatement
 - [ ] Route POST `/api/estimates/assemblies/[assemblyId]/insert?versionId=...` — insertion atomique, retourne items[] inseres
 
+**Macro-ouvrages (assemblages d'ouvrages composes) :**
+- [ ] Un assemblage peut contenir des references a des ouvrages composes (EST-311) en plus de lignes simples : chaque item a un champ optionnel `source_assembly_work_id` pointant vers un ouvrage de la bibliotheque
+- [ ] Champ `reference_code` sur l'assemblage : code unique d'identification (ex: "MAC-CLOI-BA13-048")
+- [ ] Champ `description` sur l'assemblage : descriptif detaille de la prestation couverte par le macro-ouvrage (texte long ou rich text)
+- [ ] Prix global auto-calcule : somme des prix de tous les ouvrages et lignes composant l'assemblage (`total_ds_cents`, `total_fourni_pose_cents`)
+- [ ] Temps d'execution global auto-calcule : somme des `avg_time_hours` de chaque ouvrage composant, affiche dans le drawer et la bibliotheque
+- [ ] Lors de l'insertion d'un macro-ouvrage, chaque ouvrage reference est insere avec son sous-detail complet (composants materiaux/MO/materiel)
+- [ ] Le code de chaque ouvrage composant est affiche dans le drawer (colonne "Ref.") pour faciliter la recherche et la comparaison
+- [ ] Le drawer affiche le prix global et le temps total du macro-ouvrage avant insertion
+
 ### Notes techniques
 
 - Fichiers a creer :
   - Migration `supabase/migrations/0xx_estimate_assemblies.sql` — tables
-    `estimate_assemblies` (`id`, `tenant_id`, `name`, `description`, `created_by`,
-    `created_at`, `updated_at`) et `estimate_assembly_items` (`id`, `assembly_id`,
-    `title`, `unit`, `k_fo`, `k_mo`, `labor_role_id`, `default_quantity`,
-    `position`) avec RLS policies scope tenant
+    `estimate_assemblies` (`id`, `tenant_id`, `name`, `reference_code`, `description`,
+    `created_by`, `created_at`, `updated_at`) et `estimate_assembly_items` (`id`,
+    `assembly_id`, `title`, `unit`, `k_fo`, `k_mo`, `labor_role_id`,
+    `default_quantity`, `source_assembly_work_id`, `position`) avec RLS policies
+    scope tenant
   - `src/app/dashboard/estimates/assemblies/page.tsx` — page bibliotheque assemblages
   - `src/app/api/estimates/assemblies/route.ts` — GET (liste), POST (creer)
   - `src/app/api/estimates/assemblies/[assemblyId]/route.ts` — GET, PATCH, DELETE
@@ -126,6 +138,7 @@ realise par l'equipe.
     avec recherche et apercu des lignes
 - Fichiers a modifier :
   - `src/lib/estimates/server.ts` — nouvelle fonction `insertAssemblyIntoVersion()`
+    incluant l'expansion des ouvrages composes references
   - `src/lib/estimates/client.ts` — wrappers client pour les endpoints assemblages
   - `src/lib/estimates/schemas.ts` — schemas Zod pour assemblages et items
   - `src/components/estimates/EstimateEditorTable.tsx` — bouton d'insertion
@@ -134,7 +147,8 @@ realise par l'equipe.
   - `src/lib/estimates/server.ts` — `createEstimateItem()` pour l'insertion des lignes
   - `src/lib/estimates/errors.ts` — gestion d'erreurs
   - `src/lib/supabase/server.ts` — `createSupabaseServerClient()`
-- Dependances : aucune
+  - Ouvrages composes EST-311 : expansion sous-detail lors de l'insertion
+- Dependances : aucune (macro-ouvrages enrichis apres livraison EST-311)
 
 ---
 
