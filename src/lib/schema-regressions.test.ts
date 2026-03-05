@@ -12,6 +12,9 @@ describe("schema regressions", () => {
   const planSetsStorageCompatMigrationSql = readSql(
     "supabase/migrations/20260305134000_v3_006_plan_sets_scope_storage_compat.sql"
   );
+  const takeoffDpgfLinksMigrationSql = readSql(
+    "supabase/migrations/20260306130000_v3_010_takeoff_dpgf_links.sql"
+  );
 
   it("drops tenant and catalogue tables in schema reset block", () => {
     expect(schemaSql).toMatch(/drop table if exists public\.tenants cascade;/);
@@ -96,5 +99,23 @@ describe("schema regressions", () => {
         "can_access_takeoff_estimate_version(ps.estimate_version_id, ps.tenant_id)"
       );
     }
+  });
+
+  it("keeps takeoff DPGF link writes behind the version/job scope guard", () => {
+    expect(takeoffDpgfLinksMigrationSql).toMatch(
+      /create policy "Current tenant can update takeoff dpgf links"[\s\S]*takeoff_version_links/
+    );
+    expect(takeoffDpgfLinksMigrationSql).toMatch(
+      /create policy "Current tenant can delete takeoff dpgf links"[\s\S]*takeoff_version_links/
+    );
+  });
+
+  it("defines the transactional DPGF manual-link RPC for authenticated callers", () => {
+    expect(takeoffDpgfLinksMigrationSql).toMatch(
+      /create or replace function public\.save_takeoff_dpgf_manual_link\(/
+    );
+    expect(takeoffDpgfLinksMigrationSql).toMatch(
+      /grant execute on function public\.save_takeoff_dpgf_manual_link\(uuid, uuid, uuid, uuid, uuid\)/
+    );
   });
 });

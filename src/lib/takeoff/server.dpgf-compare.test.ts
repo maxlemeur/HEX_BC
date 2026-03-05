@@ -150,6 +150,12 @@ function createSupabaseMock() {
     estimateItems: StoredEstimateItem[];
     links: StoredLink[];
     importId: string;
+    manualLinkRpcError: {
+      code: string;
+      message: string;
+      details: string;
+      hint: string | null;
+    } | null;
   } = {
     job: makeJob(),
     takeoffItems: [
@@ -224,13 +230,8 @@ function createSupabaseMock() {
       },
     ] satisfies StoredLink[],
     importId: "99999999-9999-4999-8999-999999999999",
+    manualLinkRpcError: null,
   };
-
-  function buildThenable<T>(result: T) {
-    return {
-      then: (resolve: (value: T) => unknown) => Promise.resolve(resolve(result)),
-    };
-  }
 
   const supabase = {
     from: vi.fn((table: string) => {
@@ -325,6 +326,14 @@ function createSupabaseMock() {
         return {
           select: vi.fn(() => {
             const filters: Record<string, string> = {};
+            const getItems = () =>
+              state.estimateItems.filter(
+                (item) =>
+                  (!filters.tenant_id || item.tenant_id === filters.tenant_id) &&
+                  (!filters.version_id || item.version_id === filters.version_id) &&
+                  (!filters.item_type || item.item_type === filters.item_type) &&
+                  (!filters.id || item.id === filters.id)
+              );
             const builder = {
               eq: vi.fn((column: string, value: string) => {
                 filters[column] = value;
@@ -332,23 +341,11 @@ function createSupabaseMock() {
               }),
               order: vi.fn(() => builder),
               maybeSingle: vi.fn(async () => ({
-                data:
-                  state.estimateItems.find(
-                    (item) =>
-                      (!filters.tenant_id || item.tenant_id === filters.tenant_id) &&
-                      (!filters.id || item.id === filters.id)
-                  ) ?? null,
+                data: getItems()[0] ?? null,
                 error: null,
               })),
-              then: buildThenable({
-                data: state.estimateItems.filter(
-                  (item) =>
-                    (!filters.tenant_id || item.tenant_id === filters.tenant_id) &&
-                    (!filters.version_id || item.version_id === filters.version_id) &&
-                    (!filters.item_type || item.item_type === filters.item_type)
-                ),
-                error: null,
-              }).then,
+              then: (resolve: (value: { data: StoredEstimateItem[]; error: null }) => unknown) =>
+                Promise.resolve(resolve({ data: getItems(), error: null })),
             };
 
             return builder;
@@ -360,77 +357,36 @@ function createSupabaseMock() {
         return {
           select: vi.fn(() => {
             const filters: Record<string, string> = {};
+            const getLinks = () =>
+              state.links.filter(
+                (link) =>
+                  (!filters.tenant_id || link.tenant_id === filters.tenant_id) &&
+                  (!filters.version_id || link.version_id === filters.version_id) &&
+                  (!filters.takeoff_job_id || link.takeoff_job_id === filters.takeoff_job_id) &&
+                  (!filters.estimate_item_id || link.estimate_item_id === filters.estimate_item_id) &&
+                  (!filters.takeoff_item_id || link.takeoff_item_id === filters.takeoff_item_id) &&
+                  (!filters.id || link.id === filters.id)
+              );
             const builder = {
               eq: vi.fn((column: string, value: string) => {
                 filters[column] = value;
                 return builder;
               }),
               order: vi.fn(() => builder),
-              then: buildThenable({
-                data: state.links.filter(
-                  (link) =>
-                    (!filters.tenant_id || link.tenant_id === filters.tenant_id) &&
-                    (!filters.version_id || link.version_id === filters.version_id) &&
-                    (!filters.takeoff_job_id || link.takeoff_job_id === filters.takeoff_job_id)
-                ),
+              maybeSingle: vi.fn(async () => ({
+                data: getLinks()[0] ?? null,
                 error: null,
-              }).then,
+              })),
+              single: vi.fn(async () => ({
+                data: getLinks()[0] ?? null,
+                error: null,
+              })),
+              then: (resolve: (value: { data: StoredLink[]; error: null }) => unknown) =>
+                Promise.resolve(resolve({ data: getLinks(), error: null })),
             };
 
             return builder;
           }),
-          delete: vi.fn(() => {
-            const filters: Record<string, string> = {};
-            let orValue = "";
-            const builder = {
-              eq: vi.fn((column: string, value: string) => {
-                filters[column] = value;
-                return builder;
-              }),
-              or: vi.fn((value: string) => {
-                orValue = value;
-                const conditions = value.split(",");
-                state.links = state.links.filter((link) => {
-                  const scoped =
-                    (!filters.tenant_id || link.tenant_id === filters.tenant_id) &&
-                    (!filters.version_id || link.version_id === filters.version_id) &&
-                    (!filters.takeoff_job_id || link.takeoff_job_id === filters.takeoff_job_id);
-                  if (!scoped) {
-                    return true;
-                  }
-
-                  const matches = conditions.some((condition) => {
-                    const [column, comparator, expected] = condition.split(".");
-                    if (comparator !== "eq") return false;
-                    return String(link[column as keyof StoredLink]) === expected;
-                  });
-
-                  return !matches;
-                });
-
-                return buildThenable({ error: null });
-              }),
-            };
-            void orValue;
-            return builder;
-          }),
-          insert: vi.fn((payload: Record<string, unknown>) => ({
-            select: vi.fn(() => ({
-              single: vi.fn(async () => {
-                const link = {
-                  id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
-                  created_at: "2026-03-06T11:00:00.000Z",
-                  updated_at: "2026-03-06T11:00:00.000Z",
-                  ...payload,
-                } as StoredLink;
-                state.links.push(link);
-                return {
-                  data: link,
-                  error: null,
-                };
-              }),
-            })),
-          })),
         };
       }
 
@@ -471,21 +427,24 @@ function createSupabaseMock() {
                 return builder;
               }),
               order: vi.fn(() => builder),
-              then: buildThenable({
-                data:
-                  filters.import_id === state.importId
-                    ? [
-                        {
-                          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-                          payload: {
-                            row_index: 12,
-                            unit: "m2",
-                          },
-                        },
-                      ]
-                    : [],
-                error: null,
-              }).then,
+              then: (resolve: (value: { data: Array<{ id: string; payload: Record<string, unknown> }>; error: null }) => unknown) =>
+                Promise.resolve(
+                  resolve({
+                    data:
+                      filters.import_id === state.importId
+                        ? [
+                            {
+                              id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                              payload: {
+                                row_index: 12,
+                                unit: "m2",
+                              },
+                            },
+                          ]
+                        : [],
+                    error: null,
+                  })
+                ),
             };
 
             return builder;
@@ -495,10 +454,81 @@ function createSupabaseMock() {
 
       throw new Error(`Unexpected table: ${table}`);
     }),
+    rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
+      if (fn !== "save_takeoff_dpgf_manual_link") {
+        throw new Error(`Unexpected rpc: ${fn}`);
+      }
+
+      if (state.manualLinkRpcError) {
+        const error = state.manualLinkRpcError;
+        state.manualLinkRpcError = null;
+        return {
+          data: null,
+          error,
+        };
+      }
+
+      const versionId = String(args.p_version_id);
+      const takeoffJobId = String(args.p_takeoff_job_id);
+      const estimateItemId = String(args.p_estimate_item_id);
+      const takeoffItemId =
+        args.p_takeoff_item_id === null ? null : String(args.p_takeoff_item_id);
+      const linkedBy =
+        args.p_linked_by === null || args.p_linked_by === undefined
+          ? null
+          : String(args.p_linked_by);
+
+      if (takeoffItemId === null) {
+        state.links = state.links.filter(
+          (link) =>
+            !(
+              link.tenant_id === TENANT_ID &&
+              link.version_id === versionId &&
+              link.takeoff_job_id === takeoffJobId &&
+              link.estimate_item_id === estimateItemId
+            )
+        );
+
+        return {
+          data: null,
+          error: null,
+        };
+      }
+
+      state.links = state.links.filter(
+        (link) =>
+          !(
+            link.tenant_id === TENANT_ID &&
+            link.version_id === versionId &&
+            link.takeoff_job_id === takeoffJobId &&
+            (link.estimate_item_id === estimateItemId || link.takeoff_item_id === takeoffItemId)
+          )
+      );
+
+      const link: StoredLink = {
+        id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        tenant_id: TENANT_ID,
+        version_id: versionId,
+        takeoff_job_id: takeoffJobId,
+        estimate_item_id: estimateItemId,
+        takeoff_item_id: takeoffItemId,
+        created_at: "2026-03-06T11:00:00.000Z",
+        updated_at: "2026-03-06T11:00:00.000Z",
+        linked_by: linkedBy,
+      };
+
+      state.links.push(link);
+
+      return {
+        data: link.id,
+        error: null,
+      };
+    }),
   };
 
   return {
     supabase: supabase as never,
+    rpcMock: supabase.rpc,
     state,
   };
 }
@@ -557,6 +587,47 @@ describe("takeoff DPGF comparison server helpers", () => {
     });
   });
 
+  it("excludes non-DPGF lines from the comparison payload even when they have a source file", async () => {
+    const mock = createSupabaseMock();
+    const extraEstimateItemId = "99999999-aaaa-4aaa-8aaa-999999999999";
+
+    mock.state.estimateItems.push({
+      id: extraEstimateItemId,
+      tenant_id: TENANT_ID,
+      version_id: VERSION_ID,
+      position: 2,
+      title: "Ligne importee hors DPGF",
+      description: null,
+      quantity: 12,
+      source_file_name: "plans.pdf",
+      source_page: 13,
+      source_provider: "takeoff_apply",
+      item_type: "line",
+      updated_at: "2026-03-06T09:05:00.000Z",
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await fetchDpgfTakeoffComparison(
+      JOB_ID,
+      parseTakeoffDpgfComparisonQuery({
+        version_id: VERSION_ID,
+      })
+    );
+
+    expect(response.rows).toHaveLength(2);
+    expect(
+      response.rows.some(
+        (row) => row.dpgf?.estimate_item_id === extraEstimateItemId
+      )
+    ).toBe(false);
+  });
+
   it("replaces an existing manual link for the same estimate item", async () => {
     const mock = createSupabaseMock();
 
@@ -580,7 +651,43 @@ describe("takeoff DPGF comparison server helpers", () => {
       estimate_item_id: ESTIMATE_ITEM_ID,
       takeoff_item_id: TAKEOFF_ITEM_ID_2,
     });
+    expect(mock.rpcMock).toHaveBeenCalledWith("save_takeoff_dpgf_manual_link", {
+      p_version_id: VERSION_ID,
+      p_takeoff_job_id: JOB_ID,
+      p_estimate_item_id: ESTIMATE_ITEM_ID,
+      p_takeoff_item_id: TAKEOFF_ITEM_ID_2,
+      p_linked_by: USER_ID,
+    });
     expect(mock.state.links).toHaveLength(1);
     expect(mock.state.links[0]?.takeoff_item_id).toBe(TAKEOFF_ITEM_ID_2);
+  });
+
+  it("keeps the existing manual link when the transactional replace fails", async () => {
+    const mock = createSupabaseMock();
+
+    mock.state.manualLinkRpcError = {
+      code: "23505",
+      message: "duplicate key value violates unique constraint",
+      details: "Key (tenant_id, version_id, takeoff_job_id, takeoff_item_id) already exists.",
+      hint: null,
+    };
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    await expect(
+      saveTakeoffDpgfManualLink(JOB_ID, {
+        version_id: VERSION_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        takeoff_item_id: TAKEOFF_ITEM_ID_2,
+      })
+    ).rejects.toThrow("Conflit de donnees.");
+
+    expect(mock.state.links).toHaveLength(1);
+    expect(mock.state.links[0]?.takeoff_item_id).toBe(TAKEOFF_ITEM_ID);
   });
 });

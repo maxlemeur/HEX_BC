@@ -1560,7 +1560,7 @@ function normalizeDpgfComparisonEstimateItems(input: {
       if (row.item_type !== "line") return false;
       if (toPositiveNumber(row.quantity) === null) return false;
 
-      return row.source_provider === "dpgf" || row.source_file_name !== null;
+      return row.source_provider === "dpgf";
     })
     .map((row) => ({
       estimate_item_id: row.id,
@@ -2509,23 +2509,24 @@ export async function saveTakeoffDpgfManualLink(
     });
   }
 
-  let deleteBuilder = supabase
-    .from("takeoff_dpgf_links" as never)
-    .delete()
-    .eq("tenant_id" as never, tenantId as never)
-    .eq("version_id" as never, payload.version_id as never)
-    .eq("takeoff_job_id" as never, normalizedJobId as never);
+  const mutationErrorMessage = payload.takeoff_item_id
+    ? "Impossible d'enregistrer le lien manuel DPGF."
+    : "Impossible de supprimer le lien manuel DPGF.";
 
-  const deleteOrParts = [`estimate_item_id.eq.${payload.estimate_item_id}`];
-  if (payload.takeoff_item_id) {
-    deleteOrParts.push(`takeoff_item_id.eq.${payload.takeoff_item_id}`);
-  }
-  deleteBuilder = deleteBuilder.or(deleteOrParts.join(","));
+  const { data: savedLinkId, error: saveError } = await supabase.rpc(
+    "save_takeoff_dpgf_manual_link" as never,
+    {
+      p_version_id: payload.version_id,
+      p_takeoff_job_id: normalizedJobId,
+      p_estimate_item_id: payload.estimate_item_id,
+      p_takeoff_item_id: payload.takeoff_item_id,
+      p_linked_by: userId,
+    } as never
+  );
 
-  const { error: deleteError } = await deleteBuilder;
-  if (deleteError) {
+  if (saveError) {
     throw toTakeoffError(
-      mapSupabaseError(deleteError, "Impossible de remplacer le lien manuel DPGF."),
+      mapSupabaseError(saveError, mutationErrorMessage),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -2541,24 +2542,24 @@ export async function saveTakeoffDpgfManualLink(
     };
   }
 
+  const linkId = parseWithSchema(
+    z.string().uuid(),
+    savedLinkId,
+    "La reponse save_takeoff_dpgf_manual_link est invalide."
+  );
+
   const { data, error } = await supabase
     .from("takeoff_dpgf_links" as never)
-    .insert(
-      {
-        tenant_id: tenantId,
-        version_id: payload.version_id,
-        takeoff_job_id: normalizedJobId,
-        estimate_item_id: payload.estimate_item_id,
-        takeoff_item_id: payload.takeoff_item_id,
-        linked_by: userId,
-      } as never
-    )
     .select(TAKEOFF_DPGF_LINKS_SELECT as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("version_id" as never, payload.version_id as never)
+    .eq("takeoff_job_id" as never, normalizedJobId as never)
+    .eq("id" as never, linkId as never)
     .single();
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible d'enregistrer le lien manuel DPGF."),
+      mapSupabaseError(error, "Impossible de recharger le lien manuel DPGF."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,

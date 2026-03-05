@@ -162,6 +162,104 @@ create index if not exists takeoff_dpgf_links_tenant_estimate_item_idx
 create index if not exists takeoff_dpgf_links_tenant_takeoff_item_idx
   on public.takeoff_dpgf_links (tenant_id, takeoff_item_id);
 
+create or replace function public.save_takeoff_dpgf_manual_link(
+  p_version_id uuid,
+  p_takeoff_job_id uuid,
+  p_estimate_item_id uuid,
+  p_takeoff_item_id uuid,
+  p_linked_by uuid default null
+)
+returns uuid
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_inserted_link_id uuid;
+begin
+  if p_version_id is null then
+    raise exception using message = 'TAKEOFF_DPGF_LINK_VERSION_REQUIRED';
+  end if;
+
+  if p_takeoff_job_id is null then
+    raise exception using message = 'TAKEOFF_DPGF_LINK_JOB_REQUIRED';
+  end if;
+
+  if p_estimate_item_id is null then
+    raise exception using message = 'TAKEOFF_DPGF_LINK_ESTIMATE_ITEM_REQUIRED';
+  end if;
+
+  if not exists (
+    select 1
+    from public.takeoff_jobs tj
+    join public.estimate_versions ev on ev.id = tj.estimate_version_id
+    where tj.id = p_takeoff_job_id
+      and tj.tenant_id = (select public.current_tenant_id())
+      and ev.project_id = (
+        select target.project_id
+        from public.estimate_versions target
+        where target.id = p_version_id
+      )
+      and (
+        tj.estimate_version_id = p_version_id
+        or exists (
+          select 1
+          from public.takeoff_version_links tvl
+          where tvl.tenant_id = tj.tenant_id
+            and tvl.target_version_id = p_version_id
+            and tvl.takeoff_job_id = p_takeoff_job_id
+        )
+      )
+      and (select public.can_access_takeoff_estimate_version(p_version_id, tj.tenant_id))
+      and (select public.can_access_takeoff_estimate_version(tj.estimate_version_id, tj.tenant_id))
+  ) then
+    raise exception using message = 'TAKEOFF_DPGF_LINK_SCOPE_INVALID';
+  end if;
+
+  if p_takeoff_item_id is null then
+    delete from public.takeoff_dpgf_links
+    where tenant_id = (select public.current_tenant_id())
+      and version_id = p_version_id
+      and takeoff_job_id = p_takeoff_job_id
+      and estimate_item_id = p_estimate_item_id;
+
+    return null;
+  end if;
+
+  delete from public.takeoff_dpgf_links
+  where tenant_id = (select public.current_tenant_id())
+    and version_id = p_version_id
+    and takeoff_job_id = p_takeoff_job_id
+    and (
+      estimate_item_id = p_estimate_item_id
+      or takeoff_item_id = p_takeoff_item_id
+    );
+
+  insert into public.takeoff_dpgf_links (
+    tenant_id,
+    version_id,
+    takeoff_job_id,
+    estimate_item_id,
+    takeoff_item_id,
+    linked_by
+  )
+  values (
+    (select public.current_tenant_id()),
+    p_version_id,
+    p_takeoff_job_id,
+    p_estimate_item_id,
+    p_takeoff_item_id,
+    p_linked_by
+  )
+  returning id into v_inserted_link_id;
+
+  return v_inserted_link_id;
+end;
+$$;
+
+grant execute on function public.save_takeoff_dpgf_manual_link(uuid, uuid, uuid, uuid, uuid)
+  to authenticated;
+
 create or replace function public.assign_takeoff_dpgf_links_tenant_id()
 returns trigger
 language plpgsql
@@ -405,10 +503,56 @@ create policy "Current tenant can update takeoff dpgf links"
   using (
     tenant_id = (select public.current_tenant_id())
     and (select public.can_access_takeoff_estimate_version(version_id, tenant_id))
+    and exists (
+      select 1
+      from public.takeoff_jobs tj
+      join public.estimate_versions ev on ev.id = tj.estimate_version_id
+      where tj.id = takeoff_dpgf_links.takeoff_job_id
+        and tj.tenant_id = takeoff_dpgf_links.tenant_id
+        and ev.project_id = (
+          select target.project_id
+          from public.estimate_versions target
+          where target.id = takeoff_dpgf_links.version_id
+        )
+        and (
+          tj.estimate_version_id = takeoff_dpgf_links.version_id
+          or exists (
+            select 1
+            from public.takeoff_version_links tvl
+            where tvl.tenant_id = takeoff_dpgf_links.tenant_id
+              and tvl.target_version_id = takeoff_dpgf_links.version_id
+              and tvl.takeoff_job_id = takeoff_dpgf_links.takeoff_job_id
+          )
+        )
+        and (select public.can_access_takeoff_estimate_version(tj.estimate_version_id, tj.tenant_id))
+    )
   )
   with check (
     tenant_id = (select public.current_tenant_id())
     and (select public.can_access_takeoff_estimate_version(version_id, tenant_id))
+    and exists (
+      select 1
+      from public.takeoff_jobs tj
+      join public.estimate_versions ev on ev.id = tj.estimate_version_id
+      where tj.id = takeoff_dpgf_links.takeoff_job_id
+        and tj.tenant_id = takeoff_dpgf_links.tenant_id
+        and ev.project_id = (
+          select target.project_id
+          from public.estimate_versions target
+          where target.id = takeoff_dpgf_links.version_id
+        )
+        and (
+          tj.estimate_version_id = takeoff_dpgf_links.version_id
+          or exists (
+            select 1
+            from public.takeoff_version_links tvl
+            where tvl.tenant_id = takeoff_dpgf_links.tenant_id
+              and tvl.target_version_id = takeoff_dpgf_links.version_id
+              and tvl.takeoff_job_id = takeoff_dpgf_links.takeoff_job_id
+          )
+        )
+        and (select public.can_access_takeoff_estimate_version(tj.estimate_version_id, tj.tenant_id))
+    )
   );
 
 create policy "Current tenant can delete takeoff dpgf links"
@@ -418,4 +562,27 @@ create policy "Current tenant can delete takeoff dpgf links"
   using (
     tenant_id = (select public.current_tenant_id())
     and (select public.can_access_takeoff_estimate_version(version_id, tenant_id))
+    and exists (
+      select 1
+      from public.takeoff_jobs tj
+      join public.estimate_versions ev on ev.id = tj.estimate_version_id
+      where tj.id = takeoff_dpgf_links.takeoff_job_id
+        and tj.tenant_id = takeoff_dpgf_links.tenant_id
+        and ev.project_id = (
+          select target.project_id
+          from public.estimate_versions target
+          where target.id = takeoff_dpgf_links.version_id
+        )
+        and (
+          tj.estimate_version_id = takeoff_dpgf_links.version_id
+          or exists (
+            select 1
+            from public.takeoff_version_links tvl
+            where tvl.tenant_id = takeoff_dpgf_links.tenant_id
+              and tvl.target_version_id = takeoff_dpgf_links.version_id
+              and tvl.takeoff_job_id = takeoff_dpgf_links.takeoff_job_id
+          )
+        )
+        and (select public.can_access_takeoff_estimate_version(tj.estimate_version_id, tj.tenant_id))
+    )
   );
