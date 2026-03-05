@@ -22,15 +22,20 @@ function emit() {
 
 export function initStore(pid: string | null) {
   profileId = pid;
+  let nextState: StoreState = { projectId: null };
   try {
     const raw = localStorage.getItem(getKey(profileId));
     if (raw) {
       const parsed = JSON.parse(raw);
-      state = { projectId: parsed?.projectId ?? null };
+      nextState = {
+        projectId:
+          typeof parsed?.projectId === "string" ? parsed.projectId : null,
+      };
     }
   } catch {
     /* ignore */
   }
+  state = nextState;
   emit();
 }
 

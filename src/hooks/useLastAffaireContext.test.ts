@@ -76,6 +76,19 @@ describe("last-affaire-store", () => {
     expect(getSnapshot()).toBeNull();
   });
 
+  it("initStore clears previous in-memory project when next profile has no stored affaire", () => {
+    localStorage.setItem(
+      "hex-last-affaire:v1:user-1",
+      JSON.stringify({ projectId: "proj-42" })
+    );
+
+    initStore("user-1");
+    expect(getSnapshot()).toBe("proj-42");
+
+    initStore("user-2");
+    expect(getSnapshot()).toBeNull();
+  });
+
   it("setLastAffaire persists to localStorage", () => {
     initStore("user-1");
     setLastAffaire("proj-7");

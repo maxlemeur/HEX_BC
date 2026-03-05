@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { AffaireHub } from "@/components/affaires/AffaireHub";
+import { LastAffaireTracker } from "@/components/affaires/LastAffaireTracker";
 import { getUserContext } from "@/lib/auth/server";
 import {
   fetchAffaireHubDpgfSource,
@@ -124,15 +125,18 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   }
 
   return (
-    <AffaireHub
-      summary={summary}
-      timeline={timeline}
-      dpgfSource={dpgfSource}
-      marginAnalysis={marginAnalysis}
-      plansSummary={plansSummary}
-      takeoffEnabled={takeoffEnabled}
-      sectionErrors={sectionErrors}
-      justCreated={justCreated}
-    />
+    <>
+      <LastAffaireTracker projectId={projectId} />
+      <AffaireHub
+        summary={summary}
+        timeline={timeline}
+        dpgfSource={dpgfSource}
+        marginAnalysis={marginAnalysis}
+        plansSummary={plansSummary}
+        takeoffEnabled={takeoffEnabled}
+        sectionErrors={sectionErrors}
+        justCreated={justCreated}
+      />
+    </>
   );
 }

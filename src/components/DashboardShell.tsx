@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
 import { useUserContext } from "@/components/UserContext";
@@ -104,7 +104,7 @@ export function DashboardShell({
   const tenantRole = profile?.tenant_role ?? null;
   const lastAffaireId = useLastAffaireId();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     initStore(profile?.id ?? null);
   }, [profile?.id]);
 
