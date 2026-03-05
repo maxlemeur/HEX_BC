@@ -569,6 +569,101 @@ function Set-EditableTitleValue {
   Invoke-AB $Session "eval" $js | Out-Null
 }
 
+function Set-LatestSectionTitleValue {
+  param(
+    [string]$Session,
+    [string]$Value
+  )
+
+  $valueJson = ConvertTo-Json $Value -Compress
+  Invoke-AB $Session "eval" @"
+(() => {
+  const sectionRows = Array.from(document.querySelectorAll('.estimate-row.estimate-row--section'));
+  if (sectionRows.length === 0) {
+    throw new Error('No section row found');
+  }
+
+  const targetRow = sectionRows[sectionRows.length - 1];
+  const input = targetRow.querySelector('input.estimate-input--title');
+  if (!input) {
+    throw new Error('No section title input found');
+  }
+
+  input.focus();
+  input.value = $valueJson;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  input.dispatchEvent(new Event('blur', { bubbles: true }));
+})();
+"@ | Out-Null
+}
+
+function Set-LatestLineTitleValue {
+  param(
+    [string]$Session,
+    [string]$Value
+  )
+
+  $valueJson = ConvertTo-Json $Value -Compress
+  Invoke-AB $Session "eval" @"
+(() => {
+  const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
+    return !row.classList.contains('estimate-row--section') &&
+      Boolean(row.querySelector('input.estimate-line-checkbox'));
+  });
+  if (lineRows.length === 0) {
+    throw new Error('No line row found');
+  }
+
+  const targetRow = lineRows[lineRows.length - 1];
+  const input = targetRow.querySelector('input.estimate-input--title');
+  if (!input) {
+    throw new Error('No line title input found');
+  }
+
+  input.focus();
+  input.value = $valueJson;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  input.dispatchEvent(new Event('blur', { bubbles: true }));
+})();
+"@ | Out-Null
+}
+
+function Get-LineRowCount {
+  param([string]$Session)
+
+  return [int](Invoke-AB $Session "eval" @"
+(() => Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
+  return !row.classList.contains('estimate-row--section') &&
+    Boolean(row.querySelector('input.estimate-line-checkbox'));
+}).length)()
+"@)
+}
+
+function Wait-ForLineRowsIncrease {
+  param(
+    [string]$Session,
+    [int]$PreviousCount,
+    [int]$Increment = 1,
+    [int]$TimeoutSeconds = 12
+  )
+
+  $targetCount = $PreviousCount + $Increment
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+
+  while ((Get-Date) -lt $deadline) {
+    $lineCount = Get-LineRowCount -Session $Session
+    if ($lineCount -ge $targetCount) {
+      return
+    }
+
+    Start-Sleep -Milliseconds 300
+  }
+
+  throw "Timeout waiting line rows >= $targetCount"
+}
+
 function Wait-ForButtonEnabledByText {
   param(
     [string]$Session,
@@ -707,64 +802,103 @@ function Add-Chapter {
     throw "Unable to find chapter creation button."
   }
 
-  Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 10
-  Set-EditableTitleValue -Session $Session -Value $Title
+  Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 20
+  Set-LatestSectionTitleValue -Session $Session -Value $Title
 }
 
 function Add-Line {
   param([string]$Session, [string]$Designation)
 
   Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
+  $sectionCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row.estimate-row--section').length")
+  if ($sectionCount -eq 0) {
+    Add-Chapter -Session $Session -Title "Nouveau lot"
+  }
+
   $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
   $beforeRows = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row').length")
-  $lineLabels = @("+ Ligne", "+ Ajouter une ligne", "+ Ajouter une ligne Lot")
-  $clicked = Try-ClickButtonByLabels -Session $Session -Labels $lineLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 6
+  $lineBefore = Get-LineRowCount -Session $Session
+  $lineLabels = @(
+    "+ Ligne",
+    "+ Ajouter une ligne",
+    "+ Ajouter une ligne Lot",
+    "+ Ajouter une ligne Chapitre",
+    "+ Ajouter une ligne Sous-chapitre",
+    "+ Ajouter une ligne Ouvrage"
+  )
+  $sectionLabels = @(
+    "+ Ajouter un Chapitre",
+    "+ Ajouter un Sous-chapitre",
+    "+ Ajouter un Ouvrage",
+    "+ Ajouter un Niveau 4"
+  )
 
-  if (-not $clicked) {
-    $actionsOpened = Invoke-AB $Session "eval" @"
+  $lineCreated = $false
+  for ($attempt = 1; $attempt -le 8; $attempt++) {
+    $clickedLine = Try-ClickButtonByLabels -Session $Session -Labels $lineLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 4
+    if (-not $clickedLine) {
+      $actionsOpened = Invoke-AB $Session "eval" @"
 (() => {
-  const actionButton = Array.from(document.querySelectorAll('main button')).find((button) => {
+  const actionButtons = Array.from(document.querySelectorAll('main button')).filter((button) => {
     const ariaLabel = String(button.getAttribute('aria-label') ?? '').trim();
     return ariaLabel === 'Actions' && !button.disabled;
   });
-  if (!actionButton) return false;
-  actionButton.click();
+  if (actionButtons.length === 0) return false;
+  const target = actionButtons[actionButtons.length - 1];
+  target.click();
   return true;
 })();
 "@
-    if ($actionsOpened -eq $true -or "$actionsOpened" -eq "true") {
-      $clicked = Try-ClickButtonByLabels -Session $Session -Labels $lineLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 4
-      if (-not $clicked) {
-        $clicked = Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels $lineLabels -ScopeSelector "main"
+      if ($actionsOpened -eq $true -or "$actionsOpened" -eq "true") {
+        $clickedLine = Try-ClickButtonByLabels -Session $Session -Labels $lineLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 3
+        if (-not $clickedLine) {
+          $clickedLine = Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels $lineLabels -ScopeSelector "main"
+        }
       }
     }
-  }
 
-  if (-not $clicked) {
-    $clicked = Try-ClickButtonByLabels -Session $Session -Labels @("+ AID") -ScopeSelector "main" -TimeoutPerLabelSeconds 4
-    if (-not $clicked) {
-      $clicked = Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels @("+ AID") -ScopeSelector "main"
-    }
-  }
-
-  if (-not $clicked) {
-    throw "Unable to find line creation button."
-  }
-
-  try {
-    Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 10
-  } catch {
-    $deadline = (Get-Date).AddSeconds(10)
-    while ((Get-Date) -lt $deadline) {
-      $rowsNow = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row').length")
-      if ($rowsNow -gt $beforeRows) {
+    if ($clickedLine) {
+      try {
+        Wait-ForLineRowsIncrease -Session $Session -PreviousCount $lineBefore -Increment 1 -TimeoutSeconds 15
+      } catch {
+      }
+      $lineAfterClick = Get-LineRowCount -Session $Session
+      if ($lineAfterClick -gt $lineBefore) {
+        $lineCreated = $true
         break
       }
-      Start-Sleep -Milliseconds 250
+    }
+
+    $clickedSection = Try-ClickButtonByLabels -Session $Session -Labels $sectionLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 5
+    if (-not $clickedSection) {
+      $clickedSection = Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels $sectionLabels -ScopeSelector "main"
+    }
+    if (-not $clickedSection) {
+      Start-Sleep -Milliseconds 400
+      continue
+    }
+
+    try {
+      Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 20
+      $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
+    } catch {
+      Start-Sleep -Seconds 2
     }
   }
 
-  Set-EditableTitleValue -Session $Session -Value $Designation
+  if (-not $lineCreated) {
+    $lineAfterLoop = Get-LineRowCount -Session $Session
+    if ($lineAfterLoop -le $lineBefore) {
+      throw "Unable to create line row with current hierarchy depth."
+    }
+  }
+
+  $rowsNow = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row').length")
+  if ($rowsNow -le $beforeRows) {
+    Start-Sleep -Milliseconds 500
+  }
+
+  Set-LatestLineTitleValue -Session $Session -Value $Designation
 }
 
 function Set-LineValues {
@@ -784,11 +918,35 @@ function Set-LineValues {
 
   $js = @"
 (() => {
-  const inputs = Array.from(document.querySelectorAll('input.estimate-input'));
-  if (inputs.length < 7) throw new Error('Not enough line inputs');
+  const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
+    return !row.classList.contains('estimate-row--section') &&
+      Boolean(row.querySelector('input.estimate-line-checkbox'));
+  });
+  if (lineRows.length === 0) throw new Error('No line row found');
+  const row = lineRows[lineRows.length - 1];
+
+  const inputs = Array.from(row.querySelectorAll('input.estimate-input, select.estimate-input')).filter((input) => {
+    if (input instanceof HTMLInputElement) {
+      return input.type !== 'checkbox' && !input.readOnly && !input.disabled;
+    }
+    return !input.disabled;
+  });
+  if (inputs.length < 3) throw new Error('Not enough editable line inputs');
+
   const set = (el, val) => {
     el.focus();
-    el.value = String(val);
+    if (el.tagName === 'SELECT') {
+      const candidate = Array.from(el.options).find((option) => {
+        const byValue = String(option.value ?? '').trim().toLowerCase() === String(val).trim().toLowerCase();
+        const byLabel = String(option.textContent ?? '').trim().toLowerCase() === String(val).trim().toLowerCase();
+        return byValue || byLabel;
+      });
+      if (candidate) {
+        el.value = candidate.value;
+      }
+    } else {
+      el.value = String(val);
+    }
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };

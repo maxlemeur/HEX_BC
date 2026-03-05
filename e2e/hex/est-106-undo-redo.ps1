@@ -273,8 +273,27 @@ function Add-LineSafe {
 
   $currentCount = Get-LineCount -Session $Session
   if ($currentCount -le $beforeCount) {
-    Wait-ForButtonEnabledByText -Session $Session -ButtonText "+ Ligne" -ScopeSelector "main" -TimeoutSeconds 20
-    Click-FirstEnabledButtonByText -Session $Session -ButtonText "+ Ligne" -ScopeSelector "main"
+    $clicked = Try-ClickButtonByLabels -Session $Session -Labels @(
+      "+ Ligne",
+      "+ Ajouter une ligne",
+      "+ Ajouter une ligne Lot",
+      "+ Ajouter une ligne Chapitre",
+      "+ Ajouter une ligne Sous-chapitre"
+    ) -ScopeSelector "main" -TimeoutPerLabelSeconds 6
+
+    if (-not $clicked) {
+      $clicked = Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels @(
+        "+ Ajouter une ligne",
+        "+ Ajouter une ligne Lot",
+        "+ Ajouter une ligne Chapitre",
+        "+ Ajouter une ligne Sous-chapitre"
+      ) -ScopeSelector "main"
+    }
+
+    if (-not $clicked) {
+      throw "Fallback add line action not found."
+    }
+
     Wait-Until -TimeoutMessage "Fallback add line should increase line count." -Predicate {
       (Get-LineCount -Session $Session) -ge ($beforeCount + 1)
     } -TimeoutSeconds 10
