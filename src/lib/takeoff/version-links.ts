@@ -153,11 +153,22 @@ export async function linkTakeoffJobsFromSourceVersionToTargetVersion(input: {
     };
   }
 
-  const { data: sourceJobsData, error: sourceJobsError } = await input.supabase
+  const sourceJobsPromise = input.supabase
     .from("takeoff_jobs" as never)
     .select("id" as never)
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("estimate_version_id" as never, sourceVersionId as never);
+
+  const inheritedLinksPromise = input.supabase
+    .from("takeoff_version_links" as never)
+    .select("takeoff_job_id, source_version_id, target_version_id, linked_at" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("target_version_id" as never, sourceVersionId as never);
+
+  const [
+    { data: sourceJobsData, error: sourceJobsError },
+    { data: inheritedLinksData, error: inheritedLinksError },
+  ] = await Promise.all([sourceJobsPromise, inheritedLinksPromise]);
 
   if (sourceJobsError) {
     throw mapSupabaseError(
@@ -166,24 +177,44 @@ export async function linkTakeoffJobsFromSourceVersionToTargetVersion(input: {
     );
   }
 
-  const sourceJobIds = toUniqueUuids(
+  if (inheritedLinksError) {
+    throw mapSupabaseError(
+      inheritedLinksError,
+      "Impossible de recuperer les liens takeoff de la version source."
+    );
+  }
+
+  const sourceJobs = toUniqueUuids(
     ((sourceJobsData ?? []) as Array<{ id?: string | null }>).map((row) => row.id)
   );
+  const inheritedLinks = normalizeTakeoffVersionLinkRows(
+    (inheritedLinksData ?? []) as unknown[]
+  );
 
-  if (sourceJobIds.length === 0) {
+  const sourceVersionIdByJobId = new Map<string, string>(
+    inheritedLinks.map((link) => [link.takeoff_job_id, link.source_version_id] as const)
+  );
+
+  for (const sourceJobId of sourceJobs) {
+    sourceVersionIdByJobId.set(sourceJobId, sourceVersionId);
+  }
+
+  if (sourceVersionIdByJobId.size === 0) {
     return {
       source_job_count: 0,
       linked_count: 0,
     };
   }
 
-  const payload = sourceJobIds.map((jobId) => ({
-    tenant_id: input.tenantId,
-    takeoff_job_id: jobId,
-    source_version_id: sourceVersionId,
-    target_version_id: targetVersionId,
-    linked_by: input.userId,
-  }));
+  const payload = [...sourceVersionIdByJobId.entries()].map(
+    ([jobId, sourceVersionIdForJob]) => ({
+      tenant_id: input.tenantId,
+      takeoff_job_id: jobId,
+      source_version_id: sourceVersionIdForJob,
+      target_version_id: targetVersionId,
+      linked_by: input.userId,
+    })
+  );
 
   let linkedCount = 0;
   const chunks = chunkArray(payload, CHUNK_SIZE);
@@ -208,7 +239,7 @@ export async function linkTakeoffJobsFromSourceVersionToTargetVersion(input: {
   }
 
   return {
-    source_job_count: sourceJobIds.length,
+    source_job_count: sourceVersionIdByJobId.size,
     linked_count: linkedCount,
   };
 }
