@@ -1036,6 +1036,184 @@ export type Database = {
           },
         ];
       };
+      portal_tokens: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          version_id: string;
+          token: string;
+          email: string;
+          expires_at: string;
+          status: string;
+          accepted_at: string | null;
+          accepted_ip: string | null;
+          signature_url: string | null;
+          reject_reason: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          version_id: string;
+          token?: string;
+          email: string;
+          expires_at: string;
+          status?: string;
+          accepted_at?: string | null;
+          accepted_ip?: string | null;
+          signature_url?: string | null;
+          reject_reason?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          version_id?: string;
+          token?: string;
+          email?: string;
+          expires_at?: string;
+          status?: string;
+          accepted_at?: string | null;
+          accepted_ip?: string | null;
+          signature_url?: string | null;
+          reject_reason?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "portal_tokens_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "portal_tokens_version_id_fkey";
+            columns: ["version_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_versions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      estimate_emails: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          version_id: string;
+          recipient: string;
+          cc: string[] | null;
+          subject: string;
+          body: string | null;
+          type: string;
+          status: string;
+          provider_id: string | null;
+          sent_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          version_id: string;
+          recipient: string;
+          cc?: string[] | null;
+          subject: string;
+          body?: string | null;
+          type?: string;
+          status?: string;
+          provider_id?: string | null;
+          sent_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          version_id?: string;
+          recipient?: string;
+          cc?: string[] | null;
+          subject?: string;
+          body?: string | null;
+          type?: string;
+          status?: string;
+          provider_id?: string | null;
+          sent_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "estimate_emails_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_emails_version_id_fkey";
+            columns: ["version_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_versions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      estimate_negotiations: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          version_id: string;
+          author_type: string;
+          author_name: string | null;
+          message: string;
+          line_adjustments: Json | null;
+          portal_token_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          version_id: string;
+          author_type: string;
+          author_name?: string | null;
+          message: string;
+          line_adjustments?: Json | null;
+          portal_token_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          version_id?: string;
+          author_type?: string;
+          author_name?: string | null;
+          message?: string;
+          line_adjustments?: Json | null;
+          portal_token_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "estimate_negotiations_portal_token_id_fkey";
+            columns: ["portal_token_id"];
+            isOneToOne: false;
+            referencedRelation: "portal_tokens";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_negotiations_tenant_id_fkey";
+            columns: ["tenant_id"];
+            isOneToOne: false;
+            referencedRelation: "tenants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "estimate_negotiations_version_id_fkey";
+            columns: ["version_id"];
+            isOneToOne: false;
+            referencedRelation: "estimate_versions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       estimate_version_changelogs: {
         Row: {
           id: string;
