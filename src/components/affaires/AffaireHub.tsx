@@ -22,6 +22,7 @@ import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_a
 
 import { useToast } from "@/components/ui/Toast";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
+import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { PlansMetresCard } from "./PlansMetresCard";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
@@ -509,8 +510,14 @@ function DpgfSourceCard({
 
 function QuickActionsCard({
   summary,
+  takeoffEnabled,
+  plansSummary,
+  onLaunchMetre,
 }: {
   summary: AffaireHubSummaryResult;
+  takeoffEnabled?: boolean;
+  plansSummary?: AffaireHubPlansSummaryData | null;
+  onLaunchMetre?: () => void;
 }) {
   const router = useRouter();
   const { currentVersion, versionsCount, project } = summary;
@@ -688,6 +695,31 @@ function QuickActionsCard({
           </Link>
         )}
 
+        {/* Launch metre */}
+        {takeoffEnabled && plansSummary && plansSummary.planSetCount > 0 && (
+          <button
+            type="button"
+            onClick={onLaunchMetre}
+            className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M3 9h18" />
+              <path d="M9 3v18" />
+            </svg>
+            Lancer un metre
+          </button>
+        )}
+
         {/* Create first version if none exist */}
         {currentVersion === null && (
           <Link
@@ -765,6 +797,11 @@ export function AffaireHub({
         : "Creez une version pour demarrer le chiffrage.",
     });
   }, [justCreated, router, summary.project.id, toast, dpgfSource]);
+
+  const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
+  const draftVersionId =
+    summary.currentVersion?.status === "draft" ? summary.currentVersion.id : null;
+  const hasAnyVersion = summary.currentVersion !== null;
 
   const [showImportFlow, setShowImportFlow] = useState(false);
   const [importResult, setImportResult] =
@@ -908,12 +945,26 @@ export function AffaireHub({
                 plans={plansSummary ?? null}
                 projectId={summary.project.id}
                 errorMessage={sectionErrors?.plansSummary}
+                onLaunchMetre={() => setShowLaunchMetreDialog(true)}
               />
             ) : null}
-            <QuickActionsCard summary={summary} />
+            <QuickActionsCard
+              summary={summary}
+              takeoffEnabled={takeoffEnabled}
+              plansSummary={plansSummary}
+              onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+            />
           </div>
         </div>
       )}
+
+      <LaunchMetreDialog
+        open={showLaunchMetreDialog}
+        onOpenChange={setShowLaunchMetreDialog}
+        projectId={summary.project.id}
+        draftVersionId={draftVersionId}
+        hasAnyVersion={hasAnyVersion}
+      />
     </div>
   );
 }

@@ -29,6 +29,7 @@ type PlansMetresCardProps = {
   plans: AffaireHubPlansSummaryData | null;
   projectId: string;
   errorMessage?: string;
+  onLaunchMetre?: () => void;
 };
 
 /* ------------------------------------------------------------------ */
@@ -69,6 +70,7 @@ export function PlansMetresCard({
   plans,
   projectId,
   errorMessage,
+  onLaunchMetre,
 }: PlansMetresCardProps) {
   /* Error state */
   if (errorMessage) {
@@ -179,8 +181,9 @@ export function PlansMetresCard({
         </Link>
         <button
           type="button"
-          disabled
-          className="btn btn-secondary btn-sm inline-flex opacity-50"
+          disabled={!onLaunchMetre}
+          onClick={onLaunchMetre}
+          className={`btn btn-secondary btn-sm inline-flex${!onLaunchMetre ? " opacity-50" : ""}`}
         >
           Lancer un metre
         </button>

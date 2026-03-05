@@ -28,8 +28,12 @@ const TAKEOFF_ACCEPT_ATTRIBUTE = [
 
 type SubmitState = "idle" | "loading" | "success" | "error";
 
+type TakeoffJobCreateResponse = Awaited<ReturnType<typeof createTakeoffJob>>;
+
 type TakeoffUploadFormProps = {
   versionId: string;
+  onSuccess?: (job: TakeoffJobCreateResponse) => void;
+  compact?: boolean;
 };
 
 function formatFileSize(bytes: number) {
@@ -95,7 +99,7 @@ function validateTakeoffFile(file: File | null): string | null {
   return validation.error;
 }
 
-export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
+export function TakeoffUploadForm({ versionId, onSuccess, compact }: TakeoffUploadFormProps) {
   const router = useRouter();
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -225,7 +229,11 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
       setSubmitState("success");
       setUploadProgress(100);
       setAnnouncement("Extraction lancee avec succes. Redirection en cours.");
-      router.push(`/dashboard/estimates/${versionId}/takeoff/${job.id}`);
+      if (onSuccess) {
+        onSuccess(job);
+      } else {
+        router.push(`/dashboard/estimates/${versionId}/takeoff/${job.id}`);
+      }
     } catch (error) {
       const message = resolveApiErrorMessage(error);
       setSubmitState("error");
@@ -234,16 +242,21 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
     }
   }
 
+  const Wrapper = compact ? "div" : "section";
+  const wrapperClassName = compact ? "space-y-6" : "dashboard-card p-6 sm:p-8";
+
   return (
-    <section className="dashboard-card p-6 sm:p-8">
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold text-[var(--slate-900)]">
-          Nouvelle extraction
-        </h2>
-        <p className="mt-1 text-sm text-[var(--slate-500)]">
-          Importez un fichier metrage pour lancer une extraction Niveau A.
-        </p>
-      </div>
+    <Wrapper className={wrapperClassName}>
+      {!compact && (
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-[var(--slate-900)]">
+            Nouvelle extraction
+          </h2>
+          <p className="mt-1 text-sm text-[var(--slate-500)]">
+            Importez un fichier metrage pour lancer une extraction Niveau A.
+          </p>
+        </div>
+      )}
 
       <form className="space-y-6" onSubmit={handleSubmit}>
         <input
@@ -434,6 +447,6 @@ export function TakeoffUploadForm({ versionId }: TakeoffUploadFormProps) {
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>
-    </section>
+    </Wrapper>
   );
 }

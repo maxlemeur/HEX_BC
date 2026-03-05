@@ -132,6 +132,61 @@ describe("TakeoffUploadForm", () => {
     expect(createTakeoffJobMock).not.toHaveBeenCalled();
   });
 
+  it("calls onSuccess with job instead of redirecting when provided", async () => {
+    const user = userEvent.setup();
+    const createTakeoffJobMock = vi.mocked(createTakeoffJob);
+    const onSuccess = vi.fn();
+
+    const fakeJob = {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      status: "pending" as const,
+      level: "A" as const,
+      source_file_name: "niveau-a.csv",
+      estimate_version_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      created_at: "2026-02-24T12:00:00.000Z",
+    };
+
+    createTakeoffJobMock.mockResolvedValue(fakeJob);
+
+    render(
+      <TakeoffUploadForm
+        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        onSuccess={onSuccess}
+      />
+    );
+
+    const fileInput = screen.getByLabelText("Fichier de plans");
+    await user.upload(fileInput, makeCsvFile());
+    await user.click(
+      screen.getByRole("button", { name: /lancer l'extraction/i })
+    );
+
+    await waitFor(() => {
+      expect(onSuccess).toHaveBeenCalledWith(fakeJob);
+    });
+
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("hides heading and card wrapper in compact mode", () => {
+    render(
+      <TakeoffUploadForm
+        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        compact
+      />
+    );
+
+    expect(screen.queryByText("Nouvelle extraction")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        /Importez un fichier metrage/
+      )
+    ).not.toBeInTheDocument();
+
+    // The form should still be present
+    expect(screen.getByLabelText("Fichier de plans")).toBeInTheDocument();
+  });
+
   it("reuses the same idempotency key when retrying the same file", async () => {
     const user = userEvent.setup();
     const createTakeoffJobMock = vi.mocked(createTakeoffJob);
