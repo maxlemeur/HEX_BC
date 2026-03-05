@@ -40,6 +40,14 @@ export type TakeoffLevelCProcessingConfig = TakeoffChunkingConfig & {
   maxCostCents: number;
 };
 
+function parseBooleanEnvFlag(value: string | undefined): boolean | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return null;
+}
+
 function parsePositiveIntegerOrFallback(value: string | null, fallback: number) {
   if (!value) return fallback;
   const parsed = Number(value);
@@ -111,6 +119,15 @@ export async function isTakeoffEnabled(
   tenantId: string,
   input?: { supabase?: Supabase }
 ) {
+  // Local/E2E escape hatch to avoid hard dependency on tenant-level flag setup.
+  if (parseBooleanEnvFlag(process.env.TAKEOFF_MODULE_FORCE_ENABLED) === true) {
+    return true;
+  }
+
+  if (parseBooleanEnvFlag(process.env.TAKEOFF_MODULE_ENABLED_BY_DEFAULT) === true) {
+    return true;
+  }
+
   return isFeatureEnabled(tenantId, TAKEOFF_MODULE_ENABLED_FLAG_KEY, input);
 }
 

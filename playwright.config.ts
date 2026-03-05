@@ -18,7 +18,7 @@ function resolveWebServer() {
   const port = parsedBaseUrl.port || "3000";
 
   return {
-    command: `npm run dev -- --port ${port}`,
+    command: `TAKEOFF_MODULE_ENABLED_BY_DEFAULT=1 npm run dev -- --port ${port}`,
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

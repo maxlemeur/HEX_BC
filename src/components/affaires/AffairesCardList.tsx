@@ -35,6 +35,8 @@ export function AffairesCardList({
   emptyVariant,
   onCreateAffaire,
 }: Readonly<Props>) {
+  const { requestDelete, modalProps } = useDeleteAffaire();
+
   if (items.length === 0) {
     return emptyVariant === "no-data" ? (
       <EmptyState
@@ -81,8 +83,6 @@ export function AffairesCardList({
       />
     );
   }
-
-  const { requestDelete, modalProps } = useDeleteAffaire();
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

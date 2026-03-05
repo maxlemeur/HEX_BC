@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const parseFileMock = vi.hoisted(() => vi.fn());
 
@@ -28,6 +28,10 @@ describe("useImportFlow", () => {
       parser: "csv",
       rows: [{ designation: "Tube DN15" }],
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("keeps a successful import when imports refresh fails", async () => {
@@ -143,6 +147,7 @@ describe("useImportFlow", () => {
       .mockResolvedValueOnce(jsonResponse({ ok: true, data: [] }));
 
     vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("XMLHttpRequest", undefined);
 
     const projectId = "44444444-4444-4444-8444-444444444444";
     const { result } = renderHook(() => useImportFlow({ projectId }));
