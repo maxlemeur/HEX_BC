@@ -33,6 +33,8 @@ la roadmap V1.
 | **M2**    | Price Book + Send "lite" + Qualite | EST-E08, EST-E09, EST-E10, EST-E11*      | Gating qualite (EST-141), multi-fournisseurs (EST-030), import OPTIMA (EST-034). **PDF serveur (EST-201 promu de M3), CSV import price book (EST-035 new)** |
 | **M3**    | Documents + Versioning       | EST-E11, EST-E12                         | Export DPGF/BDC 31 col, diff, changelog. Multi-devises reporte ici (EST-027) |
 | **M4**    | Lifecycle + Rules + Observabilite | EST-E03*, EST-E08*, EST-E13, EST-E14 | Portail client, envoi email, tests. **Events append-only (EST-036 new), rules engine (EST-037 new)**, import Batigest/Onaya (EST-204) |
+| **M5**    | Structure de prix BTP + Metres   | EST-E15, EST-E16, EST-E17, EST-E20   | Moteur de prix professionnel BTP (DS/FC/FG/B&A), ouvrages composes, carnet de metres, formules quantites, conformite PDF multi-TVA |
+| **M6**    | Cycle de vie chantier            | EST-E18, EST-E19                     | Situations de travaux, avenants, retenue de garantie, DGD, lots techniques, sous-traitance |
 
 > \* Epics marques avec `*` : seules certaines stories de l'epic sont dans ce milestone (promotions MVP). Voir le detail par epic.
 
@@ -80,6 +82,12 @@ Convention :
 | EST-E12   | Versioning: diff, changelog        | M3        | P1       | [EST-E12-versioning.md](./EST-E12-versioning.md)                 |
 | EST-E13   | Lifecycle client: send/portal      | M4        | P1       | [EST-E13-lifecycle-client.md](./EST-E13-lifecycle-client.md)     |
 | EST-E14   | Observabilite, tests, performance  | M4        | P1       | [EST-E14-observability-tests.md](./EST-E14-observability-tests.md)|
+| EST-E15   | Structure de prix BTP (DS/FC/FG/B&A) | M5     | P0       | [EST-E15-structure-prix-btp.md](./EST-E15-structure-prix-btp.md) |
+| EST-E16   | Ouvrages composes & bibliotheque de prix | M5  | P0       | [EST-E16-ouvrages-bibliotheque.md](./EST-E16-ouvrages-bibliotheque.md) |
+| EST-E17   | Metres & formules de calcul        | M5        | P0       | [EST-E17-metres-formules.md](./EST-E17-metres-formules.md)       |
+| EST-E18   | Situations de travaux & avenants   | M6        | P0       | [EST-E18-situations-avenants.md](./EST-E18-situations-avenants.md) |
+| EST-E19   | Lots, sous-traitance & consultations | M6      | P1       | [EST-E19-lots-sous-traitance.md](./EST-E19-lots-sous-traitance.md) |
+| EST-E20   | Conformite reglementaire & PDF pro | M5        | P1       | [EST-E20-conformite-pdf-pro.md](./EST-E20-conformite-pdf-pro.md) |
 
 ---
 
@@ -166,6 +174,45 @@ a construire dans la roadmap V1.
 | EST-035 | Import CSV Price Book                  | EST-E11| M2        | P1       | M      |
 | EST-036 | Events append-only                     | EST-E03| M4        | P2       | S      |
 | EST-037 | Rules engine marge/remise + approbations| EST-E08| M4        | P2       | L      |
+
+### Stories M5 — Structure de prix BTP + Metres
+
+| Code    | Nom                                    | Epic   | Milestone | Priorite | Effort |
+| ------- | -------------------------------------- | ------ | --------- | -------- | ------ |
+| EST-301 | Decomposition DS/FC/FG/B&A             | EST-E15| M5        | P0       | L      |
+| EST-302 | Coefficients rendement et pertes       | EST-E15| M5        | P1       | M      |
+| EST-311 | Ouvrages composes (sous-detail prix)   | EST-E16| M5        | P0       | L      |
+| EST-312 | Connexion Batiprix/UNTEC               | EST-E16| M5        | P1       | L      |
+| EST-321 | Formules dans les quantites            | EST-E17| M5        | P0       | L      |
+| EST-322 | Carnet de metres integre               | EST-E17| M5        | P0       | L      |
+| EST-351 | Multi-TVA (20%/10%/5.5%) + recap       | EST-E20| M5        | P0       | M      |
+| EST-352 | Mentions legales obligatoires          | EST-E20| M5        | P1       | S      |
+| EST-353 | Page de garde et recapitulatif         | EST-E20| M5        | P1       | M      |
+| EST-354 | Conditions generales et particulieres  | EST-E20| M5        | P2       | M      |
+
+### Stories M6 — Cycle de vie chantier
+
+| Code    | Nom                                    | Epic   | Milestone | Priorite | Effort |
+| ------- | -------------------------------------- | ------ | --------- | -------- | ------ |
+| EST-331 | Situations de travaux                  | EST-E18| M6        | P0       | XL     |
+| EST-332 | Avenants / travaux supplementaires     | EST-E18| M6        | P0       | L      |
+| EST-333 | Retenue de garantie et cautions        | EST-E18| M6        | P1       | M      |
+| EST-334 | Decompte General Definitif (DGD)       | EST-E18| M6        | P1       | L      |
+| EST-341 | Lots techniques (allotissement)        | EST-E19| M6        | P0       | L      |
+| EST-342 | Sous-traitance dans le devis           | EST-E19| M6        | P1       | M      |
+| EST-343 | Consultation fournisseurs automatisee  | EST-E19| M6        | P2       | L      |
+
+### Nice-to-have (non planifies)
+
+Les themes suivants sont identifies mais ne necessitent pas de ticket immediat :
+- Application mobile terrain (PWA/native pour metres sur chantier)
+- Attestation CERFA TVA (generation auto formulaire 1301-SD) — sous-ticket de EST-351
+- Planning previsionnel lie au devis (Gantt simplifie)
+- GED chantier (PV reception, CR chantier, photos, OPR)
+- Export comptable FEC (Sage/Cegid/EBP) — a creer quand D1 (EST-331) sera livre
+- Revision de prix formules parametriques (index BTP) — a creer quand D1 sera livre
+- Analyse rentabilite previsionnel vs realise — a creer quand D1 sera livre
+- Collaboration temps reel (multi-chiffreurs a la Google Docs) — tech spike a planifier
 
 ### Stories promues (changement de milestone)
 

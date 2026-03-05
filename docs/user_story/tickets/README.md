@@ -5,9 +5,10 @@
 
 ## Couverture
 
-- Tickets total: **65**
+- Tickets total: **82**
 - Tickets presents dans le sequencing v2: **35**
 - Tickets hors sequencing v2 (backlog): **30**
+- Tickets M5/M6 (nouvelles stories): **17**
 
 ## Tickets
 
@@ -78,6 +79,23 @@
 | [EST-263](./EST-263.md) | Metriques et monitoring | Non | - | Backlog | M | M4 | [EST-E14](../EST-E14-observability-tests.md) |
 | [EST-264](./EST-264.md) | Optimisation performance editeur | Oui | 1/1.1 | C | L | M1 | [EST-E14](../EST-E14-observability-tests.md) |
 | [EST-265](./EST-265.md) | Tests de charge API | Non | - | Backlog | M | M4 | [EST-E14](../EST-E14-observability-tests.md) |
+| [EST-301](./EST-301.md) | Decomposition DS/FC/FG/B&A | Non | M5/V1 | Backlog | L | M5 | [EST-E15](../EST-E15-structure-prix-btp.md) |
+| [EST-302](./EST-302.md) | Coefficients rendement et pertes | Non | M5/V1 | Backlog | M | M5 | [EST-E15](../EST-E15-structure-prix-btp.md) |
+| [EST-311](./EST-311.md) | Ouvrages composes (sous-detail prix) | Non | M5/V2 | Backlog | L | M5 | [EST-E16](../EST-E16-ouvrages-bibliotheque.md) |
+| [EST-312](./EST-312.md) | Connexion Batiprix/UNTEC | Non | M5/V2 | Backlog | L | M5 | [EST-E16](../EST-E16-ouvrages-bibliotheque.md) |
+| [EST-321](./EST-321.md) | Formules dans les quantites | Non | M5/V1 | Backlog | L | M5 | [EST-E17](../EST-E17-metres-formules.md) |
+| [EST-322](./EST-322.md) | Carnet de metres integre | Non | M5/V2 | Backlog | L | M5 | [EST-E17](../EST-E17-metres-formules.md) |
+| [EST-331](./EST-331.md) | Situations de travaux | Non | M6/V3 | Backlog | XL | M6 | [EST-E18](../EST-E18-situations-avenants.md) |
+| [EST-332](./EST-332.md) | Avenants / travaux supplementaires | Non | M6/V3 | Backlog | L | M6 | [EST-E18](../EST-E18-situations-avenants.md) |
+| [EST-333](./EST-333.md) | Retenue de garantie et cautions | Non | M6/V3 | Backlog | M | M6 | [EST-E18](../EST-E18-situations-avenants.md) |
+| [EST-334](./EST-334.md) | Decompte General Definitif (DGD) | Non | M6/V4 | Backlog | L | M6 | [EST-E18](../EST-E18-situations-avenants.md) |
+| [EST-341](./EST-341.md) | Lots techniques (allotissement) | Non | M6/V3 | Backlog | L | M6 | [EST-E19](../EST-E19-lots-sous-traitance.md) |
+| [EST-342](./EST-342.md) | Sous-traitance dans le devis | Non | M6/V3 | Backlog | M | M6 | [EST-E19](../EST-E19-lots-sous-traitance.md) |
+| [EST-343](./EST-343.md) | Consultation fournisseurs automatisee | Non | M6/V4 | Backlog | L | M6 | [EST-E19](../EST-E19-lots-sous-traitance.md) |
+| [EST-351](./EST-351.md) | Multi-TVA (20%/10%/5.5%) + recap | Non | M5/V1 | Backlog | M | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
+| [EST-352](./EST-352.md) | Mentions legales obligatoires | Non | M5/V1 | Backlog | S | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
+| [EST-353](./EST-353.md) | Page de garde et recapitulatif | Non | M5/V2 | Backlog | M | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
+| [EST-354](./EST-354.md) | Conditions generales et particulieres | Non | M5/V2 | Backlog | M | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
 
 ## Usage
 
