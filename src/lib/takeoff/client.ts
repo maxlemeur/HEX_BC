@@ -747,6 +747,45 @@ export async function fetchTakeoffDpgfComparison(
   );
 }
 
+export async function fetchAllTakeoffDpgfComparison(
+  jobId: string,
+  query: { version_id: string; cursor?: string; page_size?: number },
+  options?: { signal?: AbortSignal }
+): Promise<TakeoffDpgfComparisonResponse> {
+  const rows: TakeoffDpgfComparisonResponse["rows"] = [];
+  const seenCursors = new Set<string>();
+  let cursor = query.cursor;
+  let response: TakeoffDpgfComparisonResponse;
+
+  while (true) {
+    response = await fetchTakeoffDpgfComparison(
+      jobId,
+      { ...query, cursor },
+      options
+    );
+    rows.push(...response.rows);
+
+    const nextCursor = response.pagination.next_cursor;
+    if (!nextCursor) {
+      return {
+        ...response,
+        rows,
+        pagination: {
+          ...response.pagination,
+          next_cursor: null,
+        },
+      };
+    }
+
+    if (seenCursors.has(nextCursor)) {
+      throw new Error("Pagination DPGF incoherente: curseur duplique.");
+    }
+
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+}
+
 export async function saveTakeoffDpgfManualLink(
   jobId: string,
   input: SaveTakeoffDpgfManualLinkInput

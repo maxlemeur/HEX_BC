@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // ---------------------------------------------------------------------------
 
 const mockSingle = vi.fn();
-const mockSelect = vi.fn(() => ({ single: mockSingle }));
 const mockEqChain = vi.fn();
 const mockUpdate = vi.fn();
 const mockFrom = vi.fn();

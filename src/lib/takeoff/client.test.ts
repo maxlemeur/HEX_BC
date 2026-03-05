@@ -4,6 +4,7 @@ import {
   applyTakeoffJob,
   createTakeoffMappingRule,
   deleteTakeoffMappingRule,
+  fetchAllTakeoffDpgfComparison,
   fetchTakeoffJobCompare,
   fetchTakeoffMappingRules,
   isTakeoffApiError,
@@ -115,6 +116,87 @@ const COMPARE_RESPONSE = {
   removed: [],
   changed: [],
   unchanged: [],
+};
+
+const DPGF_COMPARE_PAGE_1 = {
+  version_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  job_id: JOB_ID,
+  threshold: 0.8,
+  summary: {
+    matches: 1,
+    gaps: 0,
+    missing_dpgf: 0,
+    missing_takeoff: 1,
+    manual_links: 0,
+    warning_count: 0,
+    critical_count: 0,
+    total_rows: 2,
+  },
+  rows: [
+    {
+      key: "row-1",
+      dpgf: {
+        estimate_item_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        title: "Cloison BA13",
+        description: null,
+        quantity: 12,
+        unit: "m2",
+        source_page: 1,
+        source_file_name: "dpgf.xlsx",
+        position: 1,
+      },
+      takeoff: {
+        item_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        designation: "Cloison BA13",
+        quantity: 12,
+        unit: "m2",
+        source_page: 3,
+        source_file_name: "plans.pdf",
+        confidence: 0.91,
+      },
+      match_source: "auto" as const,
+      match_score: 0.98,
+      delta_absolute: 0,
+      delta_percent: 0,
+      severity: "ok" as const,
+      manual_link_id: null,
+    },
+  ],
+  pagination: {
+    page_size: 200,
+    next_cursor: "cursor-2",
+    total: 2,
+  },
+};
+
+const DPGF_COMPARE_PAGE_2 = {
+  ...DPGF_COMPARE_PAGE_1,
+  rows: [
+    {
+      key: "row-2",
+      dpgf: null,
+      takeoff: {
+        item_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        designation: "Reserve plafond",
+        quantity: 1,
+        unit: "u",
+        source_page: 5,
+        source_file_name: "plans.pdf",
+        confidence: 0.74,
+      },
+      match_source: null,
+      match_score: null,
+      delta_absolute: null,
+      delta_percent: null,
+      severity: "missing" as const,
+      manual_link_id: null,
+    },
+  ],
+  pagination: {
+    page_size: 200,
+    next_cursor: null,
+    total: 2,
+  },
 };
 
 const PREVIEW_RESPONSE = {
@@ -340,6 +422,54 @@ describe("takeoff client mapping rules wrappers", () => {
       })
     );
     expect(result).toEqual(COMPARE_RESPONSE);
+  });
+
+  it("fetches and merges all DPGF comparison pages via next_cursor", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          data: DPGF_COMPARE_PAGE_1,
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ok: true,
+          data: DPGF_COMPARE_PAGE_2,
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchAllTakeoffDpgfComparison(JOB_ID, {
+      version_id: DPGF_COMPARE_PAGE_1.version_id,
+      page_size: 200,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `/api/takeoff/jobs/${JOB_ID}/dpgf-compare?version_id=${encodeURIComponent(
+        DPGF_COMPARE_PAGE_1.version_id
+      )}&page_size=200`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `/api/takeoff/jobs/${JOB_ID}/dpgf-compare?version_id=${encodeURIComponent(
+        DPGF_COMPARE_PAGE_1.version_id
+      )}&cursor=${encodeURIComponent("cursor-2")}&page_size=200`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(result).toEqual({
+      ...DPGF_COMPARE_PAGE_2,
+      rows: [...DPGF_COMPARE_PAGE_1.rows, ...DPGF_COMPARE_PAGE_2.rows],
+    });
   });
 
   it("requests a conversion preview via POST", async () => {

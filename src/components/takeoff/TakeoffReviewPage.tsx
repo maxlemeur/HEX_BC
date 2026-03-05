@@ -44,7 +44,7 @@ const LazyTakeoffReviewExpert = dynamic(
 );
 import {
   applyTakeoffJob,
-  fetchTakeoffDpgfComparison,
+  fetchAllTakeoffDpgfComparison,
   fetchTakeoffJobCompare,
   fetchTakeoffJob,
   isTakeoffApiError,
@@ -94,6 +94,7 @@ type ViewTab = "tables" | "items" | "compare" | "dpgf";
 
 const AUTO_SAVE_DEBOUNCE_MS = 500;
 const REVIEW_ITEMS_PAGE_SIZE = 200;
+const DPGF_COMPARE_PAGE_SIZE = 200;
 const DEFAULT_COMPARE_THRESHOLD = 0.8;
 const CHERRY_PICK_EXCLUSION_REASON = "Cherry-pick diff TKF-032";
 const TAKEOFF_ITEM_PATCH_BATCH_MAX = 100;
@@ -496,9 +497,9 @@ export default function TakeoffReviewPage({
       try {
         setDpgfCompareLoading(true);
         setDpgfCompareError(null);
-        const response = await fetchTakeoffDpgfComparison(
+        const response = await fetchAllTakeoffDpgfComparison(
           jobId,
-          { version_id: versionId, page_size: 200 },
+          { version_id: versionId, page_size: DPGF_COMPARE_PAGE_SIZE },
           { signal }
         );
         setDpgfCompareData(response);
