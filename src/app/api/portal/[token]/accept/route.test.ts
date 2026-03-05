@@ -1,0 +1,377 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// ---------------------------------------------------------------------------
+// Mock service-role client
+// ---------------------------------------------------------------------------
+
+const mockTokenLookupSingle = vi.fn();
+const mockTokenUpdateSingle = vi.fn();
+const mockTokenPatchUpdate = vi.fn();
+const mockVersionUpdate = vi.fn();
+const mockStorageUpload = vi.fn();
+const mockRpc = vi.fn();
+const mockEmailInsert = vi.fn();
+const mockVersionDataSingle = vi.fn();
+
+function buildMockFrom() {
+  return (table: string) => {
+    if (table === "portal_tokens") {
+      return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            single: mockTokenLookupSingle,
+          })),
+        })),
+        update: vi.fn((data: unknown) => {
+          mockTokenPatchUpdate(data);
+          return {
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                select: vi.fn(() => ({
+                  single: mockTokenUpdateSingle,
+                })),
+              })),
+              // For signature_url patch (no second eq)
+              select: undefined,
+            })),
+          };
+        }),
+      };
+    }
+    if (table === "estimate_versions") {
+      return {
+        select: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            single: mockVersionDataSingle,
+          })),
+        })),
+        update: vi.fn(() => {
+          mockVersionUpdate();
+          return {
+            eq: vi.fn(() => ({
+              eq: vi.fn(() => ({
+                error: null,
+              })),
+            })),
+          };
+        }),
+      };
+    }
+    if (table === "estimate_emails") {
+      return {
+        insert: mockEmailInsert,
+      };
+    }
+    return {};
+  };
+}
+
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: () => ({
+    from: vi.fn(buildMockFrom()),
+    rpc: mockRpc,
+    storage: {
+      from: vi.fn(() => ({
+        upload: mockStorageUpload,
+      })),
+    },
+  }),
+}));
+
+vi.mock("resend", () => ({
+  Resend: vi.fn().mockImplementation(() => ({
+    emails: {
+      send: vi.fn().mockResolvedValue({ data: { id: "email-1" }, error: null }),
+    },
+  })),
+}));
+
+import { POST } from "./route";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const VALID_TOKEN = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+const VALID_SIGNATURE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+function makeRequest(body?: unknown, headers?: Record<string, string>) {
+  return new Request("http://localhost/api/portal/test-token/accept", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(headers ?? {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+}
+
+function makeParams(token = VALID_TOKEN) {
+  return { params: Promise.resolve({ token }) };
+}
+
+const PENDING_TOKEN = {
+  id: "token-id-1",
+  version_id: "version-id-1",
+  status: "pending",
+  expires_at: new Date(Date.now() + 86400000).toISOString(),
+  email: "client@test.com",
+};
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("POST /api/portal/[token]/accept", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRpc.mockResolvedValue({ error: null });
+    mockStorageUpload.mockResolvedValue({ error: null });
+    mockEmailInsert.mockResolvedValue({ error: null });
+    mockVersionDataSingle.mockResolvedValue({ data: null, error: null });
+    // No email env vars by default (skip email sending)
+    delete process.env.RESEND_API_KEY;
+    delete process.env.EMAIL_FROM;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns 400 on null JSON body", async () => {
+    const res = await POST(makeRequest(null), makeParams());
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/invalide/i);
+  });
+
+  it("returns 400 when accepted_terms is false", async () => {
+    const res = await POST(
+      makeRequest({ accepted_terms: false }),
+      makeParams()
+    );
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/conditions/i);
+  });
+
+  it("returns 400 when accepted_terms is missing", async () => {
+    const res = await POST(makeRequest({}), makeParams());
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 on invalid signature format", async () => {
+    const res = await POST(
+      makeRequest({
+        accepted_terms: true,
+        signature_base64: "not-a-data-uri",
+      }),
+      makeParams()
+    );
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/signature/i);
+  });
+
+  it("returns 400 on oversized signature", async () => {
+    const hugeSignature = `data:image/png;base64,${"A".repeat(800_000)}`;
+    const res = await POST(
+      makeRequest({
+        accepted_terms: true,
+        signature_base64: hugeSignature,
+      }),
+      makeParams()
+    );
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/volumineuse/i);
+  });
+
+  it("returns 404 for unknown token", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: null,
+      error: { code: "PGRST116" },
+    });
+
+    const res = await POST(
+      makeRequest({ accepted_terms: true }),
+      makeParams()
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 409 for already-accepted token", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: { ...PENDING_TOKEN, status: "accepted" },
+      error: null,
+    });
+
+    const res = await POST(
+      makeRequest({ accepted_terms: true }),
+      makeParams()
+    );
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 404 for expired token", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: {
+        ...PENDING_TOKEN,
+        expires_at: new Date(Date.now() - 86400000).toISOString(),
+      },
+      error: null,
+    });
+
+    const res = await POST(
+      makeRequest({ accepted_terms: true }),
+      makeParams()
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 200 on valid accept without signature", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockTokenUpdateSingle.mockResolvedValueOnce({
+      data: { id: "token-id-1" },
+      error: null,
+    });
+
+    const res = await POST(
+      makeRequest({ accepted_terms: true }),
+      makeParams()
+    );
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.status).toBe("accepted");
+    expect(json.accepted_at).toBeTruthy();
+
+    // Verify token claimed with correct data
+    expect(mockTokenPatchUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "accepted",
+      })
+    );
+  });
+
+  it("returns 200 on valid accept with signature and uploads to storage", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockTokenUpdateSingle.mockResolvedValueOnce({
+      data: { id: "token-id-1" },
+      error: null,
+    });
+
+    const res = await POST(
+      makeRequest({
+        accepted_terms: true,
+        signature_base64: VALID_SIGNATURE,
+      }),
+      makeParams()
+    );
+    expect(res.status).toBe(200);
+
+    // Verify storage upload was called
+    expect(mockStorageUpload).toHaveBeenCalledWith(
+      "signatures/token-id-1.png",
+      expect.any(Buffer),
+      expect.objectContaining({ contentType: "image/png" })
+    );
+  });
+
+  it("returns 409 on concurrent acceptance (concurrency guard)", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockTokenUpdateSingle.mockResolvedValueOnce({
+      data: null,
+      error: { code: "PGRST116" },
+    });
+
+    const res = await POST(
+      makeRequest({ accepted_terms: true }),
+      makeParams()
+    );
+    expect(res.status).toBe(409);
+
+    // Signature should NOT have been uploaded (guard before upload)
+    expect(mockStorageUpload).not.toHaveBeenCalled();
+  });
+
+  it("still succeeds when signature upload fails (non-blocking)", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockTokenUpdateSingle.mockResolvedValueOnce({
+      data: { id: "token-id-1" },
+      error: null,
+    });
+    mockStorageUpload.mockResolvedValueOnce({
+      error: { message: "Storage full" },
+    });
+
+    const res = await POST(
+      makeRequest({
+        accepted_terms: true,
+        signature_base64: VALID_SIGNATURE,
+      }),
+      makeParams()
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("captures client IP from x-forwarded-for header", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockTokenUpdateSingle.mockResolvedValueOnce({
+      data: { id: "token-id-1" },
+      error: null,
+    });
+
+    await POST(
+      makeRequest({ accepted_terms: true }, { "x-forwarded-for": "1.2.3.4, 5.6.7.8" }),
+      makeParams()
+    );
+
+    expect(mockTokenPatchUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accepted_ip: "1.2.3.4",
+      })
+    );
+  });
+
+  it("logs accepted event via RPC", async () => {
+    mockTokenLookupSingle.mockResolvedValueOnce({
+      data: PENDING_TOKEN,
+      error: null,
+    });
+    mockTokenUpdateSingle.mockResolvedValueOnce({
+      data: { id: "token-id-1" },
+      error: null,
+    });
+
+    await POST(makeRequest({ accepted_terms: true }), makeParams());
+
+    expect(mockRpc).toHaveBeenCalledWith(
+      "log_estimate_version_event",
+      expect.objectContaining({
+        p_estimate_version_id: "version-id-1",
+        p_event_type: "accepted",
+        p_created_by: null,
+        p_metadata: expect.objectContaining({
+          portal_token_id: "token-id-1",
+          accepted_via: "portal",
+        }),
+      })
+    );
+  });
+});
