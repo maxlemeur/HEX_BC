@@ -21,6 +21,9 @@ import {
   resolveSectionLevel,
 } from "@/lib/estimates/hierarchy";
 import {
+  type TreeConnectorMeta,
+} from "@/lib/estimates/tree-connectors";
+import {
   type SuggestionPreview,
 } from "@/components/estimates/components/EstimateSuggestionRow";
 import type { Database } from "@/types/database";
@@ -51,8 +54,7 @@ export type VirtualizedItemRow = {
   kind: "item";
   item: EstimateItem;
   depth: number;
-  isLastChild: boolean;
-  parentIsLastChild?: boolean;
+  treeConnectorMeta: TreeConnectorMeta;
   unitValue: string;
   supplyTypeValue: string;
   qualityFlags: EstimateQualityFlagKey[];
@@ -116,17 +118,25 @@ export function useEstimateDndVirtualization({
     if (!shouldVirtualize) return [] as VirtualizedRow[];
 
     const rows: VirtualizedRow[] = [];
-    const walk = (parentId: string | null, parentIsLastChild?: boolean) => {
+    const walk = (parentId: string | null, ancestorLastChildFlags: boolean[] = []) => {
       const list = getVisibleItems(parentId);
       list.forEach((item, index) => {
         const isLast = index === list.length - 1;
+        const rowDepth = depthMap.get(item.id) ?? ancestorLastChildFlags.length;
+        const hasVisibleChildren =
+          item.item_type === "section" && getVisibleItems(item.id).length > 0;
+        const treeConnectorMeta: TreeConnectorMeta = {
+          depth: rowDepth,
+          isLastChild: isLast,
+          ancestorLastChildFlags,
+          hasVisibleChildren,
+        };
         rows.push({
           key: `item:${item.id}`,
           kind: "item",
           item,
-          depth: depthMap.get(item.id) ?? 0,
-          isLastChild: isLast,
-          parentIsLastChild,
+          depth: rowDepth,
+          treeConnectorMeta,
           unitValue: mergedUnitDrafts[item.id] ?? "",
           supplyTypeValue: mergedSupplyTypeDrafts[item.id] ?? "",
           qualityFlags: qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
@@ -143,7 +153,7 @@ export function useEstimateDndVirtualization({
         }
 
         if (item.item_type === "section") {
-          walk(item.id, isLast);
+          walk(item.id, [...ancestorLastChildFlags, isLast]);
         }
       });
     };

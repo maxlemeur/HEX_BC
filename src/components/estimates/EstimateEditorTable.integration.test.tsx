@@ -39,25 +39,48 @@ vi.mock("@/components/estimates/components/EstimateEditorBody", () => ({
 
 vi.mock("@/components/estimates/components/EstimateEditorRow", () => ({
   getSpreadsheetColumnKeys: () => ["title"],
-  EstimateEditorRow: ({ item, estimateCurrency }: {
+  EstimateEditorRow: ({ item, estimateCurrency, treeConnectorMeta }: {
     item: EstimateItem;
     estimateCurrency: string;
+    treeConnectorMeta?: {
+      depth: number;
+      isLastChild: boolean;
+      ancestorLastChildFlags: boolean[];
+      hasVisibleChildren: boolean;
+    };
   }) => (
-    <MockRow item={item} estimateCurrency={estimateCurrency} />
+    <MockRow
+      item={item}
+      estimateCurrency={estimateCurrency}
+      treeConnectorMeta={treeConnectorMeta}
+    />
   ),
 }));
 
 function MockRow({
   item,
   estimateCurrency,
+  treeConnectorMeta,
 }: {
   item: EstimateItem;
   estimateCurrency: string;
+  treeConnectorMeta?: {
+    depth: number;
+    isLastChild: boolean;
+    ancestorLastChildFlags: boolean[];
+    hasVisibleChildren: boolean;
+  };
 }) {
   const { onPatchItem, onLineSelectionInteraction } = useEstimateEditorRowActions();
 
   return (
-    <div data-estimate-item-id={item.id}>
+    <div
+      data-estimate-item-id={item.id}
+      data-connector-depth={treeConnectorMeta?.depth}
+      data-connector-is-last-child={treeConnectorMeta?.isLastChild}
+      data-connector-ancestor-flags={treeConnectorMeta?.ancestorLastChildFlags.join(",")}
+      data-connector-has-visible-children={treeConnectorMeta?.hasVisibleChildren}
+    >
       <span>Currency {estimateCurrency}</span>
       <button
         type="button"
@@ -129,9 +152,24 @@ function createItem(partial: Partial<EstimateItem>): EstimateItem {
 function renderEstimateEditorTable(options?: {
   currency?: "EUR" | "USD" | "GBP";
   uiMode?: "expert" | "simplified";
+  items?: EstimateItem[];
 }) {
   const onPatchItem = vi.fn();
   const onApplyBulkMajoration = vi.fn().mockResolvedValue(undefined);
+  const items =
+    options?.items ??
+    [
+      createItem({
+        id: "line-1",
+        item_type: "line",
+        title: "Tube acier",
+        quantity: 2,
+        unit_price_ht_cents: 950,
+        pu_ht_cents: 950,
+        line_total_ht_cents: 1900,
+      }),
+    ];
+  const lineCount = items.filter((item) => item.item_type === "line").length;
 
   render(
     <UserProvider
@@ -151,17 +189,7 @@ function renderEstimateEditorTable(options?: {
       <EstimateEditorTable
         versionId="version-1"
         currency={options?.currency ?? "EUR"}
-        items={[
-          createItem({
-            id: "line-1",
-            item_type: "line",
-            title: "Tube acier",
-            quantity: 2,
-            unit_price_ht_cents: 950,
-            pu_ht_cents: 950,
-            line_total_ht_cents: 1900,
-          }),
-        ]}
+        items={items}
         categories={[]}
         supplyTypes={[]}
         laborRoles={[]}
@@ -173,7 +201,7 @@ function renderEstimateEditorTable(options?: {
         outlierThreshold={1.5}
         qualityFlagsByItemId={{}}
         qualityCounts={{
-          linesCount: 1,
+          linesCount: lineCount,
           linesWithAnomaliesCount: 0,
           totalFlagsCount: 0,
           byFlag: {
@@ -323,5 +351,43 @@ describe("EstimateEditorTable integration", () => {
 
     expect(localStorage.getItem("est-col-override")).toBe("true");
     expect(localStorage.getItem("est-col-vis")).toBe("full");
+  });
+
+  it("propagates deep connector metadata for depth 3 line rows", () => {
+    renderEstimateEditorTable({
+      items: [
+        createItem({ id: "lot-1", item_type: "section", title: "Lot", position: 1 }),
+        createItem({
+          id: "chapter-1",
+          item_type: "section",
+          parent_id: "lot-1",
+          title: "Chapitre",
+          position: 1,
+        }),
+        createItem({
+          id: "subchapter-1",
+          item_type: "section",
+          parent_id: "chapter-1",
+          title: "Sous-chapitre",
+          position: 1,
+        }),
+        createItem({
+          id: "line-deep",
+          item_type: "line",
+          parent_id: "subchapter-1",
+          title: "Ligne profonde",
+          position: 1,
+        }),
+      ],
+    });
+
+    const deepLineRow = document.querySelector<HTMLElement>(
+      '[data-estimate-item-id="line-deep"]'
+    );
+    expect(deepLineRow).not.toBeNull();
+    expect(deepLineRow?.dataset.connectorDepth).toBe("3");
+    expect(deepLineRow?.dataset.connectorIsLastChild).toBe("true");
+    expect(deepLineRow?.dataset.connectorAncestorFlags).toBe("true,true,true");
+    expect(deepLineRow?.dataset.connectorHasVisibleChildren).toBe("false");
   });
 });

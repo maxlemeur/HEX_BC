@@ -1704,6 +1704,29 @@ body {
   color: var(--slate-600);
 }
 
+.estimate-table__add-lot-row {
+  padding: 8px 14px;
+  border-top: 1px dashed var(--slate-300);
+  display: flex;
+}
+
+.estimate-table__add-lot-row > button {
+  animation: slide-center-to-left 0.4s ease-out both;
+}
+
+@keyframes slide-center-to-left {
+  from {
+    margin-left: auto;
+    margin-right: auto;
+    opacity: 0.6;
+  }
+  to {
+    margin-left: 0;
+    margin-right: auto;
+    opacity: 1;
+  }
+}
+
 .estimate-group {
   display: contents;
 }
@@ -1845,113 +1868,46 @@ body {
   background: rgba(245, 158, 11, 0.18);
 }
 
-/* ── Tree connectors: vertical lines via background-image ── */
+/* ── Tree connectors (generic, any depth) ── */
 
-/* Chapter sections (depth 0): d0 vertical line going down to children */
-.estimate-row--section[data-depth="0"] .estimate-cell--designation {
-  background-image: linear-gradient(var(--tree-color-d0), var(--tree-color-d0));
-  background-position: var(--tree-offset) 50%;
-  background-size: var(--tree-line-w) 50%;
-  background-repeat: no-repeat;
-}
-
-/* Depth 1 (lines & sub-chapters): d0 vertical line from chapter parent */
-.estimate-row[data-depth="1"] .estimate-cell--designation {
-  background-image:
-    linear-gradient(var(--tree-color-d0), var(--tree-color-d0));
-  background-position: var(--tree-offset) 0;
-  background-size: var(--tree-line-w) 100%;
-  background-repeat: no-repeat;
-}
-
-/* Sub-chapter sections (depth 1): d0 line + d1 line going down to children */
-.estimate-row--section[data-depth="1"] .estimate-cell--designation {
-  background-image:
-    linear-gradient(var(--tree-color-d0), var(--tree-color-d0)),
-    linear-gradient(var(--tree-color-d1), var(--tree-color-d1));
-  background-position:
-    var(--tree-offset) 0,
-    calc(var(--tree-indent) + var(--tree-offset)) 50%;
-  background-size:
-    var(--tree-line-w) 100%,
-    var(--tree-line-w) 50%;
-  background-repeat: no-repeat;
-}
-
-/* Depth 2: two vertical lines (chapter + sub-chapter) */
-.estimate-row[data-depth="2"] .estimate-cell--designation {
-  background-image:
-    linear-gradient(var(--tree-color-d0), var(--tree-color-d0)),
-    linear-gradient(var(--tree-color-d1), var(--tree-color-d1));
-  background-position:
-    var(--tree-offset) 0,
-    calc(var(--tree-indent) + var(--tree-offset)) 0;
-  background-size:
-    var(--tree-line-w) 100%,
-    var(--tree-line-w) 100%;
-  background-repeat: no-repeat;
-}
-
-/* Last child: cut the nearest vertical line at 50% height (L-shape) */
-.estimate-row[data-depth="1"][data-is-last-child]:not(.estimate-row--section) .estimate-cell--designation {
-  background-size: var(--tree-line-w) 50%;
-}
-
-/* Last child sub-chapter: d0 cut at 50%, d1 still from center down */
-.estimate-row--section[data-depth="1"][data-is-last-child] .estimate-cell--designation {
-  background-size:
-    var(--tree-line-w) 50%,
-    var(--tree-line-w) 50%;
-}
-
-.estimate-row[data-depth="2"][data-is-last-child] .estimate-cell--designation {
-  background-size:
-    var(--tree-line-w) 100%,
-    var(--tree-line-w) 50%;
-}
-
-/* Parent is last child at depth 1: remove d0 trunk on depth-2 rows */
-.estimate-row[data-depth="2"][data-parent-is-last-child] .estimate-cell--designation {
-  background-image:
-    linear-gradient(var(--tree-color-d1), var(--tree-color-d1));
-  background-position: calc(var(--tree-indent) + var(--tree-offset)) 0;
-  background-size: var(--tree-line-w) 100%;
-  background-repeat: no-repeat;
-}
-
-.estimate-row[data-depth="2"][data-is-last-child][data-parent-is-last-child] .estimate-cell--designation {
-  background-size: var(--tree-line-w) 50%;
-}
-
-/* ── Tree connectors: horizontal branches via ::before ── */
-
-/* Depth 1 lines and sub-chapter rows: horizontal branch */
-.estimate-row[data-depth="1"]:not(.estimate-row--section) .estimate-cell--designation::before,
-.estimate-row--section[data-depth="1"] .estimate-cell--designation::before {
-  content: "";
-  display: block;
+.estimate-tree-connectors {
   position: absolute;
-  top: 50%;
-  left: var(--tree-offset);
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.estimate-tree-segment {
+  position: absolute;
+  pointer-events: none;
+}
+
+.estimate-tree-segment--v {
+  width: var(--tree-line-w);
+}
+
+.estimate-tree-segment--h {
+  top: calc(50% - (var(--tree-line-w) / 2));
   width: calc(var(--tree-indent) - var(--tree-offset));
   height: var(--tree-line-w);
+}
+
+.estimate-tree-segment--d0 {
   background: var(--tree-color-d0);
-  pointer-events: none;
-  z-index: 1;
 }
 
-/* Depth 2 lines: horizontal branch */
-.estimate-row[data-depth="2"]:not(.estimate-row--section) .estimate-cell--designation::before {
-  content: "";
-  display: block;
-  position: absolute;
-  top: 50%;
-  left: calc(var(--tree-indent) + var(--tree-offset));
-  width: calc(var(--tree-indent) - var(--tree-offset));
-  height: var(--tree-line-w);
+.estimate-tree-segment--d1 {
   background: var(--tree-color-d1);
-  pointer-events: none;
+}
+
+.estimate-cell__content {
+  position: relative;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  gap: 8px;
 }
 
 /* Line rows: slightly bolder title */
@@ -2024,11 +1980,6 @@ body {
   overflow: hidden;
 }
 
-/* Sub-chapter sections need relative positioning for tree branch ::before */
-.estimate-row--section[data-depth="1"] .estimate-cell--designation {
-  position: relative;
-}
-
 .estimate-row--section .estimate-cell--designation::after {
   display: none;
 }
@@ -2095,10 +2046,12 @@ body {
   transition: max-width 0.2s ease, opacity 0.15s ease;
   flex-shrink: 0;
   margin-left: auto;
+  position: relative;
+  z-index: 4;
 }
 
 .estimate-row--section .estimate-cell--designation:hover .estimate-section-hover-actions {
-  max-width: 220px;
+  max-width: 320px;
   opacity: 1;
 }
 
@@ -2107,9 +2060,9 @@ body {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  border: 1px solid var(--blue-300, #93c5fd);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.8);
+  background: #ffffff;
   color: var(--blue-600, #2563eb);
   font-size: 11px;
   font-weight: 500;
@@ -2119,7 +2072,7 @@ body {
 }
 
 .estimate-section-hover-btn:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.1);
+  background: #dbeafe;
   border-color: var(--blue-400, #60a5fa);
 }
 
@@ -2714,6 +2667,8 @@ body {
   transition: max-width 0.2s ease, opacity 0.15s ease;
   flex-shrink: 0;
   margin-left: auto;
+  position: relative;
+  z-index: 4;
 }
 
 .estimate-row:not(.estimate-row--section) .estimate-cell--designation:hover .estimate-line-hover-actions,

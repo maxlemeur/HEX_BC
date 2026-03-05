@@ -176,6 +176,34 @@ describe("useEstimateDndVirtualization", () => {
       "suggestion:line-1",
       "item:line-2",
     ]);
+    const sectionRow = result.current.flattenedRows[0];
+    const lineRow = result.current.flattenedRows[1];
+    const rootLineRow = result.current.flattenedRows[3];
+    if (
+      sectionRow?.kind !== "item" ||
+      lineRow?.kind !== "item" ||
+      rootLineRow?.kind !== "item"
+    ) {
+      throw new Error("Expected virtualized item rows.");
+    }
+    expect(sectionRow.treeConnectorMeta).toEqual({
+      depth: 0,
+      isLastChild: false,
+      ancestorLastChildFlags: [],
+      hasVisibleChildren: true,
+    });
+    expect(lineRow.treeConnectorMeta).toEqual({
+      depth: 1,
+      isLastChild: true,
+      ancestorLastChildFlags: [false],
+      hasVisibleChildren: false,
+    });
+    expect(rootLineRow.treeConnectorMeta).toEqual({
+      depth: 0,
+      isLastChild: true,
+      ancestorLastChildFlags: [],
+      hasVisibleChildren: false,
+    });
     expect(result.current.virtualizedSortableIds).toEqual([
       "section-1",
       "line-1",
@@ -477,6 +505,79 @@ describe("useEstimateDndVirtualization", () => {
       "section-root",
       [],
       ["section-child", "line-source"]
+    );
+  });
+
+  it("moves a line from chapter to subchapter with exact target parent id", () => {
+    const lot = createItem({ id: "lot-1", item_type: "section" });
+    const chapter = createItem({
+      id: "chapter-1",
+      item_type: "section",
+      parent_id: "lot-1",
+    });
+    const subchapter = createItem({
+      id: "subchapter-1",
+      item_type: "section",
+      parent_id: "chapter-1",
+    });
+    const sourceChapter = createItem({ id: "chapter-source", item_type: "section" });
+    const sourceLine = createItem({
+      id: "line-source",
+      item_type: "line",
+      parent_id: "chapter-source",
+    });
+
+    const itemsByParent = new Map<string, EstimateItem[]>([
+      ["root", [lot, sourceChapter]],
+      ["lot-1", [chapter]],
+      ["chapter-1", [subchapter]],
+      ["chapter-source", [sourceLine]],
+      ["subchapter-1", []],
+    ]);
+
+    const onReorder = vi.fn();
+    const onMoveItem = vi.fn();
+    const tableCardRef = createRef<HTMLDivElement>();
+    tableCardRef.current = document.createElement("div");
+
+    const { result } = renderHook(() =>
+      useEstimateDndVirtualization({
+        canReorder: true,
+        maxSectionDepth: 4,
+        itemsByParent,
+        onReorder,
+        onMoveItem,
+        hasVisibleRows: true,
+        getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
+        depthMap: new Map([
+          ["lot-1", 0],
+          ["chapter-1", 1],
+          ["subchapter-1", 2],
+          ["chapter-source", 0],
+          ["line-source", 1],
+        ]),
+        mergedUnitDrafts: {},
+        mergedSupplyTypeDrafts: {},
+        qualityFlagsByItemId: {},
+        suggestionsByItemId: new Map(),
+        tableCardRef,
+      })
+    );
+
+    act(() => {
+      result.current.handleDragEnd({
+        active: { id: "line-source", data: { current: { parentId: "chapter-source" } } },
+        over: { id: "subchapter-1", data: { current: { parentId: "chapter-1" } } },
+      } as never);
+    });
+
+    expect(onReorder).not.toHaveBeenCalled();
+    expect(onMoveItem).toHaveBeenCalledWith(
+      "line-source",
+      "chapter-source",
+      "subchapter-1",
+      [],
+      ["line-source"]
     );
   });
 

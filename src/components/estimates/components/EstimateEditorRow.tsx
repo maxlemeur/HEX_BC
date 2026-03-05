@@ -44,6 +44,10 @@ import {
   parseCurrencyToCents,
   type SupportedEstimateCurrency,
 } from "@/lib/money";
+import {
+  buildTreeConnectorSegments,
+  type TreeConnectorMeta,
+} from "@/lib/estimates/tree-connectors";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"] & {
@@ -496,8 +500,7 @@ export type EstimateEditorRowProps = {
   isLaborSplitEnabled: boolean;
   isPendingCreate?: boolean;
   isSearchMatch?: boolean;
-  isLastChild?: boolean;
-  parentIsLastChild?: boolean;
+  treeConnectorMeta?: TreeConnectorMeta;
   sectionLevel?: number | null;
   canAddLine?: boolean;
   canAddSection?: boolean;
@@ -514,6 +517,30 @@ function areStringArraysEqual(left: string[], right: string[]) {
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+function areBooleanArraysEqual(left: boolean[], right: boolean[]) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function areTreeConnectorMetaEqual(
+  left: TreeConnectorMeta | undefined,
+  right: TreeConnectorMeta | undefined
+) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+
+  return (
+    left.depth === right.depth &&
+    left.isLastChild === right.isLastChild &&
+    left.hasVisibleChildren === right.hasVisibleChildren &&
+    areBooleanArraysEqual(left.ancestorLastChildFlags, right.ancestorLastChildFlags)
+  );
 }
 
 function areSectionTotalsEqual(
@@ -577,8 +604,7 @@ function areEstimateEditorRowPropsEqual(
     previous.isLaborSplitEnabled === next.isLaborSplitEnabled &&
     previous.isPendingCreate === next.isPendingCreate &&
     previous.isSearchMatch === next.isSearchMatch &&
-    previous.isLastChild === next.isLastChild &&
-    previous.parentIsLastChild === next.parentIsLastChild &&
+    areTreeConnectorMetaEqual(previous.treeConnectorMeta, next.treeConnectorMeta) &&
     previous.sectionLevel === next.sectionLevel &&
     previous.canAddLine === next.canAddLine &&
     previous.canAddSection === next.canAddSection &&
@@ -613,13 +639,12 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
   visibleColumns,
   isPendingCreate = false,
   isSearchMatch,
-  isLastChild,
-  parentIsLastChild,
+  treeConnectorMeta,
   sectionLevel = null,
   canAddLine = true,
   canAddSection = true,
-  addLineLabel = "+ Ajouter une ligne",
-  addSectionLabel = "+ Ajouter une section",
+  addLineLabel = "+ Ligne",
+  addSectionLabel = "+ Section",
   isSectionCollapsed = false,
   onToggleSectionCollapsed,
 }: EstimateEditorRowProps) {
@@ -664,6 +689,16 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     "--row-depth": String(depth),
     paddingLeft: "calc(var(--tree-indent) * var(--row-depth))",
   };
+  const resolvedTreeConnectorMeta: TreeConnectorMeta = treeConnectorMeta ?? {
+    depth,
+    isLastChild: false,
+    ancestorLastChildFlags: [],
+    hasVisibleChildren: false,
+  };
+  const treeConnectorSegments = buildTreeConnectorSegments(resolvedTreeConnectorMeta);
+  const hasTreeConnectors =
+    treeConnectorSegments.verticalSegments.length > 0 ||
+    treeConnectorSegments.horizontalSegment !== null;
 
   const aidValue = typeof item.aid === "string" ? item.aid : "";
   const normalizedAidValue = aidValue.trim();
@@ -930,8 +965,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         data-testid="estimate-section-row"
         data-depth={depth}
         data-section-level={sectionLevel ?? undefined}
-        data-is-last-child={isLastChild || undefined}
-        data-parent-is-last-child={parentIsLastChild || undefined}
         role="row"
         onContextMenu={(event) => {
           const target = event.target as HTMLElement;
@@ -967,94 +1000,119 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
           )}
           style={indentStyle}
         >
-          {!hideEditingActions ? (
-            <DragHandle
-              listeners={listeners}
-              attributes={attributes}
-              disabled={isReadOnly || isDragDisabled}
-            />
-          ) : null}
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            {onToggleSectionCollapsed ? (
-              <button
-                type="button"
-                className="estimate-section-collapse-btn"
-                onClick={() => onToggleSectionCollapsed(item.id)}
-                aria-label={
-                  isSectionCollapsed ? "Deplier la section" : "Replier la section"
-                }
-                title={isSectionCollapsed ? "Deplier" : "Replier"}
-              >
-                {isSectionCollapsed ? "▸" : "▾"}
-              </button>
-            ) : null}
-            <div className="estimate-designation-meta">
-              {itemNumber ? (
-                <span className="font-mono text-[11px] font-semibold text-[var(--slate-500)]">
-                  {itemNumber}
-                </span>
+          {hasTreeConnectors ? (
+            <span className="estimate-tree-connectors" aria-hidden="true">
+              {treeConnectorSegments.verticalSegments.map((segment) => (
+                <span
+                  key={`section-v-${segment.column}-${segment.from}-${segment.to}`}
+                  className={`estimate-tree-segment estimate-tree-segment--v estimate-tree-segment--${segment.tone}`}
+                  style={{
+                    left: `calc(${segment.column} * var(--tree-indent) + var(--tree-offset))`,
+                    top: segment.from === "top" ? "0" : "50%",
+                    bottom: segment.to === "bottom" ? "0" : "50%",
+                  }}
+                />
+              ))}
+              {treeConnectorSegments.horizontalSegment ? (
+                <span
+                  className={`estimate-tree-segment estimate-tree-segment--h estimate-tree-segment--${treeConnectorSegments.horizontalSegment.tone}`}
+                  style={{
+                    left: `calc(${treeConnectorSegments.horizontalSegment.column} * var(--tree-indent) + var(--tree-offset))`,
+                  }}
+                />
               ) : null}
-              {renderAidInput()}
-            </div>
-            <div className="min-w-0 flex-1">
-              <input
-                className="estimate-input estimate-input--title"
-                ref={titleEditorProps.ref}
-                tabIndex={titleEditorProps.tabIndex}
-                value={item.title}
-                title={item.title}
-                disabled={isReadOnly}
-                data-testid="estimate-section-title-input"
-                onFocus={titleEditorProps.onFocus}
-                onKeyDown={titleEditorProps.onKeyDown}
-                onChange={(event) =>
-                  onPatchItem(item.id, { title: event.target.value }, { persist: false })
-                }
-                onBlur={(event) => {
-                  titleEditorProps.onBlur(event);
-                  const nextTitle = event.target.value.trim() || "Sans titre";
-                  onPatchItem(item.id, { title: nextTitle }, { persist: true });
-                }}
+            </span>
+          ) : null}
+          <div className="estimate-cell__content">
+            {!hideEditingActions ? (
+              <DragHandle
+                listeners={listeners}
+                attributes={attributes}
+                disabled={isReadOnly || isDragDisabled}
               />
+            ) : null}
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              {onToggleSectionCollapsed ? (
+                <button
+                  type="button"
+                  className="estimate-section-collapse-btn"
+                  onClick={() => onToggleSectionCollapsed(item.id)}
+                  aria-label={
+                    isSectionCollapsed ? "Deplier la section" : "Replier la section"
+                  }
+                  title={isSectionCollapsed ? "Deplier" : "Replier"}
+                >
+                  {isSectionCollapsed ? "▸" : "▾"}
+                </button>
+              ) : null}
+              <div className="estimate-designation-meta">
+                {itemNumber ? (
+                  <span className="font-mono text-[11px] font-semibold text-[var(--slate-500)]">
+                    {itemNumber}
+                  </span>
+                ) : null}
+                {renderAidInput()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <input
+                  className="estimate-input estimate-input--title"
+                  ref={titleEditorProps.ref}
+                  tabIndex={titleEditorProps.tabIndex}
+                  value={item.title}
+                  title={item.title}
+                  disabled={isReadOnly}
+                  data-testid="estimate-section-title-input"
+                  onFocus={titleEditorProps.onFocus}
+                  onKeyDown={titleEditorProps.onKeyDown}
+                  onChange={(event) =>
+                    onPatchItem(item.id, { title: event.target.value }, { persist: false })
+                  }
+                  onBlur={(event) => {
+                    titleEditorProps.onBlur(event);
+                    const nextTitle = event.target.value.trim() || "Sans titre";
+                    onPatchItem(item.id, { title: nextTitle }, { persist: true });
+                  }}
+                />
+              </div>
             </div>
+            {!hideEditingActions ? (
+              <div className="estimate-section-hover-actions">
+                {canAddLine ? (
+                  <button
+                    className="estimate-section-hover-btn"
+                    type="button"
+                    onClick={() => onAddLine(item.id)}
+                    disabled={isReadOnly}
+                    data-testid="estimate-section-add-line-button"
+                  >
+                    {addLineLabel}
+                  </button>
+                ) : null}
+                {canAddSection ? (
+                  <button
+                    className="estimate-section-hover-btn"
+                    type="button"
+                    onClick={() => onAddSection(item.id)}
+                    disabled={isReadOnly}
+                    data-testid="estimate-section-add-section-button"
+                  >
+                    {addSectionLabel}
+                  </button>
+                ) : null}
+                {!isAidEditorVisible ? (
+                  <button
+                    className="estimate-section-hover-btn"
+                    type="button"
+                    onClick={handleRevealAidEditor}
+                    disabled={isReadOnly}
+                    data-testid="estimate-section-add-aid-button"
+                  >
+                    + AID
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-          {!hideEditingActions ? (
-            <div className="estimate-section-hover-actions">
-              {canAddLine ? (
-                <button
-                  className="estimate-section-hover-btn"
-                  type="button"
-                  onClick={() => onAddLine(item.id)}
-                  disabled={isReadOnly}
-                  data-testid="estimate-section-add-line-button"
-                >
-                  {addLineLabel}
-                </button>
-              ) : null}
-              {canAddSection ? (
-                <button
-                  className="estimate-section-hover-btn"
-                  type="button"
-                  onClick={() => onAddSection(item.id)}
-                  disabled={isReadOnly}
-                  data-testid="estimate-section-add-section-button"
-                >
-                  {addSectionLabel}
-                </button>
-              ) : null}
-              {!isAidEditorVisible ? (
-                <button
-                  className="estimate-section-hover-btn"
-                  type="button"
-                  onClick={handleRevealAidEditor}
-                  disabled={isReadOnly}
-                  data-testid="estimate-section-add-aid-button"
-                >
-                  + AID
-                </button>
-              ) : null}
-            </div>
-          ) : null}
         </div>
         {/* qty */}
         <div />
@@ -1353,8 +1411,6 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
       data-estimate-item-id={item.id}
       data-testid="estimate-line-row"
       data-depth={depth}
-      data-is-last-child={isLastChild || undefined}
-      data-parent-is-last-child={parentIsLastChild || undefined}
       role="row"
       onMouseDown={handleRowModifierSelection}
       onContextMenu={handleLineContextMenu}
@@ -1370,265 +1426,290 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
         )}
         style={indentStyle}
       >
-        <input
-          type="checkbox"
-          className="estimate-line-checkbox"
-          checked={isLineSelected}
-          onClick={handleLineSelectionCheckboxClick}
-          readOnly
-          disabled={isReadOnly}
-          aria-label={`Sélectionner la ligne ${item.title || "sans titre"}`}
-          data-testid="estimate-line-checkbox"
-        />
-        {!hideEditingActions ? (
-          <DragHandle
-            listeners={listeners}
-            attributes={attributes}
-            disabled={isReadOnly || isDragDisabled}
-          />
+        {hasTreeConnectors ? (
+          <span className="estimate-tree-connectors" aria-hidden="true">
+            {treeConnectorSegments.verticalSegments.map((segment) => (
+              <span
+                key={`line-v-${segment.column}-${segment.from}-${segment.to}`}
+                className={`estimate-tree-segment estimate-tree-segment--v estimate-tree-segment--${segment.tone}`}
+                style={{
+                  left: `calc(${segment.column} * var(--tree-indent) + var(--tree-offset))`,
+                  top: segment.from === "top" ? "0" : "50%",
+                  bottom: segment.to === "bottom" ? "0" : "50%",
+                }}
+              />
+            ))}
+            {treeConnectorSegments.horizontalSegment ? (
+              <span
+                className={`estimate-tree-segment estimate-tree-segment--h estimate-tree-segment--${treeConnectorSegments.horizontalSegment.tone}`}
+                style={{
+                  left: `calc(${treeConnectorSegments.horizontalSegment.column} * var(--tree-indent) + var(--tree-offset))`,
+                }}
+              />
+            ) : null}
+          </span>
         ) : null}
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <div className="estimate-designation-meta">
-            {renderAidInput()}
-          </div>
+        <div className="estimate-cell__content">
+          <input
+            type="checkbox"
+            className="estimate-line-checkbox"
+            checked={isLineSelected}
+            onClick={handleLineSelectionCheckboxClick}
+            readOnly
+            disabled={isReadOnly}
+            aria-label={`Sélectionner la ligne ${item.title || "sans titre"}`}
+            data-testid="estimate-line-checkbox"
+          />
+          {!hideEditingActions ? (
+            <DragHandle
+              listeners={listeners}
+              attributes={attributes}
+              disabled={isReadOnly || isDragDisabled}
+            />
+          ) : null}
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <input
-              className="estimate-input estimate-input--title"
-              ref={titleEditorProps.ref}
-              tabIndex={titleEditorProps.tabIndex}
-              value={item.title}
-              title={item.title}
-              disabled={isReadOnly}
-              data-testid="estimate-line-title-input"
-              placeholder="Obligatoire"
-              onFocus={handleLineTitleFocus}
-              onKeyDown={handleLineTitleKeyDown}
-              onChange={(event) =>
-                onPatchItem(item.id, { title: event.target.value }, { persist: false })
-              }
-              onBlur={handleLineTitleBlur}
-              role="combobox"
-              aria-autocomplete="list"
-              aria-expanded={showCatalogueSuggestions}
-              aria-controls={showCatalogueSuggestions ? catalogueListboxId : undefined}
-              aria-activedescendant={
-                showCatalogueSuggestions && catalogueSuggestions[activeCatalogueSuggestionIndex]
-                  ? `${catalogueListboxId}-option-${activeCatalogueSuggestionIndex}`
-                  : undefined
-              }
-            />
-            <TakeoffSourceBadge
-              versionId={versionId}
-              sourceProvider={item.source_provider}
-              sourceJobId={item.source_job_id}
-              sourceFileName={item.source_file_name}
-              sourcePage={item.source_page}
-              sourceLevel={sourceLevel}
-              extractedAt={sourceExtractedAt}
-            />
-            {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
-              <div className="estimate-quality-dots">
-                {qualityFlags.slice(0, 3).map((flag) => {
-                  const targetColumn = getQualityFlagCellTarget(flag, {
-                    isLaborSplitEnabled,
-                    isLaborRoleVisible,
-                  });
-                  const isClickable = Boolean(targetColumn);
-                  const focusTargetCell = () => {
-                    if (!targetColumn) return;
-                    const cellId = `${item.id}::${targetColumn}`;
-                    const el = document.querySelector<HTMLElement>(
-                      `[data-cell-id="${cellId}"]`
-                    );
-                    el?.focus();
-                  };
+            <div className="estimate-designation-meta">
+              {renderAidInput()}
+            </div>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <input
+                className="estimate-input estimate-input--title"
+                ref={titleEditorProps.ref}
+                tabIndex={titleEditorProps.tabIndex}
+                value={item.title}
+                title={item.title}
+                disabled={isReadOnly}
+                data-testid="estimate-line-title-input"
+                placeholder="Obligatoire"
+                onFocus={handleLineTitleFocus}
+                onKeyDown={handleLineTitleKeyDown}
+                onChange={(event) =>
+                  onPatchItem(item.id, { title: event.target.value }, { persist: false })
+                }
+                onBlur={handleLineTitleBlur}
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={showCatalogueSuggestions}
+                aria-controls={showCatalogueSuggestions ? catalogueListboxId : undefined}
+                aria-activedescendant={
+                  showCatalogueSuggestions && catalogueSuggestions[activeCatalogueSuggestionIndex]
+                    ? `${catalogueListboxId}-option-${activeCatalogueSuggestionIndex}`
+                    : undefined
+                }
+              />
+              <TakeoffSourceBadge
+                versionId={versionId}
+                sourceProvider={item.source_provider}
+                sourceJobId={item.source_job_id}
+                sourceFileName={item.source_file_name}
+                sourcePage={item.source_page}
+                sourceLevel={sourceLevel}
+                extractedAt={sourceExtractedAt}
+              />
+              {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
+                <div className="estimate-quality-dots">
+                  {qualityFlags.slice(0, 3).map((flag) => {
+                    const targetColumn = getQualityFlagCellTarget(flag, {
+                      isLaborSplitEnabled,
+                      isLaborRoleVisible,
+                    });
+                    const isClickable = Boolean(targetColumn);
+                    const focusTargetCell = () => {
+                      if (!targetColumn) return;
+                      const cellId = `${item.id}::${targetColumn}`;
+                      const el = document.querySelector<HTMLElement>(
+                        `[data-cell-id="${cellId}"]`
+                      );
+                      el?.focus();
+                    };
 
-                  if (isClickable) {
+                    if (isClickable) {
+                      return (
+                        <span
+                          key={flag}
+                          className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
+                          title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} — Cliquer pour aller au champ`}
+                          role="button"
+                          tabIndex={0}
+                          onClick={focusTargetCell}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              focusTargetCell();
+                            }
+                          }}
+                        />
+                      );
+                    }
+
                     return (
                       <span
                         key={flag}
                         className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
-                        title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} — Cliquer pour aller au champ`}
-                        role="button"
-                        tabIndex={0}
-                        onClick={focusTargetCell}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            focusTargetCell();
-                          }
-                        }}
+                        title={ESTIMATE_QUALITY_FLAG_META[flag].label}
                       />
                     );
-                  }
-
-                  return (
+                  })}
+                  {qualityFlags.length > 3 ? (
                     <span
-                      key={flag}
-                      className={`estimate-quality-dot estimate-quality-dot--${flag.replace(/_/g, "-")}`}
-                      title={ESTIMATE_QUALITY_FLAG_META[flag].label}
+                      className="estimate-quality-overflow"
+                      title={qualityFlags
+                        .slice(3)
+                        .map((f) => ESTIMATE_QUALITY_FLAG_META[f].label)
+                        .join(", ")}
+                    >
+                      +{qualityFlags.length - 3}
+                    </span>
+                  ) : null}
+                  {dismissedOutlierBadges.map((flag) => (
+                    <span
+                      key={`dismissed:${flag}`}
+                      className="estimate-quality-dot estimate-quality-dot--dismissed"
+                      title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} (accepté)`}
                     />
-                  );
-                })}
-                {qualityFlags.length > 3 ? (
-                  <span
-                    className="estimate-quality-overflow"
-                    title={qualityFlags
-                      .slice(3)
-                      .map((f) => ESTIMATE_QUALITY_FLAG_META[f].label)
-                      .join(", ")}
-                  >
-                    +{qualityFlags.length - 3}
-                  </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            {showCatalogueSuggestions ? (
+              <div
+                id={catalogueListboxId}
+                className="estimate-catalogue-suggestions"
+                role="listbox"
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                {isCatalogueLoading ? (
+                  <div className="estimate-catalogue-suggestions__status">Recherche catalogue...</div>
                 ) : null}
-                {dismissedOutlierBadges.map((flag) => (
-                  <span
-                    key={`dismissed:${flag}`}
-                    className="estimate-quality-dot estimate-quality-dot--dismissed"
-                    title={`${ESTIMATE_QUALITY_FLAG_META[flag].label} (accepté)`}
-                  />
+                {catalogueError ? (
+                  <div className="estimate-catalogue-suggestions__status estimate-catalogue-suggestions__status--error">
+                    {catalogueError}
+                  </div>
+                ) : null}
+                {catalogueSuggestions.map((suggestion, suggestionIndex) => (
+                  <div
+                    key={`${item.id}:${suggestion.supplier_price_id}`}
+                    id={`${catalogueListboxId}-option-${suggestionIndex}`}
+                    role="option"
+                    aria-selected={suggestionIndex === activeCatalogueSuggestionIndex}
+                    className={`estimate-catalogue-suggestion${
+                      suggestionIndex === activeCatalogueSuggestionIndex
+                        ? " estimate-catalogue-suggestion--active"
+                        : ""
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="estimate-catalogue-suggestion__primary"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => void applyCatalogueSuggestion(suggestion)}
+                      disabled={isReadOnly}
+                    >
+                      <div className="estimate-catalogue-suggestion__head">
+                        <span className="estimate-catalogue-suggestion__supplier">
+                          {suggestion.supplier_name}
+                        </span>
+                        <span className="estimate-catalogue-suggestion__price">
+                          {formatCurrency(
+                            suggestion.adjusted_unit_price_cents,
+                            resolveDisplayCurrency(
+                              suggestion.currency,
+                              estimateCurrency
+                            )
+                          )}
+                        </span>
+                      </div>
+                      <div className="estimate-catalogue-suggestion__meta">
+                        <span>{suggestion.product_designation}</span>
+                        <span>{formatCompactDate(suggestion.updated_at)}</span>
+                        <span>{suggestion.supplier_reference ?? "-"}</span>
+                        {suggestion.is_stale ? (
+                          <span className="estimate-catalogue-suggestion__stale">
+                            Prix ancien
+                          </span>
+                        ) : null}
+                      </div>
+                    </button>
+                    {suggestion.alternatives.length > 0 ? (
+                      <div className="estimate-catalogue-suggestion__alternatives">
+                        {suggestion.alternatives.map((alternative) => (
+                          <button
+                            key={`${suggestion.supplier_price_id}:alt:${alternative.kind}:${alternative.supplier_price_id}`}
+                            type="button"
+                            className="estimate-catalogue-suggestion__alternative"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void applyCatalogueSuggestion(suggestion, alternative);
+                            }}
+                            disabled={isReadOnly}
+                          >
+                            {toAlternativeKindLabel(alternative.kind)}: {alternative.supplier_name} |
+                            {" "}
+                            {formatCurrency(
+                              alternative.adjusted_unit_price_cents,
+                              resolveDisplayCurrency(
+                                alternative.currency,
+                                estimateCurrency
+                              )
+                            )} |
+                            {" "}
+                            {formatCompactDate(alternative.updated_at)} |
+                            {" "}
+                            {alternative.supplier_reference ?? "-"}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 ))}
               </div>
             ) : null}
-          </div>
-          {showCatalogueSuggestions ? (
-            <div
-              id={catalogueListboxId}
-              className="estimate-catalogue-suggestions"
-              role="listbox"
-              onMouseDown={(event) => event.preventDefault()}
-            >
-              {isCatalogueLoading ? (
-                <div className="estimate-catalogue-suggestions__status">Recherche catalogue...</div>
+            {hasSupplierComparisonMismatch ? (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="estimate-supplier-comparison-row-badge">
+                  Meilleur prix fournisseur disponible
+                </span>
+              </div>
+            ) : null}
+            {actionableOutlierFlags.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1">
+                {actionableOutlierFlags.map((flag) => {
+                  const isDismissed = dismissedOutlierSet.has(flag);
+                  return (
+                    <button
+                      key={`toggle:${flag}`}
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() =>
+                        onToggleOutlierDismiss(item.id, flag, !isDismissed)
+                      }
+                      disabled={isReadOnly || isOutlierActionPending}
+                      title={ESTIMATE_QUALITY_FLAG_META[flag].description}
+                    >
+                      {isDismissed
+                        ? `Réactiver ${ESTIMATE_QUALITY_FLAG_META[flag].label}`
+                        : `Accepter ${ESTIMATE_QUALITY_FLAG_META[flag].label}`}
+                    </button>
+                  );
+                })}
+              </div>
               ) : null}
-              {catalogueError ? (
-                <div className="estimate-catalogue-suggestions__status estimate-catalogue-suggestions__status--error">
-                  {catalogueError}
-                </div>
-              ) : null}
-              {catalogueSuggestions.map((suggestion, suggestionIndex) => (
-                <div
-                  key={`${item.id}:${suggestion.supplier_price_id}`}
-                  id={`${catalogueListboxId}-option-${suggestionIndex}`}
-                  role="option"
-                  aria-selected={suggestionIndex === activeCatalogueSuggestionIndex}
-                  className={`estimate-catalogue-suggestion${
-                    suggestionIndex === activeCatalogueSuggestionIndex
-                      ? " estimate-catalogue-suggestion--active"
-                      : ""
-                  }`}
+            </div>
+            {!isAidEditorVisible ? (
+              <div className="estimate-line-hover-actions">
+                <button
+                  className="estimate-section-hover-btn"
+                  type="button"
+                  onClick={handleRevealAidEditor}
+                  disabled={isReadOnly}
+                  data-testid="estimate-line-add-aid-button"
                 >
-                  <button
-                    type="button"
-                    className="estimate-catalogue-suggestion__primary"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => void applyCatalogueSuggestion(suggestion)}
-                    disabled={isReadOnly}
-                  >
-                    <div className="estimate-catalogue-suggestion__head">
-                      <span className="estimate-catalogue-suggestion__supplier">
-                        {suggestion.supplier_name}
-                      </span>
-                      <span className="estimate-catalogue-suggestion__price">
-                        {formatCurrency(
-                          suggestion.adjusted_unit_price_cents,
-                          resolveDisplayCurrency(
-                            suggestion.currency,
-                            estimateCurrency
-                          )
-                        )}
-                      </span>
-                    </div>
-                    <div className="estimate-catalogue-suggestion__meta">
-                      <span>{suggestion.product_designation}</span>
-                      <span>{formatCompactDate(suggestion.updated_at)}</span>
-                      <span>{suggestion.supplier_reference ?? "-"}</span>
-                      {suggestion.is_stale ? (
-                        <span className="estimate-catalogue-suggestion__stale">
-                          Prix ancien
-                        </span>
-                      ) : null}
-                    </div>
-                  </button>
-                  {suggestion.alternatives.length > 0 ? (
-                    <div className="estimate-catalogue-suggestion__alternatives">
-                      {suggestion.alternatives.map((alternative) => (
-                        <button
-                          key={`${suggestion.supplier_price_id}:alt:${alternative.kind}:${alternative.supplier_price_id}`}
-                          type="button"
-                          className="estimate-catalogue-suggestion__alternative"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void applyCatalogueSuggestion(suggestion, alternative);
-                          }}
-                          disabled={isReadOnly}
-                        >
-                          {toAlternativeKindLabel(alternative.kind)}: {alternative.supplier_name} |
-                          {" "}
-                          {formatCurrency(
-                            alternative.adjusted_unit_price_cents,
-                            resolveDisplayCurrency(
-                              alternative.currency,
-                              estimateCurrency
-                            )
-                          )} |
-                          {" "}
-                          {formatCompactDate(alternative.updated_at)} |
-                          {" "}
-                          {alternative.supplier_reference ?? "-"}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {hasSupplierComparisonMismatch ? (
-            <div className="flex flex-wrap items-center gap-1">
-              <span className="estimate-supplier-comparison-row-badge">
-                Meilleur prix fournisseur disponible
-              </span>
-            </div>
-          ) : null}
-          {actionableOutlierFlags.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-1">
-              {actionableOutlierFlags.map((flag) => {
-                const isDismissed = dismissedOutlierSet.has(flag);
-                return (
-                  <button
-                    key={`toggle:${flag}`}
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      onToggleOutlierDismiss(item.id, flag, !isDismissed)
-                    }
-                    disabled={isReadOnly || isOutlierActionPending}
-                    title={ESTIMATE_QUALITY_FLAG_META[flag].description}
-                  >
-                    {isDismissed
-                      ? `Réactiver ${ESTIMATE_QUALITY_FLAG_META[flag].label}`
-                      : `Accepter ${ESTIMATE_QUALITY_FLAG_META[flag].label}`}
-                  </button>
-                );
-              })}
-            </div>
+                  + AID
+                </button>
+              </div>
             ) : null}
           </div>
-          {!isAidEditorVisible ? (
-            <div className="estimate-line-hover-actions">
-              <button
-                className="estimate-section-hover-btn"
-                type="button"
-                onClick={handleRevealAidEditor}
-                disabled={isReadOnly}
-                data-testid="estimate-line-add-aid-button"
-              >
-                + AID
-              </button>
-            </div>
-          ) : null}
         </div>
       <EditableCell
         cell={quantityCell}

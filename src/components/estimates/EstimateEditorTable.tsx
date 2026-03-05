@@ -104,6 +104,9 @@ import {
 import {
   type ClipboardPreviewValues,
 } from "@/lib/estimates/clipboard";
+import {
+  type TreeConnectorMeta,
+} from "@/lib/estimates/tree-connectors";
 import type { Database } from "@/types/database";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
@@ -1971,8 +1974,7 @@ export function EstimateEditorTable({
       supplyTypeValue: string,
       qualityFlags: EstimateQualityFlagKey[],
       sectionTotals: SectionTotals | null,
-      isLastChild?: boolean,
-      parentIsLastChild?: boolean
+      treeConnectorMeta?: TreeConnectorMeta
     ) => {
       const bestSupplierPriceId = bestSupplierPriceIdByItemId[item.id] ?? null;
       const hasSupplierComparisonMismatch =
@@ -1993,11 +1995,11 @@ export function EstimateEditorTable({
       const addSectionLabel =
         item.item_type === "section" && sectionLevel !== null
           ? formatAddSectionLabelForLevel(sectionLevel + 1)
-          : "+ Ajouter une section";
+          : "+ Section";
       const addLineLabel =
         item.item_type === "section" && sectionLevel !== null
           ? formatAddLineLabelForSectionLevel(sectionLevel)
-          : "+ Ajouter une ligne";
+          : "+ Ligne";
 
       return (
         <EstimateEditorRow
@@ -2028,8 +2030,7 @@ export function EstimateEditorTable({
             item.item_type === "line" &&
             matchesQuickFilter(item, normalizedSearchTerm)
           }
-          isLastChild={isLastChild}
-          parentIsLastChild={parentIsLastChild}
+          treeConnectorMeta={treeConnectorMeta}
           sectionLevel={sectionLevel}
           canAddLine={canAddLine}
           canAddSection={canAddSection}
@@ -2076,14 +2077,16 @@ export function EstimateEditorTable({
         row.supplyTypeValue,
         row.qualityFlags,
         row.item.item_type === "section" ? getSectionTotals(row.item.id) : null,
-        row.isLastChild,
-        row.parentIsLastChild
+        row.treeConnectorMeta
       );
     },
     [getSectionTotals, renderSortableRow, renderSuggestionRow]
   );
 
-  function renderList(parentId: string | null, parentIsLastChild?: boolean) {
+  function renderList(
+    parentId: string | null,
+    ancestorLastChildFlags: boolean[] = []
+  ) {
     const list = getVisibleItemsForRender(parentId);
     if (list.length === 0) return null;
 
@@ -2096,22 +2099,33 @@ export function EstimateEditorTable({
           {list.map((item, index) => {
             const isLast = index === list.length - 1;
             const suggestions = suggestionsByItemId.get(item.id);
+            const rowDepth = depthMap.get(item.id) ?? ancestorLastChildFlags.length;
+            const hasVisibleChildren =
+              item.item_type === "section" &&
+              getVisibleItemsForRender(item.id).length > 0;
+            const treeConnectorMeta: TreeConnectorMeta = {
+              depth: rowDepth,
+              isLastChild: isLast,
+              ancestorLastChildFlags,
+              hasVisibleChildren,
+            };
             return (
               <Fragment key={item.id}>
                 {renderSortableRow(
                   item,
-                  depthMap.get(item.id) ?? 0,
+                  rowDepth,
                   mergedUnitDrafts[item.id] ?? "",
                   mergedSupplyTypeDrafts[item.id] ?? "",
                   qualityFlagsByItemId[item.id] ?? EMPTY_QUALITY_FLAGS,
                   item.item_type === "section"
                     ? getSectionTotals(item.id)
                     : null,
-                  isLast,
-                  parentIsLastChild
+                  treeConnectorMeta
                 )}
                 {suggestions ? renderSuggestionRow(item, suggestions) : null}
-                {item.item_type === "section" ? renderList(item.id, isLast) : null}
+                {item.item_type === "section"
+                  ? renderList(item.id, [...ancestorLastChildFlags, isLast])
+                  : null}
               </Fragment>
             );
           })}
@@ -2513,7 +2527,7 @@ export function EstimateEditorTable({
             disabled={isReadOnly || !sectionContextMeta?.canAddLine}
             data-testid="estimate-section-context-add-line-button"
           >
-            {sectionContextMeta?.addLineLabel ?? "+ Ajouter une ligne"}
+            {sectionContextMeta?.addLineLabel ?? "+ Ligne"}
           </button>
           {sectionContextMeta?.canAddSection ? (
             <button
