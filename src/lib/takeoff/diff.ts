@@ -83,7 +83,7 @@ const TAKEOFF_DIFF_FIELDS: readonly TakeoffFieldConfig[] = [
   },
 ] as const;
 
-function normalizeText(value: string) {
+export function normalizeTakeoffCompareText(value: string) {
   return value
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
@@ -125,7 +125,7 @@ function getPageDistance(left: TakeoffJobItem, right: TakeoffJobItem) {
 }
 
 function getNormalizedDesignation(item: TakeoffJobItem): string {
-  return normalizeText(item.designation);
+  return normalizeTakeoffCompareText(item.designation);
 }
 
 function getNormalizedDesignationWithPage(item: TakeoffJobItem): string | null {
@@ -165,7 +165,7 @@ function levenshteinDistance(left: string, right: string) {
   return distances[right.length];
 }
 
-function similarityRatio(left: string, right: string) {
+export function computeTakeoffSimilarityRatio(left: string, right: string) {
   const maxLength = Math.max(left.length, right.length);
   if (maxLength === 0) return 1;
 
@@ -205,7 +205,7 @@ function buildCandidates(input: {
 
       if (!otherToken) continue;
 
-      const score = similarityRatio(baseToken, otherToken);
+      const score = computeTakeoffSimilarityRatio(baseToken, otherToken);
       if (score + EPSILON < input.threshold) continue;
 
       candidates.push({
@@ -295,9 +295,9 @@ function buildFieldDelta(baseItem: TakeoffJobItem, otherItem: TakeoffJobItem) {
       }
     } else {
       const normalizedBefore =
-        typeof beforeValue === "string" ? normalizeText(beforeValue) : "";
+        typeof beforeValue === "string" ? normalizeTakeoffCompareText(beforeValue) : "";
       const normalizedAfter =
-        typeof afterValue === "string" ? normalizeText(afterValue) : "";
+        typeof afterValue === "string" ? normalizeTakeoffCompareText(afterValue) : "";
 
       if (normalizedBefore === normalizedAfter) {
         continue;

@@ -38,6 +38,11 @@ import {
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { computeTakeoffMappingPreview } from "@/lib/takeoff/mapping-engine";
 import {
+  TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
+  TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
+  buildTakeoffDpgfComparison,
+} from "@/lib/takeoff/dpgf-compare";
+import {
   TAKEOFF_APPLY_SCOPES,
   TAKEOFF_JOB_LIST_PERIODS,
   TAKEOFF_JOB_STATUSES,
@@ -56,11 +61,17 @@ import {
   type TakeoffJobActionResponse,
   type TakeoffJobCompareResponse,
   type TakeoffJobDetailResponse,
+  type TakeoffDpgfComparisonDpgfLine,
+  type TakeoffDpgfComparisonResponse,
+  type TakeoffDpgfComparisonTakeoffLine,
+  type TakeoffDpgfManualLinkRecord,
   type TakeoffJobItem,
   type TakeoffJobListResponse,
   type TakeoffJobResult,
   type TakeoffJobStatusCounters,
   type TakeoffJobResponse,
+  type SaveTakeoffDpgfManualLinkInput,
+  type SaveTakeoffDpgfManualLinkResponse,
   type TakeoffJobSummary,
   type TakeoffJobListPeriod,
   type TakeoffLevel,
@@ -76,6 +87,7 @@ import {
   TAKEOFF_COMPARE_MIN_THRESHOLD,
   buildTakeoffDiff,
 } from "@/lib/takeoff/diff";
+import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
 const TAKEOFF_ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
@@ -177,6 +189,30 @@ const TAKEOFF_ITEMS_SELECT = [
   "verified_at",
   "verified_by",
   "created_at",
+  "updated_at",
+].join(", ");
+const TAKEOFF_DPGF_LINKS_SELECT = [
+  "id",
+  "tenant_id",
+  "version_id",
+  "takeoff_job_id",
+  "estimate_item_id",
+  "takeoff_item_id",
+  "created_at",
+  "updated_at",
+  "linked_by",
+].join(", ");
+const ESTIMATE_DPGF_COMPARE_SELECT = [
+  "id",
+  "version_id",
+  "position",
+  "title",
+  "description",
+  "quantity",
+  "source_file_name",
+  "source_page",
+  "source_provider",
+  "item_type",
   "updated_at",
 ].join(", ");
 const TAKEOFF_APPLIED_ESTIMATE_ITEMS_SELECT = [
@@ -338,6 +374,37 @@ const optionalOffsetSearchParamSchema = z.preprocess(
     .optional()
 );
 
+const optionalCursorSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.string().max(512, "cursor trop long.").optional()
+);
+
+const optionalDpgfComparePageSizeSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === "number") return value;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : value;
+  },
+  z
+    .number()
+    .int("page_size doit etre un entier.")
+    .min(1, "page_size doit etre >= 1.")
+    .max(
+      TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
+      `page_size doit etre <= ${TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE}.`
+    )
+    .optional()
+);
+
 const jsonRecordSchema = z.record(z.string(), z.unknown());
 
 const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
@@ -432,6 +499,37 @@ const takeoffJobItemSchema: z.ZodType<TakeoffJobItem> = z.object({
   updated_at: z.string(),
 });
 
+const takeoffDpgfManualLinkSchema: z.ZodType<TakeoffDpgfManualLinkRecord> = z.object({
+  id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
+  version_id: z.string().uuid(),
+  takeoff_job_id: z.string().uuid(),
+  estimate_item_id: z.string().uuid(),
+  takeoff_item_id: z.string().uuid(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  linked_by: z.string().uuid().nullable(),
+});
+
+const takeoffDpgfCompareEstimateItemRowSchema = z.object({
+  id: z.string().uuid(),
+  version_id: z.string().uuid(),
+  position: z.number().int().nonnegative(),
+  title: z.string(),
+  description: z.string().nullable(),
+  quantity: z.number().positive().nullable(),
+  source_file_name: z.string().nullable(),
+  source_page: z.number().int().nullable(),
+  source_provider: z.string().nullable().optional(),
+  item_type: z.enum(["section", "line"]),
+  updated_at: z.string(),
+});
+
+const takeoffDpgfCompareMappedRowSchema = z.object({
+  id: z.string().uuid(),
+  payload: jsonRecordSchema,
+});
+
 export const takeoffJobIdSchema = z.string().uuid("jobId invalide.");
 
 export const listTakeoffJobsQuerySchema = z
@@ -468,6 +566,23 @@ export const compareTakeoffJobsQuerySchema = z
   })
   .strict();
 
+export const takeoffDpgfComparisonQuerySchema = z
+  .object({
+    version_id: requiredUuidSearchParamSchema,
+    cursor: optionalCursorSearchParamSchema,
+    page_size: optionalDpgfComparePageSizeSearchParamSchema,
+    threshold: optionalCompareThresholdSearchParamSchema,
+  })
+  .strict();
+
+export const saveTakeoffDpgfManualLinkSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    estimate_item_id: z.string().uuid("estimate_item_id invalide."),
+    takeoff_item_id: z.string().uuid("takeoff_item_id invalide.").nullable(),
+  })
+  .strict();
+
 export const takeoffApplyPayloadSchema = takeoffApplyRequestSchema;
 
 const takeoffApplyRpcSummarySchema = z
@@ -490,6 +605,9 @@ export type GetTakeoffJobDetailsQuery = z.infer<
   typeof getTakeoffJobDetailsQuerySchema
 >;
 export type CompareTakeoffJobsQuery = z.infer<typeof compareTakeoffJobsQuerySchema>;
+export type TakeoffDpgfComparisonQuery = z.infer<
+  typeof takeoffDpgfComparisonQuerySchema
+>;
 
 const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
   id: z.string().uuid(),
@@ -1018,6 +1136,36 @@ function normalizeTakeoffItemRows(rows: unknown[]): TakeoffJobItem[] {
   return rows.map((row) => normalizeTakeoffItemRow(row));
 }
 
+function normalizeTakeoffDpgfManualLinkRow(row: unknown): TakeoffDpgfManualLinkRecord {
+  return parseWithSchema(
+    takeoffDpgfManualLinkSchema,
+    row,
+    "Donnees takeoff_dpgf_links invalides en base."
+  );
+}
+
+function normalizeTakeoffDpgfManualLinkRows(rows: unknown[]): TakeoffDpgfManualLinkRecord[] {
+  return rows.map((row) => normalizeTakeoffDpgfManualLinkRow(row));
+}
+
+function normalizeTakeoffDpgfEstimateItemRow(row: unknown) {
+  return parseWithSchema(
+    takeoffDpgfCompareEstimateItemRowSchema,
+    row,
+    "Donnees estimate_items invalides en base pour la comparaison DPGF."
+  );
+}
+
+function normalizeTakeoffDpgfMappedRows(rows: unknown[]) {
+  return rows.map((row) =>
+    parseWithSchema(
+      takeoffDpgfCompareMappedRowSchema,
+      row,
+      "Donnees dpgf_rows_mapped invalides en base."
+    )
+  );
+}
+
 function getTakeoffRetryBackoffMs(retryCount: number) {
   const clamped = Math.max(
     0,
@@ -1081,6 +1229,16 @@ export function parseCompareTakeoffJobsQuery(
     compareTakeoffJobsQuerySchema,
     payload,
     "Parametres de comparaison invalides."
+  );
+}
+
+export function parseTakeoffDpgfComparisonQuery(
+  payload: unknown
+): TakeoffDpgfComparisonQuery {
+  return parseWithSchema(
+    takeoffDpgfComparisonQuerySchema,
+    payload,
+    "Parametres de comparaison DPGF invalides."
   );
 }
 
@@ -1338,6 +1496,282 @@ async function listAllTakeoffItemsByJobId(input: {
   }
 
   return items;
+}
+
+function toNullableText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function toPositiveNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  return value;
+}
+
+function resolveMappedRowPayload(payload: Record<string, unknown>) {
+  const embedded = payload.mapped_row;
+  return isRecord(embedded) ? embedded : payload;
+}
+
+function extractDpgfMappedRowIndex(payload: Record<string, unknown>) {
+  const candidate = resolveMappedRowPayload(payload).row_index;
+  if (typeof candidate === "number" && Number.isFinite(candidate)) {
+    return Math.max(0, Math.trunc(candidate));
+  }
+
+  return null;
+}
+
+function extractDpgfMappedRowUnit(payload: Record<string, unknown>) {
+  const mappedRow = resolveMappedRowPayload(payload);
+  return (
+    toNullableText(mappedRow.unit) ??
+    toNullableText(mappedRow.unite) ??
+    toNullableText(mappedRow.uom) ??
+    toNullableText(mappedRow.measure_unit)
+  );
+}
+
+function buildDpgfUnitByRowIndex(rows: Array<{ payload: Record<string, unknown> }>) {
+  const unitByRowIndex = new Map<number, string | null>();
+
+  for (const row of rows) {
+    const rowIndex = extractDpgfMappedRowIndex(row.payload);
+    if (rowIndex === null || unitByRowIndex.has(rowIndex)) {
+      continue;
+    }
+
+    unitByRowIndex.set(rowIndex, extractDpgfMappedRowUnit(row.payload));
+  }
+
+  return unitByRowIndex;
+}
+
+function normalizeDpgfComparisonEstimateItems(input: {
+  rows: Array<z.infer<typeof takeoffDpgfCompareEstimateItemRowSchema>>;
+  unitByRowIndex: Map<number, string | null>;
+}): TakeoffDpgfComparisonDpgfLine[] {
+  return input.rows
+    .filter((row) => {
+      if (row.item_type !== "line") return false;
+      if (toPositiveNumber(row.quantity) === null) return false;
+
+      return row.source_provider === "dpgf" || row.source_file_name !== null;
+    })
+    .map((row) => ({
+      estimate_item_id: row.id,
+      title: row.title,
+      description: row.description,
+      quantity: row.quantity as number,
+      unit:
+        (typeof row.source_page === "number"
+          ? input.unitByRowIndex.get(row.source_page) ?? null
+          : null) ?? null,
+      source_page: row.source_page,
+      source_file_name: row.source_file_name,
+      position: row.position,
+    }));
+}
+
+function normalizeTakeoffComparisonItems(items: TakeoffJobItem[]): TakeoffDpgfComparisonTakeoffLine[] {
+  return items.map((item) => ({
+    item_id: item.id,
+    designation: item.designation,
+    quantity: item.quantity,
+    unit: item.unit,
+    source_page: item.source_page,
+    source_file_name: item.source_file_name,
+    confidence: item.confidence,
+  }));
+}
+
+async function getEstimateVersionProjectIdOrThrow(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+}): Promise<string> {
+  const { data, error } = await input.supabase
+    .from("estimate_versions" as never)
+    .select("id, project_id" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("id" as never, input.versionId as never)
+    .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger la version cible."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  const versionRow = (data ?? null) as { id: string; project_id: string } | null;
+
+  if (!versionRow || typeof versionRow.project_id !== "string") {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Version cible introuvable.",
+      details: {
+        version_id: input.versionId,
+      },
+      retryable: false,
+    });
+  }
+
+  return versionRow.project_id;
+}
+
+async function assertTakeoffJobAccessibleForVersion(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  jobId: string;
+}) {
+  const jobs = await listAccessibleTakeoffJobsForVersion({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+  });
+
+  const match = jobs.find((job) => job.id === input.jobId) ?? null;
+  if (match) {
+    return match;
+  }
+
+  throw new TakeoffError({
+    status: 409,
+    code: TakeoffErrorCode.CONFLICT,
+    message: "Ce job takeoff n'est pas accessible pour cette version.",
+    details: {
+      version_id: input.versionId,
+      job_id: input.jobId,
+    },
+    retryable: false,
+    jobId: input.jobId,
+  });
+}
+
+async function listTakeoffDpgfEstimateItems(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_items" as never)
+    .select(ESTIMATE_DPGF_COMPARE_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .eq("item_type" as never, "line" as never)
+    .order("position" as never, { ascending: true })
+    .order("created_at" as never, { ascending: true })
+    .order("id" as never, { ascending: true });
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les lignes DPGF de la version."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return (data ?? []).map((row) => normalizeTakeoffDpgfEstimateItemRow(row));
+}
+
+async function listTakeoffDpgfManualLinks(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  jobId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("takeoff_dpgf_links" as never)
+    .select(TAKEOFF_DPGF_LINKS_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .eq("takeoff_job_id" as never, input.jobId as never)
+    .order("created_at" as never, { ascending: true })
+    .order("id" as never, { ascending: true });
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les liens manuels DPGF."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.jobId,
+      }
+    );
+  }
+
+  return normalizeTakeoffDpgfManualLinkRows((data ?? []) as unknown[]);
+}
+
+async function resolveDpgfUnitByRowIndex(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  projectId: string;
+  sourceFileName: string | null;
+}) {
+  let importQuery = input.supabase
+    .from("dpgf_imports" as never)
+    .select("id" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("project_id" as never, input.projectId as never);
+
+  if (input.sourceFileName) {
+    importQuery = importQuery.eq("filename" as never, input.sourceFileName as never);
+  }
+
+  const { data: importData, error: importError } = await importQuery
+    .order("created_at" as never, { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (importError) {
+    throw toTakeoffError(
+      mapSupabaseError(importError, "Impossible de resoudre l'import DPGF source."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  const importRow = (importData ?? null) as { id: string } | null;
+
+  if (!importRow || typeof importRow.id !== "string") {
+    return new Map<number, string | null>();
+  }
+
+  const { data, error } = await input.supabase
+    .from("dpgf_rows_mapped" as never)
+    .select("id, payload" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("import_id" as never, importRow.id as never)
+    .order("created_at" as never, { ascending: true })
+    .order("id" as never, { ascending: true });
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les lignes DPGF mappees."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  const rows = normalizeTakeoffDpgfMappedRows((data ?? []) as unknown[]);
+  return buildDpgfUnitByRowIndex(rows);
 }
 
 function resolveTakeoffJobsPeriodStart(
@@ -1832,6 +2266,310 @@ export async function compareTakeoffJobs(
     removed: diff.removed,
     changed: diff.changed,
     unchanged: diff.unchanged,
+  };
+}
+
+export async function fetchDpgfTakeoffComparison(
+  jobId: string,
+  input: TakeoffDpgfComparisonQuery
+): Promise<TakeoffDpgfComparisonResponse> {
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const normalizedVersionId = parseWithSchema(
+    z.string().uuid("version_id invalide."),
+    input.version_id,
+    "version_id invalide."
+  );
+
+  await assertTakeoffJobAccessibleForVersion({
+    supabase,
+    tenantId,
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
+  });
+
+  const [jobRow, takeoffItems, estimateItems, manualLinks, projectId] = await Promise.all([
+    getTakeoffJobDetailByIdOrThrow({
+      supabase,
+      tenantId,
+      jobId: normalizedJobId,
+    }),
+    listAllTakeoffItemsByJobId({
+      supabase,
+      tenantId,
+      jobId: normalizedJobId,
+    }),
+    listTakeoffDpgfEstimateItems({
+      supabase,
+      tenantId,
+      versionId: normalizedVersionId,
+    }),
+    listTakeoffDpgfManualLinks({
+      supabase,
+      tenantId,
+      versionId: normalizedVersionId,
+      jobId: normalizedJobId,
+    }),
+    getEstimateVersionProjectIdOrThrow({
+      supabase,
+      tenantId,
+      versionId: normalizedVersionId,
+    }),
+  ]);
+
+  const dominantSourceFileName =
+    estimateItems.find((item) => item.source_file_name)?.source_file_name ?? null;
+  const unitByRowIndex =
+    estimateItems.length > 0
+      ? await resolveDpgfUnitByRowIndex({
+          supabase,
+          tenantId,
+          projectId,
+          sourceFileName: dominantSourceFileName,
+        })
+      : new Map<number, string | null>();
+
+  const dpgfLines = normalizeDpgfComparisonEstimateItems({
+    rows: estimateItems,
+    unitByRowIndex,
+  });
+  const compareInput = {
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
+    dpgfLines,
+    takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
+    manualLinks,
+    threshold: input.threshold,
+    cursor: input.cursor ?? null,
+    pageSize: input.page_size ?? TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
+  };
+
+  void jobRow;
+
+  return buildTakeoffDpgfComparison(compareInput);
+}
+
+export async function saveTakeoffDpgfManualLink(
+  jobId: string,
+  input: SaveTakeoffDpgfManualLinkInput
+): Promise<SaveTakeoffDpgfManualLinkResponse> {
+  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const payload = parseWithSchema(
+    saveTakeoffDpgfManualLinkSchema,
+    input,
+    "Payload de lien manuel DPGF invalide."
+  );
+
+  await assertTakeoffJobAccessibleForVersion({
+    supabase,
+    tenantId,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+  });
+
+  const [estimateItemRow, takeoffItemRow] = await Promise.all([
+    supabase
+      .from("estimate_items" as never)
+      .select(
+        "id, tenant_id, version_id, item_type, source_provider, source_file_name" as never
+      )
+      .eq("tenant_id" as never, tenantId as never)
+      .eq("id" as never, payload.estimate_item_id as never)
+      .maybeSingle(),
+    payload.takeoff_item_id
+      ? supabase
+          .from("takeoff_items" as never)
+          .select("id, tenant_id, job_id" as never)
+          .eq("tenant_id" as never, tenantId as never)
+          .eq("id" as never, payload.takeoff_item_id as never)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  if (estimateItemRow.error) {
+    throw toTakeoffError(
+      mapSupabaseError(estimateItemRow.error, "Impossible de charger la ligne DPGF."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  if (!estimateItemRow.data) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Ligne DPGF introuvable.",
+      details: {
+        estimate_item_id: payload.estimate_item_id,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const estimateItem = estimateItemRow.data as {
+    id: string;
+    tenant_id: string;
+    version_id: string;
+    item_type: "section" | "line";
+    source_provider: string | null;
+    source_file_name: string | null;
+  };
+
+  if (estimateItem.version_id !== payload.version_id) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "La ligne DPGF n'appartient pas a la version cible.",
+      details: {
+        version_id: payload.version_id,
+        estimate_item_version_id: estimateItem.version_id,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  if (
+    estimateItem.item_type !== "line" ||
+    (estimateItem.source_provider !== "dpgf" &&
+      estimateItem.source_file_name === null)
+  ) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "La ligne cible n'est pas une ligne DPGF eligible.",
+      details: {
+        estimate_item_id: payload.estimate_item_id,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  if (takeoffItemRow.error) {
+    throw toTakeoffError(
+      mapSupabaseError(takeoffItemRow.error, "Impossible de charger l'item takeoff."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  if (payload.takeoff_item_id && !takeoffItemRow.data) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Item takeoff introuvable.",
+      details: {
+        takeoff_item_id: payload.takeoff_item_id,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const takeoffItem = (takeoffItemRow.data ?? null) as
+    | {
+        id: string;
+        tenant_id: string;
+        job_id: string;
+      }
+    | null;
+
+  if (
+    takeoffItem &&
+    takeoffItem.job_id !== normalizedJobId
+  ) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "L'item takeoff ne correspond pas au job cible.",
+      details: {
+        takeoff_item_id: payload.takeoff_item_id,
+        takeoff_job_id: takeoffItem.job_id,
+        expected_job_id: normalizedJobId,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  let deleteBuilder = supabase
+    .from("takeoff_dpgf_links" as never)
+    .delete()
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("version_id" as never, payload.version_id as never)
+    .eq("takeoff_job_id" as never, normalizedJobId as never);
+
+  const deleteOrParts = [`estimate_item_id.eq.${payload.estimate_item_id}`];
+  if (payload.takeoff_item_id) {
+    deleteOrParts.push(`takeoff_item_id.eq.${payload.takeoff_item_id}`);
+  }
+  deleteBuilder = deleteBuilder.or(deleteOrParts.join(","));
+
+  const { error: deleteError } = await deleteBuilder;
+  if (deleteError) {
+    throw toTakeoffError(
+      mapSupabaseError(deleteError, "Impossible de remplacer le lien manuel DPGF."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  if (!payload.takeoff_item_id) {
+    return {
+      deleted: true,
+      link: null,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("takeoff_dpgf_links" as never)
+    .insert(
+      {
+        tenant_id: tenantId,
+        version_id: payload.version_id,
+        takeoff_job_id: normalizedJobId,
+        estimate_item_id: payload.estimate_item_id,
+        takeoff_item_id: payload.takeoff_item_id,
+        linked_by: userId,
+      } as never
+    )
+    .select(TAKEOFF_DPGF_LINKS_SELECT as never)
+    .single();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible d'enregistrer le lien manuel DPGF."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  return {
+    deleted: false,
+    link: normalizeTakeoffDpgfManualLinkRow(data),
   };
 }
 

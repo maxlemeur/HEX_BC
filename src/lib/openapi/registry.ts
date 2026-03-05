@@ -1275,6 +1275,85 @@ const takeoffJobCompareDataSchema = z.object({
   changed: z.array(takeoffDiffChangedEntrySchema),
   unchanged: z.array(takeoffDiffUnchangedEntrySchema),
 });
+const takeoffDpgfComparisonSeveritySchema = z.enum([
+  "ok",
+  "warning",
+  "critical",
+  "missing",
+]);
+const takeoffDpgfComparisonMatchSourceSchema = z.enum(["auto", "manual"]);
+const takeoffDpgfComparisonDpgfLineSchema = z.object({
+  estimate_item_id: uuidSchema,
+  title: z.string(),
+  description: z.string().nullable(),
+  quantity: z.number().positive(),
+  unit: z.string().nullable(),
+  source_page: z.number().int().nullable(),
+  source_file_name: z.string().nullable(),
+  position: z.number().int().min(0),
+});
+const takeoffDpgfComparisonTakeoffLineSchema = z.object({
+  item_id: uuidSchema,
+  designation: z.string(),
+  quantity: z.number().positive(),
+  unit: z.string(),
+  source_page: z.number().int().nullable(),
+  source_file_name: z.string().nullable(),
+  confidence: z.number().min(0).max(1).nullable(),
+});
+const takeoffDpgfComparisonRowSchema = z.object({
+  key: z.string(),
+  dpgf: takeoffDpgfComparisonDpgfLineSchema.nullable(),
+  takeoff: takeoffDpgfComparisonTakeoffLineSchema.nullable(),
+  match_source: takeoffDpgfComparisonMatchSourceSchema.nullable(),
+  match_score: z.number().nullable(),
+  delta_absolute: z.number().nullable(),
+  delta_percent: z.number().nullable(),
+  severity: takeoffDpgfComparisonSeveritySchema,
+  manual_link_id: uuidSchema.nullable(),
+});
+const takeoffDpgfComparisonSummarySchema = z.object({
+  matches: z.number().int().min(0),
+  gaps: z.number().int().min(0),
+  missing_dpgf: z.number().int().min(0),
+  missing_takeoff: z.number().int().min(0),
+  manual_links: z.number().int().min(0),
+  warning_count: z.number().int().min(0),
+  critical_count: z.number().int().min(0),
+  total_rows: z.number().int().min(0),
+});
+const takeoffDpgfComparisonDataSchema = z.object({
+  version_id: uuidSchema,
+  job_id: uuidSchema,
+  threshold: z.number().min(0).max(1),
+  summary: takeoffDpgfComparisonSummarySchema,
+  rows: z.array(takeoffDpgfComparisonRowSchema),
+  pagination: z.object({
+    page_size: z.number().int().min(1),
+    next_cursor: z.string().nullable(),
+    total: z.number().int().min(0),
+  }),
+});
+const takeoffDpgfManualLinkSchema = z.object({
+  id: uuidSchema,
+  tenant_id: uuidSchema,
+  version_id: uuidSchema,
+  takeoff_job_id: uuidSchema,
+  estimate_item_id: uuidSchema,
+  takeoff_item_id: uuidSchema,
+  created_at: z.string(),
+  updated_at: z.string(),
+  linked_by: uuidSchema.nullable(),
+});
+const takeoffDpgfManualLinkRequestSchema = z.object({
+  version_id: uuidSchema,
+  estimate_item_id: uuidSchema,
+  takeoff_item_id: uuidSchema.nullable(),
+});
+const takeoffDpgfManualLinkResponseDataSchema = z.object({
+  deleted: z.boolean(),
+  link: takeoffDpgfManualLinkSchema.nullable(),
+});
 const takeoffMetricsKpisSchema = z.object({
   totalJobs: z.number().int().min(0),
   completedJobs: z.number().int().min(0),
@@ -1851,6 +1930,14 @@ const apiTakeoffJobCompareSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffJobCompareResponse",
   takeoffJobCompareDataSchema
 );
+const apiTakeoffDpgfComparisonSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffDpgfComparisonResponse",
+  takeoffDpgfComparisonDataSchema
+);
+const apiTakeoffDpgfManualLinkSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffDpgfManualLinkResponse",
+  takeoffDpgfManualLinkResponseDataSchema
+);
 const apiTakeoffMetricsStatsSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffMetricsStatsResponse",
   takeoffMetricsDataSchema
@@ -2105,6 +2192,27 @@ const takeoffCompareThresholdQueryParameter = queryParameter({
   description: "Seuil fuzzy de matching (entre 0.5 et 0.99, defaut 0.8).",
   schemaName: "TakeoffCompareThresholdQueryParameter",
   schema: takeoffCompareThresholdQuerySchema,
+  required: false,
+});
+const takeoffDpgfCompareVersionIdQueryParameter = queryParameter({
+  name: "version_id",
+  description: "Version de chiffrage cible pour comparer les lignes DPGF au job takeoff.",
+  schemaName: "TakeoffDpgfCompareVersionIdQueryParameter",
+  schema: uuidSchema,
+  required: true,
+});
+const takeoffDpgfCompareCursorQueryParameter = queryParameter({
+  name: "cursor",
+  description: "Curseur opaque de pagination pour la comparaison DPGF.",
+  schemaName: "TakeoffDpgfCompareCursorQueryParameter",
+  schema: z.string().max(512),
+  required: false,
+});
+const takeoffDpgfComparePageSizeQueryParameter = queryParameter({
+  name: "page_size",
+  description: "Nombre maximal de lignes de comparaison retournees (<= 200).",
+  schemaName: "TakeoffDpgfComparePageSizeQueryParameter",
+  schema: z.number().int().min(1).max(200),
   required: false,
 });
 
@@ -2482,6 +2590,12 @@ const createTakeoffPlanFileBody = jsonBody({
     "Creation des metadonnees d'un PDF et generation d'un upload signe court terme.",
   schema: takeoffPlanFileCreateSchema,
 });
+const putTakeoffDpgfManualLinkBody = jsonBody({
+  name: "PutTakeoffDpgfManualLinkRequest",
+  description:
+    "Creation, remplacement ou suppression d'un lien manuel entre une ligne DPGF et un item takeoff.",
+  schema: takeoffDpgfManualLinkRequestSchema,
+});
 
 const mappingRulesErrorResponses: Record<string, OpenApiResponseDefinition> = {
   "400": jsonResponse(
@@ -2750,6 +2864,45 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Comparaison des jobs takeoff retournee.",
         apiTakeoffJobCompareSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/dpgf-compare",
+    summary: "Comparer un job Takeoff au DPGF de la version",
+    description:
+      "Retourne la comparaison entre les lignes DPGF d'une version et les items extraits du job takeoff, avec ecarts, severite et pagination cursor.",
+    tags: ["Takeoff"],
+    parameters: [
+      takeoffJobIdPathParameter,
+      takeoffDpgfCompareVersionIdQueryParameter,
+      takeoffDpgfCompareCursorQueryParameter,
+      takeoffDpgfComparePageSizeQueryParameter,
+      takeoffCompareThresholdQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Comparaison DPGF vs takeoff retournee.",
+        apiTakeoffDpgfComparisonSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "patch",
+    path: "/api/takeoff/jobs/{jobId}/dpgf-link",
+    summary: "Enregistrer un lien manuel DPGF",
+    description:
+      "Cree, remplace ou supprime un lien manuel entre une ligne DPGF de la version et un item takeoff du job.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: putTakeoffDpgfManualLinkBody,
+    responses: {
+      "200": jsonResponse(
+        "Lien manuel DPGF enregistre.",
+        apiTakeoffDpgfManualLinkSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
     },

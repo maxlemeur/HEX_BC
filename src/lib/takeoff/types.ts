@@ -348,6 +348,94 @@ export type TakeoffJobCompareResponse = {
   unchanged: TakeoffDiffUnchangedEntry[];
 };
 
+export type TakeoffDpgfComparisonSeverity =
+  | "ok"
+  | "warning"
+  | "critical"
+  | "missing";
+
+export type TakeoffDpgfComparisonMatchSource = "auto" | "manual";
+
+export type TakeoffDpgfComparisonDpgfLine = {
+  estimate_item_id: string;
+  title: string;
+  description: string | null;
+  quantity: number;
+  unit: string | null;
+  source_page: number | null;
+  source_file_name: string | null;
+  position: number;
+};
+
+export type TakeoffDpgfComparisonTakeoffLine = {
+  item_id: string;
+  designation: string;
+  quantity: number;
+  unit: string;
+  source_page: number | null;
+  source_file_name: string | null;
+  confidence: number | null;
+};
+
+export type TakeoffDpgfComparisonRow = {
+  key: string;
+  dpgf: TakeoffDpgfComparisonDpgfLine | null;
+  takeoff: TakeoffDpgfComparisonTakeoffLine | null;
+  match_source: TakeoffDpgfComparisonMatchSource | null;
+  match_score: number | null;
+  delta_absolute: number | null;
+  delta_percent: number | null;
+  severity: TakeoffDpgfComparisonSeverity;
+  manual_link_id: string | null;
+};
+
+export type TakeoffDpgfComparisonSummary = {
+  matches: number;
+  gaps: number;
+  missing_dpgf: number;
+  missing_takeoff: number;
+  manual_links: number;
+  warning_count: number;
+  critical_count: number;
+  total_rows: number;
+};
+
+export type TakeoffDpgfComparisonResponse = {
+  version_id: string;
+  job_id: string;
+  threshold: number;
+  summary: TakeoffDpgfComparisonSummary;
+  rows: TakeoffDpgfComparisonRow[];
+  pagination: {
+    page_size: number;
+    next_cursor: string | null;
+    total: number;
+  };
+};
+
+export type TakeoffDpgfManualLinkRecord = {
+  id: string;
+  tenant_id: string;
+  version_id: string;
+  takeoff_job_id: string;
+  estimate_item_id: string;
+  takeoff_item_id: string;
+  created_at: string;
+  updated_at: string;
+  linked_by: string | null;
+};
+
+export type SaveTakeoffDpgfManualLinkInput = {
+  version_id: string;
+  estimate_item_id: string;
+  takeoff_item_id: string | null;
+};
+
+export type SaveTakeoffDpgfManualLinkResponse = {
+  deleted: boolean;
+  link: TakeoffDpgfManualLinkRecord | null;
+};
+
 export type TakeoffApiError = {
   code: string;
   message: string;
