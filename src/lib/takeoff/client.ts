@@ -9,9 +9,12 @@ import type {
   PlanSetMutationResponse as SharedPlanSetMutationResponse,
   PlanSetsListResponse as SharedPlanSetsListResponse,
   RegisterPlanFileInput as SharedRegisterPlanFileInput,
+  SaveTakeoffDpgfManualLinkInput as SharedSaveTakeoffDpgfManualLinkInput,
+  SaveTakeoffDpgfManualLinkResponse as SharedSaveTakeoffDpgfManualLinkResponse,
   TakeoffApiError as TakeoffApiErrorShape,
   TakeoffApplyRequest as SharedTakeoffApplyRequest,
   TakeoffApplyResponse as SharedTakeoffApplyResponse,
+  TakeoffDpgfComparisonResponse as SharedTakeoffDpgfComparisonResponse,
   TakeoffItemBatchPatchRequest as SharedTakeoffItemBatchPatchRequest,
   TakeoffItemBatchPatchResponse as SharedTakeoffItemBatchPatchResponse,
   TakeoffJobCompareResponse as SharedTakeoffJobCompareResponse,
@@ -65,6 +68,9 @@ export type PlanSetMutationResponse = SharedPlanSetMutationResponse;
 export type PlanSetDeleteResponse = SharedPlanSetDeleteResponse;
 export type PlanFileCreateResponse = SharedPlanFileCreateResponse;
 export type PlanFileDeleteResponse = SharedPlanFileDeleteResponse;
+export type TakeoffDpgfComparisonResponse = SharedTakeoffDpgfComparisonResponse;
+export type SaveTakeoffDpgfManualLinkInput = SharedSaveTakeoffDpgfManualLinkInput;
+export type SaveTakeoffDpgfManualLinkResponse = SharedSaveTakeoffDpgfManualLinkResponse;
 
 type ApiEnvelope<T> = {
   ok?: boolean;
@@ -717,6 +723,42 @@ export async function deletePlanFile(
     `/api/takeoff/plan-sets/${encodeURIComponent(setId)}/files/${encodeURIComponent(fileId)}`,
     { method: "DELETE" },
     "Impossible de supprimer le fichier de plan."
+  );
+}
+
+/* ─── DPGF Comparison API ─── */
+
+export async function fetchTakeoffDpgfComparison(
+  jobId: string,
+  query: { version_id: string; cursor?: string; page_size?: number },
+  options?: { signal?: AbortSignal }
+): Promise<TakeoffDpgfComparisonResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("version_id", query.version_id);
+  if (query.cursor) searchParams.set("cursor", query.cursor);
+  if (typeof query.page_size === "number") {
+    searchParams.set("page_size", String(query.page_size));
+  }
+
+  return requestTakeoffJson<TakeoffDpgfComparisonResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/dpgf-compare?${searchParams.toString()}`,
+    { method: "GET", signal: options?.signal },
+    "Impossible de charger la comparaison DPGF."
+  );
+}
+
+export async function saveTakeoffDpgfManualLink(
+  jobId: string,
+  input: SaveTakeoffDpgfManualLinkInput
+): Promise<SaveTakeoffDpgfManualLinkResponse> {
+  return requestTakeoffJson<SaveTakeoffDpgfManualLinkResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/dpgf-link`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    "Impossible de sauvegarder le lien manuel DPGF."
   );
 }
 
