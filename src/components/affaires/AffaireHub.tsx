@@ -112,202 +112,6 @@ function BackToListLink() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Section: Onboarding Hero (empty state)                             */
-/* ------------------------------------------------------------------ */
-
-type StepStatus = "done" | "current" | "future";
-
-function OnboardingHero({
-  summary,
-  dpgfSource,
-  onStartImport,
-}: {
-  summary: AffaireHubSummaryResult;
-  dpgfSource: AffaireHubDpgfSourceResult;
-  onStartImport: () => void;
-}) {
-  const dpgfDone =
-    dpgfSource !== null && dpgfSource.importStatus === "completed";
-
-  const steps: { label: string; status: StepStatus }[] = [
-    { label: "Affaire creee", status: "done" },
-    { label: "Importer DPGF", status: dpgfDone ? "done" : "current" },
-    { label: "Premiere version", status: dpgfDone ? "current" : "future" },
-    { label: "Editer & envoyer", status: "future" },
-  ];
-  // Fix: "pending" should map to the stepper visual, treat as non-done
-  // We use "pending" only for step 2 when not done
-
-  return (
-    <div className="onboarding-hero animate-slide-up">
-      {/* Title */}
-      <div className="mb-6 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--brand-orange)]/10 animate-fade-in">
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--brand-orange)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09Z" />
-            <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2Z" />
-            <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
-            <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
-          </svg>
-        </div>
-        <div>
-          <h2 className="text-lg font-bold text-[var(--slate-900)]">
-            Votre affaire est prete !
-          </h2>
-          <p className="text-sm text-[var(--slate-500)]">
-            Suivez les etapes pour demarrer votre chiffrage.
-          </p>
-        </div>
-      </div>
-
-      {/* Stepper — horizontal on desktop, vertical on mobile */}
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-0">
-        {steps.map((step, i) => (
-          <div key={step.label} className="flex items-center gap-0 sm:flex-1">
-            {/* Step circle + label */}
-            <div className={`flex items-center gap-2.5 animate-fade-in stagger-${i + 1}`}>
-              <StepCircle index={i + 1} status={step.status} />
-              <span
-                className={`text-sm font-medium whitespace-nowrap ${
-                  step.status === "done"
-                    ? "text-[var(--success)]"
-                    : step.status === "current"
-                      ? "text-[var(--brand-blue)]"
-                      : "text-[var(--slate-400)]"
-                }`}
-              >
-                {step.label}
-              </span>
-            </div>
-            {/* Connector (not after last step) */}
-            {i < steps.length - 1 && (
-              <div
-                className={`step-connector mx-2 hidden sm:block ${
-                  step.status === "done"
-                    ? "step-connector--done"
-                    : "step-connector--pending"
-                }`}
-              />
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* CTA */}
-      <div className="animate-fade-in stagger-5">
-        {dpgfDone ? (
-          <Link
-            href={`/dashboard/estimates/new?projectId=${summary.project.id}`}
-            className="btn btn-primary inline-flex items-center gap-2"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="12" x2="12" y1="5" y2="19" />
-              <line x1="5" x2="19" y1="12" y2="12" />
-            </svg>
-            Creer la premiere version
-          </Link>
-        ) : (
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={onStartImport}
-              className="btn btn-primary inline-flex items-center gap-2"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" x2="12" y1="3" y2="15" />
-              </svg>
-              Importer votre DPGF
-            </button>
-            <span className="text-sm text-[var(--slate-400)]">ou</span>
-            <Link
-              href={`/dashboard/estimates/new?projectId=${summary.project.id}`}
-              className="btn btn-secondary inline-flex items-center gap-2"
-            >
-              Creer version vide
-            </Link>
-          </div>
-        )}
-      </div>
-
-      {/* Compact DPGF info if exists */}
-      {dpgfSource !== null && (
-        <div className="mt-4 rounded-lg border border-[var(--slate-200)] bg-white/60 px-3 py-2 text-xs text-[var(--slate-600)] animate-fade-in stagger-6">
-          <span className="font-medium">{dpgfSource.filename}</span>
-          {" — "}
-          {dpgfSource.rowCount} lignes
-          {" — "}
-          Importe le {fmtDate(dpgfSource.importedAt)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function StepCircle({ index, status }: { index: number; status: StepStatus }) {
-  if (status === "done") {
-    return (
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--success)] animate-scale-in">
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="white"
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M20 6 9 17l-5-5" />
-        </svg>
-      </div>
-    );
-  }
-
-  if (status === "current") {
-    return (
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--brand-blue)] text-white text-xs font-bold animate-pulse-ring">
-        {index}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--slate-200)] text-[var(--slate-400)] text-xs font-bold">
-      {index}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  Section: Action Bar (filled state)                                 */
 /* ------------------------------------------------------------------ */
 
@@ -1007,8 +811,13 @@ export function AffaireHub({
     if (shownCreatedToastProjectIds.has(projectId)) return;
 
     shownCreatedToastProjectIds.add(projectId);
-    toast.success({ title: "Affaire creee !" });
-  }, [justCreated, router, summary.project.id, toast]);
+    toast.success({
+      title: "Affaire creee !",
+      description: dpgfSource
+        ? "DPGF lie — importez les lignes depuis l'editeur."
+        : undefined,
+    });
+  }, [justCreated, router, summary.project.id, toast, dpgfSource]);
 
   const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
   const draftVersionId =
@@ -1027,8 +836,6 @@ export function AffaireHub({
     },
     [router],
   );
-
-  const isEmpty = summary.currentVersion === null && summary.versionsCount === 0;
 
   return (
     <div className="animate-fade-in">
@@ -1123,18 +930,7 @@ export function AffaireHub({
           onCancel={() => setShowImportFlow(false)}
           onComplete={handleImportComplete}
         />
-      ) : isEmpty ? (
-        /* MODE VIDE — Onboarding Hero */
-        <OnboardingHero
-          summary={summary}
-          dpgfSource={dpgfSource}
-          onStartImport={() => {
-            setImportResult(null);
-            setShowImportFlow(true);
-          }}
-        />
       ) : (
-        /* MODE REMPLI — Full dashboard */
         <>
           <ActionBar
             summary={summary}

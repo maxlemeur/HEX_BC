@@ -65,6 +65,52 @@ function ensureEngineerOrAdmin(role: string) {
   }
 }
 
+async function createProjectWithEmptyV1({
+  supabase,
+  tenantId,
+  userId,
+  projectName,
+  clientName,
+  reference,
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  tenantId: string;
+  userId: string;
+  projectName: string;
+  clientName: string | null;
+  reference: string | null;
+}) {
+  const { data: project, error: projectError } = await supabase
+    .from("estimate_projects")
+    .insert({
+      tenant_id: tenantId,
+      user_id: userId,
+      name: projectName,
+      client_name: clientName,
+      reference,
+      notes: null,
+      is_archived: false,
+    })
+    .select("id")
+    .single();
+
+  if (projectError || !project) {
+    throw new Error("Impossible de creer la nouvelle affaire.");
+  }
+
+  const { data: version, error: versionError } = await supabase
+    .from("estimate_versions")
+    .insert({ project_id: project.id, version_number: 1 })
+    .select("id")
+    .single();
+
+  if (versionError || !version) {
+    throw new Error("Impossible de creer la premiere version.");
+  }
+
+  return { projectId: project.id, versionId: version.id };
+}
+
 export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
   const parsed = quickCreateAffaireSchema.safeParse(input);
   if (!parsed.success) {
@@ -92,23 +138,14 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
   const linkImportId = importId ? null : (parsed.data.linkImportId ?? null);
 
   if (!importId) {
-    const { data: project, error: projectError } = await supabase
-      .from("estimate_projects")
-      .insert({
-        tenant_id: membership.tenant_id,
-        user_id: user.id,
-        name: projectName,
-        client_name: clientName,
-        reference,
-        notes: null,
-        is_archived: false,
-      })
-      .select("id")
-      .single();
-
-    if (projectError || !project) {
-      throw new Error("Impossible de creer la nouvelle affaire.");
-    }
+    const { projectId, versionId } = await createProjectWithEmptyV1({
+      supabase,
+      tenantId: membership.tenant_id,
+      userId: user.id,
+      projectName,
+      clientName,
+      reference,
+    });
 
     if (linkImportId) {
       const importRow = await getImportOrThrow({
@@ -119,7 +156,7 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
         isTenantAdmin,
       });
 
-      if (importRow.project_id && importRow.project_id !== project.id) {
+      if (importRow.project_id && importRow.project_id !== projectId) {
         throw new Error("Cet import est deja lie a une autre affaire.");
       }
 
@@ -127,7 +164,7 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
         await ensureImportProjectLink({
           supabase,
           importId: linkImportId,
-          projectId: project.id,
+          projectId,
           tenantId: membership.tenant_id,
           userId: user.id,
           isTenantAdmin,
@@ -135,8 +172,8 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
       }
     }
 
-    revalidateQuickCreatePaths(project.id, null);
-    redirect(`/dashboard/affaires/${project.id}?created=1`);
+    revalidateQuickCreatePaths(projectId, versionId);
+    redirect(`/dashboard/affaires/${projectId}?created=1`);
   }
 
   const importRow = await getImportOrThrow({
@@ -183,7 +220,26 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
   });
 
   if (normalizedRows.validLines.length === 0) {
-    throw new Error("Aucune ligne valide a inserer pour creer le chiffrage.");
+    const { projectId, versionId } = await createProjectWithEmptyV1({
+      supabase,
+      tenantId: membership.tenant_id,
+      userId: user.id,
+      projectName,
+      clientName,
+      reference,
+    });
+
+    await ensureImportProjectLink({
+      supabase,
+      importId,
+      projectId,
+      tenantId: membership.tenant_id,
+      userId: user.id,
+      isTenantAdmin,
+    });
+
+    revalidateQuickCreatePaths(projectId, versionId);
+    redirect(`/dashboard/affaires/${projectId}?created=1`);
   }
 
   const { data: rpcData, error: rpcError } = await supabase.rpc(
