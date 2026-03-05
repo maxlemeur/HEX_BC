@@ -11,8 +11,10 @@ import {
   duplicateEstimateVersion,
 } from "@/lib/estimates/client";
 import { formatEUR } from "@/lib/money";
+import { useUiMode } from "@/hooks/useUiMode";
 import type {
   AffaireHubDpgfSourceResult,
+  AffaireHubMarginAnalysisResult,
   AffaireHubSummaryResult,
   AffaireHubTimelineResult,
 } from "@/lib/affaires/server";
@@ -20,6 +22,7 @@ import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_a
 
 import { useToast } from "@/components/ui/Toast";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
+import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { UnifiedImportFlow } from "./UnifiedImportFlow";
 
 /* ------------------------------------------------------------------ */
@@ -30,9 +33,11 @@ type AffaireHubProps = {
   summary: AffaireHubSummaryResult;
   timeline: AffaireHubTimelineResult | null;
   dpgfSource: AffaireHubDpgfSourceResult;
+  marginAnalysis?: AffaireHubMarginAnalysisResult | null;
   sectionErrors?: {
     timeline?: string;
     dpgfSource?: string;
+    marginAnalysis?: string;
   };
   justCreated?: boolean;
 };
@@ -244,7 +249,7 @@ function VersionTimelineCard({
             </svg>
           }
           title="Aucune version encore"
-          description="Commencez le chiffrage ou importez un DPGF pour alimenter cette affaire."
+          description="Creez une premiere version pour demarrer le chiffrage."
           actionLabel="Demarrer"
           actionHref={`/dashboard/estimates/new?projectId=${projectId}`}
           className="py-10"
@@ -682,7 +687,7 @@ function QuickActionsCard({
         {currentVersion === null && (
           <Link
             href={`/dashboard/estimates/new?projectId=${project.id}`}
-            className="btn btn-primary btn-sm inline-flex items-center gap-1.5"
+            className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
           >
             <svg
               width="14"
@@ -719,11 +724,13 @@ export function AffaireHub({
   summary,
   timeline,
   dpgfSource,
+  marginAnalysis,
   sectionErrors,
   justCreated,
 }: AffaireHubProps) {
   const router = useRouter();
   const toast = useToast();
+  const { isExpert } = useUiMode();
   const currentVersionId = summary.currentVersion?.id ?? null;
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
 
@@ -743,11 +750,14 @@ export function AffaireHub({
     if (shownCreatedToastProjectIds.has(projectId)) return;
 
     shownCreatedToastProjectIds.add(projectId);
+    const dpgfDone = dpgfSource !== null && dpgfSource.importStatus === "completed";
     toast.success({
       title: "Affaire creee",
-      description: "Commencez le chiffrage ou importez un DPGF.",
+      description: dpgfDone
+        ? `DPGF importe avec succes (${dpgfSource.rowCount} lignes). Creez une version pour demarrer le chiffrage.`
+        : "Creez une version pour demarrer le chiffrage.",
     });
-  }, [justCreated, router, summary.project.id, toast]);
+  }, [justCreated, router, summary.project.id, toast, dpgfSource]);
 
   const [showImportFlow, setShowImportFlow] = useState(false);
   const [importResult, setImportResult] =
@@ -858,9 +868,15 @@ export function AffaireHub({
       ) : (
         /* Content: 2 columns on desktop, stacked on mobile */
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {/* Left column: Financial + Timeline */}
+          {/* Left column: Financial + Margin Analysis + Timeline */}
           <div className="space-y-4 lg:col-span-2">
             <FinancialSummaryCard summary={summary} />
+            {isExpert && (
+              <MarginAnalysisWidget
+                data={marginAnalysis ?? null}
+                errorMessage={sectionErrors?.marginAnalysis}
+              />
+            )}
             <VersionTimelineCard
               timeline={timeline}
               projectId={summary.project.id}

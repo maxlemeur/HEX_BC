@@ -1,3 +1,7 @@
+import {
+  computeAllSectionTotals,
+  type EstimateItemRecord,
+} from "@/lib/estimate-calculations";
 import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import {
   getAuthenticatedContext,
@@ -140,6 +144,38 @@ export type AffaireHubPageDataResult = {
   timeline: AffaireHubTimelineResult;
   dpgfSource: AffaireHubDpgfSourceResult;
 };
+
+export type MarginSectionBreakdown = {
+  sectionId: string;
+  sectionTitle: string;
+  sectionPosition: number;
+  costCents: number;
+  saleCents: number;
+  marginPercent: number;
+  marginEurCents: number;
+};
+
+export type MarginVersionPoint = {
+  versionNumber: number;
+  versionId: string;
+  status: string;
+  marginMultiplier: number;
+  marginPercent: number;
+  totalHtCents: number;
+};
+
+export type AffaireHubMarginAnalysisResult = {
+  global: {
+    costCents: number;
+    saleCents: number;
+    marginPercent: number;
+    marginEurCents: number;
+    marginMultiplier: number;
+  };
+  sections: MarginSectionBreakdown[];
+  versionEvolution: MarginVersionPoint[];
+  currentVersionId: string;
+} | null;
 
 function toSafeInteger(value: number | string | null | undefined): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -601,4 +637,209 @@ export async function fetchAffaireHubPageData(
     timeline,
     dpgfSource,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Margin Analysis                                                     */
+/* ------------------------------------------------------------------ */
+
+type MarginAnalysisVersionRow = Pick<
+  EstimateVersionRow,
+  | "id"
+  | "project_id"
+  | "version_number"
+  | "status"
+  | "total_ht_cents"
+  | "margin_multiplier"
+  | "margin_mode"
+  | "tax_rate_bp"
+  | "discount_bp"
+  | "discount_mode"
+  | "discount_steps"
+  | "global_coefficient"
+  | "updated_at"
+>;
+
+async function fetchAffaireHubMarginAnalysisWithContext(
+  context: AffaireContext,
+  project: AffaireHubProjectRow
+): Promise<AffaireHubMarginAnalysisResult> {
+  // 1. Fetch all versions
+  const { data: versionsData, error: versionsError } = await context.supabase
+    .from("estimate_versions")
+    .select(
+      "id, project_id, version_number, status, total_ht_cents, margin_multiplier, margin_mode, tax_rate_bp, discount_bp, discount_mode, discount_steps, global_coefficient, updated_at"
+    )
+    .eq("tenant_id", context.tenantId)
+    .eq("project_id", project.id)
+    .order("version_number", { ascending: true });
+
+  if (versionsError) {
+    throw mapSupabaseError(versionsError, "Impossible de charger les versions pour l'analyse de marge.");
+  }
+
+  const versions = (versionsData ?? []) as MarginAnalysisVersionRow[];
+  if (versions.length === 0) return null;
+
+  // 2. Current version = highest version_number
+  const currentVersion = versions[versions.length - 1];
+
+  // 3. Fetch all items for current version
+  const { data: itemsData, error: itemsError } = await context.supabase
+    .from("estimate_items")
+    .select(
+      "id, parent_id, item_type, position, title, description, quantity, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, h_mo_majoration, k_mo, h_mo_atelier, k_mo_atelier, labor_role_atelier_id, h_mo_chantier, k_mo_chantier, labor_role_chantier_id, pu_ht_cents, labor_role_id, category_id, supply_type_id, line_total_ht_cents, line_tax_cents, line_total_ttc_cents"
+    )
+    .eq("tenant_id", context.tenantId)
+    .eq("version_id", currentVersion.id);
+
+  if (itemsError) {
+    throw mapSupabaseError(itemsError, "Impossible de charger les lignes pour l'analyse de marge.");
+  }
+
+  const items = (itemsData ?? []) as EstimateItemRecord[];
+  if (items.length === 0) return null;
+
+  // 4. Fetch labor roles for rate lookup
+  const laborRoleIds = new Set<string>();
+  for (const item of items) {
+    if (item.labor_role_id) laborRoleIds.add(item.labor_role_id);
+    if (item.labor_role_atelier_id) laborRoleIds.add(item.labor_role_atelier_id);
+    if (item.labor_role_chantier_id) laborRoleIds.add(item.labor_role_chantier_id);
+  }
+
+  const laborRateById = new Map<string, number>();
+  if (laborRoleIds.size > 0) {
+    const { data: rolesData, error: rolesError } = await context.supabase
+      .from("labor_roles")
+      .select("id, hourly_rate_cents")
+      .eq("tenant_id", context.tenantId)
+      .in("id", [...laborRoleIds]);
+
+    if (rolesError) {
+      throw mapSupabaseError(rolesError, "Impossible de charger les roles main d'oeuvre.");
+    }
+
+    for (const role of rolesData ?? []) {
+      laborRateById.set(role.id, role.hourly_rate_cents ?? 0);
+    }
+  }
+
+  // 5. Identify root sections
+  const rootSections = items.filter(
+    (item) => item.item_type === "section" && item.parent_id === null
+  );
+  const rootSectionIds = rootSections.map((s) => s.id);
+
+  if (rootSectionIds.length === 0) return null;
+
+  const marginMultiplier = Number.isFinite(currentVersion.margin_multiplier)
+    ? currentVersion.margin_multiplier
+    : 1;
+  const taxRateBp = currentVersion.tax_rate_bp ?? 0;
+
+  // Compute discount cents from version settings
+  // We compute sale subtotal first to derive discount
+  const discountBp = currentVersion.discount_bp ?? 0;
+  const globalCoefficient = currentVersion.global_coefficient ?? 1;
+
+  // Compute sale subtotal for discount calculation
+  const lineSaleSubtotal = items.reduce((sum, item) => {
+    if (item.item_type !== "line") return sum;
+    return sum + (item.line_total_ht_cents ?? 0);
+  }, 0);
+  const saleSubtotalAfterCoefficient = Math.round(lineSaleSubtotal * globalCoefficient);
+  const discountCents = Math.round((saleSubtotalAfterCoefficient * discountBp) / 10000);
+
+  // 6. Dual-pass calculation
+  // Pass 1 — Costs (margin=1, no discount)
+  const costTotals = computeAllSectionTotals({
+    items,
+    marginMultiplier: 1,
+    taxRateBp: 0,
+    discountCents: 0,
+    laborRateById,
+    sectionIds: rootSectionIds,
+  });
+
+  // Pass 2 — Sales (real margin, real discount)
+  const saleTotals = computeAllSectionTotals({
+    items,
+    marginMultiplier,
+    taxRateBp,
+    discountCents,
+    laborRateById,
+    sectionIds: rootSectionIds,
+  });
+
+  // 7. Global totals
+  let globalCostCents = 0;
+  let globalSaleCents = 0;
+  for (const sectionId of rootSectionIds) {
+    const cost = costTotals.get(sectionId);
+    const sale = saleTotals.get(sectionId);
+    globalCostCents += cost?.totalHtCents ?? 0;
+    globalSaleCents += sale?.totalHtCents ?? 0;
+  }
+
+  const globalMarginEurCents = globalSaleCents - globalCostCents;
+  const globalMarginPercent =
+    globalCostCents > 0 ? ((globalSaleCents - globalCostCents) / globalCostCents) * 100 : 0;
+
+  // 8. Build sections array
+  const sections: MarginSectionBreakdown[] = rootSections
+    .sort((a, b) => a.position - b.position)
+    .map((section) => {
+      const cost = costTotals.get(section.id);
+      const sale = saleTotals.get(section.id);
+      const costCents = cost?.totalHtCents ?? 0;
+      const saleCents = sale?.totalHtCents ?? 0;
+      const marginEurCents = saleCents - costCents;
+      const marginPercent =
+        costCents > 0 ? ((saleCents - costCents) / costCents) * 100 : 0;
+
+      return {
+        sectionId: section.id,
+        sectionTitle: section.title,
+        sectionPosition: section.position,
+        costCents,
+        saleCents,
+        marginPercent,
+        marginEurCents,
+      };
+    });
+
+  // 9. Build version evolution
+  const versionEvolution: MarginVersionPoint[] = versions.map((v) => {
+    const mm = Number.isFinite(v.margin_multiplier) ? v.margin_multiplier : 1;
+    return {
+      versionNumber: toSafeInteger(v.version_number),
+      versionId: v.id,
+      status: v.status,
+      marginMultiplier: mm,
+      marginPercent: (mm - 1) * 100,
+      totalHtCents: toSafeInteger(v.total_ht_cents),
+    };
+  });
+
+  return {
+    global: {
+      costCents: globalCostCents,
+      saleCents: globalSaleCents,
+      marginPercent: globalMarginPercent,
+      marginEurCents: globalMarginEurCents,
+      marginMultiplier,
+    },
+    sections,
+    versionEvolution,
+    currentVersionId: currentVersion.id,
+  };
+}
+
+export async function fetchAffaireHubMarginAnalysis(
+  projectId: string
+): Promise<AffaireHubMarginAnalysisResult> {
+  const context = await getAuthenticatedContext();
+  const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+  return fetchAffaireHubMarginAnalysisWithContext(context, project);
 }

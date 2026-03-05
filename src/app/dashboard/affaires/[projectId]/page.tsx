@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AffaireHub } from "@/components/affaires/AffaireHub";
 import {
   fetchAffaireHubDpgfSource,
+  fetchAffaireHubMarginAnalysis,
   fetchAffaireHubSummary,
   fetchAffaireHubTimeline,
 } from "@/lib/affaires/server";
@@ -33,9 +34,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const summaryPromise = fetchAffaireHubSummary(projectId);
   const timelinePromise = fetchAffaireHubTimeline(projectId, timelinePage);
   const dpgfSourcePromise = fetchAffaireHubDpgfSource(projectId);
+  const marginAnalysisPromise = fetchAffaireHubMarginAnalysis(projectId);
 
-  const [summaryResult, timelineResult, dpgfSourceResult] =
-    await Promise.allSettled([summaryPromise, timelinePromise, dpgfSourcePromise]);
+  const [summaryResult, timelineResult, dpgfSourceResult, marginResult] =
+    await Promise.allSettled([summaryPromise, timelinePromise, dpgfSourcePromise, marginAnalysisPromise]);
 
   if (summaryResult.status === "rejected") {
     const err = summaryResult.reason as unknown;
@@ -56,10 +58,13 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     timelineResult.status === "fulfilled" ? timelineResult.value : null;
   const dpgfSource =
     dpgfSourceResult.status === "fulfilled" ? dpgfSourceResult.value : null;
+  const marginAnalysis =
+    marginResult.status === "fulfilled" ? marginResult.value : null;
 
   const sectionErrors: {
     timeline?: string;
     dpgfSource?: string;
+    marginAnalysis?: string;
   } = {};
 
   if (timelineResult.status === "rejected") {
@@ -72,11 +77,17 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       "Impossible de charger la section Source DPGF pour le moment.";
   }
 
+  if (marginResult.status === "rejected") {
+    sectionErrors.marginAnalysis =
+      "Impossible de charger l'analyse de marge pour le moment.";
+  }
+
   return (
     <AffaireHub
       summary={summary}
       timeline={timeline}
       dpgfSource={dpgfSource}
+      marginAnalysis={marginAnalysis}
       sectionErrors={sectionErrors}
       justCreated={justCreated}
     />
