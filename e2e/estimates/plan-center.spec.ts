@@ -81,17 +81,18 @@ test.describe("V3-006 — Plan Center affaire", () => {
     await expect(page.getByText("sample-plan.pdf")).toBeVisible({ timeout: 15_000 });
 
     // 8. Delete the file
-    const fileDeleteBtn = page
-      .getByRole("button", { name: /Supprimer/i })
-      .first();
+    const fileDeleteBtn = page.getByRole("button", {
+      name: /^Supprimer sample-plan\.pdf$/i,
+    });
     await fileDeleteBtn.click();
 
     // Confirm deletion in the modal
-    const confirmDialog = page.getByRole("dialog").filter({ hasText: /Supprimer le fichier/i });
-    if (await confirmDialog.isVisible().catch(() => false)) {
-      await confirmDialog.getByRole("button", { name: /Supprimer/i }).click();
-      await expect(confirmDialog).toBeHidden({ timeout: 10_000 });
-    }
+    const confirmDialog = page
+      .locator("div.fixed.inset-0.z-50")
+      .filter({ has: page.getByRole("heading", { name: /Supprimer le fichier/i }) });
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole("button", { name: /^Supprimer$/i }).click();
+    await expect(confirmDialog).toBeHidden({ timeout: 10_000 });
 
     // Verify file is gone
     await expect(page.getByText("sample-plan.pdf")).toBeHidden({ timeout: 10_000 });
@@ -103,9 +104,11 @@ test.describe("V3-006 — Plan Center affaire", () => {
     });
     await setDeleteButton.click();
 
-    const setConfirmDialog = page.getByRole("dialog").filter({ hasText: /Supprimer le jeu de plans/i });
+    const setConfirmDialog = page
+      .locator("div.fixed.inset-0.z-50")
+      .filter({ has: page.getByRole("heading", { name: /Supprimer le jeu de plans/i }) });
     await expect(setConfirmDialog).toBeVisible();
-    await setConfirmDialog.getByRole("button", { name: /Supprimer/i }).click();
+    await setConfirmDialog.getByRole("button", { name: /^Supprimer$/i }).click();
     await expect(setConfirmDialog).toBeHidden({ timeout: 10_000 });
 
     // 10. Verify empty state is back
