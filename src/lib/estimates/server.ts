@@ -760,6 +760,18 @@ const DEFAULT_ESTIMATE_CATEGORIES = [
   { name: "Sous-traitance", position: 3 },
 ] as const;
 
+const DEFAULT_LABOR_ROLES = [
+  { name: "Maçon", hourly_rate_cents: 0, position: 1 },
+  { name: "Électricien", hourly_rate_cents: 0, position: 2 },
+  { name: "Plombier", hourly_rate_cents: 0, position: 3 },
+  { name: "Chauffagiste", hourly_rate_cents: 0, position: 4 },
+  { name: "Menuisier", hourly_rate_cents: 0, position: 5 },
+  { name: "Plaquiste", hourly_rate_cents: 0, position: 6 },
+  { name: "Carreleur", hourly_rate_cents: 0, position: 7 },
+  { name: "Peintre", hourly_rate_cents: 0, position: 8 },
+  { name: "Couvreur", hourly_rate_cents: 0, position: 9 },
+] as const;
+
 function parseBulkUpdateCountDetails(details: string | null | undefined) {
   const match = details?.match(
     /expected_count=(\d+),(updated_count|locked_count)=(\d+)/
@@ -5455,6 +5467,38 @@ export async function createEstimate(input: CreateEstimateInput) {
         .eq("tenant_id", tenantId);
     }
     throw mapSupabaseError(categoriesError, "Impossible de preparer les categories par defaut.");
+  }
+
+  const laborRolesPayload: LaborRoleInsert[] = DEFAULT_LABOR_ROLES.map((role) => ({
+    tenant_id: tenantId,
+    user_id: project.user_id,
+    name: role.name,
+    hourly_rate_cents: role.hourly_rate_cents,
+    is_active: true,
+    position: role.position,
+  }));
+
+  const { error: laborRolesError } = await supabase
+    .from("labor_roles")
+    .upsert(laborRolesPayload, {
+      onConflict: "tenant_id,user_id,name",
+      ignoreDuplicates: true,
+    });
+
+  if (laborRolesError) {
+    if (createdProjectId) {
+      await supabase.from("estimate_projects").delete().eq("id", createdProjectId);
+    } else {
+      await supabase
+        .from("estimate_versions")
+        .delete()
+        .eq("id", version.id)
+        .eq("tenant_id", tenantId);
+    }
+    throw mapSupabaseError(
+      laborRolesError,
+      "Impossible de preparer les roles MO par defaut."
+    );
   }
 
   if (creationMode === "linked_dpgf_source") {

@@ -286,7 +286,8 @@ describe("estimate server coverage additions", () => {
     const base = createAuth("engineer");
     const insertedProjectPayloads: Array<Record<string, unknown>> = [];
     const insertedVersionPayloads: Array<Record<string, unknown>> = [];
-    const upsertCalls: unknown[] = [];
+    const categoryUpsertCalls: unknown[] = [];
+    const laborRoleUpsertCalls: unknown[] = [];
 
     const supabase = {
       ...base,
@@ -337,7 +338,18 @@ describe("estimate server coverage additions", () => {
         if (table === "estimate_categories") {
           return {
             upsert: vi.fn((payload: unknown) => {
-              upsertCalls.push(payload);
+              categoryUpsertCalls.push(payload);
+              return {
+                data: null,
+                error: null,
+              };
+            }),
+          };
+        }
+        if (table === "labor_roles") {
+          return {
+            upsert: vi.fn((payload: unknown) => {
+              laborRoleUpsertCalls.push(payload);
               return {
                 data: null,
                 error: null,
@@ -390,11 +402,17 @@ describe("estimate server coverage additions", () => {
     expect(insertedVersionPayloads[0]?.date_devis).toBe(
       new Date().toISOString().slice(0, 10)
     );
-    expect(upsertCalls).toHaveLength(1);
-    const upsertPayload = upsertCalls[0];
-    expect(Array.isArray(upsertPayload)).toBe(true);
-    if (!Array.isArray(upsertPayload)) return;
-    expect(upsertPayload).toHaveLength(3);
+    expect(categoryUpsertCalls).toHaveLength(1);
+    const categoriesPayload = categoryUpsertCalls[0];
+    expect(Array.isArray(categoriesPayload)).toBe(true);
+    if (!Array.isArray(categoriesPayload)) return;
+    expect(categoriesPayload).toHaveLength(3);
+
+    expect(laborRoleUpsertCalls).toHaveLength(1);
+    const laborRolesPayload = laborRoleUpsertCalls[0];
+    expect(Array.isArray(laborRolesPayload)).toBe(true);
+    if (!Array.isArray(laborRolesPayload)) return;
+    expect(laborRolesPayload).toHaveLength(9);
   });
 
   it("maps estimate version events and trims actor names", async () => {

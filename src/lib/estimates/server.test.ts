@@ -323,6 +323,9 @@ function createCreateEstimateSupabaseMock() {
   const estimateCategoriesUpsert = vi.fn().mockResolvedValue({
     error: null,
   });
+  const estimateLaborRolesUpsert = vi.fn().mockResolvedValue({
+    error: null,
+  });
 
   const supabase = {
     auth: {
@@ -365,12 +368,19 @@ function createCreateEstimateSupabaseMock() {
         };
       }
 
+      if (table === "labor_roles") {
+        return {
+          upsert: estimateLaborRolesUpsert,
+        };
+      }
+
       throw new Error(`Unexpected table: ${table}`);
     }),
     __mocks: {
       estimateProjectInsert,
       estimateVersionInsert,
       estimateCategoriesUpsert,
+      estimateLaborRolesUpsert,
     },
   };
 
@@ -476,6 +486,9 @@ function createCreateEstimateIntoExistingProjectSupabaseMock() {
   const estimateCategoriesUpsert = vi.fn().mockResolvedValue({
     error: null,
   });
+  const estimateLaborRolesUpsert = vi.fn().mockResolvedValue({
+    error: null,
+  });
 
   const supabase = {
     auth: {
@@ -515,11 +528,18 @@ function createCreateEstimateIntoExistingProjectSupabaseMock() {
         };
       }
 
+      if (table === "labor_roles") {
+        return {
+          upsert: estimateLaborRolesUpsert,
+        };
+      }
+
       throw new Error(`Unexpected table: ${table}`);
     }),
     __mocks: {
       estimateVersionInsert,
       estimateCategoriesUpsert,
+      estimateLaborRolesUpsert,
       estimateProjectSelectBuilder,
     },
   };
