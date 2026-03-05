@@ -67,20 +67,58 @@ create policy "Tenant members can view portal tokens"
   on public.portal_tokens
   for select
   to authenticated
-  using ((select public.is_tenant_member(tenant_id)));
+  using (
+    exists (
+      select 1
+      from public.estimate_versions v
+      join public.estimate_projects p on p.id = v.project_id
+      where v.id = portal_tokens.version_id
+        and v.tenant_id = portal_tokens.tenant_id
+        and p.tenant_id = portal_tokens.tenant_id
+        and (select public.is_tenant_member(v.tenant_id))
+        and (
+          p.user_id = (select auth.uid())
+          or (select public.has_tenant_role(v.tenant_id, array['admin'::public.tenant_role]))
+        )
+    )
+  );
 
 create policy "Tenant members can insert portal tokens"
   on public.portal_tokens
   for insert
   to authenticated
-  with check ((select public.is_tenant_member(tenant_id)));
+  with check (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+      )
+    )
+  );
 
 create policy "Tenant members can update portal tokens"
   on public.portal_tokens
   for update
   to authenticated
-  using ((select public.is_tenant_member(tenant_id)))
-  with check ((select public.is_tenant_member(tenant_id)));
+  using (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+      )
+    )
+  )
+  with check (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+      )
+    )
+  );
 
 create table if not exists public.estimate_emails (
   id uuid primary key default gen_random_uuid(),
@@ -159,14 +197,38 @@ create policy "Tenant members can insert estimate emails"
   on public.estimate_emails
   for insert
   to authenticated
-  with check ((select public.is_tenant_member(tenant_id)));
+  with check (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+      )
+    )
+  );
 
 create policy "Tenant members can update estimate emails"
   on public.estimate_emails
   for update
   to authenticated
-  using ((select public.is_tenant_member(tenant_id)))
-  with check ((select public.is_tenant_member(tenant_id)));
+  using (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+      )
+    )
+  )
+  with check (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+      )
+    )
+  );
 
 create table if not exists public.estimate_negotiations (
   id uuid primary key default gen_random_uuid(),
@@ -260,14 +322,38 @@ create policy "Tenant members can insert estimate negotiations"
   on public.estimate_negotiations
   for insert
   to authenticated
-  with check ((select public.is_tenant_member(tenant_id)));
+  with check (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+      )
+    )
+  );
 
 create policy "Tenant members can update estimate negotiations"
   on public.estimate_negotiations
   for update
   to authenticated
-  using ((select public.is_tenant_member(tenant_id)))
-  with check ((select public.is_tenant_member(tenant_id)));
+  using (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+      )
+    )
+  )
+  with check (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'engineer'::public.tenant_role]
+      )
+    )
+  );
 
 alter table public.estimate_version_events
   drop constraint if exists estimate_version_events_event_type_check;
