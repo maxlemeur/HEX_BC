@@ -1051,6 +1051,72 @@ describe("estimate calculations", () => {
     });
   });
 
+  it("EST-125: mixed node subtotal adds direct lines and subsection totals once", () => {
+    const parentSectionId = "section-a";
+    const childSectionId = "section-b";
+    const items: EstimateItemRecord[] = [
+      createSectionRecord({ id: parentSectionId, parent_id: null, position: 1 }),
+      createSectionRecord({ id: childSectionId, parent_id: parentSectionId, position: 2 }),
+      createItemRecord({
+        id: "line-a-direct",
+        parent_id: parentSectionId,
+        position: 1,
+        quantity: 1,
+        unit_price_ht_cents: 100,
+        tax_rate_bp: 0,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+        labor_role_id: null,
+      }),
+      createItemRecord({
+        id: "line-b-1",
+        parent_id: childSectionId,
+        position: 1,
+        quantity: 1,
+        unit_price_ht_cents: 150,
+        tax_rate_bp: 0,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+        labor_role_id: null,
+      }),
+      createItemRecord({
+        id: "line-b-2",
+        parent_id: childSectionId,
+        position: 2,
+        quantity: 1,
+        unit_price_ht_cents: 50,
+        tax_rate_bp: 0,
+        k_fo: 1,
+        h_mo: 0,
+        k_mo: 1,
+        labor_role_id: null,
+      }),
+    ];
+
+    const totals = computeSectionTotals({
+      items,
+      sectionId: parentSectionId,
+      marginMultiplier: 1,
+      taxRateBp: 0,
+      discountCents: 0,
+      laborRateById: new Map(),
+    });
+
+    expect(totals).toEqual({
+      foTotalCents: 300,
+      moTotalCents: 0,
+      moAtelierTotalCents: 0,
+      moChantierTotalCents: 0,
+      totalHtCents: 300,
+      totalTtcCents: 300,
+      supplyTypeFoTotalsCents: {
+        [UNASSIGNED_SUPPLY_TYPE_KEY]: 300,
+      },
+    });
+  });
+
   it("computeAllSectionTotals matches computeSectionTotals on nested sections", () => {
     const parentSectionId = "section-parent";
     const childSectionId = "section-child";

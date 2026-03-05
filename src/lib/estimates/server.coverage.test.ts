@@ -1905,6 +1905,148 @@ describe("estimate server coverage additions", () => {
     });
   });
 
+  it("allows moving a line into a non-leaf section when max depth is higher", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder({
+      max_section_depth: 3,
+    });
+    const draftLockBuilder = createDraftLockBuilder();
+    const movingItemBuilder = chainResult({
+      data: {
+        id: "item-1",
+        version_id: VERSION_ID,
+        parent_id: "parent-source",
+        item_type: "line",
+      },
+      error: null,
+    });
+    const targetParentBuilder = chainResult({
+      data: {
+        id: "parent-target",
+        version_id: VERSION_ID,
+        parent_id: null,
+        item_type: "section",
+      },
+      error: null,
+    });
+    const sourceSiblingsBuilder = chainResult({
+      data: [{ id: "item-1" }, { id: "source-2" }],
+      error: null,
+    });
+    const targetSiblingsBuilder = chainResult({
+      data: [{ id: "section-child" }],
+      error: null,
+    });
+    const hierarchyItemsBuilder = chainResult({
+      data: [
+        {
+          id: "parent-source",
+          parent_id: null,
+          item_type: "section",
+        },
+        {
+          id: "parent-target",
+          parent_id: null,
+          item_type: "section",
+        },
+        {
+          id: "section-child",
+          parent_id: "parent-target",
+          item_type: "section",
+        },
+        {
+          id: "item-1",
+          parent_id: "parent-source",
+          item_type: "line",
+        },
+      ],
+      error: null,
+    });
+
+    let estimateItemsCalls = 0;
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "draft_locks") {
+          return {
+            select: vi.fn(() => draftLockBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          estimateItemsCalls += 1;
+          if (estimateItemsCalls === 1) {
+            return {
+              select: vi.fn(() => movingItemBuilder),
+            };
+          }
+          if (estimateItemsCalls === 2) {
+            return {
+              select: vi.fn(() => targetParentBuilder),
+            };
+          }
+          if (estimateItemsCalls === 3) {
+            return {
+              select: vi.fn(() => hierarchyItemsBuilder),
+            };
+          }
+          if (estimateItemsCalls === 4) {
+            return {
+              select: vi.fn(() => sourceSiblingsBuilder),
+            };
+          }
+          if (estimateItemsCalls === 5) {
+            return {
+              select: vi.fn(() => targetSiblingsBuilder),
+            };
+          }
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn().mockReturnValue({
+        data: 3,
+        error: null,
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await moveEstimateItem(VERSION_ID, {
+      item_id: "item-1",
+      from_parent_id: "parent-source",
+      to_parent_id: "parent-target",
+      ordered_source_ids: ["source-2"],
+      ordered_target_ids: ["section-child", "item-1"],
+    });
+
+    expect(result).toEqual({
+      item_id: "item-1",
+      from_parent_id: "parent-source",
+      to_parent_id: "parent-target",
+      ordered_source_ids: ["source-2"],
+      ordered_target_ids: ["section-child", "item-1"],
+      updated_count: 3,
+    });
+    expect(supabase.rpc).toHaveBeenCalledWith("move_estimate_item", {
+      target_version_id: VERSION_ID,
+      target_item_id: "item-1",
+      source_parent_id: "parent-source",
+      target_parent_id: "parent-target",
+      ordered_source_item_ids: ["source-2"],
+      ordered_target_item_ids: ["section-child", "item-1"],
+    });
+  });
+
   it("returns conflict when from_parent_id does not match the persisted parent", async () => {
     const base = createAuth("engineer");
     const versionAccessBuilder = createVersionAccessBuilder();

@@ -1989,7 +1989,7 @@ export function EstimateEditorTable({
       const canAddLine =
         item.item_type === "section" &&
         sectionLevel !== null &&
-        sectionLevel === resolvedMaxSectionDepth;
+        sectionLevel <= resolvedMaxSectionDepth;
       const addSectionLabel =
         item.item_type === "section" && sectionLevel !== null
           ? formatAddSectionLabelForLevel(sectionLevel + 1)
@@ -2192,7 +2192,7 @@ export function EstimateEditorTable({
     const sectionLevel = sectionLevelById.get(section.id) ?? 1;
     const hasChildren = (itemsByParent.get(section.id) ?? []).length > 0;
     const canAddSection = sectionLevel < resolvedMaxSectionDepth;
-    const canAddLine = sectionLevel === resolvedMaxSectionDepth;
+    const canAddLine = sectionLevel <= resolvedMaxSectionDepth;
     return {
       sectionLevel,
       hasChildren,
@@ -2266,8 +2266,6 @@ export function EstimateEditorTable({
           onOpenBulkSuggestDialog={onOpenBulkSuggestDialog}
           onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
           onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
-          onAddRootSection={() => onAddSection(null)}
-          rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
           onExpandAllSections={handleExpandAllSections}
           onCollapseAllSections={handleCollapseAllSections}
           columnPreset={columnVisibility.preset}

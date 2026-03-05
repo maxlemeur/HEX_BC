@@ -415,6 +415,71 @@ describe("useEstimateDndVirtualization", () => {
     );
   });
 
+  it("allows dropping a line into a section that already has subsections", () => {
+    const sectionRoot = createItem({ id: "section-root", item_type: "section" });
+    const sectionChild = createItem({
+      id: "section-child",
+      item_type: "section",
+      parent_id: "section-root",
+    });
+    const sectionSource = createItem({ id: "section-source", item_type: "section" });
+    const lineSource = createItem({
+      id: "line-source",
+      item_type: "line",
+      parent_id: "section-source",
+    });
+
+    const itemsByParent = new Map<string, EstimateItem[]>([
+      ["root", [sectionRoot, sectionSource]],
+      ["section-root", [sectionChild]],
+      ["section-source", [lineSource]],
+    ]);
+
+    const onReorder = vi.fn();
+    const onMoveItem = vi.fn();
+    const tableCardRef = createRef<HTMLDivElement>();
+    tableCardRef.current = document.createElement("div");
+
+    const { result } = renderHook(() =>
+      useEstimateDndVirtualization({
+        canReorder: true,
+        maxSectionDepth: 3,
+        itemsByParent,
+        onReorder,
+        onMoveItem,
+        hasVisibleRows: true,
+        getVisibleItems: (parentId) => itemsByParent.get(parentId ?? "root") ?? [],
+        depthMap: new Map([
+          ["section-root", 0],
+          ["section-child", 1],
+          ["section-source", 0],
+          ["line-source", 1],
+        ]),
+        mergedUnitDrafts: {},
+        mergedSupplyTypeDrafts: {},
+        qualityFlagsByItemId: {},
+        suggestionsByItemId: new Map(),
+        tableCardRef,
+      })
+    );
+
+    act(() => {
+      result.current.handleDragEnd({
+        active: { id: "line-source", data: { current: { parentId: "section-source" } } },
+        over: { id: "section-root", data: { current: { parentId: null } } },
+      } as never);
+    });
+
+    expect(onReorder).not.toHaveBeenCalled();
+    expect(onMoveItem).toHaveBeenCalledWith(
+      "line-source",
+      "section-source",
+      "section-root",
+      [],
+      ["section-child", "line-source"]
+    );
+  });
+
   it("rejects invalid cross-parent drops", () => {
     const rootSection = createItem({ id: "section-root", item_type: "section" });
     const subSection = createItem({

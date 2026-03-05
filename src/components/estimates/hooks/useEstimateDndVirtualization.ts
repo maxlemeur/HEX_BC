@@ -267,11 +267,7 @@ export function useEstimateDndVirtualization({
           return false;
         }
 
-        return !metrics.lineRelativeDepths.some((relativeDepth) => {
-          const expectedParentSectionLevel =
-            nextSectionLevel + Math.max(relativeDepth - 1, 0);
-          return expectedParentSectionLevel !== maxSectionDepth;
-        });
+        return true;
       }
 
       if (targetParentId === null) {
@@ -279,7 +275,7 @@ export function useEstimateDndVirtualization({
       }
 
       const parentLevel = resolveSectionLevelForId(targetParentId);
-      return parentLevel === maxSectionDepth;
+      return parentLevel !== null && parentLevel <= maxSectionDepth;
     },
     [
       hierarchyIndex,

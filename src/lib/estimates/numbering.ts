@@ -48,11 +48,9 @@ export function computeEstimateItemNumbering(
     children.forEach((child, index) => {
       const ordinal = index + 1;
       const childSegment =
-        child.item_type === "line"
+        segments.length === 0
           ? String(ordinal).padStart(2, "0")
-          : segments.length === 0
-            ? String(ordinal).padStart(2, "0")
-            : String(ordinal);
+          : String(ordinal);
       walkItem(child, [...segments, childSegment]);
     });
   };

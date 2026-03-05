@@ -2773,9 +2773,9 @@ function assertLinePlacementAllowed(input: {
     throw badRequest("Une ligne doit etre ajoutee sous une section.");
   }
 
-  if (input.parentSectionLevel !== input.maxSectionDepth) {
+  if (input.parentSectionLevel > input.maxSectionDepth) {
     throw badRequest(
-      `Une ligne doit etre sous une section de niveau ${input.maxSectionDepth}.`
+      `Une ligne ne peut pas etre rattachee au-dela du niveau ${input.maxSectionDepth}.`
     );
   }
 }
@@ -2794,18 +2794,6 @@ function assertSectionSubtreePlacementAllowed(input: {
   ) {
     throw badRequest(
       `Ce deplacement depasse la profondeur max ${input.maxSectionDepth}.`
-    );
-  }
-
-  const hasInvalidLineDepth = metrics.lineRelativeDepths.some((relativeDepth) => {
-    const expectedParentSectionLevel =
-      input.nextSectionLevel + Math.max(relativeDepth - 1, 0);
-    return expectedParentSectionLevel !== input.maxSectionDepth;
-  });
-
-  if (hasInvalidLineDepth) {
-    throw badRequest(
-      `Les lignes doivent rester sous une section de niveau ${input.maxSectionDepth}.`
     );
   }
 }
