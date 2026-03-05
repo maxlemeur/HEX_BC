@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -25,12 +25,10 @@ export function LaunchMetreDialog({
 }: LaunchMetreDialogProps) {
   const router = useRouter();
   const toast = useToast();
-  const isUploadingRef = useRef(false);
   const [isUploading, setIsUploading] = useState(false);
 
   const handleSuccess = useCallback(
     () => {
-      isUploadingRef.current = false;
       setIsUploading(false);
       onOpenChange(false);
       toast.success({
@@ -42,21 +40,33 @@ export function LaunchMetreDialog({
     [onOpenChange, toast, router, projectId],
   );
 
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && isUploading) {
+        return;
+      }
+
+      onOpenChange(nextOpen);
+    },
+    [isUploading, onOpenChange],
+  );
+
   return (
-    <Modal.Root open={open} onOpenChange={onOpenChange}>
+    <Modal.Root open={open} onOpenChange={handleOpenChange}>
       <Modal.Content
         closeOnOverlayClick={!isUploading}
         closeOnEscapeKey={!isUploading}
       >
         <Modal.Header>
           <Modal.Title>Lancer un metre</Modal.Title>
-          <Modal.Close />
+          <Modal.Close disabled={isUploading} />
         </Modal.Header>
         <Modal.Body>
           {draftVersionId ? (
             <TakeoffUploadForm
               versionId={draftVersionId}
               compact
+              onSubmittingChange={setIsUploading}
               onSuccess={handleSuccess}
             />
           ) : hasAnyVersion ? (

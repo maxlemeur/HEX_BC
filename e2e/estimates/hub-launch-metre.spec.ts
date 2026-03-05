@@ -71,14 +71,10 @@ test.describe("V3-009 — Action rapide Lancer un metre", () => {
     const quickActionsSection = page.locator("section").filter({ hasText: "Actions rapides" });
     await expect(quickActionsSection).toBeVisible({ timeout: 10_000 });
 
-    const launchButton = quickActionsSection.getByRole("button", { name: /Lancer un metre/i });
-
-    // If button is not visible, takeoff may be disabled — skip gracefully
-    const buttonVisible = await launchButton.isVisible({ timeout: 5_000 }).catch(() => false);
-    if (!buttonVisible) {
-      test.skip();
-      return;
-    }
+    const launchButton = quickActionsSection.getByRole("button", {
+      name: /Lancer un metre/i,
+    });
+    await expect(launchButton).toBeVisible({ timeout: 5_000 });
 
     // 5. Click "Lancer un metre" → dialog should open
     await launchButton.click();

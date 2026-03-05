@@ -1,7 +1,7 @@
 "use client";
 
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useId, useRef, useState } from "react";
 
 import {
   MAX_FILE_SIZE_LABEL,
@@ -33,6 +33,7 @@ type TakeoffJobCreateResponse = Awaited<ReturnType<typeof createTakeoffJob>>;
 type TakeoffUploadFormProps = {
   versionId: string;
   onSuccess?: (job: TakeoffJobCreateResponse) => void;
+  onSubmittingChange?: (isSubmitting: boolean) => void;
   compact?: boolean;
 };
 
@@ -99,7 +100,12 @@ function validateTakeoffFile(file: File | null): string | null {
   return validation.error;
 }
 
-export function TakeoffUploadForm({ versionId, onSuccess, compact }: TakeoffUploadFormProps) {
+export function TakeoffUploadForm({
+  versionId,
+  onSuccess,
+  onSubmittingChange,
+  compact,
+}: TakeoffUploadFormProps) {
   const router = useRouter();
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -132,6 +138,10 @@ export function TakeoffUploadForm({ versionId, onSuccess, compact }: TakeoffUplo
 
     return "Lancer l'extraction";
   })();
+
+  useEffect(() => {
+    onSubmittingChange?.(submitState === "loading");
+  }, [onSubmittingChange, submitState]);
 
   function resetTransientState() {
     setSubmitState("idle");

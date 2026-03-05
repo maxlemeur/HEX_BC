@@ -168,6 +168,51 @@ describe("TakeoffUploadForm", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
+  it("reports submitting state changes when provided", async () => {
+    const user = userEvent.setup();
+    const createTakeoffJobMock = vi.mocked(createTakeoffJob);
+    const onSubmittingChange = vi.fn();
+    let resolveJob: ((value: Awaited<ReturnType<typeof createTakeoffJob>>) => void) | undefined;
+
+    createTakeoffJobMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveJob = resolve;
+        })
+    );
+
+    render(
+      <TakeoffUploadForm
+        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        onSubmittingChange={onSubmittingChange}
+      />
+    );
+
+    const fileInput = screen.getByLabelText("Fichier de plans");
+    await user.upload(fileInput, makeCsvFile());
+    await user.click(
+      screen.getByRole("button", { name: /lancer l'extraction/i })
+    );
+
+    await waitFor(() => {
+      expect(onSubmittingChange).toHaveBeenCalledWith(true);
+    });
+
+    expect(resolveJob).toBeTypeOf("function");
+    resolveJob?.({
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      status: "pending",
+      level: "A",
+      source_file_name: "niveau-a.csv",
+      estimate_version_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      created_at: "2026-02-24T12:00:00.000Z",
+    });
+
+    await waitFor(() => {
+      expect(onSubmittingChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+
   it("hides heading and card wrapper in compact mode", () => {
     render(
       <TakeoffUploadForm
