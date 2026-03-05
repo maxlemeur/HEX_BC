@@ -5,10 +5,10 @@
 
 ## Couverture
 
-- Tickets total: **85**
+- Tickets total: **86**
 - Tickets presents dans le sequencing v2: **35**
 - Tickets hors sequencing v2 (backlog): **30**
-- Tickets M5/M6 (nouvelles stories): **20**
+- Tickets M5/M6 (nouvelles stories): **21**
 
 ## Tickets
 
@@ -99,6 +99,7 @@
 | [EST-361](./EST-361.md) | Suivi budgetaire projet (prev. vs realise) | Non | M6/V4 | Backlog | L | M6 | [EST-E18](../EST-E18-situations-avenants.md) |
 | [EST-362](./EST-362.md) | Referentiel normes BTP (DTU, RE2020...) | Non | M5/V2 | Backlog | M | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
 | [EST-363](./EST-363.md) | Ouvrages favoris et acces rapide | Non | M5/V2 | Backlog | S | M5 | [EST-E16](../EST-E16-ouvrages-bibliotheque.md) |
+| [EST-364](./EST-364.md) | Remises multi-niveaux (devis/section/ligne) | Non | M5/V1 | Backlog | M | M5 | [EST-E15](../EST-E15-structure-prix-btp.md) |
 
 ## Usage
 

@@ -191,6 +191,7 @@ a construire dans la roadmap V1.
 | EST-354 | Conditions generales et particulieres  | EST-E20| M5        | P2       | M      |
 | EST-362 | Referentiel normes BTP (DTU, RE2020...)| EST-E20| M5        | P1       | M      |
 | EST-363 | Ouvrages favoris et acces rapide       | EST-E16| M5        | P2       | S      |
+| EST-364 | Remises multi-niveaux (devis/section/ligne)| EST-E15| M5     | P1       | M      |
 
 ### Stories M6 — Cycle de vie chantier
 

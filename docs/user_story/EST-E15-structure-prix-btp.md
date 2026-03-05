@@ -69,3 +69,33 @@ Remplacer le coefficient de marge unique (`margin_multiplier`) par la decomposit
 - Migration DB : ajouter `loss_coeff_bp` et `productivity_rate` sur `estimate_items`
 - Reutiliser : `labor_roles` existants, `supplier_pricebook` pour les valeurs par defaut
 - Dependances : EST-301 (le DS utilise les quantites brutes)
+
+---
+
+## EST-364 — Remises multi-niveaux (chiffrage / section / ligne)
+
+**Priorite:** P1 | **Effort:** M | **Milestone:** M5
+
+### User Story
+
+> En tant que chiffreur, je veux appliquer des remises a differents niveaux (global sur le devis, par section/lot, par ligne/ouvrage) avec un systeme de cascade et de priorite, afin d'adapter finement mes conditions commerciales par poste ou par lot.
+
+### Criteres d'acceptation
+
+- [ ] Remise au niveau du devis (existant) : `discount_bp` sur `estimate_versions` — conserve tel quel
+- [ ] Nouveau champ `discount_bp` sur `estimate_items` de type section : remise applicable a toutes les lignes enfants de la section
+- [ ] Nouveau champ `discount_bp` sur `estimate_items` de type ligne : remise specifique a la ligne
+- [ ] Regle de cascade : la remise effective = remise devis x remise section x remise ligne (multiplication des coefficients, pas addition)
+- [ ] Affichage dans l'editeur : colonne "Remise %" editable a chaque niveau (devis, section, ligne)
+- [ ] Tooltip/detail : au survol d'une ligne remisee, affichage de la decomposition (remise devis X% + section Y% + ligne Z% = effective W%)
+- [ ] Les sous-totaux par section (EST-121) integrent la remise section dans leur calcul
+- [ ] Le recapitulatif PDF affiche les remises appliquees par section et le total de remise globale
+- [ ] Compatibilite avec le rules engine (EST-037) : les garde-fous s'appliquent sur la remise effective cumulee
+- [ ] Retrocompatibilite : les devis sans remise section/ligne continuent de fonctionner (valeur par defaut = 0)
+
+### Notes techniques
+
+- Fichiers a modifier : `src/lib/estimate-calculations.ts` (cascade de remises dans `computeEstimateLineValues()`), `src/components/estimates/EstimateEditorRow.tsx` (colonne remise), `src/app/dashboard/estimates/[versionId]/print/page.tsx`
+- Migration DB : ajouter `discount_bp` (integer, default 0) sur `estimate_items`
+- Reutiliser : `discount_bp` existant sur `estimate_versions`, pattern EST-025 (double remise cascade)
+- Dependances : EST-025 (double remise cascade — enrichi), EST-301 (la remise s'applique apres formation du PV HT)
