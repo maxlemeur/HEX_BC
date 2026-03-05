@@ -97,6 +97,17 @@ describe("last-affaire-store", () => {
     expect(JSON.parse(raw!).projectId).toBe("proj-7");
   });
 
+  it("setLastAffaire can persist to the provided profile scope before initStore runs", () => {
+    setLastAffaire("proj-88", "user-1");
+
+    const raw = localStorage.getItem("hex-last-affaire:v1:user-1");
+    expect(raw).toBeTruthy();
+    expect(JSON.parse(raw!).projectId).toBe("proj-88");
+
+    initStore("user-1");
+    expect(getSnapshot()).toBe("proj-88");
+  });
+
   it("does not throw when localStorage is unavailable", () => {
     const getItemSpy = vi
       .spyOn(Storage.prototype, "getItem")

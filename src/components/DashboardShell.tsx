@@ -9,7 +9,7 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { useUserContext } from "@/components/UserContext";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import { useLastAffaireId } from "@/hooks/useLastAffaireContext";
+import { setLastAffaire, useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
 import { buildNavGroups } from "@/lib/navigation/build-nav-groups";
@@ -50,6 +50,11 @@ function buildInitials(value: string) {
     return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
   }
   return trimmed.slice(0, 2).toUpperCase();
+}
+
+function getAffaireIdFromPathname(pathname: string): string | null {
+  const match = pathname.match(/^\/dashboard\/affaires\/([^/]+)/);
+  return match?.[1] ?? null;
 }
 
 function ModeToggleSwitch({
@@ -103,10 +108,22 @@ export function DashboardShell({
   const { profile } = useUserContext();
   const tenantRole = profile?.tenant_role ?? null;
   const lastAffaireId = useLastAffaireId();
+  const currentAffaireId = useMemo(
+    () => getAffaireIdFromPathname(pathname),
+    [pathname]
+  );
 
   useLayoutEffect(() => {
     initStore(profile?.id ?? null);
   }, [profile?.id]);
+
+  useLayoutEffect(() => {
+    if (!currentAffaireId) {
+      return;
+    }
+
+    setLastAffaire(currentAffaireId, profile?.id ?? null);
+  }, [currentAffaireId, profile?.id]);
 
   const [collapsed, setCollapsed] = useState(false);
   const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);

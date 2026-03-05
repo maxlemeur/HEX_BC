@@ -49,6 +49,24 @@ test.describe("V3-006 — Plan Center affaire", () => {
     // 2. Navigate to Plan Center
     await page.goto(`/dashboard/affaires/${projectId}/plans`);
 
+    // If takeoff is disabled for this tenant, route is intentionally hidden.
+    const pageState = await Promise.race([
+      page
+        .getByRole("heading", { name: /^Plans$/i })
+        .waitFor({ state: "visible", timeout: 15_000 })
+        .then(() => "plans"),
+      page
+        .getByText("Plans introuvables ou acces non autorise.")
+        .waitFor({ state: "visible", timeout: 15_000 })
+        .then(() => "unavailable"),
+    ]).catch(() => "unknown");
+
+    test.skip(
+      pageState === "unavailable",
+      "Takeoff disabled for this tenant in current environment."
+    );
+    expect(pageState).toBe("plans");
+
     // 3. Verify breadcrumb 3 levels
     const breadcrumb = page.locator("nav[aria-label=\"Fil d'Ariane\"]");
     await expect(breadcrumb).toBeVisible();

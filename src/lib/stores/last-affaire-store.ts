@@ -39,11 +39,16 @@ export function initStore(pid: string | null) {
   emit();
 }
 
-export function setLastAffaire(projectId: string) {
+export function setLastAffaire(
+  projectId: string,
+  pid?: string | null
+) {
+  const nextProfileId = pid === undefined ? profileId : pid;
+  profileId = nextProfileId;
   state = { projectId };
   try {
     localStorage.setItem(
-      getKey(profileId),
+      getKey(nextProfileId),
       JSON.stringify({ projectId, ts: Date.now() })
     );
   } catch {

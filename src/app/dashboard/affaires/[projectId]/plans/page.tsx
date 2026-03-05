@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 
 import { HubBreadcrumb } from "@/components/HubBreadcrumb";
-import { LastAffaireTracker } from "@/components/affaires/LastAffaireTracker";
 import { ProjectPlanCenter } from "@/components/takeoff/ProjectPlanCenter";
 import { getUserContext } from "@/lib/auth/server";
 import { fetchAffaireProjectBasic } from "@/lib/affaires/server";
@@ -51,7 +50,6 @@ export default async function AffairePlansPage({ params }: Props) {
 
   return (
     <>
-      <LastAffaireTracker projectId={projectId} />
       <HubBreadcrumb
         hubHref="/dashboard/affaires"
         hubLabel="Mes affaires"
