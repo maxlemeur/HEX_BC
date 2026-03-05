@@ -1,0 +1,81 @@
+name: Supabase Backup
+
+on:
+  schedule:
+    - cron: "25 2 * * *"
+  workflow_dispatch:
+    inputs:
+      retention_days:
+        description: "Artifact retention in days"
+        required: false
+        default: "30"
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      RETENTION_DAYS: ${{ inputs.retention_days || '30' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase@2.75.0
+
+      - name: Validate required secrets
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "Missing secret: SUPABASE_DB_URL"
+            echo "Use a percent-encoded Postgres connection string."
+            exit 1
+          fi
+
+      - name: Dump database
+        id: dump
+        run: |
+          set -euo pipefail
+
+          timestamp="$(date -u +'%Y%m%dT%H%M%SZ')"
+          outdir="backups/${timestamp}"
+          archive="supabase-backup-${timestamp}.tar.gz"
+
+          mkdir -p "$outdir"
+
+          supabase db dump \
+            --db-url "$SUPABASE_DB_URL" \
+            --schema public,auth,storage \
+            --file "$outdir/schema.sql"
+
+          supabase db dump \
+            --db-url "$SUPABASE_DB_URL" \
+            --role-only \
+            --file "$outdir/roles.sql"
+
+          supabase db dump \
+            --db-url "$SUPABASE_DB_URL" \
+            --data-only \
+            --use-copy \
+            --schema public,auth,storage \
+            --file "$outdir/data.sql"
+
+          tar -C backups -czf "$archive" "$timestamp"
+          rm -rf "$outdir"
+
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.dump.outputs.archive }}
+          path: ${{ steps.dump.outputs.archive }}
+          retention-days: ${{ fromJSON(env.RETENTION_DAYS) }}

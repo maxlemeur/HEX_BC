@@ -1025,6 +1025,7 @@ const loadMappingMemoryForSuggest = cache(
     let memoryQuery = supabase
       .from("mapping_memory")
       .select("*")
+      // T-11: Single batch query
       .eq("tenant_id", tenantId)
       .in("source_column", sourceColumns)
       .order("usage_count", { ascending: false })
@@ -1094,12 +1095,17 @@ async function touchMappingMemory(
     });
   }
 
+  // T-11: Batch update
   const { error } = await supabase.rpc("upsert_mapping_memory_bulk", {
     p_entries: payload,
   });
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible de mettre a jour la memoire de mapping.");
+    // Non-blocking: log warning instead of throwing — the RPC may not be deployed yet
+    console.warn(
+      "[mappings] touchMappingMemory: upsert_mapping_memory_bulk failed, skipping.",
+      error.message
+    );
   }
 }
 

@@ -101,12 +101,13 @@ function Content({
   if (!open) return null;
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4">
       <button
         aria-hidden="true"
         data-ui-modal-overlay="true"
         type="button"
-        className="absolute inset-0 cursor-default"
+        tabIndex={-1}
+        className="absolute inset-0 cursor-default border-0 bg-transparent p-0 focus-visible:outline-none"
         onMouseDown={() => {
           if (closeOnOverlayClick) {
             onOpenChange(false);

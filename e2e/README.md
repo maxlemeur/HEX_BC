@@ -75,6 +75,7 @@ Scripts live in `e2e/hex/` and are grouped by feature suites. All npm commands a
   - `ti-182-assemblies.ps1`
 - `dpgf`:
   - `dpgf-import-flow.ps1`
+  - `dpgf-affaire-wizard-editor-flow.ps1`
 - `all`:
   - full HEX coverage (including `ti-140-epic.ps1`)
 

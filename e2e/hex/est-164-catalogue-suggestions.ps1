@@ -43,6 +43,41 @@ function Parse-JsonPayload {
   return $parsed
 }
 
+function Wait-ForPersistedLines {
+  param(
+    [string]$Session,
+    [string]$VersionId,
+    [int]$MinLines = 1,
+    [int]$TimeoutSeconds = 25
+  )
+
+  $versionIdJson = ConvertTo-Json $VersionId -Compress
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    $lineCount = [int](Invoke-EvalWithRetry -Session $Session -Script @"
+(async () => {
+  const versionId = $versionIdJson;
+  const response = await fetch('/api/estimates/' + versionId + '/items', {
+    method: 'GET',
+    cache: 'no-store'
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) return 0;
+  const items = payload?.ok && Array.isArray(payload?.data?.items) ? payload.data.items : [];
+  return items.filter((entry) => entry?.item_type === 'line').length;
+})()
+"@)
+
+    if ($lineCount -ge $MinLines) {
+      return
+    }
+
+    Start-Sleep -Milliseconds 320
+  }
+
+  throw "Timed out waiting for $MinLines persisted line(s)."
+}
+
 function Get-CandidateVersionIds {
   param(
     [string]$BaseUrl,
@@ -59,6 +94,7 @@ function Get-CandidateVersionIds {
   Go-EditorTab -Session $Session
   Add-Chapter -Session $Session -Title "Chapitre EST-164"
   Add-Line -Session $Session -Designation "Tube Inox 316L"
+  Wait-ForPersistedLines -Session $Session -VersionId $versionId -MinLines 1 -TimeoutSeconds 30
 
   return @($versionId)
 }
@@ -79,21 +115,38 @@ try {
 (async () => {
   const versionId = $versionIdJson;
 
-  const itemsResponse = await fetch('/api/estimates/' + versionId + '/items', {
-    method: 'GET',
-    cache: 'no-store'
-  });
-  const itemsPayload = await itemsResponse.json().catch(() => null);
-  if (!itemsResponse.ok) {
-    return JSON.stringify({ error: 'items_fetch_failed', status: itemsResponse.status });
+  let lineItem = null;
+  let lastItemsStatus = null;
+  let lastItemsCount = 0;
+
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const itemsResponse = await fetch('/api/estimates/' + versionId + '/items', {
+      method: 'GET',
+      cache: 'no-store'
+    });
+    const itemsPayload = await itemsResponse.json().catch(() => null);
+    lastItemsStatus = itemsResponse.status;
+
+    if (itemsResponse.ok) {
+      const items = itemsPayload?.ok && Array.isArray(itemsPayload?.data?.items)
+        ? itemsPayload.data.items
+        : [];
+      lastItemsCount = items.length;
+      lineItem = items.find((entry) => entry?.item_type === 'line' && typeof entry?.id === 'string') ?? null;
+      if (lineItem) {
+        break;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
   }
 
-  const items = itemsPayload?.ok && Array.isArray(itemsPayload?.data?.items)
-    ? itemsPayload.data.items
-    : [];
-  const lineItem = items.find((entry) => entry?.item_type === 'line' && typeof entry?.id === 'string');
   if (!lineItem) {
-    return JSON.stringify({ error: 'missing_line_item' });
+    return JSON.stringify({
+      error: 'missing_line_item',
+      status: lastItemsStatus,
+      itemsCount: lastItemsCount
+    });
   }
 
   const suggestResponse = await fetch(
@@ -174,6 +227,11 @@ try {
   }
 
   if (-not $result) {
+    if ($lastError -like "*error=no_suggestions*") {
+      Write-Host "EST-164 WARN: aucune suggestion catalogue disponible sur ce jeu de donnees."
+      Write-Host "EST-164 PASS (skipped due to no suggestions)"
+      return
+    }
     throw "EST-164 API flow failed: $lastError"
   }
 

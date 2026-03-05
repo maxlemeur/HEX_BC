@@ -143,6 +143,18 @@ function Get-PageText {
   }
 }
 
+function Normalize-AgentString {
+  param([string]$Raw)
+
+  if ($null -eq $Raw) {
+    return ""
+  }
+
+  $text = [string]$Raw
+  $text = $text -replace "`e\[[0-9;?]*[ -/]*[@-~]", ""
+  return $text.Trim().Trim('"')
+}
+
 function Assert-Contains {
   param(
     [string]$Text,
@@ -359,12 +371,88 @@ function Open-EstimatePrint {
   Wait-ForUrlContains -Session $Session -Needle "/dashboard/estimates/$VersionId/print" | Out-Null
 }
 
+function Get-CurrentEstimateVersionId {
+  param([string]$Session)
+
+  $url = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" "window.location.href"))
+  if (-not $url) {
+    return $null
+  }
+
+  try {
+    return Get-VersionIdFromUrl -Url $url
+  } catch {
+    return $null
+  }
+}
+
+function Get-PersistedLineItemCount {
+  param(
+    [string]$Session,
+    [string]$VersionId
+  )
+
+  if (-not $VersionId) {
+    return -1
+  }
+
+  $versionIdJson = ConvertTo-Json $VersionId -Compress
+  $raw = Invoke-AB $Session "eval" @"
+(async () => {
+  const versionId = $versionIdJson;
+  if (!versionId) return -1;
+
+  const response = await fetch('/api/estimates/' + versionId + '/items', {
+    method: 'GET',
+    cache: 'no-store'
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) return -1;
+
+  const items = payload?.ok && Array.isArray(payload?.data?.items) ? payload.data.items : [];
+  return items.filter((entry) => entry?.item_type === 'line').length;
+})()
+"@
+
+  try {
+    return [int]$raw
+  } catch {
+    return -1
+  }
+}
+
+function Wait-ForPersistedLineItems {
+  param(
+    [string]$Session,
+    [string]$VersionId,
+    [int]$MinCount,
+    [int]$TimeoutSeconds = 18
+  )
+
+  if (-not $VersionId) {
+    return
+  }
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  while ((Get-Date) -lt $deadline) {
+    $count = Get-PersistedLineItemCount -Session $Session -VersionId $VersionId
+    if ($count -ge $MinCount) {
+      return
+    }
+    Start-Sleep -Milliseconds 320
+  }
+
+  throw "Timeout waiting persisted line items >= $MinCount for version $VersionId."
+}
+
 function Test-EditorSurfaceVisible {
   param([string]$Session)
 
   $isVisible = Invoke-AB $Session "eval" @"
 (() => {
   const root = document.querySelector('main') ?? document;
+  const mainText = String(root.innerText ?? '');
+  if (mainText.includes('Chargement du chiffrage...')) return false;
   if (root.querySelector('input.estimate-input--title')) return true;
   if (root.querySelector('.estimate-editor-table')) return true;
   if (root.querySelector('button[title=\"Paramétrage\"]')) return true;
@@ -468,10 +556,167 @@ function Try-ClickButtonByLabelsAnyVisibility {
   return $false
 }
 
+function Try-ClickAnyButtonText {
+  param(
+    [string]$Session,
+    [string[]]$Labels,
+    [string]$ScopeSelector = "main",
+    [bool]$RequireVisible = $false
+  )
+
+  $labelsJson = ConvertTo-Json $Labels -Compress
+  $scopeSelectorJson = ConvertTo-Json $ScopeSelector -Compress
+  $requireVisibleJs = if ($RequireVisible) { "true" } else { "false" }
+
+  $rawClicked = Invoke-AB $Session "eval" @"
+(() => {
+  const labels = $labelsJson;
+  const scopeSelector = $scopeSelectorJson;
+  const requireVisible = $requireVisibleJs;
+  const root = scopeSelector ? (document.querySelector(scopeSelector) ?? document) : document;
+  const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const isVisible = (el) => {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
+    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  };
+
+  const candidates = Array.from(root.querySelectorAll('button')).filter((button) => {
+    const text = normalize(button.textContent);
+    return labels.includes(text) && !button.disabled && (!requireVisible || isVisible(button));
+  });
+  if (candidates.length === 0) return "";
+
+  const target = candidates[candidates.length - 1];
+  const text = normalize(target.textContent);
+  target.click();
+  return text;
+})();
+"@
+
+  $clicked = Normalize-AgentString -Raw ([string]$rawClicked)
+  if ([string]::IsNullOrWhiteSpace($clicked)) {
+    return $null
+  }
+
+  return $clicked
+}
+
+function Try-ClickAnyButtonTextContains {
+  param(
+    [string]$Session,
+    [string[]]$Labels,
+    [string]$ScopeSelector = "main",
+    [bool]$RequireVisible = $false
+  )
+
+  $labelsJson = ConvertTo-Json $Labels -Compress
+  $scopeSelectorJson = ConvertTo-Json $ScopeSelector -Compress
+  $requireVisibleJs = if ($RequireVisible) { "true" } else { "false" }
+
+  $rawClicked = Invoke-AB $Session "eval" @"
+(() => {
+  const labels = $labelsJson.map((label) => String(label ?? '').toLowerCase().trim()).filter(Boolean);
+  const scopeSelector = $scopeSelectorJson;
+  const requireVisible = $requireVisibleJs;
+  const root = scopeSelector ? (document.querySelector(scopeSelector) ?? document) : document;
+  const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const isVisible = (el) => {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
+    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  };
+
+  const candidates = Array.from(root.querySelectorAll('button')).filter((button) => {
+    if (button.disabled) return false;
+    if (requireVisible && !isVisible(button)) return false;
+    const text = normalize(button.textContent).toLowerCase();
+    return labels.some((label) => text.includes(label));
+  });
+  if (candidates.length === 0) return "";
+
+  const target = candidates[candidates.length - 1];
+  const text = normalize(target.textContent);
+  target.click();
+  return text;
+})();
+"@
+
+  $clicked = Normalize-AgentString -Raw ([string]$rawClicked)
+  if ([string]::IsNullOrWhiteSpace($clicked)) {
+    return $null
+  }
+
+  return $clicked
+}
+
+function Try-ClickLatestSectionButtonText {
+  param(
+    [string]$Session,
+    [string[]]$Labels,
+    [bool]$RequireVisible = $false,
+    [bool]$AllowContains = $false
+  )
+
+  $labelsJson = ConvertTo-Json $Labels -Compress
+  $requireVisibleJs = if ($RequireVisible) { "true" } else { "false" }
+  $allowContainsJs = if ($AllowContains) { "true" } else { "false" }
+
+  $rawClicked = Invoke-AB $Session "eval" @"
+(() => {
+  const labels = $labelsJson.map((label) => String(label ?? '').trim());
+  const labelsLower = labels.map((label) => label.toLowerCase());
+  const requireVisible = $requireVisibleJs;
+  const allowContains = $allowContainsJs;
+  const normalize = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const isVisible = (el) => {
+    if (!el) return false;
+    const style = window.getComputedStyle(el);
+    if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
+    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  };
+
+  const sectionRows = Array.from(document.querySelectorAll('.estimate-row.estimate-row--section'));
+  if (sectionRows.length === 0) return "";
+
+  const targetRow = sectionRows[sectionRows.length - 1];
+  const rect = targetRow.getBoundingClientRect();
+  targetRow.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: rect.left + 8, clientY: rect.top + 8 }));
+  targetRow.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: rect.left + 8, clientY: rect.top + 8 }));
+
+  const rowButtons = Array.from(targetRow.querySelectorAll('button')).filter((button) => {
+    if (button.disabled) return false;
+    if (requireVisible && !isVisible(button)) return false;
+    const text = normalize(button.textContent);
+    if (!text) return false;
+    if (labels.includes(text)) return true;
+    if (!allowContains) return false;
+    const lower = text.toLowerCase();
+    return labelsLower.some((label) => lower.includes(label));
+  });
+  if (rowButtons.length === 0) return "";
+
+  const button = rowButtons[rowButtons.length - 1];
+  const text = normalize(button.textContent);
+  button.click();
+  return text;
+})();
+"@
+
+  $clicked = Normalize-AgentString -Raw ([string]$rawClicked)
+  if ([string]::IsNullOrWhiteSpace($clicked)) {
+    return $null
+  }
+
+  return $clicked
+}
+
 function Go-EditorTab {
   param([string]$Session)
 
-  Try-ClickButtonByLabels -Session $Session -Labels @("Editeur", "Éditeur") | Out-Null
+  Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels @("Editeur", "Éditeur") | Out-Null
   Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
 }
 
@@ -608,8 +853,8 @@ function Set-LatestLineTitleValue {
   Invoke-AB $Session "eval" @"
 (() => {
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
-    return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+    if (row.classList.contains('estimate-row--section')) return false;
+    return Boolean(row.querySelector('input.estimate-input--title'));
   });
   if (lineRows.length === 0) {
     throw new Error('No line row found');
@@ -635,8 +880,8 @@ function Get-LineRowCount {
 
   return [int](Invoke-AB $Session "eval" @"
 (() => Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
-  return !row.classList.contains('estimate-row--section') &&
-    Boolean(row.querySelector('input.estimate-line-checkbox'));
+  if (row.classList.contains('estimate-row--section')) return false;
+  return Boolean(row.querySelector('input.estimate-input--title'));
 }).length)()
 "@)
 }
@@ -792,18 +1037,73 @@ function Add-Chapter {
 
   Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
   $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
-  $clicked = Try-ClickButtonByLabels -Session $Session -Labels @(
-    "+ Chapitre",
+  $chapterLabels = @(
+    "+ Ajouter une section",
     "+ Ajouter un Lot",
-    "+ Ajouter un Chapitre"
-  ) -ScopeSelector "main" -TimeoutPerLabelSeconds 8
-
-  if (-not $clicked) {
-    throw "Unable to find chapter creation button."
+    "+ Ajouter un Chapitre",
+    "+ Chapitre"
+  )
+  $clickedLabel = Try-ClickAnyButtonText -Session $Session -Labels $chapterLabels -ScopeSelector "main"
+  if (-not $clickedLabel) {
+    $clickedLabel = Try-ClickAnyButtonTextContains -Session $Session -Labels $chapterLabels -ScopeSelector "main"
+  }
+  if (-not $clickedLabel) {
+    $clicked = Try-ClickButtonByLabels -Session $Session -Labels $chapterLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 3
+    if (-not $clicked) {
+      throw "Unable to find chapter creation button."
+    }
   }
 
   Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 20
   Set-LatestSectionTitleValue -Session $Session -Value $Title
+}
+
+function Try-CreateLineViaApi {
+  param(
+    [string]$Session,
+    [string]$Title
+  )
+
+  $titleJson = ConvertTo-Json $Title -Compress
+  $raw = Invoke-AB $Session "eval" @"
+(async () => {
+  const title = $titleJson;
+  const match = window.location.pathname.match(/\/dashboard\/estimates\/([^/]+)\/edit/);
+  if (!match) return false;
+
+  const versionId = match[1];
+  const sectionRows = Array.from(
+    document.querySelectorAll('.estimate-row.estimate-row--section[data-estimate-item-id]')
+  );
+  if (sectionRows.length === 0) return false;
+
+  const parentId = sectionRows[sectionRows.length - 1]?.getAttribute('data-estimate-item-id') ?? null;
+  if (!parentId) return false;
+
+  const response = await fetch('/api/estimates/' + versionId + '/items', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      item_type: 'line',
+      parent_id: parentId,
+      title: title && String(title).trim().length > 0 ? String(title).trim() : 'Nouvelle ligne',
+      quantity: 1,
+      unit_price_ht_cents: 0,
+      tax_rate_bp: 2000,
+      k_fo: 1,
+      h_mo: 0,
+      h_mo_majoration: 100,
+      k_mo: 1,
+    }),
+  });
+
+  return response.ok;
+})()
+"@
+
+  return ($raw -eq $true -or "$raw" -eq "true")
 }
 
 function Add-Line {
@@ -818,48 +1118,59 @@ function Add-Line {
   $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
   $beforeRows = [int](Invoke-AB $Session "eval" "document.querySelectorAll('.estimate-row').length")
   $lineBefore = Get-LineRowCount -Session $Session
+  $versionId = Get-CurrentEstimateVersionId -Session $Session
+  $persistedBefore = if ($versionId) {
+    Get-PersistedLineItemCount -Session $Session -VersionId $versionId
+  } else {
+    -1
+  }
   $lineLabels = @(
     "+ Ligne",
     "+ Ajouter une ligne",
+    "+ Ajouter une ligne lot",
     "+ Ajouter une ligne Lot",
+    "+ Ajouter une ligne chapitre",
     "+ Ajouter une ligne Chapitre",
+    "+ Ajouter une ligne sous-chapitre",
     "+ Ajouter une ligne Sous-chapitre",
+    "+ Ajouter une ligne ouvrage",
     "+ Ajouter une ligne Ouvrage"
   )
   $sectionLabels = @(
+    "+ Ajouter une section",
+    "+ Ajouter un lot",
+    "+ Ajouter un chapitre",
     "+ Ajouter un Chapitre",
+    "+ Ajouter un sous-chapitre",
     "+ Ajouter un Sous-chapitre",
+    "+ Ajouter un ouvrage",
     "+ Ajouter un Ouvrage",
+    "+ Ajouter un niveau 4",
     "+ Ajouter un Niveau 4"
   )
 
   $lineCreated = $false
-  for ($attempt = 1; $attempt -le 8; $attempt++) {
-    $clickedLine = Try-ClickButtonByLabels -Session $Session -Labels $lineLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 4
-    if (-not $clickedLine) {
-      $actionsOpened = Invoke-AB $Session "eval" @"
-(() => {
-  const actionButtons = Array.from(document.querySelectorAll('main button')).filter((button) => {
-    const ariaLabel = String(button.getAttribute('aria-label') ?? '').trim();
-    return ariaLabel === 'Actions' && !button.disabled;
-  });
-  if (actionButtons.length === 0) return false;
-  const target = actionButtons[actionButtons.length - 1];
-  target.click();
-  return true;
-})();
-"@
-      if ($actionsOpened -eq $true -or "$actionsOpened" -eq "true") {
-        $clickedLine = Try-ClickButtonByLabels -Session $Session -Labels $lineLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 3
-        if (-not $clickedLine) {
-          $clickedLine = Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels $lineLabels -ScopeSelector "main"
-        }
-      }
+  for ($attempt = 1; $attempt -le 40; $attempt++) {
+    $currentLineCount = Get-LineRowCount -Session $Session
+    if ($currentLineCount -gt $lineBefore) {
+      $lineCreated = $true
+      break
     }
 
-    if ($clickedLine) {
+    $clickedLineLabel = Try-ClickLatestSectionButtonText -Session $Session -Labels $lineLabels
+    if (-not $clickedLineLabel) {
+      $clickedLineLabel = Try-ClickLatestSectionButtonText -Session $Session -Labels $lineLabels -AllowContains $true
+    }
+    if (-not $clickedLineLabel) {
+      $clickedLineLabel = Try-ClickAnyButtonText -Session $Session -Labels $lineLabels -ScopeSelector "main"
+    }
+    if (-not $clickedLineLabel) {
+      $clickedLineLabel = Try-ClickAnyButtonTextContains -Session $Session -Labels $lineLabels -ScopeSelector "main"
+    }
+
+    if ($clickedLineLabel) {
       try {
-        Wait-ForLineRowsIncrease -Session $Session -PreviousCount $lineBefore -Increment 1 -TimeoutSeconds 15
+        Wait-ForLineRowsIncrease -Session $Session -PreviousCount $lineBefore -Increment 1 -TimeoutSeconds 6
       } catch {
       }
       $lineAfterClick = Get-LineRowCount -Session $Session
@@ -869,27 +1180,79 @@ function Add-Line {
       }
     }
 
-    $clickedSection = Try-ClickButtonByLabels -Session $Session -Labels $sectionLabels -ScopeSelector "main" -TimeoutPerLabelSeconds 5
-    if (-not $clickedSection) {
-      $clickedSection = Try-ClickButtonByLabelsAnyVisibility -Session $Session -Labels $sectionLabels -ScopeSelector "main"
-    }
-    if (-not $clickedSection) {
-      Start-Sleep -Milliseconds 400
-      continue
+    $actionsOpened = Invoke-AB $Session "eval" @"
+(() => {
+  const sectionRows = Array.from(document.querySelectorAll('.estimate-row.estimate-row--section'));
+  if (sectionRows.length === 0) return false;
+  const targetRow = sectionRows[sectionRows.length - 1];
+  const rect = targetRow.getBoundingClientRect();
+  targetRow.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: rect.left + 8, clientY: rect.top + 8 }));
+  targetRow.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: rect.left + 8, clientY: rect.top + 8 }));
+  const target = targetRow.querySelector('button[aria-label="Actions"]');
+  if (!(target instanceof HTMLButtonElement) || target.disabled) return false;
+  target.click();
+  return true;
+})();
+"@
+    if ($actionsOpened -eq $true -or "$actionsOpened" -eq "true") {
+      $clickedMenuLineLabel = Try-ClickAnyButtonText -Session $Session -Labels $lineLabels -ScopeSelector "main"
+      if (-not $clickedMenuLineLabel) {
+        $clickedMenuLineLabel = Try-ClickAnyButtonTextContains -Session $Session -Labels $lineLabels -ScopeSelector "main"
+      }
+      if ($clickedMenuLineLabel) {
+        try {
+          Wait-ForLineRowsIncrease -Session $Session -PreviousCount $lineBefore -Increment 1 -TimeoutSeconds 6
+        } catch {
+        }
+        $lineAfterMenuClick = Get-LineRowCount -Session $Session
+        if ($lineAfterMenuClick -gt $lineBefore) {
+          $lineCreated = $true
+          break
+        }
+      }
     }
 
+    $clickedSectionLabel = Try-ClickLatestSectionButtonText -Session $Session -Labels $sectionLabels
+    if (-not $clickedSectionLabel) {
+      $clickedSectionLabel = Try-ClickLatestSectionButtonText -Session $Session -Labels $sectionLabels -AllowContains $true
+    }
+    if (-not $clickedSectionLabel) {
+      $clickedSectionLabel = Try-ClickAnyButtonText -Session $Session -Labels $sectionLabels -ScopeSelector "main"
+    }
+    if (-not $clickedSectionLabel) {
+      $clickedSectionLabel = Try-ClickAnyButtonTextContains -Session $Session -Labels $sectionLabels -ScopeSelector "main"
+    }
+    if (-not $clickedSectionLabel) {
+      Start-Sleep -Milliseconds 250
+      continue
+    }
     try {
       Wait-ForTitleInputsIncrease -Session $Session -PreviousCount $beforeCount -Increment 1 -TimeoutSeconds 20
       $beforeCount = [int](Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length")
     } catch {
-      Start-Sleep -Seconds 2
+      Start-Sleep -Milliseconds 600
     }
   }
 
   if (-not $lineCreated) {
+    $apiCreated = Try-CreateLineViaApi -Session $Session -Title $Designation
+    if ($apiCreated) {
+      Invoke-AB $Session "reload" | Out-Null
+      Go-EditorTab -Session $Session
+      Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
+    }
+
     $lineAfterLoop = Get-LineRowCount -Session $Session
     if ($lineAfterLoop -le $lineBefore) {
-      throw "Unable to create line row with current hierarchy depth."
+      $availableButtons = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" @"
+(() => {
+  const labels = Array.from(document.querySelectorAll('main button'))
+    .map((button) => String(button.textContent ?? '').replace(/\s+/g, ' ').trim())
+    .filter((text) => text.length > 0);
+  return labels.join(' || ');
+})()
+"@))
+      throw "Unable to create line row with current hierarchy depth. Buttons: $availableButtons"
     }
   }
 
@@ -898,7 +1261,50 @@ function Add-Line {
     Start-Sleep -Milliseconds 500
   }
 
-  Set-LatestLineTitleValue -Session $Session -Value $Designation
+  $titleSet = $false
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+      Set-LatestLineTitleValue -Session $Session -Value $Designation
+      $titleSet = $true
+      break
+    } catch {
+      Start-Sleep -Milliseconds (250 * $attempt)
+      if ($attempt -eq 3) {
+        $apiCreated = Try-CreateLineViaApi -Session $Session -Title $Designation
+        if ($apiCreated) {
+          Invoke-AB $Session "reload" | Out-Null
+          Go-EditorTab -Session $Session
+          Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
+          try {
+            Set-LatestLineTitleValue -Session $Session -Value $Designation
+            $titleSet = $true
+          } catch {
+          }
+        }
+      }
+    }
+  }
+
+  if (-not $titleSet) {
+    throw "Unable to set line title after creating a line row."
+  }
+
+  if ($versionId -and $persistedBefore -ge 0) {
+    $persistedTarget = [Math]::Max(1, $persistedBefore + 1)
+    try {
+      Wait-ForPersistedLineItems -Session $Session -VersionId $versionId -MinCount $persistedTarget -TimeoutSeconds 16
+    } catch {
+      $apiCreated = Try-CreateLineViaApi -Session $Session -Title $Designation
+      if ($apiCreated) {
+        Invoke-AB $Session "reload" | Out-Null
+        Go-EditorTab -Session $Session
+        Wait-ForEditorSurface -Session $Session -TimeoutSeconds 45
+        Wait-ForPersistedLineItems -Session $Session -VersionId $versionId -MinCount $persistedTarget -TimeoutSeconds 18
+      } else {
+        throw
+      }
+    }
+  }
 }
 
 function Set-LineValues {
@@ -919,8 +1325,8 @@ function Set-LineValues {
   $js = @"
 (() => {
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
-    return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+    if (row.classList.contains('estimate-row--section')) return false;
+    return Boolean(row.querySelector('input.estimate-input--title'));
   });
   if (lineRows.length === 0) throw new Error('No line row found');
   const row = lineRows[lineRows.length - 1];
@@ -931,7 +1337,7 @@ function Set-LineValues {
     }
     return !input.disabled;
   });
-  if (inputs.length < 3) throw new Error('Not enough editable line inputs');
+  if (inputs.length < 1) throw new Error('No editable line inputs');
 
   const set = (el, val) => {
     el.focus();

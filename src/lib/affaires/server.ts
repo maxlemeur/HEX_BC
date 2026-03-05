@@ -1,5 +1,6 @@
 import {
   computeAllSectionTotals,
+  computeStoredDiscountCents,
   type EstimateItemRecord,
 } from "@/lib/estimate-calculations";
 import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
@@ -660,6 +661,29 @@ type MarginAnalysisVersionRow = Pick<
   | "updated_at"
 >;
 
+function hasLaborSplitPayload(
+  item: Pick<
+    EstimateItemRecord,
+    | "h_mo_atelier"
+    | "k_mo_atelier"
+    | "labor_role_atelier_id"
+    | "h_mo_chantier"
+    | "k_mo_chantier"
+    | "labor_role_chantier_id"
+  >
+) {
+  return (
+    (item.h_mo_atelier !== null && item.h_mo_atelier !== undefined) ||
+    (item.labor_role_atelier_id !== null &&
+      item.labor_role_atelier_id !== undefined) ||
+    (item.h_mo_chantier !== null && item.h_mo_chantier !== undefined) ||
+    (item.labor_role_chantier_id !== null &&
+      item.labor_role_chantier_id !== undefined) ||
+    ((item.k_mo_atelier ?? 1) !== 1) ||
+    ((item.k_mo_chantier ?? 1) !== 1)
+  );
+}
+
 async function fetchAffaireHubMarginAnalysisWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
@@ -737,19 +761,22 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     ? currentVersion.margin_multiplier
     : 1;
   const taxRateBp = currentVersion.tax_rate_bp ?? 0;
-
-  // Compute discount cents from version settings
-  // We compute sale subtotal first to derive discount
-  const discountBp = currentVersion.discount_bp ?? 0;
   const globalCoefficient = currentVersion.global_coefficient ?? 1;
-
-  // Compute sale subtotal for discount calculation
-  const lineSaleSubtotal = items.reduce((sum, item) => {
-    if (item.item_type !== "line") return sum;
-    return sum + (item.line_total_ht_cents ?? 0);
-  }, 0);
-  const saleSubtotalAfterCoefficient = Math.round(lineSaleSubtotal * globalCoefficient);
-  const discountCents = Math.round((saleSubtotalAfterCoefficient * discountBp) / 10000);
+  const discountCents = computeStoredDiscountCents(
+    {
+      margin_multiplier: marginMultiplier,
+      tax_rate_bp: taxRateBp,
+      discount_bp: currentVersion.discount_bp ?? 0,
+      discount_mode: currentVersion.discount_mode ?? "simple",
+      discount_steps: currentVersion.discount_steps ?? [],
+      global_coefficient: globalCoefficient,
+      total_ht_cents: currentVersion.total_ht_cents,
+    },
+    items
+  );
+  const isLaborSplitEnabled = items.some((item) =>
+    item.item_type === "line" ? hasLaborSplitPayload(item) : false
+  );
 
   // 6. Dual-pass calculation
   // Pass 1 — Costs (margin=1, no discount)
@@ -759,16 +786,18 @@ async function fetchAffaireHubMarginAnalysisWithContext(
     taxRateBp: 0,
     discountCents: 0,
     laborRateById,
+    isLaborSplitEnabled,
     sectionIds: rootSectionIds,
   });
 
   // Pass 2 — Sales (real margin, real discount)
   const saleTotals = computeAllSectionTotals({
     items,
-    marginMultiplier,
+    marginMultiplier: marginMultiplier * globalCoefficient,
     taxRateBp,
     discountCents,
     laborRateById,
+    isLaborSplitEnabled,
     sectionIds: rootSectionIds,
   });
 

@@ -171,7 +171,8 @@ export function computeEstimateChecklist({
         qualityFlagsByItemId,
         qualityFlag: definition.qualityFlag,
       });
-      const isComplete = missingCount === 0;
+      // An empty estimate (0 data lines) should never be considered complete
+      const isComplete = lineCount > 0 && missingCount === 0;
 
       return {
         ...definition,

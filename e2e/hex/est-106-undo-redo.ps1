@@ -100,7 +100,7 @@ function Get-LineState {
 JSON.stringify((() => {
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
     return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+      Boolean(row.querySelector('input.estimate-input--title'));
   });
 
   const lines = lineRows.map((row, index) => {
@@ -155,7 +155,7 @@ function Set-LineTitleByIndex {
 (() => {
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
     return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+      Boolean(row.querySelector('input.estimate-input--title'));
   });
   const row = lineRows[$indexLiteral];
   if (!row) throw new Error('Line row not found at index ' + $indexLiteral);
@@ -185,7 +185,7 @@ function Set-LineQuantityByIndex {
 (() => {
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
     return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+      Boolean(row.querySelector('input.estimate-input--title'));
   });
   const row = lineRows[$indexLiteral];
   if (!row) throw new Error('Line row not found at index ' + $indexLiteral);
@@ -213,7 +213,7 @@ function Click-DeleteLineByIndex {
 (() => {
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
     return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+      Boolean(row.querySelector('input.estimate-input--title'));
   });
   const row = lineRows[$indexLiteral];
   if (!row) throw new Error('Line row not found at index ' + $indexLiteral);
@@ -241,7 +241,7 @@ function Set-LineSelection {
   const selected = new Set($indexesJson);
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
     return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+      Boolean(row.querySelector('input.estimate-input--title'));
   });
   lineRows.forEach((row, index) => {
     const checkbox = row.querySelector('input.estimate-line-checkbox');
@@ -291,12 +291,29 @@ function Add-LineSafe {
     }
 
     if (-not $clicked) {
-      throw "Fallback add line action not found."
+      $apiCreated = Try-CreateLineViaApi -Session $Session -Title $Designation
+      if (-not $apiCreated) {
+        throw "Fallback add line action not found."
+      }
+      Invoke-AB $Session "reload" | Out-Null
+      Go-EditorTab -Session $Session
     }
 
-    Wait-Until -TimeoutMessage "Fallback add line should increase line count." -Predicate {
-      (Get-LineCount -Session $Session) -ge ($beforeCount + 1)
-    } -TimeoutSeconds 10
+    try {
+      Wait-Until -TimeoutMessage "Fallback add line should increase line count." -Predicate {
+        (Get-LineCount -Session $Session) -ge ($beforeCount + 1)
+      } -TimeoutSeconds 10
+    } catch {
+      $apiCreated = Try-CreateLineViaApi -Session $Session -Title $Designation
+      if (-not $apiCreated) {
+        throw
+      }
+      Invoke-AB $Session "reload" | Out-Null
+      Go-EditorTab -Session $Session
+      Wait-Until -TimeoutMessage "API fallback add line should increase line count." -Predicate {
+        (Get-LineCount -Session $Session) -ge ($beforeCount + 1)
+      } -TimeoutSeconds 12
+    }
   }
 
   $targetIndex = [Math]::Max(0, (Get-LineCount -Session $Session) - 1)
@@ -356,7 +373,7 @@ function Try-ReorderFirstLineDown {
 (() => {
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
     return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+      Boolean(row.querySelector('input.estimate-input--title'));
   });
   if (lineRows.length < 2) {
     throw new Error('Need at least 2 line rows for reorder.');

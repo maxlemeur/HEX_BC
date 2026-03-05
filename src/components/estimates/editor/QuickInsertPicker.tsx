@@ -84,7 +84,8 @@ export function QuickInsertPicker({
         event.preventDefault();
         setHighlightedIndex((prev) => {
           if (items.length === 0) return prev;
-          return Math.max(prev - 1, 0);
+          const clampedPrev = Math.min(prev, items.length - 1);
+          return Math.max(clampedPrev - 1, 0);
         });
       } else if (event.key === "Enter" && items.length > 0) {
         event.preventDefault();

@@ -83,7 +83,7 @@ JSON.stringify((() => {
   const sectionCount = document.querySelectorAll('.estimate-row--section').length;
   const lineCount = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
     return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+      Boolean(row.querySelector('input.estimate-input--title'));
   }).length;
   return { sectionCount, lineCount };
 })())
@@ -101,7 +101,7 @@ JSON.stringify((() => {
     const nodes = Array.from(document.querySelectorAll('span, div, p, strong'));
     for (const node of nodes) {
       const text = String(node.textContent ?? '').trim();
-      if (/^\d+\s+selection\(s\)$/i.test(text)) {
+      if (/^\d+\s+(?:selection|sélection)\(s\)$/i.test(text)) {
         return text;
       }
     }
@@ -110,11 +110,10 @@ JSON.stringify((() => {
 
   const selectionLabel = findSelectionLabel();
   const selectionMatch = selectionLabel.match(/(\d+)/);
-  const selectionCount = selectionMatch ? Number(selectionMatch[1]) : 0;
 
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
     if (row.classList.contains('estimate-row--section')) return false;
-    return Boolean(row.querySelector('input.estimate-line-checkbox'));
+    return Boolean(row.querySelector('input.estimate-input--title'));
   });
 
   const resolveSectionTitle = (lineRow) => {
@@ -172,6 +171,7 @@ JSON.stringify((() => {
   });
 
   const selectedLines = lines.filter((line) => line.selected);
+  const selectionCount = selectionMatch ? Number(selectionMatch[1]) : selectedLines.length;
 
   return {
     selectionLabel,
@@ -245,7 +245,7 @@ function Invoke-LineModifierClick {
     document.querySelector('[data-ms-line-index=\"' + index + '\"]') ??
     Array.from(document.querySelectorAll('.estimate-row')).filter((candidate) => {
       return !candidate.classList.contains('estimate-row--section') &&
-        Boolean(candidate.querySelector('input.estimate-line-checkbox'));
+        Boolean(candidate.querySelector('input.estimate-input--title'));
     })[index];
 
   if (!row) {
@@ -255,6 +255,7 @@ function Invoke-LineModifierClick {
   const target =
     row.querySelector('.estimate-cell--selection') ??
     row.querySelector('input.estimate-line-checkbox') ??
+    row.querySelector('input.estimate-input--title') ??
     row;
 
   const eventInit = {
@@ -305,7 +306,7 @@ JSON.stringify((() => {
   const sectionRows = Array.from(document.querySelectorAll('.estimate-row--section'));
   const lineRows = Array.from(document.querySelectorAll('.estimate-row')).filter((row) => {
     return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+      Boolean(row.querySelector('input.estimate-input--title'));
   });
 
   if (sectionRows.length < 2) {
@@ -356,7 +357,7 @@ function Invoke-BulkMoveSectionAction {
   $json = Invoke-AB $Session "eval" @"
 JSON.stringify((() => {
   const selectionNode = Array.from(document.querySelectorAll('span,div,p,strong')).find((node) => {
-    return /^\d+\s+selection\(s\)$/i.test(String(node.textContent ?? '').trim());
+    return /^\d+\s+(?:selection|sélection)\(s\)$/i.test(String(node.textContent ?? '').trim());
   });
 
   const toolbarRoot = selectionNode?.closest('div')?.parentElement ?? document;
@@ -440,7 +441,7 @@ function Invoke-BulkCategoryAction {
   $json = Invoke-AB $Session "eval" @"
 JSON.stringify((() => {
   const selectionNode = Array.from(document.querySelectorAll('span,div,p,strong')).find((node) => {
-    return /^\d+\s+selection\(s\)$/i.test(String(node.textContent ?? '').trim());
+    return /^\d+\s+(?:selection|sélection)\(s\)$/i.test(String(node.textContent ?? '').trim());
   });
 
   const toolbarRoot = selectionNode?.closest('div')?.parentElement ?? document;
@@ -521,7 +522,7 @@ function Invoke-BulkRoleAction {
   $json = Invoke-AB $Session "eval" @"
 JSON.stringify((() => {
   const selectionNode = Array.from(document.querySelectorAll('span,div,p,strong')).find((node) => {
-    return /^\d+\s+selection\(s\)$/i.test(String(node.textContent ?? '').trim());
+    return /^\d+\s+(?:selection|sélection)\(s\)$/i.test(String(node.textContent ?? '').trim());
   });
 
   const toolbarRoot = selectionNode?.closest('div')?.parentElement ?? document;

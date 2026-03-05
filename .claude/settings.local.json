@@ -14,7 +14,12 @@
       "mcp__claude_ai_Supabase__list_projects",
       "mcp__claude_ai_Supabase__execute_sql",
       "Bash(git status:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(lsof -i :3000 2>/dev/null | grep LISTEN | head -3)",
+      "Bash(git add:*)",
+      "Bash(mcp__claude-in-chrome__navigate --url \"http://localhost:3000/dashboard/affaires\")",
+      "Bash(npx playwright test e2e/estimates/unified-import-flow.spec.ts --reporter=list)",
+      "Bash(npx playwright test e2e/estimates/unified-import-flow.spec.ts --reporter=list -g \"Full flow\")"
     ]
   }
 }

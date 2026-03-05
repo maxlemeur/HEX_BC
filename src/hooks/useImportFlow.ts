@@ -258,11 +258,14 @@ async function postWorkerImport(
   return extractCreatedImportId(response);
 }
 
+type UploadProgressCallback = (progress: number) => void;
+
 async function postServerFallback(
   file: File,
   reason: "worker_error" | "file_too_large",
   headerRowNumber?: number | null,
-  projectId?: string | null
+  projectId?: string | null,
+  onProgress?: UploadProgressCallback
 ): Promise<string | null> {
   const formData = new FormData();
   formData.append("file", file);
@@ -274,6 +277,57 @@ async function postServerFallback(
   }
   if (typeof projectId === "string" && projectId.trim().length > 0) {
     formData.append("projectId", projectId.trim());
+  }
+
+  // UX-6: Use XHR for upload progress on large files
+  if (onProgress && typeof XMLHttpRequest !== "undefined") {
+    return new Promise<string | null>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/imports");
+
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable && e.total > 0) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      });
+
+      xhr.addEventListener("load", async () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress(100);
+          try {
+            const payload = JSON.parse(xhr.responseText) as unknown;
+            // Mimic extractCreatedImportId inline
+            const pickId = (value: unknown): string | null => {
+              if (!value || typeof value !== "object") return null;
+              const record = value as Record<string, unknown>;
+              return coerceString(record.id) ?? coerceString(record.import_id) ?? coerceString(record.uuid) ?? null;
+            };
+            if (Array.isArray(payload)) {
+              resolve(pickId(payload[0] ?? null));
+            } else if (payload && typeof payload === "object") {
+              const record = payload as Record<string, unknown>;
+              resolve(pickId(record.data) ?? pickId(record.import) ?? pickId(record.result) ?? pickId(record) ?? null);
+            } else {
+              resolve(null);
+            }
+          } catch {
+            resolve(null);
+          }
+        } else {
+          let message = `Creation de l'import impossible. (HTTP ${xhr.status})`;
+          try {
+            const body = JSON.parse(xhr.responseText) as Record<string, unknown>;
+            message = coerceString(body.error) ?? coerceString(body.message) ?? coerceString(body.detail) ?? message;
+          } catch { /* keep default */ }
+          reject(new Error(message));
+        }
+      });
+
+      xhr.addEventListener("error", () => reject(new Error("Erreur reseau lors de l'envoi du fichier.")));
+      xhr.addEventListener("abort", () => reject(new Error("Envoi du fichier annule.")));
+
+      xhr.send(formData);
+    });
   }
 
   const response = await fetch("/api/imports", {
@@ -296,6 +350,7 @@ export function useImportFlow(options?: UseImportFlowOptions) {
   const [isLoadingImports, setIsLoadingImports] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [workerError, setWorkerError] = useState<string | null>(null);
@@ -337,6 +392,7 @@ export function useImportFlow(options?: UseImportFlowOptions) {
   const importFile = useCallback(
     async (file: File, options?: ImportFileOptions): Promise<boolean> => {
       setIsSubmitting(true);
+      setUploadProgress(null);
       setSubmitError(null);
       setWorkerError(null);
       setModeMessage(null);
@@ -372,7 +428,8 @@ export function useImportFlow(options?: UseImportFlowOptions) {
               file,
               "worker_error",
               headerRowNumber,
-              projectId
+              projectId,
+              setUploadProgress
             );
             setModeMessage(
               "Fichier envoye au serveur pour traitement."
@@ -384,7 +441,8 @@ export function useImportFlow(options?: UseImportFlowOptions) {
             file,
             "file_too_large",
             headerRowNumber,
-            projectId
+            projectId,
+            setUploadProgress
           );
           setModeMessage(
             "Fichier volumineux, envoye au serveur pour traitement."
@@ -456,6 +514,7 @@ export function useImportFlow(options?: UseImportFlowOptions) {
     isLoadingImports,
     isRefreshing,
     isSubmitting,
+    uploadProgress,
     isPolling,
     loadError,
     submitError,

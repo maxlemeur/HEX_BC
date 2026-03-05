@@ -7,6 +7,7 @@ import {
   createEstimate,
   fetchAffaireLinkedDpgfSource,
   fetchEstimateTemplates,
+  importLinkedDpgfSource,
   instantiateEstimateFromTemplate,
   type AffaireLinkedDpgfSource,
   type EstimateTemplateSummary,
@@ -633,6 +634,9 @@ export function EstimateCreationWizard({
           }
         );
         versionId = result.versionId;
+        if (data.dpgfImportMode === "source") {
+          await importLinkedDpgfSource(versionId);
+        }
       } else {
         const marginBpNum = data.marginBp ? Number(data.marginBp) : 0;
         const dpgfImportPayload = buildDpgfImportCreatePayload(

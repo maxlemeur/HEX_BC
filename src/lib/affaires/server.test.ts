@@ -14,6 +14,7 @@ import { normalizeAffaireListQuery, parseAffaireListQuery } from "@/lib/affaires
 import {
   fetchAffaireCounters,
   fetchAffaireHubDpgfSource,
+  fetchAffaireHubMarginAnalysis,
   fetchAffaireHubPageData,
   fetchAffaireHubSummary,
   fetchAffaireHubTimeline,
@@ -81,6 +82,7 @@ function createFromMock(
     const builder = {
       select: vi.fn(),
       eq: vi.fn(),
+      in: vi.fn(),
       order: vi.fn(),
       limit: vi.fn(),
       maybeSingle: vi.fn(),
@@ -91,6 +93,7 @@ function createFromMock(
 
     builder.select.mockReturnValue(builder);
     builder.eq.mockReturnValue(builder);
+    builder.in.mockReturnValue(builder);
     builder.order.mockReturnValue(builder);
     builder.limit.mockReturnValue(builder);
     builder.maybeSingle.mockImplementation(
@@ -844,5 +847,325 @@ describe("affaires hub server", () => {
     expect(pageData.summary.lineCount).toBe(12);
     expect(pageData.timeline.pagination.page).toBe(1);
     expect(pageData.dpgfSource).toBeNull();
+  });
+});
+
+describe("affaires hub margin analysis", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("applies cascade discount settings from version mode/steps", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Cascade",
+                reference: "AFF-CASCADE",
+                client_name: "Client Cascade",
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            limit: {
+              data: [
+                {
+                  id: "v1",
+                  project_id: PROJECT_ID,
+                  version_number: 1,
+                  status: "draft",
+                  total_ht_cents: 9_000,
+                  margin_multiplier: 1,
+                  margin_mode: "fixed",
+                  tax_rate_bp: 0,
+                  discount_bp: 0,
+                  discount_mode: "cascade",
+                  discount_steps: [1000],
+                  global_coefficient: 1,
+                  updated_at: "2026-03-05T08:00:00+00:00",
+                },
+              ],
+              error: null,
+            },
+          },
+        ],
+        estimate_items: [
+          {
+            limit: {
+              data: [
+                {
+                  id: "s1",
+                  parent_id: null,
+                  item_type: "section",
+                  position: 1,
+                  title: "Section 1",
+                  description: null,
+                },
+                {
+                  id: "l1",
+                  parent_id: "s1",
+                  item_type: "line",
+                  position: 1,
+                  title: "Ligne 1",
+                  description: null,
+                  quantity: 1,
+                  unit_price_ht_cents: 10_000,
+                  tax_rate_bp: 0,
+                  k_fo: 1,
+                  h_mo: 0,
+                  h_mo_majoration: 1,
+                  k_mo: 1,
+                  h_mo_atelier: null,
+                  k_mo_atelier: null,
+                  labor_role_atelier_id: null,
+                  h_mo_chantier: null,
+                  k_mo_chantier: null,
+                  labor_role_chantier_id: null,
+                  pu_ht_cents: 10_000,
+                  labor_role_id: null,
+                  category_id: null,
+                  supply_type_id: null,
+                  line_total_ht_cents: 10_000,
+                  line_tax_cents: 0,
+                  line_total_ttc_cents: 10_000,
+                },
+              ],
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireHubMarginAnalysis(PROJECT_ID);
+
+    expect(result).not.toBeNull();
+    expect(result?.global.saleCents).toBe(9_000);
+    expect(result?.global.costCents).toBe(10_000);
+    expect(result?.global.marginEurCents).toBe(-1_000);
+  });
+
+  it("uses labor split payload when computing section costs and sales", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire MO Split",
+                reference: "AFF-SPLIT",
+                client_name: "Client Split",
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            limit: {
+              data: [
+                {
+                  id: "v1",
+                  project_id: PROJECT_ID,
+                  version_number: 1,
+                  status: "draft",
+                  total_ht_cents: 8_000,
+                  margin_multiplier: 1,
+                  margin_mode: "fixed",
+                  tax_rate_bp: 0,
+                  discount_bp: 0,
+                  discount_mode: "simple",
+                  discount_steps: [],
+                  global_coefficient: 1,
+                  updated_at: "2026-03-05T08:00:00+00:00",
+                },
+              ],
+              error: null,
+            },
+          },
+        ],
+        estimate_items: [
+          {
+            limit: {
+              data: [
+                {
+                  id: "s1",
+                  parent_id: null,
+                  item_type: "section",
+                  position: 1,
+                  title: "Section 1",
+                  description: null,
+                },
+                {
+                  id: "l1",
+                  parent_id: "s1",
+                  item_type: "line",
+                  position: 1,
+                  title: "Ligne split",
+                  description: null,
+                  quantity: 1,
+                  unit_price_ht_cents: 0,
+                  tax_rate_bp: 0,
+                  k_fo: 1,
+                  h_mo: 0,
+                  h_mo_majoration: 1,
+                  k_mo: 1,
+                  h_mo_atelier: 2,
+                  k_mo_atelier: 1,
+                  labor_role_atelier_id: "atelier-role",
+                  h_mo_chantier: 3,
+                  k_mo_chantier: 1,
+                  labor_role_chantier_id: "chantier-role",
+                  pu_ht_cents: 8_000,
+                  labor_role_id: null,
+                  category_id: null,
+                  supply_type_id: null,
+                  line_total_ht_cents: 8_000,
+                  line_tax_cents: 0,
+                  line_total_ttc_cents: 8_000,
+                },
+              ],
+              error: null,
+            },
+          },
+        ],
+        labor_roles: [
+          {
+            limit: {
+              data: [
+                { id: "atelier-role", hourly_rate_cents: 1_000 },
+                { id: "chantier-role", hourly_rate_cents: 2_000 },
+              ],
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireHubMarginAnalysis(PROJECT_ID);
+
+    expect(result).not.toBeNull();
+    expect(result?.global.costCents).toBe(8_000);
+    expect(result?.global.saleCents).toBe(8_000);
+    expect(result?.global.marginEurCents).toBe(0);
+  });
+
+  it("applies global coefficient to sale totals", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Coef",
+                reference: "AFF-COEF",
+                client_name: "Client Coef",
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            limit: {
+              data: [
+                {
+                  id: "v1",
+                  project_id: PROJECT_ID,
+                  version_number: 1,
+                  status: "draft",
+                  total_ht_cents: 12_000,
+                  margin_multiplier: 1,
+                  margin_mode: "fixed",
+                  tax_rate_bp: 0,
+                  discount_bp: 0,
+                  discount_mode: "simple",
+                  discount_steps: [],
+                  global_coefficient: 1.2,
+                  updated_at: "2026-03-05T08:00:00+00:00",
+                },
+              ],
+              error: null,
+            },
+          },
+        ],
+        estimate_items: [
+          {
+            limit: {
+              data: [
+                {
+                  id: "s1",
+                  parent_id: null,
+                  item_type: "section",
+                  position: 1,
+                  title: "Section 1",
+                  description: null,
+                },
+                {
+                  id: "l1",
+                  parent_id: "s1",
+                  item_type: "line",
+                  position: 1,
+                  title: "Ligne 1",
+                  description: null,
+                  quantity: 1,
+                  unit_price_ht_cents: 10_000,
+                  tax_rate_bp: 0,
+                  k_fo: 1,
+                  h_mo: 0,
+                  h_mo_majoration: 1,
+                  k_mo: 1,
+                  h_mo_atelier: null,
+                  k_mo_atelier: null,
+                  labor_role_atelier_id: null,
+                  h_mo_chantier: null,
+                  k_mo_chantier: null,
+                  labor_role_chantier_id: null,
+                  pu_ht_cents: 10_000,
+                  labor_role_id: null,
+                  category_id: null,
+                  supply_type_id: null,
+                  line_total_ht_cents: 10_000,
+                  line_tax_cents: 0,
+                  line_total_ttc_cents: 10_000,
+                },
+              ],
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffaireHubMarginAnalysis(PROJECT_ID);
+
+    expect(result).not.toBeNull();
+    expect(result?.global.costCents).toBe(10_000);
+    expect(result?.global.saleCents).toBe(12_000);
+    expect(result?.global.marginEurCents).toBe(2_000);
   });
 });

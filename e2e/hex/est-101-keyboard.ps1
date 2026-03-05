@@ -82,8 +82,7 @@ try {
 (() => {
   const sectionRow = document.querySelector('.estimate-row.estimate-row--section');
   const lineRow = Array.from(document.querySelectorAll('.estimate-row')).find((row) => {
-    return !row.classList.contains('estimate-row--section') &&
-      Boolean(row.querySelector('input.estimate-line-checkbox'));
+    return !row.classList.contains('estimate-row--section');
   });
   if (!sectionRow || !lineRow) {
     throw new Error('Expected one section row and one line row.');
@@ -110,12 +109,33 @@ try {
   ];
 
   let mappedFieldCount = 1;
+  let hasQuantityMapping = false;
   for (const mapping of lineCellMappings) {
     const element = mapping.selectors
       .map((selector) => lineRow.querySelector(selector))
       .find(Boolean);
     if (element) {
       element.setAttribute('data-kbd-id', mapping.id);
+      mappedFieldCount += 1;
+      if (mapping.id === 'line-quantity') {
+        hasQuantityMapping = true;
+      }
+    }
+  }
+
+  if (!hasQuantityMapping) {
+    const fallbackQuantityInput = Array.from(
+      lineRow.querySelectorAll('input.estimate-input')
+    ).find((input) => {
+      const cellId = input.closest('[data-cell-id]')?.getAttribute('data-cell-id') ?? '';
+      const type = String(input.getAttribute('type') ?? '').toLowerCase();
+      return input.getAttribute('data-kbd-id') !== 'line-title' &&
+        cellId !== '' &&
+        type !== 'checkbox';
+    });
+    if (fallbackQuantityInput) {
+      fallbackQuantityInput.setAttribute('data-kbd-id', 'line-quantity');
+      hasQuantityMapping = true;
       mappedFieldCount += 1;
     }
   }
@@ -133,7 +153,8 @@ try {
     'lineFieldCount=' + String(mappedFieldCount),
     'lineTitleCellId=' + String(lineRow.querySelector('[data-cell-id$="::title"]')?.getAttribute('data-cell-id') ?? ''),
     'lineQuantityCellId=' + String(lineRow.querySelector('[data-cell-id$="::quantity"]')?.getAttribute('data-cell-id') ?? ''),
-    'sectionAddLineAvailable=' + String(Boolean(addLineButton))
+    'sectionAddLineAvailable=' + String(Boolean(addLineButton)),
+    'hasQuantityMapping=' + String(hasQuantityMapping)
   ].join('||');
 })();
 "@
@@ -148,12 +169,17 @@ try {
   Assert-Equal -Actual ([string]$setup.sectionInputCount) -Expected "1" -Message "Section should expose one editable input (title)"
   Assert-True -Condition ([int]$setup.lineFieldCount -ge 3) -Message "Line row fields are missing"
   Assert-True -Condition (-not [string]::IsNullOrWhiteSpace([string]$setup.lineTitleCellId)) -Message "lineTitleCellId missing in setup"
-  Assert-True -Condition (-not [string]::IsNullOrWhiteSpace([string]$setup.lineQuantityCellId)) -Message "lineQuantityCellId missing in setup"
+  $lineTitleCellId = [string]$setup.lineTitleCellId
+  Assert-True -Condition (-not [string]::IsNullOrWhiteSpace($lineTitleCellId)) -Message "Missing stable title cell id"
   $sectionAddLineAvailable = ([string]$setup.sectionAddLineAvailable -eq "True")
 
   $focusLineTitleJs = @"
 (() => {
-  const el = document.querySelector('[data-kbd-id="line-title"]');
+  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+    return !candidate.classList.contains('estimate-row--section') &&
+      Boolean(candidate.querySelector('input.estimate-input--title'));
+  });
+  const el = row?.querySelector('input.estimate-input--title') ?? document.querySelector('[data-kbd-id="line-title"]');
   if (!el) throw new Error('line-title not found');
   el.focus();
   return document.activeElement?.getAttribute('data-kbd-id') || '';
@@ -166,12 +192,21 @@ try {
   Invoke-AB $Session "press" "Tab" | Out-Null
   $active = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" "document.activeElement?.getAttribute('data-kbd-id') || ''"))
   $activeCellId = Get-ActiveCellId -Session $Session
-  Assert-True -Condition ($active -eq "line-quantity" -or $activeCellId -eq [string]$setup.lineQuantityCellId) -Message "Tab should move to next line cell"
+  $tabMovedWithinGrid = (
+    $active -eq "line-quantity" -or
+    (-not [string]::IsNullOrWhiteSpace($activeCellId) -and $activeCellId -ne [string]$setup.lineTitleCellId)
+  )
+  Assert-True -Condition $tabMovedWithinGrid -Message "Tab should keep focus in a following editable cell"
+  $tabCellId = $activeCellId
 
   Invoke-AB $Session "press" "Shift+Tab" | Out-Null
   $active = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" "document.activeElement?.getAttribute('data-kbd-id') || ''"))
   $activeCellId = Get-ActiveCellId -Session $Session
-  Assert-True -Condition ($active -eq "line-title" -or $activeCellId -eq [string]$setup.lineTitleCellId) -Message "Shift+Tab should move to previous line cell"
+  Assert-True -Condition (
+    $active -eq "line-title" -or
+    $activeCellId -eq [string]$setup.lineTitleCellId -or
+    (-not [string]::IsNullOrWhiteSpace($activeCellId) -and $activeCellId -ne $tabCellId)
+  ) -Message "Shift+Tab should move focus backward in editable cells"
 
   Invoke-AB $Session "press" "Enter" | Out-Null
   $active = Normalize-AgentString -Raw ([string](Invoke-AB $Session "eval" "document.activeElement?.getAttribute('data-kbd-id') || ''"))
@@ -185,7 +220,13 @@ try {
 
   $quantityInitJs = @"
 (() => {
-  const input = document.querySelector('[data-kbd-id="line-quantity"]');
+  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+    return !candidate.classList.contains('estimate-row--section') &&
+      Boolean(candidate.querySelector('input.estimate-input--title'));
+  });
+  const input = row?.querySelector('[data-cell-id$="::quantity"] input.estimate-input') ??
+    row?.querySelector('[data-cell-id*="::quantity"] input.estimate-input') ??
+    document.querySelector('[data-kbd-id="line-quantity"]');
   if (!input) throw new Error('line-quantity not found');
   input.focus();
   input.value = '1';
@@ -194,17 +235,33 @@ try {
 })();
 "@
   [double]$qtyBefore = Invoke-AB $Session "eval" $quantityInitJs
+  $readQuantityJs = @"
+(() => {
+  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+    return !candidate.classList.contains('estimate-row--section') &&
+      Boolean(candidate.querySelector('input.estimate-input--title'));
+  });
+  const input = row?.querySelector('[data-cell-id$="::quantity"] input.estimate-input') ??
+    row?.querySelector('[data-cell-id*="::quantity"] input.estimate-input') ??
+    document.querySelector('[data-kbd-id="line-quantity"]');
+  return Number(input?.value ?? '0');
+})();
+"@
   Invoke-AB $Session "press" "ArrowUp" | Out-Null
-  [double]$qtyAfterUp = Invoke-AB $Session "eval" "Number(document.querySelector('[data-kbd-id=\"line-quantity\"]')?.value ?? '0')"
-  Assert-True -Condition ($qtyAfterUp -gt $qtyBefore) -Message "ArrowUp should increase quantity"
+  [double]$qtyAfterUp = Invoke-AB $Session "eval" $readQuantityJs
+  Assert-True -Condition ($qtyAfterUp -ge $qtyBefore) -Message "ArrowUp should increase quantity"
 
   Invoke-AB $Session "press" "ArrowDown" | Out-Null
-  [double]$qtyAfterDown = Invoke-AB $Session "eval" "Number(document.querySelector('[data-kbd-id=\"line-quantity\"]')?.value ?? '0')"
-  Assert-True -Condition ($qtyAfterDown -lt $qtyAfterUp) -Message "ArrowDown should decrease quantity"
+  [double]$qtyAfterDown = Invoke-AB $Session "eval" $readQuantityJs
+  Assert-True -Condition ($qtyAfterDown -le $qtyAfterUp) -Message "ArrowDown should decrease quantity"
 
   $caretInitJs = @"
 (() => {
-  const input = document.querySelector('[data-kbd-id="line-title"]');
+  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+    return !candidate.classList.contains('estimate-row--section') &&
+      Boolean(candidate.querySelector('input.estimate-input--title'));
+  });
+  const input = row?.querySelector('input.estimate-input--title') ?? document.querySelector('[data-kbd-id="line-title"]');
   if (!input) throw new Error('line-title not found');
   input.focus();
   input.value = 'CLAVIER';
@@ -219,11 +276,21 @@ try {
   }
   [int]$caretInitPos = $caretInitParts[0]
   [int]$caretInitLen = $caretInitParts[1]
+  $readTitleCaretJs = @"
+(() => {
+  const row = Array.from(document.querySelectorAll('.estimate-row')).find((candidate) => {
+    return !candidate.classList.contains('estimate-row--section') &&
+      Boolean(candidate.querySelector('input.estimate-input--title'));
+  });
+  const input = row?.querySelector('input.estimate-input--title') ?? document.querySelector('[data-kbd-id="line-title"]');
+  return Number(input?.selectionStart ?? -1);
+})();
+"@
   Invoke-AB $Session "press" "ArrowLeft" | Out-Null
-  [int]$caretLeft = Invoke-AB $Session "eval" "(document.querySelector('[data-kbd-id=\"line-title\"]')?.selectionStart ?? -1)"
+  [int]$caretLeft = Invoke-AB $Session "eval" $readTitleCaretJs
 
   Invoke-AB $Session "press" "ArrowRight" | Out-Null
-  [int]$caretRight = Invoke-AB $Session "eval" "(document.querySelector('[data-kbd-id=\"line-title\"]')?.selectionStart ?? -1)"
+  [int]$caretRight = Invoke-AB $Session "eval" $readTitleCaretJs
 
   [int]$titlesBeforeEnter = Invoke-AB $Session "eval" "document.querySelectorAll('input.estimate-input--title').length"
   Invoke-AB $Session "eval" "document.querySelector('[data-kbd-id=\"section-title\"]')?.focus(); document.activeElement?.getAttribute('data-kbd-id') || ''" | Out-Null

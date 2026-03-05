@@ -38,3 +38,29 @@ Copiez `.env.example` en `.env.local` et renseignez :
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+## 5) Sauvegarde automatique (GitHub Actions)
+
+Le workflow [`supabase-backup.yml`](../.github/workflows/supabase-backup.yml) exécute :
+
+- un dump planifié chaque jour (`02:25 UTC`)
+- un dump manuel via `workflow_dispatch`
+- 3 fichiers SQL (`roles.sql`, `schema.sql`, `data.sql`) compressés dans un artefact `.tar.gz`
+
+Secrets requis dans GitHub :
+
+- `SUPABASE_DB_URL` : URL Postgres **percent-encoded** (si le mot de passe contient des caractères spéciaux).
+
+Restauration (exemple local) :
+
+```bash
+tar -xzf supabase-backup-<timestamp>.tar.gz
+psql "$SUPABASE_DB_URL" -f backups/<timestamp>/roles.sql
+psql "$SUPABASE_DB_URL" -f backups/<timestamp>/schema.sql
+psql "$SUPABASE_DB_URL" -f backups/<timestamp>/data.sql
+```
+
+Notes :
+
+- Le dump SQL couvre les schémas `public`, `auth`, `storage`.
+- Les binaires de Storage (fichiers objets) ne sont pas dans le dump SQL ; seul le metadata SQL est dumpé.

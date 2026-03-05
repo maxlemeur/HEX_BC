@@ -29,7 +29,8 @@ function Get-HexSuites {
     "est-027-multi-currency.ps1",
     "ti-141-db-rls.ps1",
     "ti-142-types.ps1",
-    "dpgf-import-flow.ps1"
+    "dpgf-import-flow.ps1",
+    "dpgf-affaire-wizard-editor-flow.ps1"
   )
 
   return [ordered]@{
@@ -40,7 +41,8 @@ function Get-HexSuites {
       "ti-150-status.ps1"
     )
     dpgf = @(
-      "dpgf-import-flow.ps1"
+      "dpgf-import-flow.ps1",
+      "dpgf-affaire-wizard-editor-flow.ps1"
     )
     editor = @(
       "est-101-keyboard.ps1",

@@ -61,3 +61,6 @@ Required in `.env.local`:
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
+
+- Follow the team standard for commit messages (Conventional Commits if undecided).
+- Include the ticket number in commit messages when one exists.

@@ -380,14 +380,19 @@ export function DashboardShell({
       </aside>
 
       <main
-        className="flex-1 transition-[padding-left] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+        className="flex-1 min-h-screen transition-[padding-left] duration-300 ease-in-out"
         style={{
           paddingLeft: collapsed
             ? "var(--sidebar-collapsed-width)"
             : "var(--sidebar-width)",
+          ["--sidebar-offset" as string]: collapsed
+            ? "var(--sidebar-collapsed-width)"
+            : "var(--sidebar-width)",
         }}
       >
-        <div className="min-h-screen px-4 py-16 md:px-8 md:py-8">{children}</div>
+        <div className="mx-auto w-full px-6 py-8">
+          {children}
+        </div>
       </main>
 
       <KeyboardShortcutsModal

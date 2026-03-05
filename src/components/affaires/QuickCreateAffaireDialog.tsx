@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { useImportFlow } from "@/hooks/useImportFlow";
-import { useUiMode } from "@/hooks/useUiMode";
+
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -270,7 +270,6 @@ export function QuickCreateAffaireDialog({
   onOpenChange,
 }: Readonly<QuickCreateAffaireDialogProps>) {
   const router = useRouter();
-  const { isExpert } = useUiMode();
   const [isPending, startTransition] = useTransition();
 
   // Form state
@@ -290,7 +289,7 @@ export function QuickCreateAffaireDialog({
   const [expertImports, setExpertImports] = useState<ImportOption[]>([]);
   const [isLoadingImports, setIsLoadingImports] = useState(false);
   const [selectedImportId, setSelectedImportId] = useState<string | null>(null);
-  const [importTab, setImportTab] = useState<"existing" | "upload">("existing");
+  const [importTab, setImportTab] = useState<"existing" | "upload">("upload");
   const [versionTitle, setVersionTitle] = useState("");
   const [sectionTitle, setSectionTitle] = useState("");
 
@@ -307,9 +306,9 @@ export function QuickCreateAffaireDialog({
     latestImportsRef.current = imports;
   }, [imports]);
 
-  // -- Load available existing imports in expert mode --
+  // -- Load available existing imports --
   useEffect(() => {
-    if (!isExpert || !open) return;
+    if (!open) return;
 
     let mounted = true;
 
@@ -383,7 +382,7 @@ export function QuickCreateAffaireDialog({
     return () => {
       mounted = false;
     };
-  }, [isExpert, open]);
+  }, [open]);
 
   // Sync selectedImportId when imports list changes
   useEffect(() => {
@@ -626,13 +625,12 @@ export function QuickCreateAffaireDialog({
 
     // Determine which submit path to take
     const hasUploadedFile = selectedFile && !fileError;
-    const useUploadTab = isExpert && importTab === "upload";
 
-    if (hasUploadedFile && (!isExpert || useUploadTab)) {
-      // File drop zone path (simplified or expert upload tab)
+    if (hasUploadedFile && importTab === "upload") {
+      // File upload path
       void handleSubmitWithFile();
-    } else if (isExpert && importTab === "existing" && selectedImportId) {
-      // Expert existing import path
+    } else if (importTab === "existing" && selectedImportId) {
+      // Existing import path
       handleSubmitWithExistingImport();
     } else {
       // No import — empty project
@@ -656,7 +654,7 @@ export function QuickCreateAffaireDialog({
       setPhase("idle");
       pendingImportIdRef.current = null;
       setSelectedImportId(null);
-      setImportTab("existing");
+      setImportTab("upload");
       setVersionTitle("");
       setSectionTitle("");
       setClientError(null);
@@ -700,167 +698,132 @@ export function QuickCreateAffaireDialog({
                 autoFocus
               />
 
-              {/* --- Simplified mode layout --- */}
-              {!isExpert && (
-                <>
-                  {/* Drop zone */}
-                  <MiniDropZone
-                    selectedFile={selectedFile}
-                    fileError={fileError}
-                    disabled={isBusy}
-                    onFileSelect={handleFileSelect}
-                    onFileClear={handleFileClear}
-                  />
+              {/* Client & Reference — always visible */}
+              <Input
+                label="Client"
+                placeholder="Nom du client (optionnel)"
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+              />
+              <Input
+                label="Reference"
+                placeholder="Ref. projet (optionnel)"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+              />
 
-                  {/* Plus d'options */}
-                  <details className="rounded-lg border border-[var(--slate-200)] p-3">
-                    <summary className="cursor-pointer text-xs font-medium text-[var(--slate-600)]">
-                      Plus d&apos;options
-                    </summary>
-                    <div className="mt-3 space-y-3">
-                      <Input
-                        label="Client"
-                        placeholder="Nom du client (optionnel)"
-                        value={clientName}
-                        onChange={(e) => setClientName(e.target.value)}
-                      />
-                      <Input
-                        label="Reference"
-                        placeholder="Ref. projet (optionnel)"
-                        value={reference}
-                        onChange={(e) => setReference(e.target.value)}
-                      />
-                    </div>
-                  </details>
-                </>
-              )}
+              {/* Import DPGF section — shared by both modes */}
+              <details open className="rounded-lg border border-[var(--slate-200)] p-3">
+                <summary className="cursor-pointer text-sm font-medium text-[var(--slate-700)]">
+                  Import DPGF{" "}
+                  <span className="ml-0.5 inline-flex cursor-help align-middle" title="Décomposition du Prix Global et Forfaitaire — fichier Excel décrivant les postes à chiffrer">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                  </span>{" "}
+                  (optionnel)
+                </summary>
 
-              {/* --- Expert mode layout --- */}
-              {isExpert && (
-                <>
-                  <Input
-                    label="Client"
-                    placeholder="Nom du client (optionnel)"
-                    value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
-                  />
-                  <Input
-                    label="Reference"
-                    placeholder="Ref. projet (optionnel)"
-                    value={reference}
-                    onChange={(e) => setReference(e.target.value)}
-                  />
+                <div className="mt-3 space-y-3">
+                  {/* Tab toggle */}
+                  <div className="flex gap-0.5 rounded-lg bg-[var(--slate-100)] p-0.5">
+                    <button
+                      type="button"
+                      className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                        importTab === "upload"
+                          ? "bg-white text-[var(--slate-800)] shadow-sm"
+                          : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+                      }`}
+                      onClick={() => setImportTab("upload")}
+                    >
+                      Nouveau fichier
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                        importTab === "existing"
+                          ? "bg-white text-[var(--slate-800)] shadow-sm"
+                          : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
+                      }`}
+                      onClick={() => setImportTab("existing")}
+                    >
+                      Import existant
+                    </button>
+                  </div>
 
-                  {/* Import section */}
-                  <details className="rounded-lg border border-[var(--slate-200)] p-3">
-                    <summary className="cursor-pointer text-sm font-medium text-[var(--slate-700)]">
-                      Import DPGF (optionnel)
-                    </summary>
-
-                    <div className="mt-3 space-y-3">
-                      {/* Tab toggle */}
-                      <div className="flex gap-0.5 rounded-lg bg-[var(--slate-100)] p-0.5">
-                        <button
-                          type="button"
-                          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                            importTab === "existing"
-                              ? "bg-white text-[var(--slate-800)] shadow-sm"
-                              : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
-                          }`}
-                          onClick={() => setImportTab("existing")}
+                  {/* Existing import select */}
+                  {importTab === "existing" && (
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <label
+                          htmlFor="qc-import-select"
+                          className="block text-xs font-semibold text-[var(--slate-700)]"
                         >
-                          Import existant
-                        </button>
-                        <button
-                          type="button"
-                          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                            importTab === "upload"
-                              ? "bg-white text-[var(--slate-800)] shadow-sm"
-                              : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
-                          }`}
-                          onClick={() => setImportTab("upload")}
-                        >
-                          Nouveau fichier
-                        </button>
+                          Import disponible
+                        </label>
+                        {isLoadingImports ? (
+                          <p className="text-xs text-[var(--slate-500)]">
+                            Chargement...
+                          </p>
+                        ) : expertImports.length === 0 ? (
+                          <p className="text-xs text-[var(--slate-500)]">
+                            Aucun import termine et mappe disponible.
+                          </p>
+                        ) : (
+                          <select
+                            id="qc-import-select"
+                            className="form-input form-select text-sm"
+                            value={selectedImportId ?? ""}
+                            onChange={(e) =>
+                              setSelectedImportId(e.target.value || null)
+                            }
+                          >
+                            <option value="">Sans import</option>
+                            {expertImports.map((imp) => (
+                              <option key={imp.id} value={imp.id}>
+                                {imp.fileName}
+                                {imp.rowsCount !== null
+                                  ? ` (${imp.rowsCount} lignes)`
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </div>
 
-                      {/* Existing import select */}
-                      {importTab === "existing" && (
-                        <div className="space-y-3">
-                          <div className="space-y-1.5">
-                            <label
-                              htmlFor="qc-import-select"
-                              className="block text-xs font-semibold text-[var(--slate-700)]"
-                            >
-                              Import disponible
-                            </label>
-                            {isLoadingImports ? (
-                              <p className="text-xs text-[var(--slate-500)]">
-                                Chargement...
-                              </p>
-                            ) : expertImports.length === 0 ? (
-                              <p className="text-xs text-[var(--slate-500)]">
-                                Aucun import termine et mappe disponible.
-                              </p>
-                            ) : (
-                              <select
-                                id="qc-import-select"
-                                className="form-input form-select text-sm"
-                                value={selectedImportId ?? ""}
-                                onChange={(e) =>
-                                  setSelectedImportId(e.target.value || null)
-                                }
-                              >
-                                <option value="">Sans import</option>
-                                {expertImports.map((imp) => (
-                                  <option key={imp.id} value={imp.id}>
-                                    {imp.fileName}
-                                    {imp.rowsCount !== null
-                                      ? ` (${imp.rowsCount} lignes)`
-                                      : ""}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
-                          </div>
-
-                          {selectedImportId && (
-                            <>
-                              <Input
-                                label="Titre de la version"
-                                placeholder="V1 (optionnel)"
-                                value={versionTitle}
-                                onChange={(e) =>
-                                  setVersionTitle(e.target.value)
-                                }
-                              />
-                              <Input
-                                label="Titre de la section"
-                                placeholder="Section principale (optionnel)"
-                                value={sectionTitle}
-                                onChange={(e) =>
-                                  setSectionTitle(e.target.value)
-                                }
-                              />
-                            </>
-                          )}
-                        </div>
-                      )}
-
-                      {/* New file upload */}
-                      {importTab === "upload" && (
-                        <MiniDropZone
-                          selectedFile={selectedFile}
-                          fileError={fileError}
-                          disabled={isBusy}
-                          onFileSelect={handleFileSelect}
-                          onFileClear={handleFileClear}
-                        />
+                      {selectedImportId && (
+                        <>
+                          <Input
+                            label="Titre de la version"
+                            placeholder="V1 (optionnel)"
+                            value={versionTitle}
+                            onChange={(e) =>
+                              setVersionTitle(e.target.value)
+                            }
+                          />
+                          <Input
+                            label="Titre de la section"
+                            placeholder="Section principale (optionnel)"
+                            value={sectionTitle}
+                            onChange={(e) =>
+                              setSectionTitle(e.target.value)
+                            }
+                          />
+                        </>
                       )}
                     </div>
-                  </details>
-                </>
-              )}
+                  )}
+
+                  {/* New file upload */}
+                  {importTab === "upload" && (
+                    <MiniDropZone
+                      selectedFile={selectedFile}
+                      fileError={fileError}
+                      disabled={isBusy}
+                      onFileSelect={handleFileSelect}
+                      onFileClear={handleFileClear}
+                    />
+                  )}
+                </div>
+              </details>
 
               {/* Server error */}
               {serverError && (
@@ -873,7 +836,7 @@ export function QuickCreateAffaireDialog({
         </Modal.Body>
 
         <Modal.Footer>
-          {isExpert && phase === "idle" && (
+          {phase === "idle" && (
             <Link
               href="/dashboard/estimates/new"
               className="mr-auto text-xs text-[var(--slate-500)] hover:underline"

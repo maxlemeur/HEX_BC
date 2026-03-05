@@ -45,7 +45,7 @@ export function ColumnHeaderHelp({
         hover
         trigger={
           <button
-            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[var(--slate-300)] text-[10px] leading-none text-[var(--slate-500)] hover:border-[var(--slate-400)] hover:bg-[var(--slate-100)] hover:text-[var(--slate-700)]"
+            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-blue-300 text-[10px] leading-none text-blue-400 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600"
             type="button"
             aria-label={`Aide : ${label}`}
           >

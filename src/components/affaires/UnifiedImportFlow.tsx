@@ -264,6 +264,7 @@ function UploadStep({
   const {
     imports,
     isSubmitting,
+    uploadProgress,
     isPolling,
     submitError,
     lastImportId,
@@ -439,18 +440,31 @@ function UploadStep({
       {isSubmitting && (
         <div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--slate-200)]">
-            <div
-              className="h-full rounded-full bg-[var(--brand-blue)]"
-              style={{
-                width: "100%",
-                animation: "uif-indeterminate 1.5s ease-in-out infinite",
-              }}
-            />
+            {uploadProgress !== null ? (
+              /* UX-6: Real progress bar for server uploads */
+              <div
+                className="h-full rounded-full bg-[var(--brand-blue)] transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            ) : (
+              /* Indeterminate for worker/small files */
+              <div
+                className="h-full rounded-full bg-[var(--brand-blue)]"
+                style={{
+                  width: "100%",
+                  animation: "uif-indeterminate 1.5s ease-in-out infinite",
+                }}
+              />
+            )}
           </div>
           <p className="mt-2 text-xs text-[var(--slate-500)]">
-            Envoi et traitement en cours…
+            {uploadProgress !== null
+              ? `Envoi en cours… ${uploadProgress}%`
+              : "Envoi et traitement en cours…"}
           </p>
-          <style>{`@keyframes uif-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }`}</style>
+          {uploadProgress === null && (
+            <style>{`@keyframes uif-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }`}</style>
+          )}
         </div>
       )}
     </div>
@@ -466,12 +480,14 @@ function MappingStep({
   isSimplified,
   initialMapping,
   forceShowMapping,
+  onBack,
   onNext,
 }: {
   importId: string;
   isSimplified: boolean;
   initialMapping?: ColumnMapping;
   forceShowMapping?: boolean;
+  onBack?: () => void;
   onNext: (result: {
     mapping: ColumnMapping;
     autoAdvanced?: boolean;
@@ -638,8 +654,13 @@ function MappingStep({
         onChange={setMapping}
       />
 
-      {/* Next button */}
-      <div className="flex justify-end">
+      {/* Navigation buttons */}
+      <div className="flex items-center justify-between">
+        {onBack ? (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onBack}>
+            Retour
+          </button>
+        ) : <div />}
         <button
           type="button"
           className="btn btn-primary"
@@ -683,6 +704,7 @@ function PreviewStep({
   wasAutoAdvanced,
   templateExactMatch,
   onEditMapping,
+  onBack,
   onNext,
 }: {
   importId: string;
@@ -690,6 +712,7 @@ function PreviewStep({
   wasAutoAdvanced?: boolean;
   templateExactMatch?: MappingTemplateExactMatch | null;
   onEditMapping?: () => void;
+  onBack?: () => void;
   onNext: (data: {
     rows: MappingPreviewRow[];
     validation: MappingValidation | null;
@@ -810,7 +833,12 @@ function PreviewStep({
         onPreviewLimitChange={handlePreviewLimitChange}
       />
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between">
+        {onBack ? (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onBack}>
+            Retour
+          </button>
+        ) : <div />}
         <button
           type="button"
           className="btn btn-primary"
@@ -850,12 +878,14 @@ function ConfirmationStep({
   projectId,
   mapping,
   validation,
+  onBack,
   onSuccess,
 }: {
   importId: string;
   projectId: string;
   mapping: ColumnMapping;
   validation: MappingValidation | null;
+  onBack?: () => void;
   onSuccess: (result: ConfirmUnifiedImportFlowResult) => void;
 }) {
   const router = useRouter();
@@ -943,36 +973,59 @@ function ConfirmationStep({
         </div>
       </div>
 
-      {/* Error */}
+      {/* Error with retry */}
       {confirmError && (
-        <div className="alert alert-error mt-4">{confirmError}</div>
+        <div className="alert alert-error mt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{confirmError}</span>
+            <button
+              type="button"
+              className="btn btn-sm font-medium underline underline-offset-2 hover:no-underline"
+              onClick={() => setConfirmError(null)}
+            >
+              Reessayer
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Action buttons */}
-      <div className="mt-6 flex flex-wrap gap-3">
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={isConfirming}
-          onClick={() => void handleConfirm(true)}
-        >
-          {isConfirming ? (
-            <span className="flex items-center gap-2">
-              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-              Creation…
-            </span>
-          ) : (
-            "Creer le chiffrage"
-          )}
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          disabled={isConfirming}
-          onClick={() => void handleConfirm(false)}
-        >
-          Retour au hub
-        </button>
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        {onBack && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={isConfirming}
+            onClick={onBack}
+          >
+            Retour
+          </button>
+        )}
+        <div className="flex flex-1 flex-wrap justify-end gap-3">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={isConfirming}
+            onClick={() => void handleConfirm(false)}
+          >
+            Retour au hub
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={isConfirming}
+            onClick={() => void handleConfirm(true)}
+          >
+            {isConfirming ? (
+              <span className="flex items-center gap-2">
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Creation…
+              </span>
+            ) : (
+              "Creer le chiffrage"
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1052,39 +1105,85 @@ export function UnifiedImportFlow({
     [onComplete],
   );
 
+  // UX-5: track if user has progressed past upload (import started)
+  const hasStartedImport = step !== "upload" && importId !== null;
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
   const handleBack = useCallback(() => {
     const currentIndex = STEPS.indexOf(step);
     if (currentIndex <= 0) {
+      // UX-5: if import already started, confirm before canceling
+      if (hasStartedImport) {
+        setShowCancelConfirm(true);
+        return;
+      }
       onCancel?.();
       return;
     }
     startTransition(() => setStep(STEPS[currentIndex - 1]));
-  }, [step, onCancel]);
+  }, [step, onCancel, hasStartedImport]);
+
+  const backButton = (
+    <button
+      type="button"
+      onClick={handleBack}
+      className="btn btn-secondary btn-sm inline-flex shrink-0 items-center gap-1.5"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="m15 18-6-6 6-6" />
+      </svg>
+      {step === "upload" ? "Annuler" : "Retour"}
+    </button>
+  );
 
   return (
     <div className="animate-fade-in space-y-4">
+      {/* UX-5: Cancel confirmation dialog */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="mx-4 w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+              Annuler l&apos;import ?
+            </h3>
+            <p className="mt-2 text-xs text-[var(--slate-500)]">
+              Votre progression sera perdue. Le fichier importe et le mapping en cours ne seront pas conserves.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowCancelConfirm(false)}
+              >
+                Continuer l&apos;import
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm bg-red-600 text-white hover:bg-red-700"
+                onClick={() => {
+                  setShowCancelConfirm(false);
+                  onCancel?.();
+                }}
+              >
+                Annuler l&apos;import
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Progress header */}
       <div className="flex items-center justify-between gap-3">
         <ProgressHeader currentStep={step} />
-        <button
-          type="button"
-          onClick={handleBack}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-900)]"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-          {step === "upload" ? "Annuler" : "Retour"}
-        </button>
+        {backButton}
       </div>
 
       {/* Step content */}
@@ -1098,6 +1197,7 @@ export function UnifiedImportFlow({
           isSimplified={isSimplified}
           initialMapping={currentMapping}
           forceShowMapping={Object.keys(currentMapping).length > 0}
+          onBack={handleBack}
           onNext={handleMappingNext}
         />
       )}
@@ -1109,6 +1209,7 @@ export function UnifiedImportFlow({
           wasAutoAdvanced={wasAutoAdvanced}
           templateExactMatch={autoAppliedTemplateMatch}
           onEditMapping={handleEditMapping}
+          onBack={handleBack}
           onNext={handlePreviewNext}
         />
       )}
@@ -1119,6 +1220,7 @@ export function UnifiedImportFlow({
           projectId={projectId}
           mapping={currentMapping}
           validation={previewData?.validation ?? null}
+          onBack={handleBack}
           onSuccess={handleConfirmSuccess}
         />
       )}

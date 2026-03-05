@@ -139,6 +139,8 @@ function Test-IsTransientAgentBrowserError {
     "Invalid response:\s*EOF",
     "Resource temporarily unavailable \(os error 11\)",
     "transport error",
+    "Execution context was destroyed",
+    "Target page, context or browser has been closed",
     "socket hang up",
     "ECONNRESET",
     "EPIPE",
