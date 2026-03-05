@@ -89,7 +89,23 @@ export type TakeoffJobSummary = {
   created_at: string;
   updated_at: string;
   items_count?: number | null;
+  version_number?: number | null;
   metrics: TakeoffJobMetrics;
+};
+
+export type TakeoffLinkedJobSummary = {
+  id: string;
+  estimate_version_id: string;
+  status: TakeoffJobStatus | string;
+  level: TakeoffLevel | string;
+  source_file_name: string | null;
+  source_file_type: string | null;
+  source_file_size_bytes: number | null;
+  created_at: string;
+  updated_at: string;
+  linked_from_version_id: string | null;
+  linked_from_version_number: number | null;
+  is_linked: boolean;
 };
 
 export type TakeoffJobStatusCounters = {
@@ -102,6 +118,7 @@ export type TakeoffJobStatusCounters = {
 
 export type TakeoffJobListQuery = {
   estimate_version_id?: string;
+  project_id?: string;
   status?: TakeoffJobStatus;
   level?: TakeoffLevel;
   period?: TakeoffJobListPeriod;

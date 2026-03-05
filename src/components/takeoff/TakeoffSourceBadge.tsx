@@ -16,6 +16,7 @@ type TakeoffSourceBadgeProps = {
   sourcePage?: number | null;
   sourceLevel?: string | null;
   extractedAt?: string | null;
+  sourceVersionNumber?: number | null;
 };
 
 function toNonEmptyString(value: string | null | undefined) {
@@ -62,6 +63,14 @@ function formatSourcePage(value: number | null | undefined) {
   return page > 0 ? String(page) : NOT_AVAILABLE_LABEL;
 }
 
+function normalizeSourceVersionNumber(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return null;
+  }
+
+  return value > 0 ? value : null;
+}
+
 export function TakeoffSourceBadge({
   versionId,
   sourceProvider,
@@ -70,6 +79,7 @@ export function TakeoffSourceBadge({
   sourcePage,
   sourceLevel,
   extractedAt,
+  sourceVersionNumber,
 }: TakeoffSourceBadgeProps) {
   const {
     isOpen: isPinnedOpen,
@@ -94,6 +104,15 @@ export function TakeoffSourceBadge({
   const sourcePageLabel = formatSourcePage(sourcePage);
   const extractedAtLabel = formatExtractionDate(extractedAt);
   const sourceLevelLabel = normalizeTakeoffLevel(sourceLevel) ?? NOT_AVAILABLE_LABEL;
+  const normalizedSourceVersionNumber = normalizeSourceVersionNumber(
+    sourceVersionNumber
+  );
+  const sourceVersionLabel = normalizedSourceVersionNumber
+    ? `V${normalizedSourceVersionNumber}`
+    : NOT_AVAILABLE_LABEL;
+  const triggerLabelSuffix = normalizedSourceVersionNumber
+    ? ` (from V${normalizedSourceVersionNumber})`
+    : "";
   const normalizedSourceJobId = toNonEmptyString(sourceJobId);
   const jobLink = normalizedSourceJobId
     ? `/dashboard/estimates/${versionId}/takeoff/${normalizedSourceJobId}`
@@ -146,7 +165,7 @@ export function TakeoffSourceBadge({
         aria-describedby={isOpen ? tooltipId : undefined}
         aria-label="Afficher la provenance IA"
       >
-        <span aria-hidden="true">IA</span>
+        <span aria-hidden="true">{`IA${triggerLabelSuffix}`}</span>
         <span className="sr-only">Provenance IA disponible pour cette ligne</span>
       </button>
 
@@ -173,6 +192,10 @@ export function TakeoffSourceBadge({
             <div className="takeoff-source-badge__meta-row">
               <dt>Niveau</dt>
               <dd>{sourceLevelLabel}</dd>
+            </div>
+            <div className="takeoff-source-badge__meta-row">
+              <dt>Version source</dt>
+              <dd>{sourceVersionLabel}</dd>
             </div>
             <div className="takeoff-source-badge__meta-row">
               <dt>Extraction</dt>

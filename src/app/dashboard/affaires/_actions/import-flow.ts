@@ -26,6 +26,7 @@ import {
 import { createMapping } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { linkTakeoffJobsFromSourceVersionToTargetVersion } from "@/lib/takeoff/version-links";
 
 export type ConfirmUnifiedImportFlowMode = "mapping_only" | "version_created";
 
@@ -204,6 +205,7 @@ export async function confirmUnifiedImportFlow(
         membership.tenant_id
       )
     : {
+        version_id: null,
         margin_multiplier: DEFAULT_MARGIN_MULTIPLIER,
         tax_rate_bp: DEFAULT_TAX_RATE_BP,
       };
@@ -247,6 +249,24 @@ export async function confirmUnifiedImportFlow(
       sortValidLinesForEstimateCreation(normalizedRows.validLines)
     ),
   });
+
+  if (versionContext.version_id) {
+    try {
+      await linkTakeoffJobsFromSourceVersionToTargetVersion({
+        supabase,
+        tenantId: membership.tenant_id,
+        userId: user.id,
+        sourceVersionId: versionContext.version_id,
+        targetVersionId: createdVersion.version_id,
+      });
+    } catch (error) {
+      console.warn("takeoff carry-over skipped for import flow", {
+        sourceVersionId: versionContext.version_id,
+        targetVersionId: createdVersion.version_id,
+        error,
+      });
+    }
+  }
 
   const stats = buildImportFlowStats(normalizedRows, createdVersion.inserted_count);
   const redirectTo = `/dashboard/estimates/${createdVersion.version_id}/edit`;

@@ -28,6 +28,10 @@ import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
 } from "@/lib/feature-flags";
+import {
+  getTakeoffLinkedSourceVersionByJobId,
+  linkTakeoffJobsFromSourceVersionToTargetVersion,
+} from "@/lib/takeoff/version-links";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/types/database";
 
@@ -111,6 +115,7 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
 type EstimateItemProvenanceFields = {
   source_level?: string | null;
   source_extracted_at?: string | null;
+  source_version_number?: number | null;
 };
 type EstimateItemWithProvenanceRow = EstimateItemRow & EstimateItemProvenanceFields;
 type TakeoffJobProvenanceRow = {
@@ -237,6 +242,7 @@ type EstimateProjectOwnerRow = Pick<
 
 type CreateEstimateLatestVersionDefaultsRow = Pick<
   EstimateVersionRow,
+  | "id"
   | "version_number"
   | "date_devis"
   | "validite_jours"
@@ -1990,6 +1996,14 @@ function toNullableText(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function toNullablePositiveInteger(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return null;
+  }
+
+  return value > 0 ? value : null;
+}
+
 function normalizeTakeoffJobProvenanceRows(value: unknown): TakeoffJobProvenanceRow[] {
   if (!Array.isArray(value)) {
     return [];
@@ -2031,6 +2045,7 @@ function normalizeTakeoffJobProvenanceRows(value: unknown): TakeoffJobProvenance
 async function enrichEstimateItemsWithTakeoffProvenance(input: {
   supabase: Supabase;
   tenantId: string;
+  targetVersionId: string;
   items: EstimateItemRow[];
 }): Promise<EstimateItemWithProvenanceRow[]> {
   if (input.items.length === 0) {
@@ -2066,6 +2081,25 @@ async function enrichEstimateItemsWithTakeoffProvenance(input: {
     takeoffJobs.map((job) => [job.id, job] as const)
   );
 
+  let linkedSourceVersionByJobId = new Map<
+    string,
+    {
+      source_version_id: string;
+      source_version_number: number | null;
+    }
+  >();
+
+  try {
+    linkedSourceVersionByJobId = await getTakeoffLinkedSourceVersionByJobId({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      targetVersionId: input.targetVersionId,
+      jobIds: sourceJobIds,
+    });
+  } catch {
+    linkedSourceVersionByJobId = new Map();
+  }
+
   return input.items.map((item) => {
     const sourceJobId = toNullableText(item.source_job_id);
     if (!sourceJobId) {
@@ -2085,11 +2119,17 @@ async function enrichEstimateItemsWithTakeoffProvenance(input: {
       toNullableText(withProvenance.source_extracted_at) ??
       toNullableText(takeoffJob.completed_at) ??
       toNullableText(takeoffJob.created_at);
+    const sourceVersionNumber =
+      toNullablePositiveInteger(withProvenance.source_version_number) ??
+      toNullablePositiveInteger(
+        linkedSourceVersionByJobId.get(sourceJobId)?.source_version_number
+      );
 
     return {
       ...item,
       source_level: sourceLevel,
       source_extracted_at: sourceExtractedAt,
+      source_version_number: sourceVersionNumber,
     };
   });
 }
@@ -3951,11 +3991,68 @@ export async function duplicateEstimateTemplate(
   };
 }
 
+async function tryCarryOverTakeoffJobsToNewVersion(input: {
+  supabase: Supabase;
+  tenantId: string;
+  userId: string;
+  sourceVersionId: string | null;
+  targetVersionId: string;
+}) {
+  if (!input.sourceVersionId) {
+    return;
+  }
+
+  try {
+    await linkTakeoffJobsFromSourceVersionToTargetVersion({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      userId: input.userId,
+      sourceVersionId: input.sourceVersionId,
+      targetVersionId: input.targetVersionId,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Unexpected table:")
+    ) {
+      return;
+    }
+
+    console.warn("takeoff carry-over skipped", {
+      sourceVersionId: input.sourceVersionId,
+      targetVersionId: input.targetVersionId,
+      error,
+    });
+  }
+}
+
+async function resolveLatestProjectVersionId(input: {
+  supabase: Supabase;
+  tenantId: string;
+  projectId: string;
+}): Promise<string | null> {
+  const { data, error } = await input.supabase
+    .from("estimate_versions")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .eq("project_id", input.projectId)
+    .order("version_number", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger la version courante du projet.");
+  }
+
+  return data?.id ?? null;
+}
+
 export async function instantiateEstimateFromTemplate(
   templateId: string,
   input: InstantiateEstimateFromTemplateInput
 ) {
-  const { supabase, tenantId } = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = await getAuthenticatedContext();
   const targetProjectId = input.project_id ?? null;
   const projectName = toNullableText(input.project_name);
 
@@ -3970,6 +4067,13 @@ export async function instantiateEstimateFromTemplate(
   const rpcName = targetProjectId
     ? "instantiate_estimate_template_into_project"
     : "instantiate_estimate_from_template";
+  const sourceVersionIdForCarryOver = targetProjectId
+    ? await resolveLatestProjectVersionId({
+        supabase,
+        tenantId,
+        projectId: targetProjectId,
+      })
+    : null;
 
   const rpcPayload = targetProjectId
     ? {
@@ -4031,6 +4135,14 @@ export async function instantiateEstimateFromTemplate(
       throw mapSupabaseError(projectUpdateError, "Impossible d'instancier le template.");
     }
   }
+
+  await tryCarryOverTakeoffJobsToNewVersion({
+    supabase,
+    tenantId,
+    userId,
+    sourceVersionId: sourceVersionIdForCarryOver,
+    targetVersionId: versionId,
+  });
 
   return {
     projectId,
@@ -4586,7 +4698,7 @@ export async function duplicateEstimateVersion(
   options?: { as_variant?: boolean }
 ) {
   const context = await getAuthenticatedContext();
-  const { supabase } = context;
+  const { supabase, tenantId, userId } = context;
   await getVersionAccessOrThrow(supabase, versionId, context);
 
   const { data, error } = await supabase.rpc("duplicate_estimate_version", {
@@ -4602,6 +4714,14 @@ export async function duplicateEstimateVersion(
   if (!duplicatedVersionId) {
     throw badRequest("Impossible de dupliquer le chiffrage.");
   }
+
+  await tryCarryOverTakeoffJobsToNewVersion({
+    supabase,
+    tenantId,
+    userId,
+    sourceVersionId: versionId,
+    targetVersionId: duplicatedVersionId,
+  });
 
   return {
     version_id: duplicatedVersionId,
@@ -5166,7 +5286,7 @@ export async function createEstimate(input: CreateEstimateInput) {
     const { data: latestVersionData, error: latestVersionError } = await supabase
       .from("estimate_versions")
       .select(
-        "version_number, date_devis, validite_jours, margin_multiplier, margin_mode, currency, margin_bp, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, max_section_depth"
+        "id, version_number, date_devis, validite_jours, margin_multiplier, margin_mode, currency, margin_bp, discount_bp, discount_mode, discount_steps, global_coefficient, tax_rate_bp, rounding_mode, rounding_step_cents, max_section_depth"
       )
       .eq("tenant_id", tenantId)
       .eq("project_id", project.id)
@@ -5376,6 +5496,14 @@ export async function createEstimate(input: CreateEstimateInput) {
     }
   }
 
+  await tryCarryOverTakeoffJobsToNewVersion({
+    supabase,
+    tenantId,
+    userId,
+    sourceVersionId: latestProjectVersionDefaults?.id ?? null,
+    targetVersionId: version.id,
+  });
+
   return {
     project,
     version,
@@ -5507,6 +5635,7 @@ export async function getEstimateVersionDetails(versionId: string) {
   const items = await enrichEstimateItemsWithTakeoffProvenance({
     supabase,
     tenantId,
+    targetVersionId: versionId,
     items: (itemsResult.data ?? []) as EstimateItemRow[],
   });
 
@@ -5543,6 +5672,7 @@ export async function listEstimateItems(versionId: string) {
   const items = await enrichEstimateItemsWithTakeoffProvenance({
     supabase,
     tenantId,
+    targetVersionId: versionId,
     items: (data ?? []) as EstimateItemRow[],
   });
 

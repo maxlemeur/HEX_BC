@@ -13,10 +13,11 @@ export type ImportRow = Pick<
   Database["public"]["Tables"]["dpgf_imports"]["Row"],
   "id" | "tenant_id" | "user_id" | "project_id"
 >;
-export type VersionComputationContext = Pick<
-  Database["public"]["Tables"]["estimate_versions"]["Row"],
-  "margin_multiplier" | "tax_rate_bp"
->;
+export type VersionComputationContext = {
+  version_id: string | null;
+  margin_multiplier: number;
+  tax_rate_bp: number;
+};
 
 export const DEFAULT_MARGIN_MULTIPLIER = 1;
 export const DEFAULT_TAX_RATE_BP = 2000;
@@ -158,7 +159,7 @@ export async function fetchVersionComputationContext(
 ): Promise<VersionComputationContext> {
   const { data, error } = await supabase
     .from("estimate_versions")
-    .select("margin_multiplier, tax_rate_bp")
+    .select("id, margin_multiplier, tax_rate_bp")
     .eq("tenant_id", tenantId)
     .eq("project_id", projectId)
     .order("version_number", { ascending: false })
@@ -170,6 +171,7 @@ export async function fetchVersionComputationContext(
   }
 
   return {
+    version_id: data?.id ?? null,
     margin_multiplier: data?.margin_multiplier ?? DEFAULT_MARGIN_MULTIPLIER,
     tax_rate_bp: data?.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
   };

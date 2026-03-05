@@ -17,6 +17,7 @@ type RenderBadgeOptions = {
   sourceJobId?: string | null;
   sourceLevel?: string | null;
   extractedAt?: string | null;
+  sourceVersionNumber?: number | null;
 };
 
 function renderBadge(options: RenderBadgeOptions = {}) {
@@ -46,6 +47,11 @@ function renderBadge(options: RenderBadgeOptions = {}) {
         options.extractedAt === undefined
           ? "2031-11-07T16:00:00.000Z"
           : options.extractedAt
+      }
+      sourceVersionNumber={
+        options.sourceVersionNumber === undefined
+          ? 1
+          : options.sourceVersionNumber
       }
     />
   );
@@ -110,14 +116,16 @@ describe("TakeoffSourceBadge", () => {
   it("opens popover on hover or click and shows expected provenance content", async () => {
     renderBadge();
 
-    await openPopoverOnHoverOrClick();
+    const { trigger } = await openPopoverOnHoverOrClick();
 
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).toHaveTextContent("lot-source.pdf");
     expect(tooltip).toHaveTextContent("47");
     expect(tooltip).toHaveTextContent("2031");
     expect(tooltip).toHaveTextContent("B");
+    expect(tooltip).toHaveTextContent("V1");
     expect(within(tooltip).queryByRole("link")).toBeInTheDocument();
+    expect(trigger).toHaveTextContent("(from V1)");
   });
 
   it("shows Non disponible when provenance metadata is missing", async () => {
@@ -127,6 +135,7 @@ describe("TakeoffSourceBadge", () => {
       sourceJobId: null,
       sourceLevel: null,
       extractedAt: null,
+      sourceVersionNumber: null,
     });
 
     await openPopoverOnHoverOrClick();

@@ -13,6 +13,7 @@ import {
 } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/estimates/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
 const PLAN_FILES_BUCKET = "plan-files";
 const PLAN_FILE_ALLOWED_MIME_TYPE = "application/pdf";
@@ -777,6 +778,7 @@ export async function listPlanSets(input: ListPlanSetsQuery) {
 }
 
 const projectIdParamSchema = z.string().uuid("project_id invalide.");
+const versionIdParamSchema = z.string().uuid("versionId invalide.");
 
 export const fetchPlanSetsForProject = cache(async (projectId: string) => {
   const parsedProjectId = parseWithSchema(
@@ -790,6 +792,21 @@ export const fetchPlanSetsForProject = cache(async (projectId: string) => {
   });
 
   return response.plan_sets;
+});
+
+export const fetchLinkedTakeoffJobs = cache(async (versionId: string) => {
+  const parsedVersionId = parseWithSchema(
+    versionIdParamSchema,
+    versionId,
+    "versionId invalide."
+  );
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+
+  return listAccessibleTakeoffJobsForVersion({
+    supabase,
+    tenantId,
+    versionId: parsedVersionId,
+  });
 });
 
 export async function getPlanSet(setId: string) {

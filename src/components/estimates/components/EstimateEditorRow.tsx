@@ -56,6 +56,7 @@ type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   source_file_name?: string | null;
   source_page?: number | null;
   source_level?: string | null;
+  source_version_number?: number | null;
   takeoff_level?: string | null;
   source_extracted_at?: string | null;
   source_extraction_date?: string | null;
@@ -1505,6 +1506,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 sourcePage={item.source_page}
                 sourceLevel={sourceLevel}
                 extractedAt={sourceExtractedAt}
+                sourceVersionNumber={item.source_version_number}
               />
               {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
                 <div className="estimate-quality-dots">
