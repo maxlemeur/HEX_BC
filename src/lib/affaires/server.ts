@@ -321,6 +321,7 @@ function toAffaireHubVersionSummary(row: AffaireHubVersionRow): AffaireHubVersio
 }
 
 const PLAN_FILE_SUM_BATCH_SIZE = 500;
+const AFFAIRE_PROJECT_VERSIONS_BATCH_SIZE = 1000;
 
 async function fetchAffaireHubProjectOrThrow(
   context: AffaireContext,
@@ -1037,22 +1038,37 @@ export const fetchProjectVersionList = cache(
   ): Promise<Array<{ id: string; version_number: number }>> => {
     const context = await getAuthenticatedContext();
     const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+    const versions: Array<{ id: string; version_number: number }> = [];
+    let offset = 0;
 
-    const { data, error } = await context.supabase
-      .from("estimate_versions")
-      .select("id, version_number")
-      .eq("project_id", project.id)
-      .eq("tenant_id", context.tenantId)
-      .order("version_number", { ascending: true });
+    while (true) {
+      const end = offset + AFFAIRE_PROJECT_VERSIONS_BATCH_SIZE - 1;
+      const { data, error } = await context.supabase
+        .from("estimate_versions")
+        .select("id, version_number")
+        .eq("project_id", project.id)
+        .eq("tenant_id", context.tenantId)
+        .order("version_number", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, end);
 
-    if (error) {
-      throw mapSupabaseError(
-        error,
-        "Impossible de charger la liste des versions."
-      );
+      if (error) {
+        throw mapSupabaseError(
+          error,
+          "Impossible de charger la liste des versions."
+        );
+      }
+
+      const rows = (data ?? []) as Array<{ id: string; version_number: number }>;
+      if (rows.length === 0) {
+        break;
+      }
+
+      versions.push(...rows);
+      offset += rows.length;
     }
 
-    return (data ?? []) as Array<{ id: string; version_number: number }>;
+    return versions;
   }
 );
 

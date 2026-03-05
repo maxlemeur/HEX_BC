@@ -107,6 +107,7 @@ const DEFAULT_TAKEOFF_JOBS_LIST_LIMIT = 20;
 const MAX_TAKEOFF_JOBS_LIST_LIMIT = 100;
 const DEFAULT_TAKEOFF_JOB_ITEMS_LIMIT = 50;
 const MAX_TAKEOFF_JOB_ITEMS_LIMIT = 200;
+const TAKEOFF_PROJECT_VERSIONS_BATCH_SIZE = 1000;
 const MAX_TAKEOFF_JOB_ITEMS_OFFSET = 10_000;
 const TAKEOFF_JOB_LIST_PERIOD_DAYS: Record<TakeoffJobListPeriod, number> = {
   "7d": 7,
@@ -1353,24 +1354,40 @@ async function resolveVersionIdsForProject(input: {
   tenantId: string;
   projectId: string;
 }): Promise<Array<{ id: string; version_number: number }>> {
-  const { data, error } = await input.supabase
-    .from("estimate_versions")
-    .select("id, version_number")
-    .eq("tenant_id", input.tenantId)
-    .eq("project_id", input.projectId)
-    .order("version_number", { ascending: true });
+  const versions: Array<{ id: string; version_number: number }> = [];
+  let offset = 0;
 
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de resoudre les versions du projet."),
-      {
-        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-        retryable: false,
-      }
-    );
+  while (true) {
+    const end = offset + TAKEOFF_PROJECT_VERSIONS_BATCH_SIZE - 1;
+    const { data, error } = await input.supabase
+      .from("estimate_versions")
+      .select("id, version_number")
+      .eq("tenant_id", input.tenantId)
+      .eq("project_id", input.projectId)
+      .order("version_number", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, end);
+
+    if (error) {
+      throw toTakeoffError(
+        mapSupabaseError(error, "Impossible de resoudre les versions du projet."),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+        }
+      );
+    }
+
+    const rows = (data ?? []) as Array<{ id: string; version_number: number }>;
+    if (rows.length === 0) {
+      break;
+    }
+
+    versions.push(...rows);
+    offset += rows.length;
   }
 
-  return (data ?? []) as Array<{ id: string; version_number: number }>;
+  return versions;
 }
 
 type TakeoffJobsListFilterQuery = {

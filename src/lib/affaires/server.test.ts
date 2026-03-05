@@ -21,6 +21,7 @@ import {
   fetchAffaireHubTimeline,
   fetchAffaireList,
   fetchAffairePageData,
+  fetchProjectVersionList,
 } from "@/lib/affaires/server";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -1052,6 +1053,62 @@ describe("affaires hub server", () => {
     expect(timeline.pagination.page).toBe(2);
 
     await expect(fetchAffaireHubTimeline(PROJECT_ID, 0)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("paginates project version list beyond row cap for version filter options", async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, index) => ({
+      id: `v${index + 1}`,
+      version_number: index + 1,
+    }));
+
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Versions",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            limit: {
+              data: firstPage,
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [{ id: "v1001", version_number: 1001 }],
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [],
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const versions = await fetchProjectVersionList(PROJECT_ID);
+
+    expect(versions).toHaveLength(1001);
+    expect(versions[0]).toEqual({ id: "v1", version_number: 1 });
+    expect(versions.at(-1)).toEqual({ id: "v1001", version_number: 1001 });
   });
 
   it("aggregates hub page data with Promise.all", async () => {

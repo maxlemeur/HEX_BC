@@ -28,6 +28,7 @@ const OTHER_VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const JOB_ID = "55555555-5555-4555-8555-555555555555";
 const JOB_ID_2 = "66666666-6666-4666-8666-666666666666";
 const PROJECT_ID = "88888888-8888-4888-8888-888888888888";
+const ESTIMATE_VERSIONS_ROW_CAP = 1000;
 
 type TakeoffJobStoredRow = {
   id: string;
@@ -523,6 +524,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
 
       if (table === "estimate_versions") {
         const evFilters: { id?: string; project_id?: string; tenant_id?: string } = {};
+        let evRange: { start: number; end: number } | null = null;
         const evBuilder = {
           select: vi.fn(() => evBuilder),
           eq: vi.fn((column: string, value: string) => {
@@ -532,6 +534,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
             return evBuilder;
           }),
           order: vi.fn(() => evBuilder),
+          range: vi.fn((start: number, end: number) => {
+            evRange = { start, end };
+            return evBuilder;
+          }),
           maybeSingle: vi.fn(async () => {
             const match = versionsData.find((v) => {
               if (evFilters.id && v.id !== evFilters.id) return false;
@@ -549,8 +555,21 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
               if (evFilters.tenant_id) return true;
               return true;
             });
+
+            const sorted = filtered.sort((left, right) => {
+              if (left.version_number !== right.version_number) {
+                return left.version_number - right.version_number;
+              }
+
+              return left.id.localeCompare(right.id);
+            });
+            const ranged = evRange
+              ? applyRange(sorted, evRange.start, evRange.end)
+              : sorted;
+            const capped = ranged.slice(0, ESTIMATE_VERSIONS_ROW_CAP);
+
             return Promise.resolve({
-              data: filtered.map((v) => ({ id: v.id, version_number: v.version_number })),
+              data: capped.map((v) => ({ id: v.id, version_number: v.version_number })),
               error: null,
             }).then(onFulfilled, onRejected);
           },
@@ -1051,6 +1070,47 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(response.jobs[0]?.version_number).toBe(1);
     expect(response.jobs[1]?.version_number).toBe(2);
     expect(response.counters.total).toBe(2);
+  });
+
+  it("paginates project versions beyond row cap when filtering jobs by project_id", async () => {
+    const versions = Array.from({ length: ESTIMATE_VERSIONS_ROW_CAP + 1 }, (_, index) => ({
+      id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      version_number: index + 1,
+      project_id: PROJECT_ID,
+    }));
+    const latestVersion = versions.at(-1)!;
+
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          id: JOB_ID,
+          estimate_version_id: latestVersion.id,
+          status: "completed",
+          error_code: null,
+          error_message: null,
+          created_at: "2026-02-25T10:00:00.000Z",
+        }),
+      ],
+      versions,
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await listTakeoffJobs({
+      project_id: PROJECT_ID,
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(response.jobs).toHaveLength(1);
+    expect(response.jobs[0]?.estimate_version_id).toBe(latestVersion.id);
+    expect(response.jobs[0]?.version_number).toBe(ESTIMATE_VERSIONS_ROW_CAP + 1);
+    expect(response.counters.total).toBe(1);
   });
 
   it("returns empty result when project has no versions", async () => {
