@@ -54,6 +54,7 @@ type TakeoffApplyWizardProps = {
   isAdmin?: boolean;
   onVerifyItems?: (itemIds: string[]) => Promise<void>;
   onReturnToReview?: () => void;
+  presetStrategy?: TakeoffApplyStrategy;
 };
 
 const ROOT_SECTION_VALUE = "__takeoff_root_section__";
@@ -467,6 +468,7 @@ export function TakeoffApplyWizard({
   isAdmin = false,
   onVerifyItems,
   onReturnToReview,
+  presetStrategy,
 }: TakeoffApplyWizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
   const [targetSectionId, setTargetSectionId] = useState<string | null>(null);
@@ -490,6 +492,10 @@ export function TakeoffApplyWizard({
   const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   const isLevelC = jobLevel === "C";
   const hasGuardItems = !!externalItems && externalItems.length > 0;
+
+  const isPreset = presetStrategy !== undefined;
+  const totalSteps = isPreset ? 2 : 4;
+  const displayStep = isPreset && step === 4 ? 2 : step;
 
   useEffect(() => {
     overridesRef.current = overridesByItemId;
@@ -545,7 +551,7 @@ export function TakeoffApplyWizard({
     const loadSections = async () => {
       setStep(1);
       setTargetSectionId(null);
-      setStrategy("append");
+      setStrategy(presetStrategy ?? "append");
       setSectionOptions([]);
       setSectionsError(null);
       setIsLoadingSections(true);
@@ -577,15 +583,16 @@ export function TakeoffApplyWizard({
     return () => {
       active = false;
     };
-  }, [open, versionId]);
+  }, [open, versionId, presetStrategy]);
 
   useEffect(() => {
-    if (!open || step !== 3) {
-      return;
-    }
+    if (!open) return;
+    // In preset mode, skip step 3 and auto-trigger preview when entering step 4
+    const shouldRefresh = isPreset ? step === 4 : step === 3;
+    if (!shouldRefresh) return;
 
     void refreshPreview(overridesRef.current);
-  }, [open, step, strategy, targetSectionId, refreshPreview]);
+  }, [open, step, strategy, targetSectionId, refreshPreview, isPreset]);
 
   const selectedSectionLabel = useMemo(() => {
     if (!targetSectionId) return ROOT_SECTION_LABEL;
@@ -602,8 +609,8 @@ export function TakeoffApplyWizard({
 
   const hasPreviewReady =
     previewData !== null && previewError === null && isLoadingPreview === false;
-  const canProceed = step < 4;
-  const canGoBack = step > 1;
+  const canProceed = isPreset ? step < 4 && step === 1 : step < 4;
+  const canGoBack = isPreset ? step === 4 : step > 1;
   const canConfirm =
     includedCount > 0 &&
     !isSubmitting &&
@@ -706,16 +713,16 @@ export function TakeoffApplyWizard({
         <Modal.Header>
           <div>
             <Modal.Title>Appliquer au devis</Modal.Title>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">Etape {step} / 4</p>
+            <p className="mt-1 text-sm text-[var(--slate-500)]">Etape {displayStep} / {totalSteps}</p>
           </div>
           <Modal.Close disabled={isSubmitting} />
         </Modal.Header>
 
         <Modal.Body>
           <div className="mb-2 flex items-center gap-2">
-            {[1, 2, 3, 4].map((value) => {
-              const active = step === value;
-              const done = step > value;
+            {Array.from({ length: totalSteps }, (_, i) => i + 1).map((value) => {
+              const active = displayStep === value;
+              const done = displayStep > value;
               return (
                 <span
                   key={value}
@@ -775,7 +782,7 @@ export function TakeoffApplyWizard({
             </div>
           )}
 
-          {step === 2 && (
+          {step === 2 && !isPreset && (
             <div className="space-y-3">
               {STRATEGY_OPTIONS.map((option) => (
                 <label
@@ -807,7 +814,7 @@ export function TakeoffApplyWizard({
             </div>
           )}
 
-          {step === 3 && (
+          {step === 3 && !isPreset && (
             <div className="space-y-4">
               <div className="flex items-center justify-between rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-3 text-xs text-[var(--slate-700)]">
                 <div className="flex flex-wrap items-center gap-4">
@@ -1049,7 +1056,7 @@ export function TakeoffApplyWizard({
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => setStep((previous) => (previous - 1) as WizardStep)}
+              onClick={() => setStep(isPreset ? 1 : ((step - 1) as WizardStep))}
               disabled={isSubmitting}
             >
               Retour
@@ -1060,7 +1067,7 @@ export function TakeoffApplyWizard({
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              onClick={() => setStep((previous) => (previous + 1) as WizardStep)}
+              onClick={() => setStep(isPreset ? 4 : ((step + 1) as WizardStep))}
               disabled={
                 isSubmitting ||
                 (step === 3 && (!hasPreviewReady || isLoadingPreview))

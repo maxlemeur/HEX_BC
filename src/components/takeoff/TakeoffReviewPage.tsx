@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -17,18 +18,33 @@ import { useToast } from "@/components/ui/Toast";
 import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { EvidencePanel } from "@/components/takeoff/EvidencePanel";
-import TakeoffDiffView from "@/components/takeoff/TakeoffDiffView";
-import TakeoffReviewTable, {
-  detectAnomalies,
+import { TakeoffReviewSimplified } from "@/components/takeoff/TakeoffReviewSimplified";
+import { useUiMode } from "@/hooks/useUiMode";
+import {
   hasBlockingAnomaly,
 } from "@/components/takeoff/TakeoffReviewTable";
-import { TakeoffTableView } from "@/components/takeoff/TakeoffTableView";
 import {
   TakeoffApplyWizard,
   type TakeoffApplyWizardSubmitPayload,
 } from "@/components/takeoff/TakeoffApplyWizard";
+
+const LazyTakeoffReviewExpert = dynamic(
+  () =>
+    import("@/components/takeoff/TakeoffReviewExpert").then((mod) => ({
+      default: mod.TakeoffReviewExpert,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="dashboard-card p-8 text-center text-sm text-[var(--slate-500)]">
+        Chargement de la vue avancee...
+      </div>
+    ),
+  }
+);
 import {
   applyTakeoffJob,
+  fetchTakeoffDpgfComparison,
   fetchTakeoffJobCompare,
   fetchTakeoffJob,
   isTakeoffApiError,
@@ -41,6 +57,7 @@ import {
   DEFAULT_LOW_CONFIDENCE_THRESHOLD,
 } from "@/lib/takeoff/guards";
 import type {
+  TakeoffDpgfComparisonResponse,
   TakeoffItemBatchPatchResponse,
   TakeoffItemPatchEntry,
   TakeoffJobCompareResponse,
@@ -69,7 +86,7 @@ type TakeoffReviewPageProps = {
   versionId: string;
 };
 
-type ViewTab = "tables" | "items" | "compare";
+type ViewTab = "tables" | "items" | "compare" | "dpgf";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -158,85 +175,6 @@ function ExclusionReasonModal({
 }
 
 // ---------------------------------------------------------------------------
-// Summary stats bar (enriched with tables count)
-// ---------------------------------------------------------------------------
-
-function SummaryStatsBar({
-  items,
-  tablesCount,
-  jobLevel,
-}: {
-  items: ReviewItem[];
-  tablesCount: number;
-  jobLevel: string | null;
-}) {
-  const total = items.length;
-  const included = items.filter((i) => !i.is_excluded).length;
-  const excluded = items.filter((i) => i.is_excluded).length;
-  const verified = items.filter((i) => i.is_verified).length;
-  const withAnomalies = items.filter((i) => detectAnomalies(i).length > 0).length;
-
-  // Level C extras
-  const isLevelC = jobLevel === "C";
-  const evidenceCount = isLevelC
-    ? items.filter((i) => !!i.evidence).length
-    : 0;
-  const evidencePct = isLevelC && total > 0
-    ? Math.round((evidenceCount / total) * 100)
-    : 0;
-  const lowConfidenceCount = isLevelC
-    ? items.filter((i) => i.confidence !== null && i.confidence < 0.5).length
-    : 0;
-
-  return (
-    <div className="flex flex-wrap gap-4 rounded-lg border border-[var(--border)] bg-[var(--slate-50)] px-4 py-3 text-sm">
-      {tablesCount > 0 && (
-        <span>
-          <span className="font-medium text-[var(--slate-800)]">{tablesCount}</span>{" "}
-          <span className="text-[var(--slate-500)]">Tables</span>
-        </span>
-      )}
-      <span>
-        <span className="font-medium text-[var(--slate-800)]">{total}</span>{" "}
-        <span className="text-[var(--slate-500)]">Total</span>
-      </span>
-      <span>
-        <span className="font-medium text-[var(--success)]">{included}</span>{" "}
-        <span className="text-[var(--slate-500)]">Inclus</span>
-      </span>
-      <span>
-        <span className="font-medium text-[var(--slate-500)]">{excluded}</span>{" "}
-        <span className="text-[var(--slate-500)]">Exclus</span>
-      </span>
-      <span>
-        <span className="font-medium text-[var(--info)]">{verified}</span>{" "}
-        <span className="text-[var(--slate-500)]">Verifies</span>
-      </span>
-      <span>
-        <span className="font-medium text-[var(--warning)]">{withAnomalies}</span>{" "}
-        <span className="text-[var(--slate-500)]">Anomalies</span>
-      </span>
-
-      {/* Level C extras */}
-      {isLevelC && (
-        <>
-          <span className="border-l border-[var(--border)] pl-4">
-            <span className="font-medium text-[var(--slate-800)]">{evidencePct}%</span>{" "}
-            <span className="text-[var(--slate-500)]">Couverture evidence</span>
-          </span>
-          {lowConfidenceCount > 0 && (
-            <span>
-              <span className="font-medium text-[var(--danger)]">{lowConfidenceCount}</span>{" "}
-              <span className="text-[var(--slate-500)]">Confiance faible</span>
-            </span>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main orchestrator
 // ---------------------------------------------------------------------------
 
@@ -249,6 +187,7 @@ export default function TakeoffReviewPage({
   const searchParams = useSearchParams();
   const { profile } = useUserContext();
   const isAdmin = profile?.tenant_role === "admin";
+  const { isSimplified, setMode } = useUiMode();
   const {
     enabled: isLowConfidenceThresholdEnabled,
     value: lowConfidenceThresholdRaw,
@@ -268,7 +207,7 @@ export default function TakeoffReviewPage({
   const compareWithParam = searchParams.get("compareWith");
   const thresholdParam = searchParams.get("threshold");
   const activeTab: ViewTab =
-    viewParam === "tables" || viewParam === "items" || viewParam === "compare"
+    viewParam === "tables" || viewParam === "items" || viewParam === "compare" || viewParam === "dpgf"
       ? viewParam
       : "items";
 
@@ -339,6 +278,12 @@ export default function TakeoffReviewPage({
   const [compareError, setCompareError] = useState<string | null>(null);
   const [applySelectionSubmitting, setApplySelectionSubmitting] = useState(false);
   const [applySelectionError, setApplySelectionError] = useState<string | null>(null);
+
+  // ---- DPGF comparison state
+  const [dpgfCompareData, setDpgfCompareData] = useState<TakeoffDpgfComparisonResponse | null>(null);
+  const [dpgfCompareLoading, setDpgfCompareLoading] = useState(false);
+  const [dpgfCompareError, setDpgfCompareError] = useState<string | null>(null);
+  const dpgfCompareFetchedRef = useRef(false);
 
   // ---- Exclusion modal state
   const [exclusionModalOpen, setExclusionModalOpen] = useState(false);
@@ -544,6 +489,52 @@ export default function TakeoffReviewPage({
       abortController.abort();
     };
   }, [compareThreshold, compareWithJobId, jobId]);
+
+  // ---- DPGF comparison lazy loading
+  const loadDpgfComparison = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        setDpgfCompareLoading(true);
+        setDpgfCompareError(null);
+        const response = await fetchTakeoffDpgfComparison(
+          jobId,
+          { version_id: versionId, page_size: 200 },
+          { signal }
+        );
+        setDpgfCompareData(response);
+        dpgfCompareFetchedRef.current = true;
+      } catch (error) {
+        if (signal?.aborted) return;
+        setDpgfCompareData(null);
+        setDpgfCompareError(
+          isTakeoffApiError(error)
+            ? error.message
+            : "Impossible de charger la comparaison DPGF."
+        );
+      } finally {
+        setDpgfCompareLoading(false);
+      }
+    },
+    [jobId, versionId]
+  );
+
+  useEffect(() => {
+    if (activeTab !== "dpgf") return;
+    if (dpgfCompareFetchedRef.current && dpgfCompareData) return;
+
+    const abortController = new AbortController();
+    void loadDpgfComparison(abortController.signal);
+
+    return () => {
+      abortController.abort();
+    };
+  }, [activeTab, dpgfCompareData, loadDpgfComparison]);
+
+  const refreshDpgfCompare = useCallback(() => {
+    dpgfCompareFetchedRef.current = false;
+    setDpgfCompareData(null);
+    void loadDpgfComparison();
+  }, [loadDpgfComparison]);
 
   // ---- Item update helpers
   const updateItemField = useCallback(
@@ -980,13 +971,6 @@ export default function TakeoffReviewPage({
     [jobId, items]
   );
 
-  // ---- Table count
-  const tablesCount = tables.length;
-  const hasTables = tablesCount > 0;
-  const hasCompareTab = compareCandidates.length > 0 || compareWithJobId !== null;
-  const selectedCompareCandidate =
-    compareCandidates.find((job) => job.id === compareWithJobId) ?? null;
-
   // ---- Loading state
   if (loading) {
     return (
@@ -1038,7 +1022,7 @@ export default function TakeoffReviewPage({
           <h1 className="page-title">Revue d&apos;extraction</h1>
           <p className="page-description">
             {jobFileName ?? "Extraction"} &mdash;{" "}
-            {hasTables && <>{tablesCount} tables, </>}
+            {tables.length > 0 && <>{tables.length} tables, </>}
             {items.length} item(s) extraits
             {jobLevel && (
               <Badge variant="neutral" size="sm" className="ml-2">
@@ -1047,12 +1031,22 @@ export default function TakeoffReviewPage({
             )}
           </p>
         </div>
-        <Link
-          href={`/dashboard/estimates/${versionId}/takeoff/${jobId}`}
-          className="btn btn-secondary btn-sm"
-        >
-          Retour à l&apos;extraction
-        </Link>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMode(isSimplified ? "expert" : "simplified")}
+            aria-label={isSimplified ? "Passer en vue avancee" : "Passer en vue simplifiee"}
+          >
+            {isSimplified ? "Vue avancee" : "Vue simplifiee"}
+          </Button>
+          <Link
+            href={`/dashboard/estimates/${versionId}/takeoff/${jobId}`}
+            className="btn btn-secondary btn-sm"
+          >
+            Retour à l&apos;extraction
+          </Link>
+        </div>
       </div>
 
       {/* ---- Confidence header (Level C only) ---- */}
@@ -1060,163 +1054,41 @@ export default function TakeoffReviewPage({
         <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
       )}
 
-      {/* ---- Summary stats ---- */}
-      <SummaryStatsBar items={items} tablesCount={tablesCount} jobLevel={jobLevel} />
-
-      {/* ---- Tab bar ---- */}
-      {(hasTables || hasCompareTab) && (
-        <div
-          className="flex gap-1 border-b border-[var(--border)]"
-          role="tablist"
-          aria-label="Vues de review"
-        >
-          {hasTables ? (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "tables"}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === "tables"
-                  ? "border-b-2 border-[var(--info)] text-[var(--info)]"
-                  : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
-              }`}
-              onClick={() => setActiveTab("tables")}
-            >
-              Tables
-            </button>
-          ) : null}
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "items"}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === "items"
-                ? "border-b-2 border-[var(--info)] text-[var(--info)]"
-                : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
-            }`}
-            onClick={() => setActiveTab("items")}
-          >
-            Items ({items.length})
-          </button>
-          {hasCompareTab ? (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === "compare"}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === "compare"
-                  ? "border-b-2 border-[var(--info)] text-[var(--info)]"
-                  : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
-              }`}
-              onClick={() => setActiveTab("compare")}
-            >
-              Comparaison
-            </button>
-          ) : null}
-        </div>
-      )}
-
-      {/* ---- Content area ---- */}
-      {activeTab === "compare" ? (
-        <div className="space-y-4">
-          <section className="dashboard-card p-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <label
-                  className="form-label"
-                  htmlFor="takeoff-compare-job-select"
-                >
-                  Extraction à comparer
-                </label>
-                <select
-                  id="takeoff-compare-job-select"
-                  className="form-input form-select form-input--sm"
-                  value={compareWithJobId ?? ""}
-                  onChange={(event) => {
-                    const nextValue = event.target.value.trim();
-                    setCompareWithJobId(nextValue.length > 0 ? nextValue : null);
-                  }}
-                >
-                  <option value="">Selectionner une extraction</option>
-                  {selectedCompareCandidate === null && compareWithJobId ? (
-                    <option value={compareWithJobId}>
-                      Extraction {compareWithJobId}
-                    </option>
-                  ) : null}
-                  {compareCandidates.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.source_file_name ?? "Fichier inconnu"} ·{" "}
-                      {new Date(candidate.created_at).toLocaleString("fr-FR")} ·{" "}
-                      {candidate.status}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label
-                  className="form-label"
-                  htmlFor="takeoff-compare-threshold-select"
-                >
-                  Seuil fuzzy
-                </label>
-                <select
-                  id="takeoff-compare-threshold-select"
-                  className="form-input form-select form-input--sm"
-                  value={String(compareThreshold)}
-                  onChange={(event) => {
-                    const nextValue = Number(event.target.value);
-                    if (!Number.isFinite(nextValue)) return;
-                    setCompareThreshold(nextValue);
-                  }}
-                >
-                  <option value="0.7">0.70</option>
-                  <option value="0.75">0.75</option>
-                  <option value="0.8">0.80</option>
-                  <option value="0.85">0.85</option>
-                  <option value="0.9">0.90</option>
-                </select>
-              </div>
-            </div>
-          </section>
-
-          {compareLoading ? (
-            <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
-              Chargement de la comparaison...
-            </section>
-          ) : compareError ? (
-            <section className="dashboard-card p-6 text-sm text-[var(--danger)]">
-              {compareError}
-            </section>
-          ) : compareData ? (
-            <TakeoffDiffView
-              key={`${compareData.base_job_id}:${compareData.other_job_id}:${compareData.threshold}`}
-              compare={compareData}
-              onApplySelection={handleApplyDiffSelection}
-              isApplyingSelection={applySelectionSubmitting}
-              applySelectionError={applySelectionError}
-            />
-          ) : (
-            <section className="dashboard-card p-6 text-sm text-[var(--slate-600)]">
-              Selectionnez une autre extraction pour afficher le diff.
-            </section>
-          )}
-        </div>
-      ) : activeTab === "tables" && hasTables ? (
-        <TakeoffTableView
-          tables={tables}
+      {/* ---- Mode-conditional content ---- */}
+      {isSimplified ? (
+        <TakeoffReviewSimplified
           items={items}
+          onExcludeItems={handleExcludeItems}
+          onIncludeItems={handleIncludeItems}
+          onApplyClick={handleOpenApplyWizard}
+          isApplyReady={isApplyReady}
+        />
+      ) : (
+        <LazyTakeoffReviewExpert
+          items={items}
+          tables={tables}
+          jobLevel={jobLevel}
+          activeTab={activeTab}
+          onSetActiveTab={setActiveTab}
+          compareCandidates={compareCandidates}
+          compareWithJobId={compareWithJobId}
+          compareThreshold={compareThreshold}
+          compareData={compareData}
+          compareLoading={compareLoading}
+          compareError={compareError}
+          onSetCompareWithJobId={setCompareWithJobId}
+          onSetCompareThreshold={setCompareThreshold}
+          onApplyDiffSelection={handleApplyDiffSelection}
+          applySelectionSubmitting={applySelectionSubmitting}
+          applySelectionError={applySelectionError}
+          dpgfCompareData={dpgfCompareData}
+          dpgfCompareLoading={dpgfCompareLoading}
+          dpgfCompareError={dpgfCompareError}
+          onRefreshDpgfCompare={refreshDpgfCompare}
           onUpdateItem={updateItemField}
           onExcludeItems={handleExcludeItems}
           onIncludeItems={handleIncludeItems}
           onSyncToItems={handleSyncToItems}
-        />
-      ) : (
-        <TakeoffReviewTable
-          items={items}
-          onUpdateItem={updateItemField}
-          onExcludeItems={handleExcludeItems}
-          onIncludeItems={handleIncludeItems}
           onOpenEvidencePanel={handleOpenEvidencePanel}
         />
       )}
@@ -1294,6 +1166,7 @@ export default function TakeoffReviewPage({
         isAdmin={isAdmin}
         onVerifyItems={handleWizardVerifyItems}
         onReturnToReview={() => setApplyWizardOpen(false)}
+        presetStrategy={isSimplified ? "append" : undefined}
       />
 
       {/* ---- Evidence panel ---- */}

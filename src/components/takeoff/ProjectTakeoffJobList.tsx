@@ -493,7 +493,7 @@ export default function ProjectTakeoffJobList({
                             </Link>
                             {reviewEnabled ? (
                               <Link
-                                href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}/review`}
+                                href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}`}
                                 className="btn btn-secondary btn-sm"
                               >
                                 Review
@@ -501,7 +501,7 @@ export default function ProjectTakeoffJobList({
                             ) : null}
                             {compareEnabled ? (
                               <Link
-                                href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}/review?view=compare&compareWith=${encodeURIComponent(
+                                href={`/dashboard/affaires/${projectId}/takeoff/${job.id}/review?versionId=${job.estimate_version_id}&view=compare&compareWith=${encodeURIComponent(
                                   compareCandidate.id
                                 )}`}
                                 className="btn btn-secondary btn-sm"
