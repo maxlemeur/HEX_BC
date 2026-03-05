@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -35,6 +35,34 @@ export function TakeoffReviewSimplified({
   const toast = useToast();
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
+  const previousExcludedStateRef = useRef<Map<string, boolean> | null>(null);
+
+  useEffect(() => {
+    setReviewedIds((previousReviewedIds) => {
+      const validItemIds = new Set(items.map((item) => item.id));
+      const nextReviewedIds = new Set(
+        Array.from(previousReviewedIds).filter((itemId) => validItemIds.has(itemId))
+      );
+      let changed = nextReviewedIds.size !== previousReviewedIds.size;
+
+      if (previousExcludedStateRef.current !== null) {
+        for (const item of items) {
+          if (!previousExcludedStateRef.current.get(item.id) && item.is_excluded) {
+            if (!nextReviewedIds.has(item.id)) {
+              nextReviewedIds.add(item.id);
+              changed = true;
+            }
+          }
+        }
+      }
+
+      previousExcludedStateRef.current = new Map(
+        items.map((item) => [item.id, item.is_excluded] as const)
+      );
+
+      return changed ? nextReviewedIds : previousReviewedIds;
+    });
+  }, [items]);
 
   // ---- Computed counts
   const { acceptedCount, rejectedCount, pendingCount } = useMemo(() => {
@@ -68,7 +96,6 @@ export function TakeoffReviewSimplified({
   const handleReject = useCallback(
     (itemId: string) => {
       onExcludeItems([itemId]);
-      setReviewedIds((prev) => new Set(prev).add(itemId));
     },
     [onExcludeItems]
   );
@@ -76,8 +103,8 @@ export function TakeoffReviewSimplified({
   const handleAcceptAll = useCallback(() => {
     startTransition(() => {
       const idsToAccept = items
-        .filter((i) => !i.is_excluded)
-        .map((i) => i.id);
+        .filter((item) => item.is_excluded)
+        .map((item) => item.id);
       if (idsToAccept.length > 0) {
         onIncludeItems(idsToAccept);
       }

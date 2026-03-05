@@ -4,10 +4,17 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 // Mock next/navigation
 const mockReplace = vi.fn();
 const mockPush = vi.fn();
+const { useUiModeMock } = vi.hoisted(() => ({
+  useUiModeMock: vi.fn(),
+}));
 let mockSearchParams = new URLSearchParams();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockReplace, push: mockPush }),
   useSearchParams: () => mockSearchParams,
+}));
+
+vi.mock("@/hooks/useUiMode", () => ({
+  useUiMode: useUiModeMock,
 }));
 
 // Mock client functions
@@ -69,6 +76,15 @@ const JOB_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "77777777-7777-4777-8777-777777777777";
 const ITEM_ID_1 = "44444444-4444-4444-8444-444444444444";
 const ITEM_ID_2 = "55555555-5555-4555-8555-555555555555";
+
+function mockUiMode(mode: "expert" | "simplified") {
+  useUiModeMock.mockReturnValue({
+    mode,
+    isExpert: mode === "expert",
+    isSimplified: mode === "simplified",
+    setMode: vi.fn(),
+  });
+}
 
 function makeItem(overrides: Partial<TakeoffJobItem> = {}): TakeoffJobItem {
   return {
@@ -148,6 +164,7 @@ describe("TakeoffReviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSearchParams = new URLSearchParams();
+    mockUiMode("expert");
     vi.mocked(listTakeoffJobs).mockResolvedValue({
       jobs: [],
       counters: {
@@ -286,7 +303,38 @@ describe("TakeoffReviewPage", () => {
     expect(mockReplace).toHaveBeenCalledWith("?view=items", { scroll: false });
   });
 
-  it("does not show tab bar when no tables", async () => {
+  it("renders tables view when a simplified user opens a tables deep link", async () => {
+    mockUiMode("simplified");
+    mockSearchParams = new URLSearchParams("view=tables");
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(
+      makeMockResponse(
+        [makeItem({ metadata: { table_index: 0, row_index: 0 } })],
+        {
+          level: "B",
+          tables: [
+            {
+              page: 1,
+              title: "Nomenclature",
+              headers: ["Designation", "Qte"],
+              rows: [{ row_index: 0, cells: ["Tube PVC 100mm", "12"] }],
+            },
+          ],
+        }
+      )
+    );
+
+    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Rechercher par titre...")).toBeDefined();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Passer en vue simplifiee" })
+    ).toBeDefined();
+  });
+
+  it("does not show a tables tab when no tables exist", async () => {
     vi.mocked(fetchTakeoffJob).mockResolvedValue(
       makeMockResponse([makeItem()])
     );
@@ -297,8 +345,8 @@ describe("TakeoffReviewPage", () => {
       expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
-    // Tab bar should not appear - no "Items (" tab button
-    expect(screen.queryByText(/Items \(\d+\)/)).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Tables" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Items (1)" })).toBeDefined();
   });
 
   it("shows apply button disabled when no included items", async () => {
@@ -552,5 +600,85 @@ describe("TakeoffReviewPage", () => {
         withJobId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       })
     );
+  });
+
+  it("renders compare view when a simplified user opens a compare deep link", async () => {
+    mockUiMode("simplified");
+    mockSearchParams = new URLSearchParams(
+      "view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8"
+    );
+
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(
+      makeMockResponse([makeItem()], { level: "A" })
+    );
+    vi.mocked(listTakeoffJobs).mockResolvedValue({
+      jobs: [
+        {
+          ...makeMockResponse([makeItem()]).job,
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          source_file_name: "niveau-a.csv",
+          status: "completed",
+        },
+      ],
+      counters: {
+        total: 1,
+        processing: 0,
+        completed: 1,
+        failed: 0,
+        canceled: 0,
+      },
+      pagination: {
+        limit: 20,
+        offset: 0,
+        total: 1,
+      },
+    });
+    vi.mocked(fetchTakeoffJobCompare).mockResolvedValue({
+      base_job_id: JOB_ID,
+      other_job_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      threshold: 0.8,
+      summary: {
+        added: 1,
+        removed: 0,
+        changed: 0,
+        unchanged: 1,
+        total_base: 1,
+        total_other: 2,
+      },
+      added: [
+        {
+          key: "added:1",
+          change_type: "added",
+          other_item: makeItem({
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            designation: "Vis",
+          }),
+        },
+      ],
+      removed: [],
+      changed: [],
+      unchanged: [
+        {
+          key: "unchanged:1",
+          change_type: "unchanged",
+          base_item: makeItem(),
+          other_item: makeItem({
+            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          }),
+          match_score: 1,
+          match_strategy: "designation_fuzzy",
+        },
+      ],
+    });
+
+    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Resume des changements")).toBeDefined();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Passer en vue simplifiee" })
+    ).toBeDefined();
   });
 });
