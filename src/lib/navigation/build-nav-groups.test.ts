@@ -102,6 +102,37 @@ describe("buildNavGroups", () => {
         false
       );
     });
+
+    it("uses affaire-scoped href when lastAffaireId is provided", () => {
+      const groups = buildNavGroups({
+        ...base,
+        featureFlags: { takeoffEnabled: true },
+        lastAffaireId: "proj-123",
+      });
+      const affaires = groups.find((g) => g.key === "affaires");
+      const takeoff = affaires?.items.find((i) => i.navId === "takeoff");
+      expect(takeoff?.href).toBe("/dashboard/affaires/proj-123/takeoff");
+    });
+
+    it("falls back to /dashboard/takeoff when lastAffaireId is undefined", () => {
+      const groups = buildNavGroups({
+        ...base,
+        featureFlags: { takeoffEnabled: true },
+      });
+      const affaires = groups.find((g) => g.key === "affaires");
+      const takeoff = affaires?.items.find((i) => i.navId === "takeoff");
+      expect(takeoff?.href).toBe("/dashboard/takeoff");
+    });
+
+    it("does not include takeoff when disabled even with lastAffaireId", () => {
+      const groups = buildNavGroups({
+        ...base,
+        featureFlags: { takeoffEnabled: false },
+        lastAffaireId: "proj-123",
+      });
+      const affaires = groups.find((g) => g.key === "affaires");
+      expect(affaires?.items.find((i) => i.navId === "takeoff")).toBeUndefined();
+    });
   });
 
   // ---------------------------------------------------------------------------

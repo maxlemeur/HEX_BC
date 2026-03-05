@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useUserContext } from "@/components/UserContext";
+import { useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
 import {
@@ -47,6 +48,10 @@ const NAVIGATION_KEYWORDS_BY_HREF: Readonly<Record<string, string[]>> = {
   "/dashboard/profile": ["profile", "profil", "compte"],
 };
 
+const NAVIGATION_KEYWORDS_BY_NAVID: Readonly<Record<string, string[]>> = {
+  takeoff: ["takeoff", "metre", "plan", "extraction"],
+};
+
 const PROFILE_NAV_ITEM: CommandItem = {
   id: "nav-profile",
   group: "navigation",
@@ -81,13 +86,18 @@ export function buildNavigationItemsFromNavGroups(
   navGroups: SidebarNavGroup[]
 ): CommandItem[] {
   const navigationItems: CommandItem[] = navGroups.flatMap((group) =>
-    group.items.map((item) => ({
-      id: toNavigationItemId(item.href),
-      group: "navigation" as const,
-      label: item.label,
-      keywords: NAVIGATION_KEYWORDS_BY_HREF[item.href] ?? [],
-      href: item.href,
-    }))
+    group.items.map((item) => {
+      const keywords = item.navId
+        ? NAVIGATION_KEYWORDS_BY_NAVID[item.navId]
+        : NAVIGATION_KEYWORDS_BY_HREF[item.href];
+      return {
+        id: toNavigationItemId(item.navId ?? item.href),
+        group: "navigation" as const,
+        label: item.label,
+        keywords: keywords ?? [],
+        href: item.href,
+      };
+    })
   );
 
   navigationItems.push(PROFILE_NAV_ITEM);
@@ -181,6 +191,7 @@ export function useCommandPalette() {
   const { isExpert } = useUiMode();
   const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
   const tenantRole = profile?.tenant_role ?? null;
+  const lastAffaireId = useLastAffaireId();
 
   const navigationItems = useMemo(
     () =>
@@ -190,8 +201,9 @@ export function useCommandPalette() {
         featureFlags: {
           takeoffEnabled: takeoffStatus === "ready" && isTakeoffEnabled,
         },
+        lastAffaireId,
       }),
-    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled]
+    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled, lastAffaireId]
   );
   const allItems = useMemo(
     () => [...ACTION_ITEMS, ...navigationItems],

@@ -9,9 +9,11 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { useUserContext } from "@/components/UserContext";
 import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
 import { buildNavGroups } from "@/lib/navigation/build-nav-groups";
+import { initStore } from "@/lib/stores/last-affaire-store";
 
 // ---------------------------------------------------------------------------
 // Text-editing guard (shared with useCommandPalette)
@@ -100,6 +102,11 @@ export function DashboardShell({
   const { setMode, isExpert } = useUiMode();
   const { profile } = useUserContext();
   const tenantRole = profile?.tenant_role ?? null;
+  const lastAffaireId = useLastAffaireId();
+
+  useEffect(() => {
+    initStore(profile?.id ?? null);
+  }, [profile?.id]);
 
   const [collapsed, setCollapsed] = useState(false);
   const [hasLoadedCollapsedPreference, setHasLoadedCollapsedPreference] = useState(false);
@@ -156,12 +163,29 @@ export function DashboardShell({
         featureFlags: {
           takeoffEnabled: takeoffStatus === "ready" && isTakeoffEnabled,
         },
+        lastAffaireId,
       }),
-    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled]
+    [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled, lastAffaireId]
   );
 
+  function isTakeoffRoute(p: string) {
+    return (
+      p.startsWith("/dashboard/takeoff") ||
+      /^\/dashboard\/affaires\/[^/]+\/takeoff/.test(p) ||
+      /^\/dashboard\/estimates\/[^/]+\/takeoff/.test(p)
+    );
+  }
+
   function isActive(href: string) {
+    // Takeoff routes: match only "Metres plans"
+    if (
+      href === "/dashboard/takeoff" ||
+      /\/dashboard\/affaires\/[^/]+\/takeoff$/.test(href)
+    ) {
+      return isTakeoffRoute(pathname);
+    }
     if (href === "/dashboard/affaires") {
+      if (isTakeoffRoute(pathname)) return false;
       return (
         pathname.startsWith("/dashboard/affaires") ||
         pathname.startsWith("/dashboard/estimates")
@@ -291,7 +315,7 @@ export function DashboardShell({
                   const active = isActive(item.href);
                   return (
                     <Link
-                      key={item.href}
+                      key={item.navId ?? item.href}
                       href={item.href}
                       className={`sidebar-nav-item ${active ? "active" : ""}`}
                       aria-current={active ? "page" : undefined}

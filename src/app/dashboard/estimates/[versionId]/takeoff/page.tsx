@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import TakeoffJobList from "@/components/takeoff/TakeoffJobList";
+import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
@@ -46,6 +47,8 @@ export default async function TakeoffJobsPage({
           </Link>
         </div>
       </div>
+
+      <TakeoffDeprecationBanner />
 
       <TakeoffJobList versionId={versionId} />
     </div>

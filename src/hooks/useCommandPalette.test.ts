@@ -89,4 +89,28 @@ describe("buildNavigationItems", () => {
     expect(navigationHrefs).toContain("/dashboard/admin");
     expect(navigationHrefs).toContain("/dashboard/takeoff");
   });
+
+  it("uses affaire-scoped takeoff href when lastAffaireId provided", () => {
+    const items = buildNavigationItems({
+      role: "admin",
+      uiMode: "expert",
+      featureFlags: { takeoffEnabled: true },
+      lastAffaireId: "proj-abc",
+    });
+    const takeoffItem = items.find((i) => i.id === "nav-takeoff");
+    expect(takeoffItem).toBeDefined();
+    expect(takeoffItem?.href).toBe("/dashboard/affaires/proj-abc/takeoff");
+    expect(takeoffItem?.keywords).toContain("metre");
+    expect(takeoffItem?.keywords).toContain("extraction");
+  });
+
+  it("uses stable navId-based id for takeoff item", () => {
+    const items = buildNavigationItems({
+      role: "admin",
+      uiMode: "expert",
+      featureFlags: { takeoffEnabled: true },
+      lastAffaireId: "proj-abc",
+    });
+    expect(items.find((i) => i.id === "nav-takeoff")).toBeDefined();
+  });
 });

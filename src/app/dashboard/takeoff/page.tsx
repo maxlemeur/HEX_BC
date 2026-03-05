@@ -8,6 +8,7 @@ import {
   normalizeEstimateCurrency,
   type SupportedEstimateCurrency,
 } from "@/lib/money";
+import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -68,6 +69,8 @@ export default async function TakeoffPage() {
           </Link>
         </div>
       </div>
+
+      <TakeoffDeprecationBanner />
 
       {items.length === 0 ? (
         <div className="dashboard-card mt-6 p-6">
