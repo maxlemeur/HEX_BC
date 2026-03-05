@@ -226,6 +226,14 @@ en conservant les verifications de tenant.
 
 ## Hors scope V2 (prevu V3)
 
+→ **Voir [User Stories V3](../v3/README.md)** pour les epics et stories detaillees.
+
+### Track Takeoff / Metre (14 stories)
+- Migration `plan_sets` vers scope projet (DB)
+- Integration takeoff dans le hub affaire (Plans & Metres)
+- Workflow metre : comparaison DPGF vs Takeoff, carry-over versions, UX junior/senior
+
+### Track Approbation / Direction (a definir)
 - Workflow d'approbation Direction (statut `pending_approval`)
 - Role `director` dans `tenant_role`
 - Dashboard Direction avec KPIs equipe
