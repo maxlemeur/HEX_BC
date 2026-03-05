@@ -62,6 +62,8 @@ type EstimateEditorToolbarProps = {
   onOpenBulkSuggestDialog: () => void;
   onOpenAssemblyPicker: () => void;
   onOpenImportFromEstimateDialog?: () => void;
+  onAddRootSection: () => void;
+  rootAddSectionLabel?: string;
   onExpandAllSections?: () => void;
   onCollapseAllSections?: () => void;
   onOpenSettings?: () => void;
@@ -135,6 +137,8 @@ export function EstimateEditorToolbar({
   onOpenBulkSuggestDialog,
   onOpenAssemblyPicker,
   onOpenImportFromEstimateDialog,
+  onAddRootSection,
+  rootAddSectionLabel = "+ Ajouter un Lot",
   onExpandAllSections,
   onCollapseAllSections,
   onOpenSettings,
@@ -249,6 +253,15 @@ export function EstimateEditorToolbar({
         <div className="h-5 w-px bg-slate-200" />
 
         {/* Primary actions */}
+        <button
+          className="btn btn-secondary btn-sm"
+          type="button"
+          onClick={onAddRootSection}
+          disabled={meta.isReadOnly}
+          data-testid="estimate-editor-toolbar-add-root-section-button"
+        >
+          {rootAddSectionLabel}
+        </button>
         {onExpandAllSections ? (
           <button
             className="btn btn-ghost btn-sm"

@@ -2266,6 +2266,8 @@ export function EstimateEditorTable({
           onOpenBulkSuggestDialog={onOpenBulkSuggestDialog}
           onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
           onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
+          onAddRootSection={() => onAddSection(null)}
+          rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
           onExpandAllSections={handleExpandAllSections}
           onCollapseAllSections={handleCollapseAllSections}
           columnPreset={columnVisibility.preset}
