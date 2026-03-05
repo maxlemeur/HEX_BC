@@ -1105,8 +1105,8 @@ export function UnifiedImportFlow({
     [onComplete],
   );
 
-  // UX-5: track if user has progressed past upload (import started)
-  const hasStartedImport = step !== "upload" && importId !== null;
+  // UX-5: once an import is created, keep cancel guard active even if user navigates back to upload
+  const hasStartedImport = importId !== null;
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const handleBack = useCallback(() => {

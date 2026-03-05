@@ -3,14 +3,25 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { EstimateCreationWizard } from "@/components/estimates/EstimateCreationWizard";
+import {
+  EstimateCreationWizard,
+  type EstimateCreationResult,
+} from "@/components/estimates/EstimateCreationWizard";
+import { useToast } from "@/components/ui/Toast";
 
 export default function NewEstimatePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const toast = useToast();
   const projectId = searchParams.get("projectId") ?? undefined;
 
-  function handleCreated(versionId: string) {
+  function handleCreated(versionId: string, result?: EstimateCreationResult) {
+    if (result?.linkedDpgfImportWarning) {
+      toast.warning({
+        title: "Version creee avec avertissement",
+        description: result.linkedDpgfImportWarning,
+      });
+    }
     router.push(`/dashboard/estimates/${versionId}/edit`);
     router.refresh();
   }

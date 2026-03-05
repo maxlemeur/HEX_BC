@@ -647,6 +647,68 @@ describe("EstimateCreationWizard", () => {
     });
   });
 
+  it("continues to created version when linked DPGF import fails after template creation", async () => {
+    vi.mocked(fetchEstimateTemplates).mockResolvedValueOnce([
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        name: "Template A",
+        description: null,
+        sourceVersionId: null,
+        createdBy: null,
+        createdAt: "2026-03-05T09:00:00.000Z",
+        updatedAt: "2026-03-05T09:00:00.000Z",
+        itemCount: 4,
+      },
+    ]);
+    vi.mocked(fetchAffaireLinkedDpgfSource).mockResolvedValueOnce({
+      importId: "11111111-1111-4111-8111-111111111111",
+      filename: "HEX-DPGF.xlsx",
+      sourceFormat: "xlsx",
+      importStatus: "completed",
+      mappingStatus: "mapped",
+      importedAt: "2026-03-05T08:00:00.000Z",
+      mappingUpdatedAt: "2026-03-05T08:15:00.000Z",
+      parseMode: "strict",
+      rowCount: 171,
+      mappedRowCount: 171,
+    });
+    vi.mocked(importLinkedDpgfSource).mockRejectedValueOnce(
+      new Error("Import temporairement indisponible."),
+    );
+
+    const { user, onCreated } = setup(vi.fn(), {
+      projectId: "22222222-2222-4222-8222-222222222222",
+    });
+
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Source detectee: HEX-DPGF.xlsx/),
+      ).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /Depuis un modèle/ }));
+    await user.selectOptions(
+      screen.getByLabelText(/Template \(10 plus recents\)/),
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    );
+    await user.click(screen.getByRole("button", { name: /Créer le chiffrage/ }));
+
+    await waitFor(() => {
+      expect(vi.mocked(instantiateEstimateFromTemplate)).toHaveBeenCalledWith(
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        expect.objectContaining({
+          projectId: "22222222-2222-4222-8222-222222222222",
+        }),
+      );
+      expect(vi.mocked(importLinkedDpgfSource)).toHaveBeenCalledWith("version-tpl-123");
+      expect(onCreated).toHaveBeenCalledWith("version-tpl-123", {
+        linkedDpgfImportWarning:
+          "Le chiffrage a ete cree, mais le DPGF source n'a pas pu etre importe: Import temporairement indisponible.",
+      });
+    });
+  });
+
   it("keeps accented labels for validity and summary copy", async () => {
     const { user } = setup();
 

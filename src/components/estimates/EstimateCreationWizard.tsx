@@ -82,8 +82,12 @@ type WizardData = {
 
 type StepErrors = Record<string, string>;
 
+export type EstimateCreationResult = {
+  linkedDpgfImportWarning?: string;
+};
+
 type EstimateCreationWizardProps = {
-  onCreated: (versionId: string) => void;
+  onCreated: (versionId: string, result?: EstimateCreationResult) => void;
   projectId?: string;
 };
 
@@ -619,6 +623,7 @@ export function EstimateCreationWizard({
 
     try {
       let versionId: string;
+      let creationResult: EstimateCreationResult | undefined;
 
       if (data.creationMode === "template" && data.selectedTemplateId) {
         const result = await instantiateEstimateFromTemplate(
@@ -635,7 +640,16 @@ export function EstimateCreationWizard({
         );
         versionId = result.versionId;
         if (data.dpgfImportMode === "source") {
-          await importLinkedDpgfSource(versionId);
+          try {
+            await importLinkedDpgfSource(versionId);
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : null;
+            creationResult = {
+              linkedDpgfImportWarning: detail
+                ? `Le chiffrage a ete cree, mais le DPGF source n'a pas pu etre importe: ${detail}`
+                : "Le chiffrage a ete cree, mais le DPGF source n'a pas pu etre importe.",
+            };
+          }
         }
       } else {
         const marginBpNum = data.marginBp ? Number(data.marginBp) : 0;
@@ -669,7 +683,11 @@ export function EstimateCreationWizard({
       }
 
       clearDraft();
-      onCreated(versionId);
+      if (creationResult) {
+        onCreated(versionId, creationResult);
+      } else {
+        onCreated(versionId);
+      }
     } catch (err) {
       setSubmitError(
         err instanceof Error ? err.message : "Impossible de créer le chiffrage."
