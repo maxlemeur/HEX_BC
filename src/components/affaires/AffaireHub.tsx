@@ -112,6 +112,429 @@ function BackToListLink() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Section: Onboarding Hero (empty state)                             */
+/* ------------------------------------------------------------------ */
+
+type StepStatus = "done" | "current" | "future";
+
+function OnboardingHero({
+  summary,
+  dpgfSource,
+  onStartImport,
+}: {
+  summary: AffaireHubSummaryResult;
+  dpgfSource: AffaireHubDpgfSourceResult;
+  onStartImport: () => void;
+}) {
+  const dpgfDone =
+    dpgfSource !== null && dpgfSource.importStatus === "completed";
+
+  const steps: { label: string; status: StepStatus }[] = [
+    { label: "Affaire creee", status: "done" },
+    { label: "Importer DPGF", status: dpgfDone ? "done" : "current" },
+    { label: "Premiere version", status: dpgfDone ? "current" : "future" },
+    { label: "Editer & envoyer", status: "future" },
+  ];
+  // Fix: "pending" should map to the stepper visual, treat as non-done
+  // We use "pending" only for step 2 when not done
+
+  return (
+    <div className="onboarding-hero animate-slide-up">
+      {/* Title */}
+      <div className="mb-6 flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--brand-orange)]/10 animate-fade-in">
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--brand-orange)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09Z" />
+            <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2Z" />
+            <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+            <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+          </svg>
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-[var(--slate-900)]">
+            Votre affaire est prete !
+          </h2>
+          <p className="text-sm text-[var(--slate-500)]">
+            Suivez les etapes pour demarrer votre chiffrage.
+          </p>
+        </div>
+      </div>
+
+      {/* Stepper — horizontal on desktop, vertical on mobile */}
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-0">
+        {steps.map((step, i) => (
+          <div key={step.label} className="flex items-center gap-0 sm:flex-1">
+            {/* Step circle + label */}
+            <div className={`flex items-center gap-2.5 animate-fade-in stagger-${i + 1}`}>
+              <StepCircle index={i + 1} status={step.status} />
+              <span
+                className={`text-sm font-medium whitespace-nowrap ${
+                  step.status === "done"
+                    ? "text-[var(--success)]"
+                    : step.status === "current"
+                      ? "text-[var(--brand-blue)]"
+                      : "text-[var(--slate-400)]"
+                }`}
+              >
+                {step.label}
+              </span>
+            </div>
+            {/* Connector (not after last step) */}
+            {i < steps.length - 1 && (
+              <div
+                className={`step-connector mx-2 hidden sm:block ${
+                  step.status === "done"
+                    ? "step-connector--done"
+                    : "step-connector--pending"
+                }`}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* CTA */}
+      <div className="animate-fade-in stagger-5">
+        {dpgfDone ? (
+          <Link
+            href={`/dashboard/estimates/new?projectId=${summary.project.id}`}
+            className="btn btn-primary inline-flex items-center gap-2"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="12" x2="12" y1="5" y2="19" />
+              <line x1="5" x2="19" y1="12" y2="12" />
+            </svg>
+            Creer la premiere version
+          </Link>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={onStartImport}
+              className="btn btn-primary inline-flex items-center gap-2"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" x2="12" y1="3" y2="15" />
+              </svg>
+              Importer votre DPGF
+            </button>
+            <span className="text-sm text-[var(--slate-400)]">ou</span>
+            <Link
+              href={`/dashboard/estimates/new?projectId=${summary.project.id}`}
+              className="btn btn-secondary inline-flex items-center gap-2"
+            >
+              Creer version vide
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* Compact DPGF info if exists */}
+      {dpgfSource !== null && (
+        <div className="mt-4 rounded-lg border border-[var(--slate-200)] bg-white/60 px-3 py-2 text-xs text-[var(--slate-600)] animate-fade-in stagger-6">
+          <span className="font-medium">{dpgfSource.filename}</span>
+          {" — "}
+          {dpgfSource.rowCount} lignes
+          {" — "}
+          Importe le {fmtDate(dpgfSource.importedAt)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepCircle({ index, status }: { index: number; status: StepStatus }) {
+  if (status === "done") {
+    return (
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--success)] animate-scale-in">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="white"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      </div>
+    );
+  }
+
+  if (status === "current") {
+    return (
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--brand-blue)] text-white text-xs font-bold animate-pulse-ring">
+        {index}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--slate-200)] text-[var(--slate-400)] text-xs font-bold">
+      {index}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Section: Action Bar (filled state)                                 */
+/* ------------------------------------------------------------------ */
+
+function ActionBar({
+  summary,
+  takeoffEnabled,
+  plansSummary,
+  pendingAction,
+  onDuplicate,
+  onCreateVariant,
+  onLaunchMetre,
+}: {
+  summary: AffaireHubSummaryResult;
+  takeoffEnabled?: boolean;
+  plansSummary?: AffaireHubPlansSummaryData | null;
+  pendingAction: "duplicate" | "variant" | null;
+  onDuplicate: () => void;
+  onCreateVariant: () => void;
+  onLaunchMetre: () => void;
+}) {
+  const { currentVersion, versionsCount } = summary;
+  if (!currentVersion) return null;
+
+  return (
+    <div className="action-bar animate-fade-in stagger-1">
+      {/* Edit current version */}
+      <Link
+        href={`/dashboard/estimates/${currentVersion.id}/edit`}
+        className="btn btn-primary btn-sm inline-flex items-center gap-1.5"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+        </svg>
+        Editer V{currentVersion.versionNumber}
+      </Link>
+
+      {/* Export */}
+      <Link
+        href={`/dashboard/estimates/${currentVersion.id}/print`}
+        className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" x2="12" y1="15" y2="3" />
+        </svg>
+        Exporter
+      </Link>
+
+      {/* New version (duplicate) */}
+      <button
+        type="button"
+        onClick={onDuplicate}
+        disabled={pendingAction !== null}
+        aria-busy={pendingAction === "duplicate"}
+        className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+        </svg>
+        {pendingAction === "duplicate" ? "Duplication..." : "Nouvelle version"}
+      </button>
+
+      {/* Variant */}
+      <button
+        type="button"
+        onClick={onCreateVariant}
+        disabled={pendingAction !== null}
+        aria-busy={pendingAction === "variant"}
+        className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M16 3h5v5" />
+          <path d="M8 3H3v5" />
+          <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3" />
+          <path d="m15 9 6-6" />
+        </svg>
+        {pendingAction === "variant"
+          ? "Creation variante..."
+          : "Dupliquer (variante)"}
+      </button>
+
+      {/* Compare */}
+      {versionsCount > 1 && (
+        <Link
+          href={`/dashboard/estimates/${currentVersion.id}/diff`}
+          className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" x2="18" y1="20" y2="4" />
+            <line x1="6" x2="6" y1="20" y2="4" />
+            <line x1="2" x2="22" y1="12" y2="12" />
+          </svg>
+          Comparer
+        </Link>
+      )}
+
+      {/* Launch metre */}
+      {takeoffEnabled && plansSummary && plansSummary.planSetCount > 0 && (
+        <button
+          type="button"
+          onClick={onLaunchMetre}
+          className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M3 9h18" />
+            <path d="M9 3v18" />
+          </svg>
+          Lancer un metre
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Section: Progress Strip (filled state)                             */
+/* ------------------------------------------------------------------ */
+
+function AffaireProgressStrip({
+  summary,
+  dpgfSource,
+}: {
+  summary: AffaireHubSummaryResult;
+  dpgfSource: AffaireHubDpgfSourceResult;
+}) {
+  const { currentVersion, acceptedVersion } = summary;
+  if (!currentVersion) return null;
+
+  const items: { color: string; label: string }[] = [];
+
+  // DPGF status
+  if (dpgfSource !== null) {
+    items.push({ color: "bg-[var(--success)]", label: "DPGF importe" });
+  } else {
+    items.push({ color: "bg-[var(--brand-orange)]", label: "Pas de DPGF" });
+  }
+
+  // Current version
+  items.push({
+    color: "bg-[var(--brand-blue)]",
+    label: `V${currentVersion.versionNumber} courante - ${STATUS_LABEL[currentVersion.status] ?? currentVersion.status}`,
+  });
+
+  // Accepted version
+  if (acceptedVersion) {
+    items.push({
+      color: "bg-[var(--success)]",
+      label: `V${acceptedVersion.versionNumber} acceptee`,
+    });
+  } else {
+    items.push({
+      color: "bg-[var(--slate-300)]",
+      label: "Aucune version acceptee",
+    });
+  }
+
+  return (
+    <div className="progress-strip animate-fade-in stagger-2">
+      {items.map((item, i) => (
+        <span key={item.label} className="inline-flex items-center gap-1.5 text-[var(--slate-600)]">
+          {i > 0 && <span className="text-[var(--slate-300)] mx-1">&middot;</span>}
+          <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${item.color}`} />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Section: Financial Summary                                         */
 /* ------------------------------------------------------------------ */
 
@@ -122,69 +545,73 @@ function FinancialSummaryCard({
 }) {
   const { currentVersion, acceptedVersion, lineCount } = summary;
 
+  if (currentVersion === null) return null;
+
+  const hasAccepted = !!acceptedVersion;
+
   return (
-    <section className="dashboard-card p-5">
+    <section className="dashboard-card p-5 animate-fade-in stagger-3">
       <h2 className="mb-4 text-sm font-semibold text-[var(--slate-800)]">
         Resume financier
       </h2>
 
-      {currentVersion === null ? (
-        <p className="text-sm text-[var(--slate-500)]">
-          Aucune version pour cette affaire.
-        </p>
-      ) : (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <div>
-            <p className="text-xs text-[var(--slate-500)]">
-              HT version courante
-            </p>
-            <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
-              {formatEUR(currentVersion.totalHtCents)}
-            </p>
-            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
-              V{currentVersion.versionNumber} -{" "}
-              {STATUS_LABEL[currentVersion.status] ?? currentVersion.status}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs text-[var(--slate-500)]">
-              HT derniere acceptee
-            </p>
-            {acceptedVersion ? (
-              <>
-                <p className="mt-1 text-lg font-semibold text-[var(--success)]">
-                  {formatEUR(acceptedVersion.totalHtCents)}
-                </p>
-                <p className="mt-0.5 text-xs text-[var(--slate-500)]">
-                  V{acceptedVersion.versionNumber}
-                </p>
-              </>
-            ) : (
-              <p className="mt-1 text-sm text-[var(--slate-400)]">-</p>
-            )}
-          </div>
-
-          <div>
-            <p className="text-xs text-[var(--slate-500)]">
-              Marge appliquee
-            </p>
-            <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
-              {currentVersion.marginPercent.toFixed(1)}%
-            </p>
-            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
-              Coeff. {currentVersion.marginMultiplier.toFixed(3)}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs text-[var(--slate-500)]">Nombre de lignes</p>
-            <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
-              {lineCount}
-            </p>
-          </div>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div>
+          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--brand-blue)]" />
+            HT version courante
+          </p>
+          <p className="mt-1 text-2xl font-bold text-[var(--slate-900)]">
+            {formatEUR(currentVersion.totalHtCents)}
+          </p>
+          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+            V{currentVersion.versionNumber} -{" "}
+            {STATUS_LABEL[currentVersion.status] ?? currentVersion.status}
+          </p>
         </div>
-      )}
+
+        <div className={hasAccepted ? "rounded-lg bg-[var(--success)]/5 p-2 -m-2" : ""}>
+          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--success)]" />
+            HT derniere acceptee
+          </p>
+          {acceptedVersion ? (
+            <>
+              <p className="mt-1 text-2xl font-bold text-[var(--success)]">
+                {formatEUR(acceptedVersion.totalHtCents)}
+              </p>
+              <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+                V{acceptedVersion.versionNumber}
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-[var(--slate-400)]">-</p>
+          )}
+        </div>
+
+        <div>
+          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--brand-orange)]" />
+            Marge appliquee
+          </p>
+          <p className="mt-1 text-2xl font-bold text-[var(--slate-900)]">
+            {currentVersion.marginPercent.toFixed(1)}%
+          </p>
+          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+            Coeff. {currentVersion.marginMultiplier.toFixed(3)}
+          </p>
+        </div>
+
+        <div>
+          <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--slate-400)]" />
+            Nombre de lignes
+          </p>
+          <p className="mt-1 text-2xl font-bold text-[var(--slate-900)]">
+            {lineCount}
+          </p>
+        </div>
+      </div>
     </section>
   );
 }
@@ -505,255 +932,6 @@ function DpgfSourceCard({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Section: Quick Actions                                             */
-/* ------------------------------------------------------------------ */
-
-function QuickActionsCard({
-  summary,
-  takeoffEnabled,
-  plansSummary,
-  onLaunchMetre,
-}: {
-  summary: AffaireHubSummaryResult;
-  takeoffEnabled?: boolean;
-  plansSummary?: AffaireHubPlansSummaryData | null;
-  onLaunchMetre?: () => void;
-}) {
-  const router = useRouter();
-  const { currentVersion, versionsCount, project } = summary;
-  const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(
-    null
-  );
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  const handleDuplicate = useCallback(async () => {
-    if (!currentVersion || pendingAction) return;
-    setActionError(null);
-    setPendingAction("duplicate");
-
-    try {
-      const duplicatedVersionId = await duplicateEstimateVersion(currentVersion.id);
-      router.push(`/dashboard/estimates/${duplicatedVersionId}/edit`);
-      router.refresh();
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Impossible de dupliquer la version."
-      );
-    } finally {
-      setPendingAction(null);
-    }
-  }, [currentVersion, pendingAction, router]);
-
-  const handleCreateVariant = useCallback(async () => {
-    if (!currentVersion || pendingAction) return;
-    setActionError(null);
-    setPendingAction("variant");
-
-    try {
-      const variantVersionId = await createEstimateVariant(currentVersion.id);
-      router.push(`/dashboard/estimates/${variantVersionId}/edit`);
-      router.refresh();
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "Impossible de creer la variante."
-      );
-    } finally {
-      setPendingAction(null);
-    }
-  }, [currentVersion, pendingAction, router]);
-
-  return (
-    <section className="dashboard-card p-5">
-      <h2 className="mb-3 text-sm font-semibold text-[var(--slate-800)]">
-        Actions rapides
-      </h2>
-
-      <div className="flex flex-wrap gap-2">
-        {/* Edit current version */}
-        {currentVersion && (
-          <Link
-            href={`/dashboard/estimates/${currentVersion.id}/edit`}
-            className="btn btn-primary btn-sm inline-flex items-center gap-1.5"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-            </svg>
-            Editer V{currentVersion.versionNumber}
-          </Link>
-        )}
-
-        {/* Export */}
-        {currentVersion && (
-          <Link
-            href={`/dashboard/estimates/${currentVersion.id}/print`}
-            className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" x2="12" y1="15" y2="3" />
-            </svg>
-            Exporter
-          </Link>
-        )}
-
-        {/* Create new version (duplicate) */}
-        {currentVersion && (
-          <button
-            type="button"
-            onClick={() => void handleDuplicate()}
-            disabled={pendingAction !== null}
-            aria-busy={pendingAction === "duplicate"}
-            className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-              <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-            </svg>
-            {pendingAction === "duplicate" ? "Duplication..." : "Nouvelle version"}
-          </button>
-        )}
-
-        {/* Duplicate (variant) */}
-        {currentVersion && (
-          <button
-            type="button"
-            onClick={() => void handleCreateVariant()}
-            disabled={pendingAction !== null}
-            aria-busy={pendingAction === "variant"}
-            className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M16 3h5v5" />
-              <path d="M8 3H3v5" />
-              <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3" />
-              <path d="m15 9 6-6" />
-            </svg>
-            {pendingAction === "variant"
-              ? "Creation variante..."
-              : "Dupliquer (variante)"}
-          </button>
-        )}
-
-        {/* Compare - visible only if >1 version */}
-        {versionsCount > 1 && currentVersion && (
-          <Link
-            href={`/dashboard/estimates/${currentVersion.id}/diff`}
-            className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" x2="18" y1="20" y2="4" />
-              <line x1="6" x2="6" y1="20" y2="4" />
-              <line x1="2" x2="22" y1="12" y2="12" />
-            </svg>
-            Comparer
-          </Link>
-        )}
-
-        {/* Launch metre */}
-        {takeoffEnabled && plansSummary && plansSummary.planSetCount > 0 && (
-          <button
-            type="button"
-            onClick={onLaunchMetre}
-            className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M3 9h18" />
-              <path d="M9 3v18" />
-            </svg>
-            Lancer un metre
-          </button>
-        )}
-
-        {/* Create first version if none exist */}
-        {currentVersion === null && (
-          <Link
-            href={`/dashboard/estimates/new?projectId=${project.id}`}
-            className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="12" x2="12" y1="5" y2="19" />
-              <line x1="5" x2="19" y1="12" y2="12" />
-            </svg>
-            Creer une premiere version
-          </Link>
-        )}
-      </div>
-
-      {actionError ? (
-        <div className="alert alert-error mt-3 px-3 py-2 text-xs">
-          {actionError}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  Main AffaireHub component                                          */
 /* ------------------------------------------------------------------ */
 
@@ -773,6 +951,46 @@ export function AffaireHub({
   const currentVersionId = summary.currentVersion?.id ?? null;
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
 
+  // --- Hoisted state from former QuickActionsCard ---
+  const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const handleDuplicate = useCallback(async () => {
+    if (!summary.currentVersion || pendingAction) return;
+    setActionError(null);
+    setPendingAction("duplicate");
+
+    try {
+      const duplicatedVersionId = await duplicateEstimateVersion(summary.currentVersion.id);
+      router.push(`/dashboard/estimates/${duplicatedVersionId}/edit`);
+      router.refresh();
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Impossible de dupliquer la version."
+      );
+    } finally {
+      setPendingAction(null);
+    }
+  }, [summary.currentVersion, pendingAction, router]);
+
+  const handleCreateVariant = useCallback(async () => {
+    if (!summary.currentVersion || pendingAction) return;
+    setActionError(null);
+    setPendingAction("variant");
+
+    try {
+      const variantVersionId = await createEstimateVariant(summary.currentVersion.id);
+      router.push(`/dashboard/estimates/${variantVersionId}/edit`);
+      router.refresh();
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Impossible de creer la variante."
+      );
+    } finally {
+      setPendingAction(null);
+    }
+  }, [summary.currentVersion, pendingAction, router]);
+
   useEffect(() => {
     if (!justCreated) return;
 
@@ -789,14 +1007,8 @@ export function AffaireHub({
     if (shownCreatedToastProjectIds.has(projectId)) return;
 
     shownCreatedToastProjectIds.add(projectId);
-    const dpgfDone = dpgfSource !== null && dpgfSource.importStatus === "completed";
-    toast.success({
-      title: "Affaire creee",
-      description: dpgfDone
-        ? `DPGF importe avec succes (${dpgfSource.rowCount} lignes). Creez une version pour demarrer le chiffrage.`
-        : "Creez une version pour demarrer le chiffrage.",
-    });
-  }, [justCreated, router, summary.project.id, toast, dpgfSource]);
+    toast.success({ title: "Affaire creee !" });
+  }, [justCreated, router, summary.project.id, toast]);
 
   const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
   const draftVersionId =
@@ -816,9 +1028,11 @@ export function AffaireHub({
     [router],
   );
 
+  const isEmpty = summary.currentVersion === null && summary.versionsCount === 0;
+
   return (
     <div className="animate-fade-in">
-      {/* Back link (always visible, prominent on mobile) */}
+      {/* Back link */}
       <div className="mb-4">
         <BackToListLink />
       </div>
@@ -909,53 +1123,75 @@ export function AffaireHub({
           onCancel={() => setShowImportFlow(false)}
           onComplete={handleImportComplete}
         />
+      ) : isEmpty ? (
+        /* MODE VIDE — Onboarding Hero */
+        <OnboardingHero
+          summary={summary}
+          dpgfSource={dpgfSource}
+          onStartImport={() => {
+            setImportResult(null);
+            setShowImportFlow(true);
+          }}
+        />
       ) : (
-        /* Content: 2 columns on desktop, stacked on mobile */
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {/* Left column: Financial + Margin Analysis + Timeline */}
-          <div className="space-y-4 lg:col-span-2">
-            <FinancialSummaryCard summary={summary} />
-            {isExpert && (
-              <MarginAnalysisWidget
-                data={marginAnalysis ?? null}
-                errorMessage={sectionErrors?.marginAnalysis}
-              />
-            )}
-            <VersionTimelineCard
-              timeline={timeline}
-              projectId={summary.project.id}
-              currentVersionId={currentVersionId}
-              acceptedVersionId={acceptedVersionId}
-              errorMessage={sectionErrors?.timeline}
-            />
-          </div>
+        /* MODE REMPLI — Full dashboard */
+        <>
+          <ActionBar
+            summary={summary}
+            takeoffEnabled={takeoffEnabled}
+            plansSummary={plansSummary}
+            pendingAction={pendingAction}
+            onDuplicate={() => void handleDuplicate()}
+            onCreateVariant={() => void handleCreateVariant()}
+            onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+          />
 
-          {/* Right column: DPGF + Quick Actions */}
-          <div className="space-y-4">
-            <DpgfSourceCard
-              dpgfSource={dpgfSource}
-              errorMessage={sectionErrors?.dpgfSource}
-              onStartImport={() => {
-                setImportResult(null);
-                setShowImportFlow(true);
-              }}
-            />
-            {takeoffEnabled ? (
-              <PlansMetresCard
-                plans={plansSummary ?? null}
+          {actionError && (
+            <div className="alert alert-error mb-4 px-3 py-2 text-xs">
+              {actionError}
+            </div>
+          )}
+
+          <AffaireProgressStrip summary={summary} dpgfSource={dpgfSource} />
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="space-y-4 lg:col-span-2">
+              <FinancialSummaryCard summary={summary} />
+              {isExpert && (
+                <MarginAnalysisWidget
+                  data={marginAnalysis ?? null}
+                  errorMessage={sectionErrors?.marginAnalysis}
+                />
+              )}
+              <VersionTimelineCard
+                timeline={timeline}
                 projectId={summary.project.id}
-                errorMessage={sectionErrors?.plansSummary}
-                onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+                currentVersionId={currentVersionId}
+                acceptedVersionId={acceptedVersionId}
+                errorMessage={sectionErrors?.timeline}
               />
-            ) : null}
-            <QuickActionsCard
-              summary={summary}
-              takeoffEnabled={takeoffEnabled}
-              plansSummary={plansSummary}
-              onLaunchMetre={() => setShowLaunchMetreDialog(true)}
-            />
+            </div>
+
+            <div className="space-y-4">
+              <DpgfSourceCard
+                dpgfSource={dpgfSource}
+                errorMessage={sectionErrors?.dpgfSource}
+                onStartImport={() => {
+                  setImportResult(null);
+                  setShowImportFlow(true);
+                }}
+              />
+              {takeoffEnabled ? (
+                <PlansMetresCard
+                  plans={plansSummary ?? null}
+                  projectId={summary.project.id}
+                  errorMessage={sectionErrors?.plansSummary}
+                  onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+                />
+              ) : null}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       <LaunchMetreDialog
