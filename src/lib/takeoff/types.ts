@@ -418,7 +418,8 @@ export type PlanSetListItem = {
   created_at: string;
   updated_at: string;
   tenant_id: string;
-  estimate_version_id: string;
+  project_id: string;
+  estimate_version_id: string | null;
   name: string;
   description: string | null;
   metadata: Record<string, unknown>;
@@ -478,7 +479,8 @@ export type PlanFileDeleteResponse = {
 };
 
 export type CreatePlanSetInput = {
-  estimate_version_id: string;
+  project_id?: string;
+  estimate_version_id?: string;
   name: string;
   description?: string | null;
 };

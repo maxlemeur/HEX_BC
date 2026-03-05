@@ -25,6 +25,7 @@ import {
 } from "@/lib/takeoff/client";
 
 const VERSION_ID = "aaaa1111-2222-4333-8444-555566667777";
+const PROJECT_ID = "dddd1111-2222-4333-8444-555566667777";
 const SET_ID = "bbbb1111-2222-4333-8444-555566667777";
 const FILE_ID = "cccc1111-2222-4333-8444-555566667777";
 
@@ -36,6 +37,7 @@ function makePlanSet(
     created_at: "2026-02-25T10:00:00.000Z",
     updated_at: "2026-02-25T10:00:00.000Z",
     tenant_id: "tenant-1",
+    project_id: PROJECT_ID,
     estimate_version_id: VERSION_ID,
     name: "Plans Archi",
     description: "Lot 01",

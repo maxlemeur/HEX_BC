@@ -645,6 +645,17 @@ export async function fetchPlanSets(
   return response.plan_sets;
 }
 
+export async function fetchPlanSetsForProject(
+  projectId: string
+): Promise<PlanSetListItem[]> {
+  const response = await requestTakeoffJson<PlanSetsListResponse>(
+    `/api/takeoff/plan-sets?project_id=${encodeURIComponent(projectId)}`,
+    { method: "GET" },
+    "Impossible de recuperer les jeux de plans."
+  );
+  return response.plan_sets;
+}
+
 export async function createPlanSet(
   input: CreatePlanSetInput
 ): Promise<PlanSetListItem> {

@@ -14,6 +14,7 @@ import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
+const PROJECT_ID = "99999999-9999-4999-8999-999999999999";
 const ESTIMATE_VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const SET_ID = "44444444-4444-4444-8444-444444444444";
 const FILE_ID = "55555555-5555-4555-8555-555555555555";
@@ -22,7 +23,8 @@ const MISSING_SET_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 type PlanSetStoredRow = {
   id: string;
   tenant_id: string;
-  estimate_version_id: string;
+  project_id: string;
+  estimate_version_id: string | null;
   name: string;
   description: string | null;
   metadata: Record<string, unknown>;
@@ -67,6 +69,7 @@ function basePlanSet(input?: Partial<PlanSetStoredRow>): PlanSetStoredRow {
   return {
     id: input?.id ?? SET_ID,
     tenant_id: input?.tenant_id ?? TENANT_ID,
+    project_id: input?.project_id ?? PROJECT_ID,
     estimate_version_id: input?.estimate_version_id ?? ESTIMATE_VERSION_ID,
     name: input?.name ?? "Set plans B",
     description: input?.description ?? "Documents PDF",

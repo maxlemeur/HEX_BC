@@ -14,13 +14,18 @@ import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
+const PROJECT_ID = "99999999-9999-4999-8999-999999999999";
+const OTHER_PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ESTIMATE_VERSION_ID = "33333333-3333-4333-8333-333333333333";
+const ESTIMATE_VERSION_ID_2 = "66666666-6666-4666-8666-666666666666";
+const ESTIMATE_VERSION_OTHER_PROJECT_ID = "77777777-7777-4777-8777-777777777777";
 const SET_ID = "44444444-4444-4444-8444-444444444444";
 
 type PlanSetStoredRow = {
   id: string;
   tenant_id: string;
-  estimate_version_id: string;
+  project_id: string;
+  estimate_version_id: string | null;
   name: string;
   description: string | null;
   metadata: Record<string, unknown>;
@@ -43,6 +48,7 @@ function basePlanSet(input?: Partial<PlanSetStoredRow>): PlanSetStoredRow {
   return {
     id: input?.id ?? SET_ID,
     tenant_id: input?.tenant_id ?? TENANT_ID,
+    project_id: input?.project_id ?? PROJECT_ID,
     estimate_version_id: input?.estimate_version_id ?? ESTIMATE_VERSION_ID,
     name: input?.name ?? "Lot plans RDC",
     description: input?.description ?? "Plans de reference",
@@ -88,11 +94,13 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
   function filterPlanSets(filters: {
     tenant_id?: string;
     id?: string;
+    project_id?: string;
     estimate_version_id?: string;
   }) {
     return [...state.planSetsById.values()]
       .filter((row) => !filters.tenant_id || row.tenant_id === filters.tenant_id)
       .filter((row) => !filters.id || row.id === filters.id)
+      .filter((row) => !filters.project_id || row.project_id === filters.project_id)
       .filter(
         (row) =>
           !filters.estimate_version_id ||
@@ -155,6 +163,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
     const filters: {
       tenant_id?: string;
       id?: string;
+      project_id?: string;
       estimate_version_id?: string;
     } = {};
 
@@ -163,6 +172,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         if (
           column === "tenant_id" ||
           column === "id" ||
+          column === "project_id" ||
           column === "estimate_version_id"
         ) {
           filters[column] = value;
@@ -212,6 +222,29 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
                 id: ESTIMATE_VERSION_ID,
                 status: "draft",
                 tenant_id: TENANT_ID,
+                project_id: PROJECT_ID,
+                estimate_projects: {
+                  tenant_id: TENANT_ID,
+                  user_id: USER_ID,
+                },
+              }
+            : filterId === ESTIMATE_VERSION_ID_2
+              ? {
+                  id: ESTIMATE_VERSION_ID_2,
+                  status: "draft",
+                  tenant_id: TENANT_ID,
+                  project_id: PROJECT_ID,
+                  estimate_projects: {
+                    tenant_id: TENANT_ID,
+                    user_id: USER_ID,
+                  },
+                }
+              : filterId === ESTIMATE_VERSION_OTHER_PROJECT_ID
+            ? {
+                id: ESTIMATE_VERSION_OTHER_PROJECT_ID,
+                status: "draft",
+                tenant_id: TENANT_ID,
+                project_id: OTHER_PROJECT_ID,
                 estimate_projects: {
                   tenant_id: TENANT_ID,
                   user_id: USER_ID,
@@ -221,12 +254,18 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         error: null,
       })),
       single: vi.fn(async () =>
-        filterId === ESTIMATE_VERSION_ID
+        filterId === ESTIMATE_VERSION_ID ||
+        filterId === ESTIMATE_VERSION_ID_2 ||
+        filterId === ESTIMATE_VERSION_OTHER_PROJECT_ID
           ? {
               data: {
-                id: ESTIMATE_VERSION_ID,
+                id: filterId,
                 status: "draft",
                 tenant_id: TENANT_ID,
+                project_id:
+                  filterId === ESTIMATE_VERSION_OTHER_PROJECT_ID
+                    ? OTHER_PROJECT_ID
+                    : PROJECT_ID,
                 estimate_projects: {
                   tenant_id: TENANT_ID,
                   user_id: USER_ID,
@@ -241,7 +280,12 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         onRejected?: (reason: unknown) => unknown
       ) =>
         Promise.resolve({
-          data: filterId === ESTIMATE_VERSION_ID ? [{ id: ESTIMATE_VERSION_ID }] : [],
+          data:
+            filterId === ESTIMATE_VERSION_ID ||
+            filterId === ESTIMATE_VERSION_ID_2 ||
+            filterId === ESTIMATE_VERSION_OTHER_PROJECT_ID
+              ? [{ id: filterId }]
+              : [],
           error: null,
         }).then(onFulfilled, onRejected),
     };
@@ -305,7 +349,15 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
             const row = basePlanSet({
               id: raw?.id ?? "55555555-5555-4555-8555-555555555555",
               tenant_id: raw?.tenant_id ?? TENANT_ID,
-              estimate_version_id: raw?.estimate_version_id ?? ESTIMATE_VERSION_ID,
+              project_id: raw?.project_id ?? PROJECT_ID,
+              estimate_version_id:
+                raw &&
+                Object.prototype.hasOwnProperty.call(raw, "estimate_version_id")
+                  ? raw.estimate_version_id === null ||
+                    typeof raw.estimate_version_id === "string"
+                    ? raw.estimate_version_id
+                    : null
+                  : ESTIMATE_VERSION_ID,
               name: typeof raw?.name === "string" ? raw.name : "Nouveau set",
               description:
                 typeof raw?.description === "string" ? raw.description : null,
@@ -405,6 +457,8 @@ describe("/api/takeoff/plan-sets", () => {
     expect(createBody.ok).toBe(true);
     expect(createBody.data).toBeDefined();
     expect(supabase.__state.planSetsById.size).toBe(1);
+    const createdSet = [...supabase.__state.planSetsById.values()][0];
+    expect(createdSet.project_id).toBe(PROJECT_ID);
 
     const listResponse = await GET(
       new Request("http://localhost/api/takeoff/plan-sets", {
@@ -419,6 +473,125 @@ describe("/api/takeoff/plan-sets", () => {
     expect(listResponse.status).toBe(200);
     expect(listBody.ok).toBe(true);
     expect(extractPlanSets(listBody.data).length).toBeGreaterThan(0);
+  });
+
+  it("POST creates a plan set in project mode", async () => {
+    const supabase = createSupabaseMock({ planSets: [] });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      new Request("http://localhost/api/takeoff/plan-sets", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          project_id: PROJECT_ID,
+          name: "Plans projet",
+        }),
+      })
+    );
+
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: unknown;
+    };
+
+    expect([200, 201]).toContain(response.status);
+    expect(body.ok).toBe(true);
+    const createdSet = [...supabase.__state.planSetsById.values()][0];
+    expect(createdSet.project_id).toBe(PROJECT_ID);
+  });
+
+  it("GET supports project_id filter", async () => {
+    const supabase = createSupabaseMock({
+      planSets: [
+        basePlanSet({
+          id: SET_ID,
+          project_id: PROJECT_ID,
+          estimate_version_id: ESTIMATE_VERSION_ID,
+          name: "Set projet principal",
+        }),
+        basePlanSet({
+          id: "55555555-5555-4555-8555-555555555555",
+          project_id: OTHER_PROJECT_ID,
+          estimate_version_id: ESTIMATE_VERSION_OTHER_PROJECT_ID,
+          name: "Set autre projet",
+        }),
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await GET(
+      new Request(
+        `http://localhost/api/takeoff/plan-sets?project_id=${encodeURIComponent(PROJECT_ID)}`,
+        {
+          method: "GET",
+        }
+      )
+    );
+
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: unknown;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    const rows = extractPlanSets(body.data) as Array<{ id?: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(SET_ID);
+  });
+
+  it("GET with estimate_version_id returns all sets from the same project", async () => {
+    const supabase = createSupabaseMock({
+      planSets: [
+        basePlanSet({
+          id: SET_ID,
+          project_id: PROJECT_ID,
+          estimate_version_id: ESTIMATE_VERSION_ID,
+          name: "Set version V1",
+        }),
+        basePlanSet({
+          id: "55555555-5555-4555-8555-555555555555",
+          project_id: PROJECT_ID,
+          estimate_version_id: ESTIMATE_VERSION_ID_2,
+          name: "Set version V2",
+        }),
+        basePlanSet({
+          id: "88888888-8888-4888-8888-888888888888",
+          project_id: OTHER_PROJECT_ID,
+          estimate_version_id: ESTIMATE_VERSION_OTHER_PROJECT_ID,
+          name: "Set autre projet",
+        }),
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await GET(
+      new Request(
+        `http://localhost/api/takeoff/plan-sets?estimate_version_id=${encodeURIComponent(ESTIMATE_VERSION_ID)}`,
+        {
+          method: "GET",
+        }
+      )
+    );
+
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: unknown;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    const rows = extractPlanSets(body.data) as Array<{ id?: string }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.id)).toEqual(
+      expect.arrayContaining([
+        SET_ID,
+        "55555555-5555-4555-8555-555555555555",
+      ])
+    );
   });
 
   it("returns 403 with normalized error envelope when membership is missing", async () => {

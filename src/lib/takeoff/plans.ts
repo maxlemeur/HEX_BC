@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { cache } from "react";
 import { z } from "zod";
 
 import {
@@ -28,6 +29,7 @@ const PLAN_SET_SELECT = [
   "created_at",
   "updated_at",
   "tenant_id",
+  "project_id",
   "estimate_version_id",
   "name",
   "description",
@@ -86,6 +88,16 @@ const optionalUuidSearchParamSchema = z.preprocess(
   z.string().uuid("estimate_version_id invalide.").optional()
 );
 
+const optionalProjectUuidSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.string().uuid("project_id invalide.").optional()
+);
+
 const optionalLimitSearchParamSchema = z.preprocess(
   (value) => {
     if (value === undefined || value === null) return undefined;
@@ -132,6 +144,7 @@ export const planFileIdSchema = z.string().uuid("fileId invalide.");
 
 export const listPlanSetsQuerySchema = z
   .object({
+    project_id: optionalProjectUuidSearchParamSchema,
     estimate_version_id: optionalUuidSearchParamSchema,
     limit: optionalLimitSearchParamSchema,
   })
@@ -151,10 +164,20 @@ export const getPlanFileDetailQuerySchema = z
 
 export const createPlanSetSchema = z
   .object({
-    estimate_version_id: z.string().uuid("estimate_version_id invalide."),
+    project_id: z.string().uuid("project_id invalide.").optional(),
+    estimate_version_id: z.string().uuid("estimate_version_id invalide.").optional(),
     name: requiredTextSchema.max(255, "Nom trop long."),
     description: optionalNullableDescriptionSchema,
     metadata: metadataSchema.optional().default({}),
+  })
+  .superRefine((input, ctx) => {
+    if (!input.project_id && !input.estimate_version_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["project_id"],
+        message: "project_id ou estimate_version_id est requis.",
+      });
+    }
   })
   .strict();
 
@@ -200,7 +223,8 @@ const planSetRowSchema = z
     created_at: z.string(),
     updated_at: z.string(),
     tenant_id: z.string().uuid(),
-    estimate_version_id: z.string().uuid(),
+    project_id: z.string().uuid(),
+    estimate_version_id: z.string().uuid().nullable(),
     name: z.string(),
     description: z.string().nullable(),
     metadata: metadataSchema,
@@ -394,6 +418,29 @@ async function getAuthenticatedTakeoffContext() {
   return context;
 }
 
+async function resolveProjectIdForEstimateVersion(input: {
+  supabase: Supabase;
+  tenantId: string;
+  estimateVersionId: string;
+}): Promise<string | null> {
+  const { data, error } = await input.supabase
+    .from("estimate_versions" as never)
+    .select("id, project_id" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("id" as never, input.estimateVersionId as never)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de resoudre la version de devis.");
+  }
+
+  if (!data || typeof (data as { project_id?: unknown }).project_id !== "string") {
+    return null;
+  }
+
+  return (data as { project_id: string }).project_id;
+}
+
 async function getPlanSetByIdOrThrow(input: {
   supabase: Supabase;
   setId: string;
@@ -565,6 +612,7 @@ async function restoreDeletedPlanSet(input: {
         created_at: input.planSet.created_at,
         updated_at: input.planSet.updated_at,
         tenant_id: input.planSet.tenant_id,
+        project_id: input.planSet.project_id,
         estimate_version_id: input.planSet.estimate_version_id,
         name: input.planSet.name,
         description: input.planSet.description,
@@ -656,6 +704,35 @@ export function parseCreatePlanFileInput(payload: unknown): CreatePlanFileInput 
 
 export async function listPlanSets(input: ListPlanSetsQuery) {
   const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  let targetProjectId = input.project_id ?? null;
+
+  if (input.estimate_version_id) {
+    const resolvedProjectId = await resolveProjectIdForEstimateVersion({
+      supabase,
+      tenantId,
+      estimateVersionId: input.estimate_version_id,
+    });
+
+    if (!resolvedProjectId) {
+      return {
+        plan_sets: [],
+      };
+    }
+
+    if (targetProjectId && targetProjectId !== resolvedProjectId) {
+      throw unprocessableEntity(
+        "project_id et estimate_version_id ne pointent pas vers la meme affaire.",
+        {
+          project_id: targetProjectId,
+          estimate_version_id: input.estimate_version_id,
+          resolved_project_id: resolvedProjectId,
+        },
+        "PLAN_SETS_SCOPE_MISMATCH"
+      );
+    }
+
+    targetProjectId = resolvedProjectId;
+  }
 
   let query = supabase
     .from("plan_sets" as never)
@@ -663,10 +740,10 @@ export async function listPlanSets(input: ListPlanSetsQuery) {
     .eq("tenant_id" as never, tenantId as never)
     .order("created_at" as never, { ascending: false });
 
-  if (input.estimate_version_id) {
+  if (targetProjectId) {
     query = query.eq(
-      "estimate_version_id" as never,
-      input.estimate_version_id as never
+      "project_id" as never,
+      targetProjectId as never
     );
   }
 
@@ -692,6 +769,22 @@ export async function listPlanSets(input: ListPlanSetsQuery) {
   };
 }
 
+const projectIdParamSchema = z.string().uuid("project_id invalide.");
+
+export const fetchPlanSetsForProject = cache(async (projectId: string) => {
+  const parsedProjectId = parseWithSchema(
+    projectIdParamSchema,
+    projectId,
+    "project_id invalide."
+  );
+
+  const response = await listPlanSets({
+    project_id: parsedProjectId,
+  });
+
+  return response.plan_sets;
+});
+
 export async function getPlanSet(setId: string) {
   const { supabase } = await getAuthenticatedTakeoffContext();
 
@@ -715,13 +808,58 @@ export async function getPlanSet(setId: string) {
 
 export async function createPlanSet(input: CreatePlanSetInput) {
   const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  let targetProjectId = input.project_id ?? null;
+  const estimateVersionId = input.estimate_version_id ?? null;
+
+  if (estimateVersionId) {
+    const resolvedProjectId = await resolveProjectIdForEstimateVersion({
+      supabase,
+      tenantId,
+      estimateVersionId,
+    });
+
+    if (!resolvedProjectId) {
+      throw notFound(
+        "Version de devis introuvable.",
+        {
+          estimate_version_id: estimateVersionId,
+        }
+      );
+    }
+
+    if (targetProjectId && targetProjectId !== resolvedProjectId) {
+      throw unprocessableEntity(
+        "project_id et estimate_version_id ne pointent pas vers la meme affaire.",
+        {
+          project_id: targetProjectId,
+          estimate_version_id: estimateVersionId,
+          resolved_project_id: resolvedProjectId,
+        },
+        "PLAN_SETS_SCOPE_MISMATCH"
+      );
+    }
+
+    targetProjectId = resolvedProjectId;
+  }
+
+  if (!targetProjectId) {
+    throw unprocessableEntity(
+      "project_id ou estimate_version_id est requis.",
+      {
+        project_id: input.project_id ?? null,
+        estimate_version_id: estimateVersionId,
+      },
+      "VALIDATION_ERROR"
+    );
+  }
 
   const { data, error } = await supabase
     .from("plan_sets" as never)
     .insert(
       {
         tenant_id: tenantId,
-        estimate_version_id: input.estimate_version_id,
+        project_id: targetProjectId,
+        estimate_version_id: estimateVersionId,
         name: input.name,
         description: input.description,
         metadata: input.metadata,
