@@ -27,7 +27,7 @@ Enrichir la hierarchie sections/lignes avec des sous-totaux automatiques, des op
 
 ### Criteres d'acceptation
 
-- [ ] Chaque section affiche un sous-total calcule comme la somme des lignes enfants (total_ht_cents, total_ttc_cents)
+- [ ] Chaque section affiche un sous-total calcule comme la somme de tous ses descendants (lignes directes + lignes des sous-sections) (total_ht_cents, total_ttc_cents)
 - [ ] Le sous-total est affiche inline dans la ligne de la section, apres le titre
 - [ ] Les sous-totaux sont mis a jour automatiquement lors de toute modification d'une ligne enfant
 - [ ] Les sous-totaux sont inclus dans la vue impression avec formatage EUR
@@ -55,7 +55,7 @@ Enrichir la hierarchie sections/lignes avec des sous-totaux automatiques, des op
 
 ### Criteres d'acceptation
 
-- [ ] Support de 2 niveaux d'imbrication maximum : section > sous-section > lignes
+- [ ] Support de 2 niveaux d'imbrication minimum : section > sous-section (lignes possibles a tout niveau, noeuds mixtes autorises — etendu par EST-125)
 - [ ] Indentation visuelle proportionnelle au niveau de profondeur
 - [ ] Le drag-and-drop permet de deplacer une sous-section entre sections parentes
 - [ ] Le drag-and-drop d'une ligne permet de la placer dans une sous-section
@@ -110,7 +110,9 @@ Enrichir la hierarchie sections/lignes avec des sous-totaux automatiques, des op
 
 ### Criteres d'acceptation
 
-- [ ] Numerotation hierarchique basee sur la position et le parent : sections = 1, 2, 3... ; sous-sections = 1.1, 1.2... ; lignes = 1.1.1, 1.1.2...
+- [ ] Numerotation hierarchique : compteur unique sequentiel parmi tous les enfants directs d'un meme parent (sections et lignes partagent le meme compteur)
+- [ ] Format : racine zero-padded 2 chiffres (01, 02), niveaux suivants sans padding (1, 2, 3), separateur point (ex: 01.2.1)
+- [ ] La differenciation section/ligne se fait visuellement (style, icone), pas par le format du numero
 - [ ] La numerotation se met a jour automatiquement lors de tout reordonnancement (drag-and-drop, deplacement)
 - [ ] La numerotation est affichee dans le tableau editeur (colonne dediee ou prefixe du titre)
 - [ ] La numerotation est incluse dans la vue impression

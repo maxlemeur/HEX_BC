@@ -19,6 +19,7 @@ import type { PlanFileListItem, PlanSetListItem } from "@/lib/takeoff/types";
 type PlanSetCardProps = {
   planSet: PlanSetListItem;
   versionId?: string | null;
+  deletePlanSetHandler?: (setId: string) => Promise<unknown>;
   onDeleted: () => void;
   onFilesChanged: () => void;
   onUpdated: () => void;
@@ -95,6 +96,7 @@ function formatRelativeTime(isoDate: string) {
 export function PlanSetCard({
   planSet,
   versionId,
+  deletePlanSetHandler,
   onDeleted,
   onFilesChanged,
   onUpdated,
@@ -128,7 +130,8 @@ export function PlanSetCard({
   const handleDeleteSet = useCallback(async () => {
     setDeletingSet(true);
     try {
-      await apiDeletePlanSet(planSet.id);
+      const deleteSet = deletePlanSetHandler ?? apiDeletePlanSet;
+      await deleteSet(planSet.id);
       setDeleteSetModalOpen(false);
       setAnnouncement(`Jeu "${planSet.name}" supprime.`);
       onDeleted();
@@ -140,7 +143,7 @@ export function PlanSetCard({
     } finally {
       setDeletingSet(false);
     }
-  }, [planSet.id, planSet.name, onDeleted]);
+  }, [deletePlanSetHandler, planSet.id, planSet.name, onDeleted]);
 
   const handleDeleteFile = useCallback(
     async (fileId: string) => {

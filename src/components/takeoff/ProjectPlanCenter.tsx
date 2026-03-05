@@ -3,12 +3,15 @@
 import { useCallback, useState } from "react";
 import useSWR from "swr";
 
+import {
+  createPlanSetAction,
+  deletePlanSetAction,
+} from "@/app/dashboard/affaires/[projectId]/plans/_actions/plan-sets";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import { PlanSetCard } from "@/components/takeoff/PlanSetCard";
 import { PlanSetFormModal } from "@/components/takeoff/PlanSetFormModal";
 import { Button } from "@/components/ui/Button";
 import {
-  createPlanSet,
   fetchPlanSetsForProject,
   isTakeoffApiError,
 } from "@/lib/takeoff/client";
@@ -54,7 +57,7 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
       setCreating(true);
       setCreateError(null);
       try {
-        await createPlanSet({
+        await createPlanSetAction({
           project_id: projectId,
           name: input.name,
           description: input.description,
@@ -201,6 +204,7 @@ export function ProjectPlanCenter({ projectId, initialPlanSets }: ProjectPlanCen
               key={set.id}
               planSet={set}
               versionId={null}
+              deletePlanSetHandler={deletePlanSetAction}
               onDeleted={handleSetDeleted}
               onFilesChanged={handleFilesChanged}
               onUpdated={handleSetUpdated}

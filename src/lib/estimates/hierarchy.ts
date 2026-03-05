@@ -59,11 +59,11 @@ export function getDefaultSectionTitleForLevel(level: number) {
 }
 
 export function formatAddSectionLabelForLevel(level: number) {
-  return `+ Ajouter un ${getSectionLevelLabel(level)}`;
+  return `+ ${getSectionLevelLabel(level)}`;
 }
 
 export function formatAddLineLabelForSectionLevel(level: number) {
-  return `+ Ajouter une ligne ${getSectionLevelLabel(level)}`;
+  return `+ Ligne ${getSectionLevelLabel(level)}`;
 }
 
 export function buildHierarchyIndex(items: readonly HierarchyItemLike[]): HierarchyIndex {

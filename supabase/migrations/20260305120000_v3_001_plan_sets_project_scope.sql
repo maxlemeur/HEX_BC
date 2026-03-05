@@ -54,6 +54,9 @@ create index if not exists plan_sets_tenant_project_not_null_idx
   on public.plan_sets (tenant_id, project_id, created_at desc)
   where project_id is not null;
 
+create index if not exists plan_sets_project_id_idx
+  on public.plan_sets (project_id);
+
 create or replace function public.assign_plan_sets_tenant_id()
 returns trigger
 language plpgsql
@@ -61,12 +64,28 @@ set search_path = public
 as $$
 declare
   parent_tenant_id uuid;
+  version_project_id uuid;
 begin
   if new.estimate_version_id is not null then
-    select ev.tenant_id
-      into parent_tenant_id
+    select ev.tenant_id, ev.project_id
+      into parent_tenant_id, version_project_id
     from public.estimate_versions ev
     where ev.id = new.estimate_version_id;
+  end if;
+
+  if new.project_id is not null
+    and version_project_id is not null
+    and new.project_id is distinct from version_project_id then
+    raise exception
+      using
+        errcode = '23514',
+        message = 'PLAN_SETS_SCOPE_MISMATCH',
+        detail = format(
+          'estimate_version_id=%s belongs to project_id=%s, got project_id=%s',
+          new.estimate_version_id,
+          version_project_id,
+          new.project_id
+        );
   end if;
 
   if parent_tenant_id is null and new.project_id is not null then
