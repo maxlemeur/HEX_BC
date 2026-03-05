@@ -130,3 +130,32 @@ Transformer un devis accepte en suivi d'execution avec situations mensuelles (fa
 - Migration DB : table `final_settlements` (estimate_version_id, penalties_cents, bonuses_cents, status, etc.)
 - Reutiliser : `work_situations` et `estimate_amendments` pour la consolidation, pattern PDF
 - Dependances : EST-331 (situations), EST-332 (avenants), EST-333 (retenues)
+
+---
+
+## EST-361 — Suivi budgetaire projet (previsionnel vs realise)
+
+**Priorite:** P1 | **Effort:** L | **Milestone:** M6
+
+### User Story
+
+> En tant que chiffreur, je veux comparer le budget previsionnel (devis) avec le realise (situations + depenses) pour chaque projet, avec des ecarts de marge par poste, afin de maitriser la rentabilite a chaque etape du chantier.
+
+### Criteres d'acceptation
+
+- [ ] Dashboard rentabilite par projet : previsionnel (montants du devis accepte) vs realise (cumul des situations validees)
+- [ ] Ecarts de marge par poste : montant prevu, montant facture, ecart en EUR et en %, alerte si ecart > seuil configurable
+- [ ] Ecarts par lot (EST-341) : rentabilite consolidee par lot technique
+- [ ] Indicateurs cles : marge brute previsionnelle, marge brute realisee, taux de realisation, reste a facturer
+- [ ] Prise en compte des avenants (EST-332) : le previsionnel integre le marche revise (initial + avenants acceptes)
+- [ ] Suivi des depenses : saisie ou import des depenses reelles (achats materiaux, MO, sous-traitance) pour comparaison avec le DS previsionnel
+- [ ] Alertes depassement : notification quand les depenses reelles depassent le budget previsionnel par poste ou par lot
+- [ ] Export du tableau de bord rentabilite en PDF ou Excel
+- [ ] Vue consolidee multi-projets : rentabilite globale de l'entreprise sur une periode
+
+### Notes techniques
+
+- Fichiers a creer : `src/lib/budget/`, `src/components/budget/`, `src/app/dashboard/projects/[projectId]/budget/`
+- Migration DB : table `project_expenses` (project_id, estimate_item_id, cost_type, amount_cents, date, description)
+- Reutiliser : `computeEstimateLineValues()` pour les montants previsionnels, `work_situations` pour le realise facture
+- Dependances : EST-331 (situations — source du realise), EST-301 (decomposition DS — source du previsionnel)

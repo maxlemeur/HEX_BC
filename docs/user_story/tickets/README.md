@@ -5,10 +5,10 @@
 
 ## Couverture
 
-- Tickets total: **82**
+- Tickets total: **85**
 - Tickets presents dans le sequencing v2: **35**
 - Tickets hors sequencing v2 (backlog): **30**
-- Tickets M5/M6 (nouvelles stories): **17**
+- Tickets M5/M6 (nouvelles stories): **20**
 
 ## Tickets
 
@@ -96,6 +96,9 @@
 | [EST-352](./EST-352.md) | Mentions legales obligatoires | Non | M5/V1 | Backlog | S | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
 | [EST-353](./EST-353.md) | Page de garde et recapitulatif | Non | M5/V2 | Backlog | M | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
 | [EST-354](./EST-354.md) | Conditions generales et particulieres | Non | M5/V2 | Backlog | M | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
+| [EST-361](./EST-361.md) | Suivi budgetaire projet (prev. vs realise) | Non | M6/V4 | Backlog | L | M6 | [EST-E18](../EST-E18-situations-avenants.md) |
+| [EST-362](./EST-362.md) | Referentiel normes BTP (DTU, RE2020...) | Non | M5/V2 | Backlog | M | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
+| [EST-363](./EST-363.md) | Ouvrages favoris et acces rapide | Non | M5/V2 | Backlog | S | M5 | [EST-E16](../EST-E16-ouvrages-bibliotheque.md) |
 
 ## Usage
 

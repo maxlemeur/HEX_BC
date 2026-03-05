@@ -67,3 +67,30 @@ Transformer les assemblages existants (`estimate_assemblies`) en ouvrages compos
 - Migration DB : table `reference_prices` (source, code, designation, unit_price_cents, last_updated)
 - Reutiliser : `supplier_pricebook` comme modele de stockage, `material_indices` pour les comparaisons
 - Dependances : EST-311 (ouvrages composes pour recevoir les imports)
+
+---
+
+## EST-363 — Ouvrages favoris et acces rapide
+
+**Priorite:** P2 | **Effort:** S | **Milestone:** M5
+
+### User Story
+
+> En tant que chiffreur, je veux marquer des ouvrages comme favoris et y acceder rapidement depuis un panneau dedie dans l'editeur, afin de gagner du temps en inserant les ouvrages que j'utilise le plus souvent.
+
+### Criteres d'acceptation
+
+- [ ] Bouton "favori" (etoile) sur chaque ouvrage de la bibliotheque pour le marquer/demarquer
+- [ ] Les favoris sont stockes par utilisateur (pas au niveau tenant)
+- [ ] Panneau "Favoris" dans l'editeur : acces rapide aux ouvrages favoris avec insertion en un clic
+- [ ] Classement des favoris par frequence d'utilisation (les plus inseres en premier) et par ordre manuel (drag-and-drop)
+- [ ] Recherche rapide dans les favoris (filtre texte)
+- [ ] Les ouvrages recemment utilises apparaissent aussi dans une section "Recents" (meme sans marquage favori)
+- [ ] Compteur d'utilisation par ouvrage : nombre de fois insere dans un devis
+
+### Notes techniques
+
+- Fichiers a creer : `src/components/estimates/FavoritesPanel.tsx`
+- Migration DB : table `user_favorite_assemblies` (user_id, assembly_id, usage_count, last_used_at, position)
+- Reutiliser : pattern panneau lateral des assemblages (EST-182), bibliotheque ouvrages (EST-311)
+- Dependances : EST-311 (ouvrages composes — prerequis bibliotheque)

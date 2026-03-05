@@ -189,6 +189,8 @@ a construire dans la roadmap V1.
 | EST-352 | Mentions legales obligatoires          | EST-E20| M5        | P1       | S      |
 | EST-353 | Page de garde et recapitulatif         | EST-E20| M5        | P1       | M      |
 | EST-354 | Conditions generales et particulieres  | EST-E20| M5        | P2       | M      |
+| EST-362 | Referentiel normes BTP (DTU, RE2020...)| EST-E20| M5        | P1       | M      |
+| EST-363 | Ouvrages favoris et acces rapide       | EST-E16| M5        | P2       | S      |
 
 ### Stories M6 — Cycle de vie chantier
 
@@ -201,6 +203,7 @@ a construire dans la roadmap V1.
 | EST-341 | Lots techniques (allotissement)        | EST-E19| M6        | P0       | L      |
 | EST-342 | Sous-traitance dans le devis           | EST-E19| M6        | P1       | M      |
 | EST-343 | Consultation fournisseurs automatisee  | EST-E19| M6        | P2       | L      |
+| EST-361 | Suivi budgetaire projet (prev. vs real.)| EST-E18| M6       | P1       | L      |
 
 ### Nice-to-have (non planifies)
 
@@ -211,7 +214,7 @@ Les themes suivants sont identifies mais ne necessitent pas de ticket immediat :
 - GED chantier (PV reception, CR chantier, photos, OPR)
 - Export comptable FEC (Sage/Cegid/EBP) — a creer quand D1 (EST-331) sera livre
 - Revision de prix formules parametriques (index BTP) — a creer quand D1 sera livre
-- Analyse rentabilite previsionnel vs realise — a creer quand D1 sera livre
+- ~~Analyse rentabilite previsionnel vs realise~~ → **EST-361** (ticket cree)
 - Collaboration temps reel (multi-chiffreurs a la Google Docs) — tech spike a planifier
 
 ### Stories promues (changement de milestone)

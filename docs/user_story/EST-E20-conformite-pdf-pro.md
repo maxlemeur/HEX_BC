@@ -121,3 +121,31 @@ Assurer la conformite reglementaire des devis avec la multi-TVA (taux reduits re
 - Migration DB : tables `clause_templates` (tenant_id, title, content, category, position), `estimate_clauses` (estimate_version_id, clause_template_id, content_override, position)
 - Reutiliser : pattern bibliotheque des assemblages, editeur rich text existant ou a integrer
 - Dependances : aucune
+
+---
+
+## EST-362 — Referentiel normes BTP (DTU, RE2020, CCAG, CCTP, BPU)
+
+**Priorite:** P1 | **Effort:** M | **Milestone:** M5
+
+### User Story
+
+> En tant que chiffreur, je veux acceder aux references normatives BTP (DTU, RE2020, CCAG, CCTP, BPU) et les rattacher a mes lignes de devis, afin de justifier mes choix techniques et de garantir la conformite reglementaire de mes chiffrages.
+
+### Criteres d'acceptation
+
+- [ ] Referentiel de normes integre : base de donnees des DTU, RE2020, articles CCAG, postes BPU avec code, intitule, description, lien vers le texte officiel
+- [ ] Recherche dans le referentiel : par code (ex: DTU 26.1), par mot-cle, par corps d'etat
+- [ ] Rattachement d'une reference normative a une ligne du devis : champ `norm_references` sur `estimate_items`
+- [ ] Affichage dans l'editeur : badge ou icone indiquant qu'une ligne a des references normatives, detail au survol
+- [ ] Les references normatives sont affichees dans le PDF du devis (optionnel, colonne ou note de bas de page)
+- [ ] Mise a jour du referentiel : import periodique ou edition manuelle par l'admin tenant
+- [ ] Referentiel partage au niveau tenant : enrichissable par les chiffreurs de l'entreprise
+- [ ] Lien avec les ouvrages composes (EST-311) : un ouvrage peut avoir des normes associees par defaut
+
+### Notes techniques
+
+- Fichiers a creer : `src/lib/norms/`, `src/components/norms/NormSearch.tsx`, `src/app/dashboard/settings/norms/`
+- Migration DB : table `norm_references` (code, title, body, category, source_url), table de jointure `estimate_item_norms`
+- Reutiliser : pattern recherche du catalogue fournisseur, panel lateral existant
+- Dependances : aucune
