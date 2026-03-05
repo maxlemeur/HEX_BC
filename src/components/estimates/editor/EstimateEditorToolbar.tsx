@@ -190,10 +190,14 @@ type EstimateEditorToolbarProps = {
   onExportCSV: () => void;
   onExportDpgf: () => void;
   onExportBdc: () => void;
+  onImportDpgfSource: () => void;
+  showImportDpgfSource: boolean;
   isExportDisabled: boolean;
   isExporting: boolean;
   exportLoadingLabel: string;
   activeExportMode: EstimateExportMode | "csv" | null;
+  isImportingDpgfSource: boolean;
+  isImportDpgfSourceDisabled: boolean;
   versionId: string;
 };
 
@@ -216,10 +220,14 @@ export function EstimateEditorToolbar({
   onExportCSV,
   onExportDpgf,
   onExportBdc,
+  onImportDpgfSource,
+  showImportDpgfSource,
   isExportDisabled,
   isExporting,
   exportLoadingLabel,
   activeExportMode,
+  isImportingDpgfSource,
+  isImportDpgfSourceDisabled,
   versionId,
 }: EstimateEditorToolbarProps) {
   return (
@@ -264,6 +272,18 @@ export function EstimateEditorToolbar({
           loading={isExporting}
           loadingLabel={exportLoadingLabel}
         />
+        {showImportDpgfSource ? (
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={onImportDpgfSource}
+            disabled={isImportDpgfSourceDisabled}
+          >
+            {isImportingDpgfSource
+              ? "Import DPGF source..."
+              : "Importer le DPGF source"}
+          </button>
+        ) : null}
         {canSend ? (
           <button
             className="btn btn-secondary btn-sm"

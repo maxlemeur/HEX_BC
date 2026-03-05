@@ -121,6 +121,38 @@ export type ImportEstimateSectionsResult = {
   versionToken: EstimateVersionToken | null;
 };
 
+export type AffaireLinkedDpgfSource = {
+  importId: string;
+  filename: string;
+  sourceFormat: string;
+  importStatus: string;
+  mappingStatus: string | null;
+  importedAt: string;
+  mappingUpdatedAt: string | null;
+  parseMode: string;
+  rowCount: number;
+  mappedRowCount: number;
+} | null;
+
+export type ImportLinkedDpgfSourcePayload = {
+  sectionTitle?: string | null;
+};
+
+export type ImportLinkedDpgfSourceResult = {
+  sourceImportId: string;
+  targetVersionId: string;
+  createdSectionId: string;
+  createdLineIds: string[];
+  importedLinesCount: number;
+  skippedLinesCount: number;
+  totals: {
+    totalHtCents: number;
+    totalTaxCents: number;
+    totalTtcCents: number;
+  };
+  versionToken: EstimateVersionToken | null;
+};
+
 export type EstimateTemplateSummary = {
   id: string;
   name: string;
@@ -225,6 +257,8 @@ export type EstimateEditorData = {
   suggestionRules: SuggestionRule[];
 };
 
+export type CreateEstimateCreationMode = "blank" | "linkedDpgfSource";
+
 export type CreateEstimatePayload = {
   projectName?: string;
   projectId?: string;
@@ -241,6 +275,7 @@ export type CreateEstimatePayload = {
   roundingStepCents?: number;
   currency?: string;
   projectNotes?: string | null;
+  creationMode?: CreateEstimateCreationMode;
 };
 
 export type EstimateVersionToken = Pick<EstimateVersionRow, "id" | "updated_at">;
@@ -1549,6 +1584,128 @@ function parseImportEstimateSectionsResult(
   };
 }
 
+function parseAffaireLinkedDpgfSource(payload: unknown): AffaireLinkedDpgfSource {
+  const root = getRootPayload(payload);
+  if (root === null) {
+    return null;
+  }
+
+  if (!isRecord(root)) {
+    return null;
+  }
+
+  const importId =
+    toStringValue(root.importId) ?? toStringValue(root.import_id);
+  const filename = toStringValue(root.filename);
+  const sourceFormat =
+    toStringValue(root.sourceFormat) ?? toStringValue(root.source_format);
+  const importStatus =
+    toStringValue(root.importStatus) ?? toStringValue(root.import_status);
+  const importedAt =
+    toStringValue(root.importedAt) ?? toStringValue(root.imported_at);
+  const parseMode =
+    toStringValue(root.parseMode) ?? toStringValue(root.parse_mode);
+  const rowCount = toNumber(root.rowCount) ?? toNumber(root.row_count);
+  const mappedRowCount =
+    toNumber(root.mappedRowCount) ?? toNumber(root.mapped_row_count);
+
+  if (
+    !importId ||
+    !filename ||
+    !sourceFormat ||
+    !importStatus ||
+    !importedAt ||
+    !parseMode ||
+    rowCount === null ||
+    mappedRowCount === null
+  ) {
+    return null;
+  }
+
+  return {
+    importId,
+    filename,
+    sourceFormat,
+    importStatus,
+    mappingStatus:
+      toStringValue(root.mappingStatus) ??
+      toStringValue(root.mapping_status) ??
+      null,
+    importedAt,
+    mappingUpdatedAt:
+      toStringValue(root.mappingUpdatedAt) ??
+      toStringValue(root.mapping_updated_at) ??
+      null,
+    parseMode,
+    rowCount: Math.max(0, Math.trunc(rowCount)),
+    mappedRowCount: Math.max(0, Math.trunc(mappedRowCount)),
+  };
+}
+
+function parseImportLinkedDpgfSourceResult(
+  payload: unknown
+): ImportLinkedDpgfSourceResult | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const sourceImportId =
+    toStringValue(root.sourceImportId) ?? toStringValue(root.source_import_id);
+  const targetVersionId =
+    toStringValue(root.targetVersionId) ?? toStringValue(root.target_version_id);
+  const createdSectionId =
+    toStringValue(root.createdSectionId) ?? toStringValue(root.created_section_id);
+  const importedLinesCount =
+    toNumber(root.importedLinesCount) ?? toNumber(root.imported_lines_count);
+  const skippedLinesCount =
+    toNumber(root.skippedLinesCount) ?? toNumber(root.skipped_lines_count) ?? 0;
+
+  const createdLineIdsRaw =
+    (Array.isArray(root.createdLineIds) ? root.createdLineIds : null) ??
+    (Array.isArray(root.created_line_ids) ? root.created_line_ids : null) ??
+    [];
+  const createdLineIds = createdLineIdsRaw
+    .map((entry) => toStringValue(entry))
+    .filter((entry): entry is string => entry !== null);
+
+  const totalsRecord = pickRecord(root, ["totals"]);
+  const totalHtCents =
+    toNumber(totalsRecord?.total_ht_cents) ??
+    toNumber(totalsRecord?.totalHtCents);
+  const totalTaxCents =
+    toNumber(totalsRecord?.total_tax_cents) ??
+    toNumber(totalsRecord?.totalTaxCents);
+  const totalTtcCents =
+    toNumber(totalsRecord?.total_ttc_cents) ??
+    toNumber(totalsRecord?.totalTtcCents);
+
+  if (
+    !sourceImportId ||
+    !targetVersionId ||
+    !createdSectionId ||
+    importedLinesCount === null ||
+    totalHtCents === null ||
+    totalTaxCents === null ||
+    totalTtcCents === null
+  ) {
+    return null;
+  }
+
+  return {
+    sourceImportId,
+    targetVersionId,
+    createdSectionId,
+    createdLineIds,
+    importedLinesCount: Math.max(0, Math.trunc(importedLinesCount)),
+    skippedLinesCount: Math.max(0, Math.trunc(skippedLinesCount)),
+    totals: {
+      totalHtCents: Math.max(0, Math.trunc(totalHtCents)),
+      totalTaxCents: Math.max(0, Math.trunc(totalTaxCents)),
+      totalTtcCents: Math.max(0, Math.trunc(totalTtcCents)),
+    },
+    versionToken: parseVersionToken(root),
+  };
+}
+
 function parseDuplicateEstimateSectionResult(
   payload: unknown
 ): DuplicateEstimateSectionResult | null {
@@ -2048,6 +2205,20 @@ export async function fetchEstimateImportableSections(
   return parseEstimateImportSectionPreviews(payload);
 }
 
+export async function fetchAffaireLinkedDpgfSource(
+  projectId: string
+): Promise<AffaireLinkedDpgfSource> {
+  const payload = await requestJson<unknown>(
+    `/api/affaires/${projectId}/dpgf-source`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger la source DPGF de l'affaire."
+  );
+
+  return parseAffaireLinkedDpgfSource(payload);
+}
+
 export async function importEstimateSections(
   targetVersionId: string,
   input: ImportEstimateSectionsPayload
@@ -2076,6 +2247,32 @@ export async function importEstimateSections(
   return parsed;
 }
 
+export async function importLinkedDpgfSource(
+  targetVersionId: string,
+  input: ImportLinkedDpgfSourcePayload = {}
+): Promise<ImportLinkedDpgfSourceResult> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${targetVersionId}/import-linked-dpgf`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sectionTitle: input.sectionTitle ?? null,
+      }),
+    },
+    "Impossible d'importer la source DPGF liee."
+  );
+
+  const parsed = parseImportLinkedDpgfSourceResult(payload);
+  if (!parsed) {
+    throw new Error("Impossible de lire le resultat de l'import DPGF.");
+  }
+
+  return parsed;
+}
+
 export async function createEstimate(
   input: CreateEstimatePayload
 ): Promise<string> {
@@ -2087,6 +2284,14 @@ export async function createEstimate(
   }
 
   const requestBody: Record<string, unknown> = {
+    ...(input.creationMode
+      ? {
+          creation_mode:
+            input.creationMode === "linkedDpgfSource"
+              ? "linked_dpgf_source"
+              : "blank",
+        }
+      : {}),
     version: {
       title: input.title,
       date_devis: input.dateDevis,

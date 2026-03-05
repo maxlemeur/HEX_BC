@@ -110,9 +110,11 @@ import {
   fetchEstimateDraftVersions,
   fetchEstimateEditorData,
   fetchEstimateItemsForVersion,
+  fetchAffaireLinkedDpgfSource,
   fetchEstimateOutlierDismissedFlags,
   fetchEstimateVersionEvents,
   exportEstimate,
+  importLinkedDpgfSource,
   importEstimateSections,
   insertAssemblyIntoVersion,
   insertTemplateIntoVersion,
@@ -125,6 +127,8 @@ import {
   toggleEstimateOutlierDismissedFlag,
   updateEstimateLaborRole,
   type EstimateExportMode,
+  type AffaireLinkedDpgfSource,
+  type ImportLinkedDpgfSourceResult,
   type ImportEstimateSectionsPayload,
   type EstimateVersionEvent,
   type EstimateSendGatingResponse,
@@ -1025,6 +1029,16 @@ function resolveEstimateActionError(message: string) {
   return message;
 }
 
+function hasImportableLinkedDpgfSource(
+  source: AffaireLinkedDpgfSource
+): source is NonNullable<AffaireLinkedDpgfSource> {
+  return Boolean(
+    source &&
+      source.importStatus === "completed" &&
+      source.mappedRowCount > 0
+  );
+}
+
 function isVersionConflictError(error: unknown): boolean {
   return isEstimateApiError(error) && error.status === 409;
 }
@@ -1419,6 +1433,11 @@ export function useEstimateEditorState({
     useState(false);
   const [importSummaryMessage, setImportSummaryMessage] =
     useState<string | null>(null);
+  const [linkedDpgfSource, setLinkedDpgfSource] =
+    useState<AffaireLinkedDpgfSource>(null);
+  const [isLoadingLinkedDpgfSource, setIsLoadingLinkedDpgfSource] =
+    useState(false);
+  const [isImportingDpgfSource, setIsImportingDpgfSource] = useState(false);
   const {
     push: pushHistoryCommand,
     undo: executeUndo,
@@ -1724,6 +1743,41 @@ export function useEstimateEditorState({
     reloadNonce,
     resolvedVersionId,
   ]);
+
+  useEffect(() => {
+    const projectId = version?.project_id ?? null;
+    if (!projectId) {
+      setLinkedDpgfSource(null);
+      setIsLoadingLinkedDpgfSource(false);
+      return;
+    }
+    const targetProjectId = projectId;
+
+    let active = true;
+    setIsLoadingLinkedDpgfSource(true);
+
+    async function loadLinkedDpgfSource() {
+      try {
+        const source = await fetchAffaireLinkedDpgfSource(targetProjectId);
+        if (!active) return;
+        setLinkedDpgfSource(source);
+      } catch (error) {
+        if (!active) return;
+        console.error("Impossible de charger la source DPGF liee.", error);
+        setLinkedDpgfSource(null);
+      } finally {
+        if (active) {
+          setIsLoadingLinkedDpgfSource(false);
+        }
+      }
+    }
+
+    void loadLinkedDpgfSource();
+
+    return () => {
+      active = false;
+    };
+  }, [version?.project_id]);
 
   useEffect(() => {
     if (!resolvedVersionId) {
@@ -2789,6 +2843,13 @@ export function useEstimateEditorState({
   ]);
 
   const isExportDisabled = isExporting || !version || !settings || !totals;
+  const hasLinkedDpgfSource = hasImportableLinkedDpgfSource(linkedDpgfSource);
+  const isImportDpgfSourceDisabled =
+    !hasLinkedDpgfSource ||
+    isLoadingLinkedDpgfSource ||
+    isImportingDpgfSource ||
+    isSaveBlocked ||
+    isExporting;
 
   const persistedTotals: EstimateTotals | null = useMemo(() => {
     if (!savedSettings) return null;
@@ -5013,6 +5074,91 @@ export function useEstimateEditorState({
     ]
   );
 
+  const handleImportDpgfSource = useCallback(async () => {
+    if (isReadOnly) {
+      setActionError(readOnlyActionErrorMessage);
+      return;
+    }
+    if (isConflictLocked) {
+      setActionError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+    if (isImportingDpgfSource) {
+      return;
+    }
+    if (!hasLinkedDpgfSource) {
+      setActionError("Aucune source DPGF importable n'est liee a cette affaire.");
+      return;
+    }
+
+    const versionSnapshot = versionRef.current;
+    if (!versionSnapshot?.id) {
+      setActionError("Version introuvable.");
+      return;
+    }
+
+    setActionError(null);
+    setImportSummaryMessage(null);
+    setIsImportingDpgfSource(true);
+
+    try {
+      const result: ImportLinkedDpgfSourceResult =
+        await importLinkedDpgfSource(versionSnapshot.id);
+
+      await reloadItems();
+      setTotalsOutOfSync(false);
+
+      if (result.importedLinesCount >= 0) {
+        const suffix = result.importedLinesCount > 1 ? "s" : "";
+        setImportSummaryMessage(
+          `${result.importedLinesCount} ligne${suffix} importee${suffix} depuis le DPGF source.`
+        );
+      } else {
+        setImportSummaryMessage("Import du DPGF source termine.");
+      }
+
+      if (result.versionToken?.updated_at) {
+        applyVersionToken(result.versionToken.updated_at);
+        return;
+      }
+
+      await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
+        fetchEstimateEditorData,
+        onVersionToken: (updatedAt) => {
+          applyVersionToken(updatedAt);
+        },
+        onError: (error) => {
+          console.error(
+            "Impossible de rafraichir le jeton de version apres import du DPGF source.",
+            error
+          );
+        },
+      });
+    } catch (error) {
+      console.error("Erreur lors de l'import du DPGF source lie.", error);
+      setActionError(
+        resolveEstimateActionError(
+          error instanceof Error
+            ? error.message
+            : "Impossible d'importer le DPGF source lie."
+        )
+      );
+    } finally {
+      setIsImportingDpgfSource(false);
+    }
+  }, [
+    applyVersionToken,
+    conflictState?.message,
+    hasLinkedDpgfSource,
+    isConflictLocked,
+    isImportingDpgfSource,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+    reloadItems,
+  ]);
+
   const handleDeleteItem = useCallback(
     async (itemId: string) => {
       if (isReadOnly) {
@@ -6869,10 +7015,14 @@ export function useEstimateEditorState({
         onExportCSV: () => void handleExportCSV(),
         onExportDpgf: () => void handleExportDpgf(),
         onExportBdc: () => void handleExportBdc(),
+        onImportDpgfSource: () => void handleImportDpgfSource(),
+        showImportDpgfSource: hasLinkedDpgfSource,
         isExportDisabled,
         isExporting,
         exportLoadingLabel,
         activeExportMode,
+        isImportingDpgfSource,
+        isImportDpgfSourceDisabled,
         versionId,
       }
     : null;

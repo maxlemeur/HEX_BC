@@ -12,6 +12,7 @@ import {
   duplicateEstimateAssembly,
   fetchEstimateList,
   fetchEstimateImportSources,
+  fetchAffaireLinkedDpgfSource,
   fetchEstimateImportableSections,
   fetchEstimateAssemblies,
   fetchEstimateDraftVersions,
@@ -19,6 +20,7 @@ import {
   fetchEstimatePdfStatus,
   insertAssemblyIntoVersion,
   importEstimateSections,
+  importLinkedDpgfSource,
   isEstimateApiError,
   instantiateEstimateFromTemplate,
   releaseEstimateDraftLock,
@@ -1077,6 +1079,57 @@ describe("estimate client section duplication wrappers", () => {
     ]);
   });
 
+  it("loads linked DPGF source details for an affaire", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            import_id: SOURCE_VERSION_ID,
+            filename: "dpgf-source.xlsx",
+            source_format: "xlsx",
+            import_status: "completed",
+            mapping_status: "mapped",
+            imported_at: "2026-03-05T08:00:00.000Z",
+            mapping_updated_at: "2026-03-05T08:15:00.000Z",
+            parse_mode: "strict",
+            row_count: 14,
+            mapped_row_count: 13,
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const source = await fetchAffaireLinkedDpgfSource(PROJECT_ID);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/affaires/${PROJECT_ID}/dpgf-source`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(source).toEqual({
+      importId: SOURCE_VERSION_ID,
+      filename: "dpgf-source.xlsx",
+      sourceFormat: "xlsx",
+      importStatus: "completed",
+      mappingStatus: "mapped",
+      importedAt: "2026-03-05T08:00:00.000Z",
+      mappingUpdatedAt: "2026-03-05T08:15:00.000Z",
+      parseMode: "strict",
+      rowCount: 14,
+      mappedRowCount: 13,
+    });
+  });
+
   it("imports sections and parses import summary with version token", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -1135,6 +1188,75 @@ describe("estimate client section duplication wrappers", () => {
       importedLinesCount: 7,
       createdSectionIds: [SECTION_ID_1],
       createdLineIds: [ITEM_ID],
+      versionToken: {
+        id: VERSION_ID,
+        updated_at: NEXT_UPDATED_AT,
+      },
+    });
+  });
+
+  it("imports linked DPGF source into an existing version", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            source_import_id: SOURCE_VERSION_ID,
+            target_version_id: VERSION_ID,
+            created_section_id: SECTION_ID_1,
+            created_line_ids: [ITEM_ID],
+            imported_lines_count: 1,
+            skipped_lines_count: 0,
+            totals: {
+              total_ht_cents: 5000,
+              total_tax_cents: 1000,
+              total_ttc_cents: 6000,
+            },
+            version: {
+              id: VERSION_ID,
+              updated_at: NEXT_UPDATED_AT,
+            },
+          },
+        }),
+        {
+          status: 201,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await importLinkedDpgfSource(VERSION_ID, {
+      sectionTitle: "Import DPGF",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/estimates/${VERSION_ID}/import-linked-dpgf`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+      })
+    );
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      sectionTitle: "Import DPGF",
+    });
+
+    expect(result).toEqual({
+      sourceImportId: SOURCE_VERSION_ID,
+      targetVersionId: VERSION_ID,
+      createdSectionId: SECTION_ID_1,
+      createdLineIds: [ITEM_ID],
+      importedLinesCount: 1,
+      skippedLinesCount: 0,
+      totals: {
+        totalHtCents: 5000,
+        totalTaxCents: 1000,
+        totalTtcCents: 6000,
+      },
       versionToken: {
         id: VERSION_ID,
         updated_at: NEXT_UPDATED_AT,
@@ -1590,6 +1712,39 @@ describe("estimate client creation wrappers", () => {
       },
     });
     expect(body.project).toBeUndefined();
+  });
+
+  it("forwards linked DPGF creation mode in createEstimate payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            version: {
+              id: VERSION_ID,
+            },
+          },
+        }),
+        {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createEstimate({
+      projectId: PROJECT_ID,
+      title: "Version depuis DPGF",
+      dateDevis: "2026-03-04",
+      validiteJours: 30,
+      creationMode: "linkedDpgfSource",
+    });
+
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(requestInit.body)) as Record<string, unknown>;
+
+    expect(body.creation_mode).toBe("linked_dpgf_source");
   });
 
   it("sends projectId when instantiating a template into an existing project", async () => {

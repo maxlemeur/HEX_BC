@@ -1240,6 +1240,27 @@ describe("createEstimate payload", () => {
     expect(supabase.__mocks.estimateVersionInsert).not.toHaveBeenCalled();
   });
 
+  it("rejects linked_dpgf_source creation mode when project_id is missing", async () => {
+    const supabase = createCreateEstimateSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createEstimate({
+        project: {
+          name: "Projet sans ID",
+        },
+        creation_mode: "linked_dpgf_source",
+      } as Parameters<typeof createEstimate>[0])
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "creation_mode=linked_dpgf_source requiert project_id.",
+    });
+
+    expect(supabase.__mocks.estimateProjectInsert).not.toHaveBeenCalled();
+    expect(supabase.__mocks.estimateVersionInsert).not.toHaveBeenCalled();
+  });
+
   it("creates a new version on an existing project when project_id is provided", async () => {
     const supabase = createCreateEstimateIntoExistingProjectSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);

@@ -5,8 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createEstimate,
+  fetchAffaireLinkedDpgfSource,
   fetchEstimateTemplates,
   instantiateEstimateFromTemplate,
+  type AffaireLinkedDpgfSource,
   type EstimateTemplateSummary,
 } from "@/lib/estimates/client";
 import {
@@ -74,7 +76,7 @@ type WizardData = {
   // Step 3
   creationMode: "blank" | "template";
   selectedTemplateId: string;
-  dpgfImportMode: "none" | "later";
+  dpgfImportMode: "none" | "source";
 };
 
 type StepErrors = Record<string, string>;
@@ -108,7 +110,8 @@ const FIELD_STEP_INDEX: Record<keyof WizardData, number> = {
 // ---------------------------------------------------------------------------
 
 function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function initialWizardData(): WizardData {
@@ -132,11 +135,26 @@ function initialWizardData(): WizardData {
   };
 }
 
-function loadDraft(): WizardData | null {
+function loadDraft(): Partial<WizardData> | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as WizardData;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const rawImportMode = parsed.dpgfImportMode;
+    const normalizedImportMode =
+      rawImportMode === "source" || rawImportMode === "later"
+        ? "source"
+        : "none";
+
+    return {
+      ...(parsed as Partial<WizardData>),
+      creationMode: parsed.creationMode === "template" ? "template" : "blank",
+      selectedTemplateId:
+        typeof parsed.selectedTemplateId === "string"
+          ? parsed.selectedTemplateId
+          : "",
+      dpgfImportMode: normalizedImportMode,
+    };
   } catch {
     return null;
   }
@@ -156,6 +174,23 @@ function clearDraft() {
   } catch {
     // ignore
   }
+}
+
+function buildDpgfImportCreatePayload(
+  mode: WizardData["dpgfImportMode"]
+): Partial<Parameters<typeof createEstimate>[0]> {
+  if (mode !== "source") return {};
+  return { creationMode: "linkedDpgfSource" };
+}
+
+function hasImportableLinkedDpgfSource(
+  source: AffaireLinkedDpgfSource
+): source is NonNullable<AffaireLinkedDpgfSource> {
+  return Boolean(
+    source &&
+      source.importStatus === "completed" &&
+      source.mappedRowCount > 0
+  );
 }
 
 function buildProjectNotes(projectFamily: string) {
@@ -345,6 +380,15 @@ export function EstimateCreationWizard({
   const [templates, setTemplates] = useState<EstimateTemplateSummary[]>([]);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
   const [templatesError, setTemplatesError] = useState<string | null>(null);
+  const [linkedDpgfSource, setLinkedDpgfSource] =
+    useState<AffaireLinkedDpgfSource>(null);
+  const [isLoadingLinkedDpgfSource, setIsLoadingLinkedDpgfSource] =
+    useState(Boolean(projectId));
+  const [linkedDpgfSourceError, setLinkedDpgfSourceError] = useState<string | null>(null);
+  const hasTemplates = templates.length > 0;
+  const templateModeDisabled = !hasTemplates;
+  const templateModeUnavailable = !isLoadingTemplates && !hasTemplates;
+  const hasLinkedDpgfSource = hasImportableLinkedDpgfSource(linkedDpgfSource);
 
   // Margin tiers
   const marginTiers = useMemo(() => getMarginTiers(), []);
@@ -377,6 +421,98 @@ export function EstimateCreationWizard({
   useEffect(() => {
     saveDraft(data);
   }, [data]);
+
+  useEffect(() => {
+    const targetProjectId = projectId;
+    if (!targetProjectId) {
+      setLinkedDpgfSource(null);
+      setLinkedDpgfSourceError(null);
+      setIsLoadingLinkedDpgfSource(false);
+      setData((prev) =>
+        prev.dpgfImportMode === "source"
+          ? { ...prev, dpgfImportMode: "none" }
+          : prev
+      );
+      return;
+    }
+    const linkedProjectId: string = targetProjectId;
+
+    let mounted = true;
+    setIsLoadingLinkedDpgfSource(true);
+    setLinkedDpgfSourceError(null);
+
+    async function loadLinkedSource() {
+      try {
+        const source = await fetchAffaireLinkedDpgfSource(linkedProjectId);
+        if (!mounted) return;
+
+        setLinkedDpgfSource(source);
+        if (hasImportableLinkedDpgfSource(source)) {
+          setData((prev) =>
+            prev.dpgfImportMode === "none"
+              ? { ...prev, dpgfImportMode: "source" }
+              : prev
+          );
+          return;
+        }
+
+        setData((prev) =>
+          prev.dpgfImportMode === "source"
+            ? { ...prev, dpgfImportMode: "none" }
+            : prev
+        );
+      } catch (error) {
+        if (!mounted) return;
+        setLinkedDpgfSource(null);
+        setLinkedDpgfSourceError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de charger la source DPGF de l'affaire."
+        );
+      } finally {
+        if (mounted) setIsLoadingLinkedDpgfSource(false);
+      }
+    }
+
+    void loadLinkedSource();
+
+    return () => {
+      mounted = false;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (hasTemplates) return;
+    setData((prev) => {
+      if (prev.creationMode !== "template" || prev.selectedTemplateId) {
+        return prev;
+      }
+      return {
+        ...prev,
+        creationMode: "blank",
+      };
+    });
+  }, [hasTemplates]);
+
+  useEffect(() => {
+    if (!templateModeUnavailable) return;
+    setData((prev) => {
+      if (prev.creationMode !== "template" && !prev.selectedTemplateId) {
+        return prev;
+      }
+      return {
+        ...prev,
+        creationMode: "blank",
+        selectedTemplateId: "",
+      };
+    });
+    setErrors((prev) => {
+      if (!prev.selectedTemplateId) return prev;
+      const next = { ...prev };
+      delete next.selectedTemplateId;
+      return next;
+    });
+  }, [templateModeUnavailable]);
 
   useEffect(() => {
     if (currentStep !== 0) return;
@@ -499,6 +635,9 @@ export function EstimateCreationWizard({
         versionId = result.versionId;
       } else {
         const marginBpNum = data.marginBp ? Number(data.marginBp) : 0;
+        const dpgfImportPayload = buildDpgfImportCreatePayload(
+          data.dpgfImportMode
+        );
         versionId = await createEstimate({
           ...(projectId
             ? { projectId }
@@ -521,6 +660,7 @@ export function EstimateCreationWizard({
               : undefined,
           currency: data.currency || undefined,
           projectNotes: buildProjectNotes(data.projectFamily),
+          ...dpgfImportPayload,
         });
       }
 
@@ -740,6 +880,9 @@ export function EstimateCreationWizard({
               Marge par tranche
             </button>
           </div>
+          <p className="mt-1.5 text-xs text-[var(--slate-500)]">
+            Marge fixe : un coefficient unique appliqué à toutes les lignes. Marge par tranche : coefficients différents selon le montant.
+          </p>
         </div>
 
         {data.marginMode === "fixed" && (
@@ -869,11 +1012,22 @@ export function EstimateCreationWizard({
             <button
               type="button"
               className={
-                data.creationMode === "template"
-                  ? "btn btn-primary btn-sm"
-                  : "btn btn-secondary btn-sm"
+                templateModeDisabled
+                  ? "btn btn-secondary btn-sm cursor-not-allowed opacity-60"
+                  : data.creationMode === "template"
+                    ? "btn btn-primary btn-sm"
+                    : "btn btn-secondary btn-sm"
               }
-              onClick={() => updateField("creationMode", "template")}
+              onClick={() => {
+                if (!templateModeDisabled) updateField("creationMode", "template");
+              }}
+              disabled={templateModeDisabled}
+              aria-disabled={templateModeDisabled}
+              title={
+                templateModeUnavailable
+                  ? "Aucun modèle disponible pour le moment."
+                  : undefined
+              }
             >
               Depuis un modèle
             </button>
@@ -884,6 +1038,11 @@ export function EstimateCreationWizard({
               Bibliothèque templates
             </Link>
           </div>
+          {templateModeUnavailable && (
+            <p className="mt-2 text-xs text-[var(--slate-500)]">
+              Aucun modele disponible actuellement. Creation en mode Nouveau (vide).
+            </p>
+          )}
         </div>
 
         {data.creationMode === "template" && (
@@ -929,11 +1088,26 @@ export function EstimateCreationWizard({
 
         <div className="rounded-lg border border-[var(--slate-200)] bg-white p-4">
           <h3 className="text-sm font-semibold text-[var(--slate-700)]">
-            Import optionnel (DPGF)
+            Import DPGF (optionnel)
           </h3>
           <p className="mt-2 text-sm text-[var(--slate-500)]">
-            Le chiffrage peut etre cree immediatement puis complete via un import DPGF dans l&apos;editeur.
+            {projectId
+              ? "Si une source DPGF est liee a cette affaire, vous pouvez pre-remplir automatiquement la version."
+              : "Le pre-remplissage DPGF source est disponible depuis une affaire existante liee a un import DPGF."}
           </p>
+          {projectId && isLoadingLinkedDpgfSource ? (
+            <p className="mt-2 text-xs text-[var(--slate-500)]">
+              Verification de la source DPGF liee...
+            </p>
+          ) : null}
+          {projectId && linkedDpgfSourceError ? (
+            <div className="alert alert-error mt-3 text-xs">{linkedDpgfSourceError}</div>
+          ) : null}
+          {projectId && hasLinkedDpgfSource ? (
+            <p className="mt-2 text-xs text-[var(--slate-500)]">
+              Source detectee: {linkedDpgfSource.filename} ({linkedDpgfSource.mappedRowCount} ligne(s) importable(s)).
+            </p>
+          ) : null}
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <button
               type="button"
@@ -944,24 +1118,29 @@ export function EstimateCreationWizard({
               }
               onClick={() => updateField("dpgfImportMode", "none")}
             >
-              Sans import DPGF
+              Je demarre sans DPGF
             </button>
             <button
               type="button"
               className={
-                data.dpgfImportMode === "later"
+                data.dpgfImportMode === "source"
                   ? "btn btn-primary btn-sm justify-center"
-                  : "btn btn-secondary btn-sm justify-center"
+                  : `btn btn-secondary btn-sm justify-center ${
+                      !hasLinkedDpgfSource || isLoadingLinkedDpgfSource
+                        ? "cursor-not-allowed opacity-60"
+                        : ""
+                    }`
               }
-              onClick={() => updateField("dpgfImportMode", "later")}
+              onClick={() => updateField("dpgfImportMode", "source")}
+              disabled={!hasLinkedDpgfSource || isLoadingLinkedDpgfSource}
             >
-              Import DPGF plus tard
+              DPGF source a importer
             </button>
           </div>
           <p className="mt-3 text-xs text-[var(--slate-500)]">
-            {data.dpgfImportMode === "later"
-              ? "L&apos;import DPGF sera traite apres creation de la version."
-              : "Aucun import DPGF planifie pour cette creation."}
+            {data.dpgfImportMode === "source"
+              ? "La version sera creee avec les lignes du DPGF source lie."
+              : "Aucun pre-remplissage DPGF source a la creation."}
           </p>
         </div>
 
@@ -1009,7 +1188,7 @@ export function EstimateCreationWizard({
               <dt className="text-[var(--slate-500)]">Mode</dt>
               <dd className="font-medium">
                 {data.creationMode === "template"
-                  ? "Depuis template"
+                  ? "Depuis un modele"
                   : "Nouveau (vide)"}
               </dd>
             </div>
@@ -1022,9 +1201,9 @@ export function EstimateCreationWizard({
             <div>
               <dt className="text-[var(--slate-500)]">Import DPGF</dt>
               <dd className="font-medium">
-                {data.dpgfImportMode === "later"
-                  ? "Planifie apres creation"
-                  : "Aucun import"}
+                {data.dpgfImportMode === "source"
+                  ? "Source DPGF a importer apres creation"
+                  : "Aucun import au demarrage"}
               </dd>
             </div>
           </dl>

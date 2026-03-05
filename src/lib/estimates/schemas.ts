@@ -140,6 +140,10 @@ export const estimateRoundingModeSchema = z.enum([
 
 export const estimateMarginModeSchema = z.enum(["fixed", "tiered"]);
 export const estimateDiscountModeSchema = z.enum(["simple", "cascade"]);
+export const createEstimateCreationModeSchema = z.enum([
+  "blank",
+  "linked_dpgf_source",
+]);
 export const estimateCurrencySchema = z.preprocess(
   (value) => (typeof value === "string" ? value.trim().toUpperCase() : value),
   z.enum(SUPPORTED_ESTIMATE_CURRENCIES)
@@ -199,9 +203,22 @@ const createEstimatePayloadSchema = z
     project_id: uuidSchema.optional(),
     project: createEstimateProjectSchema.optional(),
     version: createEstimateVersionSchema.optional(),
+    creation_mode: createEstimateCreationModeSchema.optional(),
   })
   .superRefine((payload, ctx) => {
     if (payload.project_id || payload.project) {
+      if (
+        payload.creation_mode === "linked_dpgf_source" &&
+        !payload.project_id
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "creation_mode=linked_dpgf_source requiert project_id.",
+          path: ["project_id"],
+        });
+      }
+
       return;
     }
 
@@ -219,10 +236,17 @@ export const createEstimateSchema = z.preprocess(
     }
 
     const record = value as Record<string, unknown>;
+    const rawCreationMode = record.creation_mode ?? record.creationMode;
+    const creationMode =
+      rawCreationMode === "linkedDpgfSource"
+        ? "linked_dpgf_source"
+        : rawCreationMode;
+
     return {
       project_id: record.project_id ?? record.projectId,
       project: record.project,
       version: record.version,
+      creation_mode: creationMode,
     };
   },
   createEstimatePayloadSchema.and(createEstimateSelectorSchema)
@@ -926,6 +950,26 @@ export const importEstimateSectionsSchema = z.preprocess(
   })
 );
 
+export const importLinkedDpgfSourceSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null || value === "") {
+      return {};
+    }
+
+    if (typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      section_title: record.section_title ?? record.sectionTitle,
+    };
+  },
+  z.object({
+    section_title: optionalNullableTextSchema.optional(),
+  })
+);
+
 export const listEstimateImportSourcesQuerySchema = z.preprocess(
   (value) => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -1092,6 +1136,9 @@ export const insertTemplateIntoVersionSchema = z.preprocess(
 );
 
 export type CreateEstimateInput = z.infer<typeof createEstimateSchema>;
+export type CreateEstimateCreationModeInput = z.infer<
+  typeof createEstimateCreationModeSchema
+>;
 export type PatchEstimateVersionInput = z.infer<typeof patchEstimateVersionSchema>;
 export type PatchEstimateStatusInput = z.infer<typeof patchEstimateStatusSchema>;
 export type CreateEstimateVariantInput = z.infer<
@@ -1191,6 +1238,9 @@ export type ImportEstimateSectionsModeInput = z.infer<
 >;
 export type ImportEstimateSectionsInput = z.infer<
   typeof importEstimateSectionsSchema
+>;
+export type ImportLinkedDpgfSourceInput = z.infer<
+  typeof importLinkedDpgfSourceSchema
 >;
 export type ListEstimateImportSourcesQueryInput = z.infer<
   typeof listEstimateImportSourcesQuerySchema

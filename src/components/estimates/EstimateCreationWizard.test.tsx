@@ -33,6 +33,7 @@ vi.mock("next/link", () => ({
 vi.mock("@/lib/estimates/client", () => ({
   createEstimate: vi.fn().mockResolvedValue("version-abc-123"),
   fetchEstimateTemplates: vi.fn().mockResolvedValue([]),
+  fetchAffaireLinkedDpgfSource: vi.fn().mockResolvedValue(null),
   instantiateEstimateFromTemplate: vi
     .fn()
     .mockResolvedValue({ versionId: "version-tpl-123" }),
@@ -52,19 +53,31 @@ vi.mock("@/lib/money", () => ({
 
 // Lazy-import after mocks are wired
 import { EstimateCreationWizard } from "@/components/estimates/EstimateCreationWizard";
-import { createEstimate } from "@/lib/estimates/client";
+import {
+  createEstimate,
+  fetchAffaireLinkedDpgfSource,
+} from "@/lib/estimates/client";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function setup(onCreated = vi.fn()) {
+function setup(
+  onCreated = vi.fn(),
+  options: { projectId?: string } = {}
+) {
   const user = userEvent.setup();
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const result = render(<EstimateCreationWizard onCreated={onCreated} />, {
-    container,
-  });
+  const result = render(
+    <EstimateCreationWizard
+      onCreated={onCreated}
+      projectId={options.projectId}
+    />,
+    {
+      container,
+    }
+  );
   return { user, onCreated, ...result };
 }
 
@@ -445,18 +458,70 @@ describe("EstimateCreationWizard", () => {
     expect(screen.getByText("Travaux neufs")).toBeInTheDocument();
   });
 
-  it("shows optional DPGF import mode and updates summary", async () => {
+  it("auto-selects linked DPGF source mode on existing project", async () => {
+    vi.mocked(fetchAffaireLinkedDpgfSource).mockResolvedValueOnce({
+      importId: "11111111-1111-4111-8111-111111111111",
+      filename: "HEX-DPGF.xlsx",
+      sourceFormat: "xlsx",
+      importStatus: "completed",
+      mappingStatus: "mapped",
+      importedAt: "2026-03-05T08:00:00.000Z",
+      mappingUpdatedAt: "2026-03-05T08:15:00.000Z",
+      parseMode: "strict",
+      rowCount: 171,
+      mappedRowCount: 171,
+    });
+    const { user } = setup(vi.fn(), {
+      projectId: "22222222-2222-4222-8222-222222222222",
+    });
+
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Source detectee: HEX-DPGF.xlsx/),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("button", { name: /DPGF source a importer/ }),
+    ).toBeEnabled();
+    expect(
+      screen.getByText("La version sera creee avec les lignes du DPGF source lie."),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to blank creation and disables template mode when list is empty", async () => {
+    localStorage.setItem(
+      "est-wizard-draft",
+      JSON.stringify({
+        projectName: "Flow sans template",
+        creationMode: "template",
+      }),
+    );
+
     const { user } = setup();
 
-    await user.type(screen.getByLabelText(/Nom du projet/), "Flow DPGF");
     await user.click(screen.getByRole("button", { name: /Suivant/ }));
     await user.click(screen.getByRole("button", { name: /Suivant/ }));
 
-    expect(screen.getByText("Import optionnel (DPGF)")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Import DPGF plus tard/ }));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Depuis un modèle/ }),
+      ).toBeDisabled();
+    });
+    expect(
+      screen.getByText(/Aucun modele disponible actuellement/),
+    ).toBeInTheDocument();
 
-    expect(screen.getByText("Import DPGF")).toBeInTheDocument();
-    expect(screen.getByText("Planifie apres creation")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Créer le chiffrage/ }));
+
+    await waitFor(() => {
+      expect(vi.mocked(createEstimate)).toHaveBeenCalled();
+    });
+    expect(
+      screen.queryByText("Veuillez selectionner un template."),
+    ).not.toBeInTheDocument();
   });
 
   it("injects project family note into createEstimate payload", async () => {
@@ -472,6 +537,37 @@ describe("EstimateCreationWizard", () => {
       expect(vi.mocked(createEstimate)).toHaveBeenCalledWith(
         expect.objectContaining({
           projectNotes: "Famille Achat: Maintenance",
+        }),
+      );
+      expect(onCreated).toHaveBeenCalledWith("version-abc-123");
+    });
+  });
+
+  it("injects linked DPGF creationMode into createEstimate payload", async () => {
+    vi.mocked(fetchAffaireLinkedDpgfSource).mockResolvedValueOnce({
+      importId: "11111111-1111-4111-8111-111111111111",
+      filename: "HEX-DPGF.xlsx",
+      sourceFormat: "xlsx",
+      importStatus: "completed",
+      mappingStatus: "mapped",
+      importedAt: "2026-03-05T08:00:00.000Z",
+      mappingUpdatedAt: "2026-03-05T08:15:00.000Z",
+      parseMode: "strict",
+      rowCount: 171,
+      mappedRowCount: 171,
+    });
+    const { user, onCreated } = setup(vi.fn(), {
+      projectId: "22222222-2222-4222-8222-222222222222",
+    });
+
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+    await user.click(screen.getByRole("button", { name: /Créer le chiffrage/ }));
+
+    await waitFor(() => {
+      expect(vi.mocked(createEstimate)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          creationMode: "linkedDpgfSource",
         }),
       );
       expect(onCreated).toHaveBeenCalledWith("version-abc-123");

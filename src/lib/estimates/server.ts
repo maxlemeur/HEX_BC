@@ -6,6 +6,10 @@ import {
 } from "@supabase/supabase-js";
 
 import {
+  normalizeMappedRowsForEstimateCreation,
+  type ValidImportFlowLine,
+} from "@/lib/affaires/import-flow";
+import {
   computeEstimateLineValues,
   computeEstimateTotals,
   computeInitialDiscountCents,
@@ -62,6 +66,7 @@ import type {
   DeleteEstimateItemInput,
   DuplicateEstimateSectionInput,
   ImportEstimateSectionsInput,
+  ImportLinkedDpgfSourceInput,
   ListEstimateImportSourcesQueryInput,
   PatchEstimateStatusInput,
   PatchEstimateVersionInput,
@@ -83,6 +88,8 @@ type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row
 type EstimateVersionInsert = Database["public"]["Tables"]["estimate_versions"]["Insert"];
 type EstimateVersionUpdate = Database["public"]["Tables"]["estimate_versions"]["Update"];
 type AuditLogInsert = Database["public"]["Tables"]["audit_logs"]["Insert"];
+type DpgfImportRow = Database["public"]["Tables"]["dpgf_imports"]["Row"];
+type DpgfMappingRow = Database["public"]["Tables"]["dpgf_mappings"]["Row"];
 type EstimateCategoryInsert = Database["public"]["Tables"]["estimate_categories"]["Insert"];
 type EstimateCategoryRow = Database["public"]["Tables"]["estimate_categories"]["Row"];
 type SupplyTypeRow = Database["public"]["Tables"]["supply_types"]["Row"];
@@ -405,6 +412,58 @@ export type ImportEstimateSectionsResult = {
   imported_lines_count: number;
   created_section_ids: string[];
   created_line_ids: string[];
+  totals: {
+    total_ht_cents: number;
+    total_tax_cents: number;
+    total_ttc_cents: number;
+  };
+  version: {
+    id: string;
+    updated_at: string;
+  };
+};
+
+type AffaireDpgfImportRow = Pick<
+  DpgfImportRow,
+  | "id"
+  | "filename"
+  | "source_format"
+  | "status"
+  | "created_at"
+  | "parse_mode"
+  | "row_count"
+>;
+
+type AffaireDpgfMappingRow = Pick<
+  DpgfMappingRow,
+  "id" | "status" | "updated_at" | "created_at"
+>;
+
+type DpgfMappedRowForEstimateImport = Pick<
+  Database["public"]["Tables"]["dpgf_rows_mapped"]["Row"],
+  "id" | "payload" | "created_at"
+>;
+
+export type AffaireLinkedDpgfSourceResult = {
+  import_id: string;
+  filename: string;
+  source_format: string;
+  import_status: string;
+  mapping_status: string | null;
+  imported_at: string;
+  mapping_updated_at: string | null;
+  parse_mode: string;
+  row_count: number;
+  mapped_row_count: number;
+} | null;
+
+export type ImportLinkedDpgfSourceResult = {
+  source_import_id: string;
+  target_version_id: string;
+  created_section_id: string;
+  created_line_ids: string[];
+  imported_lines_count: number;
+  skipped_lines_count: number;
   totals: {
     total_ht_cents: number;
     total_tax_cents: number;
@@ -1385,6 +1444,264 @@ function buildImportedSubtreePayload(input: {
     created_section_ids: createdSectionIds,
     created_line_ids: createdLineIds,
     line_count: createdLineIds.length,
+  };
+}
+
+function sortValidImportFlowLines(lines: ValidImportFlowLine[]) {
+  return [...lines].sort((left, right) => {
+    if (left.rowIndex !== right.rowIndex) {
+      return left.rowIndex - right.rowIndex;
+    }
+
+    return left.mappedRowId.localeCompare(right.mappedRowId);
+  });
+}
+
+async function loadLatestLinkedDpgfImportForProject(input: {
+  supabase: Supabase;
+  tenantId: string;
+  projectId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("dpgf_imports")
+    .select(
+      "id, filename, source_format, status, created_at, parse_mode, row_count"
+    )
+    .eq("tenant_id", input.tenantId)
+    .eq("project_id", input.projectId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger la source DPGF liee.");
+  }
+
+  return (data ?? null) as AffaireDpgfImportRow | null;
+}
+
+async function loadLatestDpgfMappingForImport(input: {
+  supabase: Supabase;
+  tenantId: string;
+  importId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("dpgf_mappings")
+    .select("id, status, updated_at, created_at")
+    .eq("tenant_id", input.tenantId)
+    .eq("import_id", input.importId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger le statut de mapping DPGF."
+    );
+  }
+
+  return (data ?? null) as AffaireDpgfMappingRow | null;
+}
+
+async function countMappedRowsForImport(input: {
+  supabase: Supabase;
+  tenantId: string;
+  importId: string;
+}) {
+  const { count, error } = await input.supabase
+    .from("dpgf_rows_mapped")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", input.tenantId)
+    .eq("import_id", input.importId);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de compter les lignes DPGF mappees.");
+  }
+
+  return count ?? 0;
+}
+
+async function loadMappedRowsForImport(input: {
+  supabase: Supabase;
+  tenantId: string;
+  importId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("dpgf_rows_mapped")
+    .select("id, payload, created_at")
+    .eq("tenant_id", input.tenantId)
+    .eq("import_id", input.importId)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les lignes DPGF mappees.");
+  }
+
+  return (data ?? []) as DpgfMappedRowForEstimateImport[];
+}
+
+async function resolveLinkedDpgfImportSectionTitle(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+  requestedTitle: string | null;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_items")
+    .select("title")
+    .eq("tenant_id", input.tenantId)
+    .eq("version_id", input.versionId)
+    .eq("item_type", "section")
+    .is("parent_id", null);
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de verifier les chapitres existants."
+    );
+  }
+
+  const usedRootTitleKeys = new Set<string>();
+  for (const row of (data ?? []) as Array<{ title: string }>) {
+    usedRootTitleKeys.add(normalizeSectionTitleKey(row.title));
+  }
+
+  return resolveImportedSectionTitle({
+    sourceTitle: input.requestedTitle ?? "Import DPGF",
+    usedTitleKeys: usedRootTitleKeys,
+  });
+}
+
+async function importLinkedDpgfSourceIntoVersionInternal(input: {
+  supabase: Supabase;
+  tenantId: string;
+  projectId: string;
+  versionId: string;
+  marginMultiplier: number;
+  defaultTaxRateBp: number;
+  sectionTitle?: string | null;
+}): Promise<ImportLinkedDpgfSourceResult> {
+  const latestImport = await loadLatestLinkedDpgfImportForProject({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    projectId: input.projectId,
+  });
+
+  if (!latestImport) {
+    throw badRequest("Aucune source DPGF liee a cette affaire.");
+  }
+
+  const mappedRows = await loadMappedRowsForImport({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    importId: latestImport.id,
+  });
+
+  if (mappedRows.length === 0) {
+    throw badRequest(
+      "La source DPGF liee ne contient aucune ligne mappee exploitable."
+    );
+  }
+
+  const normalized = normalizeMappedRowsForEstimateCreation(mappedRows, {
+    marginMultiplier: input.marginMultiplier,
+    defaultTaxRateBp: input.defaultTaxRateBp,
+  });
+  const validLines = sortValidImportFlowLines(normalized.validLines);
+
+  if (validLines.length === 0) {
+    throw badRequest(
+      "Aucune ligne DPGF valide a importer depuis la source liee."
+    );
+  }
+
+  const defaultTitle = toNullableText(latestImport.filename)
+    ? `Import DPGF - ${latestImport.filename}`
+    : "Import DPGF";
+  const resolvedSectionTitle = await resolveLinkedDpgfImportSectionTitle({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+    requestedTitle: toNullableText(input.sectionTitle) ?? defaultTitle,
+  });
+  const createdSectionId = randomUUID();
+  const rootPosition = await getNextItemPosition(input.supabase, input.versionId, null);
+
+  const sectionItemPayload: EstimateItemInsert = {
+    id: createdSectionId,
+    tenant_id: input.tenantId,
+    version_id: input.versionId,
+    parent_id: null,
+    item_type: "section",
+    position: rootPosition,
+    title: resolvedSectionTitle,
+    source_provider: "dpgf",
+    source_job_id: latestImport.id,
+    source_file_name: latestImport.filename,
+    source_page: null,
+  };
+
+  const lineItemsPayload = validLines.map((line, index) => {
+    const lineId = randomUUID();
+    return {
+      id: lineId,
+      tenant_id: input.tenantId,
+      version_id: input.versionId,
+      parent_id: createdSectionId,
+      item_type: "line",
+      position: index + 1,
+      title: line.title,
+      description: line.description,
+      quantity: line.quantity,
+      unit_price_ht_cents: line.unitPriceHtCents,
+      tax_rate_bp: line.taxRateBp,
+      k_fo: line.kFo,
+      h_mo: line.hMo,
+      h_mo_majoration: line.hMoMajoration,
+      k_mo: line.kMo,
+      pu_ht_cents: line.puHtCents,
+      labor_role_id: null,
+      category_id: null,
+      supply_type_id: null,
+      selected_supplier_price_id: null,
+      source_provider: "dpgf",
+      source_job_id: latestImport.id,
+      source_file_name: latestImport.filename,
+      source_page: line.rowIndex > 0 ? line.rowIndex : null,
+      line_total_ht_cents: line.lineTotalHtCents,
+      line_tax_cents: line.lineTaxCents,
+      line_total_ttc_cents: line.lineTotalTtcCents,
+    } satisfies EstimateItemInsert;
+  });
+
+  const { error: insertError } = await input.supabase
+    .from("estimate_items")
+    .insert([sectionItemPayload, ...lineItemsPayload]);
+
+  if (insertError) {
+    throw mapSupabaseError(insertError, "Impossible d'importer la source DPGF liee.");
+  }
+
+  const recalculateResult = await recalculateEstimateVersionTotals({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+  });
+
+  return {
+    source_import_id: latestImport.id,
+    target_version_id: input.versionId,
+    created_section_id: createdSectionId,
+    created_line_ids: lineItemsPayload.map((item) => item.id as string),
+    imported_lines_count: lineItemsPayload.length,
+    skipped_lines_count: Math.max(
+      normalized.totalRows - lineItemsPayload.length,
+      0
+    ),
+    totals: recalculateResult.totals,
+    version: recalculateResult.version,
   };
 }
 
@@ -3052,6 +3369,77 @@ export async function listEstimateImportSections(
   };
 }
 
+export async function getAffaireLinkedDpgfSource(
+  projectId: string
+): Promise<AffaireLinkedDpgfSourceResult> {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId } = context;
+
+  const { data: projectData, error: projectError } = await supabase
+    .from("estimate_projects")
+    .select("id, tenant_id, user_id, is_archived")
+    .eq("id", projectId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+
+  if (projectError) {
+    throw mapSupabaseError(projectError, "Impossible de charger l'affaire.");
+  }
+
+  const project = (projectData ??
+    null) as Pick<
+    EstimateProjectRow,
+    "id" | "tenant_id" | "user_id" | "is_archived"
+  > | null;
+
+  if (
+    !project ||
+    project.is_archived ||
+    !canAccessOwnerResource({
+      context,
+      resourceUserId: project.user_id,
+    })
+  ) {
+    throw notFound("Affaire introuvable.");
+  }
+
+  const latestImport = await loadLatestLinkedDpgfImportForProject({
+    supabase,
+    tenantId,
+    projectId: project.id,
+  });
+
+  if (!latestImport) {
+    return null;
+  }
+
+  const [latestMapping, mappedRowCount] = await Promise.all([
+    loadLatestDpgfMappingForImport({
+      supabase,
+      tenantId,
+      importId: latestImport.id,
+    }),
+    countMappedRowsForImport({
+      supabase,
+      tenantId,
+      importId: latestImport.id,
+    }),
+  ]);
+
+  return {
+    import_id: latestImport.id,
+    filename: latestImport.filename,
+    source_format: latestImport.source_format,
+    import_status: latestImport.status,
+    mapping_status: latestMapping?.status ?? null,
+    imported_at: latestImport.created_at,
+    mapping_updated_at: latestMapping?.updated_at ?? null,
+    parse_mode: latestImport.parse_mode,
+    row_count: latestImport.row_count ?? 0,
+    mapped_row_count: mappedRowCount,
+  };
+}
+
 export async function listEstimateVersionVariants(
   versionId: string
 ): Promise<ListEstimateVersionVariantsResult> {
@@ -4601,6 +4989,42 @@ export async function importSectionsFromVersion(
   };
 }
 
+export async function importLinkedDpgfSourceIntoVersion(
+  versionId: string,
+  input: ImportLinkedDpgfSourceInput
+): Promise<ImportLinkedDpgfSourceResult> {
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+
+  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId,
+    userId,
+  });
+
+  const marginMultiplier =
+    typeof version.margin_multiplier === "number"
+      ? version.margin_multiplier
+      : DEFAULT_MARGIN_MULTIPLIER;
+  const taxRateBp =
+    typeof version.tax_rate_bp === "number"
+      ? version.tax_rate_bp
+      : DEFAULT_TAX_RATE_BP;
+
+  return importLinkedDpgfSourceIntoVersionInternal({
+    supabase,
+    tenantId,
+    projectId: version.project_id,
+    versionId,
+    marginMultiplier,
+    defaultTaxRateBp: taxRateBp,
+    sectionTitle: input.section_title ?? null,
+  });
+}
+
 export async function createEstimateVariant(versionId: string) {
   return duplicateEstimateVersion(versionId, { as_variant: true });
 }
@@ -4651,7 +5075,14 @@ export async function createEstimate(input: CreateEstimateInput) {
   const context = await getAuthenticatedContext();
   const { supabase, userId, tenantId } = context;
   const targetProjectId = input.project_id ?? null;
+  const creationMode = input.creation_mode ?? "blank";
   const requestedCurrency = input.version?.currency;
+
+  if (creationMode === "linked_dpgf_source" && !targetProjectId) {
+    throw badRequest(
+      "creation_mode=linked_dpgf_source requiert project_id."
+    );
+  }
 
   if (requestedCurrency !== undefined) {
     normalizeEstimateCurrencyOrThrow(requestedCurrency, {
@@ -4816,13 +5247,13 @@ export async function createEstimate(input: CreateEstimateInput) {
     total_ttc_cents: 0,
   };
 
-  const { data: version, error: versionError } = await supabase
+  const { data: insertedVersion, error: versionError } = await supabase
     .from("estimate_versions")
     .insert(versionPayload)
     .select("*")
     .single();
 
-  if (versionError || !version) {
+  if (versionError || !insertedVersion) {
     if (createdProjectId) {
       await supabase.from("estimate_projects").delete().eq("id", createdProjectId);
     }
@@ -4833,6 +5264,7 @@ export async function createEstimate(input: CreateEstimateInput) {
 
     throw badRequest("Impossible de creer la version initiale.");
   }
+  let version = insertedVersion as EstimateVersionRow;
 
   const categoriesPayload: EstimateCategoryInsert[] = DEFAULT_ESTIMATE_CATEGORIES.map(
     (category) => ({
@@ -4862,6 +5294,45 @@ export async function createEstimate(input: CreateEstimateInput) {
         .eq("tenant_id", tenantId);
     }
     throw mapSupabaseError(categoriesError, "Impossible de preparer les categories par defaut.");
+  }
+
+  if (creationMode === "linked_dpgf_source") {
+    try {
+      const importResult = await importLinkedDpgfSourceIntoVersionInternal({
+        supabase,
+        tenantId,
+        projectId: project.id,
+        versionId: version.id,
+        marginMultiplier:
+          typeof version.margin_multiplier === "number"
+            ? version.margin_multiplier
+            : versionPayload.margin_multiplier ?? DEFAULT_MARGIN_MULTIPLIER,
+        defaultTaxRateBp:
+          typeof version.tax_rate_bp === "number"
+            ? version.tax_rate_bp
+            : versionPayload.tax_rate_bp ?? DEFAULT_TAX_RATE_BP,
+      });
+
+      version = {
+        ...version,
+        total_ht_cents: importResult.totals.total_ht_cents,
+        total_tax_cents: importResult.totals.total_tax_cents,
+        total_ttc_cents: importResult.totals.total_ttc_cents,
+        updated_at: importResult.version.updated_at,
+      };
+    } catch (error) {
+      if (createdProjectId) {
+        await supabase.from("estimate_projects").delete().eq("id", createdProjectId);
+      } else {
+        await supabase
+          .from("estimate_versions")
+          .delete()
+          .eq("id", version.id)
+          .eq("tenant_id", tenantId);
+      }
+
+      throw error;
+    }
   }
 
   return {

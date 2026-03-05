@@ -4,6 +4,7 @@ import {
   batchOperationsSchema,
   bulkUpdateEstimateItemsRequestSchema,
   createEstimateSchema,
+  importLinkedDpgfSourceSchema,
   createEstimateItemSchema,
   createEstimateVariantSchema,
   createEstimateAssemblySchema,
@@ -136,6 +137,47 @@ describe("createEstimateSchema", () => {
     });
 
     expect(parsed.success).toBe(false);
+  });
+
+  it("accepts linked_dpgf_source mode when project_id is provided", () => {
+    const parsed = createEstimateSchema.parse({
+      project_id: ITEM_ID_1,
+      creationMode: "linkedDpgfSource",
+    });
+
+    expect(parsed.creation_mode).toBe("linked_dpgf_source");
+  });
+
+  it("rejects linked_dpgf_source mode without project_id", () => {
+    const parsed = createEstimateSchema.safeParse({
+      project: {
+        name: "Projet A",
+      },
+      creation_mode: "linked_dpgf_source",
+    });
+
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    expect(
+      parsed.error.issues.some((issue) =>
+        issue.message.includes("creation_mode=linked_dpgf_source requiert project_id")
+      )
+    ).toBe(true);
+  });
+});
+
+describe("importLinkedDpgfSourceSchema", () => {
+  it("accepts empty payload", () => {
+    const parsed = importLinkedDpgfSourceSchema.parse({});
+    expect(parsed).toEqual({});
+  });
+
+  it("normalizes camelCase aliases", () => {
+    const parsed = importLinkedDpgfSourceSchema.parse({
+      sectionTitle: "  Import DPGF  ",
+    });
+
+    expect(parsed.section_title).toBe("Import DPGF");
   });
 });
 
