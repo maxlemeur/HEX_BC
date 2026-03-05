@@ -280,7 +280,7 @@ export function EstimateEditorToolbar({
             disabled={isImportDpgfSourceDisabled}
           >
             {isImportingDpgfSource
-              ? "Import DPGF source..."
+              ? "Importer le DPGF source..."
               : "Importer le DPGF source"}
           </button>
         ) : null}

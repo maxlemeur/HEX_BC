@@ -7016,7 +7016,7 @@ export function useEstimateEditorState({
         onExportDpgf: () => void handleExportDpgf(),
         onExportBdc: () => void handleExportBdc(),
         onImportDpgfSource: () => void handleImportDpgfSource(),
-        showImportDpgfSource: hasLinkedDpgfSource,
+        showImportDpgfSource: hasLinkedDpgfSource || isLoadingLinkedDpgfSource,
         isExportDisabled,
         isExporting,
         exportLoadingLabel,

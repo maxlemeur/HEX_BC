@@ -1542,6 +1542,42 @@ async function loadMappedRowsForImport(input: {
   return (data ?? []) as DpgfMappedRowForEstimateImport[];
 }
 
+function sleep(delayMs: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+async function loadMappedRowsForImportWithRetry(input: {
+  supabase: Supabase;
+  tenantId: string;
+  importId: string;
+  maxAttempts?: number;
+  retryDelayMs?: number;
+}) {
+  const maxAttempts = Math.max(1, input.maxAttempts ?? 8);
+  const retryDelayMs = Math.max(0, input.retryDelayMs ?? 300);
+  let lastRows: DpgfMappedRowForEstimateImport[] = [];
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    lastRows = await loadMappedRowsForImport({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      importId: input.importId,
+    });
+
+    if (lastRows.length > 0) {
+      return lastRows;
+    }
+
+    if (attempt < maxAttempts) {
+      await sleep(retryDelayMs * attempt);
+    }
+  }
+
+  return lastRows;
+}
+
 async function resolveLinkedDpgfImportSectionTitle(input: {
   supabase: Supabase;
   tenantId: string;
@@ -1593,10 +1629,12 @@ async function importLinkedDpgfSourceIntoVersionInternal(input: {
     throw badRequest("Aucune source DPGF liee a cette affaire.");
   }
 
-  const mappedRows = await loadMappedRowsForImport({
+  const mappedRows = await loadMappedRowsForImportWithRetry({
     supabase: input.supabase,
     tenantId: input.tenantId,
     importId: latestImport.id,
+    maxAttempts: 10,
+    retryDelayMs: 300,
   });
 
   if (mappedRows.length === 0) {
@@ -1638,9 +1676,15 @@ async function importLinkedDpgfSourceIntoVersionInternal(input: {
     position: rootPosition,
     title: resolvedSectionTitle,
     source_provider: "dpgf",
-    source_job_id: latestImport.id,
+    // source_job_id is reserved for takeoff_jobs FK; DPGF imports are tracked via source_file_name.
+    source_job_id: null,
     source_file_name: latestImport.filename,
     source_page: null,
+    // Keep section payload explicit for strict DB payload checks/default-to-null behavior.
+    h_mo_majoration: 1,
+    k_mo_atelier: 1,
+    k_mo_chantier: 1,
+    selected_supplier_price_id: null,
   };
 
   const lineItemsPayload = validLines.map((line, index) => {
@@ -1659,15 +1703,22 @@ async function importLinkedDpgfSourceIntoVersionInternal(input: {
       tax_rate_bp: line.taxRateBp,
       k_fo: line.kFo,
       h_mo: line.hMo,
-      h_mo_majoration: line.hMoMajoration,
+      h_mo_majoration: line.hMoMajoration ?? 1,
       k_mo: line.kMo,
+      h_mo_atelier: null,
+      k_mo_atelier: 1,
+      labor_role_atelier_id: null,
+      h_mo_chantier: null,
+      k_mo_chantier: 1,
+      labor_role_chantier_id: null,
       pu_ht_cents: line.puHtCents,
       labor_role_id: null,
       category_id: null,
       supply_type_id: null,
       selected_supplier_price_id: null,
       source_provider: "dpgf",
-      source_job_id: latestImport.id,
+      // source_job_id is reserved for takeoff_jobs FK; DPGF imports are tracked via source_file_name.
+      source_job_id: null,
       source_file_name: latestImport.filename,
       source_page: line.rowIndex > 0 ? line.rowIndex : null,
       line_total_ht_cents: line.lineTotalHtCents,
@@ -1678,7 +1729,9 @@ async function importLinkedDpgfSourceIntoVersionInternal(input: {
 
   const { error: insertError } = await input.supabase
     .from("estimate_items")
-    .insert([sectionItemPayload, ...lineItemsPayload]);
+    .insert([sectionItemPayload, ...lineItemsPayload], {
+      defaultToNull: false,
+    });
 
   if (insertError) {
     throw mapSupabaseError(insertError, "Impossible d'importer la source DPGF liee.");
