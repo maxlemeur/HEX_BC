@@ -545,10 +545,12 @@ export async function listTakeoffJobs(
 ): Promise<TakeoffJobListResponse> {
   const searchParams = new URLSearchParams();
   const estimateVersionId = query.estimate_version_id?.trim();
+  const projectId = query.project_id?.trim();
   const status = query.status?.trim();
   const level = query.level?.trim();
   const period = query.period?.trim();
 
+  if (projectId) searchParams.set("project_id", projectId);
   if (estimateVersionId) searchParams.set("estimate_version_id", estimateVersionId);
   if (status) searchParams.set("status", status);
   if (level) searchParams.set("level", level);

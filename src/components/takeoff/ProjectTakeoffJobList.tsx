@@ -23,9 +23,7 @@ import {
   PAGE_SIZE_OPTIONS,
   PERIOD_FILTER_OPTIONS,
   STATUS_FILTER_OPTIONS,
-  formatCostCents,
   formatCount,
-  formatDurationMs,
   formatTimestamp,
   getStatusCss,
   getStatusLabel,
@@ -33,32 +31,70 @@ import {
   resolveTakeoffJobsRefreshInterval,
   resolveTakeoffMaxNavigablePagesByOffset,
 } from "@/components/takeoff/takeoff-job-list-shared";
+import { EmptyState } from "@/components/ui/EmptyState";
 
-type TakeoffJobListProps = {
-  versionId: string;
+type Props = {
+  projectId: string;
+  versions: Array<{ id: string; version_number: number }>;
 };
 
 type ActionKind = "retry" | "cancel";
 type StatusFilterValue = "all" | TakeoffJobStatus;
 type LevelFilterValue = "all" | TakeoffLevel;
 type PeriodFilterValue = "all" | TakeoffJobListPeriod;
+type VersionFilterValue = "all" | string;
 
-export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
+export default function ProjectTakeoffJobList({
+  projectId,
+  versions,
+}: Props) {
+  const [versionFilter, setVersionFilter] =
+    useState<VersionFilterValue>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("all");
   const [levelFilter, setLevelFilter] = useState<LevelFilterValue>("all");
   const [periodFilter, setPeriodFilter] = useState<PeriodFilterValue>("all");
   const [pageSize, setPageSize] = useState<number>(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [pendingActions, setPendingActions] = useState<Record<string, ActionKind>>({});
+  const [pendingActions, setPendingActions] = useState<
+    Record<string, ActionKind>
+  >({});
   const maxNavigablePagesByOffset =
     resolveTakeoffMaxNavigablePagesByOffset(pageSize);
   const requestPage = Math.min(currentPage, maxNavigablePagesByOffset);
 
+  const versionNumberMap = useMemo(
+    () => new Map(versions.map((v) => [v.id, v.version_number])),
+    [versions]
+  );
+
+  const versionFilterOptions = useMemo(
+    () => [
+      { value: "all" as const, label: "Toutes versions" },
+      ...versions.map((v) => ({
+        value: v.id,
+        label: `V${v.version_number}`,
+      })),
+    ],
+    [versions]
+  );
+
   const listQuery = useMemo(() => {
     const offset = (requestPage - 1) * pageSize;
+
+    if (versionFilter === "all") {
+      return {
+        project_id: projectId,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        level: levelFilter === "all" ? undefined : levelFilter,
+        period: periodFilter === "all" ? undefined : periodFilter,
+        limit: pageSize,
+        offset,
+      };
+    }
+
     return {
-      estimate_version_id: versionId,
+      estimate_version_id: versionFilter,
       status: statusFilter === "all" ? undefined : statusFilter,
       level: levelFilter === "all" ? undefined : levelFilter,
       period: periodFilter === "all" ? undefined : periodFilter,
@@ -70,14 +106,16 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
     levelFilter,
     pageSize,
     periodFilter,
+    projectId,
     statusFilter,
-    versionId,
+    versionFilter,
   ]);
 
   const swrKey = useMemo(
     () => [
-      "takeoff-job-list",
-      versionId,
+      "takeoff-job-list-project",
+      projectId,
+      versionFilter,
       listQuery.status ?? "all",
       listQuery.level ?? "all",
       listQuery.period ?? "all",
@@ -90,20 +128,28 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
       listQuery.offset,
       listQuery.period,
       listQuery.status,
-      versionId,
+      projectId,
+      versionFilter,
     ]
   );
 
   const fetchJobs = useCallback(() => listTakeoffJobs(listQuery), [listQuery]);
 
-  const computeRefreshInterval = useCallback(resolveTakeoffJobsRefreshInterval, []);
+  const computeRefreshInterval = useCallback(
+    resolveTakeoffJobsRefreshInterval,
+    []
+  );
 
-  const { data, error, isLoading, isValidating, mutate } = useSWR(swrKey, fetchJobs, {
-    revalidateOnFocus: true,
-    revalidateOnReconnect: true,
-    refreshInterval: computeRefreshInterval,
-    keepPreviousData: true,
-  });
+  const { data, error, isLoading, isValidating, mutate } = useSWR(
+    swrKey,
+    fetchJobs,
+    {
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      refreshInterval: computeRefreshInterval,
+      keepPreviousData: true,
+    }
+  );
 
   const totalJobs = data?.pagination.total ?? 0;
   const totalPagesByData = Math.max(1, Math.ceil(totalJobs / pageSize));
@@ -182,9 +228,38 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
   return (
     <section className="mt-6 space-y-4 animate-fade-in">
       <section className="dashboard-card p-5 sm:p-6">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
           <div>
-            <label className="form-label" htmlFor="takeoff-status-filter">
+            <label
+              className="form-label"
+              htmlFor="takeoff-version-filter"
+            >
+              Version
+            </label>
+            <select
+              id="takeoff-version-filter"
+              className="form-input form-select form-input--sm"
+              value={versionFilter}
+              onChange={(event) => {
+                setVersionFilter(
+                  event.target.value as VersionFilterValue
+                );
+                setCurrentPage(1);
+              }}
+            >
+              {versionFilterOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              className="form-label"
+              htmlFor="takeoff-status-filter"
+            >
               Statut
             </label>
             <select
@@ -192,7 +267,9 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               className="form-input form-select form-input--sm"
               value={statusFilter}
               onChange={(event) => {
-                setStatusFilter(event.target.value as StatusFilterValue);
+                setStatusFilter(
+                  event.target.value as StatusFilterValue
+                );
                 setCurrentPage(1);
               }}
             >
@@ -205,7 +282,10 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
           </div>
 
           <div>
-            <label className="form-label" htmlFor="takeoff-level-filter">
+            <label
+              className="form-label"
+              htmlFor="takeoff-level-filter"
+            >
               Niveau
             </label>
             <select
@@ -213,7 +293,9 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               className="form-input form-select form-input--sm"
               value={levelFilter}
               onChange={(event) => {
-                setLevelFilter(event.target.value as LevelFilterValue);
+                setLevelFilter(
+                  event.target.value as LevelFilterValue
+                );
                 setCurrentPage(1);
               }}
             >
@@ -226,7 +308,10 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
           </div>
 
           <div>
-            <label className="form-label" htmlFor="takeoff-period-filter">
+            <label
+              className="form-label"
+              htmlFor="takeoff-period-filter"
+            >
               Periode
             </label>
             <select
@@ -234,7 +319,9 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               className="form-input form-select form-input--sm"
               value={periodFilter}
               onChange={(event) => {
-                setPeriodFilter(event.target.value as PeriodFilterValue);
+                setPeriodFilter(
+                  event.target.value as PeriodFilterValue
+                );
                 setCurrentPage(1);
               }}
             >
@@ -273,21 +360,42 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th>Version</th>
                   <th>Source</th>
                   <th>Niveau</th>
                   <th>Statut</th>
                   <th>Date</th>
-                  <th>Duree</th>
                   <th>Items</th>
-                  <th>Cout</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {jobs.length === 0 ? (
                   <tr>
-                  <td colSpan={8} className="text-center text-sm text-[var(--slate-500)]">
-                      Aucune extraction trouvée pour ces filtres.
+                    <td colSpan={7} className="p-0">
+                      <EmptyState
+                        icon={
+                          <svg
+                            width="26"
+                            height="26"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="16" y1="13" x2="8" y2="13" />
+                            <line x1="16" y1="17" x2="8" y2="17" />
+                          </svg>
+                        }
+                        title="Aucune extraction"
+                        description="Aucune extraction trouvee pour ces filtres."
+                        className="py-10"
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -297,62 +405,95 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                       job.status === "failed" &&
                       job.retry_count < TAKEOFF_JOB_MAX_RETRY_COUNT;
                     const canCancel =
-                      job.status === "pending" || job.status === "processing";
+                      job.status === "pending" ||
+                      job.status === "processing";
                     const reviewEnabled =
-                      job.status === "completed" || job.status === "applied";
-                    const compareCandidate = jobs.find((candidate) => {
-                      if (candidate.id === job.id) return false;
-                      if (
-                        candidate.status !== "completed" &&
-                        candidate.status !== "applied"
-                      ) {
-                        return false;
+                      job.status === "completed" ||
+                      job.status === "applied";
+                    const compareCandidate = jobs.find(
+                      (candidate) => {
+                        if (candidate.id === job.id) return false;
+                        if (
+                          candidate.status !== "completed" &&
+                          candidate.status !== "applied"
+                        ) {
+                          return false;
+                        }
+                        if (
+                          candidate.estimate_version_id !==
+                          job.estimate_version_id
+                        ) {
+                          return false;
+                        }
+                        const candidateFileName =
+                          candidate.source_file_name
+                            ?.trim()
+                            .toLowerCase() ?? "";
+                        const currentFileName =
+                          job.source_file_name
+                            ?.trim()
+                            .toLowerCase() ?? "";
+                        return (
+                          candidateFileName.length > 0 &&
+                          candidateFileName === currentFileName
+                        );
                       }
-
-                      const candidateFileName =
-                        candidate.source_file_name?.trim().toLowerCase() ?? "";
-                      const currentFileName =
-                        job.source_file_name?.trim().toLowerCase() ?? "";
-
-                      return (
-                        candidateFileName.length > 0 &&
-                        candidateFileName === currentFileName
-                      );
-                    });
+                    );
                     const compareEnabled =
-                      reviewEnabled && compareCandidate !== undefined;
+                      reviewEnabled &&
+                      compareCandidate !== undefined;
+
+                    const resolvedVersionNumber =
+                      job.version_number ??
+                      versionNumberMap.get(
+                        job.estimate_version_id
+                      ) ??
+                      null;
 
                     return (
                       <tr key={job.id}>
                         <td>
+                          {resolvedVersionNumber !== null ? (
+                            <span className="inline-flex items-center rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-xs font-semibold text-[var(--slate-700)]">
+                              V{resolvedVersionNumber}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td>
                           <div className="font-medium text-[var(--slate-800)]">
-                            {job.source_file_name ?? "Fichier inconnu"}
+                            {job.source_file_name ??
+                              "Fichier inconnu"}
                           </div>
                           <div className="mt-1 text-xs text-[var(--slate-500)]">
-                            {job.source_file_type ?? "Type non renseigne"}
+                            {job.source_file_type ??
+                              "Type non renseigne"}
                           </div>
                         </td>
                         <td>{job.level}</td>
                         <td>
-                          <span className={`status-badge ${getStatusCss(job.status)}`}>
+                          <span
+                            className={`status-badge ${getStatusCss(job.status)}`}
+                          >
                             {getStatusLabel(job.status)}
                           </span>
                         </td>
-                        <td>{formatTimestamp(job.created_at)}</td>
-                        <td>{formatDurationMs(job.metrics.duration_ms)}</td>
+                        <td>
+                          {formatTimestamp(job.created_at)}
+                        </td>
                         <td>{formatCount(job.items_count)}</td>
-                        <td>{formatCostCents(job.metrics.cost_cents)}</td>
                         <td>
                           <div className="flex flex-wrap gap-2">
                             <Link
-                              href={`/dashboard/estimates/${versionId}/takeoff/${job.id}`}
+                              href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}`}
                               className="btn btn-secondary btn-sm"
                             >
                               Detail
                             </Link>
                             {reviewEnabled ? (
                               <Link
-                                href={`/dashboard/estimates/${versionId}/takeoff/${job.id}/review`}
+                                href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}/review`}
                                 className="btn btn-secondary btn-sm"
                               >
                                 Review
@@ -360,7 +501,7 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                             ) : null}
                             {compareEnabled ? (
                               <Link
-                                href={`/dashboard/estimates/${versionId}/takeoff/${job.id}/review?view=compare&compareWith=${encodeURIComponent(
+                                href={`/dashboard/estimates/${job.estimate_version_id}/takeoff/${job.id}/review?view=compare&compareWith=${encodeURIComponent(
                                   compareCandidate.id
                                 )}`}
                                 className="btn btn-secondary btn-sm"
@@ -372,21 +513,37 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                               type="button"
                               className="btn btn-secondary btn-sm"
                               onClick={() => {
-                                void handleAction(job.id, "retry");
+                                void handleAction(
+                                  job.id,
+                                  "retry"
+                                );
                               }}
-                              disabled={!canRetry || Boolean(pendingAction)}
+                              disabled={
+                                !canRetry ||
+                                Boolean(pendingAction)
+                              }
                             >
-                              {pendingAction === "retry" ? "Relance..." : "Relancer"}
+                              {pendingAction === "retry"
+                                ? "Relance..."
+                                : "Relancer"}
                             </button>
                             <button
                               type="button"
                               className="btn btn-secondary btn-sm"
                               onClick={() => {
-                                void handleAction(job.id, "cancel");
+                                void handleAction(
+                                  job.id,
+                                  "cancel"
+                                );
                               }}
-                              disabled={!canCancel || Boolean(pendingAction)}
+                              disabled={
+                                !canCancel ||
+                                Boolean(pendingAction)
+                              }
                             >
-                              {pendingAction === "cancel" ? "Annulation..." : "Annuler"}
+                              {pendingAction === "cancel"
+                                ? "Annulation..."
+                                : "Annuler"}
                             </button>
                           </div>
                         </td>
@@ -399,13 +556,16 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--slate-200)] p-4">
-              <p className="text-sm text-[var(--slate-500)]">
+            <p className="text-sm text-[var(--slate-500)]">
               {formatCount(totalJobs)} extractions
               {isValidating ? " (actualisation...)" : ""}
             </p>
 
             <div className="flex flex-wrap items-center gap-3">
-              <label className="text-xs font-semibold text-[var(--slate-500)]" htmlFor="takeoff-page-size">
+              <label
+                className="text-xs font-semibold text-[var(--slate-500)]"
+                htmlFor="takeoff-page-size"
+              >
                 Page size
               </label>
               <select
@@ -413,8 +573,16 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
                 className="form-input form-select form-input--sm h-9 min-w-[88px]"
                 value={pageSize}
                 onChange={(event) => {
-                  const next = Number.parseInt(event.target.value, 10);
-                  if (!Number.isFinite(next) || !PAGE_SIZE_OPTIONS.includes(next as (typeof PAGE_SIZE_OPTIONS)[number])) {
+                  const next = Number.parseInt(
+                    event.target.value,
+                    10
+                  );
+                  if (
+                    !Number.isFinite(next) ||
+                    !PAGE_SIZE_OPTIONS.includes(
+                      next as (typeof PAGE_SIZE_OPTIONS)[number]
+                    )
+                  ) {
                     return;
                   }
                   setPageSize(next);
@@ -431,7 +599,11 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                onClick={() => setCurrentPage((value) => Math.max(1, value - 1))}
+                onClick={() =>
+                  setCurrentPage((value) =>
+                    Math.max(1, value - 1)
+                  )
+                }
                 disabled={effectivePage <= 1}
               >
                 Precedent
@@ -442,7 +614,11 @@ export default function TakeoffJobList({ versionId }: TakeoffJobListProps) {
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                onClick={() => setCurrentPage((value) => Math.min(totalPages, value + 1))}
+                onClick={() =>
+                  setCurrentPage((value) =>
+                    Math.min(totalPages, value + 1)
+                  )
+                }
                 disabled={effectivePage >= totalPages}
               >
                 Suivant

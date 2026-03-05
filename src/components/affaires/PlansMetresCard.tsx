@@ -171,6 +171,12 @@ export function PlansMetresCard({
         >
           Voir les plans
         </Link>
+        <Link
+          href={`/dashboard/affaires/${projectId}/takeoff`}
+          className="btn btn-secondary btn-sm inline-flex"
+        >
+          Voir les extractions
+        </Link>
         <button
           type="button"
           disabled

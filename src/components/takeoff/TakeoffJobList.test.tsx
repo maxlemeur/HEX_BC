@@ -16,10 +16,11 @@ vi.mock("@/lib/takeoff/client", async () => {
   };
 });
 
-import TakeoffJobList, {
+import TakeoffJobList from "@/components/takeoff/TakeoffJobList";
+import {
   resolveTakeoffMaxNavigablePagesByOffset,
   resolveTakeoffJobsRefreshInterval,
-} from "@/components/takeoff/TakeoffJobList";
+} from "@/components/takeoff/takeoff-job-list-shared";
 import {
   TakeoffApiError,
   cancelTakeoffJob,

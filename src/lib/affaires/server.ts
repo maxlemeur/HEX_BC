@@ -1031,6 +1031,31 @@ async function fetchAffaireHubMarginAnalysisWithContext(
   };
 }
 
+export const fetchProjectVersionList = cache(
+  async (
+    projectId: string
+  ): Promise<Array<{ id: string; version_number: number }>> => {
+    const context = await getAuthenticatedContext();
+    const project = await fetchAffaireHubProjectOrThrow(context, projectId);
+
+    const { data, error } = await context.supabase
+      .from("estimate_versions")
+      .select("id, version_number")
+      .eq("project_id", project.id)
+      .eq("tenant_id", context.tenantId)
+      .order("version_number", { ascending: true });
+
+    if (error) {
+      throw mapSupabaseError(
+        error,
+        "Impossible de charger la liste des versions."
+      );
+    }
+
+    return (data ?? []) as Array<{ id: string; version_number: number }>;
+  }
+);
+
 export async function fetchAffaireHubMarginAnalysis(
   projectId: string
 ): Promise<AffaireHubMarginAnalysisResult> {

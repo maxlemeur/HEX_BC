@@ -202,6 +202,16 @@ const optionalUuidSearchParamSchema = z.preprocess(
   z.string().uuid("estimate_version_id invalide.").optional()
 );
 
+const optionalProjectIdSearchParamSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.string().uuid("project_id invalide.").optional()
+);
+
 const optionalStatusSearchParamSchema = z.preprocess(
   (value) => {
     if (value === undefined || value === null) return undefined;
@@ -426,13 +436,22 @@ export const takeoffJobIdSchema = z.string().uuid("jobId invalide.");
 export const listTakeoffJobsQuerySchema = z
   .object({
     estimate_version_id: optionalUuidSearchParamSchema,
+    project_id: optionalProjectIdSearchParamSchema,
     status: optionalStatusSearchParamSchema,
     level: optionalLevelSearchParamSchema,
     period: optionalPeriodSearchParamSchema,
     limit: optionalLimitSearchParamSchema,
     offset: optionalOffsetSearchParamSchema,
   })
-  .strict();
+  .strict()
+  .refine(
+    (data) => !(data.project_id && data.estimate_version_id),
+    {
+      message:
+        "project_id et estimate_version_id sont mutuellement exclusifs.",
+      path: ["project_id"],
+    }
+  );
 
 export const getTakeoffJobDetailsQuerySchema = z
   .object({
@@ -1329,18 +1348,56 @@ function resolveTakeoffJobsPeriodStart(
   return new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000).toISOString();
 }
 
+async function resolveVersionIdsForProject(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  projectId: string;
+}): Promise<Array<{ id: string; version_number: number }>> {
+  const { data, error } = await input.supabase
+    .from("estimate_versions")
+    .select("id, version_number")
+    .eq("tenant_id", input.tenantId)
+    .eq("project_id", input.projectId)
+    .order("version_number", { ascending: true });
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de resoudre les versions du projet."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return (data ?? []) as Array<{ id: string; version_number: number }>;
+}
+
 type TakeoffJobsListFilterQuery = {
   eq: (column: string, value: string) => TakeoffJobsListFilterQuery;
   gte: (column: string, value: string) => TakeoffJobsListFilterQuery;
+  in: (column: string, values: string[]) => TakeoffJobsListFilterQuery;
+};
+
+type TakeoffJobsListFilterInput = Pick<
+  ListTakeoffJobsQuery,
+  "estimate_version_id" | "status" | "level" | "period"
+> & {
+  version_ids?: string[];
 };
 
 function applyTakeoffJobsListFilters<TQuery extends TakeoffJobsListFilterQuery>(
   query: TQuery,
-  input: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "status" | "level" | "period">
+  input: TakeoffJobsListFilterInput
 ): TQuery {
   let scopedQuery = query;
 
-  if (input.estimate_version_id) {
+  if (input.version_ids && input.version_ids.length > 0) {
+    scopedQuery = scopedQuery.in(
+      "estimate_version_id",
+      input.version_ids
+    ) as TQuery;
+  } else if (input.estimate_version_id) {
     scopedQuery = scopedQuery.eq(
       "estimate_version_id",
       input.estimate_version_id
@@ -1368,7 +1425,9 @@ type TakeoffJobsCounterStatus = Exclude<keyof TakeoffJobStatusCounters, "total">
 async function countTakeoffJobs(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
-  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "level" | "period">;
+  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "level" | "period"> & {
+    version_ids?: string[];
+  };
   status?: TakeoffJobsCounterStatus;
 }): Promise<number> {
   const query = applyTakeoffJobsListFilters(
@@ -1378,6 +1437,7 @@ async function countTakeoffJobs(input: {
       .eq("tenant_id" as never, input.tenantId as never),
     {
       estimate_version_id: input.filters.estimate_version_id,
+      version_ids: input.filters.version_ids,
       level: input.filters.level,
       period: input.filters.period,
       status: input.status,
@@ -1402,7 +1462,9 @@ async function countTakeoffJobs(input: {
 async function buildTakeoffJobsStatusCounters(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
-  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "level" | "period">;
+  filters: Pick<ListTakeoffJobsQuery, "estimate_version_id" | "level" | "period"> & {
+    version_ids?: string[];
+  };
 }): Promise<TakeoffJobStatusCounters> {
   const [total, processing, completed, failed, canceled] = await Promise.all([
     countTakeoffJobs({
@@ -1488,11 +1550,64 @@ export async function listTakeoffJobs(
   const offset = input.offset ?? 0;
   const rangeEnd = offset + limit - 1;
 
+  let versionIds: string[] | undefined;
+  let versionNumberMap: Map<string, number> | undefined;
+
+  if (input.project_id) {
+    const versions = await resolveVersionIdsForProject({
+      supabase,
+      tenantId,
+      projectId: input.project_id,
+    });
+    if (versions.length === 0) {
+      return {
+        jobs: [],
+        counters: { total: 0, processing: 0, completed: 0, failed: 0, canceled: 0 },
+        pagination: { limit, offset, total: 0 },
+      };
+    }
+    versionIds = versions.map((v) => v.id);
+    versionNumberMap = new Map(versions.map((v) => [v.id, v.version_number]));
+  } else if (input.estimate_version_id) {
+    const { data: singleVersion, error: versionError } = await supabase
+      .from("estimate_versions")
+      .select("id, version_number")
+      .eq("id", input.estimate_version_id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (versionError) {
+      throw toTakeoffError(
+        mapSupabaseError(
+          versionError,
+          "Impossible de resoudre le numero de version."
+        ),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+        }
+      );
+    }
+    if (singleVersion) {
+      versionNumberMap = new Map([
+        [singleVersion.id, singleVersion.version_number as number],
+      ]);
+    }
+  }
+
+  const filterInput: TakeoffJobsListFilterInput = {
+    estimate_version_id: input.estimate_version_id,
+    version_ids: versionIds,
+    status: input.status,
+    level: input.level,
+    period: input.period,
+  };
+
   const countersPromise = buildTakeoffJobsStatusCounters({
     supabase,
     tenantId,
     filters: {
       estimate_version_id: input.estimate_version_id,
+      version_ids: versionIds,
       level: input.level,
       period: input.period,
     },
@@ -1503,12 +1618,7 @@ export async function listTakeoffJobs(
       .from("takeoff_jobs" as never)
       .select(TAKEOFF_JOB_LIST_SELECT as never, { count: "exact" })
       .eq("tenant_id" as never, tenantId as never),
-    {
-      estimate_version_id: input.estimate_version_id,
-      status: input.status,
-      level: input.level,
-      period: input.period,
-    }
+    filterInput
   )
     .order("created_at" as never, { ascending: false })
     .range(offset as never, rangeEnd as never);
@@ -1540,6 +1650,7 @@ export async function listTakeoffJobs(
     jobs: jobs.map((job) => ({
       ...job,
       items_count: itemCountByJobId.get(job.id) ?? 0,
+      version_number: versionNumberMap?.get(job.estimate_version_id) ?? null,
     })),
     counters,
     pagination: {

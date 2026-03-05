@@ -27,6 +27,7 @@ const VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const OTHER_VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const JOB_ID = "55555555-5555-4555-8555-555555555555";
 const JOB_ID_2 = "66666666-6666-4666-8666-666666666666";
+const PROJECT_ID = "88888888-8888-4888-8888-888888888888";
 
 type TakeoffJobStoredRow = {
   id: string;
@@ -98,6 +99,7 @@ type SupabaseMockOptions = {
   jobs?: TakeoffJobStoredRow[];
   results?: TakeoffResultStoredRow[];
   items?: TakeoffItemStoredRow[];
+  versions?: Array<{ id: string; version_number: number; project_id: string }>;
   auditInsertError?: {
     code: string;
     message: string;
@@ -205,6 +207,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         created_at: "2026-02-25T10:03:30.000Z",
       }),
     ];
+  const versionsData = options.versions ?? [
+    { id: VERSION_ID, version_number: 1, project_id: PROJECT_ID },
+    { id: OTHER_VERSION_ID, version_number: 2, project_id: PROJECT_ID },
+  ];
   const auditInsertError = options.auditInsertError ?? null;
 
   const state = {
@@ -234,6 +240,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       id?: string;
       tenant_id?: string;
       estimate_version_id?: string;
+      estimate_version_id_in?: string[];
       status?: string;
       level?: string;
       created_at_gte?: string;
@@ -250,6 +257,12 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
           column === "level"
         ) {
           filters[column] = value;
+        }
+        return builder;
+      }),
+      in: vi.fn((column: string, values: string[]) => {
+        if (column === "estimate_version_id") {
+          filters.estimate_version_id_in = values;
         }
         return builder;
       }),
@@ -272,6 +285,12 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
           if (
             filters.estimate_version_id &&
             row.estimate_version_id !== filters.estimate_version_id
+          ) {
+            return false;
+          }
+          if (
+            filters.estimate_version_id_in &&
+            !filters.estimate_version_id_in.includes(row.estimate_version_id)
           ) {
             return false;
           }
@@ -305,6 +324,12 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
             if (
               filters.estimate_version_id &&
               row.estimate_version_id !== filters.estimate_version_id
+            ) {
+              return false;
+            }
+            if (
+              filters.estimate_version_id_in &&
+              !filters.estimate_version_id_in.includes(row.estimate_version_id)
             ) {
               return false;
             }
@@ -494,6 +519,43 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
             return { data: null, error: null };
           }),
         };
+      }
+
+      if (table === "estimate_versions") {
+        const evFilters: { id?: string; project_id?: string; tenant_id?: string } = {};
+        const evBuilder = {
+          select: vi.fn(() => evBuilder),
+          eq: vi.fn((column: string, value: string) => {
+            if (column === "id" || column === "project_id" || column === "tenant_id") {
+              evFilters[column] = value;
+            }
+            return evBuilder;
+          }),
+          order: vi.fn(() => evBuilder),
+          maybeSingle: vi.fn(async () => {
+            const match = versionsData.find((v) => {
+              if (evFilters.id && v.id !== evFilters.id) return false;
+              if (evFilters.project_id && v.project_id !== evFilters.project_id) return false;
+              return true;
+            });
+            return { data: match ? { id: match.id, version_number: match.version_number } : null, error: null };
+          }),
+          then: (
+            onFulfilled?: (value: { data: Array<{ id: string; version_number: number }>; error: null }) => unknown,
+            onRejected?: (reason: unknown) => unknown,
+          ) => {
+            const filtered = versionsData.filter((v) => {
+              if (evFilters.project_id && v.project_id !== evFilters.project_id) return false;
+              if (evFilters.tenant_id) return true;
+              return true;
+            });
+            return Promise.resolve({
+              data: filtered.map((v) => ({ id: v.id, version_number: v.version_number })),
+              error: null,
+            }).then(onFulfilled, onRejected);
+          },
+        };
+        return evBuilder;
       }
 
       throw new Error(`Unexpected table: ${table}`);
@@ -915,5 +977,139 @@ describe("takeoff job server helpers (TKF-009)", () => {
       status: 409,
       code: "CONFLICT",
     });
+  });
+
+  it("rejects when both project_id and estimate_version_id are provided", () => {
+    expect(() =>
+      parseListTakeoffJobsQuery({
+        project_id: PROJECT_ID,
+        estimate_version_id: VERSION_ID,
+      })
+    ).toThrowError();
+  });
+
+  it("accepts project_id alone as valid query", () => {
+    const result = parseListTakeoffJobsQuery({
+      project_id: PROJECT_ID,
+    });
+    expect(result.project_id).toBe(PROJECT_ID);
+    expect(result.estimate_version_id).toBeUndefined();
+  });
+
+  it("rejects invalid project_id", () => {
+    expect(() =>
+      parseListTakeoffJobsQuery({
+        project_id: "not-a-uuid",
+      })
+    ).toThrowError();
+  });
+
+  it("lists jobs by project_id across multiple versions using .in() filter", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          id: JOB_ID,
+          estimate_version_id: VERSION_ID,
+          created_at: "2026-02-25T10:00:00.000Z",
+        }),
+        baseJob({
+          id: JOB_ID_2,
+          estimate_version_id: OTHER_VERSION_ID,
+          status: "completed",
+          error_code: null,
+          error_message: null,
+          created_at: "2026-02-25T09:00:00.000Z",
+        }),
+        baseJob({
+          id: "77777777-7777-4777-8777-777777777770",
+          tenant_id: OTHER_TENANT_ID,
+          estimate_version_id: VERSION_ID,
+        }),
+      ],
+      versions: [
+        { id: VERSION_ID, version_number: 1, project_id: PROJECT_ID },
+        { id: OTHER_VERSION_ID, version_number: 2, project_id: PROJECT_ID },
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await listTakeoffJobs({
+      project_id: PROJECT_ID,
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(response.jobs).toHaveLength(2);
+    expect(response.jobs[0]?.id).toBe(JOB_ID);
+    expect(response.jobs[1]?.id).toBe(JOB_ID_2);
+    expect(response.jobs[0]?.version_number).toBe(1);
+    expect(response.jobs[1]?.version_number).toBe(2);
+    expect(response.counters.total).toBe(2);
+  });
+
+  it("returns empty result when project has no versions", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          id: JOB_ID,
+          estimate_version_id: VERSION_ID,
+        }),
+      ],
+      versions: [],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await listTakeoffJobs({
+      project_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(response.jobs).toHaveLength(0);
+    expect(response.counters.total).toBe(0);
+    expect(response.pagination.total).toBe(0);
+  });
+
+  it("enriches version_number when filtering by single estimate_version_id", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          id: JOB_ID,
+          estimate_version_id: VERSION_ID,
+          created_at: "2026-02-25T10:00:00.000Z",
+        }),
+      ],
+      versions: [
+        { id: VERSION_ID, version_number: 3, project_id: PROJECT_ID },
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await listTakeoffJobs({
+      estimate_version_id: VERSION_ID,
+      limit: 10,
+      offset: 0,
+    });
+
+    expect(response.jobs).toHaveLength(1);
+    expect(response.jobs[0]?.version_number).toBe(3);
   });
 });
