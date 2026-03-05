@@ -78,6 +78,7 @@ export default function SuppliersPage() {
     const { data, error } = await supabase
       .from("suppliers")
       .select("*")
+      .eq("is_active", true)
       .order("name", { ascending: true });
 
     if (error) {
@@ -195,7 +196,44 @@ export default function SuppliersPage() {
   }
 
   async function onDelete(supplierId: string) {
-    if (!window.confirm("Supprimer ce fournisseur ?")) {
+    async function archiveSupplier() {
+      const { error: archiveError } = await supabase
+        .from("suppliers")
+        .update({ is_active: false })
+        .eq("id", supplierId);
+
+      if (archiveError) {
+        setFormError(archiveError.message);
+        return;
+      }
+
+      await mutate();
+      setFormError(null);
+    }
+
+    const { count, error: countError } = await supabase
+      .from("purchase_orders")
+      .select("id", { count: "exact", head: true })
+      .eq("supplier_id", supplierId);
+
+    if (countError) {
+      setFormError(countError.message);
+      return;
+    }
+
+    const linkedOrdersCount = count ?? 0;
+    const hasLinkedOrders = linkedOrdersCount > 0;
+    const isPlural = linkedOrdersCount > 1;
+    const confirmationMessage = hasLinkedOrders
+      ? `Ce fournisseur est utilise dans ${linkedOrdersCount} bon${isPlural ? "s" : ""} de commande. Il sera archive et retire de la liste active. Continuer ?`
+      : "Supprimer ce fournisseur ?";
+
+    if (!window.confirm(confirmationMessage)) {
+      return;
+    }
+
+    if (hasLinkedOrders) {
+      await archiveSupplier();
       return;
     }
 
@@ -205,6 +243,11 @@ export default function SuppliersPage() {
       .eq("id", supplierId);
 
     if (error) {
+      if (error.code === "23503") {
+        await archiveSupplier();
+        return;
+      }
+
       setFormError(error.message);
       return;
     }
