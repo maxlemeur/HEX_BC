@@ -306,6 +306,13 @@ export const patchEstimateStatusSchema = z.object({
   force: z.boolean().optional(),
 });
 
+export const sendEstimateSchema = z.object({
+  to: z.string().trim().min(1, "Destinataire obligatoire.").email("Adresse email invalide."),
+  cc: z.array(z.string().trim().email("Adresse CC invalide.")).optional(),
+  subject: z.string().trim().min(1, "Objet obligatoire.").max(500, "Objet trop long."),
+  message: z.string().trim().min(1, "Message obligatoire.").max(5000, "Message trop long."),
+});
+
 const emptyPayloadSchema = z.object({}).strict();
 
 function normalizeOptionalEmptyPayload(value: unknown) {
@@ -1141,6 +1148,7 @@ export type CreateEstimateCreationModeInput = z.infer<
 >;
 export type PatchEstimateVersionInput = z.infer<typeof patchEstimateVersionSchema>;
 export type PatchEstimateStatusInput = z.infer<typeof patchEstimateStatusSchema>;
+export type SendEstimateInput = z.infer<typeof sendEstimateSchema>;
 export type CreateEstimateVariantInput = z.infer<
   typeof createEstimateVariantSchema
 >;

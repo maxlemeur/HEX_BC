@@ -333,6 +333,7 @@ export default async function EstimateDetailPage({
                     <EstimateStatusActions
                       versionId={versionId}
                       currentStatus={version.status as "draft" | "sent" | "accepted" | "archived"}
+                      projectName={project?.name ?? undefined}
                     />
                   </div>
                 </div>
