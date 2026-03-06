@@ -277,4 +277,75 @@ describe("EstimateStructureDraftDialog", () => {
       ).not.toBeDisabled();
     });
   });
+
+  it("allows applying when a skipped parent contains descendants still marked for merge", async () => {
+    const user = userEvent.setup();
+    const mergedChildDraft = {
+      ...draftFixture,
+      nodes: [
+        {
+          ...draftFixture.nodes[0],
+          children: [
+            {
+              ...draftFixture.nodes[0].children[0],
+              defaultAction: "merge" as const,
+              duplicateMatchItemId: "section-compatible-child",
+              duplicateMatchPath: "Peinture > Preparation des supports",
+            },
+          ],
+        },
+      ],
+    };
+
+    vi.mocked(generateEstimateStructureDraft).mockResolvedValueOnce(mergedChildDraft);
+    vi.mocked(fetchEstimateStructureDraft).mockResolvedValueOnce(mergedChildDraft);
+
+    render(
+      <EstimateStructureDraftDialog
+        isOpen
+        targetVersionId="version-1"
+        hasExistingItems
+        existingSections={[
+          {
+            id: "section-existing",
+            path: "Peinture",
+            hierarchyLevel: 1,
+            parentId: null,
+            title: "Peinture",
+          },
+          {
+            id: "section-compatible-child",
+            path: "Peinture > Preparation des supports",
+            hierarchyLevel: 2,
+            parentId: "section-existing",
+            title: "Preparation des supports",
+          },
+        ]}
+        onClose={vi.fn()}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await screen.findByText("Provenance utilisee");
+    await user.click(screen.getByRole("button", { name: "Continuer" }));
+    await screen.findByText("Lots a retenir");
+    await user.click(screen.getByRole("button", { name: "Continuer" }));
+    await screen.findByText("Overrides par noeud");
+
+    const rootNodeCard = screen.getByTestId(
+      "estimate-structure-draft-node-root-node"
+    );
+    const [rootActionSelect] = within(rootNodeCard).getAllByRole("combobox");
+
+    await user.selectOptions(rootActionSelect, "skip");
+
+    expect(
+      screen.queryByText(
+        /Corrigez les noeuds signales avant d'appliquer la structure/i
+      )
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Appliquer la structure" })
+    ).not.toBeDisabled();
+  });
 });

@@ -55,6 +55,10 @@ type MergeParentContext =
       kind: "created";
     }
   | {
+      kind: "ignored";
+      reason: string;
+    }
+  | {
       kind: "blocked";
       reason: string;
     };
@@ -253,13 +257,17 @@ function buildNodeMergeStates(input: {
       parentContext.kind === "existing" &&
       mergeCandidates.length > 0 &&
       resolvedMergeTarget === null;
+    const isIgnoredSubtree = parentContext.kind === "ignored";
     const blockingReason =
-      parentContext.kind === "blocked" ? parentContext.reason : null;
+      parentContext.kind === "blocked" || parentContext.kind === "ignored"
+        ? parentContext.reason
+        : null;
     const hasInvalidMergeConfiguration =
       requestedAction === "merge" &&
-      (blockingReason !== null ||
+      (!isIgnoredSubtree &&
+        (blockingReason !== null ||
         mergeCandidates.length === 0 ||
-        requiresExplicitMergeTarget);
+        requiresExplicitMergeTarget));
 
     states.set(node.id, {
       mergeCandidates,
@@ -273,7 +281,7 @@ function buildNodeMergeStates(input: {
     let nextParentContext: MergeParentContext;
     if (requestedAction === "skip") {
       nextParentContext = {
-        kind: "blocked",
+        kind: "ignored",
         reason: "Le parent est ignore, son sous-arbre ne sera pas applique.",
       };
     } else if (requestedAction === "create") {
