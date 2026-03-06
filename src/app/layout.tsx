@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, Outfit, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
-import { ToastProvider } from "@/components/ui/Toast";
+import AppProviders from "@/app/providers";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -74,7 +74,7 @@ export default function RootLayout({
 })();`}
           </Script>
         ) : null}
-        <ToastProvider>{children}</ToastProvider>
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

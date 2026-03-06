@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 
 import { AffaireHub } from "@/components/affaires/AffaireHub";
 import { getUserContext } from "@/lib/auth/server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import {
   fetchAffaireHubDpgfSource,
   fetchAffaireHubMarginAnalysis,
@@ -62,6 +64,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const dpgfSourcePromise = fetchAffaireHubDpgfSource(projectId);
   const marginAnalysisPromise = fetchAffaireHubMarginAnalysis(projectId);
   const takeoffEnabledPromise = isTakeoffEnabled(tenantId);
+  const intakeWorkspacePromise = fetchAffaireIntakeWorkspace(projectId);
 
   const [
     summaryResult,
@@ -69,12 +72,14 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     dpgfSourceResult,
     marginResult,
     takeoffEnabledResult,
+    intakeWorkspaceResult,
   ] = await Promise.allSettled([
     summaryPromise,
     timelinePromise,
     dpgfSourcePromise,
     marginAnalysisPromise,
     takeoffEnabledPromise,
+    intakeWorkspacePromise,
   ]);
 
   if (summaryResult.status === "rejected") {
@@ -138,6 +143,11 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       "Impossible de charger l'analyse de marge pour le moment.";
   }
 
+  const intakeWorkspace: AffaireIntakeWorkspace | null =
+    intakeWorkspaceResult.status === "fulfilled"
+      ? intakeWorkspaceResult.value
+      : null;
+
   if (takeoffEnabled) {
     const plansSummaryResult = await Promise.allSettled([
       fetchAffaireHubPlansSummary(projectId),
@@ -164,6 +174,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       takeoffEnabled={takeoffEnabled}
       sectionErrors={sectionErrors}
       justCreated={justCreated}
+      intakeWorkspace={intakeWorkspace}
     />
   );
 }

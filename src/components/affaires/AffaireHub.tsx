@@ -26,7 +26,9 @@ import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 
 import { useToast } from "@/components/ui/Toast";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
+import { IntakeWorkspace } from "./IntakeWorkspace";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { PlansMetresCard } from "./PlansMetresCard";
@@ -54,6 +56,7 @@ type AffaireHubProps = {
     plansSummary?: string;
   };
   justCreated?: boolean;
+  intakeWorkspace?: AffaireIntakeWorkspace | null;
 };
 
 /* ------------------------------------------------------------------ */
@@ -793,6 +796,7 @@ export function AffaireHub({
   takeoffEnabled = false,
   sectionErrors,
   justCreated,
+  intakeWorkspace,
 }: AffaireHubProps) {
   const router = useRouter();
   const toast = useToast();
@@ -1001,6 +1005,16 @@ export function AffaireHub({
               Fermer
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Intake workspace: document upload, classification triage, missing pieces */}
+      {intakeWorkspace !== undefined && (
+        <div className="mb-4">
+          <IntakeWorkspace
+            projectId={summary.project.id}
+            workspace={intakeWorkspace}
+          />
         </div>
       )}
 
