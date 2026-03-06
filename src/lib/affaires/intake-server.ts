@@ -1202,18 +1202,22 @@ function sanitizeBriefEntryArray(
     return [...fallbackEntries];
   }
 
-  return entries
-    .slice(0, fallbackEntries.length > 0 ? Math.max(entries.length, fallbackEntries.length) : entries.length)
-    .map((entry, index) =>
+  return Array.from({
+    length:
+      fallbackEntries.length > 0
+        ? Math.max(entries.length, fallbackEntries.length)
+        : entries.length,
+  })
+    .map((_, index) =>
       sanitizeBriefEntry(
-        entry,
+        entries[index],
         fallbackEntries[index] ?? fallbackEntries[0] ?? createBriefEntry("Source a confirmer.", []),
         validDocumentIds
       )
     );
 }
 
-function mergeGeneratedAffaireBriefWithFallback(input: {
+export function mergeGeneratedAffaireBriefWithFallback(input: {
   generated: AffaireBriefGeneration | null;
   fallback: AffaireBriefGeneration;
   documents: AffaireBriefGenerationDocument[];
@@ -1260,6 +1264,125 @@ function mergeGeneratedAffaireBriefWithFallback(input: {
     )
       .slice(0, 12),
   });
+}
+
+function remapBriefSourcesForEditedDraft(input: {
+  previous: AffaireIntakeBriefDraft;
+  next: AffaireIntakeBriefDraft;
+}) {
+  const nextSources: AffaireIntakeBriefDraft["sources"] = [];
+  const previousSourcesByKey = new Map<string, AffaireIntakeBriefDraft["sources"]>();
+
+  for (const source of input.previous.sources) {
+    const key = `${source.blockKey}:${source.entryIndex}`;
+    previousSourcesByKey.set(key, [...(previousSourcesByKey.get(key) ?? []), source]);
+  }
+
+  const appendSources = (
+    blockKey: AffaireIntakeBriefBlockKey,
+    previousIndex: number,
+    nextIndex: number
+  ) => {
+    for (const source of previousSourcesByKey.get(`${blockKey}:${previousIndex}`) ?? []) {
+      nextSources.push({
+        ...source,
+        entryIndex: nextIndex,
+      });
+    }
+  };
+
+  if (input.previous.summary === input.next.summary) {
+    appendSources("summary", 0, 0);
+  }
+
+  const remapListBlock = (
+    blockKey: "scope" | "assumptions" | "vigilance_points",
+    previousValues: ReadonlyArray<string>,
+    nextValues: ReadonlyArray<string>
+  ) => {
+    const previousIndexByValue = new Map<string, number>();
+
+    previousValues.forEach((value, index) => {
+      previousIndexByValue.set(value, index);
+    });
+
+    nextValues.forEach((value, index) => {
+      const previousIndex = previousIndexByValue.get(value);
+      if (previousIndex !== undefined) {
+        appendSources(blockKey, previousIndex, index);
+      }
+    });
+  };
+
+  remapListBlock("scope", input.previous.scope, input.next.scope);
+  remapListBlock(
+    "assumptions",
+    input.previous.assumptions,
+    input.next.assumptions
+  );
+  remapListBlock(
+    "vigilance_points",
+    input.previous.vigilancePoints,
+    input.next.vigilancePoints
+  );
+
+  for (const source of input.previous.sources) {
+    if (
+      source.blockKey !== "summary" &&
+      source.blockKey !== "scope" &&
+      source.blockKey !== "assumptions" &&
+      source.blockKey !== "vigilance_points"
+    ) {
+      nextSources.push(source);
+    }
+  }
+
+  return nextSources;
+}
+
+async function replaceAffaireBriefSourceLinks(input: {
+  supabase: AffaireIntakeSupabaseClient;
+  briefId: string;
+  sources: AffaireIntakeBriefDraft["sources"];
+  actorUserId?: string | null;
+}) {
+  const { error: deleteError } = await resolveSupabaseQuery<{ error: unknown }>(
+    getAffaireIntakeDeleteTable(input.supabase, "affaire_brief_source_links")
+      .delete()
+      .eq("brief_id", input.briefId)
+  );
+
+  if (deleteError) {
+    throw internalError("Impossible de remplacer les sources du brief affaire.", deleteError);
+  }
+
+  if (input.sources.length === 0) {
+    return;
+  }
+
+  const { error: insertSourceError } = await resolveSupabaseQuery<{
+    error: unknown;
+  }>(
+    getAffaireIntakeInsertTable(input.supabase, "affaire_brief_source_links")
+      .insert(
+        input.sources.map((source) => ({
+          brief_id: input.briefId,
+          source_document_id: source.sourceDocumentId,
+          created_by: input.actorUserId ?? null,
+          block_key: source.blockKey,
+          entry_index: source.entryIndex,
+          source_file_name: source.sourceFileName,
+          rationale: source.rationale,
+        }))
+      )
+  );
+
+  if (insertSourceError) {
+    throw internalError(
+      "Impossible de persister les sources du brief affaire.",
+      insertSourceError
+    );
+  }
 }
 
 function buildBriefSourcesFromGeneration(
@@ -1607,43 +1730,12 @@ async function persistAffaireBriefDraft(input: {
     throw internalError("Le brief affaire retourne une reponse invalide.");
   }
 
-  if (existing) {
-    const { error: deleteError } = await resolveSupabaseQuery<{ error: unknown }>(
-      getAffaireIntakeDeleteTable(input.supabase, "affaire_brief_source_links")
-        .delete()
-        .eq("brief_id", brief.id)
-    );
-
-    if (deleteError) {
-      throw internalError("Impossible de remplacer les sources du brief affaire.", deleteError);
-    }
-  }
-
-  if (input.draft.sources.length > 0) {
-    const { error: insertSourceError } = await resolveSupabaseQuery<{
-      error: unknown;
-    }>(
-      getAffaireIntakeInsertTable(input.supabase, "affaire_brief_source_links")
-        .insert(
-          input.draft.sources.map((source) => ({
-            brief_id: brief.id,
-            source_document_id: source.sourceDocumentId,
-            created_by: input.actorUserId ?? null,
-            block_key: source.blockKey,
-            entry_index: source.entryIndex,
-            source_file_name: source.sourceFileName,
-            rationale: source.rationale,
-          }))
-        )
-    );
-
-    if (insertSourceError) {
-      throw internalError(
-        "Impossible de persister les sources du brief affaire.",
-        insertSourceError
-      );
-    }
-  }
+  await replaceAffaireBriefSourceLinks({
+    supabase: input.supabase,
+    briefId: brief.id,
+    sources: input.draft.sources,
+    actorUserId: input.actorUserId ?? null,
+  });
 
   if (contentChanged) {
     await insertAffaireIntakeEvent({
@@ -2504,6 +2596,10 @@ export async function updateAffaireBrief(input: {
     status: "a_confirmer",
     confirmedAt: null,
   });
+  const nextSources = remapBriefSourcesForEditedDraft({
+    previous: existing.draft,
+    next: nextDraft,
+  });
 
   const contentChanged =
     getComparableBriefPayload(existing.draft) !== getComparableBriefPayload(nextDraft) ||
@@ -2536,6 +2632,13 @@ export async function updateAffaireBrief(input: {
     throw internalError("Impossible de mettre a jour le brief affaire.", error);
   }
 
+  await replaceAffaireBriefSourceLinks({
+    supabase: context.supabase,
+    briefId: existing.brief.id,
+    sources: nextSources,
+    actorUserId: context.userId,
+  });
+
   await insertAffaireIntakeEvent({
     supabase: context.supabase,
     uploadId: existing.brief.upload_id,
@@ -2551,6 +2654,14 @@ export async function updateAffaireBrief(input: {
       scope_count: nextDraft.scope.length,
       assumption_count: nextDraft.assumptions.length,
     },
+  });
+
+  await syncAffaireRegisterFromBrief({
+    supabase: context.supabase as never,
+    project,
+    assumptions: nextDraft.assumptions,
+    sources: nextSources,
+    actorUserId: context.userId,
   });
 
   return {

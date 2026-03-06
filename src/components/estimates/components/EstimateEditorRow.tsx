@@ -509,6 +509,7 @@ export type EstimateEditorRowProps = {
   addSectionLabel?: string;
   isSectionCollapsed?: boolean;
   onToggleSectionCollapsed?: (sectionId: string) => void;
+  isHighlighted?: boolean;
 };
 
 function areStringArraysEqual(left: string[], right: string[]) {

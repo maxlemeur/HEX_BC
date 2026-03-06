@@ -59,4 +59,33 @@ describe("PlansMetresCard", () => {
       screen.queryByRole("button", { name: "Continuer sans plans" })
     ).not.toBeInTheDocument();
   });
+
+  it("keeps register signals visible and exposes a register CTA even when coverage is unavailable", () => {
+    render(
+      <PlansMetresCard
+        projectId="project-1"
+        plans={{
+          planSetCount: 1,
+          planFileCount: 1,
+          totalSizeBytes: 1024,
+          latestJob: {
+            jobId: "job-1",
+            status: "done",
+            label: "Analyse terminee",
+            reviewVersionId: "version-target",
+          },
+          coveragePercent: null,
+          exceptionCount: null,
+          openQuestionsCount: 2,
+          failureReasonLabel: null,
+        }}
+      />
+    );
+
+    expect(screen.getByText("2 points registre ouverts")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ouvrir le registre" })).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1"
+    );
+  });
 });

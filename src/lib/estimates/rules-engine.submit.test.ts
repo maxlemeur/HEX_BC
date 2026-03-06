@@ -27,27 +27,81 @@ const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 const VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const PROJECT_ID = "44444444-4444-4444-8444-444444444444";
 const OWNER_ID = "55555555-5555-4555-8555-555555555555";
+const REVIEWER_ID = "66666666-6666-4666-8666-666666666666";
 
-function createMembershipBuilder(role: "admin" | "director" | "engineer") {
+function createTenantMembershipBuilder(
+  rows: Array<{
+    tenant_id: string;
+    user_id: string;
+    role: "admin" | "director" | "engineer";
+    is_default: boolean;
+    created_at: string;
+  }>
+) {
   const builder = {
     eq: vi.fn(),
+    in: vi.fn(),
     order: vi.fn(),
     limit: vi.fn(),
+    then: vi.fn(),
   };
 
   builder.eq.mockReturnValue(builder);
+  builder.in.mockReturnValue(builder);
   builder.order.mockReturnValue(builder);
   builder.limit.mockResolvedValue({
-    data: [
-      {
-        tenant_id: TENANT_ID,
-        role,
-        is_default: true,
-        created_at: "2026-03-01T10:00:00.000Z",
-      },
-    ],
+    data: rows,
     error: null,
   });
+  builder.then.mockImplementation((onFulfilled) =>
+    Promise.resolve({
+      data: rows,
+      error: null,
+    }).then(onFulfilled)
+  );
+
+  return builder;
+}
+
+function createMembershipBuilder(role: "admin" | "director" | "engineer") {
+  return createTenantMembershipBuilder([
+    {
+      tenant_id: TENANT_ID,
+      user_id: USER_ID,
+      role,
+      is_default: true,
+      created_at: "2026-03-01T10:00:00.000Z",
+    },
+  ]);
+}
+
+function createProfilesBuilder(
+  rows = [
+    {
+      id: USER_ID,
+      full_name: "Nadia Martin",
+      work_email: "nadia@example.com",
+    },
+    {
+      id: OWNER_ID,
+      full_name: "Owner",
+      work_email: "owner@example.com",
+    },
+  ]
+) {
+
+  const builder = {
+    in: vi.fn(),
+    then: vi.fn(),
+  };
+
+  builder.in.mockReturnValue(builder);
+  builder.then.mockImplementation((onFulfilled) =>
+    Promise.resolve({
+      data: rows,
+      error: null,
+    }).then(onFulfilled)
+  );
 
   return builder;
 }
@@ -139,10 +193,27 @@ function createSingleUpdateBuilder<T>(data: T) {
   return builder;
 }
 
+function createSingleInsertBuilder<T>(data: T) {
+  const builder = {
+    select: vi.fn(),
+    single: vi.fn(),
+  };
+
+  builder.select.mockReturnValue(builder);
+  builder.single.mockResolvedValue({
+    data,
+    error: null,
+  });
+
+  return builder;
+}
+
 function mockAuthenticatedSupabase(input: {
   from: (table: string) => unknown;
   rpc?: ReturnType<typeof vi.fn>;
+  profilesBuilder?: ReturnType<typeof createProfilesBuilder>;
 }) {
+  const profilesBuilder = input.profilesBuilder ?? createProfilesBuilder();
   vi.mocked(createSupabaseServerClient).mockResolvedValue({
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -154,7 +225,15 @@ function mockAuthenticatedSupabase(input: {
         error: null,
       }),
     },
-    from: input.from,
+    from: ((table: string) => {
+      if (table === "profiles") {
+        return {
+          select: vi.fn(() => profilesBuilder),
+        };
+      }
+
+      return input.from(table);
+    }) as typeof input.from,
     rpc: input.rpc ?? vi.fn(),
   } as never);
 }
@@ -201,6 +280,358 @@ describe("submitEstimateApproval", () => {
     ).rejects.toMatchObject({
       status: 403,
       code: "FORBIDDEN",
+    });
+  });
+
+  it("lets engineer requesters resolve reviewers through the service-role client", async () => {
+    const membershipBuilder = createMembershipBuilder("admin");
+    const versionBuilder = createVersionAccessBuilder(
+      {
+        total_ht_cents: 250000,
+      },
+      {
+        user_id: USER_ID,
+      }
+    );
+    const itemsBuilder = createListBuilder([]);
+    const rulesBuilder = createListBuilder([
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        created_at: "2026-03-01T09:00:00.000Z",
+        updated_at: "2026-03-01T09:00:00.000Z",
+        tenant_id: TENANT_ID,
+        rule_type: "require_approval",
+        scope_type: "global",
+        scope_id: null,
+        threshold_value: 100000,
+        action: "require_approval",
+        is_active: true,
+      },
+    ]);
+    const reviewCycleSelectBuilders = [
+      createListBuilder([]),
+      createListBuilder([]),
+      createListBuilder([
+        {
+          id: "77777777-7777-4777-8777-777777777777",
+          created_at: "2026-03-01T10:00:00.000Z",
+          updated_at: "2026-03-01T10:00:00.000Z",
+          tenant_id: TENANT_ID,
+          version_id: VERSION_ID,
+          cycle_number: 1,
+          requested_by: USER_ID,
+          requested_at: "2026-03-01T10:00:00.000Z",
+          submission_message: "Prioriser les exceptions CFO.",
+          assigned_reviewer_id: REVIEWER_ID,
+          decided_by: null,
+          decision: null,
+          decided_at: null,
+          carried_over_from_cycle_id: null,
+          requested_by_profile: {
+            full_name: "Nadia Martin",
+          },
+          decided_by_profile: null,
+          assigned_reviewer_profile: {
+            id: REVIEWER_ID,
+            full_name: "Camille Reviewer",
+            work_email: "reviewer@example.com",
+          },
+        },
+      ]),
+    ];
+    const reviewCycleInsertBuilder = createSingleInsertBuilder({
+      id: "77777777-7777-4777-8777-777777777777",
+      created_at: "2026-03-01T10:00:00.000Z",
+      updated_at: "2026-03-01T10:00:00.000Z",
+      tenant_id: TENANT_ID,
+      version_id: VERSION_ID,
+      cycle_number: 1,
+      requested_by: USER_ID,
+      requested_at: "2026-03-01T10:00:00.000Z",
+      submission_message: "Prioriser les exceptions CFO.",
+      assigned_reviewer_id: REVIEWER_ID,
+      decided_by: null,
+      decision: null,
+      decided_at: null,
+      carried_over_from_cycle_id: null,
+    });
+    const approvalInsertBuilder = createSingleInsertBuilder({
+      id: "88888888-8888-4888-8888-888888888888",
+      created_at: "2026-03-01T10:05:00.000Z",
+      updated_at: "2026-03-01T10:05:00.000Z",
+      tenant_id: TENANT_ID,
+      version_id: VERSION_ID,
+      rule_id: "99999999-9999-4999-8999-999999999999",
+      requested_by: USER_ID,
+      approved_by: null,
+      status: "pending",
+      decided_at: null,
+    });
+    const reviewCommentsBuilder = createListBuilder([]);
+
+    const serviceRoleMembershipBuilder = createTenantMembershipBuilder([
+      {
+        tenant_id: TENANT_ID,
+        user_id: REVIEWER_ID,
+        role: "director",
+        is_default: true,
+        created_at: "2026-03-01T08:00:00.000Z",
+      },
+    ]);
+    const serviceRoleProfilesBuilder = createProfilesBuilder([
+      {
+        id: REVIEWER_ID,
+        full_name: "Camille Reviewer",
+        work_email: "reviewer@example.com",
+      },
+    ]);
+
+    vi.mocked(createOptionalServiceRoleClient)
+      .mockReturnValueOnce({
+        from: ((table: string) => {
+          if (table === "tenant_memberships") {
+            return {
+              select: vi.fn(() => serviceRoleMembershipBuilder),
+            };
+          }
+
+          if (table === "profiles") {
+            return {
+              select: vi.fn(() => serviceRoleProfilesBuilder),
+            };
+          }
+
+          throw new Error(`Unexpected service-role table: ${table}`);
+        }) as never,
+      } as never)
+      .mockReturnValueOnce(null as never);
+
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => membershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => versionBuilder),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => itemsBuilder),
+        };
+      }
+
+      if (table === "estimate_rules") {
+        return {
+          select: vi.fn(() => rulesBuilder),
+        };
+      }
+
+      if (table === "estimate_approvals") {
+        return {
+          select: vi.fn(() => createListBuilder([])),
+          insert: vi.fn(() => approvalInsertBuilder),
+        };
+      }
+
+      if (table === "estimate_review_cycles") {
+        return {
+          select: vi.fn(() => reviewCycleSelectBuilders.shift()),
+          insert: vi.fn(() => reviewCycleInsertBuilder),
+        };
+      }
+
+      if (table === "estimate_review_comments") {
+        return {
+          select: vi.fn(() => reviewCommentsBuilder),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    mockAuthenticatedSupabase({ from });
+
+    const result = await submitEstimateApproval({
+      versionId: VERSION_ID,
+      action: "submit_for_review",
+      ruleIds: [],
+      submissionMessage: "Prioriser les exceptions CFO.",
+    });
+
+    expect(result.cycle).toMatchObject({
+      submissionMessage: "Prioriser les exceptions CFO.",
+      assignedReviewer: {
+        userId: REVIEWER_ID,
+        fullName: "Camille Reviewer",
+      },
+    });
+    expect(result.requestedRuleIds).toEqual(["99999999-9999-4999-8999-999999999999"]);
+  });
+
+  it("treats unavailable block signals as submission blockers", async () => {
+    const membershipBuilder = createMembershipBuilder("admin");
+    const versionBuilder = createVersionAccessBuilder();
+    const itemsBuilder = createListBuilder([]);
+    const rulesBuilder = createListBuilder([
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        created_at: "2026-03-01T09:00:00.000Z",
+        updated_at: "2026-03-01T09:00:00.000Z",
+        tenant_id: TENANT_ID,
+        rule_type: "critical_exceptions_max",
+        scope_type: "global",
+        scope_id: null,
+        threshold_value: 0,
+        action: "block",
+        is_active: true,
+      },
+    ]);
+
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => membershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => versionBuilder),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => itemsBuilder),
+        };
+      }
+
+      if (table === "estimate_rules") {
+        return {
+          select: vi.fn(() => rulesBuilder),
+        };
+      }
+
+      if (table === "estimate_approvals") {
+        return {
+          select: vi.fn(() => createListBuilder([])),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    mockAuthenticatedSupabase({ from });
+
+    await expect(
+      submitEstimateApproval({
+        versionId: VERSION_ID,
+        action: "submit_for_review",
+        ruleIds: [],
+        submissionMessage: "Verifier la couverture avant la revue.",
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("refuses to reuse an open cycle when reviewer context would be lost", async () => {
+    const membershipBuilder = createMembershipBuilder("admin");
+    const versionBuilder = createVersionAccessBuilder({
+      total_ht_cents: 250000,
+    });
+    const itemsBuilder = createListBuilder([]);
+    const rulesBuilder = createListBuilder([
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        created_at: "2026-03-01T09:00:00.000Z",
+        updated_at: "2026-03-01T09:00:00.000Z",
+        tenant_id: TENANT_ID,
+        rule_type: "require_approval",
+        scope_type: "global",
+        scope_id: null,
+        threshold_value: 100000,
+        action: "require_approval",
+        is_active: true,
+      },
+    ]);
+    const openCycleBuilder = createListBuilder([
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        created_at: "2026-03-01T10:00:00.000Z",
+        updated_at: "2026-03-01T10:00:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        cycle_number: 1,
+        requested_by: OWNER_ID,
+        requested_at: "2026-03-01T10:00:00.000Z",
+        submission_message: null,
+        assigned_reviewer_id: null,
+        decided_by: null,
+        decision: null,
+        decided_at: null,
+        carried_over_from_cycle_id: null,
+      },
+    ]);
+
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => membershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => versionBuilder),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => itemsBuilder),
+        };
+      }
+
+      if (table === "estimate_rules") {
+        return {
+          select: vi.fn(() => rulesBuilder),
+        };
+      }
+
+      if (table === "estimate_approvals") {
+        return {
+          select: vi.fn(() => createListBuilder([])),
+        };
+      }
+
+      if (table === "estimate_review_cycles") {
+        return {
+          select: vi.fn(() => openCycleBuilder),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    mockAuthenticatedSupabase({ from });
+
+    await expect(
+      submitEstimateApproval({
+        versionId: VERSION_ID,
+        action: "submit_for_review",
+        ruleIds: [],
+        submissionMessage: "Verifier la couverture DPGF.",
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
     });
   });
 

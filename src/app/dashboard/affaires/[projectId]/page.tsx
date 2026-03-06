@@ -6,6 +6,7 @@ import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import {
   parseAffaireRegisterCursorSearchParam,
+  parseAffaireRegisterFocusSearchParam,
   parseAffaireRegisterKindSearchParam,
   parseAffaireRegisterSeveritySearchParam,
   parseAffaireRegisterStatusSearchParam,
@@ -13,6 +14,8 @@ import {
 import {
   fetchAffaireRegisterPage,
   fetchAffaireRegisterScopeOptions,
+  fetchAffaireRegisterSummary,
+  fetchAffaireRegisterTimeline,
 } from "@/lib/affaires/register-server";
 import {
   fetchAffaireHubDpgfSource,
@@ -74,6 +77,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   );
   const registerKind = parseAffaireRegisterKindSearchParam(search.registerKind);
   const registerCursor = parseAffaireRegisterCursorSearchParam(search.registerCursor);
+  const registerFocusEntryId = parseAffaireRegisterFocusSearchParam(
+    search.registerFocus
+  );
 
   const summaryPromise = fetchAffaireHubSummary(projectId);
   const timelinePromise = fetchAffaireHubTimeline(projectId, timelinePage);
@@ -118,6 +124,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     approvalJournalResult,
     registerPageResult,
     registerScopeOptionsResult,
+    registerSummaryResult,
+    registerTimelineResult,
   ] = await Promise.allSettled([
     currentVersionId ? getEstimateApprovalSummary(currentVersionId) : Promise.resolve(null),
     currentVersionId
@@ -134,8 +142,17 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       severity: registerSeverity,
       kind: registerKind,
       cursor: registerCursor,
+      focusEntryId: registerFocusEntryId,
     }),
     fetchAffaireRegisterScopeOptions({
+      projectId,
+      versionId: currentVersionId,
+    }),
+    fetchAffaireRegisterSummary({
+      projectId,
+      versionId: currentVersionId,
+    }),
+    fetchAffaireRegisterTimeline({
       projectId,
       versionId: currentVersionId,
     }),
@@ -164,6 +181,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     registerScopeOptionsResult.status === "fulfilled"
       ? registerScopeOptionsResult.value
       : { lots: [], lines: [] };
+  const registerSummary =
+    registerSummaryResult.status === "fulfilled" ? registerSummaryResult.value : null;
+  const registerTimeline =
+    registerTimelineResult.status === "fulfilled" ? registerTimelineResult.value : [];
 
   const sectionErrors: {
     timeline?: string;
@@ -187,7 +208,12 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     sectionErrors.marginAnalysis =
       "Impossible de charger l'analyse de marge pour le moment.";
   }
-  if (registerPageResult.status === "rejected" || registerScopeOptionsResult.status === "rejected") {
+  if (
+    registerPageResult.status === "rejected" ||
+    registerScopeOptionsResult.status === "rejected" ||
+    registerSummaryResult.status === "rejected" ||
+    registerTimelineResult.status === "rejected"
+  ) {
     sectionErrors.register =
       "Impossible de charger le registre affaire pour le moment.";
   }
@@ -226,6 +252,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       intakeWorkspace={intakeWorkspace}
       registerPage={registerPage}
       registerScopeOptions={registerScopeOptions}
+      registerSummary={registerSummary}
+      registerTimeline={registerTimeline}
     />
   );
 }

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { buildAffaireRegisterHubHref } from "@/lib/affaires/register";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -520,6 +521,8 @@ export type EstimateApprovalSubmissionSignal = {
   id: string;
   label: string;
   message: string;
+  actionLabel?: string;
+  actionHref?: string;
 };
 
 type EstimateApprovalSummaryCore = {
@@ -1333,15 +1336,21 @@ function toSubmissionReadinessSignal(input: {
   id: string;
   label: string;
   message: string;
+  actionLabel?: string;
+  actionHref?: string;
 }): EstimateApprovalSubmissionSignal {
   return {
     id: input.id,
     label: input.label,
     message: input.message,
+    actionLabel: input.actionLabel,
+    actionHref: input.actionHref,
   };
 }
 
-function dedupeSubmissionSignals(signals: EstimateApprovalSubmissionSignal[]) {
+function dedupeSubmissionSignals(
+  signals: EstimateApprovalSubmissionSignal[]
+) {
   return [...new Map(signals.map((signal) => [signal.id, signal])).values()];
 }
 
@@ -1351,21 +1360,32 @@ function buildSubmissionReadinessFromRulesEvaluation(input: {
   blockers: EstimateApprovalSubmissionSignal[];
   alerts: EstimateApprovalSubmissionSignal[];
 } {
-  const blockers = input.rulesEvaluation.blockingViolations
-    .filter(
-      (violation) =>
-        !isApprovalWorkflowSignal({
-          action: violation.action,
-          ruleType: violation.rule_type,
+  const blockers = [
+    ...input.rulesEvaluation.blockingViolations
+      .filter(
+        (violation) =>
+          !isApprovalWorkflowSignal({
+            action: violation.action,
+            ruleType: violation.rule_type,
+          })
+      )
+      .map((violation) =>
+        toSubmissionReadinessSignal({
+          id: `rule:${violation.rule_id}`,
+          label: resolveApprovalSummaryLabel(violation.rule_type),
+          message: violation.message,
         })
-    )
-    .map((violation) =>
-      toSubmissionReadinessSignal({
-        id: `rule:${violation.rule_id}`,
-        label: resolveApprovalSummaryLabel(violation.rule_type),
-        message: violation.message,
-      })
-    );
+      ),
+    ...input.rulesEvaluation.unavailableSignals
+      .filter((signal) => signal.action === "block")
+      .map((signal) =>
+        toSubmissionReadinessSignal({
+          id: `signal:${signal.rule_id}`,
+          label: resolveApprovalSummaryLabel(signal.rule_type),
+          message: signal.message,
+        })
+      ),
+  ];
 
   const alerts = [
     ...input.rulesEvaluation.warningViolations.map((violation) =>
@@ -1420,6 +1440,13 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
           label: "Questions critiques ouvertes",
           intro: "Des questions critiques restent ouvertes.",
         }),
+        actionLabel: "Ouvrir le registre",
+        actionHref: buildAffaireRegisterHubHref({
+          projectId: input.projectId,
+          status: "open",
+          severity: "critical",
+          focusEntryId: registerSummary.criticalOpenEntries[0]?.id ?? null,
+        }),
       })
     );
   }
@@ -1435,6 +1462,12 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
           intro:
             "Des hypotheses ou pieces manquantes restent ouvertes avant validation.",
         }),
+        actionLabel: "Ouvrir le registre",
+        actionHref: buildAffaireRegisterHubHref({
+          projectId: input.projectId,
+          status: "open",
+          focusEntryId: registerSummary.nonCriticalOpenEntries[0]?.id ?? null,
+        }),
       })
     );
   }
@@ -1449,6 +1482,12 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
           label: "Clarifications client",
           intro:
             "Des points restent a clarifier avec le client avant envoi externe.",
+        }),
+        actionLabel: "Ouvrir le registre",
+        actionHref: buildAffaireRegisterHubHref({
+          projectId: input.projectId,
+          status: "clarify_with_client",
+          focusEntryId: registerSummary.clarifyWithClientEntries[0]?.id ?? null,
         }),
       })
     );
@@ -1703,7 +1742,8 @@ function normalizeAvailableReviewer(input: {
 async function listAvailableEstimateApprovalReviewers(input: {
   context: AuthenticatedContext;
 }) {
-  const { data: membershipRows, error: membershipError } = await input.context.supabase
+  const reviewerClient = createOptionalServiceRoleClient() ?? input.context.supabase;
+  const { data: membershipRows, error: membershipError } = await reviewerClient
     .from("tenant_memberships")
     .select("tenant_id, user_id, role, is_default, created_at")
     .eq("tenant_id", input.context.tenantId)
@@ -1725,7 +1765,7 @@ async function listAvailableEstimateApprovalReviewers(input: {
   }
 
   const reviewerUserIds = [...new Set(memberships.map((membership) => membership.user_id))];
-  const { data: profileRows, error: profileError } = await input.context.supabase
+  const { data: profileRows, error: profileError } = await reviewerClient
     .from("profiles")
     .select("id, full_name, work_email")
     .in("id", reviewerUserIds);
@@ -1754,29 +1794,6 @@ async function listAvailableEstimateApprovalReviewers(input: {
       })
     )
     .sort((left, right) => left.fullName.localeCompare(right.fullName));
-}
-
-function buildSubmissionSignalId(input: {
-  ruleId: string;
-  metricKey: string;
-  severity: RuleViolationSeverity;
-}) {
-  return `${input.severity}:${input.ruleId}:${input.metricKey}`;
-}
-
-function toSubmissionSignal(
-  entry: EstimateRuleViolation | EstimateRuleUnavailableSignal,
-  severity: RuleViolationSeverity
-): EstimateApprovalSubmissionSignal {
-  return {
-    id: buildSubmissionSignalId({
-      ruleId: entry.rule_id,
-      metricKey: entry.metric_key,
-      severity,
-    }),
-    label: resolveApprovalSummaryLabel(entry.rule_type),
-    message: entry.message,
-  };
 }
 
 function toDecisionAuditRuleSnapshots(
@@ -2980,8 +2997,20 @@ async function ensureOpenReviewCycle(input: {
   submissionMessage?: string | null;
   assignedReviewerId?: string | null;
 }) {
+  const normalizedSubmissionMessage = input.submissionMessage?.trim() || null;
+  const normalizedAssignedReviewerId = input.assignedReviewerId ?? null;
   const existing = await findOpenReviewCycle(input);
   if (existing) {
+    if (
+      (normalizedSubmissionMessage !== null &&
+        existing.submission_message !== normalizedSubmissionMessage) ||
+      (normalizedAssignedReviewerId !== null &&
+        existing.assigned_reviewer_id !== normalizedAssignedReviewerId)
+    ) {
+      throw badRequest(
+        "Un cycle de revue actif existe deja avec un contexte de soumission different."
+      );
+    }
     return existing;
   }
 
@@ -2993,8 +3022,8 @@ async function ensureOpenReviewCycle(input: {
     requested_by: input.context.userId,
     requested_at: new Date().toISOString(),
     carried_over_from_cycle_id: latestCycle?.id ?? null,
-    submission_message: input.submissionMessage?.trim() || null,
-    assigned_reviewer_id: input.assignedReviewerId ?? null,
+    submission_message: normalizedSubmissionMessage,
+    assigned_reviewer_id: normalizedAssignedReviewerId,
   };
 
   const { data, error } = await input.context.supabase
@@ -3009,6 +3038,16 @@ async function ensureOpenReviewCycle(input: {
     if (error?.code === "23505") {
       const racedCycle = await findOpenReviewCycle(input);
       if (racedCycle) {
+        if (
+          (normalizedSubmissionMessage !== null &&
+            racedCycle.submission_message !== normalizedSubmissionMessage) ||
+          (normalizedAssignedReviewerId !== null &&
+            racedCycle.assigned_reviewer_id !== normalizedAssignedReviewerId)
+        ) {
+          throw badRequest(
+            "Un cycle de revue actif existe deja avec un contexte de soumission different."
+          );
+        }
         return racedCycle;
       }
     }

@@ -123,12 +123,14 @@ describe("affaire register server actions", () => {
       versionId: VERSION_ID,
       entryId: ENTRY_ID,
       status: "validated",
+      comment: "Piece fournie par le client.",
     });
 
     expect(vi.mocked(updateAffaireRegisterEntryStatus)).toHaveBeenCalledWith({
       projectId: PROJECT_ID,
       entryId: ENTRY_ID,
       status: "validated",
+      comment: "Piece fournie par le client.",
     });
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/dashboard/affaires");
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(

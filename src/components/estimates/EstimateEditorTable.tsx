@@ -302,6 +302,7 @@ type EstimateEditorTableProps = {
   scrollToItemId?: string | null;
   onScrollToItemHandled?: () => void;
   virtualization?: EstimateVirtualizationConfig;
+  highlightedItemIds?: Set<string>;
   headerRight?: React.ReactNode;
   onOpenSettings?: () => void;
 };
@@ -806,6 +807,7 @@ export function EstimateEditorTable({
   scrollToItemId,
   onScrollToItemHandled,
   virtualization,
+  highlightedItemIds,
   headerRight,
   onOpenSettings,
 }: EstimateEditorTableProps) {

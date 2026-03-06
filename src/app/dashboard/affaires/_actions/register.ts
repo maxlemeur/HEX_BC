@@ -34,6 +34,7 @@ const updateAffaireRegisterEntryStatusActionInputSchema = z.object({
   versionId: z.string().uuid("versionId invalide.").nullable().optional(),
   entryId: z.string().uuid("entryId invalide."),
   status: affaireRegisterEntryStatusSchema,
+  comment: z.string().trim().max(320).nullable().optional(),
 });
 
 export type CreateAffaireRegisterEntryActionInput = z.infer<
@@ -75,11 +76,15 @@ export async function createAffaireRegisterEntryAction(
 export async function updateAffaireRegisterEntryStatusAction(
   input: UpdateAffaireRegisterEntryStatusActionInput
 ) {
-  const parsed = updateAffaireRegisterEntryStatusActionInputSchema.parse(input);
+  const parsed = updateAffaireRegisterEntryStatusActionInputSchema.parse({
+    ...input,
+    comment: input.comment ? normalizeAffaireRegisterText(input.comment, 320) : null,
+  });
   const result = await updateAffaireRegisterEntryStatus({
     projectId: parsed.projectId,
     entryId: parsed.entryId,
     status: parsed.status,
+    comment: parsed.comment ?? null,
   });
 
   revalidateAffaireRegisterPaths(parsed.projectId, parsed.versionId ?? result.entry.versionId);

@@ -7375,6 +7375,7 @@ export function useEstimateEditorState({
     blockingFlags: sendGating?.blockingFlags ?? [],
     warningFlags: sendGating?.warningFlags ?? [],
     canForce: isAdmin,
+    projectId: version?.project_id ?? null,
     onClose: closeSendGatingDialog,
     onConfirm: () => void handleConfirmSend(false),
     onForceConfirm: () => void handleConfirmSend(true),

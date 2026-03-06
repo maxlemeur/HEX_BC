@@ -1,18 +1,20 @@
 # Index tickets EST-xxx
 
-> Generation: automatique depuis `EST-E*.md` + `SEQUENCING-3-TEAMS.md`.
+> Generation: automatique depuis `EST-E*.md` + les plans d'implementation (`SEQUENCING-3-TEAMS.md`, `v4/IMPLEMENTATION_PLAN.md`).
 > Regle: 1 ticket execution = 1 fichier `EST-xxx.md`.
 
 ## Couverture
 
-- Tickets total: **86**
-- Tickets presents dans le sequencing v2: **35**
-- Tickets hors sequencing v2 (backlog): **30**
+- Tickets indexes dans ce tableau: **106**
+- Tickets presents dans le sequencing M0-M4: **35**
+- Tickets hors plan (backlog): **30**
 - Tickets M5/M6 (nouvelles stories): **21**
+- Tickets M7/M8 VNext: **20**
+- Fichiers `EST-*` hors index historique: **2** (`EST-125.md`, `EST-125-dev-report.md`)
 
 ## Tickets
 
-| Ticket | Titre | Sequencing v2 | Phase/Vague | Equipe | Effort | Milestone | Epic source |
+| Ticket | Titre | Sequencing | Phase/Vague | Equipe | Effort | Milestone | Epic source |
 |--------|-------|---------------|-------------|--------|--------|-----------|-------------|
 | [EST-006](./EST-006.md) | Feature flags runtime | Oui | 0/0.1 | A | M | M0 | [EST-E01](../EST-E01-foundations-dx.md) |
 | [EST-007](./EST-007.md) | Design system tokens & component kit | Non | - | Backlog | M | M0 | [EST-E01](../EST-E01-foundations-dx.md) |
@@ -100,9 +102,30 @@
 | [EST-362](./EST-362.md) | Referentiel normes BTP (DTU, RE2020...) | Non | M5/V2 | Backlog | M | M5 | [EST-E20](../EST-E20-conformite-pdf-pro.md) |
 | [EST-363](./EST-363.md) | Ouvrages favoris et acces rapide | Non | M5/V2 | Backlog | S | M5 | [EST-E16](../EST-E16-ouvrages-bibliotheque.md) |
 | [EST-364](./EST-364.md) | Remises multi-niveaux (devis/section/ligne) | Non | M5/V1 | Backlog | M | M5 | [EST-E15](../EST-E15-structure-prix-btp.md) |
+| [EST-371](./EST-371.md) | Ingestion dossier multi-documents et classement IA | VNext | 7/7.2 | A | L | M7 | [EST-E21](../EST-E21-ai-intake-brief-affaire.md) |
+| [EST-372](./EST-372.md) | Brief affaire genere automatiquement | VNext | 7/7.3 | A | M | M7 | [EST-E21](../EST-E21-ai-intake-brief-affaire.md) |
+| [EST-373](./EST-373.md) | Registre hypotheses / pieces manquantes | VNext | 7/7.4 | A | M | M7 | [EST-E21](../EST-E21-ai-intake-brief-affaire.md) |
+| [EST-374](./EST-374.md) | Command bar contextuelle du cockpit | VNext | 7/7.5 | C | M | M7 | [EST-E21](../EST-E21-ai-intake-brief-affaire.md) |
+| [EST-381](./EST-381.md) | Generation d'ouvrages depuis texte libre ou CCTP | VNext | 7/7.4 | A | L | M7 | [EST-E22](../EST-E22-draft-assiste-ouvrages.md) |
+| [EST-382](./EST-382.md) | Generation automatique de structure lots / chapitres | VNext | 7/7.3 | B | L | M7 | [EST-E22](../EST-E22-draft-assiste-ouvrages.md) |
+| [EST-383](./EST-383.md) | Suggestions de sous-detail et ouvrages composes | VNext | 7/7.5 | B | L | M7 | [EST-E22](../EST-E22-draft-assiste-ouvrages.md) |
+| [EST-384](./EST-384.md) | Brouillon complet dossier -> V0 | VNext | 8/8.1 | B | XL | M8 | [EST-E22](../EST-E22-draft-assiste-ouvrages.md) |
+| [EST-391](./EST-391.md) | Evidence Graph par ligne | VNext | 7/7.2 | B | L | M7 | [EST-E23](../EST-E23-preuve-prix-risque.md) |
+| [EST-392](./EST-392.md) | Suggestion de prix avec fourchette et sources | VNext | 7/7.3 | B | L | M7 | [EST-E23](../EST-E23-preuve-prix-risque.md) |
+| [EST-393](./EST-393.md) | Radar d'incoherences et marge a risque | VNext | 7/7.2 | B | M | M7 | [EST-E23](../EST-E23-preuve-prix-risque.md) |
+| [EST-394](./EST-394.md) | Explication des prix et des deltas de version | VNext | 7/7.4 | B | M | M7 | [EST-E23](../EST-E23-preuve-prix-risque.md) |
+| [EST-401](./EST-401.md) | Presence, lecture partagee et commentaires temps reel | VNext | 7/7.5 | C | M | M7 | [EST-E24](../EST-E24-collaboration-revue-exception.md) |
+| [EST-402](./EST-402.md) | File de revue par exception assignable | VNext | 7/7.5 | C | M | M7 | [EST-E24](../EST-E24-collaboration-revue-exception.md) |
+| [EST-403](./EST-403.md) | Revue multi-role et checklists par profil | VNext | 8/8.1 | C | M | M8 | [EST-E24](../EST-E24-collaboration-revue-exception.md) |
+| [EST-404](./EST-404.md) | Journal des corrections et apprentissage equipe | VNext | 7/7.5 | A | M | M7 | [EST-E24](../EST-E24-collaboration-revue-exception.md) |
+| [EST-411](./EST-411.md) | Lecture des retours client et detection des changements | VNext | 8/8.1 | B | L | M8 | [EST-E25](../EST-E25-revision-engine-boucle-client.md) |
+| [EST-412](./EST-412.md) | Analyse d'impact quantites / prix / marge | VNext | 8/8.2 | A | L | M8 | [EST-E25](../EST-E25-revision-engine-boucle-client.md) |
+| [EST-413](./EST-413.md) | Reponse assistee et contre-proposition structuree | VNext | 8/8.2 | B | M | M8 | [EST-E25](../EST-E25-revision-engine-boucle-client.md) |
+| [EST-414](./EST-414.md) | Questions client -> taches -> decisions | VNext | 8/8.2 | A | M | M8 | [EST-E25](../EST-E25-revision-engine-boucle-client.md) |
 
 ## Usage
 
 - Les details fonctionnels canoniques restent dans les fichiers `EST-E..`.
 - Les fichiers `tickets/EST-xxx.md` servent au pilotage execution (owner, dependances, done, liens PR).
 - Mettre a jour le statut dans le ticket `EST-xxx.md` et dans l outil de tracking.
+- Pour tester une UI, un parcours ou capturer une preuve visuelle d'un flux, les equipes peuvent utiliser le skill [`agent-browser`](../../../.agents/skills/agent-browser/SKILL.md).

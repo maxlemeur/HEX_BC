@@ -1,44 +1,27 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/app/`: Next.js App Router pages (login, signup, dashboard, orders, print view).
-- `src/components/`: shared UI components.
-- `src/lib/`: utilities such as Supabase clients and money helpers.
-- `public/`: static assets served by Next.js.
-- `supabase/`: database schema and setup docs (`schema.sql`, `README.md`).
-- `maquette/`: HTML mockups used as visual references.
-- `.env.example`: environment template for local config.
+`src/app/` contains the Next.js 16 App Router, including dashboard pages and API route handlers in `src/app/api/**`. Put shared UI in `src/components/`, domain and integration logic in `src/lib/`, and test helpers in `src/test/`. End-to-end coverage lives in `e2e/`; Supabase schema and migrations live in `supabase/`; design references live in `maquette/`; longer product and implementation notes live in `docs/`.
 
 ## Build, Test, and Development Commands
 - `npm install`: install dependencies.
-- `npm run dev`: start the dev server at `http://localhost:3000`.
-- `npm run build`: create a production build.
-- `npm run start`: run the production server after a build.
-- `npm run lint`: run ESLint (fails on warnings).
-- `npm run typecheck`: run TypeScript without emitting files.
+- `npm run dev`: start the local app on `http://localhost:3000`.
+- `npm run build`: validate OpenAPI output, then create the production build.
+- `npm run start`: serve the built app.
+- `npm run lint`: run ESLint with `--max-warnings=0`.
+- `npm run typecheck`: run strict TypeScript checks without emitting files.
+- `npm test`: run the full Vitest suite.
+- `npm run e2e:pw:critical`: run the Playwright critical-path suite.
+- `npm run e2e`: run the legacy PowerShell-driven smoke flow.
 
 ## Coding Style & Naming Conventions
-- TypeScript is strict (`tsconfig.json`), so keep types explicit for exported APIs.
-- ESLint uses Next core-web-vitals and TypeScript rules; fix lint errors before PRs.
-- Follow existing formatting: 2-space indentation, semicolons, double quotes.
-- Prefer the `@/` path alias for imports from `src/` (e.g., `@/lib/money`).
-- Use PascalCase for React components and `useX` for hooks; keep route folders lowercase.
+Use TypeScript with strict types for exported APIs. Follow existing formatting: 2-space indentation, semicolons, and double quotes. Prefer the `@/` alias for imports from `src/`. Use PascalCase for React components, `useX` for hooks, lowercase route segment folders, and colocated test names such as `route.test.ts` or `Component.test.tsx`.
 
 ## Testing Guidelines
-- No test runner or test scripts are configured in this repo.
-- If you add tests, align on a framework and add scripts to `package.json`.
+Vitest is the primary test runner, split between `node` and `jsdom` projects in `vitest.config.ts`. Add `*.test.ts` or `*.test.tsx` beside the code they cover. Use `npm test` before opening a PR; add `npm run e2e:pw:critical` for UI, routing, or auth changes. There is no enforced coverage threshold, so new work should include focused regression coverage where practical.
 
 ## Commit & Pull Request Guidelines
-- Work only on the `main` branch.
-- Multiple developers may work on `main` at the same time.
-- Never delete, overwrite, or revert work from other developers unless explicitly asked.
-- Follow the team standard for commit messages (Conventional Commits if undecided).
-- Include the ticket number in commit messages when one exists.
-- Commit should include a concise summary, linked issue (if any) Note any Supabase schema or RLS updates.
+Always stay on and work from the `main` branch. Other teams may be working on `main` in parallel, so assume the worktree can contain unrelated changes. Never delete, revert, or overwrite work you did not create. Follow Conventional Commits and include a ticket when available, for example `fix(EST-243): remove unused portal test imports`. PRs should include a short summary, linked issue or story, screenshots for UI changes, and notes for migrations, RLS, OpenAPI, or environment updates. List the commands you ran.
 
 ## Configuration & Security Tips
-- Copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and
-  `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-- Apply the schema in `supabase/schema.sql` using the Supabase SQL editor before
-  running locally.
-- Never commit `.env.local` or Supabase secrets.
+Copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Never commit `.env.local` or service secrets. Apply schema or migration changes in Supabase before local verification, and call out database-impacting changes clearly in review.

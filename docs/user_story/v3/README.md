@@ -2,15 +2,17 @@
 
 ## Contexte
 
-La V3 comporte 2 tracks independants qui peuvent etre developpes en parallele :
+La V3 comporte des tracks qui peuvent etre prepares en parallele :
 
 | Track | Objectif | Epics | Stories |
 |-------|----------|-------|---------|
-| **Takeoff / Metre** | Integrer le module metre (IA Gemini) dans le flow affaire-centric | V3-E01 a E03 | 14 stories |
-| **Approbation / Direction** | Workflow d'approbation, role director, portail client | V3-E04+ | A definir |
+| **Takeoff / Metre** | Integrer le module metre dans le flow affaire-centric | V3-E01 a E03 | 14 stories |
+| **Addendum Takeoff VNext** | Recentrer la V3 sur preuve, exceptions et validation | Delta V3-005, 007, 009, 010, 012, 013, 014 | 7 stories amendees |
+| **Approbation / Direction** | Workflow d'approbation, role director, portail client lite | V3-E04 a V3-E07 | 12 stories |
 
-Les 2 tracks ne partagent **aucune table, route ou composant** — ils peuvent etre developpes
-par des equipes differentes sans conflit.
+Le track Approbation partage le cockpit affaire avec le track Takeoff, mais reste faiblement couple
+aux tables et routes metier du metre. Le plan VNext est documente a part dans
+**[../v4/IMPLEMENTATION_PLAN.md](../v4/IMPLEMENTATION_PLAN.md)**.
 
 ### Prerequis V2
 
@@ -70,17 +72,20 @@ un pont DPGF ↔ Takeoff pour comparer quantites client vs quantites mesurees.
 
 ---
 
-## Index des epics — Track Approbation (placeholder)
+## Addendum V3 — Track Takeoff mis a jour
+
+| Scope | Stories impactees | Fichier |
+|------|--------------------|---------|
+| Addendum V3 | V3-005, V3-007, V3-009, V3-010, V3-012, V3-013, V3-014 | [V3-UPDATE-TAKEOFF.md](./V3-UPDATE-TAKEOFF.md) |
+
+## Index des epics — Track Approbation / Direction
 
 | Code | Nom | Priorite | Stories | Fichier |
 |------|-----|----------|---------|---------|
-| V3-E04 | Role Director & Permissions | P0 | A definir | — |
-| V3-E05 | Workflow Approbation | P0 | A definir | — |
-| V3-E06 | Dashboard Direction | P1 | A definir | — |
-| V3-E07 | Portail Client | P2 | A definir | — |
-
-> Infrastructure deja construite : `estimate_rules`, `estimate_approvals`, `rules-engine.ts`,
-> `gating.ts`, `/api/estimates/[versionId]/approve`. Stories a rediger.
+| V3-E04 | Role Director & Permissions | P0 | V3-015 a 017 | [V3-E04-role-direction-permissions.md](./V3-E04-role-direction-permissions.md) |
+| V3-E05 | Workflow Approbation | P0 | V3-018 a 020 | [V3-E05-workflow-approbation-affaire.md](./V3-E05-workflow-approbation-affaire.md) |
+| V3-E06 | Dashboard Direction | P1 | V3-021 a 023 | [V3-E06-dashboard-direction-risque.md](./V3-E06-dashboard-direction-risque.md) |
+| V3-E07 | Portail Client | P1-P2 | V3-024 a 026 | [V3-E07-portail-client-lite.md](./V3-E07-portail-client-lite.md) |
 
 ---
 
@@ -149,6 +154,15 @@ V3-001 (DB: project_id)
 | Hub affaire | Badge/section "Approbation" | Section "Plans & Metres" |
 | Feature flags | `APPROVAL_WORKFLOW_ENABLED` | `TAKEOFF_MODULE_ENABLED` |
 | Conflit | Aucun | Aucun |
+
+---
+
+## VNext apres V3
+
+Les epics `EST-E21` a `EST-E25` prolongent directement ce socle :
+
+- [README V4 / VNext](../v4/README.md)
+- [Plan d'implementation VNext](../v4/IMPLEMENTATION_PLAN.md)
 
 ---
 

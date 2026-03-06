@@ -158,6 +158,8 @@ npm run e2e:run -- e2e/hex/run-all.ps1 -Suite editor -ContinueOnFailure false
   - fallback: `E2E_LOGIN_EMAIL_2` and `E2E_LOGIN_PASSWORD_2`
 - `SUPABASE_SERVICE_ROLE_KEY` for seeding/cleanup in the RLS matrix suite
 
+Known shared test accounts are documented in [docs/test-logins.md](/home/tchau@france.groupe.intra/CascadeProjects/HEX_BC/docs/test-logins.md).
+
 If `E2E_LOGIN_EMAIL_2` or `E2E_LOGIN_PASSWORD_2` is missing, `ti-141-db-rls.ps1` now fails fast (no `SKIP` fallback).
 
 By default, session names are isolated per process (`e2e-$PID`, `e2e-auth-$PID`, `e2e-hex-$PID`) and HEX suite runs isolate each test with its own session. This avoids collisions when multiple devs run E2E in parallel.

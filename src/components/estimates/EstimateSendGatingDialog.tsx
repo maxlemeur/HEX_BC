@@ -1,5 +1,9 @@
 "use client";
 
+import Link from "next/link";
+
+import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
+import { formatEUR } from "@/lib/money";
 import type { EstimateSendGatingFlag } from "@/lib/estimates/client";
 
 type EstimateSendGatingDialogProps = {
@@ -9,10 +13,62 @@ type EstimateSendGatingDialogProps = {
   blockingFlags: EstimateSendGatingFlag[];
   warningFlags: EstimateSendGatingFlag[];
   canForce: boolean;
+  projectId?: string | null;
   onClose: () => void;
   onConfirm: () => void;
   onForceConfirm: () => void;
 };
+
+function formatFlagCount(count: number) {
+  return `${count} point${count > 1 ? "s" : ""} a traiter`;
+}
+
+function formatRegisterAction(flag: EstimateSendGatingFlag) {
+  switch (flag.key) {
+    case "critical_open_questions":
+      return "Traitez ces points critiques dans le registre affaire avant de reprendre l'envoi.";
+    case "client_clarification_required":
+      return "Revenez sur le registre affaire pour lever ou requalifier ces clarifications client.";
+    case "open_questions_pending":
+      return "Passez par le registre affaire pour solder ou assumer explicitement ces points ouverts.";
+    default:
+      return null;
+  }
+}
+
+function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
+  switch (flag.key) {
+    case "critical_open_questions":
+      return buildAffaireRegisterSearchHref({
+        pathname: `/dashboard/affaires/${projectId}`,
+        searchParams: new URLSearchParams(),
+        status: "open",
+        severity: "critical",
+        kind: null,
+        cursor: null,
+      });
+    case "client_clarification_required":
+      return buildAffaireRegisterSearchHref({
+        pathname: `/dashboard/affaires/${projectId}`,
+        searchParams: new URLSearchParams(),
+        status: "clarify_with_client",
+        severity: null,
+        kind: null,
+        cursor: null,
+      });
+    case "open_questions_pending":
+      return buildAffaireRegisterSearchHref({
+        pathname: `/dashboard/affaires/${projectId}`,
+        searchParams: new URLSearchParams(),
+        status: "open",
+        severity: null,
+        kind: null,
+        cursor: null,
+      });
+    default:
+      return `/dashboard/affaires/${projectId}`;
+  }
+}
 
 function renderFlagDetails(flag: EstimateSendGatingFlag) {
   const detailsLines: string[] = [];
@@ -66,10 +122,10 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
     detailsLines.push(`Tranches configurees: ${marginTiersCount}.`);
   }
   if (typeof totalHtCents === "number") {
-    detailsLines.push(`Total HT courant: ${totalHtCents} cents.`);
+    detailsLines.push(`Total HT courant: ${formatEUR(totalHtCents)}.`);
   }
   if (typeof budgetCeilingHtCents === "number") {
-    detailsLines.push(`Plafond budget HT: ${budgetCeilingHtCents} cents.`);
+    detailsLines.push(`Plafond budget HT: ${formatEUR(budgetCeilingHtCents)}.`);
   }
   if (ruleViolations.length > 0) {
     ruleViolations.slice(0, 3).forEach((message) => {
@@ -107,7 +163,7 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
   );
 }
 
-function renderFlags(flags: EstimateSendGatingFlag[]) {
+function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null) {
   if (flags.length === 0) {
     return (
       <p className="text-sm text-[var(--slate-500)]">
@@ -119,23 +175,45 @@ function renderFlags(flags: EstimateSendGatingFlag[]) {
   return (
     <ul className="space-y-2 text-sm">
       {flags.map((flag) => (
-        <li
-          key={`${flag.key}-${flag.severity}`}
-          className="rounded-lg border border-[var(--slate-200)] bg-[var(--surface-subtle)] px-3 py-2"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-medium text-[var(--slate-800)]">
-              {flag.label}
-            </span>
-            <span className="text-xs text-[var(--slate-500)]">
-              {flag.count} occurrence(s)
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-[var(--slate-600)]">
-            {flag.description}
-          </p>
-          {renderFlagDetails(flag)}
-        </li>
+        (() => {
+          const registerAction = formatRegisterAction(flag);
+          const registerHref = projectId ? buildRegisterHref(projectId, flag) : null;
+
+          return (
+            <li
+              key={`${flag.key}-${flag.severity}`}
+              className="rounded-lg border border-[var(--slate-200)] bg-[var(--surface-subtle)] px-3 py-2"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium text-[var(--slate-800)]">
+                  {flag.label}
+                </span>
+                <span className="text-xs text-[var(--slate-500)]">
+                  {formatFlagCount(flag.count)}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-[var(--slate-600)]">
+                {flag.description}
+              </p>
+              {renderFlagDetails(flag)}
+              {registerAction ? (
+                <div className="mt-2 rounded-lg bg-white px-2.5 py-2">
+                  <p className="text-xs font-medium text-[var(--brand-blue)]">
+                    {registerAction}
+                  </p>
+                  {registerHref ? (
+                    <Link
+                      href={registerHref}
+                      className="mt-2 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                    >
+                      Ouvrir le registre affaire
+                    </Link>
+                  ) : null}
+                </div>
+              ) : null}
+            </li>
+          );
+        })()
       ))}
     </ul>
   );
@@ -148,6 +226,7 @@ export function EstimateSendGatingDialog({
   blockingFlags,
   warningFlags,
   canForce,
+  projectId,
   onClose,
   onConfirm,
   onForceConfirm,
@@ -174,7 +253,7 @@ export function EstimateSendGatingDialog({
               Verification avant envoi
             </h2>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Controlez les anomalies detectees avant de passer la version en statut envoye.
+              Traitez les blocants metier avant de passer la version en statut envoye.
             </p>
           </div>
           <button
@@ -199,13 +278,19 @@ export function EstimateSendGatingDialog({
             <h3 className="mb-2 text-sm font-semibold text-[var(--danger)]">
               Bloquants ({blockingFlags.length})
             </h3>
-            {renderFlags(blockingFlags)}
+            <p className="mb-2 text-xs text-[var(--slate-500)]">
+              Tant qu&apos;un blocant subsiste, l&apos;envoi client doit rester en attente.
+            </p>
+            {renderFlags(blockingFlags, projectId)}
           </section>
           <section>
             <h3 className="mb-2 text-sm font-semibold text-[var(--warning)]">
               Avertissements ({warningFlags.length})
             </h3>
-            {renderFlags(warningFlags)}
+            <p className="mb-2 text-xs text-[var(--slate-500)]">
+              Ces signaux n&apos;interdisent pas toujours l&apos;envoi, mais ils doivent etre assumes explicitement.
+            </p>
+            {renderFlags(warningFlags, projectId)}
           </section>
         </div>
 

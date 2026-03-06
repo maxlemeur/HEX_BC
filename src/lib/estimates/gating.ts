@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
+import { buildAffaireRegisterHubHref } from "@/lib/affaires/register";
 import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
@@ -539,7 +540,15 @@ export async function evaluateEstimateSendGating(
       label: ESTIMATE_GATING_FLAG_META.critical_open_questions.label,
       description: ESTIMATE_GATING_FLAG_META.critical_open_questions.description,
       details: {
-        register_entries: registerSummary.criticalOpenEntries,
+        register_entries: registerSummary.criticalOpenEntries.map((entry) => ({
+          ...entry,
+          href: buildAffaireRegisterHubHref({
+            projectId: input.project.id,
+            status: "open",
+            severity: "critical",
+            focusEntryId: entry.id,
+          }),
+        })),
       },
     });
   }
@@ -553,7 +562,14 @@ export async function evaluateEstimateSendGating(
       label: ESTIMATE_GATING_FLAG_META.client_clarification_required.label,
       description: ESTIMATE_GATING_FLAG_META.client_clarification_required.description,
       details: {
-        register_entries: registerSummary.clarifyWithClientEntries,
+        register_entries: registerSummary.clarifyWithClientEntries.map((entry) => ({
+          ...entry,
+          href: buildAffaireRegisterHubHref({
+            projectId: input.project.id,
+            status: "clarify_with_client",
+            focusEntryId: entry.id,
+          }),
+        })),
       },
     });
   }
@@ -567,7 +583,14 @@ export async function evaluateEstimateSendGating(
       label: ESTIMATE_GATING_FLAG_META.open_questions_pending.label,
       description: ESTIMATE_GATING_FLAG_META.open_questions_pending.description,
       details: {
-        register_entries: registerSummary.nonCriticalOpenEntries,
+        register_entries: registerSummary.nonCriticalOpenEntries.map((entry) => ({
+          ...entry,
+          href: buildAffaireRegisterHubHref({
+            projectId: input.project.id,
+            status: "open",
+            focusEntryId: entry.id,
+          }),
+        })),
       },
     });
   }

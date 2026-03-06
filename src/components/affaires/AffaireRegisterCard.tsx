@@ -9,6 +9,7 @@ import {
 } from "@/app/dashboard/affaires/_actions/register";
 import { useToast } from "@/components/ui/Toast";
 import {
+  AFFAIRE_REGISTER_EVENT_LABELS,
   AFFAIRE_REGISTER_KIND_LABELS,
   AFFAIRE_REGISTER_ORIGIN_LABELS,
   AFFAIRE_REGISTER_SCOPE_LABELS,
@@ -21,6 +22,8 @@ import {
   type AffaireRegisterEntryStatus,
   type AffaireRegisterPageResult,
   type AffaireRegisterScopeOptions,
+  type AffaireRegisterSummary,
+  type AffaireRegisterTimelineEvent,
 } from "@/lib/affaires/register";
 
 type AffaireRegisterCardProps = {
@@ -28,6 +31,8 @@ type AffaireRegisterCardProps = {
   versionId: string | null;
   registerPage: AffaireRegisterPageResult | null;
   scopeOptions: AffaireRegisterScopeOptions;
+  summary?: AffaireRegisterSummary | null;
+  timelineEvents?: AffaireRegisterTimelineEvent[];
   isReadOnly?: boolean;
   errorMessage?: string;
 };
@@ -75,6 +80,8 @@ export function AffaireRegisterCard({
   versionId,
   registerPage,
   scopeOptions,
+  summary = null,
+  timelineEvents = [],
   isReadOnly = false,
   errorMessage,
 }: Readonly<AffaireRegisterCardProps>) {
@@ -85,6 +92,15 @@ export function AffaireRegisterCard({
   const [isFilterPending, startFilterTransition] = useTransition();
   const [isMutationPending, startMutationTransition] = useTransition();
   const [pendingEntryId, setPendingEntryId] = useState<string | null>(null);
+  const [pendingTransition, setPendingTransition] = useState<{
+    entry: AffaireRegisterEntry;
+    nextStatus: AffaireRegisterEntryStatus;
+  } | null>(null);
+  const [transitionComment, setTransitionComment] = useState("");
+  const [inlineFeedback, setInlineFeedback] = useState<{
+    tone: "success" | "info";
+    message: string;
+  } | null>(null);
   const [form, setForm] = useState({
     kind: "assumption" as AffaireRegisterEntryKind,
     severity: "warning" as AffaireRegisterEntrySeverity,
@@ -107,6 +123,39 @@ export function AffaireRegisterCard({
   const filterSeverity = registerPage?.filters.severity ?? "";
   const filterKind = registerPage?.filters.kind ?? "";
   const hasActiveFilters = Boolean(filterStatus || filterSeverity || filterKind);
+
+  function resolveTransitionPrompt(status: AffaireRegisterEntryStatus) {
+    switch (status) {
+      case "validated":
+        return {
+          title: "Valider cette entree",
+          description:
+            "Expliquez si besoin pourquoi ce point est considere comme traite ou acceptable.",
+          actionLabel: "Confirmer la validation",
+        };
+      case "rejected":
+        return {
+          title: "Rejeter cette entree",
+          description:
+            "Expliquez pourquoi ce point est ecarte du workflow afin de garder une trace lisible.",
+          actionLabel: "Confirmer le rejet",
+        };
+      case "clarify_with_client":
+        return {
+          title: "Marquer a clarifier avec le client",
+          description:
+            "Ajoutez le contexte a transmettre. Ce statut alertera la validation interne et bloquera l'envoi client.",
+          actionLabel: "Confirmer la clarification client",
+        };
+      case "open":
+        return {
+          title: "Rouvrir cette entree",
+          description:
+            "Ajoutez si besoin la raison de reouverture pour maintenir un historique clair.",
+          actionLabel: "Confirmer la reouverture",
+        };
+    }
+  }
 
   function applyFilters(next: {
     status?: AffaireRegisterEntryStatus | null;
@@ -195,6 +244,11 @@ export function AffaireRegisterCard({
             scopeLabel: "",
             sourceFileName: "",
           }));
+          setInlineFeedback({
+            tone: "success",
+            message:
+              "Entree ajoutee. Elle apparaitra aussi dans l'historique recent du registre.",
+          });
           toast.success({
             title: "Entree ajoutee",
             description: `${AFFAIRE_REGISTER_KIND_LABELS[result.entry.kind]} enregistree dans le registre.`,
@@ -212,7 +266,8 @@ export function AffaireRegisterCard({
 
   async function handleStatusChange(
     entryId: string,
-    status: AffaireRegisterEntryStatus
+    status: AffaireRegisterEntryStatus,
+    comment: string
   ) {
     setPendingEntryId(entryId);
     startMutationTransition(() => {
@@ -223,6 +278,12 @@ export function AffaireRegisterCard({
             versionId,
             entryId,
             status,
+            comment: comment.trim().length > 0 ? comment : null,
+          });
+          setInlineFeedback({
+            tone: "info",
+            message:
+              "Statut mis a jour. Le commentaire est conserve dans l'historique du registre.",
           });
           toast.success({
             title: "Statut mis a jour",
@@ -241,6 +302,41 @@ export function AffaireRegisterCard({
     });
   }
 
+  function openTransitionDialog(
+    entry: AffaireRegisterEntry,
+    status: AffaireRegisterEntryStatus
+  ) {
+    setInlineFeedback(null);
+    setTransitionComment("");
+    setPendingTransition({
+      entry,
+      nextStatus: status,
+    });
+  }
+
+  function closeTransitionDialog() {
+    if (isMutationPending) {
+      return;
+    }
+
+    setPendingTransition(null);
+    setTransitionComment("");
+  }
+
+  async function handleConfirmTransition() {
+    if (!pendingTransition) {
+      return;
+    }
+
+    await handleStatusChange(
+      pendingTransition.entry.id,
+      pendingTransition.nextStatus,
+      transitionComment
+    );
+    setPendingTransition(null);
+    setTransitionComment("");
+  }
+
   function renderEntryActions(entry: AffaireRegisterEntry) {
     if (isReadOnly) {
       return null;
@@ -254,7 +350,7 @@ export function AffaireRegisterCard({
           type="button"
           className="btn btn-secondary btn-sm"
           disabled={isPendingEntry}
-          onClick={() => void handleStatusChange(entry.id, "open")}
+          onClick={() => openTransitionDialog(entry, "open")}
         >
           Rouvrir
         </button>
@@ -268,7 +364,7 @@ export function AffaireRegisterCard({
             type="button"
             className="btn btn-secondary btn-sm"
             disabled={isPendingEntry}
-            onClick={() => void handleStatusChange(entry.id, "open")}
+            onClick={() => openTransitionDialog(entry, "open")}
           >
             Rouvrir
           </button>
@@ -276,7 +372,7 @@ export function AffaireRegisterCard({
             type="button"
             className="btn btn-secondary btn-sm"
             disabled={isPendingEntry}
-            onClick={() => void handleStatusChange(entry.id, "validated")}
+            onClick={() => openTransitionDialog(entry, "validated")}
           >
             Valider
           </button>
@@ -284,7 +380,7 @@ export function AffaireRegisterCard({
             type="button"
             className="btn btn-secondary btn-sm"
             disabled={isPendingEntry}
-            onClick={() => void handleStatusChange(entry.id, "rejected")}
+            onClick={() => openTransitionDialog(entry, "rejected")}
           >
             Rejeter
           </button>
@@ -298,7 +394,7 @@ export function AffaireRegisterCard({
           type="button"
           className="btn btn-secondary btn-sm"
           disabled={isPendingEntry}
-          onClick={() => void handleStatusChange(entry.id, "validated")}
+          onClick={() => openTransitionDialog(entry, "validated")}
         >
           Valider
         </button>
@@ -306,7 +402,7 @@ export function AffaireRegisterCard({
           type="button"
           className="btn btn-secondary btn-sm"
           disabled={isPendingEntry}
-          onClick={() => void handleStatusChange(entry.id, "rejected")}
+          onClick={() => openTransitionDialog(entry, "rejected")}
         >
           Rejeter
         </button>
@@ -314,7 +410,7 @@ export function AffaireRegisterCard({
           type="button"
           className="btn btn-secondary btn-sm"
           disabled={isPendingEntry}
-          onClick={() => void handleStatusChange(entry.id, "clarify_with_client")}
+          onClick={() => openTransitionDialog(entry, "clarify_with_client")}
         >
           A clarifier avec client
         </button>
@@ -352,6 +448,65 @@ export function AffaireRegisterCard({
           </div>
         ) : null}
       </div>
+
+      {summary ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <article className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+              Points ouverts
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              {summary.openQuestionsCount}
+            </p>
+          </article>
+          <button
+            type="button"
+            className="rounded-2xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-left transition-colors hover:bg-[var(--danger)]/10"
+            onClick={() =>
+              applyFilters({
+                status: "open",
+                severity: "critical",
+                kind: null,
+                cursor: null,
+              })
+            }
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--danger)]">
+              Critiques ouvertes
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              {summary.criticalOpenCount}
+            </p>
+          </button>
+          <article className="rounded-2xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--warning)]">
+              Ouverts hors critiques
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              {summary.nonCriticalOpenCount}
+            </p>
+          </article>
+          <button
+            type="button"
+            className="rounded-2xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3 text-left transition-colors hover:bg-[var(--brand-blue)]/10"
+            onClick={() =>
+              applyFilters({
+                status: "clarify_with_client",
+                severity: null,
+                kind: null,
+                cursor: null,
+              })
+            }
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
+              A clarifier client
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              {summary.clarifyWithClientCount}
+            </p>
+          </button>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
         <select
@@ -587,6 +742,18 @@ export function AffaireRegisterCard({
         </div>
       ) : null}
 
+      {inlineFeedback ? (
+        <div
+          className={`mt-4 rounded-xl border px-3 py-2 text-sm ${
+            inlineFeedback.tone === "success"
+              ? "border-[var(--success)]/20 bg-[var(--success)]/5 text-[var(--slate-700)]"
+              : "border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 text-[var(--slate-700)]"
+          }`}
+        >
+          {inlineFeedback.message}
+        </div>
+      ) : null}
+
       <div className="mt-4 space-y-3">
         {items.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-4 py-8 text-center text-sm text-[var(--slate-500)]">
@@ -637,6 +804,68 @@ export function AffaireRegisterCard({
         )}
       </div>
 
+      <section className="mt-6 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+              Historique recent du registre
+            </h3>
+            <p className="mt-1 text-xs text-[var(--slate-500)]">
+              Actions historisees pour expliciter qui a fait quoi sur les points du dossier.
+            </p>
+          </div>
+          <div className="rounded-full bg-white px-2.5 py-1 text-xs text-[var(--slate-600)]">
+            {timelineEvents.length} evenement{timelineEvents.length > 1 ? "s" : ""}
+          </div>
+        </div>
+        {timelineEvents.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-dashed border-[var(--slate-200)] bg-white px-4 py-6 text-sm text-[var(--slate-500)]">
+            Aucun evenement recent pour cette vue du registre.
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {timelineEvents.map((event) => (
+              <article
+                key={event.id}
+                className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs font-medium text-[var(--slate-600)]">
+                        {AFFAIRE_REGISTER_EVENT_LABELS[event.eventType]}
+                      </span>
+                      <span className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs font-medium text-[var(--slate-600)]">
+                        {AFFAIRE_REGISTER_KIND_LABELS[event.entryKind]}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm font-medium text-[var(--slate-800)]">
+                      {event.scopeLabel}: {event.entryText}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--slate-500)]">
+                      <span>
+                        {event.actorUserName || "Systeme"} · {formatDateTime(event.createdAt)}
+                      </span>
+                      {event.beforeStatus && event.afterStatus && event.beforeStatus !== event.afterStatus ? (
+                        <span>
+                          {AFFAIRE_REGISTER_STATUS_LABELS[event.beforeStatus]} →{" "}
+                          {AFFAIRE_REGISTER_STATUS_LABELS[event.afterStatus]}
+                        </span>
+                      ) : null}
+                    </div>
+                    {event.comment ? (
+                      <p className="mt-2 rounded-lg border border-[var(--brand-blue)]/15 bg-[var(--brand-blue)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
+                        {event.comment}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
       <div className="mt-4 flex flex-wrap justify-between gap-2">
         <button
           type="button"
@@ -659,6 +888,82 @@ export function AffaireRegisterCard({
           Page suivante
         </button>
       </div>
+
+      {pendingTransition ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4">
+          <div
+            className="dashboard-card w-full max-w-xl p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="affaire-register-transition-title"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3
+                  id="affaire-register-transition-title"
+                  className="text-lg font-semibold text-[var(--slate-800)]"
+                >
+                  {resolveTransitionPrompt(pendingTransition.nextStatus).title}
+                </h3>
+                <p className="mt-1 text-sm text-[var(--slate-500)]">
+                  {resolveTransitionPrompt(pendingTransition.nextStatus).description}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={isMutationPending}
+                onClick={closeTransitionDialog}
+              >
+                Fermer
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                Entree concernee
+              </p>
+              <p className="mt-2 text-sm font-medium text-[var(--slate-800)]">
+                {pendingTransition.entry.text}
+              </p>
+              <p className="mt-1 text-xs text-[var(--slate-500)]">
+                {pendingTransition.entry.scopeLabel} ·{" "}
+                {AFFAIRE_REGISTER_STATUS_LABELS[pendingTransition.entry.status]}
+              </p>
+            </div>
+
+            <label className="mt-4 flex flex-col gap-1 text-xs text-[var(--slate-600)]">
+              Commentaire de trace (facultatif)
+              <textarea
+                rows={4}
+                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                value={transitionComment}
+                onChange={(event) => setTransitionComment(event.target.value)}
+                placeholder="Expliquez le contexte ou la prochaine action attendue."
+              />
+            </label>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={isMutationPending}
+                onClick={closeTransitionDialog}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={isMutationPending}
+                onClick={() => void handleConfirmTransition()}
+              >
+                {resolveTransitionPrompt(pendingTransition.nextStatus).actionLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -195,4 +195,65 @@ describe("EstimateApprovalActions", () => {
     expect(mockRefresh).toHaveBeenCalled();
     expect(mockToast.success).toHaveBeenCalled();
   });
+
+  it("renders register-oriented labels and deep links for register blockers and alerts", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <EstimateApprovalActions
+        versionId="version-1"
+        projectId="project-1"
+        summary={buildSummary({
+          submissionReadiness: {
+            blockers: [
+              {
+                id: "register:critical_open_questions",
+                label: "Registre affaire",
+                message: "Questions critiques ouvertes.",
+              },
+            ],
+            alerts: [
+              {
+                id: "register:client_clarification_required",
+                label: "Registre affaire",
+                message: "Clarifications client en attente.",
+              },
+            ],
+          },
+        })}
+        submissionOverview={{
+          coveragePercent: 82,
+          exceptionCount: 3,
+          openQuestionsCount: 2,
+          marginPercent: 11.2,
+        }}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Soumettre a validation" }));
+
+    expect(screen.getByText("Points ouverts du registre")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Hypotheses, pieces manquantes et clarifications client encore actives."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Visibles pour la validation interne. Certaines alertes devront etre traitees avant l'envoi client."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Ouvrir les points critiques" })
+    ).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical"
+    );
+    expect(
+      screen.getByRole("link", { name: "Ouvrir les clarifications client" })
+    ).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1?registerStatus=clarify_with_client"
+    );
+  });
 });

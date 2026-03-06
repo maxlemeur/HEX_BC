@@ -186,6 +186,11 @@ export function PlansMetresCard({
 
   const { coveragePercent, exceptionCount } = plans;
   const summarySegments: string[] = [];
+  if (plans.openQuestionsCount > 0) {
+    summarySegments.push(
+      `${plans.openQuestionsCount} point${plans.openQuestionsCount !== 1 ? "s" : ""} registre ouvert${plans.openQuestionsCount !== 1 ? "s" : ""}`
+    );
+  }
   if (isCompletedState && coveragePercent !== null && exceptionCount !== null) {
     if (coveragePercent > 0) {
       summarySegments.push(`${coveragePercent} % des postes couverts`);
@@ -193,11 +198,6 @@ export function PlansMetresCard({
     if (exceptionCount > 0) {
       summarySegments.push(
         `${exceptionCount} ecart${exceptionCount !== 1 ? "s" : ""} majeur${exceptionCount !== 1 ? "s" : ""}`
-      );
-    }
-    if (plans.openQuestionsCount > 0) {
-      summarySegments.push(
-        `${plans.openQuestionsCount} question${plans.openQuestionsCount !== 1 ? "s" : ""} ouverte${plans.openQuestionsCount !== 1 ? "s" : ""}`
       );
     }
   }
@@ -237,7 +237,7 @@ export function PlansMetresCard({
       )}
 
       {/* Business summary */}
-      {isCompletedState && !coverageAvailable && (
+      {isCompletedState && !coverageAvailable && summarySegments.length === 0 && (
         <p
           className="mt-2 text-xs text-[var(--slate-500)] italic"
           aria-live="polite"
@@ -245,7 +245,7 @@ export function PlansMetresCard({
           Couverture indisponible
         </p>
       )}
-      {isCompletedState && coverageAvailable && summarySegments.length > 0 && (
+      {summarySegments.length > 0 && (
         <p
           className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--slate-600)]"
           aria-live="polite"
@@ -282,6 +282,14 @@ export function PlansMetresCard({
               Voir les exceptions
             </Link>
           )}
+        {plans.openQuestionsCount > 0 ? (
+          <Link
+            href={`/dashboard/affaires/${projectId}`}
+            className="btn btn-secondary btn-sm inline-flex"
+          >
+            Ouvrir le registre
+          </Link>
+        ) : null}
         <button
           type="button"
           disabled={!onLaunchMetre}

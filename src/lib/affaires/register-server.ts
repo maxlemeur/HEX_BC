@@ -14,6 +14,7 @@ import type { Database, Json } from "@/types/database";
 
 import {
   AFFAIRE_REGISTER_KIND_LABELS,
+  affaireRegisterEventTypeSchema,
   affaireRegisterEntryKindSchema,
   affaireRegisterEntryOriginKindSchema,
   affaireRegisterEntrySeveritySchema,
@@ -22,6 +23,7 @@ import {
   encodeAffaireRegisterCursor,
   normalizeAffaireRegisterText,
   type AffaireRegisterEntry,
+  type AffaireRegisterEventType,
   type AffaireRegisterEntryKind,
   type AffaireRegisterEntryOriginKind,
   type AffaireRegisterEntrySeverity,
@@ -30,6 +32,8 @@ import {
   type AffaireRegisterScopeOption,
   type AffaireRegisterScopeOptions,
   type AffaireRegisterScopeType,
+  type AffaireRegisterSummary,
+  type AffaireRegisterTimelineEvent,
 } from "./register";
 
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
@@ -83,6 +87,25 @@ type AffaireRegisterEntryWithProfilesRow = AffaireRegisterEntryRow & {
   updated_by_profile: { full_name: string | null } | null;
 };
 
+type AffaireRegisterEventRow = {
+  id: string;
+  entry_id: string;
+  actor_user_id: string | null;
+  event_type: AffaireRegisterEventType;
+  reason: string | null;
+  before_payload: Json | null;
+  after_payload: Json | null;
+  created_at: string;
+  actor_profile: { full_name: string | null } | null;
+  entry: {
+    kind: AffaireRegisterEntryKind;
+    text: string;
+    scope_label: string;
+    project_id: string;
+    version_id: string | null;
+  } | null;
+};
+
 type EstimateItemScopeRow = {
   id: string;
   title: string | null;
@@ -113,6 +136,7 @@ type ListAffaireRegisterPageInput = {
     id: string;
     updatedAt: string;
   } | null;
+  focusEntryId?: string | null;
   size?: number;
 };
 
@@ -144,6 +168,18 @@ const ENTRY_SELECT = [
   "updated_at",
   "created_by_profile:created_by(full_name)",
   "updated_by_profile:updated_by(full_name)",
+].join(", ");
+const EVENT_SELECT = [
+  "id",
+  "entry_id",
+  "actor_user_id",
+  "event_type",
+  "reason",
+  "before_payload",
+  "after_payload",
+  "created_at",
+  "actor_profile:actor_user_id(full_name)",
+  "entry:affaire_register_entries!inner(project_id, version_id, kind, text, scope_label)",
 ].join(", ");
 const GATE_ENTRY_SELECT =
   "id, kind, text, severity, status, scope_label, version_id, is_active";
@@ -203,6 +239,7 @@ const updateAffaireRegisterEntryStatusInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   entryId: z.string().uuid("entryId invalide."),
   status: affaireRegisterEntryStatusSchema,
+  comment: z.string().trim().max(320).nullable().optional(),
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -341,6 +378,114 @@ function toAffaireRegisterEntry(
     updatedByName: row.updated_by_profile?.full_name?.trim() || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    history: [],
+  };
+}
+
+function extractRegisterEventStatus(
+  payload: Json | null | undefined
+): AffaireRegisterEntryStatus | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  const parsed = affaireRegisterEntryStatusSchema.safeParse(payload.status);
+  return parsed.success ? parsed.data : null;
+}
+
+function extractRegisterEventComment(payload: Json | null | undefined) {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  return toStringOrNull(payload.comment);
+}
+
+function normalizeAffaireRegisterEventRow(row: unknown): AffaireRegisterEventRow | null {
+  if (!isRecord(row)) {
+    return null;
+  }
+
+  const eventType = affaireRegisterEventTypeSchema.safeParse(row.event_type);
+  const entry = resolveEmbeddedOne(
+    row.entry as
+      | {
+          kind: AffaireRegisterEntryKind;
+          text: string;
+          scope_label: string;
+          project_id: string;
+          version_id: string | null;
+        }
+      | Array<{
+          kind: AffaireRegisterEntryKind;
+          text: string;
+          scope_label: string;
+          project_id: string;
+          version_id: string | null;
+        }>
+      | null
+  );
+  const actorProfile = resolveEmbeddedOne(
+    row.actor_profile as
+      | { full_name: string | null }
+      | Array<{ full_name: string | null }>
+      | null
+  );
+
+  const kind = affaireRegisterEntryKindSchema.safeParse(entry?.kind);
+
+  if (
+    !eventType.success ||
+    !entry ||
+    !kind.success ||
+    typeof row.id !== "string" ||
+    typeof row.entry_id !== "string" ||
+    typeof entry.text !== "string" ||
+    typeof entry.scope_label !== "string" ||
+    typeof entry.project_id !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    entry_id: row.entry_id,
+    actor_user_id: toStringOrNull(row.actor_user_id),
+    event_type: eventType.data,
+    reason: toStringOrNull(row.reason),
+    before_payload: row.before_payload as Json | null,
+    after_payload: row.after_payload as Json | null,
+    created_at: toStringOrNull(row.created_at) ?? new Date(0).toISOString(),
+    actor_profile: actorProfile,
+    entry: {
+      kind: kind.data,
+      text: entry.text.trim(),
+      scope_label: entry.scope_label.trim(),
+      project_id: entry.project_id,
+      version_id: toStringOrNull(entry.version_id),
+    },
+  };
+}
+
+function toAffaireRegisterTimelineEvent(
+  row: AffaireRegisterEventRow
+): AffaireRegisterTimelineEvent {
+  return {
+    id: row.id,
+    entryId: row.entry_id,
+    eventType: row.event_type,
+    entryKind: row.entry?.kind ?? "assumption",
+    entryText: row.entry?.text ?? "",
+    scopeLabel: row.entry?.scope_label ?? "Affaire",
+    actorUserId: row.actor_user_id,
+    actorUserName: row.actor_profile?.full_name?.trim() || null,
+    comment:
+      extractRegisterEventComment(row.after_payload) ??
+      extractRegisterEventComment(row.before_payload) ??
+      row.reason,
+    beforeStatus: extractRegisterEventStatus(row.before_payload),
+    afterStatus: extractRegisterEventStatus(row.after_payload),
+    createdAt: row.created_at,
   };
 }
 
@@ -887,6 +1032,63 @@ export async function fetchAffaireRegisterGateSummary(input: {
   } satisfies AffaireRegisterGateSummary;
 }
 
+export async function fetchAffaireRegisterSummary(input: {
+  projectId: string;
+  versionId?: string | null;
+}): Promise<AffaireRegisterSummary> {
+  const { context, project } = await requireAffaireRegisterProjectAccess(
+    input.projectId,
+    "reader"
+  );
+  const gateSummary = await fetchAffaireRegisterGateSummary({
+    supabase: context.supabase,
+    projectId: project.id,
+    versionId: input.versionId ?? null,
+  });
+
+  return {
+    openQuestionsCount: gateSummary.openQuestionsCount,
+    criticalOpenCount: gateSummary.criticalOpenEntries.length,
+    nonCriticalOpenCount: gateSummary.nonCriticalOpenEntries.length,
+    clarifyWithClientCount: gateSummary.clarifyWithClientEntries.length,
+  };
+}
+
+export async function fetchAffaireRegisterTimeline(input: {
+  projectId: string;
+  versionId?: string | null;
+  size?: number;
+}): Promise<AffaireRegisterTimelineEvent[]> {
+  const { context, project } = await requireAffaireRegisterProjectAccess(
+    input.projectId,
+    "reader"
+  );
+
+  let query = context.supabase
+    .from("affaire_register_events" as never)
+    .select(EVENT_SELECT as never)
+    .eq("entry.project_id", project.id as never);
+
+  if (input.versionId) {
+    query = query.or(
+      `entry.version_id.is.null,entry.version_id.eq.${input.versionId}`
+    );
+  }
+
+  const { data, error } = await query
+    .order("created_at", { ascending: false })
+    .limit(Math.max(1, Math.min(input.size ?? 12, 25)));
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger l'historique du registre.");
+  }
+
+  return ((data ?? []) as unknown[])
+    .map((row) => normalizeAffaireRegisterEventRow(row))
+    .filter((row): row is AffaireRegisterEventRow => row !== null)
+    .map(toAffaireRegisterTimelineEvent);
+}
+
 export async function fetchAffaireRegisterPage(
   input: ListAffaireRegisterPageInput
 ): Promise<AffaireRegisterPageResult> {
@@ -929,9 +1131,30 @@ export async function fetchAffaireRegisterPage(
     .filter((row): row is AffaireRegisterEntryWithProfilesRow => row !== null);
   const pageRows = rows.slice(0, pageSize);
   const lastRow = pageRows[pageRows.length - 1] ?? null;
+  const [summary, timeline] = await Promise.all([
+    fetchAffaireRegisterSummary({
+      projectId: project.id,
+      versionId: input.versionId ?? null,
+    }),
+    fetchAffaireRegisterTimeline({
+      projectId: project.id,
+      versionId: input.versionId ?? null,
+      size: 12,
+    }),
+  ]);
+  const timelineByEntryId = new Map<string, AffaireRegisterTimelineEvent[]>();
+
+  timeline.forEach((event) => {
+    const current = timelineByEntryId.get(event.entryId) ?? [];
+    current.push(event);
+    timelineByEntryId.set(event.entryId, current);
+  });
 
   return {
-    items: pageRows.map(toAffaireRegisterEntry),
+    items: pageRows.map((row) => ({
+      ...toAffaireRegisterEntry(row),
+      history: timelineByEntryId.get(row.id) ?? [],
+    })),
     nextCursor:
       rows.length > pageSize && lastRow
         ? encodeAffaireRegisterCursor({
@@ -939,11 +1162,14 @@ export async function fetchAffaireRegisterPage(
             updatedAt: lastRow.updated_at,
           })
         : null,
+    summary,
+    timeline,
     filters: {
       status: input.status ?? null,
       severity: input.severity ?? null,
       kind: input.kind ?? null,
       cursor: input.cursor ? encodeAffaireRegisterCursor(input.cursor) : null,
+      focusEntryId: input.focusEntryId ?? null,
     },
   };
 }
@@ -1211,12 +1437,13 @@ export async function updateAffaireRegisterEntryStatus(
     entryId: entry.id,
     actorUserId: context.userId,
     eventType: "status_changed",
-    reason: "manual.status_change",
+    reason: normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null,
     beforePayload: {
       status: entry.status,
     } satisfies Json,
     afterPayload: {
       status: updatedEntry.status,
+      comment: normalizeAffaireRegisterText(parsed.comment ?? "", 320) || null,
     } satisfies Json,
   });
 

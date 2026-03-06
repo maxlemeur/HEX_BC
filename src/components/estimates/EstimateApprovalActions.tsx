@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -8,6 +9,7 @@ import {
   submitEstimateForReviewAction,
 } from "@/app/dashboard/_actions/estimate-approval";
 import { useToast } from "@/components/ui/Toast";
+import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import type {
   EstimateApprovalDecisionCommentInput,
   EstimateApprovalSummary,
@@ -129,6 +131,72 @@ function formatCount(value: number | null) {
   }
 
   return new Intl.NumberFormat("fr-FR").format(value);
+}
+
+function buildRegisterHref(projectId: string, signalId: string) {
+  if (!signalId.startsWith("register:")) {
+    return null;
+  }
+
+  if (signalId === "register:critical_open_questions") {
+    return buildAffaireRegisterSearchHref({
+      pathname: `/dashboard/affaires/${projectId}`,
+      searchParams: new URLSearchParams(),
+      status: "open",
+      severity: "critical",
+      kind: null,
+      cursor: null,
+    });
+  }
+
+  if (signalId === "register:client_clarification_required") {
+    return buildAffaireRegisterSearchHref({
+      pathname: `/dashboard/affaires/${projectId}`,
+      searchParams: new URLSearchParams(),
+      status: "clarify_with_client",
+      severity: null,
+      kind: null,
+      cursor: null,
+    });
+  }
+
+  if (signalId === "register:open_questions_pending") {
+    return buildAffaireRegisterSearchHref({
+      pathname: `/dashboard/affaires/${projectId}`,
+      searchParams: new URLSearchParams(),
+      status: "open",
+      severity: null,
+      kind: null,
+      cursor: null,
+    });
+  }
+
+  return `/dashboard/affaires/${projectId}`;
+}
+
+function resolveSubmissionSignalAction(input: {
+  projectId: string;
+  signalId: string;
+}) {
+  switch (input.signalId) {
+    case "register:critical_open_questions":
+      return {
+        href: buildRegisterHref(input.projectId, input.signalId) ?? `/dashboard/affaires/${input.projectId}`,
+        label: "Ouvrir les points critiques",
+      };
+    case "register:open_questions_pending":
+      return {
+        href: buildRegisterHref(input.projectId, input.signalId) ?? `/dashboard/affaires/${input.projectId}`,
+        label: "Ouvrir les points ouverts",
+      };
+    case "register:client_clarification_required":
+      return {
+        href: buildRegisterHref(input.projectId, input.signalId) ?? `/dashboard/affaires/${input.projectId}`,
+        label: "Ouvrir les clarifications client",
+      };
+    default:
+      return null;
+  }
 }
 
 export function EstimateApprovalActions({
@@ -398,10 +466,13 @@ export function EstimateApprovalActions({
                 </article>
                 <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
-                    Hypotheses ouvertes
+                    Points ouverts du registre
                   </p>
                   <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
                     {formatCount(submissionOverview.openQuestionsCount)}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    Hypotheses, pieces manquantes et clarifications client encore actives.
                   </p>
                 </article>
                 <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
@@ -431,19 +502,34 @@ export function EstimateApprovalActions({
                   </div>
                   {summary.submissionReadiness.blockers.length > 0 ? (
                     <div className="mt-3 space-y-2">
-                      {summary.submissionReadiness.blockers.map((entry) => (
-                        <article
-                          key={entry.id}
-                          className="rounded-xl border border-[var(--danger)]/15 bg-white/90 px-3 py-3"
-                        >
-                          <p className="text-sm font-semibold text-[var(--slate-800)]">
-                            {entry.label}
-                          </p>
-                          <p className="mt-1 text-sm text-[var(--slate-700)]">
-                            {entry.message}
-                          </p>
-                        </article>
-                      ))}
+                      {summary.submissionReadiness.blockers.map((entry) => {
+                        const action = resolveSubmissionSignalAction({
+                          projectId,
+                          signalId: entry.id,
+                        });
+
+                        return (
+                          <article
+                            key={entry.id}
+                            className="rounded-xl border border-[var(--danger)]/15 bg-white/90 px-3 py-3"
+                          >
+                            <p className="text-sm font-semibold text-[var(--slate-800)]">
+                              {entry.label}
+                            </p>
+                            <p className="mt-1 text-sm text-[var(--slate-700)]">
+                              {entry.message}
+                            </p>
+                            {action ? (
+                              <Link
+                                href={action.href}
+                                className="mt-3 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                              >
+                                {action.label}
+                              </Link>
+                            ) : null}
+                          </article>
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="mt-3 text-sm text-[var(--slate-600)]">
@@ -459,7 +545,7 @@ export function EstimateApprovalActions({
                         Alertes
                       </p>
                       <p className="mt-1 text-xs text-[var(--slate-600)]">
-                        Visibles pour la validation, mais non bloquantes pour l&apos;envoi.
+                        Visibles pour la validation interne. Certaines alertes devront etre traitees avant l&apos;envoi client.
                       </p>
                     </div>
                     <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--warning)]">
@@ -468,19 +554,34 @@ export function EstimateApprovalActions({
                   </div>
                   {summary.submissionReadiness.alerts.length > 0 ? (
                     <div className="mt-3 space-y-2">
-                      {summary.submissionReadiness.alerts.map((entry) => (
-                        <article
-                          key={entry.id}
-                          className="rounded-xl border border-[var(--warning)]/15 bg-white/90 px-3 py-3"
-                        >
-                          <p className="text-sm font-semibold text-[var(--slate-800)]">
-                            {entry.label}
-                          </p>
-                          <p className="mt-1 text-sm text-[var(--slate-700)]">
-                            {entry.message}
-                          </p>
-                        </article>
-                      ))}
+                      {summary.submissionReadiness.alerts.map((entry) => {
+                        const action = resolveSubmissionSignalAction({
+                          projectId,
+                          signalId: entry.id,
+                        });
+
+                        return (
+                          <article
+                            key={entry.id}
+                            className="rounded-xl border border-[var(--warning)]/15 bg-white/90 px-3 py-3"
+                          >
+                            <p className="text-sm font-semibold text-[var(--slate-800)]">
+                              {entry.label}
+                            </p>
+                            <p className="mt-1 text-sm text-[var(--slate-700)]">
+                              {entry.message}
+                            </p>
+                            {action ? (
+                              <Link
+                                href={action.href}
+                                className="mt-3 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                              >
+                                {action.label}
+                              </Link>
+                            ) : null}
+                          </article>
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="mt-3 text-sm text-[var(--slate-600)]">

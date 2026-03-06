@@ -30,6 +30,8 @@ import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type {
   AffaireRegisterPageResult,
   AffaireRegisterScopeOptions,
+  AffaireRegisterSummary,
+  AffaireRegisterTimelineEvent,
 } from "@/lib/affaires/register";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { AffaireRegisterCard } from "./AffaireRegisterCard";
@@ -65,6 +67,8 @@ type AffaireHubProps = {
   intakeWorkspace?: AffaireIntakeWorkspace | null;
   registerPage?: AffaireRegisterPageResult | null;
   registerScopeOptions?: AffaireRegisterScopeOptions;
+  registerSummary?: AffaireRegisterSummary | null;
+  registerTimeline?: AffaireRegisterTimelineEvent[];
 };
 
 /* ------------------------------------------------------------------ */
@@ -807,6 +811,8 @@ export function AffaireHub({
   intakeWorkspace,
   registerPage,
   registerScopeOptions,
+  registerSummary,
+  registerTimeline,
 }: AffaireHubProps) {
   const router = useRouter();
   const toast = useToast();
@@ -1033,6 +1039,8 @@ export function AffaireHub({
           versionId={summary.currentVersion?.id ?? null}
           registerPage={registerPage ?? null}
           scopeOptions={registerScopeOptions ?? { lots: [], lines: [] }}
+          summary={registerSummary ?? null}
+          timelineEvents={registerTimeline ?? []}
           isReadOnly={isReadOnlyReview}
           errorMessage={sectionErrors?.register}
         />

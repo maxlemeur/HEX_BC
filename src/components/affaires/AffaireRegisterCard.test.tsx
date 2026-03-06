@@ -35,7 +35,11 @@ vi.mock("@/app/dashboard/affaires/_actions/register", () => ({
 }));
 
 import { AffaireRegisterCard } from "@/components/affaires/AffaireRegisterCard";
-import type { AffaireRegisterPageResult } from "@/lib/affaires/register";
+import type {
+  AffaireRegisterPageResult,
+  AffaireRegisterSummary,
+  AffaireRegisterTimelineEvent,
+} from "@/lib/affaires/register";
 
 function buildRegisterPage(
   overrides: Partial<AffaireRegisterPageResult> = {}
@@ -76,6 +80,40 @@ function buildRegisterPage(
   };
 }
 
+function buildRegisterSummary(
+  overrides: Partial<AffaireRegisterSummary> = {}
+): AffaireRegisterSummary {
+  return {
+    openQuestionsCount: 2,
+    criticalOpenCount: 0,
+    nonCriticalOpenCount: 1,
+    clarifyWithClientCount: 1,
+    ...overrides,
+  };
+}
+
+function buildTimelineEvents(
+  overrides: Partial<AffaireRegisterTimelineEvent>[] = []
+): AffaireRegisterTimelineEvent[] {
+  return [
+    {
+      id: "evt-1",
+      entryId: "entry-1",
+      eventType: "status_changed",
+      entryKind: "assumption",
+      entryText: "Le phasage reste a confirmer.",
+      scopeLabel: "Affaire test",
+      actorUserId: "user-1",
+      actorUserName: "Nadia Martin",
+      comment: "Attendre le retour du client.",
+      beforeStatus: "open",
+      afterStatus: "clarify_with_client",
+      createdAt: "2026-03-06T09:15:00.000Z",
+      ...overrides[0],
+    },
+  ];
+}
+
 describe("AffaireRegisterCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -106,6 +144,8 @@ describe("AffaireRegisterCard", () => {
         versionId="22222222-2222-4222-8222-222222222222"
         registerPage={buildRegisterPage()}
         scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={buildTimelineEvents()}
       />
     );
 
@@ -131,6 +171,8 @@ describe("AffaireRegisterCard", () => {
         versionId="22222222-2222-4222-8222-222222222222"
         registerPage={buildRegisterPage({ items: [] })}
         scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={buildTimelineEvents()}
       />
     );
 
@@ -168,10 +210,19 @@ describe("AffaireRegisterCard", () => {
         versionId={versionId}
         registerPage={buildRegisterPage()}
         scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={buildTimelineEvents()}
       />
     );
 
     await user.click(screen.getByRole("button", { name: "A clarifier avec client" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Commentaire de trace (facultatif)" }),
+      "A confirmer avec le client."
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Confirmer la clarification client" })
+    );
 
     await waitFor(() => {
       expect(mockUpdateAffaireRegisterEntryStatusAction).toHaveBeenCalledWith({
@@ -179,6 +230,7 @@ describe("AffaireRegisterCard", () => {
         versionId,
         entryId: "entry-1",
         status: "clarify_with_client",
+        comment: "A confirmer avec le client.",
       });
     });
 
@@ -195,10 +247,13 @@ describe("AffaireRegisterCard", () => {
           ],
         })}
         scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={buildTimelineEvents()}
       />
     );
 
     await user.click(screen.getByRole("button", { name: "Rouvrir" }));
+    await user.click(screen.getByRole("button", { name: "Confirmer la reouverture" }));
 
     await waitFor(() => {
       expect(mockUpdateAffaireRegisterEntryStatusAction).toHaveBeenCalledWith({
@@ -206,6 +261,7 @@ describe("AffaireRegisterCard", () => {
         versionId,
         entryId: "entry-1",
         status: "open",
+        comment: null,
       });
     });
 
@@ -215,10 +271,13 @@ describe("AffaireRegisterCard", () => {
         versionId={versionId}
         registerPage={buildRegisterPage()}
         scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={buildTimelineEvents()}
       />
     );
 
     await user.click(screen.getByRole("button", { name: "Valider" }));
+    await user.click(screen.getByRole("button", { name: "Confirmer la validation" }));
 
     await waitFor(() => {
       expect(mockUpdateAffaireRegisterEntryStatusAction).toHaveBeenCalledWith({
@@ -226,6 +285,7 @@ describe("AffaireRegisterCard", () => {
         versionId,
         entryId: "entry-1",
         status: "validated",
+        comment: null,
       });
     });
   });
@@ -239,6 +299,8 @@ describe("AffaireRegisterCard", () => {
         versionId="22222222-2222-4222-8222-222222222222"
         registerPage={buildRegisterPage({ items: [] })}
         scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={[]}
       />
     );
 
@@ -250,5 +312,23 @@ describe("AffaireRegisterCard", () => {
     expect(
       screen.getByRole("button", { name: "Ajouter au registre" })
     ).toBeDisabled();
+  });
+
+  it("renders the register summary and recent audit timeline", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage()}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={buildTimelineEvents()}
+      />
+    );
+
+    expect(screen.getByText("Points ouverts")).toBeInTheDocument();
+    expect(screen.getByText("Historique recent du registre")).toBeInTheDocument();
+    expect(screen.getByText("Statut modifie")).toBeInTheDocument();
+    expect(screen.getByText("Attendre le retour du client.")).toBeInTheDocument();
   });
 });

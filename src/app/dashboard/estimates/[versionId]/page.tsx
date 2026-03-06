@@ -406,7 +406,7 @@ export default async function EstimateDetailPage({
                     openQuestionsCount: plansSummary?.openQuestionsCount ?? null,
                     marginPercent:
                       Number.isFinite(appliedMarginMultiplier) && appliedMarginMultiplier > 0
-                        ? (1 - 1 / appliedMarginMultiplier) * 100
+                        ? (appliedMarginMultiplier - 1) * 100
                         : 0,
                   }}
                 />

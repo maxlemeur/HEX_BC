@@ -35,6 +35,8 @@ la roadmap V1.
 | **M4**    | Lifecycle + Rules + Observabilite | EST-E03*, EST-E08*, EST-E13, EST-E14 | Portail client, envoi email, tests. **Events append-only (EST-036 new), rules engine (EST-037 new)**, import Batigest/Onaya (EST-204) |
 | **M5**    | Structure de prix BTP + Metres   | EST-E15, EST-E16, EST-E17, EST-E20   | Moteur de prix professionnel BTP (DS/FC/FG/B&A), ouvrages composes, carnet de metres, formules quantites, conformite PDF multi-TVA |
 | **M6**    | Cycle de vie chantier            | EST-E18, EST-E19                     | Situations de travaux, avenants, retenue de garantie, DGD, lots techniques, sous-traitance |
+| **M7**    | VNext IA, preuves et revue       | V3-E04, V3-E05, V3-E06, EST-E21, EST-E22, EST-E23, EST-E24 | Intake IA dossier, draft assiste, preuves, risk radar, collaboration et validation par exception |
+| **M8**    | Boucle client et revision engine | V3-E07, EST-E25                      | Portail client lite, lecture des retours, analyse d'impact, reponse assistee, creation de V2 |
 
 > \* Epics marques avec `*` : seules certaines stories de l'epic sont dans ce milestone (promotions MVP). Voir le detail par epic.
 
@@ -50,6 +52,12 @@ Il contient :
 - Les dependances et le graphe critique
 - Les tags couche par ticket (`[DB]`, `[Back]`, `[Front]`)
 - La timeline estimee (~24 semaines MVP core, ~30 semaines complet)
+
+Le plan detaille VNext (`2 fullstack + 1 frontend`) est documente ici :
+**[v4/IMPLEMENTATION_PLAN.md](./v4/IMPLEMENTATION_PLAN.md)**
+
+Le cadrage fonctionnel VNext correspondant est disponible ici :
+**[v4/README.md](./v4/README.md)**
 
 ---
 
@@ -88,6 +96,11 @@ Convention :
 | EST-E18   | Situations de travaux & avenants   | M6        | P0       | [EST-E18-situations-avenants.md](./EST-E18-situations-avenants.md) |
 | EST-E19   | Lots, sous-traitance & consultations | M6      | P1       | [EST-E19-lots-sous-traitance.md](./EST-E19-lots-sous-traitance.md) |
 | EST-E20   | Conformite reglementaire & PDF pro | M5        | P1       | [EST-E20-conformite-pdf-pro.md](./EST-E20-conformite-pdf-pro.md) |
+| EST-E21   | Intake IA & Brief Affaire          | M7        | P0       | [EST-E21-ai-intake-brief-affaire.md](./EST-E21-ai-intake-brief-affaire.md) |
+| EST-E22   | Draft Assiste & Ouvrages Generes   | M7        | P0       | [EST-E22-draft-assiste-ouvrages.md](./EST-E22-draft-assiste-ouvrages.md) |
+| EST-E23   | Preuve, Prix Expliques & Risk Radar | M7       | P0       | [EST-E23-preuve-prix-risque.md](./EST-E23-preuve-prix-risque.md) |
+| EST-E24   | Collaboration & Revue par Exception | M7       | P1       | [EST-E24-collaboration-revue-exception.md](./EST-E24-collaboration-revue-exception.md) |
+| EST-E25   | Revision Engine & Boucle Client    | M8        | P1       | [EST-E25-revision-engine-boucle-client.md](./EST-E25-revision-engine-boucle-client.md) |
 
 ---
 
@@ -205,6 +218,36 @@ a construire dans la roadmap V1.
 | EST-342 | Sous-traitance dans le devis           | EST-E19| M6        | P1       | M      |
 | EST-343 | Consultation fournisseurs automatisee  | EST-E19| M6        | P2       | L      |
 | EST-361 | Suivi budgetaire projet (prev. vs real.)| EST-E18| M6       | P1       | L      |
+
+### Stories M7 — VNext IA, preuves et revue
+
+| Code    | Nom                                    | Epic   | Milestone | Priorite | Effort |
+| ------- | -------------------------------------- | ------ | --------- | -------- | ------ |
+| EST-371 | Ingestion dossier multi-documents      | EST-E21| M7        | P0       | L      |
+| EST-372 | Brief affaire genere automatiquement   | EST-E21| M7        | P0       | M      |
+| EST-373 | Registre hypotheses / pieces manquantes| EST-E21| M7        | P0       | M      |
+| EST-374 | Command bar contextuelle cockpit       | EST-E21| M7        | P1       | M      |
+| EST-381 | Generation d'ouvrages depuis texte     | EST-E22| M7        | P0       | L      |
+| EST-382 | Generation structure lots / chapitres  | EST-E22| M7        | P0       | L      |
+| EST-383 | Suggestions de sous-detail             | EST-E22| M7        | P1       | L      |
+| EST-391 | Evidence Graph par ligne               | EST-E23| M7        | P0       | L      |
+| EST-392 | Suggestion de prix avec fourchette     | EST-E23| M7        | P0       | L      |
+| EST-393 | Radar d'incoherences et marge a risque | EST-E23| M7        | P0       | M      |
+| EST-394 | Explication des prix et deltas         | EST-E23| M7        | P1       | M      |
+| EST-401 | Presence et commentaires temps reel    | EST-E24| M7        | P1       | M      |
+| EST-402 | File d'exceptions assignable           | EST-E24| M7        | P1       | M      |
+| EST-404 | Journal des corrections equipe         | EST-E24| M7        | P1       | M      |
+
+### Stories M8 — Boucle client et revision engine
+
+| Code    | Nom                                    | Epic   | Milestone | Priorite | Effort |
+| ------- | -------------------------------------- | ------ | --------- | -------- | ------ |
+| EST-384 | Brouillon complet dossier -> V0        | EST-E22| M8        | P1       | XL     |
+| EST-403 | Revue multi-role et checklists         | EST-E24| M8        | P1       | M      |
+| EST-411 | Lecture des retours client             | EST-E25| M8        | P1       | L      |
+| EST-412 | Analyse d'impact quantites / prix      | EST-E25| M8        | P1       | L      |
+| EST-413 | Reponse assistee et contre-proposition | EST-E25| M8        | P2       | M      |
+| EST-414 | Questions client -> taches / decisions | EST-E25| M8        | P2       | M      |
 
 ### Nice-to-have (non planifies)
 

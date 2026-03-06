@@ -22,6 +22,13 @@ export const affaireRegisterEntryOriginKindSchema = z.enum([
   "manual",
   "system",
 ]);
+export const affaireRegisterEventTypeSchema = z.enum([
+  "created",
+  "synced",
+  "status_changed",
+  "deactivated",
+  "reactivated",
+]);
 export const affaireRegisterScopeTypeSchema = z.enum([
   "project",
   "lot",
@@ -40,6 +47,9 @@ export type AffaireRegisterEntryStatus = z.infer<
 >;
 export type AffaireRegisterEntryOriginKind = z.infer<
   typeof affaireRegisterEntryOriginKindSchema
+>;
+export type AffaireRegisterEventType = z.infer<
+  typeof affaireRegisterEventTypeSchema
 >;
 export type AffaireRegisterScopeType = z.infer<
   typeof affaireRegisterScopeTypeSchema
@@ -80,6 +90,16 @@ export const AFFAIRE_REGISTER_ORIGIN_LABELS: Record<
   manual: "Manuelle",
   system: "Systeme",
 };
+export const AFFAIRE_REGISTER_EVENT_LABELS: Record<
+  AffaireRegisterEventType,
+  string
+> = {
+  created: "Entree creee",
+  synced: "Resynchronisee",
+  status_changed: "Statut modifie",
+  deactivated: "Entree archivee",
+  reactivated: "Entree reactivee",
+};
 
 export const AFFAIRE_REGISTER_SCOPE_LABELS: Record<
   AffaireRegisterScopeType,
@@ -95,6 +115,7 @@ export const AFFAIRE_REGISTER_STATUS_QUERY_PARAM = "registerStatus";
 export const AFFAIRE_REGISTER_SEVERITY_QUERY_PARAM = "registerSeverity";
 export const AFFAIRE_REGISTER_KIND_QUERY_PARAM = "registerKind";
 export const AFFAIRE_REGISTER_CURSOR_QUERY_PARAM = "registerCursor";
+export const AFFAIRE_REGISTER_FOCUS_QUERY_PARAM = "registerFocus";
 
 const affaireRegisterCursorSchema = z.object({
   updatedAt: z.string().datetime({ offset: true }),
@@ -126,14 +147,32 @@ export type AffaireRegisterEntry = {
   updatedAt: string;
 };
 
+export type AffaireRegisterTimelineEvent = {
+  id: string;
+  entryId: string;
+  eventType: AffaireRegisterEventType;
+  entryKind: AffaireRegisterEntryKind;
+  entryText: string;
+  scopeLabel: string;
+  actorUserId: string | null;
+  actorUserName: string | null;
+  comment: string | null;
+  beforeStatus: AffaireRegisterEntryStatus | null;
+  afterStatus: AffaireRegisterEntryStatus | null;
+  createdAt: string;
+};
+
 export type AffaireRegisterPageResult = {
   items: AffaireRegisterEntry[];
   nextCursor: string | null;
+  summary: AffaireRegisterSummary;
+  timeline: AffaireRegisterTimelineEvent[];
   filters: {
     status: AffaireRegisterEntryStatus | null;
     severity: AffaireRegisterEntrySeverity | null;
     kind: AffaireRegisterEntryKind | null;
     cursor: string | null;
+    focusEntryId: string | null;
   };
 };
 
@@ -145,6 +184,13 @@ export type AffaireRegisterScopeOption = {
 export type AffaireRegisterScopeOptions = {
   lots: AffaireRegisterScopeOption[];
   lines: AffaireRegisterScopeOption[];
+};
+
+export type AffaireRegisterSummary = {
+  openQuestionsCount: number;
+  criticalOpenCount: number;
+  nonCriticalOpenCount: number;
+  clarifyWithClientCount: number;
 };
 
 export function parseAffaireRegisterStatusSearchParam(
@@ -188,6 +234,14 @@ export function parseAffaireRegisterCursorSearchParam(
   }
 }
 
+export function parseAffaireRegisterFocusSearchParam(
+  value: string | string[] | undefined
+) {
+  const normalized = Array.isArray(value) ? value[0] : value;
+  const parsed = z.string().uuid().safeParse(normalized?.trim());
+  return parsed.success ? parsed.data : null;
+}
+
 export function encodeAffaireRegisterCursor(cursor: AffaireRegisterCursor) {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
 }
@@ -210,6 +264,7 @@ export function buildAffaireRegisterSearchHref(input: {
   severity?: AffaireRegisterEntrySeverity | null;
   kind?: AffaireRegisterEntryKind | null;
   cursor?: string | null;
+  focusEntryId?: string | null;
 }) {
   const params = new URLSearchParams(input.searchParams.toString());
 
@@ -237,6 +292,30 @@ export function buildAffaireRegisterSearchHref(input: {
     params.delete(AFFAIRE_REGISTER_CURSOR_QUERY_PARAM);
   }
 
+  if (input.focusEntryId) {
+    params.set(AFFAIRE_REGISTER_FOCUS_QUERY_PARAM, input.focusEntryId);
+  } else {
+    params.delete(AFFAIRE_REGISTER_FOCUS_QUERY_PARAM);
+  }
+
   const query = params.toString();
   return query ? `${input.pathname}?${query}` : input.pathname;
+}
+
+export function buildAffaireRegisterHubHref(input: {
+  projectId: string;
+  status?: AffaireRegisterEntryStatus | null;
+  severity?: AffaireRegisterEntrySeverity | null;
+  kind?: AffaireRegisterEntryKind | null;
+  focusEntryId?: string | null;
+}) {
+  return buildAffaireRegisterSearchHref({
+    pathname: `/dashboard/affaires/${input.projectId}`,
+    searchParams: new URLSearchParams(),
+    status: input.status ?? null,
+    severity: input.severity ?? null,
+    kind: input.kind ?? null,
+    cursor: null,
+    focusEntryId: input.focusEntryId ?? null,
+  });
 }

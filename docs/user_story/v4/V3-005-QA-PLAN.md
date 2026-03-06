@@ -2,7 +2,7 @@
 
 ## Pre-requis
 
-- Compte admin : `maxime.michel@hydroexpress.fr` / `qM2CkK#cg4V.Uqh`
+- Compte admin : recuperer les identifiants via le canal securise du projet ou votre fichier local ignore `docs/test-logins.local.md`
 - Dev server running : `npm run dev` sur `http://localhost:3000`
 - Affaires de seed disponibles (prefixe `V3005-`)
 
