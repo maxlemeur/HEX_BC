@@ -953,6 +953,7 @@ export function AffaireHub({
       {showImportFlow ? (
         <UnifiedImportFlow
           projectId={summary.project.id}
+          takeoffEnabled={takeoffEnabled}
           onCancel={() => setShowImportFlow(false)}
           onComplete={handleImportComplete}
         />

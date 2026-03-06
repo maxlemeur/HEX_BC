@@ -1332,7 +1332,7 @@ chainon entre "ce que le client demande" (DPGF) et "ce que je mesure" (takeoff d
       - Action globale : "Tout accepter" en haut de page
       - Strategie d'application fixee a "append" (pas de choix merge/replace)
       - Barre de progression : "{N}/{Total} items revus"
-      - Pas de vue comparaison DPGF (reservee au senior)
+      - Les vues expertes (tables, comparaisons, DPGF) ne sont pas accessibles via URL seule
 - [ ] **Mode Expert** (senior) :
       - `TakeoffReviewPage` existant complet (table, filtres, tri, strategies, overrides)
       - Acces a la vue comparaison DPGF (V3-010)
@@ -1340,12 +1340,16 @@ chainon entre "ce que le client demande" (DPGF) et "ce que je mesure" (takeoff d
 - [ ] Le mode est determine par `useUiMode()` :
       - `isSimplified` → vue junior
       - `isExpert` → vue senior
-- [ ] Toggle temporaire pour passer d'un mode a l'autre dans la page
+- [ ] Toggle local a la page pour passer d'un mode a l'autre
       (icone "Vue avancee" / "Vue simplifiee")
+- [ ] Le toggle de review ne modifie pas durablement le profil utilisateur
 - [ ] Les deux modes utilisent le meme `TakeoffApplyWizard` en fin de parcours
+- [ ] Le wizard suit la vue effectivement affichee :
+      - vue simplifiee → `append` impose
+      - vue experte → strategies completes disponibles
 - [ ] La vue expert lourde est chargee en `next/dynamic` quand necessaire
       (`bundle-dynamic-imports`)
-- [ ] Les actions bulk (Tout accepter/rejeter) utilisent `startTransition`
+- [ ] L'action bulk "Tout accepter" utilise `startTransition`
       pour maintenir la fluidite (`rerender-transitions`)
 - [ ] Couverture Playwright : parcours junior et expert
 
@@ -1385,30 +1389,33 @@ chainon entre "ce que le client demande" (DPGF) et "ce que je mesure" (takeoff d
 ### Criteres d'acceptation
 
 - [ ] Nouvelle etape optionnelle dans `UnifiedImportFlow` :
-      apres "Confirmation" et avant "Redirect"
+      apres "Confirmation" et avant la sortie du flow
 - [ ] Etape "Plans (optionnel)" affichant :
       - `PlanFileUploadZone` pour drop/upload de PDF
       - Message "Vous pourrez aussi ajouter vos plans plus tard depuis le hub"
       - Bouton "Passer cette etape" bien visible
-- [ ] Les fichiers uploades sont ajoutes au plan set par defaut du projet
-      (creer le plan set "Plans import" si aucun n'existe)
+- [ ] Les fichiers uploades sont ajoutes au jeu de plans par defaut du projet
+      :
+      - reutiliser le jeu "Plans import" s'il existe deja
+      - sinon creer "Plans import"
 - [ ] L'etape n'apparait que si `TAKEOFF_MODULE_ENABLED` est actif
-- [ ] L'etape n'apparait que si l'import cree une nouvelle affaire
-      (pas sur les re-imports dans une affaire existante)
+- [ ] L'etape apparait quand l'import cree une nouvelle version exploitable pour
+      l'affaire courante
 - [ ] Compteur de fichiers uploades avec taille totale
-- [ ] Transition fluide vers l'etape suivante (redirect vers hub affaire)
+- [ ] Transition fluide vers la fin du flow puis retour au hub affaire
 - [ ] L'etape optionnelle est chargee conditionnellement (`bundle-conditional`)
       pour ne pas alourdir le first render du flow import
-- [ ] Creation du plan set par defaut via Server Action authentifiee
+- [ ] Si un upload est en cours, on ne peut pas quitter l'etape de facon ambigue
 
 ### Notes techniques
 
+- Fichiers a creer :
+  - `src/components/affaires/PlansStep.tsx` — etape dediee plans
 - Fichiers a modifier :
   - `src/components/affaires/UnifiedImportFlow.tsx` — ajouter etape plans
 - Reutiliser :
   - `PlanFileUploadZone.tsx` — zone upload existante
-  - `useFeatureFlag('TAKEOFF_MODULE_ENABLED')` pour le gate
-  - `createPlanSet()` de `src/lib/takeoff/plans.ts` si besoin
+  - `fetchPlanSetsForProject()` / `createPlanSet()` pour resoudre le jeu par defaut
 - Dependances : V3-005, V3-006
 
 ### Impact persona
@@ -1712,4 +1719,3 @@ V3-006 → V3-013 → V3-014
 5. **Definition of Done** — cf. [V3 README](./README.md) section "Standards techniques"
 6. **Handoff S2** — la livraison de V3-005 par FS debloque la majorite du travail FE ; si en retard, tout le plan glisse
 7. **Dependance croisee S3** — V3-010 (FS) depend de V3-007 (FE) ; FS commence la partie back (fetcher, `dpgf-compare.ts`) sans attendre la page
-

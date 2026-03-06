@@ -58,15 +58,30 @@ const LazyDataPreview = dynamic(
   },
 );
 
+const LazyPlansStep = dynamic(
+  () =>
+    import("@/components/affaires/PlansStep").then((mod) => ({
+      default: mod.PlansStep,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="dashboard-card p-8 text-center text-sm text-[var(--slate-500)]">
+        Chargement…
+      </div>
+    ),
+  },
+);
+
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-type Step = "upload" | "mapping" | "preview" | "confirmation";
+type Step = "upload" | "mapping" | "preview" | "confirmation" | "plans";
 
-const STEPS: Step[] = ["upload", "mapping", "preview", "confirmation"];
+const STEPPER_STEPS = ["upload", "mapping", "preview", "confirmation"] as const;
 
-const STEP_LABELS: Record<Step, string> = {
+const STEP_LABELS: Record<(typeof STEPPER_STEPS)[number], string> = {
   upload: "Upload",
   mapping: "Mapping",
   preview: "Apercu",
@@ -124,6 +139,7 @@ type DuplicatesSummary = {
 
 export type UnifiedImportFlowProps = {
   projectId: string;
+  takeoffEnabled?: boolean;
   onCancel?: () => void;
   onComplete?: (result: ConfirmUnifiedImportFlowResult) => void;
 };
@@ -194,11 +210,12 @@ type PreviewData = {
 /* ------------------------------------------------------------------ */
 
 function ProgressHeader({ currentStep }: { currentStep: Step }) {
-  const currentIndex = STEPS.indexOf(currentStep);
+  const stepperIndex = STEPPER_STEPS.indexOf(currentStep as (typeof STEPPER_STEPS)[number]);
+  const currentIndex = stepperIndex >= 0 ? stepperIndex : STEPPER_STEPS.length;
 
   return (
     <nav className="flex items-center gap-1" aria-label="Progression import">
-      {STEPS.map((step, index) => {
+      {STEPPER_STEPS.map((step, index) => {
         const isDone = index < currentIndex;
         const isCurrent = index === currentIndex;
 
@@ -888,7 +905,6 @@ function ConfirmationStep({
   onBack?: () => void;
   onSuccess: (result: ConfirmUnifiedImportFlowResult) => void;
 }) {
-  const router = useRouter();
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
@@ -905,12 +921,7 @@ function ConfirmationStep({
           createEstimate,
         });
 
-        if (createEstimate && result.redirectTo) {
-          router.push(result.redirectTo);
-          router.refresh();
-        } else {
-          onSuccess(result);
-        }
+        onSuccess(result);
       } catch (err) {
         setConfirmError(
           err instanceof Error
@@ -921,7 +932,7 @@ function ConfirmationStep({
         setIsConfirming(false);
       }
     },
-    [importId, projectId, mapping, router, onSuccess],
+    [importId, projectId, mapping, onSuccess],
   );
 
   return (
@@ -1037,12 +1048,16 @@ function ConfirmationStep({
 
 export function UnifiedImportFlow({
   projectId,
+  takeoffEnabled = false,
   onCancel,
   onComplete,
 }: UnifiedImportFlowProps) {
   const { isSimplified } = useUiMode();
+  const router = useRouter();
 
   const [step, setStep] = useState<Step>("upload");
+  const [confirmResult, setConfirmResult] =
+    useState<ConfirmUnifiedImportFlowResult | null>(null);
   const [importId, setImportId] = useState<string | null>(null);
   const [currentMapping, setCurrentMapping] = useState<ColumnMapping>({});
   // UX2-010: track whether mapping was auto-advanced (for banner in preview)
@@ -1100,17 +1115,72 @@ export function UnifiedImportFlow({
 
   const handleConfirmSuccess = useCallback(
     (result: ConfirmUnifiedImportFlowResult) => {
-      onComplete?.(result);
+      setConfirmResult(result);
+
+      const shouldShowPlans =
+        takeoffEnabled &&
+        result.mode === "version_created" &&
+        result.projectId &&
+        result.versionId;
+
+      if (shouldShowPlans) {
+        startTransition(() => setStep("plans"));
+      } else if (result.redirectTo) {
+        router.push(result.redirectTo);
+        router.refresh();
+      } else {
+        onComplete?.(result);
+      }
     },
-    [onComplete],
+    [takeoffEnabled, router, onComplete],
   );
+
+  const skipPlansStep = useCallback(() => {
+    if (!confirmResult) {
+      return;
+    }
+
+    // Skip → go straight to editor so the chiffreur can work on the estimate
+    if (confirmResult.redirectTo) {
+      router.push(confirmResult.redirectTo);
+      router.refresh();
+      return;
+    }
+
+    if (onComplete) {
+      onComplete(confirmResult);
+      return;
+    }
+
+    if (confirmResult.projectId) {
+      router.push(`/dashboard/affaires/${confirmResult.projectId}`);
+      router.refresh();
+    }
+  }, [confirmResult, onComplete, router]);
+
+  const finishPlansStep = useCallback(() => {
+    if (!confirmResult?.projectId) {
+      return;
+    }
+
+    if (onComplete) {
+      onComplete(confirmResult);
+      return;
+    }
+
+    router.push(`/dashboard/affaires/${confirmResult.projectId}`);
+    router.refresh();
+  }, [confirmResult, onComplete, router]);
 
   // UX-5: once an import is created, keep cancel guard active even if user navigates back to upload
   const hasStartedImport = importId !== null;
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const handleBack = useCallback(() => {
-    const currentIndex = STEPS.indexOf(step);
+    // Plans step: no going back (confirmation already committed)
+    if (step === "plans") return;
+
+    const currentIndex = STEPPER_STEPS.indexOf(step as (typeof STEPPER_STEPS)[number]);
     if (currentIndex <= 0) {
       // UX-5: if import already started, confirm before canceling
       if (hasStartedImport) {
@@ -1120,7 +1190,7 @@ export function UnifiedImportFlow({
       onCancel?.();
       return;
     }
-    startTransition(() => setStep(STEPS[currentIndex - 1]));
+    startTransition(() => setStep(STEPPER_STEPS[currentIndex - 1]));
   }, [step, onCancel, hasStartedImport]);
 
   const backButton = (
@@ -1183,7 +1253,7 @@ export function UnifiedImportFlow({
       {/* Progress header */}
       <div className="flex items-center justify-between gap-3">
         <ProgressHeader currentStep={step} />
-        {backButton}
+        {step !== "plans" && backButton}
       </div>
 
       {/* Step content */}
@@ -1222,6 +1292,16 @@ export function UnifiedImportFlow({
           validation={previewData?.validation ?? null}
           onBack={handleBack}
           onSuccess={handleConfirmSuccess}
+        />
+      )}
+
+      {step === "plans" && confirmResult?.projectId && confirmResult?.versionId && (
+        <LazyPlansStep
+          projectId={confirmResult.projectId}
+          versionId={confirmResult.versionId}
+          onSkip={skipPlansStep}
+          onContinue={finishPlansStep}
+          showSuccessBanner
         />
       )}
     </div>

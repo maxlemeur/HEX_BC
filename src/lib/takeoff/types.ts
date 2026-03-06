@@ -589,6 +589,7 @@ export type CreatePlanSetInput = {
   estimate_version_id?: string;
   name: string;
   description?: string | null;
+  metadata?: Record<string, unknown>;
 };
 
 export type RegisterPlanFileInput = {

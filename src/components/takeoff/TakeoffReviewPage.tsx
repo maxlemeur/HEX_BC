@@ -188,7 +188,7 @@ export default function TakeoffReviewPage({
   const searchParams = useSearchParams();
   const { profile } = useUserContext();
   const isAdmin = profile?.tenant_role === "admin";
-  const { isSimplified, setMode } = useUiMode();
+  const { isSimplified } = useUiMode();
   const {
     enabled: isLowConfidenceThresholdEnabled,
     value: lowConfidenceThresholdRaw,
@@ -207,12 +207,17 @@ export default function TakeoffReviewPage({
   const viewParam = searchParams.get("view");
   const compareWithParam = searchParams.get("compareWith");
   const thresholdParam = searchParams.get("threshold");
-  const activeTab: ViewTab =
+  const requestedTab: ViewTab =
     viewParam === "tables" || viewParam === "items" || viewParam === "compare" || viewParam === "dpgf"
       ? viewParam
       : "items";
-  const isExpertOnlyTab = activeTab !== "items";
-  const [isExpertSessionOverride, setExpertSessionOverride] = useState(false);
+  const defaultReviewMode = isSimplified ? "simplified" : "expert";
+  const [reviewModeOverride, setReviewModeOverride] = useState<"simplified" | "expert" | null>(
+    null
+  );
+  const effectiveReviewMode = reviewModeOverride ?? defaultReviewMode;
+  const isShowingSimplified = effectiveReviewMode === "simplified";
+  const activeTab: ViewTab = isShowingSimplified ? "items" : requestedTab;
 
   const compareWithJobId = useMemo(() => {
     if (!compareWithParam) return null;
@@ -267,32 +272,22 @@ export default function TakeoffReviewPage({
   );
 
   useEffect(() => {
-    if (isSimplified && isExpertOnlyTab && !isExpertSessionOverride) {
-      setExpertSessionOverride(true);
-    }
-  }, [isExpertOnlyTab, isExpertSessionOverride, isSimplified]);
-
-  useEffect(() => {
-    if (!isSimplified && isExpertSessionOverride) {
-      setExpertSessionOverride(false);
-    }
-  }, [isExpertSessionOverride, isSimplified]);
-
-  const isShowingSimplified = isSimplified && !isExpertOnlyTab && !isExpertSessionOverride;
-
-  const handleToggleReviewMode = useCallback(() => {
-    if (isShowingSimplified) {
-      setMode("expert");
-      return;
-    }
-
-    setExpertSessionOverride(false);
-    setMode("simplified");
-
-    if (activeTab !== "items") {
+    if (isShowingSimplified && requestedTab !== "items") {
       setActiveTab("items");
     }
-  }, [activeTab, isShowingSimplified, setActiveTab, setMode]);
+  }, [isShowingSimplified, requestedTab, setActiveTab]);
+
+  const handleToggleReviewMode = useCallback(() => {
+    setReviewModeOverride((currentOverride) => {
+      const currentMode = currentOverride ?? defaultReviewMode;
+      const nextMode = currentMode === "simplified" ? "expert" : "simplified";
+      return nextMode === defaultReviewMode ? null : nextMode;
+    });
+
+    if (!isShowingSimplified && requestedTab !== "items") {
+      setActiveTab("items");
+    }
+  }, [defaultReviewMode, isShowingSimplified, requestedTab, setActiveTab]);
 
   // ---- Data state
   const [items, setItems] = useState<ReviewItem[]>([]);
@@ -1197,7 +1192,7 @@ export default function TakeoffReviewPage({
         isAdmin={isAdmin}
         onVerifyItems={handleWizardVerifyItems}
         onReturnToReview={() => setApplyWizardOpen(false)}
-        presetStrategy={isSimplified ? "append" : undefined}
+        presetStrategy={isShowingSimplified ? "append" : undefined}
       />
 
       {/* ---- Evidence panel ---- */}

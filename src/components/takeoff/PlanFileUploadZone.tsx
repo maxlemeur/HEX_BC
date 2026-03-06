@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import {
   isTakeoffApiError,
@@ -23,9 +23,15 @@ type UploadFileEntry = {
   error: string | null;
 };
 
+export type PlanFileUploadSummary = {
+  uploadedCount: number;
+  uploadedSizeBytes: number;
+};
+
 type PlanFileUploadZoneProps = {
   setId: string;
-  onUploadsComplete: () => void;
+  onUploadsComplete: (summary: PlanFileUploadSummary) => void;
+  onUploadActivityChange?: (isActive: boolean) => void;
 };
 
 function validatePdfFile(file: File): string | null {
@@ -53,6 +59,7 @@ function generateEntryId() {
 export function PlanFileUploadZone({
   setId,
   onUploadsComplete,
+  onUploadActivityChange,
 }: PlanFileUploadZoneProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -77,6 +84,7 @@ export function PlanFileUploadZone({
 
       const pending = [...queue];
       const active: Promise<void>[] = [];
+      const completedUploads: File[] = [];
 
       async function uploadOne(entry: UploadFileEntry) {
         // Step 1: register metadata
@@ -97,6 +105,7 @@ export function PlanFileUploadZone({
           );
 
           updateEntry(entry.id, { status: "done", progress: 100 });
+          completedUploads.push(entry.file);
           setAnnouncement(`"${entry.file.name}" uploade.`);
         } catch (err) {
           const msg = isTakeoffApiError(err)
@@ -122,7 +131,10 @@ export function PlanFileUploadZone({
       }
 
       uploadingRef.current = false;
-      onUploadsComplete();
+      onUploadsComplete({
+        uploadedCount: completedUploads.length,
+        uploadedSizeBytes: completedUploads.reduce((total, file) => total + file.size, 0),
+      });
     },
     [setId, updateEntry, onUploadsComplete]
   );
@@ -170,6 +182,10 @@ export function PlanFileUploadZone({
   const hasActiveUploads = entries.some(
     (e) => e.status === "pending" || e.status === "registering" || e.status === "uploading"
   );
+
+  useEffect(() => {
+    onUploadActivityChange?.(hasActiveUploads);
+  }, [hasActiveUploads, onUploadActivityChange]);
 
   return (
     <div>

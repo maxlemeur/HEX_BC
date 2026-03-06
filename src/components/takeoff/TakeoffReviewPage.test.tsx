@@ -4,8 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 // Mock next/navigation
 const mockReplace = vi.fn();
 const mockPush = vi.fn();
-const { useUiModeMock } = vi.hoisted(() => ({
+const { useUiModeMock, setModeMock } = vi.hoisted(() => ({
   useUiModeMock: vi.fn(),
+  setModeMock: vi.fn(),
 }));
 let mockSearchParams = new URLSearchParams();
 vi.mock("next/navigation", () => ({
@@ -82,7 +83,7 @@ function mockUiMode(mode: "expert" | "simplified") {
     mode,
     isExpert: mode === "expert",
     isSimplified: mode === "simplified",
-    setMode: vi.fn(),
+    setMode: setModeMock,
   });
 }
 
@@ -326,12 +327,14 @@ describe("TakeoffReviewPage", () => {
     render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Rechercher par titre...")).toBeDefined();
+      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
     expect(
-      screen.getByRole("button", { name: "Passer en vue simplifiee" })
+      screen.getByRole("button", { name: "Passer en vue avancee" })
     ).toBeDefined();
+    expect(screen.queryByPlaceholderText("Rechercher par titre...")).toBeNull();
+    expect(mockReplace).toHaveBeenCalledWith("?view=items", { scroll: false });
   });
 
   it("does not show a tables tab when no tables exist", async () => {
@@ -674,9 +677,32 @@ describe("TakeoffReviewPage", () => {
     render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Resume des changements")).toBeDefined();
+      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
+    expect(
+      screen.getByRole("button", { name: "Passer en vue avancee" })
+    ).toBeDefined();
+    expect(screen.queryByText("Resume des changements")).toBeNull();
+    expect(mockReplace).toHaveBeenCalledWith(
+      "?view=items&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8",
+      { scroll: false }
+    );
+  });
+
+  it("toggles review mode locally without persisting the profile mode", async () => {
+    mockUiMode("simplified");
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
+
+    render(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Passer en vue avancee" }));
+
+    expect(setModeMock).not.toHaveBeenCalled();
     expect(
       screen.getByRole("button", { name: "Passer en vue simplifiee" })
     ).toBeDefined();
