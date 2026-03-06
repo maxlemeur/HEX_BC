@@ -1214,8 +1214,6 @@ export default function TakeoffReviewPage({
       ) : currentReviewMode === "validation" ? (
         <LazyValidationReviewPanel
           items={items}
-          onApplyClick={handleOpenApplyWizard}
-          isApplyReady={isApplyReady}
         />
       ) : (
         <LazyTakeoffReviewExpert

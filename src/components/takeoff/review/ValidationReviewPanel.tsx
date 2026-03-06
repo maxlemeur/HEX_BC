@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
   detectAnomalies,
@@ -18,8 +17,6 @@ import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 
 type ValidationReviewPanelProps = {
   items: ReviewItem[];
-  onApplyClick: () => void;
-  isApplyReady: boolean;
 };
 
 type ValidationFilter = "all" | "low_confidence" | "missing_evidence" | "anomalies" | "unverified" | "open_hypotheses";
@@ -126,8 +123,6 @@ function getConfidenceBadgeVariant(
 
 export function ValidationReviewPanel({
   items,
-  onApplyClick,
-  isApplyReady,
 }: ValidationReviewPanelProps) {
   const [filter, setFilter] = useState<ValidationFilter>("all");
 
@@ -198,7 +193,7 @@ export function ValidationReviewPanel({
           Resume de validation
         </h2>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-7">
           <SummaryCard
             label="Items inclus"
             value={summary.total}
@@ -294,20 +289,13 @@ export function ValidationReviewPanel({
         </div>
       ) : null}
 
-      {/* Bottom bar */}
-      <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-white px-4 py-3">
+      {/* Bottom bar — informational only, apply is in Assisted/Production modes */}
+      <div className="rounded-lg border border-[var(--border)] bg-white px-4 py-3">
         <p className="text-sm text-[var(--slate-600)]">
           {summary.cleanCount} item{summary.cleanCount !== 1 ? "s" : ""} conforme{summary.cleanCount !== 1 ? "s" : ""},
           {" "}{summary.flaggedCount} a verifier
+          &mdash; basculez en mode <strong>Assiste</strong> ou <strong>Production</strong> pour appliquer.
         </p>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={onApplyClick}
-          disabled={!isApplyReady}
-        >
-          Appliquer au chiffrage
-        </Button>
       </div>
     </div>
   );

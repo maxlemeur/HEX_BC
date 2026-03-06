@@ -112,7 +112,7 @@ export function TakeoffReviewModeSwitch({
             onClick={() => onModeChange(option.value)}
             className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1 ${
               isSelected
-                ? "bg-white text-[var(--slate-900)] shadow-sm"
+                ? "bg-white text-[var(--slate-900)] shadow-sm ring-1 ring-[var(--primary)]/30"
                 : "text-[var(--slate-500)] hover:text-[var(--slate-700)]"
             }`}
           >
