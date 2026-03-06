@@ -684,21 +684,6 @@ function buildUnusedTakeoffItems(
     }));
 }
 
-function buildManualLinkCandidates(
-  takeoffLines: NormalizedTakeoffLine[]
-): TakeoffDpgfComparisonUnusedTakeoffItem[] {
-  return takeoffLines.map((line) => ({
-    item_id: line.item_id,
-    designation: line.designation,
-    quantity: line.quantity,
-    unit: line.unit,
-    source_file_name: line.source_file_name,
-    source_page: line.source_page,
-    confidence_score: line.confidence,
-    evidence: line.evidence,
-  }));
-}
-
 function normalizeView(view: TakeoffDpgfComparisonView | undefined) {
   return view === "exceptions_only" ? "exceptions_only" : "all";
 }
@@ -836,7 +821,6 @@ export function buildTakeoffDpgfComparison(
     threshold,
     summary,
     rows: paginatedRows,
-    manual_link_candidates: buildManualLinkCandidates(normalizedTakeoffLines),
     unused_takeoff_items: unusedTakeoffItems,
     pagination: {
       page_size: pageSize,

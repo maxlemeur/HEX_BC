@@ -183,28 +183,6 @@ const DPGF_COMPARE_PAGE_1 = {
       matched_by: "auto" as const,
     },
   ],
-  manual_link_candidates: [
-    {
-      item_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
-      designation: "Cloison BA13",
-      quantity: 12,
-      unit: "m2",
-      source_file_name: "plans.pdf",
-      source_page: 3,
-      confidence_score: 0.91,
-      evidence: "Zone cloisons",
-    },
-    {
-      item_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-      designation: "Reserve plafond",
-      quantity: 1,
-      unit: "u",
-      source_file_name: "plans.pdf",
-      source_page: 5,
-      confidence_score: 0.74,
-      evidence: "Reserve",
-    },
-  ],
   unused_takeoff_items: [
     {
       item_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",

@@ -30,7 +30,6 @@ const COMPARE_RESPONSE = {
     total_lines: 16,
   },
   rows: [],
-  manual_link_candidates: [],
   unused_takeoff_items: [],
   pagination: {
     page_size: 50,

@@ -49,7 +49,6 @@ describe("buildTakeoffDpgfComparison", () => {
       total_lines: 1,
       unused_takeoff_items: 0,
     });
-    expect(response.manual_link_candidates).toHaveLength(1);
     expect(response.rows[0]).toMatchObject({
       review_status: "significant_gap",
       matched_by: "auto",
@@ -223,7 +222,6 @@ describe("buildTakeoffDpgfComparison", () => {
 
     expect(response.view).toBe("exceptions_only");
     expect(response.rows).toHaveLength(1);
-    expect(response.manual_link_candidates).toHaveLength(3);
     expect(response.rows[0]?.applied_decision).toMatchObject({
       decision: "keep_dpgf",
       source: "carried_over",

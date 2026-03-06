@@ -478,7 +478,6 @@ export type TakeoffDpgfComparisonResponse = {
   threshold: number;
   summary: TakeoffDpgfComparisonSummary;
   rows: TakeoffDpgfComparisonRow[];
-  manual_link_candidates: TakeoffDpgfComparisonUnusedTakeoffItem[];
   unused_takeoff_items: TakeoffDpgfComparisonUnusedTakeoffItem[];
   pagination: {
     page_size: number;

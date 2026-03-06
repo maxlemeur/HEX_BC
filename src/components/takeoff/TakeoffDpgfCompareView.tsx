@@ -42,16 +42,10 @@ type ProofKind = TakeoffDpgfComparisonProof["kind"];
 type ManualLinkModalProps = {
   open: boolean;
   row: TakeoffDpgfComparisonRow | null;
-  rows: TakeoffDpgfComparisonRow[];
-  manualLinkCandidates: TakeoffDpgfComparisonUnusedTakeoffItem[];
+  unusedTakeoffItems: TakeoffDpgfComparisonUnusedTakeoffItem[];
   saving: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (takeoffItemIds: string[]) => Promise<void>;
-};
-
-type ManualLinkCandidate = TakeoffDpgfComparisonUnusedTakeoffItem & {
-  is_current: boolean;
-  linked_line_label: string | null;
 };
 
 const STATUS_LABELS: Record<ReviewStatusFilter, string> = {
@@ -253,48 +247,10 @@ function SummaryCard({
   );
 }
 
-export function buildManualLinkCandidates(input: {
-  row: TakeoffDpgfComparisonRow | null;
-  rows: TakeoffDpgfComparisonRow[];
-  manualLinkCandidates: TakeoffDpgfComparisonUnusedTakeoffItem[];
-}): ManualLinkCandidate[] {
-  if (!input.row) {
-    return [];
-  }
-
-  const currentIds = new Set(input.row.linked_takeoff_items.map((item) => item.item_id));
-  const linkedLineLabelByItemId = new Map<string, string>();
-
-  for (const compareRow of input.rows) {
-    if (compareRow.line_id === input.row.line_id) {
-      continue;
-    }
-
-    for (const item of compareRow.linked_takeoff_items) {
-      linkedLineLabelByItemId.set(item.item_id, compareRow.line_label);
-    }
-  }
-
-  return input.manualLinkCandidates
-    .map((item) => ({
-      ...item,
-      is_current: currentIds.has(item.item_id),
-      linked_line_label: linkedLineLabelByItemId.get(item.item_id) ?? null,
-    }))
-    .sort((left, right) => {
-      if (left.is_current !== right.is_current) {
-        return left.is_current ? -1 : 1;
-      }
-
-      return left.designation.localeCompare(right.designation, "fr-FR");
-    });
-}
-
 function ManualLinkModal({
   open,
   row,
-  rows,
-  manualLinkCandidates,
+  unusedTakeoffItems,
   saving,
   onOpenChange,
   onSave,
@@ -303,17 +259,27 @@ function ManualLinkModal({
     () => row?.linked_takeoff_items.map((item) => item.item_id) ?? []
   );
 
-  useEffect(() => {
-    setSelectedIds(row?.linked_takeoff_items.map((item) => item.item_id) ?? []);
-  }, [row]);
-
   const candidates = useMemo(() => {
-    return buildManualLinkCandidates({
-      row,
-      rows,
-      manualLinkCandidates,
-    });
-  }, [manualLinkCandidates, row, rows]);
+    if (!row) return [];
+
+    const currentItems = row.linked_takeoff_items.map((item) => ({
+      item_id: item.item_id,
+      designation: item.designation,
+      quantity: item.quantity,
+      unit: item.unit,
+      source_file_name: item.source_file_name,
+      source_page: item.source_page,
+      confidence_score: item.confidence,
+      evidence: item.evidence,
+      is_current: true,
+    }));
+    const currentIds = new Set(currentItems.map((item) => item.item_id));
+    const remainingItems = unusedTakeoffItems
+      .filter((item) => !currentIds.has(item.item_id))
+      .map((item) => ({ ...item, is_current: false }));
+
+    return [...currentItems, ...remainingItems];
+  }, [row, unusedTakeoffItems]);
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
@@ -372,11 +338,6 @@ function ManualLinkModal({
                         {candidate.is_current ? (
                           <Badge variant="info" size="sm">
                             Actuellement relie
-                          </Badge>
-                        ) : null}
-                        {candidate.linked_line_label ? (
-                          <Badge variant="warning" size="sm">
-                            Relie a {candidate.linked_line_label}
                           </Badge>
                         ) : null}
                       </div>
@@ -1075,8 +1036,7 @@ export default function TakeoffDpgfCompareView({
         key={`${selectedRow?.line_id ?? "empty"}:${manualLinkModalOpen ? "open" : "closed"}`}
         open={manualLinkModalOpen}
         row={selectedRow}
-        rows={data.rows}
-        manualLinkCandidates={data.manual_link_candidates}
+        unusedTakeoffItems={data.unused_takeoff_items}
         saving={manualLinkSaving}
         onOpenChange={setManualLinkModalOpen}
         onSave={handleManualLinkSave}

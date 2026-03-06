@@ -2931,29 +2931,12 @@ export async function saveTakeoffReviewDecision(
     typeof payload.reason === "string" && payload.reason.trim().length > 0
       ? payload.reason.trim()
       : null;
-  const projectId = await getEstimateVersionProjectIdOrThrow({
-    supabase,
-    tenantId,
-    versionId: payload.version_id,
-  });
-  const dpgfUnitByRowIndex =
-    typeof estimateItem.source_page === "number"
-      ? await resolveDpgfUnitByRowIndex({
-          supabase,
-          tenantId,
-          projectId,
-          sourceFileName: estimateItem.source_file_name,
-        })
-      : new Map<number, string | null>();
   const reviewReference = buildTakeoffDpgfReviewReference({
     sourceFileName: estimateItem.source_file_name,
     sourcePage: estimateItem.source_page,
     position: estimateItem.position,
     title: estimateItem.title,
-    unit:
-      typeof estimateItem.source_page === "number"
-        ? dpgfUnitByRowIndex.get(estimateItem.source_page) ?? null
-        : null,
+    unit: estimateItem.description,
   });
   const decisionTimestamp = new Date().toISOString();
   const upsertPayload = {
