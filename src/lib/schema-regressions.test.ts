@@ -15,6 +15,9 @@ describe("schema regressions", () => {
   const takeoffDpgfLinksMigrationSql = readSql(
     "supabase/migrations/20260306130000_v3_010_takeoff_dpgf_links.sql"
   );
+  const takeoffDpgfReviewDecisionsMigrationSql = readSql(
+    "supabase/migrations/20260306153000_v3_010_takeoff_review_decisions_and_multi_links.sql"
+  );
 
   it("drops tenant and catalogue tables in schema reset block", () => {
     expect(schemaSql).toMatch(/drop table if exists public\.tenants cascade;/);
@@ -116,6 +119,33 @@ describe("schema regressions", () => {
     );
     expect(takeoffDpgfLinksMigrationSql).toMatch(
       /grant execute on function public\.save_takeoff_dpgf_manual_link\(uuid, uuid, uuid, uuid, uuid\)/
+    );
+  });
+
+  it("defines the multi-link DPGF RPC and review decision storage", () => {
+    expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
+      /create or replace function public\.save_takeoff_dpgf_manual_links\(/
+    );
+    expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
+      /grant execute on function public\.save_takeoff_dpgf_manual_links\(uuid, uuid, uuid, uuid\[\], uuid\)/
+    );
+    expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
+      /create table if not exists public\.takeoff_dpgf_review_decisions/
+    );
+    expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
+      /create index if not exists takeoff_dpgf_review_decisions_reference_idx/
+    );
+  });
+
+  it("keeps duplicate_estimate_version aligned with source tracking and review carry-over", () => {
+    expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
+      /insert into public\.estimate_items[\s\S]*source_provider[\s\S]*source_file_name[\s\S]*source_page/
+    );
+    expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
+      /create temporary table _estimate_item_map/
+    );
+    expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
+      /insert into public\.takeoff_dpgf_review_decisions[\s\S]*carried_over_from_version_id[\s\S]*carried_over_at/
     );
   });
 });

@@ -348,13 +348,32 @@ export type TakeoffJobCompareResponse = {
   unchanged: TakeoffDiffUnchangedEntry[];
 };
 
-export type TakeoffDpgfComparisonSeverity =
-  | "ok"
-  | "warning"
-  | "critical"
-  | "missing";
+export type TakeoffDpgfComparisonView = "all" | "exceptions_only";
 
-export type TakeoffDpgfComparisonMatchSource = "auto" | "manual";
+export type TakeoffDpgfComparisonEvidenceKind =
+  | "fact"
+  | "hypothesis"
+  | "inference";
+
+export type TakeoffDpgfComparisonEvidenceType =
+  | "dpgf"
+  | "takeoff"
+  | "plan_zone"
+  | "formula"
+  | "comment";
+
+export type TakeoffDpgfReviewStatus =
+  | "reliable_match"
+  | "to_confirm"
+  | "significant_gap"
+  | "unlinked"
+  | "forced_manual";
+
+export type TakeoffDpgfReviewDecision =
+  | "keep_dpgf"
+  | "keep_takeoff"
+  | "manual_fix"
+  | "out_of_scope";
 
 export type TakeoffDpgfComparisonDpgfLine = {
   estimate_item_id: string;
@@ -375,37 +394,91 @@ export type TakeoffDpgfComparisonTakeoffLine = {
   source_page: number | null;
   source_file_name: string | null;
   confidence: number | null;
+  evidence: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type TakeoffDpgfComparisonProof = {
+  proof_id: string;
+  type: TakeoffDpgfComparisonEvidenceType;
+  kind: TakeoffDpgfComparisonEvidenceKind;
+  label: string;
+  source: string;
+  confidence_score: number | null;
+  note: string | null;
+};
+
+export type TakeoffDpgfReviewDecisionRecord = {
+  id: string;
+  tenant_id: string;
+  version_id: string;
+  takeoff_job_id: string;
+  estimate_item_id: string;
+  decision: TakeoffDpgfReviewDecision;
+  reason: string | null;
+  review_reference: string;
+  line_label: string;
+  line_position: number;
+  source_file_name: string | null;
+  source_page: number | null;
+  decided_at: string;
+  updated_at: string;
+  decided_by: string | null;
+  source: "current_version" | "carried_over";
+  carried_over_from_version_id: string | null;
+  carried_over_from_version_number: number | null;
+};
+
+export type TakeoffDpgfComparisonUnusedTakeoffItem = {
+  item_id: string;
+  designation: string;
+  quantity: number;
+  unit: string;
+  source_file_name: string | null;
+  source_page: number | null;
+  confidence_score: number | null;
+  evidence: string | null;
 };
 
 export type TakeoffDpgfComparisonRow = {
-  key: string;
-  dpgf: TakeoffDpgfComparisonDpgfLine | null;
-  takeoff: TakeoffDpgfComparisonTakeoffLine | null;
-  match_source: TakeoffDpgfComparisonMatchSource | null;
-  match_score: number | null;
+  line_id: string;
+  line_label: string;
+  dpgf: TakeoffDpgfComparisonDpgfLine;
+  linked_takeoff_items: TakeoffDpgfComparisonTakeoffLine[];
+  dpgf_quantity: number | null;
+  takeoff_quantity: number | null;
+  quantity_unit: string | null;
+  matching_score: number;
+  confidence_score: number;
+  review_status: TakeoffDpgfReviewStatus;
+  proofs: TakeoffDpgfComparisonProof[];
+  suggested_decision: TakeoffDpgfReviewDecision | null;
+  applied_decision: TakeoffDpgfReviewDecisionRecord | null;
   delta_absolute: number | null;
   delta_percent: number | null;
-  severity: TakeoffDpgfComparisonSeverity;
-  manual_link_id: string | null;
+  is_exception: boolean;
+  manual_link_count: number;
+  matched_by: "auto" | "manual" | null;
 };
 
 export type TakeoffDpgfComparisonSummary = {
-  matches: number;
-  gaps: number;
-  missing_dpgf: number;
-  missing_takeoff: number;
-  manual_links: number;
-  warning_count: number;
-  critical_count: number;
-  total_rows: number;
+  reliable_matches: number;
+  to_confirm: number;
+  significant_gaps: number;
+  forced_manual: number;
+  lines_without_proof: number;
+  unused_takeoff_items: number;
+  total_lines: number;
 };
 
 export type TakeoffDpgfComparisonResponse = {
   version_id: string;
   job_id: string;
+  view: TakeoffDpgfComparisonView;
   threshold: number;
   summary: TakeoffDpgfComparisonSummary;
   rows: TakeoffDpgfComparisonRow[];
+  unused_takeoff_items: TakeoffDpgfComparisonUnusedTakeoffItem[];
   pagination: {
     page_size: number;
     next_cursor: string | null;
@@ -428,12 +501,22 @@ export type TakeoffDpgfManualLinkRecord = {
 export type SaveTakeoffDpgfManualLinkInput = {
   version_id: string;
   estimate_item_id: string;
-  takeoff_item_id: string | null;
+  takeoff_item_ids: string[];
 };
 
 export type SaveTakeoffDpgfManualLinkResponse = {
-  deleted: boolean;
-  link: TakeoffDpgfManualLinkRecord | null;
+  links: TakeoffDpgfManualLinkRecord[];
+};
+
+export type SaveTakeoffReviewDecisionInput = {
+  version_id: string;
+  estimate_item_id: string;
+  decision: TakeoffDpgfReviewDecision;
+  reason?: string | null;
+};
+
+export type SaveTakeoffReviewDecisionResponse = {
+  decision: TakeoffDpgfReviewDecisionRecord;
 };
 
 export type TakeoffApiError = {

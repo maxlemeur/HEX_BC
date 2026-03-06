@@ -1275,13 +1275,32 @@ const takeoffJobCompareDataSchema = z.object({
   changed: z.array(takeoffDiffChangedEntrySchema),
   unchanged: z.array(takeoffDiffUnchangedEntrySchema),
 });
-const takeoffDpgfComparisonSeveritySchema = z.enum([
-  "ok",
-  "warning",
-  "critical",
-  "missing",
+const takeoffDpgfComparisonViewSchema = z.enum(["all", "exceptions_only"]);
+const takeoffDpgfComparisonEvidenceKindSchema = z.enum([
+  "fact",
+  "hypothesis",
+  "inference",
 ]);
-const takeoffDpgfComparisonMatchSourceSchema = z.enum(["auto", "manual"]);
+const takeoffDpgfComparisonEvidenceTypeSchema = z.enum([
+  "dpgf",
+  "takeoff",
+  "plan_zone",
+  "formula",
+  "comment",
+]);
+const takeoffDpgfReviewStatusSchema = z.enum([
+  "reliable_match",
+  "to_confirm",
+  "significant_gap",
+  "unlinked",
+  "forced_manual",
+]);
+const takeoffDpgfReviewDecisionSchema = z.enum([
+  "keep_dpgf",
+  "keep_takeoff",
+  "manual_fix",
+  "out_of_scope",
+]);
 const takeoffDpgfComparisonDpgfLineSchema = z.object({
   estimate_item_id: uuidSchema,
   title: z.string(),
@@ -1300,34 +1319,85 @@ const takeoffDpgfComparisonTakeoffLineSchema = z.object({
   source_page: z.number().int().nullable(),
   source_file_name: z.string().nullable(),
   confidence: z.number().min(0).max(1).nullable(),
+  evidence: z.string().nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+});
+const takeoffDpgfComparisonProofSchema = z.object({
+  proof_id: z.string(),
+  type: takeoffDpgfComparisonEvidenceTypeSchema,
+  kind: takeoffDpgfComparisonEvidenceKindSchema,
+  label: z.string(),
+  source: z.string(),
+  confidence_score: z.number().min(0).max(1).nullable(),
+  note: z.string().nullable(),
+});
+const takeoffDpgfReviewDecisionRecordSchema = z.object({
+  id: uuidSchema,
+  tenant_id: uuidSchema,
+  version_id: uuidSchema,
+  takeoff_job_id: uuidSchema,
+  estimate_item_id: uuidSchema,
+  decision: takeoffDpgfReviewDecisionSchema,
+  reason: z.string().nullable(),
+  review_reference: z.string(),
+  line_label: z.string(),
+  line_position: z.number().int().min(0),
+  source_file_name: z.string().nullable(),
+  source_page: z.number().int().nullable(),
+  decided_at: z.string(),
+  updated_at: z.string(),
+  decided_by: uuidSchema.nullable(),
+  source: z.enum(["current_version", "carried_over"]),
+  carried_over_from_version_id: uuidSchema.nullable(),
+  carried_over_from_version_number: z.number().int().positive().nullable(),
+});
+const takeoffDpgfUnusedTakeoffItemSchema = z.object({
+  item_id: uuidSchema,
+  designation: z.string(),
+  quantity: z.number().positive(),
+  unit: z.string(),
+  source_file_name: z.string().nullable(),
+  source_page: z.number().int().nullable(),
+  confidence_score: z.number().min(0).max(1).nullable(),
+  evidence: z.string().nullable(),
 });
 const takeoffDpgfComparisonRowSchema = z.object({
-  key: z.string(),
-  dpgf: takeoffDpgfComparisonDpgfLineSchema.nullable(),
-  takeoff: takeoffDpgfComparisonTakeoffLineSchema.nullable(),
-  match_source: takeoffDpgfComparisonMatchSourceSchema.nullable(),
-  match_score: z.number().nullable(),
+  line_id: uuidSchema,
+  line_label: z.string(),
+  dpgf: takeoffDpgfComparisonDpgfLineSchema,
+  linked_takeoff_items: z.array(takeoffDpgfComparisonTakeoffLineSchema),
+  dpgf_quantity: z.number().nullable(),
+  takeoff_quantity: z.number().nullable(),
+  quantity_unit: z.string().nullable(),
+  matching_score: z.number().min(0).max(1),
+  confidence_score: z.number().min(0).max(1),
+  review_status: takeoffDpgfReviewStatusSchema,
+  proofs: z.array(takeoffDpgfComparisonProofSchema),
+  suggested_decision: takeoffDpgfReviewDecisionSchema.nullable(),
+  applied_decision: takeoffDpgfReviewDecisionRecordSchema.nullable(),
   delta_absolute: z.number().nullable(),
   delta_percent: z.number().nullable(),
-  severity: takeoffDpgfComparisonSeveritySchema,
-  manual_link_id: uuidSchema.nullable(),
+  is_exception: z.boolean(),
+  manual_link_count: z.number().int().min(0),
+  matched_by: z.enum(["auto", "manual"]).nullable(),
 });
 const takeoffDpgfComparisonSummarySchema = z.object({
-  matches: z.number().int().min(0),
-  gaps: z.number().int().min(0),
-  missing_dpgf: z.number().int().min(0),
-  missing_takeoff: z.number().int().min(0),
-  manual_links: z.number().int().min(0),
-  warning_count: z.number().int().min(0),
-  critical_count: z.number().int().min(0),
-  total_rows: z.number().int().min(0),
+  reliable_matches: z.number().int().min(0),
+  to_confirm: z.number().int().min(0),
+  significant_gaps: z.number().int().min(0),
+  forced_manual: z.number().int().min(0),
+  lines_without_proof: z.number().int().min(0),
+  unused_takeoff_items: z.number().int().min(0),
+  total_lines: z.number().int().min(0),
 });
 const takeoffDpgfComparisonDataSchema = z.object({
   version_id: uuidSchema,
   job_id: uuidSchema,
+  view: takeoffDpgfComparisonViewSchema,
   threshold: z.number().min(0).max(1),
   summary: takeoffDpgfComparisonSummarySchema,
   rows: z.array(takeoffDpgfComparisonRowSchema),
+  unused_takeoff_items: z.array(takeoffDpgfUnusedTakeoffItemSchema),
   pagination: z.object({
     page_size: z.number().int().min(1),
     next_cursor: z.string().nullable(),
@@ -1348,11 +1418,19 @@ const takeoffDpgfManualLinkSchema = z.object({
 const takeoffDpgfManualLinkRequestSchema = z.object({
   version_id: uuidSchema,
   estimate_item_id: uuidSchema,
-  takeoff_item_id: uuidSchema.nullable(),
+  takeoff_item_ids: z.array(uuidSchema),
 });
 const takeoffDpgfManualLinkResponseDataSchema = z.object({
-  deleted: z.boolean(),
-  link: takeoffDpgfManualLinkSchema.nullable(),
+  links: z.array(takeoffDpgfManualLinkSchema),
+});
+const takeoffDpgfReviewDecisionRequestSchema = z.object({
+  version_id: uuidSchema,
+  estimate_item_id: uuidSchema,
+  decision: takeoffDpgfReviewDecisionSchema,
+  reason: z.string().max(2000).nullable().optional(),
+});
+const takeoffDpgfReviewDecisionResponseDataSchema = z.object({
+  decision: takeoffDpgfReviewDecisionRecordSchema,
 });
 const takeoffMetricsKpisSchema = z.object({
   totalJobs: z.number().int().min(0),
@@ -1938,6 +2016,10 @@ const apiTakeoffDpgfManualLinkSchemaDefinition = successResponseSchemaDefinition
   "ApiTakeoffDpgfManualLinkResponse",
   takeoffDpgfManualLinkResponseDataSchema
 );
+const apiTakeoffReviewDecisionSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffReviewDecisionResponse",
+  takeoffDpgfReviewDecisionResponseDataSchema
+);
 const apiTakeoffMetricsStatsSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffMetricsStatsResponse",
   takeoffMetricsDataSchema
@@ -2213,6 +2295,14 @@ const takeoffDpgfComparePageSizeQueryParameter = queryParameter({
   description: "Nombre maximal de lignes de comparaison retournees (<= 200).",
   schemaName: "TakeoffDpgfComparePageSizeQueryParameter",
   schema: z.number().int().min(1).max(200),
+  required: false,
+});
+const takeoffDpgfCompareViewQueryParameter = queryParameter({
+  name: "view",
+  description:
+    "Filtre serveur de vue DPGF: toutes les lignes ou uniquement les exceptions.",
+  schemaName: "TakeoffDpgfCompareViewQueryParameter",
+  schema: takeoffDpgfComparisonViewSchema,
   required: false,
 });
 
@@ -2593,8 +2683,14 @@ const createTakeoffPlanFileBody = jsonBody({
 const putTakeoffDpgfManualLinkBody = jsonBody({
   name: "PutTakeoffDpgfManualLinkRequest",
   description:
-    "Creation, remplacement ou suppression d'un lien manuel entre une ligne DPGF et un item takeoff.",
+    "Creation, remplacement ou suppression de liens manuels entre une ligne DPGF et un ou plusieurs items takeoff.",
   schema: takeoffDpgfManualLinkRequestSchema,
+});
+const patchTakeoffReviewDecisionBody = jsonBody({
+  name: "PatchTakeoffReviewDecisionRequest",
+  description:
+    "Decision humaine explicite appliquee a une ligne DPGF avec justification optionnelle.",
+  schema: takeoffDpgfReviewDecisionRequestSchema,
 });
 
 const mappingRulesErrorResponses: Record<string, OpenApiResponseDefinition> = {
@@ -2873,13 +2969,14 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/dpgf-compare",
     summary: "Comparer un job Takeoff au DPGF de la version",
     description:
-      "Retourne la comparaison entre les lignes DPGF d'une version et les items extraits du job takeoff, avec ecarts, severite et pagination cursor.",
+      "Retourne la comparaison entre les lignes DPGF d'une version et les items extraits du job takeoff, avec preuves, confiance, decisions humaines et pagination cursor.",
     tags: ["Takeoff"],
     parameters: [
       takeoffJobIdPathParameter,
       takeoffDpgfCompareVersionIdQueryParameter,
       takeoffDpgfCompareCursorQueryParameter,
       takeoffDpgfComparePageSizeQueryParameter,
+      takeoffDpgfCompareViewQueryParameter,
       takeoffCompareThresholdQueryParameter,
     ],
     responses: {
@@ -2895,7 +2992,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     path: "/api/takeoff/jobs/{jobId}/dpgf-link",
     summary: "Enregistrer un lien manuel DPGF",
     description:
-      "Cree, remplace ou supprime un lien manuel entre une ligne DPGF de la version et un item takeoff du job.",
+      "Cree, remplace ou supprime un ensemble de liens manuels entre une ligne DPGF de la version et des items takeoff du job.",
     tags: ["Takeoff"],
     parameters: [takeoffJobIdPathParameter],
     requestBody: putTakeoffDpgfManualLinkBody,
@@ -2903,6 +3000,23 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Lien manuel DPGF enregistre.",
         apiTakeoffDpgfManualLinkSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "patch",
+    path: "/api/takeoff/jobs/{jobId}/review-decision",
+    summary: "Enregistrer une decision humaine de revue DPGF",
+    description:
+      "Persiste une decision humaine explicite sur une ligne DPGF, avec provenance et justification optionnelle.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: patchTakeoffReviewDecisionBody,
+    responses: {
+      "200": jsonResponse(
+        "Decision de revue DPGF enregistree.",
+        apiTakeoffReviewDecisionSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
     },

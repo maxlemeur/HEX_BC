@@ -58,6 +58,7 @@ import {
 } from "@/lib/takeoff/guards";
 import type {
   TakeoffDpgfComparisonResponse,
+  TakeoffDpgfComparisonView,
   TakeoffItemBatchPatchResponse,
   TakeoffItemPatchEntry,
   TakeoffJobCompareResponse,
@@ -207,10 +208,13 @@ export default function TakeoffReviewPage({
   const viewParam = searchParams.get("view");
   const compareWithParam = searchParams.get("compareWith");
   const thresholdParam = searchParams.get("threshold");
+  const dpgfViewParam = searchParams.get("dpgfView");
   const requestedTab: ViewTab =
     viewParam === "tables" || viewParam === "items" || viewParam === "compare" || viewParam === "dpgf"
       ? viewParam
       : "items";
+  const dpgfCompareView: TakeoffDpgfComparisonView =
+    dpgfViewParam === "exceptions_only" ? "exceptions_only" : "all";
   const defaultReviewMode = isSimplified ? "simplified" : "expert";
   const [reviewModeOverride, setReviewModeOverride] = useState<"simplified" | "expert" | null>(
     null
@@ -265,6 +269,22 @@ export default function TakeoffReviewPage({
       params.set("threshold", String(Number(nextThreshold.toFixed(2))));
       if (!params.get("view")) {
         params.set("view", "compare");
+      }
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const setDpgfCompareView = useCallback(
+    (nextView: TakeoffDpgfComparisonView) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (nextView === "all") {
+        params.delete("dpgfView");
+      } else {
+        params.set("dpgfView", nextView);
+      }
+      if (!params.get("view")) {
+        params.set("view", "dpgf");
       }
       router.replace(`?${params.toString()}`, { scroll: false });
     },
@@ -524,7 +544,11 @@ export default function TakeoffReviewPage({
         setDpgfCompareError(null);
         const response = await fetchAllTakeoffDpgfComparison(
           jobId,
-          { version_id: versionId, page_size: DPGF_COMPARE_PAGE_SIZE },
+          {
+            version_id: versionId,
+            page_size: DPGF_COMPARE_PAGE_SIZE,
+            view: dpgfCompareView,
+          },
           { signal }
         );
         setDpgfCompareData(response);
@@ -541,12 +565,24 @@ export default function TakeoffReviewPage({
         setDpgfCompareLoading(false);
       }
     },
-    [jobId, versionId]
+    [dpgfCompareView, jobId, versionId]
   );
 
   useEffect(() => {
+    dpgfCompareFetchedRef.current = false;
+    setDpgfCompareData((current) =>
+      current?.view === dpgfCompareView ? current : null
+    );
+  }, [dpgfCompareView]);
+
+  useEffect(() => {
     if (activeTab !== "dpgf") return;
-    if (dpgfCompareFetchedRef.current && dpgfCompareData) return;
+    if (
+      dpgfCompareFetchedRef.current &&
+      dpgfCompareData?.view === dpgfCompareView
+    ) {
+      return;
+    }
 
     const abortController = new AbortController();
     void loadDpgfComparison(abortController.signal);
@@ -554,7 +590,7 @@ export default function TakeoffReviewPage({
     return () => {
       abortController.abort();
     };
-  }, [activeTab, dpgfCompareData, loadDpgfComparison]);
+  }, [activeTab, dpgfCompareData, dpgfCompareView, loadDpgfComparison]);
 
   const refreshDpgfCompare = useCallback(() => {
     dpgfCompareFetchedRef.current = false;
@@ -1108,8 +1144,10 @@ export default function TakeoffReviewPage({
           applySelectionSubmitting={applySelectionSubmitting}
           applySelectionError={applySelectionError}
           dpgfCompareData={dpgfCompareData}
+          dpgfCompareView={dpgfCompareView}
           dpgfCompareLoading={dpgfCompareLoading}
           dpgfCompareError={dpgfCompareError}
+          onSetDpgfCompareView={setDpgfCompareView}
           onRefreshDpgfCompare={refreshDpgfCompare}
           onUpdateItem={updateItemField}
           onExcludeItems={handleExcludeItems}

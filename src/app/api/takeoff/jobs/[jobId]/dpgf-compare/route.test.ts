@@ -18,18 +18,19 @@ const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const COMPARE_RESPONSE = {
   version_id: VERSION_ID,
   job_id: JOB_ID,
+  view: "all" as const,
   threshold: 0.6,
   summary: {
-    matches: 10,
-    gaps: 2,
-    missing_dpgf: 1,
-    missing_takeoff: 3,
-    manual_links: 1,
-    warning_count: 1,
-    critical_count: 1,
-    total_rows: 16,
+    reliable_matches: 10,
+    to_confirm: 2,
+    significant_gaps: 1,
+    forced_manual: 3,
+    lines_without_proof: 1,
+    unused_takeoff_items: 4,
+    total_lines: 16,
   },
   rows: [],
+  unused_takeoff_items: [],
   pagination: {
     page_size: 50,
     next_cursor: null,
@@ -59,13 +60,14 @@ describe("GET /api/takeoff/jobs/[jobId]/dpgf-compare", () => {
       threshold: 0.6,
       cursor: "opaque",
       page_size: 25,
+      view: "exceptions_only" as const,
     };
 
     vi.mocked(parseTakeoffDpgfComparisonQuery).mockReturnValue(parsedQuery);
     vi.mocked(fetchDpgfTakeoffComparison).mockResolvedValue(COMPARE_RESPONSE);
 
     const [request, context] = buildGetRequest(
-      `http://localhost/api/takeoff/jobs/${JOB_ID}/dpgf-compare?version_id=${VERSION_ID}&threshold=0.6&cursor=opaque&page_size=25`
+      `http://localhost/api/takeoff/jobs/${JOB_ID}/dpgf-compare?version_id=${VERSION_ID}&threshold=0.6&cursor=opaque&page_size=25&view=exceptions_only`
     );
 
     const response = await GET(request, context);
@@ -77,6 +79,7 @@ describe("GET /api/takeoff/jobs/[jobId]/dpgf-compare", () => {
       threshold: "0.6",
       cursor: "opaque",
       page_size: "25",
+      view: "exceptions_only",
     });
     expect(fetchDpgfTakeoffComparison).toHaveBeenCalledWith(JOB_ID, parsedQuery);
     expect(body).toEqual({
@@ -88,6 +91,7 @@ describe("GET /api/takeoff/jobs/[jobId]/dpgf-compare", () => {
   it("maps takeoff errors to the standard envelope", async () => {
     vi.mocked(parseTakeoffDpgfComparisonQuery).mockReturnValue({
       version_id: VERSION_ID,
+      view: "all" as const,
     });
     vi.mocked(fetchDpgfTakeoffComparison).mockRejectedValue(
       new TakeoffError({

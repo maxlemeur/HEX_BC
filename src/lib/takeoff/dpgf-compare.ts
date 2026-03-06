@@ -7,12 +7,18 @@ import {
 } from "@/lib/takeoff/diff";
 import type {
   TakeoffDpgfComparisonDpgfLine,
+  TakeoffDpgfComparisonEvidenceKind,
+  TakeoffDpgfComparisonProof,
   TakeoffDpgfComparisonResponse,
   TakeoffDpgfComparisonRow,
-  TakeoffDpgfComparisonSeverity,
   TakeoffDpgfComparisonSummary,
   TakeoffDpgfComparisonTakeoffLine,
+  TakeoffDpgfComparisonUnusedTakeoffItem,
+  TakeoffDpgfComparisonView,
   TakeoffDpgfManualLinkRecord,
+  TakeoffDpgfReviewDecision,
+  TakeoffDpgfReviewDecisionRecord,
+  TakeoffDpgfReviewStatus,
 } from "@/lib/takeoff/types";
 
 export const TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE = 50;
@@ -24,14 +30,18 @@ type BuildTakeoffDpgfComparisonInput = {
   dpgfLines: TakeoffDpgfComparisonDpgfLine[];
   takeoffLines: TakeoffDpgfComparisonTakeoffLine[];
   manualLinks?: TakeoffDpgfManualLinkRecord[];
+  reviewDecisions?: TakeoffDpgfReviewDecisionRecord[];
+  carriedReviewDecisions?: TakeoffDpgfReviewDecisionRecord[];
   threshold?: number;
   cursor?: string | null;
   pageSize?: number;
+  view?: TakeoffDpgfComparisonView;
 };
 
 type NormalizedDpgfLine = TakeoffDpgfComparisonDpgfLine & {
   searchText: string;
   normalizedUnit: string | null;
+  reviewReference: string;
 };
 
 type NormalizedTakeoffLine = TakeoffDpgfComparisonTakeoffLine & {
@@ -43,6 +53,31 @@ type MatchedTakeoffCandidate = {
   line: NormalizedTakeoffLine;
   score: number;
 };
+
+type AggregatedTakeoffMetrics = {
+  quantity: number | null;
+  quantityUnit: string | null;
+  averageConfidence: number | null;
+  hasUnitConflict: boolean;
+};
+
+const RELIABLE_MATCH_MIN_SCORE = 0.9;
+const TO_CONFIRM_MIN_CONFIDENCE = 0.72;
+const EXCEPTION_STATUSES = new Set<TakeoffDpgfReviewStatus>([
+  "to_confirm",
+  "significant_gap",
+  "unlinked",
+  "forced_manual",
+]);
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function toStableNumber(value: number | null, digits = 4) {
+  if (value === null || !Number.isFinite(value)) return null;
+  return Number(value.toFixed(digits));
+}
 
 function normalizeThreshold(value: number | undefined) {
   if (!Number.isFinite(value)) {
@@ -65,12 +100,10 @@ function normalizePageSize(value: number | undefined) {
     return TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE;
   }
 
-  const clamped = Math.min(
+  return Math.min(
     TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
     Math.max(1, Math.trunc(value ?? TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE))
   );
-
-  return clamped;
 }
 
 function encodeCursor(offset: number) {
@@ -118,11 +151,10 @@ function normalizeUnit(value: string | null | undefined): string | null {
     m2: "m2",
     sqm: "m2",
     m3: "m3",
-    sqm3: "m3",
     kg: "kg",
     t: "t",
-    for: "forfait",
     forfait: "forfait",
+    for: "forfait",
     ens: "ensemble",
     ensemble: "ensemble",
   };
@@ -143,6 +175,24 @@ function buildDpgfSearchText(line: TakeoffDpgfComparisonDpgfLine) {
 
 function buildTakeoffSearchText(line: TakeoffDpgfComparisonTakeoffLine) {
   return normalizeTakeoffCompareText(line.designation);
+}
+
+export function buildTakeoffDpgfReviewReference(input: {
+  sourceFileName: string | null;
+  sourcePage: number | null;
+  position: number;
+  title: string;
+  unit: string | null;
+}) {
+  if (input.sourceFileName && input.sourcePage !== null) {
+    return normalizeTakeoffCompareText(
+      `${input.sourceFileName} row ${input.sourcePage}`
+    );
+  }
+
+  return normalizeTakeoffCompareText(
+    `${input.position} ${input.title} ${input.unit ?? ""}`
+  );
 }
 
 function computeMatchScore(input: {
@@ -180,94 +230,272 @@ function computeMatchScore(input: {
   return Math.min(0.9999, Number(score.toFixed(4)));
 }
 
-function toStableNumber(value: number | null) {
-  if (value === null || !Number.isFinite(value)) return null;
-  return Number(value.toFixed(4));
-}
-
-function computeDelta(input: {
-  dpgf: TakeoffDpgfComparisonDpgfLine | null;
-  takeoff: TakeoffDpgfComparisonTakeoffLine | null;
-}) {
-  if (!input.dpgf || !input.takeoff) {
+function aggregateTakeoffMetrics(input: {
+  items: NormalizedTakeoffLine[];
+  dpgfUnit: string | null;
+}): AggregatedTakeoffMetrics {
+  if (input.items.length === 0) {
     return {
-      deltaAbsolute: null,
-      deltaPercent: null,
-      severity: "missing" as TakeoffDpgfComparisonSeverity,
+      quantity: null,
+      quantityUnit: input.dpgfUnit,
+      averageConfidence: null,
+      hasUnitConflict: false,
     };
   }
 
-  const deltaAbsolute = Math.abs(input.takeoff.quantity - input.dpgf.quantity);
-  const deltaPercent =
-    input.dpgf.quantity > 0
-      ? (deltaAbsolute / input.dpgf.quantity) * 100
+  const normalizedUnits = [...new Set(input.items.map((item) => item.normalizedUnit))].filter(
+    (unit): unit is string => Boolean(unit)
+  );
+  const hasUnitConflict = normalizedUnits.length > 1;
+  const quantity = hasUnitConflict
+    ? null
+    : toStableNumber(
+        input.items.reduce((sum, item) => sum + item.quantity, 0),
+        4
+      );
+  const confidenceValues = input.items
+    .map((item) => item.confidence)
+    .filter((confidence): confidence is number => typeof confidence === "number");
+  const averageConfidence =
+    confidenceValues.length > 0
+      ? toStableNumber(
+          confidenceValues.reduce((sum, confidence) => sum + confidence, 0) /
+            confidenceValues.length
+        )
       : null;
 
-  let severity: TakeoffDpgfComparisonSeverity = "ok";
-  if (deltaPercent !== null && deltaPercent > 20) {
-    severity = "critical";
-  } else if (deltaPercent !== null && deltaPercent >= 5) {
-    severity = "warning";
+  return {
+    quantity,
+    quantityUnit:
+      (hasUnitConflict ? input.dpgfUnit : input.items[0]?.unit ?? input.dpgfUnit) ??
+      null,
+    averageConfidence,
+    hasUnitConflict,
+  };
+}
+
+function computeDelta(input: {
+  dpgfQuantity: number | null;
+  takeoffQuantity: number | null;
+}) {
+  if (input.dpgfQuantity === null || input.takeoffQuantity === null) {
+    return {
+      deltaAbsolute: null,
+      deltaPercent: null,
+    };
   }
+
+  const deltaAbsolute = Math.abs(input.takeoffQuantity - input.dpgfQuantity);
+  const deltaPercent =
+    input.dpgfQuantity > 0
+      ? (deltaAbsolute / input.dpgfQuantity) * 100
+      : null;
 
   return {
     deltaAbsolute: toStableNumber(deltaAbsolute),
     deltaPercent: toStableNumber(deltaPercent),
-    severity,
   };
 }
 
-function buildRow(input: {
-  dpgf: NormalizedDpgfLine | TakeoffDpgfComparisonDpgfLine | null;
-  takeoff: NormalizedTakeoffLine | TakeoffDpgfComparisonTakeoffLine | null;
-  matchSource: "auto" | "manual" | null;
-  matchScore: number | null;
-  manualLinkId: string | null;
-}): TakeoffDpgfComparisonRow {
-  const delta = computeDelta({
-    dpgf: input.dpgf,
-    takeoff: input.takeoff,
-  });
+function hasMeaningfulReason(reason: string | null | undefined) {
+  return typeof reason === "string" && reason.trim().length > 0;
+}
 
-  const key =
-    input.dpgf && input.takeoff
-      ? `matched:${input.dpgf.estimate_item_id}:${input.takeoff.item_id}`
-      : input.dpgf
-        ? `dpgf:${input.dpgf.estimate_item_id}`
-        : `takeoff:${input.takeoff?.item_id ?? "unknown"}`;
+function buildProofs(input: {
+  dpgf: NormalizedDpgfLine;
+  linkedTakeoffItems: NormalizedTakeoffLine[];
+  aggregatedMetrics: AggregatedTakeoffMetrics;
+  appliedDecision: TakeoffDpgfReviewDecisionRecord | null;
+}): TakeoffDpgfComparisonProof[] {
+  const proofs: TakeoffDpgfComparisonProof[] = [
+    {
+      proof_id: `dpgf:${input.dpgf.estimate_item_id}`,
+      type: "dpgf",
+      kind: "fact",
+      label: input.dpgf.title,
+      source: input.dpgf.source_file_name
+        ? `DPGF ${input.dpgf.source_file_name}`
+        : "DPGF importe",
+      confidence_score: null,
+      note:
+        input.dpgf.source_page !== null
+          ? `Ligne source ${input.dpgf.source_page}`
+          : null,
+    },
+  ];
 
-  return {
-    key,
-    dpgf: input.dpgf
-      ? {
-          estimate_item_id: input.dpgf.estimate_item_id,
-          title: input.dpgf.title,
-          description: input.dpgf.description,
-          quantity: input.dpgf.quantity,
-          unit: input.dpgf.unit,
-          source_page: input.dpgf.source_page,
-          source_file_name: input.dpgf.source_file_name,
-          position: input.dpgf.position,
-        }
-      : null,
-    takeoff: input.takeoff
-      ? {
-          item_id: input.takeoff.item_id,
-          designation: input.takeoff.designation,
-          quantity: input.takeoff.quantity,
-          unit: input.takeoff.unit,
-          source_page: input.takeoff.source_page,
-          source_file_name: input.takeoff.source_file_name,
-          confidence: input.takeoff.confidence,
-        }
-      : null,
-    match_source: input.matchSource,
-    match_score: input.matchScore === null ? null : Number(input.matchScore.toFixed(4)),
-    delta_absolute: delta.deltaAbsolute,
-    delta_percent: delta.deltaPercent,
-    severity: delta.severity,
-    manual_link_id: input.manualLinkId,
-  };
+  for (const item of input.linkedTakeoffItems) {
+    proofs.push({
+      proof_id: `takeoff:${item.item_id}`,
+      type: "takeoff",
+      kind: "fact",
+      label: item.designation,
+      source: item.source_file_name
+        ? `${item.source_file_name}${item.source_page ? ` p.${item.source_page}` : ""}`
+        : item.source_page
+          ? `Plan p.${item.source_page}`
+          : "Item takeoff",
+      confidence_score: item.confidence,
+      note: item.evidence,
+    });
+
+    if (item.source_page !== null || item.source_file_name) {
+      proofs.push({
+        proof_id: `plan:${item.item_id}`,
+        type: "plan_zone",
+        kind: "fact",
+        label:
+          item.source_page !== null ? `Zone / page ${item.source_page}` : "Zone plan",
+        source: item.source_file_name ?? "Plan source",
+        confidence_score: item.confidence,
+        note: item.evidence,
+      });
+    }
+  }
+
+  if (input.linkedTakeoffItems.length > 1 && input.aggregatedMetrics.quantity !== null) {
+    proofs.push({
+      proof_id: `formula:${input.dpgf.estimate_item_id}`,
+      type: "formula",
+      kind: "inference",
+      label: `Somme de ${input.linkedTakeoffItems.length} items takeoff`,
+      source: "Aggregation manuelle",
+      confidence_score: input.aggregatedMetrics.averageConfidence,
+      note: "La quantite takeoff agregee provient de plusieurs items relies.",
+    });
+  }
+
+  if (input.appliedDecision && hasMeaningfulReason(input.appliedDecision.reason)) {
+    const decisionKind: TakeoffDpgfComparisonEvidenceKind =
+      input.appliedDecision.decision === "manual_fix" ||
+      input.appliedDecision.decision === "out_of_scope"
+        ? "hypothesis"
+        : "inference";
+
+    proofs.push({
+      proof_id: `decision:${input.appliedDecision.id}`,
+      type: "comment",
+      kind: decisionKind,
+      label:
+        input.appliedDecision.decision === "manual_fix"
+          ? "Hypothese manuelle"
+          : "Arbitrage de revue",
+      source:
+        input.appliedDecision.source === "carried_over"
+          ? "Decision reprise depuis une version precedente"
+          : "Decision de revue humaine",
+      confidence_score: null,
+      note: input.appliedDecision.reason,
+    });
+  }
+
+  return proofs;
+}
+
+function computeConfidenceScore(input: {
+  matchingScore: number | null;
+  aggregatedMetrics: AggregatedTakeoffMetrics;
+  linkedTakeoffItems: NormalizedTakeoffLine[];
+  proofs: TakeoffDpgfComparisonProof[];
+  appliedDecision: TakeoffDpgfReviewDecisionRecord | null;
+}): number {
+  const proofBonus = Math.min(
+    0.16,
+    input.proofs.filter((proof) => proof.kind === "fact").length * 0.04
+  );
+  const hypothesisPenalty = input.proofs.some((proof) => proof.kind === "hypothesis")
+    ? 0.14
+    : 0;
+  const conflictPenalty = input.aggregatedMetrics.hasUnitConflict ? 0.18 : 0;
+  const carriedPenalty =
+    input.appliedDecision?.source === "carried_over" ? 0.04 : 0;
+  const fallbackMatch = input.linkedTakeoffItems.length > 0 ? 0.45 : 0.1;
+  const fallbackTakeoffConfidence = input.linkedTakeoffItems.length > 0 ? 0.5 : 0.1;
+  const rawScore =
+    (input.matchingScore ?? fallbackMatch) * 0.45 +
+    (input.aggregatedMetrics.averageConfidence ?? fallbackTakeoffConfidence) * 0.4 +
+    proofBonus -
+    hypothesisPenalty -
+    conflictPenalty -
+    carriedPenalty;
+
+  return Number(clamp(rawScore, 0.05, 0.99).toFixed(4));
+}
+
+function deriveReviewStatus(input: {
+  linkedTakeoffItems: NormalizedTakeoffLine[];
+  manualLinkCount: number;
+  appliedDecision: TakeoffDpgfReviewDecisionRecord | null;
+  matchingScore: number | null;
+  confidenceScore: number;
+  deltaPercent: number | null;
+  aggregatedMetrics: AggregatedTakeoffMetrics;
+  threshold: number;
+}): TakeoffDpgfReviewStatus {
+  if (input.appliedDecision || input.manualLinkCount > 0) {
+    return "forced_manual";
+  }
+
+  if (input.linkedTakeoffItems.length === 0) {
+    return "unlinked";
+  }
+
+  if (
+    input.aggregatedMetrics.hasUnitConflict ||
+    (input.deltaPercent !== null && input.deltaPercent > 20)
+  ) {
+    return "significant_gap";
+  }
+
+  if (
+    input.linkedTakeoffItems.length > 1 ||
+    (input.deltaPercent !== null && input.deltaPercent >= 5) ||
+    input.confidenceScore < TO_CONFIRM_MIN_CONFIDENCE ||
+    (input.matchingScore ?? 0) < Math.max(input.threshold, RELIABLE_MATCH_MIN_SCORE)
+  ) {
+    return "to_confirm";
+  }
+
+  return "reliable_match";
+}
+
+function suggestDecision(input: {
+  status: TakeoffDpgfReviewStatus;
+  dpgfQuantity: number | null;
+  takeoffQuantity: number | null;
+  confidenceScore: number;
+  appliedDecision: TakeoffDpgfReviewDecisionRecord | null;
+}): TakeoffDpgfReviewDecision | null {
+  if (input.appliedDecision) {
+    return input.appliedDecision.decision;
+  }
+
+  if (input.status === "reliable_match") {
+    return "keep_takeoff";
+  }
+
+  if (input.status === "forced_manual") {
+    return "manual_fix";
+  }
+
+  if (input.status === "unlinked") {
+    return null;
+  }
+
+  if (input.status === "significant_gap") {
+    if (
+      input.takeoffQuantity !== null &&
+      input.dpgfQuantity !== null &&
+      input.takeoffQuantity > input.dpgfQuantity &&
+      input.confidenceScore >= TO_CONFIRM_MIN_CONFIDENCE
+    ) {
+      return "keep_takeoff";
+    }
+
+    return "keep_dpgf";
+  }
+
+  return null;
 }
 
 function findBestAutoMatch(input: {
@@ -308,43 +536,156 @@ function findBestAutoMatch(input: {
   return bestMatch;
 }
 
-function buildSummary(rows: TakeoffDpgfComparisonRow[]): TakeoffDpgfComparisonSummary {
-  return rows.reduce<TakeoffDpgfComparisonSummary>(
+function buildRow(input: {
+  dpgf: NormalizedDpgfLine;
+  linkedTakeoffItems: NormalizedTakeoffLine[];
+  manualLinkCount: number;
+  matchingScore: number | null;
+  threshold: number;
+  appliedDecision: TakeoffDpgfReviewDecisionRecord | null;
+}): TakeoffDpgfComparisonRow {
+  const aggregatedMetrics = aggregateTakeoffMetrics({
+    items: input.linkedTakeoffItems,
+    dpgfUnit: input.dpgf.unit,
+  });
+  const delta = computeDelta({
+    dpgfQuantity: input.dpgf.quantity,
+    takeoffQuantity: aggregatedMetrics.quantity,
+  });
+  const provisionalProofs = buildProofs({
+    dpgf: input.dpgf,
+    linkedTakeoffItems: input.linkedTakeoffItems,
+    aggregatedMetrics,
+    appliedDecision: input.appliedDecision,
+  });
+  const confidenceScore = computeConfidenceScore({
+    matchingScore: input.matchingScore,
+    aggregatedMetrics,
+    linkedTakeoffItems: input.linkedTakeoffItems,
+    proofs: provisionalProofs,
+    appliedDecision: input.appliedDecision,
+  });
+  const reviewStatus = deriveReviewStatus({
+    linkedTakeoffItems: input.linkedTakeoffItems,
+    manualLinkCount: input.manualLinkCount,
+    appliedDecision: input.appliedDecision,
+    matchingScore: input.matchingScore,
+    confidenceScore,
+    deltaPercent: delta.deltaPercent,
+    aggregatedMetrics,
+    threshold: input.threshold,
+  });
+  const suggestedDecision = suggestDecision({
+    status: reviewStatus,
+    dpgfQuantity: input.dpgf.quantity,
+    takeoffQuantity: aggregatedMetrics.quantity,
+    confidenceScore,
+    appliedDecision: input.appliedDecision,
+  });
+
+  return {
+    line_id: input.dpgf.estimate_item_id,
+    line_label: input.dpgf.title,
+    dpgf: {
+      estimate_item_id: input.dpgf.estimate_item_id,
+      title: input.dpgf.title,
+      description: input.dpgf.description,
+      quantity: input.dpgf.quantity,
+      unit: input.dpgf.unit,
+      source_page: input.dpgf.source_page,
+      source_file_name: input.dpgf.source_file_name,
+      position: input.dpgf.position,
+    },
+    linked_takeoff_items: input.linkedTakeoffItems.map((item) => ({
+      item_id: item.item_id,
+      designation: item.designation,
+      quantity: item.quantity,
+      unit: item.unit,
+      source_page: item.source_page,
+      source_file_name: item.source_file_name,
+      confidence: item.confidence,
+      evidence: item.evidence,
+      metadata: item.metadata,
+    })),
+    dpgf_quantity: input.dpgf.quantity,
+    takeoff_quantity: aggregatedMetrics.quantity,
+    quantity_unit: aggregatedMetrics.quantityUnit,
+    matching_score: Number((input.matchingScore ?? 0).toFixed(4)),
+    confidence_score: confidenceScore,
+    review_status: reviewStatus,
+    proofs: provisionalProofs,
+    suggested_decision: suggestedDecision,
+    applied_decision: input.appliedDecision,
+    delta_absolute: delta.deltaAbsolute,
+    delta_percent: delta.deltaPercent,
+    is_exception: EXCEPTION_STATUSES.has(reviewStatus),
+    manual_link_count: input.manualLinkCount,
+    matched_by:
+      input.manualLinkCount > 0
+        ? "manual"
+        : input.linkedTakeoffItems.length > 0
+          ? "auto"
+          : null,
+  };
+}
+
+function buildSummary(input: {
+  rows: TakeoffDpgfComparisonRow[];
+  unusedTakeoffItems: TakeoffDpgfComparisonUnusedTakeoffItem[];
+}): TakeoffDpgfComparisonSummary {
+  return input.rows.reduce<TakeoffDpgfComparisonSummary>(
     (summary, row) => {
-      if (row.manual_link_id) {
-        summary.manual_links += 1;
+      if (row.review_status === "reliable_match") {
+        summary.reliable_matches += 1;
+      }
+      if (row.review_status === "to_confirm") {
+        summary.to_confirm += 1;
+      }
+      if (row.review_status === "significant_gap") {
+        summary.significant_gaps += 1;
+      }
+      if (row.review_status === "forced_manual") {
+        summary.forced_manual += 1;
+      }
+      if (row.proofs.every((proof) => proof.type === "dpgf")) {
+        summary.lines_without_proof += 1;
       }
 
-      if (!row.dpgf) {
-        summary.missing_dpgf += 1;
-      } else if (!row.takeoff) {
-        summary.missing_takeoff += 1;
-      } else if (row.severity === "ok") {
-        summary.matches += 1;
-      } else {
-        summary.gaps += 1;
-        if (row.severity === "warning") {
-          summary.warning_count += 1;
-        }
-        if (row.severity === "critical") {
-          summary.critical_count += 1;
-        }
-      }
-
-      summary.total_rows += 1;
+      summary.total_lines += 1;
       return summary;
     },
     {
-      matches: 0,
-      gaps: 0,
-      missing_dpgf: 0,
-      missing_takeoff: 0,
-      manual_links: 0,
-      warning_count: 0,
-      critical_count: 0,
-      total_rows: 0,
+      reliable_matches: 0,
+      to_confirm: 0,
+      significant_gaps: 0,
+      forced_manual: 0,
+      lines_without_proof: 0,
+      unused_takeoff_items: input.unusedTakeoffItems.length,
+      total_lines: 0,
     }
   );
+}
+
+function buildUnusedTakeoffItems(
+  takeoffLines: NormalizedTakeoffLine[],
+  usedTakeoffIds: Set<string>
+): TakeoffDpgfComparisonUnusedTakeoffItem[] {
+  return takeoffLines
+    .filter((line) => !usedTakeoffIds.has(line.item_id))
+    .map((line) => ({
+      item_id: line.item_id,
+      designation: line.designation,
+      quantity: line.quantity,
+      unit: line.unit,
+      source_file_name: line.source_file_name,
+      source_page: line.source_page,
+      confidence_score: line.confidence,
+      evidence: line.evidence,
+    }));
+}
+
+function normalizeView(view: TakeoffDpgfComparisonView | undefined) {
+  return view === "exceptions_only" ? "exceptions_only" : "all";
 }
 
 export function buildTakeoffDpgfComparison(
@@ -353,11 +694,19 @@ export function buildTakeoffDpgfComparison(
   const threshold = normalizeThreshold(input.threshold);
   const pageSize = normalizePageSize(input.pageSize);
   const offset = decodeCursor(input.cursor);
+  const view = normalizeView(input.view);
 
   const normalizedDpgfLines: NormalizedDpgfLine[] = input.dpgfLines.map((line) => ({
     ...line,
     searchText: buildDpgfSearchText(line),
     normalizedUnit: normalizeUnit(line.unit),
+    reviewReference: buildTakeoffDpgfReviewReference({
+      sourceFileName: line.source_file_name,
+      sourcePage: line.source_page,
+      position: line.position,
+      title: line.title,
+      unit: line.unit,
+    }),
   }));
   const normalizedTakeoffLines: NormalizedTakeoffLine[] = input.takeoffLines.map((line) => ({
     ...line,
@@ -368,30 +717,55 @@ export function buildTakeoffDpgfComparison(
   const takeoffById = new Map(
     normalizedTakeoffLines.map((line) => [line.item_id, line] as const)
   );
-  const manualLinkByEstimateItemId = new Map(
-    (input.manualLinks ?? []).map((link) => [link.estimate_item_id, link] as const)
+  const manualLinksByEstimateItemId = new Map<string, TakeoffDpgfManualLinkRecord[]>();
+  for (const link of input.manualLinks ?? []) {
+    const links = manualLinksByEstimateItemId.get(link.estimate_item_id) ?? [];
+    links.push(link);
+    manualLinksByEstimateItemId.set(link.estimate_item_id, links);
+  }
+
+  const decisionByEstimateItemId = new Map(
+    (input.reviewDecisions ?? []).map((decision) => [decision.estimate_item_id, decision] as const)
+  );
+  const carriedDecisionByReference = new Map(
+    (input.carriedReviewDecisions ?? []).map((decision) => [decision.review_reference, decision] as const)
   );
   const usedTakeoffIds = new Set<string>();
   const rows: TakeoffDpgfComparisonRow[] = [];
 
   for (const dpgfLine of normalizedDpgfLines) {
-    const manualLink = manualLinkByEstimateItemId.get(dpgfLine.estimate_item_id) ?? null;
-    const manuallyLinkedTakeoff = manualLink
-      ? takeoffById.get(manualLink.takeoff_item_id) ?? null
-      : null;
+    const manualLinks = manualLinksByEstimateItemId.get(dpgfLine.estimate_item_id) ?? [];
+    const manuallyLinkedTakeoffItems = manualLinks
+      .map((link) => takeoffById.get(link.takeoff_item_id) ?? null)
+      .filter((item): item is NormalizedTakeoffLine => item !== null);
+    const explicitDecision = decisionByEstimateItemId.get(dpgfLine.estimate_item_id) ?? null;
+    const carriedDecision =
+      explicitDecision ?? carriedDecisionByReference.get(dpgfLine.reviewReference) ?? null;
 
-    if (manualLink && manuallyLinkedTakeoff) {
-      usedTakeoffIds.add(manuallyLinkedTakeoff.item_id);
+    if (manuallyLinkedTakeoffItems.length > 0) {
+      manuallyLinkedTakeoffItems.forEach((item) => usedTakeoffIds.add(item.item_id));
+      const matchingScores = manuallyLinkedTakeoffItems
+        .map((item) =>
+          computeMatchScore({
+            dpgf: dpgfLine,
+            takeoff: item,
+          }) ?? 0.45
+        )
+        .filter((score) => Number.isFinite(score));
+      const averageMatchingScore =
+        matchingScores.length > 0
+          ? matchingScores.reduce((sum, score) => sum + score, 0) /
+            matchingScores.length
+          : 0.45;
+
       rows.push(
         buildRow({
           dpgf: dpgfLine,
-          takeoff: manuallyLinkedTakeoff,
-          matchSource: "manual",
-          matchScore: computeMatchScore({
-            dpgf: dpgfLine,
-            takeoff: manuallyLinkedTakeoff,
-          }),
-          manualLinkId: manualLink.id,
+          linkedTakeoffItems: manuallyLinkedTakeoffItems,
+          manualLinkCount: manualLinks.length,
+          matchingScore: averageMatchingScore,
+          threshold,
+          appliedDecision: carriedDecision,
         })
       );
       continue;
@@ -404,61 +778,54 @@ export function buildTakeoffDpgfComparison(
       threshold,
     });
 
-    if (!bestMatch) {
+    if (bestMatch) {
+      usedTakeoffIds.add(bestMatch.line.item_id);
       rows.push(
         buildRow({
           dpgf: dpgfLine,
-          takeoff: null,
-          matchSource: null,
-          matchScore: null,
-          manualLinkId: null,
+          linkedTakeoffItems: [bestMatch.line],
+          manualLinkCount: 0,
+          matchingScore: bestMatch.score,
+          threshold,
+          appliedDecision: carriedDecision,
         })
       );
       continue;
     }
 
-    usedTakeoffIds.add(bestMatch.line.item_id);
     rows.push(
       buildRow({
         dpgf: dpgfLine,
-        takeoff: bestMatch.line,
-        matchSource: "auto",
-        matchScore: bestMatch.score,
-        manualLinkId: null,
+        linkedTakeoffItems: [],
+        manualLinkCount: 0,
+        matchingScore: null,
+        threshold,
+        appliedDecision: carriedDecision,
       })
     );
   }
 
-  for (const takeoffLine of normalizedTakeoffLines) {
-    if (usedTakeoffIds.has(takeoffLine.item_id)) {
-      continue;
-    }
-
-    rows.push(
-      buildRow({
-        dpgf: null,
-        takeoff: takeoffLine,
-        matchSource: null,
-        matchScore: null,
-        manualLinkId: null,
-      })
-    );
-  }
-
-  const summary = buildSummary(rows);
-  const paginatedRows = rows.slice(offset, offset + pageSize);
+  const unusedTakeoffItems = buildUnusedTakeoffItems(normalizedTakeoffLines, usedTakeoffIds);
+  const summary = buildSummary({ rows, unusedTakeoffItems });
+  const visibleRows =
+    view === "exceptions_only"
+      ? rows.filter((row) => row.is_exception)
+      : rows;
+  const paginatedRows = visibleRows.slice(offset, offset + pageSize);
   const nextOffset = offset + paginatedRows.length;
 
   return {
     version_id: input.versionId,
     job_id: input.jobId,
+    view,
     threshold,
     summary,
     rows: paginatedRows,
+    unused_takeoff_items: unusedTakeoffItems,
     pagination: {
       page_size: pageSize,
-      next_cursor: nextOffset < rows.length ? encodeCursor(nextOffset) : null,
-      total: rows.length,
+      next_cursor: nextOffset < visibleRows.length ? encodeCursor(nextOffset) : null,
+      total: visibleRows.length,
     },
   };
 }

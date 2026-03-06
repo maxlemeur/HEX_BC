@@ -22,12 +22,14 @@ import {
   fetchDpgfTakeoffComparison,
   parseTakeoffDpgfComparisonQuery,
   saveTakeoffDpgfManualLink,
+  saveTakeoffReviewDecision,
 } from "@/lib/takeoff/server";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
 const VERSION_ID = "33333333-3333-4333-8333-333333333333";
+const SOURCE_VERSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const JOB_ID = "44444444-4444-4444-8444-444444444444";
 const ESTIMATE_ITEM_ID = "55555555-5555-4555-8555-555555555555";
 const TAKEOFF_ITEM_ID = "66666666-6666-4666-8666-666666666666";
@@ -111,6 +113,26 @@ type StoredLink = {
   linked_by: string | null;
 };
 
+type StoredDecision = {
+  id: string;
+  tenant_id: string;
+  version_id: string;
+  takeoff_job_id: string;
+  estimate_item_id: string;
+  review_reference: string;
+  line_label: string;
+  line_position: number;
+  source_file_name: string | null;
+  source_page: number | null;
+  carried_over_from_version_id: string | null;
+  carried_over_at: string | null;
+  decision: "keep_dpgf" | "keep_takeoff" | "manual_fix" | "out_of_scope";
+  reason: string | null;
+  decided_at: string;
+  updated_at: string;
+  decided_by: string | null;
+};
+
 function makeJob(): StoredJob {
   return {
     id: JOB_ID,
@@ -143,12 +165,58 @@ function makeJob(): StoredJob {
   };
 }
 
+function buildThenableSelectBuilder<T>(getRows: () => T[]) {
+  const builder = {
+    eq: vi.fn((...args: unknown[]) => {
+      void args;
+      return builder;
+    }),
+    in: vi.fn((...args: unknown[]) => {
+      void args;
+      return builder;
+    }),
+    order: vi.fn((...args: unknown[]) => {
+      void args;
+      return builder;
+    }),
+    limit: vi.fn((...args: unknown[]) => {
+      void args;
+      return builder;
+    }),
+    range: vi.fn(async (start: number, end: number) => {
+      const rows = getRows();
+      return {
+        data: rows.slice(start, end + 1),
+        count: rows.length,
+        error: null,
+      };
+    }),
+    maybeSingle: vi.fn(async () => ({
+      data: getRows()[0] ?? null,
+      error: null,
+    })),
+    single: vi.fn(async () => ({
+      data: getRows()[0] ?? null,
+      error: null,
+    })),
+    then: (
+      resolve: (value: { data: T[]; error: null; count?: number | null }) => unknown
+    ) => {
+      const rows = getRows();
+      return Promise.resolve(resolve({ data: rows, error: null, count: rows.length }));
+    },
+  };
+
+  return builder;
+}
+
 function createSupabaseMock() {
   const state: {
     job: StoredJob;
     takeoffItems: StoredTakeoffItem[];
     estimateItems: StoredEstimateItem[];
     links: StoredLink[];
+    reviewDecisions: StoredDecision[];
     importId: string;
     manualLinkRpcError: {
       code: string;
@@ -167,7 +235,7 @@ function createSupabaseMock() {
         quantity: 80,
         unit: "m2",
         confidence: 0.95,
-        evidence: null,
+        evidence: "Page 5, zone plafonds",
         source_file_name: "plans.pdf",
         source_page: 5,
         metadata: {},
@@ -183,11 +251,11 @@ function createSupabaseMock() {
         id: TAKEOFF_ITEM_ID_2,
         tenant_id: TENANT_ID,
         job_id: JOB_ID,
-        designation: "Reserve",
-        quantity: 1,
-        unit: "u",
-        confidence: 0.5,
-        evidence: null,
+        designation: "Reserve plafonds",
+        quantity: 20,
+        unit: "m2",
+        confidence: 0.72,
+        evidence: "Page 8, reserve plafond",
         source_file_name: "plans.pdf",
         source_page: 8,
         metadata: {},
@@ -199,7 +267,7 @@ function createSupabaseMock() {
         created_at: "2026-03-06T10:02:00.000Z",
         updated_at: "2026-03-06T10:02:00.000Z",
       },
-    ] satisfies StoredTakeoffItem[],
+    ],
     estimateItems: [
       {
         id: ESTIMATE_ITEM_ID,
@@ -215,20 +283,9 @@ function createSupabaseMock() {
         item_type: "line",
         updated_at: "2026-03-06T09:00:00.000Z",
       },
-    ] satisfies StoredEstimateItem[],
-    links: [
-      {
-        id: "88888888-8888-4888-8888-888888888888",
-        tenant_id: TENANT_ID,
-        version_id: VERSION_ID,
-        takeoff_job_id: JOB_ID,
-        estimate_item_id: ESTIMATE_ITEM_ID,
-        takeoff_item_id: TAKEOFF_ITEM_ID,
-        created_at: "2026-03-06T10:10:00.000Z",
-        updated_at: "2026-03-06T10:10:00.000Z",
-        linked_by: USER_ID,
-      },
-    ] satisfies StoredLink[],
+    ],
+    links: [],
+    reviewDecisions: [],
     importId: "99999999-9999-4999-8999-999999999999",
     manualLinkRpcError: null,
   };
@@ -236,26 +293,23 @@ function createSupabaseMock() {
   const supabase = {
     from: vi.fn((table: string) => {
       if (table === "takeoff_jobs") {
-        return {
-          select: vi.fn(() => {
-            const filters: Record<string, string> = {};
-            const builder = {
-              eq: vi.fn((column: string, value: string) => {
-                filters[column] = value;
-                return builder;
-              }),
-              maybeSingle: vi.fn(async () => ({
-                data:
-                  (!filters.id || state.job.id === filters.id) &&
-                  (!filters.tenant_id || state.job.tenant_id === filters.tenant_id)
-                    ? state.job
-                    : null,
-                error: null,
-              })),
-            };
-
+        const filters: Record<string, string> = {};
+        const builder = {
+          eq: vi.fn((column: string, value: string) => {
+            filters[column] = value;
             return builder;
           }),
+          maybeSingle: vi.fn(async () => ({
+            data:
+              (!filters.id || state.job.id === filters.id) &&
+              (!filters.tenant_id || state.job.tenant_id === filters.tenant_id)
+                ? state.job
+                : null,
+            error: null,
+          })),
+        };
+        return {
+          select: vi.fn(() => builder),
         };
       }
 
@@ -263,36 +317,26 @@ function createSupabaseMock() {
         return {
           select: vi.fn(() => {
             const filters: Record<string, string> = {};
-            const builder = {
-              eq: vi.fn((column: string, value: string) => {
-                filters[column] = value;
-                return builder;
-              }),
-              order: vi.fn(() => builder),
-              range: vi.fn(async (start: number, end: number) => {
-                const filtered = state.takeoffItems.filter(
-                  (item) =>
-                    (!filters.tenant_id || item.tenant_id === filters.tenant_id) &&
-                    (!filters.job_id || item.job_id === filters.job_id)
-                );
-
-                return {
-                  data: filtered.slice(start, end + 1),
-                  count: filtered.length,
-                  error: null,
-                };
-              }),
-              maybeSingle: vi.fn(async () => ({
-                data:
-                  state.takeoffItems.find(
-                    (item) =>
-                      (!filters.tenant_id || item.tenant_id === filters.tenant_id) &&
-                      (!filters.id || item.id === filters.id)
-                  ) ?? null,
-                error: null,
-              })),
-            };
-
+            const inFilters: Record<string, string[]> = {};
+            const getRows = () =>
+              state.takeoffItems.filter((item) => {
+                if (filters.tenant_id && item.tenant_id !== filters.tenant_id) return false;
+                if (filters.job_id && item.job_id !== filters.job_id) return false;
+                if (filters.id && item.id !== filters.id) return false;
+                if (inFilters.id && !inFilters.id.includes(item.id)) return false;
+                return true;
+              });
+            const builder = buildThenableSelectBuilder(getRows);
+            builder.eq.mockImplementation((column: unknown, value: unknown) => {
+              filters[String(column)] = String(value);
+              return builder;
+            });
+            builder.in.mockImplementation((column: unknown, values: unknown) => {
+              inFilters[String(column)] = Array.isArray(values)
+                ? values.map((value) => String(value))
+                : [];
+              return builder;
+            });
             return builder;
           }),
         };
@@ -302,21 +346,40 @@ function createSupabaseMock() {
         return {
           select: vi.fn(() => {
             const filters: Record<string, string> = {};
-            const builder = {
-              eq: vi.fn((column: string, value: string) => {
-                filters[column] = value;
-                return builder;
-              }),
-              maybeSingle: vi.fn(async () => ({
-                data:
-                  (!filters.id || filters.id === VERSION_ID) &&
-                  (!filters.tenant_id || filters.tenant_id === TENANT_ID)
-                    ? { id: VERSION_ID, project_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }
-                    : null,
-                error: null,
-              })),
+            const inFilters: Record<string, string[]> = {};
+            const getRows = () => {
+              const allRows = [
+                {
+                  id: VERSION_ID,
+                  project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                  version_number: 3,
+                },
+                {
+                  id: SOURCE_VERSION_ID,
+                  project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                  version_number: 2,
+                },
+              ];
+
+              return allRows.filter((row) => {
+                if (filters.tenant_id && filters.tenant_id !== TENANT_ID) return false;
+                if (filters.id && row.id !== filters.id) return false;
+                if (inFilters.id && !inFilters.id.includes(row.id)) return false;
+                return true;
+              });
             };
 
+            const builder = buildThenableSelectBuilder(getRows);
+            builder.eq.mockImplementation((column: unknown, value: unknown) => {
+              filters[String(column)] = String(value);
+              return builder;
+            });
+            builder.in.mockImplementation((column: unknown, values: unknown) => {
+              inFilters[String(column)] = Array.isArray(values)
+                ? values.map((value) => String(value))
+                : [];
+              return builder;
+            });
             return builder;
           }),
         };
@@ -326,28 +389,19 @@ function createSupabaseMock() {
         return {
           select: vi.fn(() => {
             const filters: Record<string, string> = {};
-            const getItems = () =>
-              state.estimateItems.filter(
-                (item) =>
-                  (!filters.tenant_id || item.tenant_id === filters.tenant_id) &&
-                  (!filters.version_id || item.version_id === filters.version_id) &&
-                  (!filters.item_type || item.item_type === filters.item_type) &&
-                  (!filters.id || item.id === filters.id)
-              );
-            const builder = {
-              eq: vi.fn((column: string, value: string) => {
-                filters[column] = value;
-                return builder;
-              }),
-              order: vi.fn(() => builder),
-              maybeSingle: vi.fn(async () => ({
-                data: getItems()[0] ?? null,
-                error: null,
-              })),
-              then: (resolve: (value: { data: StoredEstimateItem[]; error: null }) => unknown) =>
-                Promise.resolve(resolve({ data: getItems(), error: null })),
-            };
-
+            const getRows = () =>
+              state.estimateItems.filter((item) => {
+                if (filters.tenant_id && item.tenant_id !== filters.tenant_id) return false;
+                if (filters.version_id && item.version_id !== filters.version_id) return false;
+                if (filters.item_type && item.item_type !== filters.item_type) return false;
+                if (filters.id && item.id !== filters.id) return false;
+                return true;
+              });
+            const builder = buildThenableSelectBuilder(getRows);
+            builder.eq.mockImplementation((column: unknown, value: unknown) => {
+              filters[String(column)] = String(value);
+              return builder;
+            });
             return builder;
           }),
         };
@@ -357,36 +411,88 @@ function createSupabaseMock() {
         return {
           select: vi.fn(() => {
             const filters: Record<string, string> = {};
-            const getLinks = () =>
-              state.links.filter(
-                (link) =>
-                  (!filters.tenant_id || link.tenant_id === filters.tenant_id) &&
-                  (!filters.version_id || link.version_id === filters.version_id) &&
-                  (!filters.takeoff_job_id || link.takeoff_job_id === filters.takeoff_job_id) &&
-                  (!filters.estimate_item_id || link.estimate_item_id === filters.estimate_item_id) &&
-                  (!filters.takeoff_item_id || link.takeoff_item_id === filters.takeoff_item_id) &&
-                  (!filters.id || link.id === filters.id)
-              );
-            const builder = {
-              eq: vi.fn((column: string, value: string) => {
-                filters[column] = value;
-                return builder;
-              }),
-              order: vi.fn(() => builder),
-              maybeSingle: vi.fn(async () => ({
-                data: getLinks()[0] ?? null,
-                error: null,
-              })),
-              single: vi.fn(async () => ({
-                data: getLinks()[0] ?? null,
-                error: null,
-              })),
-              then: (resolve: (value: { data: StoredLink[]; error: null }) => unknown) =>
-                Promise.resolve(resolve({ data: getLinks(), error: null })),
-            };
-
+            const getRows = () =>
+              state.links.filter((link) => {
+                if (filters.tenant_id && link.tenant_id !== filters.tenant_id) return false;
+                if (filters.version_id && link.version_id !== filters.version_id) return false;
+                if (filters.takeoff_job_id && link.takeoff_job_id !== filters.takeoff_job_id) {
+                  return false;
+                }
+                if (filters.estimate_item_id && link.estimate_item_id !== filters.estimate_item_id) {
+                  return false;
+                }
+                if (filters.id && link.id !== filters.id) return false;
+                return true;
+              });
+            const builder = buildThenableSelectBuilder(getRows);
+            builder.eq.mockImplementation((column: unknown, value: unknown) => {
+              filters[String(column)] = String(value);
+              return builder;
+            });
             return builder;
           }),
+        };
+      }
+
+      if (table === "takeoff_dpgf_review_decisions") {
+        return {
+          select: vi.fn(() => {
+            const filters: Record<string, string> = {};
+            const getRows = () =>
+              state.reviewDecisions.filter((decision) => {
+                if (filters.tenant_id && decision.tenant_id !== filters.tenant_id) return false;
+                if (filters.version_id && decision.version_id !== filters.version_id) return false;
+                if (filters.takeoff_job_id && decision.takeoff_job_id !== filters.takeoff_job_id) {
+                  return false;
+                }
+                if (
+                  filters.estimate_item_id &&
+                  decision.estimate_item_id !== filters.estimate_item_id
+                ) {
+                  return false;
+                }
+                return true;
+              });
+            const builder = buildThenableSelectBuilder(getRows);
+            builder.eq.mockImplementation((column: unknown, value: unknown) => {
+              filters[String(column)] = String(value);
+              return builder;
+            });
+            return builder;
+          }),
+          upsert: vi.fn((payload: StoredDecision) => ({
+            select: vi.fn(() => ({
+              single: vi.fn(async () => {
+                const nextDecision: StoredDecision = {
+                  ...payload,
+                  id:
+                    state.reviewDecisions.find(
+                      (decision) =>
+                        decision.version_id === payload.version_id &&
+                        decision.takeoff_job_id === payload.takeoff_job_id &&
+                        decision.estimate_item_id === payload.estimate_item_id
+                    )?.id ?? "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+                };
+
+                state.reviewDecisions = [
+                  ...state.reviewDecisions.filter(
+                    (decision) =>
+                      !(
+                        decision.version_id === payload.version_id &&
+                        decision.takeoff_job_id === payload.takeoff_job_id &&
+                        decision.estimate_item_id === payload.estimate_item_id
+                      )
+                  ),
+                  nextDecision,
+                ];
+
+                return {
+                  data: nextDecision,
+                  error: null,
+                };
+              }),
+            })),
+          })),
         };
       }
 
@@ -405,13 +511,12 @@ function createSupabaseMock() {
                 data:
                   (!filters.tenant_id || filters.tenant_id === TENANT_ID) &&
                   (!filters.project_id ||
-                    filters.project_id === "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+                    filters.project_id === "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
                     ? { id: state.importId }
                     : null,
                 error: null,
               })),
             };
-
             return builder;
           }),
         };
@@ -421,32 +526,23 @@ function createSupabaseMock() {
         return {
           select: vi.fn(() => {
             const filters: Record<string, string> = {};
-            const builder = {
-              eq: vi.fn((column: string, value: string) => {
-                filters[column] = value;
-                return builder;
-              }),
-              order: vi.fn(() => builder),
-              then: (resolve: (value: { data: Array<{ id: string; payload: Record<string, unknown> }>; error: null }) => unknown) =>
-                Promise.resolve(
-                  resolve({
-                    data:
-                      filters.import_id === state.importId
-                        ? [
-                            {
-                              id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-                              payload: {
-                                row_index: 12,
-                                unit: "m2",
-                              },
-                            },
-                          ]
-                        : [],
-                    error: null,
-                  })
-                ),
-            };
-
+            const getRows = () =>
+              filters.import_id === state.importId
+                ? [
+                    {
+                      id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+                      payload: {
+                        row_index: 12,
+                        unit: "m2",
+                      },
+                    },
+                  ]
+                : [];
+            const builder = buildThenableSelectBuilder(getRows);
+            builder.eq.mockImplementation((column: unknown, value: unknown) => {
+              filters[String(column)] = String(value);
+              return builder;
+            });
             return builder;
           }),
         };
@@ -455,7 +551,7 @@ function createSupabaseMock() {
       throw new Error(`Unexpected table: ${table}`);
     }),
     rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
-      if (fn !== "save_takeoff_dpgf_manual_link") {
+      if (fn !== "save_takeoff_dpgf_manual_links") {
         throw new Error(`Unexpected rpc: ${fn}`);
       }
 
@@ -471,29 +567,13 @@ function createSupabaseMock() {
       const versionId = String(args.p_version_id);
       const takeoffJobId = String(args.p_takeoff_job_id);
       const estimateItemId = String(args.p_estimate_item_id);
-      const takeoffItemId =
-        args.p_takeoff_item_id === null ? null : String(args.p_takeoff_item_id);
+      const takeoffItemIds = Array.isArray(args.p_takeoff_item_ids)
+        ? args.p_takeoff_item_ids.map((itemId) => String(itemId))
+        : [];
       const linkedBy =
         args.p_linked_by === null || args.p_linked_by === undefined
           ? null
           : String(args.p_linked_by);
-
-      if (takeoffItemId === null) {
-        state.links = state.links.filter(
-          (link) =>
-            !(
-              link.tenant_id === TENANT_ID &&
-              link.version_id === versionId &&
-              link.takeoff_job_id === takeoffJobId &&
-              link.estimate_item_id === estimateItemId
-            )
-        );
-
-        return {
-          data: null,
-          error: null,
-        };
-      }
 
       state.links = state.links.filter(
         (link) =>
@@ -501,26 +581,27 @@ function createSupabaseMock() {
             link.tenant_id === TENANT_ID &&
             link.version_id === versionId &&
             link.takeoff_job_id === takeoffJobId &&
-            (link.estimate_item_id === estimateItemId || link.takeoff_item_id === takeoffItemId)
+            link.estimate_item_id === estimateItemId
           )
       );
 
-      const link: StoredLink = {
-        id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      const now = "2026-03-06T11:00:00.000Z";
+      const insertedLinks = takeoffItemIds.map((takeoffItemId, index) => ({
+        id: `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa${index}`,
         tenant_id: TENANT_ID,
         version_id: versionId,
         takeoff_job_id: takeoffJobId,
         estimate_item_id: estimateItemId,
         takeoff_item_id: takeoffItemId,
-        created_at: "2026-03-06T11:00:00.000Z",
-        updated_at: "2026-03-06T11:00:00.000Z",
+        created_at: now,
+        updated_at: now,
         linked_by: linkedBy,
-      };
+      }));
 
-      state.links.push(link);
+      state.links.push(...insertedLinks);
 
       return {
-        data: link.id,
+        data: insertedLinks.map((link) => link.id),
         error: null,
       };
     }),
@@ -555,56 +636,60 @@ describe("takeoff DPGF comparison server helpers", () => {
     ]);
   });
 
-  it("builds the DPGF comparison payload with best-effort unit enrichment", async () => {
-    const mock = createSupabaseMock();
-
-    vi.mocked(getAuthenticatedContext).mockResolvedValue({
-      supabase: mock.supabase,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      tenantRole: "admin",
-    } as never);
-
+  it("parses DPGF comparison query including the server view", () => {
     const query = parseTakeoffDpgfComparisonQuery({
       version_id: VERSION_ID,
-      threshold: "0.6",
+      cursor: "opaque",
+      page_size: "25",
+      threshold: "0.8",
+      view: "exceptions_only",
     });
-    const response = await fetchDpgfTakeoffComparison(JOB_ID, query);
 
-    expect(response.summary).toMatchObject({
-      manual_links: 1,
-      gaps: 1,
-      total_rows: 2,
-    });
-    expect(response.rows[0]).toMatchObject({
-      match_source: "manual",
-      dpgf: expect.objectContaining({
-        estimate_item_id: ESTIMATE_ITEM_ID,
-      }),
-      takeoff: expect.objectContaining({
-        item_id: TAKEOFF_ITEM_ID,
-      }),
+    expect(query).toEqual({
+      version_id: VERSION_ID,
+      cursor: "opaque",
+      page_size: 25,
+      threshold: 0.8,
+      view: "exceptions_only",
     });
   });
 
-  it("excludes non-DPGF lines from the comparison payload even when they have a source file", async () => {
+  it("builds the DPGF comparison payload with proofs and explicit view", async () => {
     const mock = createSupabaseMock();
-    const extraEstimateItemId = "99999999-aaaa-4aaa-8aaa-999999999999";
-
-    mock.state.estimateItems.push({
-      id: extraEstimateItemId,
-      tenant_id: TENANT_ID,
-      version_id: VERSION_ID,
-      position: 2,
-      title: "Ligne importee hors DPGF",
-      description: null,
-      quantity: 12,
-      source_file_name: "plans.pdf",
-      source_page: 13,
-      source_provider: "takeoff_apply",
-      item_type: "line",
-      updated_at: "2026-03-06T09:05:00.000Z",
-    });
+    mock.state.links = [
+      {
+        id: "88888888-8888-4888-8888-888888888888",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        takeoff_item_id: TAKEOFF_ITEM_ID,
+        created_at: "2026-03-06T10:10:00.000Z",
+        updated_at: "2026-03-06T10:10:00.000Z",
+        linked_by: USER_ID,
+      },
+    ];
+    mock.state.reviewDecisions = [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        review_reference: "dpgf xlsx row 12",
+        line_label: "Faux plafond acoustique",
+        line_position: 1,
+        source_file_name: "dpgf.xlsx",
+        source_page: 12,
+        carried_over_from_version_id: null,
+        carried_over_at: null,
+        decision: "manual_fix",
+        reason: "Verifier la reserve au plafond.",
+        decided_at: "2026-03-06T10:10:00.000Z",
+        updated_at: "2026-03-06T10:10:00.000Z",
+        decided_by: USER_ID,
+      },
+    ];
 
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
       supabase: mock.supabase,
@@ -617,20 +702,94 @@ describe("takeoff DPGF comparison server helpers", () => {
       JOB_ID,
       parseTakeoffDpgfComparisonQuery({
         version_id: VERSION_ID,
+        view: "all",
       })
     );
 
-    expect(response.rows).toHaveLength(2);
-    expect(
-      response.rows.some(
-        (row) => row.dpgf?.estimate_item_id === extraEstimateItemId
-      )
-    ).toBe(false);
+    expect(response.view).toBe("all");
+    expect(response.summary).toMatchObject({
+      forced_manual: 1,
+      total_lines: 1,
+      unused_takeoff_items: 1,
+    });
+    expect(response.rows[0]).toMatchObject({
+      line_id: ESTIMATE_ITEM_ID,
+      matched_by: "manual",
+      manual_link_count: 1,
+      applied_decision: expect.objectContaining({
+        decision: "manual_fix",
+        source: "current_version",
+      }),
+    });
+    expect(response.rows[0]?.proofs.some((proof) => proof.kind === "fact")).toBe(true);
   });
 
-  it("replaces an existing manual link for the same estimate item", async () => {
+  it("reuses carried decisions by review reference when the job is linked from a source version", async () => {
     const mock = createSupabaseMock();
+    mock.state.reviewDecisions = [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        tenant_id: TENANT_ID,
+        version_id: SOURCE_VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        review_reference: "dpgf xlsx row 12",
+        line_label: "Faux plafond acoustique",
+        line_position: 1,
+        source_file_name: "dpgf.xlsx",
+        source_page: 12,
+        carried_over_from_version_id: null,
+        carried_over_at: null,
+        decision: "keep_dpgf",
+        reason: "Decision issue de la version precedente.",
+        decided_at: "2026-03-06T10:10:00.000Z",
+        updated_at: "2026-03-06T10:10:00.000Z",
+        decided_by: USER_ID,
+      },
+    ];
 
+    vi.mocked(listAccessibleTakeoffJobsForVersion).mockResolvedValue([
+      {
+        id: JOB_ID,
+        estimate_version_id: VERSION_ID,
+        status: "completed",
+        level: "A",
+        source_file_name: "plans.pdf",
+        source_file_type: "application/pdf",
+        source_file_size_bytes: 1200,
+        created_at: "2026-03-06T09:59:00.000Z",
+        updated_at: "2026-03-06T10:01:00.000Z",
+        linked_from_version_id: SOURCE_VERSION_ID,
+        linked_from_version_number: 2,
+        is_linked: true,
+      },
+    ]);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await fetchDpgfTakeoffComparison(
+      JOB_ID,
+      parseTakeoffDpgfComparisonQuery({
+        version_id: VERSION_ID,
+        view: "exceptions_only",
+      })
+    );
+
+    expect(response.view).toBe("exceptions_only");
+    expect(response.rows[0]?.applied_decision).toMatchObject({
+      decision: "keep_dpgf",
+      source: "carried_over",
+      carried_over_from_version_id: SOURCE_VERSION_ID,
+      carried_over_from_version_number: 2,
+    });
+  });
+
+  it("replaces the manual links for a DPGF line via the multi-link RPC", async () => {
+    const mock = createSupabaseMock();
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
       supabase: mock.supabase,
       tenantId: TENANT_ID,
@@ -641,37 +800,46 @@ describe("takeoff DPGF comparison server helpers", () => {
     const response = await saveTakeoffDpgfManualLink(JOB_ID, {
       version_id: VERSION_ID,
       estimate_item_id: ESTIMATE_ITEM_ID,
-      takeoff_item_id: TAKEOFF_ITEM_ID_2,
+      takeoff_item_ids: [TAKEOFF_ITEM_ID, TAKEOFF_ITEM_ID_2],
     });
 
-    expect(response.deleted).toBe(false);
-    expect(response.link).toMatchObject({
-      version_id: VERSION_ID,
-      takeoff_job_id: JOB_ID,
-      estimate_item_id: ESTIMATE_ITEM_ID,
-      takeoff_item_id: TAKEOFF_ITEM_ID_2,
-    });
-    expect(mock.rpcMock).toHaveBeenCalledWith("save_takeoff_dpgf_manual_link", {
+    expect(mock.rpcMock).toHaveBeenCalledWith("save_takeoff_dpgf_manual_links", {
       p_version_id: VERSION_ID,
       p_takeoff_job_id: JOB_ID,
       p_estimate_item_id: ESTIMATE_ITEM_ID,
-      p_takeoff_item_id: TAKEOFF_ITEM_ID_2,
+      p_takeoff_item_ids: [TAKEOFF_ITEM_ID, TAKEOFF_ITEM_ID_2],
       p_linked_by: USER_ID,
     });
-    expect(mock.state.links).toHaveLength(1);
-    expect(mock.state.links[0]?.takeoff_item_id).toBe(TAKEOFF_ITEM_ID_2);
+    expect(response.links).toHaveLength(2);
+    expect(response.links.map((link) => link.takeoff_item_id)).toEqual([
+      TAKEOFF_ITEM_ID,
+      TAKEOFF_ITEM_ID_2,
+    ]);
   });
 
-  it("keeps the existing manual link when the transactional replace fails", async () => {
+  it("persists an explicit human review decision while keeping carried-over provenance", async () => {
     const mock = createSupabaseMock();
-
-    mock.state.manualLinkRpcError = {
-      code: "23505",
-      message: "duplicate key value violates unique constraint",
-      details: "Key (tenant_id, version_id, takeoff_job_id, takeoff_item_id) already exists.",
-      hint: null,
-    };
-
+    mock.state.reviewDecisions = [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        review_reference: "dpgf xlsx row 12",
+        line_label: "Faux plafond acoustique",
+        line_position: 1,
+        source_file_name: "dpgf.xlsx",
+        source_page: 12,
+        carried_over_from_version_id: SOURCE_VERSION_ID,
+        carried_over_at: "2026-03-06T09:55:00.000Z",
+        decision: "keep_dpgf",
+        reason: "Origine source.",
+        decided_at: "2026-03-06T10:10:00.000Z",
+        updated_at: "2026-03-06T10:10:00.000Z",
+        decided_by: USER_ID,
+      },
+    ];
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
       supabase: mock.supabase,
       tenantId: TENANT_ID,
@@ -679,15 +847,20 @@ describe("takeoff DPGF comparison server helpers", () => {
       tenantRole: "admin",
     } as never);
 
-    await expect(
-      saveTakeoffDpgfManualLink(JOB_ID, {
-        version_id: VERSION_ID,
-        estimate_item_id: ESTIMATE_ITEM_ID,
-        takeoff_item_id: TAKEOFF_ITEM_ID_2,
-      })
-    ).rejects.toThrow("Conflit de donnees.");
+    const response = await saveTakeoffReviewDecision(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: ESTIMATE_ITEM_ID,
+      decision: "manual_fix",
+      reason: "Mesure terrain a reprendre.",
+    });
 
-    expect(mock.state.links).toHaveLength(1);
-    expect(mock.state.links[0]?.takeoff_item_id).toBe(TAKEOFF_ITEM_ID);
+    expect(response.decision).toMatchObject({
+      decision: "manual_fix",
+      reason: "Mesure terrain a reprendre.",
+      source: "carried_over",
+      carried_over_from_version_id: SOURCE_VERSION_ID,
+      carried_over_from_version_number: 2,
+    });
+    expect(mock.state.reviewDecisions[0]?.decision).toBe("manual_fix");
   });
 });

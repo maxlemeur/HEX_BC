@@ -13,10 +13,10 @@ const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const ESTIMATE_ITEM_ID = "33333333-3333-4333-8333-333333333333";
 const TAKEOFF_ITEM_ID = "44444444-4444-4444-8444-444444444444";
 
-function buildPutRequest(body: unknown) {
+function buildPatchRequest(body: unknown) {
   return [
     new Request(`http://localhost/api/takeoff/jobs/${JOB_ID}/dpgf-link`, {
-      method: "PUT",
+      method: "PATCH",
       body: JSON.stringify(body),
       headers: {
         "content-type": "application/json",
@@ -37,25 +37,26 @@ describe("PATCH /api/takeoff/jobs/[jobId]/dpgf-link", () => {
     const payload = {
       version_id: VERSION_ID,
       estimate_item_id: ESTIMATE_ITEM_ID,
-      takeoff_item_id: TAKEOFF_ITEM_ID,
+      takeoff_item_ids: [TAKEOFF_ITEM_ID],
     };
 
     vi.mocked(saveTakeoffDpgfManualLink).mockResolvedValue({
-      deleted: false,
-      link: {
-        id: "55555555-5555-4555-8555-555555555555",
-        tenant_id: "66666666-6666-4666-8666-666666666666",
-        version_id: VERSION_ID,
-        takeoff_job_id: JOB_ID,
-        estimate_item_id: ESTIMATE_ITEM_ID,
-        takeoff_item_id: TAKEOFF_ITEM_ID,
-        created_at: "2026-03-06T10:00:00.000Z",
-        updated_at: "2026-03-06T10:00:00.000Z",
-        linked_by: null,
-      },
+      links: [
+        {
+          id: "55555555-5555-4555-8555-555555555555",
+          tenant_id: "66666666-6666-4666-8666-666666666666",
+          version_id: VERSION_ID,
+          takeoff_job_id: JOB_ID,
+          estimate_item_id: ESTIMATE_ITEM_ID,
+          takeoff_item_id: TAKEOFF_ITEM_ID,
+          created_at: "2026-03-06T10:00:00.000Z",
+          updated_at: "2026-03-06T10:00:00.000Z",
+          linked_by: null,
+        },
+      ],
     });
 
-    const [request, context] = buildPutRequest(payload);
+    const [request, context] = buildPatchRequest(payload);
     const response = await PATCH(request, context);
     const body = await response.json();
 
@@ -75,10 +76,10 @@ describe("PATCH /api/takeoff/jobs/[jobId]/dpgf-link", () => {
       })
     );
 
-    const [request, context] = buildPutRequest({
+    const [request, context] = buildPatchRequest({
       version_id: VERSION_ID,
       estimate_item_id: ESTIMATE_ITEM_ID,
-      takeoff_item_id: null,
+      takeoff_item_ids: [],
     });
 
     const response = await PATCH(request, context);

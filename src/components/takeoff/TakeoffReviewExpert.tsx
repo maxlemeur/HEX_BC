@@ -10,6 +10,7 @@ import { TakeoffTableView } from "@/components/takeoff/TakeoffTableView";
 import TakeoffDiffView from "@/components/takeoff/TakeoffDiffView";
 import type {
   TakeoffDpgfComparisonResponse,
+  TakeoffDpgfComparisonView,
   TakeoffJobCompareResponse,
   TakeoffJobSummary,
   TakeoffTable,
@@ -57,8 +58,10 @@ export type TakeoffReviewExpertProps = {
 
   // DPGF compare state
   dpgfCompareData: TakeoffDpgfComparisonResponse | null;
+  dpgfCompareView: TakeoffDpgfComparisonView;
   dpgfCompareLoading: boolean;
   dpgfCompareError: string | null;
+  onSetDpgfCompareView: (view: TakeoffDpgfComparisonView) => void;
   onRefreshDpgfCompare: () => void;
 
   // Item handlers
@@ -170,8 +173,10 @@ export function TakeoffReviewExpert({
   applySelectionSubmitting,
   applySelectionError,
   dpgfCompareData,
+  dpgfCompareView,
   dpgfCompareLoading,
   dpgfCompareError,
+  onSetDpgfCompareView,
   onRefreshDpgfCompare,
   onUpdateItem,
   onExcludeItems,
@@ -272,6 +277,8 @@ export function TakeoffReviewExpert({
         ) : dpgfCompareData ? (
           <TakeoffDpgfCompareView
             data={dpgfCompareData}
+            currentView={dpgfCompareView}
+            onViewChange={onSetDpgfCompareView}
             onRefresh={onRefreshDpgfCompare}
           />
         ) : (

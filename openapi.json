@@ -6393,7 +6393,7 @@
           "Takeoff"
         ],
         "summary": "Comparer un job Takeoff au DPGF de la version",
-        "description": "Retourne la comparaison entre les lignes DPGF d'une version et les items extraits du job takeoff, avec ecarts, severite et pagination cursor.",
+        "description": "Retourne la comparaison entre les lignes DPGF d'une version et les items extraits du job takeoff, avec preuves, confiance, decisions humaines et pagination cursor.",
         "parameters": [
           {
             "name": "jobId",
@@ -6429,6 +6429,15 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/TakeoffDpgfComparePageSizeQueryParameter"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "Filtre serveur de vue DPGF: toutes les lignes ou uniquement les exceptions.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffDpgfCompareViewQueryParameter"
             }
           },
           {
@@ -6531,7 +6540,7 @@
           "Takeoff"
         ],
         "summary": "Enregistrer un lien manuel DPGF",
-        "description": "Cree, remplace ou supprime un lien manuel entre une ligne DPGF de la version et un item takeoff du job.",
+        "description": "Cree, remplace ou supprime un ensemble de liens manuels entre une ligne DPGF de la version et des items takeoff du job.",
         "parameters": [
           {
             "name": "jobId",
@@ -6544,7 +6553,7 @@
           }
         ],
         "requestBody": {
-          "description": "Creation, remplacement ou suppression d'un lien manuel entre une ligne DPGF et un item takeoff.",
+          "description": "Creation, remplacement ou suppression de liens manuels entre une ligne DPGF et un ou plusieurs items takeoff.",
           "required": true,
           "content": {
             "application/json": {
@@ -6776,6 +6785,119 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiTakeoffJobActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job takeoff introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/takeoff/jobs/{jobId}/review-decision": {
+      "patch": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Enregistrer une decision humaine de revue DPGF",
+        "description": "Persiste une decision humaine explicite sur une ligne DPGF, avec provenance et justification optionnelle.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Identifiant UUID du job takeoff.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Decision humaine explicite appliquee a une ligne DPGF avec justification optionnelle.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchTakeoffReviewDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Decision de revue DPGF enregistree.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffReviewDecisionResponse"
                 }
               }
             }
@@ -21013,6 +21135,13 @@
         "minimum": 1,
         "maximum": 200
       },
+      "TakeoffDpgfCompareViewQueryParameter": {
+        "type": "string",
+        "enum": [
+          "all",
+          "exceptions_only"
+        ]
+      },
       "ApiTakeoffDpgfComparisonResponse": {
         "type": "object",
         "properties": {
@@ -21033,6 +21162,13 @@
                 "format": "uuid",
                 "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
               },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "exceptions_only"
+                ]
+              },
               "threshold": {
                 "type": "number",
                 "minimum": 0,
@@ -21041,56 +21177,50 @@
               "summary": {
                 "type": "object",
                 "properties": {
-                  "matches": {
+                  "reliable_matches": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "gaps": {
+                  "to_confirm": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "missing_dpgf": {
+                  "significant_gaps": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "missing_takeoff": {
+                  "forced_manual": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "manual_links": {
+                  "lines_without_proof": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "warning_count": {
+                  "unused_takeoff_items": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
                   },
-                  "critical_count": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "total_rows": {
+                  "total_lines": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 9007199254740991
                   }
                 },
                 "required": [
-                  "matches",
-                  "gaps",
-                  "missing_dpgf",
-                  "missing_takeoff",
-                  "manual_links",
-                  "warning_count",
-                  "critical_count",
-                  "total_rows"
+                  "reliable_matches",
+                  "to_confirm",
+                  "significant_gaps",
+                  "forced_manual",
+                  "lines_without_proof",
+                  "unused_takeoff_items",
+                  "total_lines"
                 ],
                 "additionalProperties": false
               },
@@ -21099,169 +21229,301 @@
                 "items": {
                   "type": "object",
                   "properties": {
-                    "key": {
+                    "line_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "line_label": {
                       "type": "string"
                     },
                     "dpgf": {
-                      "anyOf": [
-                        {
-                          "type": "object",
-                          "properties": {
-                            "estimate_item_id": {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            "title": {
+                      "type": "object",
+                      "properties": {
+                        "estimate_item_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "anyOf": [
+                            {
                               "type": "string"
                             },
-                            "description": {
-                              "anyOf": [
-                                {
-                                  "type": "string"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "quantity": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        "unit": {
+                          "anyOf": [
+                            {
+                              "type": "string"
                             },
-                            "quantity": {
-                              "type": "number",
-                              "exclusiveMinimum": 0
-                            },
-                            "unit": {
-                              "anyOf": [
-                                {
-                                  "type": "string"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            },
-                            "source_page": {
-                              "anyOf": [
-                                {
-                                  "type": "integer",
-                                  "minimum": -9007199254740991,
-                                  "maximum": 9007199254740991
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            },
-                            "source_file_name": {
-                              "anyOf": [
-                                {
-                                  "type": "string"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            },
-                            "position": {
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "source_page": {
+                          "anyOf": [
+                            {
                               "type": "integer",
-                              "minimum": 0,
+                              "minimum": -9007199254740991,
                               "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
                             }
-                          },
-                          "required": [
-                            "estimate_item_id",
-                            "title",
-                            "description",
-                            "quantity",
-                            "unit",
-                            "source_page",
-                            "source_file_name",
-                            "position"
-                          ],
-                          "additionalProperties": false
+                          ]
                         },
-                        {
-                          "type": "null"
+                        "source_file_name": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "position": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
-                      ]
+                      },
+                      "required": [
+                        "estimate_item_id",
+                        "title",
+                        "description",
+                        "quantity",
+                        "unit",
+                        "source_page",
+                        "source_file_name",
+                        "position"
+                      ],
+                      "additionalProperties": false
                     },
-                    "takeoff": {
+                    "linked_takeoff_items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "item_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "designation": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "unit": {
+                            "type": "string"
+                          },
+                          "source_page": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "source_file_name": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "confidence": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "evidence": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "metadata": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          }
+                        },
+                        "required": [
+                          "item_id",
+                          "designation",
+                          "quantity",
+                          "unit",
+                          "source_page",
+                          "source_file_name",
+                          "confidence",
+                          "evidence",
+                          "metadata"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "dpgf_quantity": {
                       "anyOf": [
                         {
-                          "type": "object",
-                          "properties": {
-                            "item_id": {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            "designation": {
-                              "type": "string"
-                            },
-                            "quantity": {
-                              "type": "number",
-                              "exclusiveMinimum": 0
-                            },
-                            "unit": {
-                              "type": "string"
-                            },
-                            "source_page": {
-                              "anyOf": [
-                                {
-                                  "type": "integer",
-                                  "minimum": -9007199254740991,
-                                  "maximum": 9007199254740991
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            },
-                            "source_file_name": {
-                              "anyOf": [
-                                {
-                                  "type": "string"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            },
-                            "confidence": {
-                              "anyOf": [
-                                {
-                                  "type": "number",
-                                  "minimum": 0,
-                                  "maximum": 1
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            }
-                          },
-                          "required": [
-                            "item_id",
-                            "designation",
-                            "quantity",
-                            "unit",
-                            "source_page",
-                            "source_file_name",
-                            "confidence"
-                          ],
-                          "additionalProperties": false
+                          "type": "number"
                         },
                         {
                           "type": "null"
                         }
                       ]
                     },
-                    "match_source": {
+                    "takeoff_quantity": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "quantity_unit": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "matching_score": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "confidence_score": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "review_status": {
+                      "type": "string",
+                      "enum": [
+                        "reliable_match",
+                        "to_confirm",
+                        "significant_gap",
+                        "unlinked",
+                        "forced_manual"
+                      ]
+                    },
+                    "proofs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "proof_id": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "dpgf",
+                              "takeoff",
+                              "plan_zone",
+                              "formula",
+                              "comment"
+                            ]
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "fact",
+                              "hypothesis",
+                              "inference"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "confidence_score": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "note": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "proof_id",
+                          "type",
+                          "kind",
+                          "label",
+                          "source",
+                          "confidence_score",
+                          "note"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "suggested_decision": {
                       "anyOf": [
                         {
                           "type": "string",
                           "enum": [
-                            "auto",
-                            "manual"
+                            "keep_dpgf",
+                            "keep_takeoff",
+                            "manual_fix",
+                            "out_of_scope"
                           ]
                         },
                         {
@@ -21269,10 +21531,159 @@
                         }
                       ]
                     },
-                    "match_score": {
+                    "applied_decision": {
                       "anyOf": [
                         {
-                          "type": "number"
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "tenant_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "version_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "takeoff_job_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "estimate_item_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "decision": {
+                              "type": "string",
+                              "enum": [
+                                "keep_dpgf",
+                                "keep_takeoff",
+                                "manual_fix",
+                                "out_of_scope"
+                              ]
+                            },
+                            "reason": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "review_reference": {
+                              "type": "string"
+                            },
+                            "line_label": {
+                              "type": "string"
+                            },
+                            "line_position": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "source_file_name": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "source_page": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "decided_at": {
+                              "type": "string"
+                            },
+                            "updated_at": {
+                              "type": "string"
+                            },
+                            "decided_by": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "current_version",
+                                "carried_over"
+                              ]
+                            },
+                            "carried_over_from_version_id": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "carried_over_from_version_number": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "tenant_id",
+                            "version_id",
+                            "takeoff_job_id",
+                            "estimate_item_id",
+                            "decision",
+                            "reason",
+                            "review_reference",
+                            "line_label",
+                            "line_position",
+                            "source_file_name",
+                            "source_page",
+                            "decided_at",
+                            "updated_at",
+                            "decided_by",
+                            "source",
+                            "carried_over_from_version_id",
+                            "carried_over_from_version_number"
+                          ],
+                          "additionalProperties": false
                         },
                         {
                           "type": "null"
@@ -21299,21 +21710,22 @@
                         }
                       ]
                     },
-                    "severity": {
-                      "type": "string",
-                      "enum": [
-                        "ok",
-                        "warning",
-                        "critical",
-                        "missing"
-                      ]
+                    "is_exception": {
+                      "type": "boolean"
                     },
-                    "manual_link_id": {
+                    "manual_link_count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "matched_by": {
                       "anyOf": [
                         {
                           "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          "enum": [
+                            "auto",
+                            "manual"
+                          ]
                         },
                         {
                           "type": "null"
@@ -21322,15 +21734,102 @@
                     }
                   },
                   "required": [
-                    "key",
+                    "line_id",
+                    "line_label",
                     "dpgf",
-                    "takeoff",
-                    "match_source",
-                    "match_score",
+                    "linked_takeoff_items",
+                    "dpgf_quantity",
+                    "takeoff_quantity",
+                    "quantity_unit",
+                    "matching_score",
+                    "confidence_score",
+                    "review_status",
+                    "proofs",
+                    "suggested_decision",
+                    "applied_decision",
                     "delta_absolute",
                     "delta_percent",
-                    "severity",
-                    "manual_link_id"
+                    "is_exception",
+                    "manual_link_count",
+                    "matched_by"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "unused_takeoff_items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "designation": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "source_file_name": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "source_page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "confidence_score": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "evidence": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "item_id",
+                    "designation",
+                    "quantity",
+                    "unit",
+                    "source_file_name",
+                    "source_page",
+                    "confidence_score",
+                    "evidence"
                   ],
                   "additionalProperties": false
                 }
@@ -21370,9 +21869,11 @@
             "required": [
               "version_id",
               "job_id",
+              "view",
               "threshold",
               "summary",
               "rows",
+              "unused_takeoff_items",
               "pagination"
             ],
             "additionalProperties": false
@@ -21397,23 +21898,19 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "takeoff_item_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "takeoff_item_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
           }
         },
         "required": [
           "version_id",
           "estimate_item_id",
-          "takeoff_item_id"
+          "takeoff_item_ids"
         ]
       },
       "ApiTakeoffDpgfManualLinkResponse": {
@@ -21426,85 +21923,77 @@
           "data": {
             "type": "object",
             "properties": {
-              "deleted": {
-                "type": "boolean"
-              },
-              "link": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "tenant_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "version_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "takeoff_job_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "estimate_item_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "takeoff_item_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "created_at": {
-                        "type": "string"
-                      },
-                      "updated_at": {
-                        "type": "string"
-                      },
-                      "linked_by": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "format": "uuid",
-                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      }
+              "links": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
-                    "required": [
-                      "id",
-                      "tenant_id",
-                      "version_id",
-                      "takeoff_job_id",
-                      "estimate_item_id",
-                      "takeoff_item_id",
-                      "created_at",
-                      "updated_at",
-                      "linked_by"
-                    ],
-                    "additionalProperties": false
+                    "tenant_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "version_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "takeoff_job_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "estimate_item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "takeoff_item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "updated_at": {
+                      "type": "string"
+                    },
+                    "linked_by": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
                   },
-                  {
-                    "type": "null"
-                  }
-                ]
+                  "required": [
+                    "id",
+                    "tenant_id",
+                    "version_id",
+                    "takeoff_job_id",
+                    "estimate_item_id",
+                    "takeoff_item_id",
+                    "created_at",
+                    "updated_at",
+                    "linked_by"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
-              "deleted",
-              "link"
+              "links"
             ],
             "additionalProperties": false
           }
@@ -22012,6 +22501,221 @@
               "target_section_id",
               "summary",
               "items"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "PatchTakeoffReviewDecisionRequest": {
+        "type": "object",
+        "properties": {
+          "version_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "estimate_item_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "keep_dpgf",
+              "keep_takeoff",
+              "manual_fix",
+              "out_of_scope"
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "version_id",
+          "estimate_item_id",
+          "decision"
+        ]
+      },
+      "ApiTakeoffReviewDecisionResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "tenant_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "version_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "takeoff_job_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "estimate_item_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "keep_dpgf",
+                      "keep_takeoff",
+                      "manual_fix",
+                      "out_of_scope"
+                    ]
+                  },
+                  "reason": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "review_reference": {
+                    "type": "string"
+                  },
+                  "line_label": {
+                    "type": "string"
+                  },
+                  "line_position": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "source_file_name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source_page": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "decided_at": {
+                    "type": "string"
+                  },
+                  "updated_at": {
+                    "type": "string"
+                  },
+                  "decided_by": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "current_version",
+                      "carried_over"
+                    ]
+                  },
+                  "carried_over_from_version_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "carried_over_from_version_number": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "tenant_id",
+                  "version_id",
+                  "takeoff_job_id",
+                  "estimate_item_id",
+                  "decision",
+                  "reason",
+                  "review_reference",
+                  "line_label",
+                  "line_position",
+                  "source_file_name",
+                  "source_page",
+                  "decided_at",
+                  "updated_at",
+                  "decided_by",
+                  "source",
+                  "carried_over_from_version_id",
+                  "carried_over_from_version_number"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "decision"
             ],
             "additionalProperties": false
           }

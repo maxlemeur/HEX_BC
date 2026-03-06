@@ -8,10 +8,11 @@ const DPGF_ITEM_ID = "33333333-3333-4333-8333-333333333333";
 const DPGF_ITEM_ID_2 = "44444444-4444-4444-8444-444444444444";
 const TAKEOFF_ITEM_ID = "55555555-5555-4555-8555-555555555555";
 const TAKEOFF_ITEM_ID_2 = "66666666-6666-4666-8666-666666666666";
-const LINK_ID = "77777777-7777-4777-8777-777777777777";
+const TAKEOFF_ITEM_ID_3 = "77777777-7777-4777-8777-777777777777";
+const LINK_ID = "88888888-8888-4888-8888-888888888888";
 
 describe("buildTakeoffDpgfComparison", () => {
-  it("matches rows automatically and computes severity from delta percent", () => {
+  it("marks a significant gap when quantities diverge despite an auto match", () => {
     const response = buildTakeoffDpgfComparison({
       versionId: VERSION_ID,
       jobId: JOB_ID,
@@ -32,38 +33,35 @@ describe("buildTakeoffDpgfComparison", () => {
         {
           item_id: TAKEOFF_ITEM_ID,
           designation: "Faux plafond acoustique",
-          quantity: 82,
+          quantity: 72,
           unit: "m2",
-          source_page: 3,
+          source_page: 5,
           source_file_name: "plans.pdf",
           confidence: 0.92,
+          evidence: "Zone plafonds",
+          metadata: {},
         },
       ],
     });
 
     expect(response.summary).toMatchObject({
-      matches: 0,
-      gaps: 1,
-      missing_dpgf: 0,
-      missing_takeoff: 0,
-      manual_links: 0,
-      critical_count: 0,
-      warning_count: 1,
-      total_rows: 1,
+      significant_gaps: 1,
+      total_lines: 1,
+      unused_takeoff_items: 0,
     });
     expect(response.rows[0]).toMatchObject({
-      match_source: "auto",
-      severity: "warning",
-      delta_absolute: 18,
-      delta_percent: 18,
+      review_status: "significant_gap",
+      matched_by: "auto",
+      delta_absolute: 28,
+      delta_percent: 28,
     });
+    expect(response.rows[0]?.proofs.some((proof) => proof.kind === "fact")).toBe(true);
   });
 
-  it("prioritizes persisted manual links over automatic matching", () => {
+  it("prioritizes manual multi-links and computes an aggregated quantity proof", () => {
     const response = buildTakeoffDpgfComparison({
       versionId: VERSION_ID,
       jobId: JOB_ID,
-      threshold: 0.9,
       dpgfLines: [
         {
           estimate_item_id: DPGF_ITEM_ID,
@@ -79,18 +77,31 @@ describe("buildTakeoffDpgfComparison", () => {
       takeoffLines: [
         {
           item_id: TAKEOFF_ITEM_ID,
-          designation: "Plafond metallique",
-          quantity: 10,
+          designation: "Cloison BA13 - zone A",
+          quantity: 4,
           unit: "m2",
-          source_page: 8,
+          source_page: 3,
           source_file_name: "plans.pdf",
-          confidence: 0.5,
+          confidence: 0.9,
+          evidence: "Zone A",
+          metadata: {},
+        },
+        {
+          item_id: TAKEOFF_ITEM_ID_2,
+          designation: "Cloison BA13 - zone B",
+          quantity: 6,
+          unit: "m2",
+          source_page: 4,
+          source_file_name: "plans.pdf",
+          confidence: 0.88,
+          evidence: "Zone B",
+          metadata: {},
         },
       ],
       manualLinks: [
         {
           id: LINK_ID,
-          tenant_id: "88888888-8888-4888-8888-888888888888",
+          tenant_id: "99999999-9999-4999-8999-999999999999",
           version_id: VERSION_ID,
           takeoff_job_id: JOB_ID,
           estimate_item_id: DPGF_ITEM_ID,
@@ -99,28 +110,41 @@ describe("buildTakeoffDpgfComparison", () => {
           updated_at: "2026-03-06T10:00:00.000Z",
           linked_by: null,
         },
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          tenant_id: "99999999-9999-4999-8999-999999999999",
+          version_id: VERSION_ID,
+          takeoff_job_id: JOB_ID,
+          estimate_item_id: DPGF_ITEM_ID,
+          takeoff_item_id: TAKEOFF_ITEM_ID_2,
+          created_at: "2026-03-06T10:00:00.000Z",
+          updated_at: "2026-03-06T10:00:00.000Z",
+          linked_by: null,
+        },
       ],
     });
 
-    expect(response.summary.manual_links).toBe(1);
+    expect(response.summary.forced_manual).toBe(1);
     expect(response.rows[0]).toMatchObject({
-      match_source: "manual",
-      manual_link_id: LINK_ID,
-      severity: "ok",
+      review_status: "forced_manual",
+      matched_by: "manual",
+      manual_link_count: 2,
+      takeoff_quantity: 10,
     });
+    expect(response.rows[0]?.proofs.some((proof) => proof.type === "formula")).toBe(true);
   });
 
-  it("returns unmatched takeoff rows as missing_dpgf and paginates with an opaque cursor", () => {
-    const firstPage = buildTakeoffDpgfComparison({
+  it("keeps carried-over decisions visible in exceptions-only mode", () => {
+    const response = buildTakeoffDpgfComparison({
       versionId: VERSION_ID,
       jobId: JOB_ID,
-      pageSize: 1,
+      view: "exceptions_only",
       dpgfLines: [
         {
           estimate_item_id: DPGF_ITEM_ID,
-          title: "Peinture mate",
+          title: "Moquette",
           description: null,
-          quantity: 20,
+          quantity: 5,
           unit: "m2",
           source_page: 2,
           source_file_name: "dpgf.xlsx",
@@ -128,9 +152,9 @@ describe("buildTakeoffDpgfComparison", () => {
         },
         {
           estimate_item_id: DPGF_ITEM_ID_2,
-          title: "Moquette",
+          title: "Peinture",
           description: null,
-          quantity: 5,
+          quantity: 20,
           unit: "m2",
           source_page: 3,
           source_file_name: "dpgf.xlsx",
@@ -140,89 +164,69 @@ describe("buildTakeoffDpgfComparison", () => {
       takeoffLines: [
         {
           item_id: TAKEOFF_ITEM_ID,
-          designation: "Peinture mate",
-          quantity: 20,
-          unit: "m2",
-          source_page: 4,
-          source_file_name: "plans.pdf",
-          confidence: 0.8,
-        },
-        {
-          item_id: TAKEOFF_ITEM_ID_2,
-          designation: "Reserve plafond",
-          quantity: 2,
-          unit: "u",
-          source_page: 5,
-          source_file_name: "plans.pdf",
-          confidence: 0.6,
-        },
-      ],
-    });
-
-    expect(firstPage.rows).toHaveLength(1);
-    expect(firstPage.pagination.next_cursor).toBeTruthy();
-    expect(firstPage.summary).toMatchObject({
-      matches: 1,
-      missing_takeoff: 1,
-      missing_dpgf: 1,
-      total_rows: 3,
-    });
-
-    const secondPage = buildTakeoffDpgfComparison({
-      versionId: VERSION_ID,
-      jobId: JOB_ID,
-      pageSize: 5,
-      cursor: firstPage.pagination.next_cursor,
-      dpgfLines: [
-        {
-          estimate_item_id: DPGF_ITEM_ID,
-          title: "Peinture mate",
-          description: null,
-          quantity: 20,
-          unit: "m2",
-          source_page: 2,
-          source_file_name: "dpgf.xlsx",
-          position: 1,
-        },
-        {
-          estimate_item_id: DPGF_ITEM_ID_2,
-          title: "Moquette",
-          description: null,
+          designation: "Moquette",
           quantity: 5,
           unit: "m2",
-          source_page: 3,
-          source_file_name: "dpgf.xlsx",
-          position: 2,
-        },
-      ],
-      takeoffLines: [
-        {
-          item_id: TAKEOFF_ITEM_ID,
-          designation: "Peinture mate",
-          quantity: 20,
-          unit: "m2",
-          source_page: 4,
+          source_page: 6,
           source_file_name: "plans.pdf",
-          confidence: 0.8,
+          confidence: 0.91,
+          evidence: "Zone moquette",
+          metadata: {},
         },
         {
           item_id: TAKEOFF_ITEM_ID_2,
-          designation: "Reserve plafond",
+          designation: "Peinture reserve",
           quantity: 2,
           unit: "u",
-          source_page: 5,
+          source_page: 8,
           source_file_name: "plans.pdf",
-          confidence: 0.6,
+          confidence: 0.5,
+          evidence: "Reserve",
+          metadata: {},
+        },
+        {
+          item_id: TAKEOFF_ITEM_ID_3,
+          designation: "Plinthe non affectee",
+          quantity: 12,
+          unit: "ml",
+          source_page: 9,
+          source_file_name: "plans.pdf",
+          confidence: 0.62,
+          evidence: "Plinthe couloir",
+          metadata: {},
+        },
+      ],
+      carriedReviewDecisions: [
+        {
+          id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          tenant_id: "99999999-9999-4999-8999-999999999999",
+          version_id: VERSION_ID,
+          takeoff_job_id: JOB_ID,
+          estimate_item_id: DPGF_ITEM_ID_2,
+          decision: "keep_dpgf",
+          reason: "Conserver la quantite du DPGF tant que la reserve n'est pas verifiee.",
+          review_reference: "dpgf xlsx row 3",
+          line_label: "Peinture",
+          line_position: 2,
+          source_file_name: "dpgf.xlsx",
+          source_page: 3,
+          decided_at: "2026-03-06T10:10:00.000Z",
+          updated_at: "2026-03-06T10:10:00.000Z",
+          decided_by: null,
+          source: "carried_over",
+          carried_over_from_version_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          carried_over_from_version_number: 2,
         },
       ],
     });
 
-    expect(secondPage.rows).toHaveLength(2);
-    expect(secondPage.rows[0]?.severity).toBe("missing");
-    expect(secondPage.rows[1]).toMatchObject({
-      dpgf: null,
-      takeoff: expect.objectContaining({ item_id: TAKEOFF_ITEM_ID_2 }),
-      severity: "missing",
+    expect(response.view).toBe("exceptions_only");
+    expect(response.rows).toHaveLength(1);
+    expect(response.rows[0]?.applied_decision).toMatchObject({
+      decision: "keep_dpgf",
+      source: "carried_over",
+      carried_over_from_version_number: 2,
     });
+    expect(response.unused_takeoff_items).toHaveLength(2);
   });
 });

@@ -11,6 +11,8 @@ import type {
   RegisterPlanFileInput as SharedRegisterPlanFileInput,
   SaveTakeoffDpgfManualLinkInput as SharedSaveTakeoffDpgfManualLinkInput,
   SaveTakeoffDpgfManualLinkResponse as SharedSaveTakeoffDpgfManualLinkResponse,
+  SaveTakeoffReviewDecisionInput as SharedSaveTakeoffReviewDecisionInput,
+  SaveTakeoffReviewDecisionResponse as SharedSaveTakeoffReviewDecisionResponse,
   TakeoffApiError as TakeoffApiErrorShape,
   TakeoffApplyRequest as SharedTakeoffApplyRequest,
   TakeoffApplyResponse as SharedTakeoffApplyResponse,
@@ -71,6 +73,10 @@ export type PlanFileDeleteResponse = SharedPlanFileDeleteResponse;
 export type TakeoffDpgfComparisonResponse = SharedTakeoffDpgfComparisonResponse;
 export type SaveTakeoffDpgfManualLinkInput = SharedSaveTakeoffDpgfManualLinkInput;
 export type SaveTakeoffDpgfManualLinkResponse = SharedSaveTakeoffDpgfManualLinkResponse;
+export type SaveTakeoffReviewDecisionInput =
+  SharedSaveTakeoffReviewDecisionInput;
+export type SaveTakeoffReviewDecisionResponse =
+  SharedSaveTakeoffReviewDecisionResponse;
 
 type ApiEnvelope<T> = {
   ok?: boolean;
@@ -730,7 +736,12 @@ export async function deletePlanFile(
 
 export async function fetchTakeoffDpgfComparison(
   jobId: string,
-  query: { version_id: string; cursor?: string; page_size?: number },
+  query: {
+    version_id: string;
+    cursor?: string;
+    page_size?: number;
+    view?: "all" | "exceptions_only";
+  },
   options?: { signal?: AbortSignal }
 ): Promise<TakeoffDpgfComparisonResponse> {
   const searchParams = new URLSearchParams();
@@ -738,6 +749,9 @@ export async function fetchTakeoffDpgfComparison(
   if (query.cursor) searchParams.set("cursor", query.cursor);
   if (typeof query.page_size === "number") {
     searchParams.set("page_size", String(query.page_size));
+  }
+  if (query.view) {
+    searchParams.set("view", query.view);
   }
 
   return requestTakeoffJson<TakeoffDpgfComparisonResponse>(
@@ -749,7 +763,12 @@ export async function fetchTakeoffDpgfComparison(
 
 export async function fetchAllTakeoffDpgfComparison(
   jobId: string,
-  query: { version_id: string; cursor?: string; page_size?: number },
+  query: {
+    version_id: string;
+    cursor?: string;
+    page_size?: number;
+    view?: "all" | "exceptions_only";
+  },
   options?: { signal?: AbortSignal }
 ): Promise<TakeoffDpgfComparisonResponse> {
   const rows: TakeoffDpgfComparisonResponse["rows"] = [];
@@ -798,6 +817,21 @@ export async function saveTakeoffDpgfManualLink(
       body: JSON.stringify(input),
     },
     "Impossible de sauvegarder le lien manuel DPGF."
+  );
+}
+
+export async function saveTakeoffReviewDecision(
+  jobId: string,
+  input: SaveTakeoffReviewDecisionInput
+): Promise<SaveTakeoffReviewDecisionResponse> {
+  return requestTakeoffJson<SaveTakeoffReviewDecisionResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/review-decision`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    "Impossible d'enregistrer la decision de revue."
   );
 }
 
