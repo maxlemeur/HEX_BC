@@ -156,13 +156,15 @@ export function PlansMetresCard({
             >
               Ajouter les plans
             </Link>
-            <button
-              type="button"
-              className="text-sm text-[var(--slate-500)] underline underline-offset-2 hover:text-[var(--slate-700)]"
-              onClick={onDismissEmpty}
-            >
-              Continuer sans plans
-            </button>
+            {onDismissEmpty ? (
+              <button
+                type="button"
+                className="text-sm text-[var(--slate-500)] underline underline-offset-2 hover:text-[var(--slate-700)]"
+                onClick={onDismissEmpty}
+              >
+                Continuer sans plans
+              </button>
+            ) : null}
           </div>
         </div>
       </section>

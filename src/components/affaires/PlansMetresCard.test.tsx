@@ -1,9 +1,13 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PlansMetresCard } from "@/components/affaires/PlansMetresCard";
 
 describe("PlansMetresCard", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it("uses reviewVersionId for the exceptions CTA", () => {
     render(
       <PlansMetresCard
@@ -46,5 +50,13 @@ describe("PlansMetresCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continuer sans plans" }));
 
     expect(onDismissEmpty).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the empty state dismiss CTA when no handler is provided", () => {
+    render(<PlansMetresCard projectId="project-1" plans={null} />);
+
+    expect(
+      screen.queryByRole("button", { name: "Continuer sans plans" })
+    ).not.toBeInTheDocument();
   });
 });

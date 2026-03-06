@@ -17,9 +17,11 @@ vi.mock("@/lib/takeoff/version-links", () => ({
 }));
 
 import { getAuthenticatedContext } from "@/lib/estimates/server";
+import { buildTakeoffDpgfReviewReference } from "@/lib/takeoff/dpgf-compare";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   fetchDpgfTakeoffComparison,
+  fetchTakeoffDpgfSummaryForHub,
   parseTakeoffDpgfComparisonQuery,
   saveTakeoffDpgfManualLink,
   saveTakeoffReviewDecision,
@@ -712,6 +714,7 @@ describe("takeoff DPGF comparison server helpers", () => {
       total_lines: 1,
       unused_takeoff_items: 1,
     });
+    expect(response.manual_link_candidates).toHaveLength(2);
     expect(response.rows[0]).toMatchObject({
       line_id: ESTIMATE_ITEM_ID,
       matched_by: "manual",
@@ -785,6 +788,62 @@ describe("takeoff DPGF comparison server helpers", () => {
       source: "carried_over",
       carried_over_from_version_id: SOURCE_VERSION_ID,
       carried_over_from_version_number: 2,
+    });
+  });
+
+  it("includes carried review decisions in the hub summary for linked versions", async () => {
+    const mock = createSupabaseMock();
+    mock.state.reviewDecisions = [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        tenant_id: TENANT_ID,
+        version_id: SOURCE_VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        review_reference: "dpgf xlsx row 12",
+        line_label: "Faux plafond acoustique",
+        line_position: 1,
+        source_file_name: "dpgf.xlsx",
+        source_page: 12,
+        carried_over_from_version_id: null,
+        carried_over_at: null,
+        decision: "keep_dpgf",
+        reason: "Decision issue de la version precedente.",
+        decided_at: "2026-03-06T10:10:00.000Z",
+        updated_at: "2026-03-06T10:10:00.000Z",
+        decided_by: USER_ID,
+      },
+    ];
+
+    vi.mocked(listAccessibleTakeoffJobsForVersion).mockResolvedValue([
+      {
+        id: JOB_ID,
+        estimate_version_id: VERSION_ID,
+        status: "completed",
+        level: "A",
+        source_file_name: "plans.pdf",
+        source_file_type: "application/pdf",
+        source_file_size_bytes: 1200,
+        created_at: "2026-03-06T09:59:00.000Z",
+        updated_at: "2026-03-06T10:01:00.000Z",
+        linked_from_version_id: SOURCE_VERSION_ID,
+        linked_from_version_number: 2,
+        is_linked: true,
+      },
+    ]);
+
+    const summary = await fetchTakeoffDpgfSummaryForHub({
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      jobId: JOB_ID,
+      versionId: VERSION_ID,
+      projectId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    });
+
+    expect(summary).toMatchObject({
+      forced_manual: 1,
+      total_lines: 1,
+      unused_takeoff_items: 1,
     });
   });
 
@@ -862,5 +921,38 @@ describe("takeoff DPGF comparison server helpers", () => {
       carried_over_from_version_number: 2,
     });
     expect(mock.state.reviewDecisions[0]?.decision).toBe("manual_fix");
+  });
+
+  it("builds review carry-over references from the resolved DPGF unit", async () => {
+    const mock = createSupabaseMock();
+    mock.state.estimateItems = [
+      {
+        ...mock.state.estimateItems[0]!,
+        source_file_name: null,
+        description: "Description divergente",
+      },
+    ];
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    await saveTakeoffReviewDecision(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: ESTIMATE_ITEM_ID,
+      decision: "keep_takeoff",
+    });
+
+    expect(mock.state.reviewDecisions[0]?.review_reference).toBe(
+      buildTakeoffDpgfReviewReference({
+        sourceFileName: null,
+        sourcePage: 12,
+        position: 1,
+        title: "Faux plafond acoustique",
+        unit: "m2",
+      })
+    );
   });
 });
