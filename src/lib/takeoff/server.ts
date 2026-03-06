@@ -7,6 +7,8 @@ import {
   bulkUpdateEstimateItems,
   getAuthenticatedContext,
   insertAssemblyIntoVersion,
+  suggestEstimateCataloguePrices,
+  updateEstimateItem,
 } from "@/lib/estimates/server";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { isPriceStale } from "@/lib/catalogue/stale-prices";
@@ -81,6 +83,17 @@ import {
   type TakeoffDpgfComparisonSummary,
   type TakeoffDpgfComparisonTakeoffLine,
   type TakeoffDpgfManualLinkRecord,
+  type TakeoffPriceSuggestionAction,
+  type TakeoffPriceSuggestionConfidenceLabel,
+  type TakeoffPriceSuggestionFactor,
+  type TakeoffPriceSuggestionResponse,
+  type TakeoffPriceSuggestionSnapshot,
+  type TakeoffPriceSuggestionSource,
+  type TakeoffPriceSuggestionSourceKind,
+  type ReviewTakeoffPriceSuggestionInput,
+  type ReviewTakeoffPriceSuggestionResponse,
+  type RequestTakeoffPriceSuggestionInput,
+  type GetTakeoffPriceSuggestionQuery,
   type TakeoffDpgfReviewDecisionRecord,
   type TakeoffLineEvidencePanelResponse,
   type TakeoffJobItem,
@@ -110,12 +123,18 @@ import {
   TAKEOFF_COMPARE_MAX_THRESHOLD,
   TAKEOFF_COMPARE_MIN_THRESHOLD,
   buildTakeoffDiff,
+  computeTakeoffSimilarityRatio,
+  normalizeTakeoffCompareText,
 } from "@/lib/takeoff/diff";
 import {
   buildTakeoffRiskCandidates,
   buildTakeoffRiskRadarResponse,
   normalizeRiskAlertRow,
 } from "@/lib/takeoff/risk-radar";
+import {
+  buildTakeoffPriceSuggestion,
+  type TakeoffPriceSuggestionCandidate,
+} from "@/lib/takeoff/price-suggestions";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
@@ -250,6 +269,57 @@ const TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT = [
   "updated_at",
   "decided_by",
 ].join(", ");
+const TAKEOFF_PRICE_SUGGESTIONS_SELECT = [
+  "id",
+  "created_at",
+  "updated_at",
+  "tenant_id",
+  "project_id",
+  "version_id",
+  "takeoff_job_id",
+  "estimate_item_id",
+  "snapshot_fingerprint",
+  "status",
+  "current_price_cents",
+  "low_cents",
+  "target_cents",
+  "high_cents",
+  "confidence_score",
+  "confidence_label",
+  "candidate_count",
+  "outlier_count",
+  "justification",
+  "factors_json",
+  "summary_json",
+  "selected_action",
+  "selected_price_cents",
+  "review_note",
+  "reviewed_at",
+  "reviewed_by",
+  "superseded_at",
+].join(", ");
+const TAKEOFF_PRICE_SUGGESTION_SOURCES_SELECT = [
+  "id",
+  "created_at",
+  "tenant_id",
+  "project_id",
+  "version_id",
+  "takeoff_job_id",
+  "estimate_item_id",
+  "suggestion_id",
+  "source_kind",
+  "kind",
+  "label",
+  "source_ref",
+  "price_cents",
+  "freshness_label",
+  "confidence_score",
+  "rank",
+  "is_outlier",
+  "source_record_table",
+  "source_record_id",
+  "metadata_json",
+].join(", ");
 const ESTIMATE_DPGF_COMPARE_SELECT = [
   "id",
   "version_id",
@@ -262,6 +332,9 @@ const ESTIMATE_DPGF_COMPARE_SELECT = [
   "source_page",
   "source_provider",
   "item_type",
+  "unit",
+  "category_id",
+  "unit_price_ht_cents",
   "updated_at",
 ].join(", ");
 const ESTIMATE_RISK_ITEMS_SELECT = [
@@ -652,6 +725,9 @@ const takeoffDpgfCompareEstimateItemRowSchema = z.object({
   source_page: z.number().int().nullable(),
   source_provider: z.string().nullable().optional(),
   item_type: z.enum(["section", "line"]),
+  unit: z.string().nullable().optional(),
+  category_id: z.string().uuid().nullable().optional(),
+  unit_price_ht_cents: z.number().int().nonnegative().nullable().optional(),
   updated_at: z.string(),
 });
 
@@ -659,6 +735,83 @@ const takeoffDpgfCompareMappedRowSchema = z.object({
   id: z.string().uuid(),
   payload: jsonRecordSchema,
 });
+
+const takeoffPriceSuggestionFactorSchema: z.ZodType<TakeoffPriceSuggestionFactor> =
+  z.object({
+    key: z.string().min(1),
+    label: z.string().min(1),
+    value: z.string().min(1),
+    kind: z.enum(["fact", "hypothesis", "inference"]),
+  });
+
+const takeoffPriceSuggestionSourceSchema: z.ZodType<TakeoffPriceSuggestionSource> =
+  z.object({
+    source_id: z.string().min(1),
+    source_kind: z.enum([
+      "history",
+      "pricebook",
+      "similar_item",
+      "external_reference",
+    ]),
+    kind: z.enum(["fact", "hypothesis", "inference"]),
+    label: z.string().min(1),
+    source_ref: z.string().min(1),
+    price_cents: z.number().int().nonnegative(),
+    freshness_label: z.string().nullable(),
+    confidence_score: z.number().min(0).max(1).nullable(),
+    rank: z.number().int().positive(),
+    is_outlier: z.boolean(),
+    source_record_table: z.string().nullable(),
+    source_record_id: z.string().nullable(),
+    metadata: jsonRecordSchema,
+  });
+
+const takeoffPriceSuggestionSnapshotSchema: z.ZodType<TakeoffPriceSuggestionSnapshot> =
+  z.object({
+    suggestion_id: z.string().uuid(),
+    line_id: z.string().uuid(),
+    version_id: z.string().uuid(),
+    job_id: z.string().uuid(),
+    current_price_cents: z.number().int().nonnegative().nullable(),
+    low_cents: z.number().int().nonnegative(),
+    target_cents: z.number().int().nonnegative(),
+    high_cents: z.number().int().nonnegative(),
+    confidence_score: z.number().min(0).max(1).nullable(),
+    confidence_label: z.enum(["low", "medium", "high"]),
+    candidate_count: z.number().int().nonnegative(),
+    outlier_count: z.number().int().nonnegative(),
+    justification: z.string().min(1),
+    factors: z.array(takeoffPriceSuggestionFactorSchema),
+    summary: jsonRecordSchema,
+    status: z.enum(["pending", "applied", "kept_current", "rejected"]),
+    selected_action: z
+      .enum(["apply_low", "apply_target", "apply_high", "keep_current", "reject"])
+      .nullable(),
+    selected_price_cents: z.number().int().nonnegative().nullable(),
+    review_note: z.string().nullable(),
+    reviewed_at: z.string().nullable(),
+    reviewed_by: z.string().uuid().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    sources: z.array(takeoffPriceSuggestionSourceSchema),
+  });
+
+const takeoffPriceSuggestionResponseSchema: z.ZodType<TakeoffPriceSuggestionResponse> =
+  z.object({
+    suggestion: takeoffPriceSuggestionSnapshotSchema,
+  });
+
+const takeoffPriceSuggestionReviewResponseSchema: z.ZodType<ReviewTakeoffPriceSuggestionResponse> =
+  z.object({
+    suggestion: takeoffPriceSuggestionSnapshotSchema,
+    applied_item: z
+      .object({
+        id: z.string().uuid(),
+        unit_price_ht_cents: z.number().int().nonnegative().nullable(),
+        updated_at: z.string(),
+      })
+      .nullable(),
+  });
 
 export const takeoffJobIdSchema = z.string().uuid("jobId invalide.");
 
@@ -712,6 +865,13 @@ export const takeoffLineEvidencePanelQuerySchema = z
   })
   .strict();
 
+export const takeoffPriceSuggestionQuerySchema = z
+  .object({
+    version_id: requiredUuidSearchParamSchema,
+    estimate_item_id: requiredUuidSearchParamSchema,
+  })
+  .strict();
+
 export const takeoffRiskRadarQuerySchema = z
   .object({
     version_id: requiredUuidSearchParamSchema,
@@ -739,6 +899,32 @@ export const saveTakeoffReviewDecisionSchema = z
     estimate_item_id: z.string().uuid("estimate_item_id invalide."),
     decision: z.enum(["keep_dpgf", "keep_takeoff", "manual_fix", "out_of_scope"]),
     reason: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strict();
+
+export const requestTakeoffPriceSuggestionSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    estimate_item_id: z.string().uuid("estimate_item_id invalide."),
+    force_refresh: z.boolean().optional(),
+  })
+  .strict();
+
+export const reviewTakeoffPriceSuggestionSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    action: z.enum([
+      "apply_low",
+      "apply_target",
+      "apply_high",
+      "keep_current",
+      "reject",
+    ]),
+    review_note: z
+      .string()
+      .trim()
+      .min(1, "Une note humaine explicite est obligatoire.")
+      .max(2000, "review_note trop longue."),
   })
   .strict();
 
@@ -790,9 +976,18 @@ export type TakeoffDpgfComparisonQuery = z.infer<
 export type TakeoffLineEvidencePanelQuery = z.infer<
   typeof takeoffLineEvidencePanelQuerySchema
 >;
+export type TakeoffPriceSuggestionQuery = z.infer<
+  typeof takeoffPriceSuggestionQuerySchema
+>;
 export type TakeoffRiskRadarQuery = z.infer<typeof takeoffRiskRadarQuerySchema>;
 export type SaveTakeoffReviewDecisionPayload = z.infer<
   typeof saveTakeoffReviewDecisionSchema
+>;
+export type RequestTakeoffPriceSuggestionPayload = z.infer<
+  typeof requestTakeoffPriceSuggestionSchema
+>;
+export type ReviewTakeoffPriceSuggestionPayload = z.infer<
+  typeof reviewTakeoffPriceSuggestionSchema
 >;
 
 const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
@@ -879,6 +1074,77 @@ type EstimateLineForTakeoffMappingRow = {
   description: string | null;
   source_job_id: string | null;
   item_type: string;
+  updated_at: string;
+};
+
+type TakeoffPriceSuggestionRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  tenant_id: string;
+  project_id: string;
+  version_id: string;
+  takeoff_job_id: string;
+  estimate_item_id: string;
+  snapshot_fingerprint: string;
+  status: string;
+  current_price_cents: number | null;
+  low_cents: number;
+  target_cents: number;
+  high_cents: number;
+  confidence_score: number | null;
+  confidence_label: string;
+  candidate_count: number;
+  outlier_count: number;
+  justification: string;
+  factors_json: unknown;
+  summary_json: unknown;
+  selected_action: string | null;
+  selected_price_cents: number | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  superseded_at: string | null;
+};
+
+type TakeoffPriceSuggestionSourceRow = {
+  id: string;
+  created_at: string;
+  tenant_id: string;
+  project_id: string;
+  version_id: string;
+  takeoff_job_id: string;
+  estimate_item_id: string;
+  suggestion_id: string;
+  source_kind: string;
+  kind: string;
+  label: string;
+  source_ref: string;
+  price_cents: number;
+  freshness_label: string | null;
+  confidence_score: number | null;
+  rank: number;
+  is_outlier: boolean;
+  source_record_table: string | null;
+  source_record_id: string | null;
+  metadata_json: unknown;
+};
+
+type EstimateItemPriceSuggestionRow = {
+  id: string;
+  version_id: string;
+  position: number;
+  title: string;
+  description: string | null;
+  quantity: number | null;
+  selected_supplier_price_id: string | null;
+  source_file_name: string | null;
+  source_page: number | null;
+  source_provider: string | null;
+  item_type: "section" | "line";
+  unit: string | null;
+  category_id: string | null;
+  unit_price_ht_cents: number | null;
   updated_at: string;
 };
 
@@ -1404,6 +1670,764 @@ function normalizeTakeoffDpgfMappedRows(rows: unknown[]) {
   );
 }
 
+function normalizeTakeoffPriceSuggestionRow(row: unknown): TakeoffPriceSuggestionRow {
+  if (!isRecord(row)) {
+    throw unprocessableEntity(
+      "Donnees takeoff_price_suggestions invalides en base.",
+      { row },
+      "VALIDATION_ERROR"
+    );
+  }
+
+  return {
+    id: parseWithSchema(z.string().uuid(), row.id, "Suggestion invalide."),
+    created_at: parseWithSchema(z.string(), row.created_at, "Suggestion invalide."),
+    updated_at: parseWithSchema(z.string(), row.updated_at, "Suggestion invalide."),
+    tenant_id: parseWithSchema(z.string().uuid(), row.tenant_id, "Suggestion invalide."),
+    project_id: parseWithSchema(z.string().uuid(), row.project_id, "Suggestion invalide."),
+    version_id: parseWithSchema(z.string().uuid(), row.version_id, "Suggestion invalide."),
+    takeoff_job_id: parseWithSchema(
+      z.string().uuid(),
+      row.takeoff_job_id,
+      "Suggestion invalide."
+    ),
+    estimate_item_id: parseWithSchema(
+      z.string().uuid(),
+      row.estimate_item_id,
+      "Suggestion invalide."
+    ),
+    snapshot_fingerprint: parseWithSchema(
+      z.string().min(1),
+      row.snapshot_fingerprint,
+      "Suggestion invalide."
+    ),
+    status: parseWithSchema(z.string().min(1), row.status, "Suggestion invalide."),
+    current_price_cents:
+      typeof row.current_price_cents === "number" ? row.current_price_cents : null,
+    low_cents: parseWithSchema(
+      z.number().int().nonnegative(),
+      row.low_cents,
+      "Suggestion invalide."
+    ),
+    target_cents: parseWithSchema(
+      z.number().int().nonnegative(),
+      row.target_cents,
+      "Suggestion invalide."
+    ),
+    high_cents: parseWithSchema(
+      z.number().int().nonnegative(),
+      row.high_cents,
+      "Suggestion invalide."
+    ),
+    confidence_score:
+      typeof row.confidence_score === "number" ? row.confidence_score : null,
+    confidence_label: parseWithSchema(
+      z.string().min(1),
+      row.confidence_label,
+      "Suggestion invalide."
+    ),
+    candidate_count: parseWithSchema(
+      z.number().int().nonnegative(),
+      row.candidate_count,
+      "Suggestion invalide."
+    ),
+    outlier_count: parseWithSchema(
+      z.number().int().nonnegative(),
+      row.outlier_count,
+      "Suggestion invalide."
+    ),
+    justification: parseWithSchema(
+      z.string().min(1),
+      row.justification,
+      "Suggestion invalide."
+    ),
+    factors_json: row.factors_json,
+    summary_json: row.summary_json,
+    selected_action: typeof row.selected_action === "string" ? row.selected_action : null,
+    selected_price_cents:
+      typeof row.selected_price_cents === "number" ? row.selected_price_cents : null,
+    review_note: typeof row.review_note === "string" ? row.review_note : null,
+    reviewed_at: typeof row.reviewed_at === "string" ? row.reviewed_at : null,
+    reviewed_by: typeof row.reviewed_by === "string" ? row.reviewed_by : null,
+    superseded_at: typeof row.superseded_at === "string" ? row.superseded_at : null,
+  };
+}
+
+function normalizeTakeoffPriceSuggestionSourceRows(
+  rows: unknown[]
+): TakeoffPriceSuggestionSourceRow[] {
+  return rows.map((row) => {
+    if (!isRecord(row)) {
+      throw unprocessableEntity(
+        "Donnees takeoff_price_suggestion_sources invalides en base.",
+        { row },
+        "VALIDATION_ERROR"
+      );
+    }
+
+    return {
+      id: parseWithSchema(z.string().uuid(), row.id, "Source de suggestion invalide."),
+      created_at: parseWithSchema(
+        z.string(),
+        row.created_at,
+        "Source de suggestion invalide."
+      ),
+      tenant_id: parseWithSchema(
+        z.string().uuid(),
+        row.tenant_id,
+        "Source de suggestion invalide."
+      ),
+      project_id: parseWithSchema(
+        z.string().uuid(),
+        row.project_id,
+        "Source de suggestion invalide."
+      ),
+      version_id: parseWithSchema(
+        z.string().uuid(),
+        row.version_id,
+        "Source de suggestion invalide."
+      ),
+      takeoff_job_id: parseWithSchema(
+        z.string().uuid(),
+        row.takeoff_job_id,
+        "Source de suggestion invalide."
+      ),
+      estimate_item_id: parseWithSchema(
+        z.string().uuid(),
+        row.estimate_item_id,
+        "Source de suggestion invalide."
+      ),
+      suggestion_id: parseWithSchema(
+        z.string().uuid(),
+        row.suggestion_id,
+        "Source de suggestion invalide."
+      ),
+      source_kind: parseWithSchema(
+        z.string().min(1),
+        row.source_kind,
+        "Source de suggestion invalide."
+      ),
+      kind: parseWithSchema(z.string().min(1), row.kind, "Source de suggestion invalide."),
+      label: parseWithSchema(z.string().min(1), row.label, "Source de suggestion invalide."),
+      source_ref: parseWithSchema(
+        z.string().min(1),
+        row.source_ref,
+        "Source de suggestion invalide."
+      ),
+      price_cents: parseWithSchema(
+        z.number().int().nonnegative(),
+        row.price_cents,
+        "Source de suggestion invalide."
+      ),
+      freshness_label:
+        typeof row.freshness_label === "string" ? row.freshness_label : null,
+      confidence_score:
+        typeof row.confidence_score === "number" ? row.confidence_score : null,
+      rank: parseWithSchema(
+        z.number().int().positive(),
+        row.rank,
+        "Source de suggestion invalide."
+      ),
+      is_outlier: Boolean(row.is_outlier),
+      source_record_table:
+        typeof row.source_record_table === "string" ? row.source_record_table : null,
+      source_record_id:
+        typeof row.source_record_id === "string" ? row.source_record_id : null,
+      metadata_json: isRecord(row.metadata_json) ? row.metadata_json : {},
+    };
+  });
+}
+
+function mapTakeoffPriceSuggestionSnapshot(input: {
+  row: TakeoffPriceSuggestionRow;
+  sourceRows: TakeoffPriceSuggestionSourceRow[];
+}): TakeoffPriceSuggestionSnapshot {
+  return parseWithSchema(
+    takeoffPriceSuggestionSnapshotSchema,
+    {
+      suggestion_id: input.row.id,
+      line_id: input.row.estimate_item_id,
+      version_id: input.row.version_id,
+      job_id: input.row.takeoff_job_id,
+      current_price_cents: input.row.current_price_cents,
+      low_cents: input.row.low_cents,
+      target_cents: input.row.target_cents,
+      high_cents: input.row.high_cents,
+      confidence_score: input.row.confidence_score,
+      confidence_label: input.row
+        .confidence_label as TakeoffPriceSuggestionConfidenceLabel,
+      candidate_count: input.row.candidate_count,
+      outlier_count: input.row.outlier_count,
+      justification: input.row.justification,
+      factors: input.row.factors_json,
+      summary: input.row.summary_json,
+      status: input.row.status,
+      selected_action: input.row.selected_action,
+      selected_price_cents: input.row.selected_price_cents,
+      review_note: input.row.review_note,
+      reviewed_at: input.row.reviewed_at,
+      reviewed_by: input.row.reviewed_by,
+      created_at: input.row.created_at,
+      updated_at: input.row.updated_at,
+      sources: input.sourceRows
+        .slice()
+        .sort((left, right) => left.rank - right.rank)
+        .map((sourceRow) => ({
+          source_id: sourceRow.id,
+          source_kind: sourceRow.source_kind as TakeoffPriceSuggestionSourceKind,
+          kind: sourceRow.kind as TakeoffPriceSuggestionFactor["kind"],
+          label: sourceRow.label,
+          source_ref: sourceRow.source_ref,
+          price_cents: sourceRow.price_cents,
+          freshness_label: sourceRow.freshness_label,
+          confidence_score: sourceRow.confidence_score,
+          rank: sourceRow.rank,
+          is_outlier: sourceRow.is_outlier,
+          source_record_table: sourceRow.source_record_table,
+          source_record_id: sourceRow.source_record_id,
+          metadata: isRecord(sourceRow.metadata_json) ? sourceRow.metadata_json : {},
+        })),
+    },
+    "Suggestion de prix invalide."
+  );
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
+  }
+
+  if (!isRecord(value)) {
+    return JSON.stringify(String(value));
+  }
+
+  const entries = Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`);
+
+  return `{${entries.join(",")}}`;
+}
+
+function formatPriceSuggestionFreshnessLabel(input: {
+  updatedAt: string | null;
+  isStale?: boolean;
+}): string | null {
+  if (input.isStale) return "ancienne";
+  if (!input.updatedAt) return null;
+
+  const updatedAtMs = Date.parse(input.updatedAt);
+  if (!Number.isFinite(updatedAtMs)) return null;
+
+  const ageDays = Math.floor((Date.now() - updatedAtMs) / (24 * 60 * 60 * 1000));
+  if (ageDays <= 30) return "fraiche";
+  if (ageDays <= 180) return "recente";
+  return "historique";
+}
+
+function buildPriceSuggestionFingerprint(input: {
+  lineId: string;
+  versionId: string;
+  jobId: string;
+  currentPriceCents: number | null;
+  quantity: number | null;
+  unit: string | null;
+  suggestion: ReturnType<typeof buildTakeoffPriceSuggestion>;
+}) {
+  return toHexSha256(
+    stableSerialize({
+      line_id: input.lineId,
+      version_id: input.versionId,
+      job_id: input.jobId,
+      current_price_cents: input.currentPriceCents,
+      quantity: input.quantity,
+      unit: input.unit,
+      low_cents: input.suggestion.lowCents,
+      target_cents: input.suggestion.targetCents,
+      high_cents: input.suggestion.highCents,
+      sources: input.suggestion.sources.map((source) => ({
+        source_kind: source.source_kind,
+        kind: source.kind,
+        label: source.label,
+        source_ref: source.source_ref,
+        price_cents: source.price_cents,
+        freshness_label: source.freshness_label,
+        confidence_score: source.confidence_score,
+        is_outlier: source.is_outlier,
+        source_record_table: source.source_record_table,
+        source_record_id: source.source_record_id,
+        metadata: source.metadata,
+      })),
+    })
+  );
+}
+
+function getPriceSuggestionSelectedPriceCents(input: {
+  action: TakeoffPriceSuggestionAction;
+  suggestion: TakeoffPriceSuggestionRow;
+}) {
+  if (input.action === "apply_low") return input.suggestion.low_cents;
+  if (input.action === "apply_target") return input.suggestion.target_cents;
+  if (input.action === "apply_high") return input.suggestion.high_cents;
+  if (input.action === "keep_current") return input.suggestion.current_price_cents;
+  return null;
+}
+
+function buildPriceSuggestionStatus(
+  action: TakeoffPriceSuggestionAction
+): TakeoffPriceSuggestionSnapshot["status"] {
+  if (action === "keep_current") return "kept_current";
+  if (action === "reject") return "rejected";
+  return "applied";
+}
+
+function buildPriceSuggestionQueryText(line: {
+  title: string;
+  description: string | null;
+}) {
+  const joined = [line.title, line.description ?? ""]
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .join(" ")
+    .slice(0, 180)
+    .trim();
+
+  return joined.length >= 2 ? joined : line.title.trim();
+}
+
+function normalizeEstimateItemPriceSuggestionRow(
+  row: unknown
+): EstimateItemPriceSuggestionRow {
+  const parsed = parseWithSchema(
+    takeoffDpgfCompareEstimateItemRowSchema,
+    row,
+    "Donnees estimate_items invalides pour la suggestion de prix."
+  );
+
+  return {
+    id: parsed.id,
+    version_id: parsed.version_id,
+    position: parsed.position,
+    title: parsed.title,
+    description: parsed.description,
+    quantity: parsed.quantity,
+    selected_supplier_price_id: parsed.selected_supplier_price_id ?? null,
+    source_file_name: parsed.source_file_name,
+    source_page: parsed.source_page,
+    source_provider: parsed.source_provider ?? null,
+    item_type: parsed.item_type,
+    unit: parsed.unit ?? null,
+    category_id: parsed.category_id ?? null,
+    unit_price_ht_cents: parsed.unit_price_ht_cents ?? null,
+    updated_at: parsed.updated_at,
+  };
+}
+
+async function listTakeoffPriceCandidateEstimateItems(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_items" as never)
+    .select(
+      [
+        "id",
+        "tenant_id",
+        "version_id",
+        "position",
+        "title",
+        "description",
+        "quantity",
+        "selected_supplier_price_id",
+        "source_file_name",
+        "source_page",
+        "source_provider",
+        "item_type",
+        "unit",
+        "category_id",
+        "unit_price_ht_cents",
+        "updated_at",
+      ].join(", ") as never
+    )
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("item_type" as never, "line" as never)
+    .order("updated_at" as never, { ascending: false })
+    .limit(250);
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger l'historique interne des prix."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return ((data ?? []) as unknown[]).map((row) =>
+    normalizeEstimateItemPriceSuggestionRow(row)
+  );
+}
+
+async function getTakeoffPriceSuggestionLineOrThrow(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  estimateItemId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_items" as never)
+    .select(ESTIMATE_DPGF_COMPARE_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("id" as never, input.estimateItemId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger la ligne cible."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  if (!data) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Ligne DPGF introuvable.",
+      details: {
+        estimate_item_id: input.estimateItemId,
+      },
+      retryable: false,
+    });
+  }
+
+  const line = normalizeEstimateItemPriceSuggestionRow(data);
+  if (
+    line.item_type !== "line" ||
+    (line.source_provider !== "dpgf" && line.source_file_name === null)
+  ) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "La ligne cible n'est pas une ligne DPGF eligible.",
+      details: {
+        estimate_item_id: input.estimateItemId,
+      },
+      retryable: false,
+    });
+  }
+
+  return line;
+}
+
+async function getEstimateVersionsForPriceSuggestion(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionIds: string[];
+}) {
+  const uniqueVersionIds = [...new Set(input.versionIds)];
+  if (uniqueVersionIds.length === 0) {
+    return new Map<string, { project_id: string; version_number: number | null }>();
+  }
+
+  const { data, error } = await input.supabase
+    .from("estimate_versions" as never)
+    .select("id, project_id, version_number" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .in("id" as never, uniqueVersionIds as never);
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les versions de l'historique prix."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return new Map(
+    ((data ?? []) as Array<{
+      id: string;
+      project_id: string;
+      version_number: number | null;
+    }>).map((row) => [
+      row.id,
+      {
+        project_id: row.project_id,
+        version_number: row.version_number,
+      },
+    ])
+  );
+}
+
+async function collectTakeoffPriceSuggestionSources(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  projectId: string;
+  line: EstimateItemPriceSuggestionRow;
+}) {
+  const queryText = buildPriceSuggestionQueryText(input.line);
+  const normalizedCurrentText = normalizeTakeoffCompareText(
+    `${input.line.title} ${input.line.description ?? ""}`
+  );
+  const normalizedUnit =
+    typeof input.line.unit === "string" && input.line.unit.trim().length > 0
+      ? normalizeTakeoffCompareText(input.line.unit)
+      : null;
+
+  const [catalogueSuggestions, candidateRows] = await Promise.all([
+    queryText.length >= 2
+      ? suggestEstimateCataloguePrices(input.versionId, queryText)
+      : Promise.resolve({
+          query: queryText,
+          stale_price_days: 0,
+          suggestions: [],
+        }),
+    listTakeoffPriceCandidateEstimateItems({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+    }),
+  ]);
+
+  const candidateVersionById = await getEstimateVersionsForPriceSuggestion({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionIds: candidateRows.map((row) => row.version_id),
+  });
+
+  const pricebookSources: TakeoffPriceSuggestionCandidate[] =
+    catalogueSuggestions.suggestions.slice(0, 5).map((suggestion, index) => {
+      const unitMatch =
+        normalizedUnit !== null &&
+        typeof suggestion.unit === "string" &&
+        normalizeTakeoffCompareText(suggestion.unit) === normalizedUnit;
+      const freshnessLabel = formatPriceSuggestionFreshnessLabel({
+        updatedAt: suggestion.updated_at,
+        isStale: suggestion.is_stale,
+      });
+      const confidenceScore = Math.max(
+        0.3,
+        Math.min(1, suggestion.relevance_score ?? 0.6)
+      );
+
+      return {
+        sourceKind: "pricebook",
+        kind: "fact",
+        label: `${suggestion.supplier_name} - ${suggestion.product_designation}`,
+        sourceRef: suggestion.supplier_reference
+          ? `Pricebook ${suggestion.supplier_name} (${suggestion.supplier_reference})`
+          : `Pricebook ${suggestion.supplier_name}`,
+        priceCents: suggestion.adjusted_unit_price_cents,
+        freshnessLabel,
+        confidenceScore,
+        sourceRecordTable: "supplier_pricebook",
+        sourceRecordId: suggestion.supplier_price_id,
+        weight:
+          Math.max(0.25, suggestion.relevance_score) *
+          (suggestion.is_stale ? 0.75 : 1.05) *
+          (unitMatch ? 1.1 : 0.95) *
+          (index === 0 ? 1.05 : 1),
+        metadata: {
+          fact_type: "catalogue_pricebook",
+          product_id: suggestion.product_id,
+          supplier_id: suggestion.supplier_id,
+          supplier_name: suggestion.supplier_name,
+          supplier_reference: suggestion.supplier_reference,
+          currency: suggestion.currency,
+          updated_at: suggestion.updated_at,
+          is_stale: suggestion.is_stale,
+          relevance_score: suggestion.relevance_score,
+          unit: suggestion.unit,
+          unit_match: unitMatch,
+          category_match: false,
+        },
+      };
+    });
+
+  const internalCandidates = candidateRows
+    .filter((row) => row.id !== input.line.id)
+    .filter((row) => row.version_id !== input.versionId || row.id !== input.line.id)
+    .filter((row) => typeof row.unit_price_ht_cents === "number" && row.unit_price_ht_cents > 0)
+    .map((row) => {
+      const normalizedCandidateText = normalizeTakeoffCompareText(
+        `${row.title} ${row.description ?? ""}`
+      );
+      const similarity =
+        normalizedCurrentText.length > 0 && normalizedCandidateText.length > 0
+          ? computeTakeoffSimilarityRatio(normalizedCurrentText, normalizedCandidateText)
+          : 0;
+      const versionMeta = candidateVersionById.get(row.version_id) ?? null;
+      const sameProject = versionMeta?.project_id === input.projectId;
+      const categoryMatch =
+        typeof input.line.category_id === "string" &&
+        typeof row.category_id === "string" &&
+        input.line.category_id === row.category_id;
+      const unitMatch =
+        normalizedUnit !== null &&
+        typeof row.unit === "string" &&
+        normalizeTakeoffCompareText(row.unit) === normalizedUnit;
+      const freshnessLabel = formatPriceSuggestionFreshnessLabel({
+        updatedAt: row.updated_at,
+      });
+
+      return {
+        row,
+        similarity,
+        sameProject,
+        categoryMatch,
+        unitMatch,
+        freshnessLabel,
+        versionNumber: versionMeta?.version_number ?? null,
+      };
+    })
+    .filter((entry) => entry.sameProject || entry.similarity >= 0.55)
+    .sort((left, right) => {
+      if (left.sameProject !== right.sameProject) {
+        return left.sameProject ? -1 : 1;
+      }
+      if (Math.abs(right.similarity - left.similarity) > 0.0001) {
+        return right.similarity - left.similarity;
+      }
+      return right.row.updated_at.localeCompare(left.row.updated_at);
+    });
+
+  const historySources: TakeoffPriceSuggestionCandidate[] = [];
+  const similarItemSources: TakeoffPriceSuggestionCandidate[] = [];
+
+  for (const candidate of internalCandidates) {
+    const sourceKind: TakeoffPriceSuggestionSourceKind =
+      candidate.sameProject || candidate.similarity >= 0.82 ? "history" : "similar_item";
+    const confidenceScore = Math.max(
+      sourceKind === "history" ? 0.45 : 0.3,
+      Math.min(1, candidate.similarity + (candidate.sameProject ? 0.15 : 0))
+    );
+    const targetCollection =
+      sourceKind === "history" ? historySources : similarItemSources;
+
+    if (
+      (sourceKind === "history" && historySources.length >= 6) ||
+      (sourceKind === "similar_item" && similarItemSources.length >= 6)
+    ) {
+      continue;
+    }
+
+    targetCollection.push({
+      sourceKind,
+      kind: sourceKind === "history" ? "fact" : "inference",
+      label: candidate.row.title,
+      sourceRef:
+        sourceKind === "history"
+          ? candidate.sameProject
+            ? `Historique projet${
+                typeof candidate.versionNumber === "number"
+                  ? ` v${candidate.versionNumber}`
+                  : ""
+              }`
+            : "Historique interne"
+          : `Ouvrage proche${
+              typeof candidate.versionNumber === "number"
+                ? ` v${candidate.versionNumber}`
+                : ""
+            }`,
+      priceCents: candidate.row.unit_price_ht_cents ?? 0,
+      freshnessLabel: candidate.freshnessLabel,
+      confidenceScore,
+      sourceRecordTable: "estimate_items",
+      sourceRecordId: candidate.row.id,
+      weight:
+        (sourceKind === "history" ? 1.1 : 0.8) *
+        Math.max(0.2, candidate.similarity) *
+        (candidate.sameProject ? 1.2 : 1) *
+        (candidate.unitMatch ? 1.1 : 0.95) *
+        (candidate.categoryMatch ? 1.05 : 1),
+      metadata: {
+        fact_type: sourceKind === "history" ? "internal_history" : "similar_internal_item",
+        similarity_score: Number(candidate.similarity.toFixed(4)),
+        same_project: candidate.sameProject,
+        version_id: candidate.row.version_id,
+        version_number: candidate.versionNumber,
+        updated_at: candidate.row.updated_at,
+        quantity: candidate.row.quantity,
+        unit: candidate.row.unit,
+        unit_match: candidate.unitMatch,
+        category_id: candidate.row.category_id,
+        category_match: candidate.categoryMatch,
+      },
+    });
+  }
+
+  return [...pricebookSources, ...historySources, ...similarItemSources];
+}
+
+async function getActiveTakeoffPriceSuggestionRow(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  jobId: string;
+  estimateItemId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("takeoff_price_suggestions" as never)
+    .select(TAKEOFF_PRICE_SUGGESTIONS_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .eq("takeoff_job_id" as never, input.jobId as never)
+    .eq("estimate_item_id" as never, input.estimateItemId as never)
+    .is("superseded_at" as never, null)
+    .order("created_at" as never, { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger la suggestion de prix active."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.jobId,
+      }
+    );
+  }
+
+  return data ? normalizeTakeoffPriceSuggestionRow(data) : null;
+}
+
+async function listTakeoffPriceSuggestionSourceRows(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  suggestionId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("takeoff_price_suggestion_sources" as never)
+    .select(TAKEOFF_PRICE_SUGGESTION_SOURCES_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("suggestion_id" as never, input.suggestionId as never)
+    .order("rank" as never, { ascending: true });
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les sources de suggestion de prix."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return normalizeTakeoffPriceSuggestionSourceRows((data ?? []) as unknown[]);
+}
+
 function getTakeoffRetryBackoffMs(retryCount: number) {
   const clamped = Math.max(
     0,
@@ -1487,6 +2511,16 @@ export function parseTakeoffLineEvidencePanelQuery(
     takeoffLineEvidencePanelQuerySchema,
     payload,
     "Parametres du panneau preuves invalides."
+  );
+}
+
+export function parseTakeoffPriceSuggestionQuery(
+  payload: unknown
+): GetTakeoffPriceSuggestionQuery {
+  return parseWithSchema(
+    takeoffPriceSuggestionQuerySchema,
+    payload,
+    "Parametres de suggestion de prix invalides."
   );
 }
 
@@ -3857,6 +4891,496 @@ export async function fetchTakeoffLineEvidencePanel(
     jobId: normalizedJobId,
     lineId: normalizedLineId,
   });
+}
+
+export async function getTakeoffPriceSuggestion(
+  jobId: string,
+  query: GetTakeoffPriceSuggestionQuery
+): Promise<TakeoffPriceSuggestionResponse> {
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const payload = parseWithSchema(
+    takeoffPriceSuggestionQuerySchema,
+    query,
+    "Parametres de suggestion de prix invalides."
+  );
+
+  await assertTakeoffJobAccessibleForVersion({
+    supabase,
+    tenantId,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+  });
+
+  const activeSuggestion = await getActiveTakeoffPriceSuggestionRow({
+    supabase,
+    tenantId,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+    estimateItemId: payload.estimate_item_id,
+  });
+
+  if (!activeSuggestion) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Aucune suggestion de prix active pour cette ligne.",
+      details: {
+        estimate_item_id: payload.estimate_item_id,
+        version_id: payload.version_id,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const sourceRows = await listTakeoffPriceSuggestionSourceRows({
+    supabase,
+    tenantId,
+    suggestionId: activeSuggestion.id,
+  });
+
+  return parseWithSchema(
+    takeoffPriceSuggestionResponseSchema,
+    {
+      suggestion: mapTakeoffPriceSuggestionSnapshot({
+        row: activeSuggestion,
+        sourceRows,
+      }),
+    },
+    "Suggestion de prix invalide."
+  );
+}
+
+export async function requestTakeoffPriceSuggestion(
+  jobId: string,
+  input: RequestTakeoffPriceSuggestionInput
+): Promise<TakeoffPriceSuggestionResponse> {
+  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const payload = parseWithSchema(
+    requestTakeoffPriceSuggestionSchema,
+    input,
+    "Payload de suggestion de prix invalide."
+  );
+
+  await assertTakeoffJobAccessibleForVersion({
+    supabase,
+    tenantId,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+  });
+
+  const [projectId, line, existingSuggestion] = await Promise.all([
+    getEstimateVersionProjectIdOrThrow({
+      supabase,
+      tenantId,
+      versionId: payload.version_id,
+    }),
+    getTakeoffPriceSuggestionLineOrThrow({
+      supabase,
+      tenantId,
+      versionId: payload.version_id,
+      estimateItemId: payload.estimate_item_id,
+    }),
+    getActiveTakeoffPriceSuggestionRow({
+      supabase,
+      tenantId,
+      versionId: payload.version_id,
+      jobId: normalizedJobId,
+      estimateItemId: payload.estimate_item_id,
+    }),
+  ]);
+
+  const candidates = await collectTakeoffPriceSuggestionSources({
+    supabase,
+    tenantId,
+    versionId: payload.version_id,
+    projectId,
+    line,
+  });
+
+  if (candidates.length === 0) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "Aucune source exploitable pour proposer un prix sur cette ligne.",
+      details: {
+        estimate_item_id: payload.estimate_item_id,
+        version_id: payload.version_id,
+        fact: "Aucune source pricebook, historique ou ouvrage proche exploitable.",
+        hypothesis: "La ligne peut etre trop specifique ou insuffisamment decrite.",
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const builtSuggestion = buildTakeoffPriceSuggestion({
+    currentPriceCents: line.unit_price_ht_cents ?? null,
+    currentUnit: line.unit ?? null,
+    quantity: line.quantity,
+    sources: candidates,
+  });
+  const snapshotFingerprint = buildPriceSuggestionFingerprint({
+    lineId: line.id,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+    currentPriceCents: line.unit_price_ht_cents ?? null,
+    quantity: line.quantity,
+    unit: line.unit ?? null,
+    suggestion: builtSuggestion,
+  });
+
+  if (existingSuggestion && existingSuggestion.snapshot_fingerprint === snapshotFingerprint) {
+    const sourceRows = await listTakeoffPriceSuggestionSourceRows({
+      supabase,
+      tenantId,
+      suggestionId: existingSuggestion.id,
+    });
+
+    return {
+      suggestion: mapTakeoffPriceSuggestionSnapshot({
+        row: existingSuggestion,
+        sourceRows,
+      }),
+    };
+  }
+
+  if (existingSuggestion) {
+    const supersedeTimestamp = new Date().toISOString();
+    const { error: supersedeError } = await supabase
+      .from("takeoff_price_suggestions" as never)
+      .update({
+        superseded_at: supersedeTimestamp,
+      } as never)
+      .eq("tenant_id" as never, tenantId as never)
+      .eq("id" as never, existingSuggestion.id as never);
+
+    if (supersedeError) {
+      throw toTakeoffError(
+        mapSupabaseError(
+          supersedeError,
+          "Impossible de superseder la suggestion de prix precedente."
+        ),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+          jobId: normalizedJobId,
+        }
+      );
+    }
+  }
+
+  const suggestionInsertPayload = {
+    tenant_id: tenantId,
+    project_id: projectId,
+    version_id: payload.version_id,
+    takeoff_job_id: normalizedJobId,
+    estimate_item_id: payload.estimate_item_id,
+    requested_by: userId ?? null,
+    reviewed_by: null,
+    snapshot_fingerprint: snapshotFingerprint,
+    status: "pending",
+    current_price_cents: line.unit_price_ht_cents ?? null,
+    low_cents: builtSuggestion.lowCents,
+    target_cents: builtSuggestion.targetCents,
+    high_cents: builtSuggestion.highCents,
+    confidence_score: builtSuggestion.confidenceScore,
+    confidence_label: builtSuggestion.confidenceLabel,
+    candidate_count: builtSuggestion.candidateCount,
+    outlier_count: builtSuggestion.outlierCount,
+    justification: builtSuggestion.justification,
+    factors_json: builtSuggestion.factors,
+    summary_json: builtSuggestion.summary,
+    selected_action: null,
+    selected_price_cents: null,
+    review_note: null,
+    reviewed_at: null,
+    superseded_at: null,
+    superseded_by_suggestion_id: null,
+  };
+
+  const suggestionInsertResult = await supabase
+    .from("takeoff_price_suggestions" as never)
+    .insert(suggestionInsertPayload as never)
+    .select(TAKEOFF_PRICE_SUGGESTIONS_SELECT as never)
+    .single();
+  const insertedSuggestionData = suggestionInsertResult.data as unknown;
+
+  if (suggestionInsertResult.error || !insertedSuggestionData) {
+    if (existingSuggestion) {
+      await supabase
+        .from("takeoff_price_suggestions" as never)
+        .update({
+          superseded_at: null,
+        } as never)
+        .eq("tenant_id" as never, tenantId as never)
+        .eq("id" as never, existingSuggestion.id as never);
+    }
+
+    if (suggestionInsertResult.error) {
+      throw toTakeoffError(
+        mapSupabaseError(
+          suggestionInsertResult.error,
+          "Impossible de persister la suggestion de prix."
+        ),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+          jobId: normalizedJobId,
+        }
+      );
+    }
+
+    throw new TakeoffError({
+      status: 500,
+      code: TakeoffErrorCode.INTERNAL_ERROR,
+      message: "La suggestion de prix persistee est introuvable apres insertion.",
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const insertedSuggestion =
+    normalizeTakeoffPriceSuggestionRow(insertedSuggestionData);
+
+  if (existingSuggestion) {
+    const { error: linkSupersedeError } = await supabase
+      .from("takeoff_price_suggestions" as never)
+      .update({
+        superseded_by_suggestion_id: insertedSuggestion.id,
+      } as never)
+      .eq("tenant_id" as never, tenantId as never)
+      .eq("id" as never, existingSuggestion.id as never);
+
+    if (linkSupersedeError) {
+      throw toTakeoffError(
+        mapSupabaseError(
+          linkSupersedeError,
+          "Impossible de finaliser la supersession de la suggestion de prix."
+        ),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+          jobId: normalizedJobId,
+        }
+      );
+    }
+  }
+
+  const sourceInsertPayload = builtSuggestion.sources.map((source) => ({
+    suggestion_id: insertedSuggestion.id,
+    source_kind: source.source_kind,
+    kind: source.kind,
+    label: source.label,
+    source_ref: source.source_ref,
+    price_cents: source.price_cents,
+    freshness_label: source.freshness_label,
+    confidence_score: source.confidence_score,
+    rank: source.rank,
+    is_outlier: source.is_outlier,
+    source_record_table: source.source_record_table,
+    source_record_id: source.source_record_id,
+    metadata_json: source.metadata,
+  }));
+
+  const { error: sourceInsertError } = await supabase
+    .from("takeoff_price_suggestion_sources" as never)
+    .insert(sourceInsertPayload as never);
+
+  if (sourceInsertError) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        sourceInsertError,
+        "Impossible de persister les sources de la suggestion de prix."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  const sourceRows = await listTakeoffPriceSuggestionSourceRows({
+    supabase,
+    tenantId,
+    suggestionId: insertedSuggestion.id,
+  });
+
+  return {
+    suggestion: mapTakeoffPriceSuggestionSnapshot({
+      row: insertedSuggestion,
+      sourceRows,
+    }),
+  };
+}
+
+export async function reviewTakeoffPriceSuggestion(
+  jobId: string,
+  suggestionId: string,
+  input: ReviewTakeoffPriceSuggestionInput
+): Promise<ReviewTakeoffPriceSuggestionResponse> {
+  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const normalizedSuggestionId = parseWithSchema(
+    z.string().uuid("suggestionId invalide."),
+    suggestionId,
+    "suggestionId invalide."
+  );
+  const payload = parseWithSchema(
+    reviewTakeoffPriceSuggestionSchema,
+    input,
+    "Payload de revue de suggestion de prix invalide."
+  );
+
+  await assertTakeoffJobAccessibleForVersion({
+    supabase,
+    tenantId,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+  });
+
+  const { data, error } = await supabase
+    .from("takeoff_price_suggestions" as never)
+    .select(TAKEOFF_PRICE_SUGGESTIONS_SELECT as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("id" as never, normalizedSuggestionId as never)
+    .eq("version_id" as never, payload.version_id as never)
+    .eq("takeoff_job_id" as never, normalizedJobId as never)
+    .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger la suggestion de prix."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  if (!data) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Suggestion de prix introuvable.",
+      details: {
+        suggestion_id: normalizedSuggestionId,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const suggestionRow = normalizeTakeoffPriceSuggestionRow(data);
+  if (suggestionRow.superseded_at !== null) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "La suggestion de prix cible a deja ete supersedee.",
+      details: {
+        suggestion_id: normalizedSuggestionId,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const selectedPriceCents = getPriceSuggestionSelectedPriceCents({
+    action: payload.action,
+    suggestion: suggestionRow,
+  });
+  const nextStatus = buildPriceSuggestionStatus(payload.action);
+  let appliedItem: ReviewTakeoffPriceSuggestionResponse["applied_item"] = null;
+
+  if (payload.action === "apply_low" || payload.action === "apply_target" || payload.action === "apply_high") {
+    const updateResult = await updateEstimateItem(payload.version_id, {
+      id: suggestionRow.estimate_item_id,
+      unit_price_ht_cents: selectedPriceCents ?? 0,
+    });
+
+    appliedItem = {
+      id: updateResult.item.id,
+      unit_price_ht_cents: updateResult.item.unit_price_ht_cents ?? null,
+      updated_at: updateResult.item.updated_at,
+    };
+  }
+
+  const reviewTimestamp = new Date().toISOString();
+  const reviewUpdateResult = await supabase
+    .from("takeoff_price_suggestions" as never)
+    .update({
+      status: nextStatus,
+      selected_action: payload.action,
+      selected_price_cents: selectedPriceCents,
+      review_note: payload.review_note.trim(),
+      reviewed_at: reviewTimestamp,
+      reviewed_by: userId ?? null,
+    } as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("id" as never, normalizedSuggestionId as never)
+    .select(TAKEOFF_PRICE_SUGGESTIONS_SELECT as never)
+    .single();
+  const updatedSuggestionData = reviewUpdateResult.data as unknown;
+
+  if (reviewUpdateResult.error || !updatedSuggestionData) {
+    if (reviewUpdateResult.error) {
+      throw toTakeoffError(
+        mapSupabaseError(
+          reviewUpdateResult.error,
+          "Impossible d'enregistrer la revue de suggestion de prix."
+        ),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+          jobId: normalizedJobId,
+        }
+      );
+    }
+
+    throw new TakeoffError({
+      status: 500,
+      code: TakeoffErrorCode.INTERNAL_ERROR,
+      message: "La suggestion de prix mise a jour est introuvable apres revue.",
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const updatedSuggestion =
+    normalizeTakeoffPriceSuggestionRow(updatedSuggestionData);
+  const sourceRows = await listTakeoffPriceSuggestionSourceRows({
+    supabase,
+    tenantId,
+    suggestionId: updatedSuggestion.id,
+  });
+
+  return parseWithSchema(
+    takeoffPriceSuggestionReviewResponseSchema,
+    {
+      suggestion: mapTakeoffPriceSuggestionSnapshot({
+        row: updatedSuggestion,
+        sourceRows,
+      }),
+      applied_item: appliedItem,
+    },
+    "Revue de suggestion de prix invalide."
+  );
 }
 
 export async function saveTakeoffDpgfManualLink(

@@ -6,10 +6,13 @@ import {
   deleteTakeoffMappingRule,
   fetchAllTakeoffDpgfComparison,
   fetchTakeoffLineEvidencePanel,
+  fetchTakeoffPriceSuggestion,
   fetchTakeoffJobCompare,
   fetchTakeoffMappingRules,
   isTakeoffApiError,
   previewTakeoffConversion,
+  requestTakeoffPriceSuggestion,
+  reviewTakeoffPriceSuggestion,
   updateTakeoffMappingRule,
 } from "@/lib/takeoff/client";
 
@@ -288,6 +291,54 @@ const LINE_EVIDENCE_RESPONSE = {
     },
   ],
   history: [],
+};
+
+const PRICE_SUGGESTION_RESPONSE = {
+  suggestion: {
+    suggestion_id: "f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f1f1",
+    line_id: LINE_EVIDENCE_RESPONSE.line_id,
+    version_id: DPGF_COMPARE_PAGE_1.version_id,
+    job_id: JOB_ID,
+    current_price_cents: 1200,
+    low_cents: 1100,
+    target_cents: 1250,
+    high_cents: 1400,
+    confidence_score: 0.72,
+    confidence_label: "medium" as const,
+    candidate_count: 3,
+    outlier_count: 1,
+    justification: "Fourchette expliquee.",
+    factors: [],
+    summary: {
+      non_outlier_candidate_count: 2,
+      outlier_count: 1,
+    },
+    status: "pending" as const,
+    selected_action: null,
+    selected_price_cents: null,
+    review_note: null,
+    reviewed_at: null,
+    reviewed_by: null,
+    created_at: "2026-03-06T10:00:00.000Z",
+    updated_at: "2026-03-06T10:00:00.000Z",
+    sources: [],
+  },
+};
+
+const PRICE_SUGGESTION_REVIEW_RESPONSE = {
+  suggestion: {
+    ...PRICE_SUGGESTION_RESPONSE.suggestion,
+    status: "applied" as const,
+    selected_action: "apply_target" as const,
+    selected_price_cents: 1250,
+    review_note: "Application explicite de la borne centrale.",
+    reviewed_at: "2026-03-06T10:05:00.000Z",
+  },
+  applied_item: {
+    id: LINE_EVIDENCE_RESPONSE.line_id,
+    unit_price_ht_cents: 1250,
+    updated_at: "2026-03-06T10:05:00.000Z",
+  },
 };
 
 const PREVIEW_RESPONSE = {
@@ -590,6 +641,100 @@ describe("takeoff client mapping rules wrappers", () => {
       })
     );
     expect(result).toEqual(LINE_EVIDENCE_RESPONSE);
+  });
+
+  it("fetches the active takeoff price suggestion via GET", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        data: PRICE_SUGGESTION_RESPONSE,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchTakeoffPriceSuggestion(JOB_ID, {
+      version_id: PRICE_SUGGESTION_RESPONSE.suggestion.version_id,
+      estimate_item_id: PRICE_SUGGESTION_RESPONSE.suggestion.line_id,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/takeoff/jobs/${JOB_ID}/price-suggestions?version_id=${encodeURIComponent(
+        PRICE_SUGGESTION_RESPONSE.suggestion.version_id
+      )}&estimate_item_id=${encodeURIComponent(
+        PRICE_SUGGESTION_RESPONSE.suggestion.line_id
+      )}`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(result).toEqual(PRICE_SUGGESTION_RESPONSE);
+  });
+
+  it("requests a takeoff price suggestion snapshot via POST", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        data: PRICE_SUGGESTION_RESPONSE,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const payload = {
+      version_id: PRICE_SUGGESTION_RESPONSE.suggestion.version_id,
+      estimate_item_id: PRICE_SUGGESTION_RESPONSE.suggestion.line_id,
+      force_refresh: true,
+    };
+    const result = await requestTakeoffPriceSuggestion(JOB_ID, payload);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/takeoff/jobs/${JOB_ID}/price-suggestions`,
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+        }),
+      })
+    );
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual(payload);
+    expect(result).toEqual(PRICE_SUGGESTION_RESPONSE);
+  });
+
+  it("reviews a takeoff price suggestion via PATCH", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        data: PRICE_SUGGESTION_REVIEW_RESPONSE,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const payload = {
+      version_id: PRICE_SUGGESTION_REVIEW_RESPONSE.suggestion.version_id,
+      action: "apply_target" as const,
+      review_note: "Application explicite de la borne centrale.",
+    };
+    const result = await reviewTakeoffPriceSuggestion(
+      JOB_ID,
+      PRICE_SUGGESTION_REVIEW_RESPONSE.suggestion.suggestion_id,
+      payload
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/takeoff/jobs/${JOB_ID}/price-suggestions/${PRICE_SUGGESTION_REVIEW_RESPONSE.suggestion.suggestion_id}`,
+      expect.objectContaining({
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+        }),
+      })
+    );
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual(payload);
+    expect(result).toEqual(PRICE_SUGGESTION_REVIEW_RESPONSE);
   });
 
   it("requests a conversion preview via POST", async () => {

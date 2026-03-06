@@ -24,6 +24,9 @@ describe("schema regressions", () => {
   const estimateRiskAlertsMigrationSql = readSql(
     "supabase/migrations/20260306232000_est393_takeoff_risk_radar.sql"
   );
+  const takeoffPriceSuggestionsMigrationSql = readSql(
+    "supabase/migrations/20260306235900_est392_takeoff_price_suggestions.sql"
+  );
   const structureDraftAtomicApplyMigrationSql = readSql(
     "supabase/migrations/20260306200000_est382_structure_draft_atomic_apply_fix.sql"
   );
@@ -208,6 +211,36 @@ describe("schema regressions", () => {
       /create policy "Current tenant can select estimate risk alerts"/
     );
     expect(estimateRiskAlertsMigrationSql).toMatch(
+      /takeoff_version_links[\s\S]*can_access_takeoff_estimate_version/
+    );
+  });
+
+  it("defines persistent takeoff price suggestions with active snapshots and strict RLS", () => {
+    expect(takeoffPriceSuggestionsMigrationSql).toMatch(
+      /create table if not exists public\.takeoff_price_suggestions/
+    );
+    expect(takeoffPriceSuggestionsMigrationSql).toMatch(
+      /status in \('pending', 'applied', 'kept_current', 'rejected'\)/
+    );
+    expect(takeoffPriceSuggestionsMigrationSql).toMatch(
+      /create unique index if not exists takeoff_price_suggestions_active_line_idx[\s\S]*where superseded_at is null/
+    );
+    expect(takeoffPriceSuggestionsMigrationSql).toMatch(
+      /create table if not exists public\.takeoff_price_suggestion_sources/
+    );
+    expect(takeoffPriceSuggestionsMigrationSql).toMatch(
+      /source_kind in \('history', 'pricebook', 'similar_item', 'external_reference'\)/
+    );
+    expect(takeoffPriceSuggestionsMigrationSql).toMatch(
+      /add constraint takeoff_price_suggestions_status_action_check/
+    );
+    expect(takeoffPriceSuggestionsMigrationSql).toMatch(
+      /alter table if exists public\.takeoff_price_suggestions force row level security;/
+    );
+    expect(takeoffPriceSuggestionsMigrationSql).toMatch(
+      /create policy "Current tenant can select takeoff price suggestions"/
+    );
+    expect(takeoffPriceSuggestionsMigrationSql).toMatch(
       /takeoff_version_links[\s\S]*can_access_takeoff_estimate_version/
     );
   });

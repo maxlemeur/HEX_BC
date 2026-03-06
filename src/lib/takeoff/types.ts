@@ -602,6 +602,107 @@ export type TakeoffRiskRadarResponse = {
   items: TakeoffRiskAlert[];
 };
 
+export type TakeoffPriceSuggestionStatus =
+  | "pending"
+  | "applied"
+  | "kept_current"
+  | "rejected";
+
+export type TakeoffPriceSuggestionAction =
+  | "apply_low"
+  | "apply_target"
+  | "apply_high"
+  | "keep_current"
+  | "reject";
+
+export type TakeoffPriceSuggestionSourceKind =
+  | "history"
+  | "pricebook"
+  | "similar_item"
+  | "external_reference";
+
+export type TakeoffPriceSuggestionConfidenceLabel = "low" | "medium" | "high";
+
+export type TakeoffPriceSuggestionFactor = {
+  key: string;
+  label: string;
+  value: string;
+  kind: TakeoffDpgfComparisonEvidenceKind;
+};
+
+export type TakeoffPriceSuggestionSource = {
+  source_id: string;
+  source_kind: TakeoffPriceSuggestionSourceKind;
+  kind: TakeoffDpgfComparisonEvidenceKind;
+  label: string;
+  source_ref: string;
+  price_cents: number;
+  freshness_label: string | null;
+  confidence_score: number | null;
+  rank: number;
+  is_outlier: boolean;
+  source_record_table: string | null;
+  source_record_id: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type TakeoffPriceSuggestionSnapshot = {
+  suggestion_id: string;
+  line_id: string;
+  version_id: string;
+  job_id: string;
+  current_price_cents: number | null;
+  low_cents: number;
+  target_cents: number;
+  high_cents: number;
+  confidence_score: number | null;
+  confidence_label: TakeoffPriceSuggestionConfidenceLabel;
+  candidate_count: number;
+  outlier_count: number;
+  justification: string;
+  factors: TakeoffPriceSuggestionFactor[];
+  summary: Record<string, unknown>;
+  status: TakeoffPriceSuggestionStatus;
+  selected_action: TakeoffPriceSuggestionAction | null;
+  selected_price_cents: number | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  created_at: string;
+  updated_at: string;
+  sources: TakeoffPriceSuggestionSource[];
+};
+
+export type GetTakeoffPriceSuggestionQuery = {
+  version_id: string;
+  estimate_item_id: string;
+};
+
+export type RequestTakeoffPriceSuggestionInput = {
+  version_id: string;
+  estimate_item_id: string;
+  force_refresh?: boolean;
+};
+
+export type TakeoffPriceSuggestionResponse = {
+  suggestion: TakeoffPriceSuggestionSnapshot;
+};
+
+export type ReviewTakeoffPriceSuggestionInput = {
+  version_id: string;
+  action: TakeoffPriceSuggestionAction;
+  review_note: string;
+};
+
+export type ReviewTakeoffPriceSuggestionResponse = {
+  suggestion: TakeoffPriceSuggestionSnapshot;
+  applied_item: {
+    id: string;
+    unit_price_ht_cents: number | null;
+    updated_at: string;
+  } | null;
+};
+
 export type TakeoffRiskRadarQuery = {
   version_id: string;
   severity?: TakeoffRiskSeverity | null;

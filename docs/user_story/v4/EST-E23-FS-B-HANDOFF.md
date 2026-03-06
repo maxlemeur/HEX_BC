@@ -308,25 +308,95 @@ Notes:
 
 ### 4) Suggestion de prix
 
-Server Action:
+Server fetchers / mutations:
 ```ts
-requestPriceSuggestion(input: {
-  lineId: string;
+getTakeoffPriceSuggestion(jobId: string, input: {
+  version_id: string;
+  estimate_item_id: string;
 }): Promise<{
-  lineId: string;
   suggestion: {
-    lowCents: number;
-    targetCents: number;
-    highCents: number;
+    suggestion_id: string;
+    line_id: string;
+    version_id: string;
+    job_id: string;
+    current_price_cents: number | null;
+    low_cents: number;
+    target_cents: number;
+    high_cents: number;
+    confidence_score: number | null;
+    confidence_label: "low" | "medium" | "high";
+    candidate_count: number;
+    outlier_count: number;
     justification: string;
-    sources: Array<{
-      kind: "history" | "pricebook" | "similar_item" | "external_reference";
+    factors: Array<{
+      key: string;
       label: string;
-      freshnessLabel: string | null;
+      value: string;
+      kind: "fact" | "hypothesis" | "inference";
     }>;
+    sources: Array<{
+      source_id: string;
+      source_kind: "history" | "pricebook" | "similar_item" | "external_reference";
+      kind: "fact" | "hypothesis" | "inference";
+      label: string;
+      source_ref: string;
+      price_cents: number;
+      freshness_label: string | null;
+      confidence_score: number | null;
+      rank: number;
+      is_outlier: boolean;
+      metadata: Record<string, unknown>;
+    }>;
+    status: "pending" | "applied" | "kept_current" | "rejected";
+    selected_action:
+      | "apply_low"
+      | "apply_target"
+      | "apply_high"
+      | "keep_current"
+      | "reject"
+      | null;
+    selected_price_cents: number | null;
+    review_note: string | null;
+    reviewed_at: string | null;
+    reviewed_by: string | null;
   };
 }>;
+
+requestTakeoffPriceSuggestion(jobId: string, input: {
+  version_id: string;
+  estimate_item_id: string;
+  force_refresh?: boolean;
+}): Promise<{
+  suggestion: TakeoffPriceSuggestionSnapshot;
+}>;
+
+reviewTakeoffPriceSuggestion(jobId: string, suggestionId: string, input: {
+  version_id: string;
+  action: "apply_low" | "apply_target" | "apply_high" | "keep_current" | "reject";
+  review_note: string;
+}): Promise<{
+  suggestion: TakeoffPriceSuggestionSnapshot;
+  applied_item: {
+    id: string;
+    unit_price_ht_cents: number | null;
+    updated_at: string;
+  } | null;
+}>;
 ```
+
+HTTP routes:
+```http
+GET /api/takeoff/jobs/:jobId/price-suggestions?version_id=:versionId&estimate_item_id=:lineId
+POST /api/takeoff/jobs/:jobId/price-suggestions
+PATCH /api/takeoff/jobs/:jobId/price-suggestions/:suggestionId
+```
+
+Notes:
+- Le backend persiste un snapshot actif par `version + job + ligne` dans `takeoff_price_suggestions`, avec sources detaillees dans `takeoff_price_suggestion_sources`.
+- Les trois familles de sources livrees sont `pricebook`, `historique interne` et `ouvrage proche`; `external_reference` reste reserve si une source exploitable apparait plus tard.
+- Le recalcul ne modifie jamais la ligne de devis.
+- Toute application exige une action humaine explicite et une `review_note` non vide.
+- `apply_low` / `apply_target` / `apply_high` passent par le chemin serveur existant de mise a jour de ligne (`updateEstimateItem`) et ne touchent pas `selected_supplier_price_id`.
 
 ## UX frontend scope (delegue a equipe UX)
 

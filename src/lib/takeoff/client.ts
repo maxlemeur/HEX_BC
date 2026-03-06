@@ -13,6 +13,11 @@ import type {
   SaveTakeoffDpgfManualLinkResponse as SharedSaveTakeoffDpgfManualLinkResponse,
   SaveTakeoffReviewDecisionInput as SharedSaveTakeoffReviewDecisionInput,
   SaveTakeoffReviewDecisionResponse as SharedSaveTakeoffReviewDecisionResponse,
+  GetTakeoffPriceSuggestionQuery as SharedGetTakeoffPriceSuggestionQuery,
+  RequestTakeoffPriceSuggestionInput as SharedRequestTakeoffPriceSuggestionInput,
+  ReviewTakeoffPriceSuggestionInput as SharedReviewTakeoffPriceSuggestionInput,
+  ReviewTakeoffPriceSuggestionResponse as SharedReviewTakeoffPriceSuggestionResponse,
+  TakeoffPriceSuggestionResponse as SharedTakeoffPriceSuggestionResponse,
   TakeoffActivityCenterResponse as SharedTakeoffActivityCenterResponse,
   TakeoffApiError as TakeoffApiErrorShape,
   TakeoffApplyRequest as SharedTakeoffApplyRequest,
@@ -84,6 +89,15 @@ export type SaveTakeoffReviewDecisionInput =
   SharedSaveTakeoffReviewDecisionInput;
 export type SaveTakeoffReviewDecisionResponse =
   SharedSaveTakeoffReviewDecisionResponse;
+export type GetTakeoffPriceSuggestionQuery = SharedGetTakeoffPriceSuggestionQuery;
+export type RequestTakeoffPriceSuggestionInput =
+  SharedRequestTakeoffPriceSuggestionInput;
+export type ReviewTakeoffPriceSuggestionInput =
+  SharedReviewTakeoffPriceSuggestionInput;
+export type TakeoffPriceSuggestionResponse =
+  SharedTakeoffPriceSuggestionResponse;
+export type ReviewTakeoffPriceSuggestionResponse =
+  SharedReviewTakeoffPriceSuggestionResponse;
 export type TakeoffActivityCenterResponse =
   SharedTakeoffActivityCenterResponse;
 export type TakeoffRiskRadarQuery = SharedTakeoffRiskRadarQuery;
@@ -796,6 +810,37 @@ export async function fetchTakeoffLineEvidencePanel(
   );
 }
 
+export async function fetchTakeoffPriceSuggestion(
+  jobId: string,
+  query: GetTakeoffPriceSuggestionQuery,
+  options?: { signal?: AbortSignal }
+): Promise<TakeoffPriceSuggestionResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("version_id", query.version_id);
+  searchParams.set("estimate_item_id", query.estimate_item_id);
+
+  return requestTakeoffJson<TakeoffPriceSuggestionResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/price-suggestions?${searchParams.toString()}`,
+    { method: "GET", signal: options?.signal },
+    "Impossible de charger la suggestion de prix."
+  );
+}
+
+export async function requestTakeoffPriceSuggestion(
+  jobId: string,
+  input: RequestTakeoffPriceSuggestionInput
+): Promise<TakeoffPriceSuggestionResponse> {
+  return requestTakeoffJson<TakeoffPriceSuggestionResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/price-suggestions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    "Impossible de recalculer la suggestion de prix."
+  );
+}
+
 export async function fetchAllTakeoffDpgfComparison(
   jobId: string,
   query: {
@@ -867,6 +912,24 @@ export async function saveTakeoffReviewDecision(
       body: JSON.stringify(input),
     },
     "Impossible d'enregistrer la decision de revue."
+  );
+}
+
+export async function reviewTakeoffPriceSuggestion(
+  jobId: string,
+  suggestionId: string,
+  input: ReviewTakeoffPriceSuggestionInput
+): Promise<ReviewTakeoffPriceSuggestionResponse> {
+  return requestTakeoffJson<ReviewTakeoffPriceSuggestionResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/price-suggestions/${encodeURIComponent(
+      suggestionId
+    )}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    "Impossible d'enregistrer la revue de suggestion de prix."
   );
 }
 
