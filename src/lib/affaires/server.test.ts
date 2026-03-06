@@ -5,7 +5,12 @@ vi.mock("@/lib/estimates/server", () => ({
   listEstimateProjectVersions: vi.fn(),
 }));
 
+vi.mock("@/lib/takeoff/server", () => ({
+  fetchTakeoffDpgfSummaryForHub: vi.fn(),
+}));
+
 import { ApiError } from "@/lib/estimates/errors";
+import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import {
   getAuthenticatedContext,
   listEstimateProjectVersions,
@@ -730,6 +735,9 @@ describe("affaires hub server", () => {
                 level: "B",
                 source_file_name: "Lot-CVC.pdf",
                 created_at: "2026-03-05T11:00:00+00:00",
+                error_code: null,
+                error_message: null,
+                estimate_version_id: "ver-1",
               },
               error: null,
             },
@@ -750,16 +758,17 @@ describe("affaires hub server", () => {
             },
           },
         ],
-        takeoff_items: [
-          {
-            limit: {
-              data: null,
-              count: 7,
-              error: null,
-            },
-          },
-        ],
       },
+    });
+
+    vi.mocked(fetchTakeoffDpgfSummaryForHub).mockResolvedValue({
+      reliable_matches: 5,
+      to_confirm: 1,
+      significant_gaps: 1,
+      forced_manual: 0,
+      lines_without_proof: 3,
+      unused_takeoff_items: 0,
+      total_lines: 10,
     });
 
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
@@ -771,13 +780,15 @@ describe("affaires hub server", () => {
       planFileCount: 2,
       totalSizeBytes: 4600,
       latestJob: {
-        id: "job-1",
-        status: "completed",
-        level: "B",
-        source_file_name: "Lot-CVC.pdf",
-        items_count: 7,
-        created_at: "2026-03-05T11:00:00+00:00",
+        jobId: "job-1",
+        status: "review_required",
+        label: "Analyse a verifier",
+        estimateVersionId: "ver-1",
       },
+      coveragePercent: 70,
+      exceptionCount: 2,
+      openQuestionsCount: 0,
+      failureReasonLabel: null,
     });
   });
 
@@ -829,6 +840,10 @@ describe("affaires hub server", () => {
       planFileCount: 0,
       totalSizeBytes: 0,
       latestJob: null,
+      coveragePercent: 0,
+      exceptionCount: 0,
+      openQuestionsCount: 0,
+      failureReasonLabel: null,
     });
   });
 
@@ -901,6 +916,10 @@ describe("affaires hub server", () => {
       planFileCount: 3,
       totalSizeBytes: 600,
       latestJob: null,
+      coveragePercent: 0,
+      exceptionCount: 0,
+      openQuestionsCount: 0,
+      failureReasonLabel: null,
     });
   });
 
@@ -982,7 +1001,326 @@ describe("affaires hub server", () => {
       planFileCount: 1001,
       totalSizeBytes: 15030,
       latestJob: null,
+      coveragePercent: 0,
+      exceptionCount: 0,
+      openQuestionsCount: 0,
+      failureReasonLabel: null,
     });
+  });
+
+  it("returns zero coverage/exceptions when job is pending", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Pending",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: { data: null, count: 1, error: null },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-2",
+                status: "pending",
+                level: "A",
+                source_file_name: null,
+                created_at: "2026-03-05T11:00:00+00:00",
+                error_code: null,
+                error_message: null,
+                estimate_version_id: "ver-2",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          { limit: { data: null, count: 1, error: null } },
+          { limit: { data: [{ file_size_bytes: 500 }], error: null } },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.latestJob).toEqual({
+      jobId: "job-2",
+      status: "running",
+      label: "Analyse en attente",
+      estimateVersionId: "ver-2",
+    });
+    expect(summary.coveragePercent).toBe(0);
+    expect(summary.exceptionCount).toBe(0);
+    expect(fetchTakeoffDpgfSummaryForHub).not.toHaveBeenCalled();
+  });
+
+  it("returns failureReasonLabel when job has known error_code", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Failed",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: { data: null, count: 1, error: null },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-3",
+                status: "failed",
+                level: "A",
+                source_file_name: null,
+                created_at: "2026-03-05T11:00:00+00:00",
+                error_code: "AI_TIMEOUT",
+                error_message: "Timeout",
+                estimate_version_id: "ver-3",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          { limit: { data: null, count: 1, error: null } },
+          { limit: { data: [{ file_size_bytes: 100 }], error: null } },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.latestJob).toEqual({
+      jobId: "job-3",
+      status: "failed",
+      label: "Analyse echouee",
+      estimateVersionId: "ver-3",
+    });
+    expect(summary.failureReasonLabel).toBe("Delai depasse");
+  });
+
+  it("returns null failureReasonLabel when error_code is unknown", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Failed Unknown",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: { data: null, count: 1, error: null },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-4",
+                status: "failed",
+                level: "A",
+                source_file_name: null,
+                created_at: "2026-03-05T11:00:00+00:00",
+                error_code: "SOME_UNKNOWN_CODE",
+                error_message: "Something",
+                estimate_version_id: "ver-4",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          { limit: { data: null, count: 1, error: null } },
+          { limit: { data: [{ file_size_bytes: 100 }], error: null } },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.failureReasonLabel).toBeNull();
+  });
+
+  it("returns review_required status when job is completed with exceptions", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Exceptions",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: { data: null, count: 1, error: null },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-5",
+                status: "completed",
+                level: "B",
+                source_file_name: null,
+                created_at: "2026-03-05T11:00:00+00:00",
+                error_code: null,
+                error_message: null,
+                estimate_version_id: "ver-5",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          { limit: { data: null, count: 1, error: null } },
+          { limit: { data: [{ file_size_bytes: 100 }], error: null } },
+        ],
+      },
+    });
+
+    vi.mocked(fetchTakeoffDpgfSummaryForHub).mockResolvedValue({
+      reliable_matches: 3,
+      to_confirm: 2,
+      significant_gaps: 1,
+      forced_manual: 1,
+      lines_without_proof: 2,
+      unused_takeoff_items: 1,
+      total_lines: 8,
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.latestJob?.status).toBe("review_required");
+    expect(summary.latestJob?.label).toBe("Analyse a verifier");
+    expect(summary.coveragePercent).toBe(75);
+    expect(summary.exceptionCount).toBe(5);
+  });
+
+  it("returns done status when job is completed with zero exceptions", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Clean",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: { data: null, count: 1, error: null },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-6",
+                status: "completed",
+                level: "B",
+                source_file_name: null,
+                created_at: "2026-03-05T11:00:00+00:00",
+                error_code: null,
+                error_message: null,
+                estimate_version_id: "ver-6",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          { limit: { data: null, count: 1, error: null } },
+          { limit: { data: [{ file_size_bytes: 100 }], error: null } },
+        ],
+      },
+    });
+
+    vi.mocked(fetchTakeoffDpgfSummaryForHub).mockResolvedValue({
+      reliable_matches: 10,
+      to_confirm: 0,
+      significant_gaps: 0,
+      forced_manual: 0,
+      lines_without_proof: 0,
+      unused_takeoff_items: 0,
+      total_lines: 10,
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.latestJob?.status).toBe("done");
+    expect(summary.latestJob?.label).toBe("Analyse terminee");
+    expect(summary.coveragePercent).toBe(100);
+    expect(summary.exceptionCount).toBe(0);
   });
 
   it("returns NOT_FOUND when project is not accessible", async () => {

@@ -40,6 +40,7 @@ import { computeTakeoffMappingPreview } from "@/lib/takeoff/mapping-engine";
 import {
   TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
   TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
+  buildTakeoffDpgfReviewReference,
   buildTakeoffDpgfComparison,
 } from "@/lib/takeoff/dpgf-compare";
 import {
@@ -63,8 +64,10 @@ import {
   type TakeoffJobDetailResponse,
   type TakeoffDpgfComparisonDpgfLine,
   type TakeoffDpgfComparisonResponse,
+  type TakeoffDpgfComparisonSummary,
   type TakeoffDpgfComparisonTakeoffLine,
   type TakeoffDpgfManualLinkRecord,
+  type TakeoffDpgfReviewDecisionRecord,
   type TakeoffJobItem,
   type TakeoffJobListResponse,
   type TakeoffJobResult,
@@ -72,6 +75,8 @@ import {
   type TakeoffJobResponse,
   type SaveTakeoffDpgfManualLinkInput,
   type SaveTakeoffDpgfManualLinkResponse,
+  type SaveTakeoffReviewDecisionInput,
+  type SaveTakeoffReviewDecisionResponse,
   type TakeoffJobSummary,
   type TakeoffJobListPeriod,
   type TakeoffLevel,
@@ -201,6 +206,25 @@ const TAKEOFF_DPGF_LINKS_SELECT = [
   "created_at",
   "updated_at",
   "linked_by",
+].join(", ");
+const TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT = [
+  "id",
+  "tenant_id",
+  "version_id",
+  "takeoff_job_id",
+  "estimate_item_id",
+  "review_reference",
+  "line_label",
+  "line_position",
+  "source_file_name",
+  "source_page",
+  "carried_over_from_version_id",
+  "carried_over_at",
+  "decision",
+  "reason",
+  "decided_at",
+  "updated_at",
+  "decided_by",
 ].join(", ");
 const ESTIMATE_DPGF_COMPARE_SELECT = [
   "id",
@@ -511,6 +535,27 @@ const takeoffDpgfManualLinkSchema: z.ZodType<TakeoffDpgfManualLinkRecord> = z.ob
   linked_by: z.string().uuid().nullable(),
 });
 
+const takeoffDpgfReviewDecisionSchema: z.ZodType<TakeoffDpgfReviewDecisionRecord> = z.object({
+  id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
+  version_id: z.string().uuid(),
+  takeoff_job_id: z.string().uuid(),
+  estimate_item_id: z.string().uuid(),
+  review_reference: z.string().min(1),
+  line_label: z.string(),
+  line_position: z.number().int().nonnegative(),
+  source_file_name: z.string().nullable(),
+  source_page: z.number().int().nullable(),
+  decision: z.enum(["keep_dpgf", "keep_takeoff", "manual_fix", "out_of_scope"]),
+  reason: z.string().nullable(),
+  decided_at: z.string(),
+  updated_at: z.string(),
+  decided_by: z.string().uuid().nullable(),
+  source: z.enum(["current_version", "carried_over"]),
+  carried_over_from_version_id: z.string().uuid().nullable(),
+  carried_over_from_version_number: z.number().int().positive().nullable(),
+});
+
 const takeoffDpgfCompareEstimateItemRowSchema = z.object({
   id: z.string().uuid(),
   version_id: z.string().uuid(),
@@ -572,6 +617,7 @@ export const takeoffDpgfComparisonQuerySchema = z
     cursor: optionalCursorSearchParamSchema,
     page_size: optionalDpgfComparePageSizeSearchParamSchema,
     threshold: optionalCompareThresholdSearchParamSchema,
+    view: z.enum(["all", "exceptions_only"]).optional().default("all"),
   })
   .strict();
 
@@ -579,7 +625,19 @@ export const saveTakeoffDpgfManualLinkSchema = z
   .object({
     version_id: z.string().uuid("version_id invalide."),
     estimate_item_id: z.string().uuid("estimate_item_id invalide."),
-    takeoff_item_id: z.string().uuid("takeoff_item_id invalide.").nullable(),
+    takeoff_item_ids: z
+      .array(z.string().uuid("takeoff_item_id invalide."))
+      .max(50, "Maximum 50 items takeoff relies par ligne.")
+      .default([]),
+  })
+  .strict();
+
+export const saveTakeoffReviewDecisionSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    estimate_item_id: z.string().uuid("estimate_item_id invalide."),
+    decision: z.enum(["keep_dpgf", "keep_takeoff", "manual_fix", "out_of_scope"]),
+    reason: z.string().trim().max(2000).nullable().optional(),
   })
   .strict();
 
@@ -607,6 +665,9 @@ export type GetTakeoffJobDetailsQuery = z.infer<
 export type CompareTakeoffJobsQuery = z.infer<typeof compareTakeoffJobsQuerySchema>;
 export type TakeoffDpgfComparisonQuery = z.infer<
   typeof takeoffDpgfComparisonQuerySchema
+>;
+export type SaveTakeoffReviewDecisionPayload = z.infer<
+  typeof saveTakeoffReviewDecisionSchema
 >;
 
 const takeoffJobResponseSchema: z.ZodType<TakeoffJobResponse> = z.object({
@@ -1148,6 +1209,58 @@ function normalizeTakeoffDpgfManualLinkRows(rows: unknown[]): TakeoffDpgfManualL
   return rows.map((row) => normalizeTakeoffDpgfManualLinkRow(row));
 }
 
+function normalizeTakeoffDpgfReviewDecisionRow(
+  row: unknown
+): TakeoffDpgfReviewDecisionRecord {
+  return parseWithSchema(
+    takeoffDpgfReviewDecisionSchema,
+    row,
+    "Donnees takeoff_dpgf_review_decisions invalides en base."
+  );
+}
+
+function buildTakeoffDpgfReviewDecisionRecord(input: {
+  row: unknown;
+  carriedOverVersionNumberById?: Map<string, number>;
+}): TakeoffDpgfReviewDecisionRecord {
+  if (!isRecord(input.row)) {
+    throw unprocessableEntity(
+      "Donnees takeoff_dpgf_review_decisions invalides en base.",
+      {
+        row: input.row,
+      },
+      "VALIDATION_ERROR"
+    );
+  }
+
+  const carriedOverFromVersionId =
+    typeof input.row.carried_over_from_version_id === "string" &&
+    input.row.carried_over_from_version_id.trim().length > 0
+      ? input.row.carried_over_from_version_id
+      : null;
+
+  return normalizeTakeoffDpgfReviewDecisionRow({
+    ...input.row,
+    source: carriedOverFromVersionId ? "carried_over" : "current_version",
+    carried_over_from_version_id: carriedOverFromVersionId,
+    carried_over_from_version_number: carriedOverFromVersionId
+      ? (input.carriedOverVersionNumberById?.get(carriedOverFromVersionId) ?? null)
+      : null,
+  });
+}
+
+function buildTakeoffDpgfReviewDecisionRecords(input: {
+  rows: unknown[];
+  carriedOverVersionNumberById?: Map<string, number>;
+}): TakeoffDpgfReviewDecisionRecord[] {
+  return input.rows.map((row) =>
+    buildTakeoffDpgfReviewDecisionRecord({
+      row,
+      carriedOverVersionNumberById: input.carriedOverVersionNumberById,
+    })
+  );
+}
+
 function normalizeTakeoffDpgfEstimateItemRow(row: unknown) {
   return parseWithSchema(
     takeoffDpgfCompareEstimateItemRowSchema,
@@ -1586,6 +1699,8 @@ function normalizeTakeoffComparisonItems(items: TakeoffJobItem[]): TakeoffDpgfCo
     source_page: item.source_page,
     source_file_name: item.source_file_name,
     confidence: item.confidence,
+    evidence: item.evidence,
+    metadata: item.metadata,
   }));
 }
 
@@ -1626,6 +1741,43 @@ async function getEstimateVersionProjectIdOrThrow(input: {
   }
 
   return versionRow.project_id;
+}
+
+async function getEstimateVersionNumbersById(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionIds: string[];
+}) {
+  const uniqueVersionIds = [...new Set(input.versionIds)];
+  if (uniqueVersionIds.length === 0) {
+    return new Map<string, number>();
+  }
+
+  const { data, error } = await input.supabase
+    .from("estimate_versions" as never)
+    .select("id, version_number" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .in("id" as never, uniqueVersionIds as never);
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        error,
+        "Impossible de charger les numeros de version des decisions DPGF."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return new Map(
+    ((data ?? []) as Array<{ id: string; version_number: number }>).map((row) => [
+      row.id,
+      row.version_number,
+    ])
+  );
 }
 
 async function assertTakeoffJobAccessibleForVersion(input: {
@@ -1713,6 +1865,55 @@ async function listTakeoffDpgfManualLinks(input: {
   }
 
   return normalizeTakeoffDpgfManualLinkRows((data ?? []) as unknown[]);
+}
+
+async function listTakeoffDpgfReviewDecisions(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  jobId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("takeoff_dpgf_review_decisions" as never)
+    .select(TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .eq("takeoff_job_id" as never, input.jobId as never)
+    .order("updated_at" as never, { ascending: false })
+    .order("id" as never, { ascending: false });
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les decisions DPGF."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.jobId,
+      }
+    );
+  }
+
+  const rows = (data ?? []) as unknown[];
+  const carriedOverVersionNumberById = await getEstimateVersionNumbersById({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionIds: rows.flatMap((row) => {
+      if (
+        isRecord(row) &&
+        typeof row.carried_over_from_version_id === "string" &&
+        row.carried_over_from_version_id.trim().length > 0
+      ) {
+        return [row.carried_over_from_version_id];
+      }
+
+      return [];
+    }),
+  });
+
+  return buildTakeoffDpgfReviewDecisionRecords({
+    rows,
+    carriedOverVersionNumberById,
+  });
 }
 
 async function resolveDpgfUnitByRowIndex(input: {
@@ -2285,19 +2486,35 @@ export async function fetchDpgfTakeoffComparison(
     "version_id invalide."
   );
 
-  await assertTakeoffJobAccessibleForVersion({
+  const accessibleJob = await assertTakeoffJobAccessibleForVersion({
     supabase,
     tenantId,
     versionId: normalizedVersionId,
     jobId: normalizedJobId,
   });
 
-  const [jobRow, takeoffItems, estimateItems, manualLinks, projectId] = await Promise.all([
-    getTakeoffJobDetailByIdOrThrow({
-      supabase,
-      tenantId,
-      jobId: normalizedJobId,
-    }),
+  const carriedReviewDecisionsPromise = accessibleJob.linked_from_version_id
+    ? listTakeoffDpgfReviewDecisions({
+        supabase,
+        tenantId,
+        versionId: accessibleJob.linked_from_version_id,
+        jobId: normalizedJobId,
+      }).then((decisions) =>
+        decisions.map((decision) => ({
+          ...decision,
+          source: "carried_over" as const,
+          carried_over_from_version_id:
+            decision.carried_over_from_version_id ?? accessibleJob.linked_from_version_id ?? null,
+          carried_over_from_version_number:
+            decision.carried_over_from_version_number ??
+            accessibleJob.linked_from_version_number ??
+            null,
+        }))
+      )
+    : Promise.resolve([]);
+
+  const [takeoffItems, estimateItems, manualLinks, reviewDecisions, carriedReviewDecisions, projectId] =
+    await Promise.all([
     listAllTakeoffItemsByJobId({
       supabase,
       tenantId,
@@ -2314,6 +2531,13 @@ export async function fetchDpgfTakeoffComparison(
       versionId: normalizedVersionId,
       jobId: normalizedJobId,
     }),
+    listTakeoffDpgfReviewDecisions({
+      supabase,
+      tenantId,
+      versionId: normalizedVersionId,
+      jobId: normalizedJobId,
+    }),
+    carriedReviewDecisionsPromise,
     getEstimateVersionProjectIdOrThrow({
       supabase,
       tenantId,
@@ -2343,12 +2567,13 @@ export async function fetchDpgfTakeoffComparison(
     dpgfLines,
     takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
     manualLinks,
+    reviewDecisions,
+    carriedReviewDecisions,
     threshold: input.threshold,
     cursor: input.cursor ?? null,
     pageSize: input.page_size ?? TAKEOFF_DPGF_COMPARE_DEFAULT_PAGE_SIZE,
+    view: input.view,
   };
-
-  void jobRow;
 
   return buildTakeoffDpgfComparison(compareInput);
 }
@@ -2376,7 +2601,8 @@ export async function saveTakeoffDpgfManualLink(
     jobId: normalizedJobId,
   });
 
-  const [estimateItemRow, takeoffItemRow] = await Promise.all([
+  const uniqueTakeoffItemIds = [...new Set(payload.takeoff_item_ids)];
+  const [estimateItemRow, takeoffItemRows] = await Promise.all([
     supabase
       .from("estimate_items" as never)
       .select(
@@ -2385,14 +2611,13 @@ export async function saveTakeoffDpgfManualLink(
       .eq("tenant_id" as never, tenantId as never)
       .eq("id" as never, payload.estimate_item_id as never)
       .maybeSingle(),
-    payload.takeoff_item_id
+    uniqueTakeoffItemIds.length > 0
       ? supabase
           .from("takeoff_items" as never)
           .select("id, tenant_id, job_id" as never)
           .eq("tenant_id" as never, tenantId as never)
-          .eq("id" as never, payload.takeoff_item_id as never)
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
+          .in("id" as never, uniqueTakeoffItemIds as never)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (estimateItemRow.error) {
@@ -2459,9 +2684,9 @@ export async function saveTakeoffDpgfManualLink(
     });
   }
 
-  if (takeoffItemRow.error) {
+  if (takeoffItemRows.error) {
     throw toTakeoffError(
-      mapSupabaseError(takeoffItemRow.error, "Impossible de charger l'item takeoff."),
+      mapSupabaseError(takeoffItemRows.error, "Impossible de charger les items takeoff."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -2470,38 +2695,40 @@ export async function saveTakeoffDpgfManualLink(
     );
   }
 
-  if (payload.takeoff_item_id && !takeoffItemRow.data) {
+  const takeoffItems = ((takeoffItemRows.data ?? []) as Array<{
+    id: string;
+    tenant_id: string;
+    job_id: string;
+  }>).filter(Boolean);
+  const takeoffItemById = new Map(takeoffItems.map((item) => [item.id, item] as const));
+  const missingTakeoffItemId = uniqueTakeoffItemIds.find(
+    (takeoffItemId) => !takeoffItemById.has(takeoffItemId)
+  );
+
+  if (missingTakeoffItemId) {
     throw new TakeoffError({
       status: 404,
       code: TakeoffErrorCode.NOT_FOUND,
-      message: "Item takeoff introuvable.",
+      message: "Un item takeoff est introuvable.",
       details: {
-        takeoff_item_id: payload.takeoff_item_id,
+        takeoff_item_id: missingTakeoffItemId,
       },
       retryable: false,
       jobId: normalizedJobId,
     });
   }
 
-  const takeoffItem = (takeoffItemRow.data ?? null) as
-    | {
-        id: string;
-        tenant_id: string;
-        job_id: string;
-      }
-    | null;
-
-  if (
-    takeoffItem &&
-    takeoffItem.job_id !== normalizedJobId
-  ) {
+  const mismatchedTakeoffItem = takeoffItems.find(
+    (takeoffItem) => takeoffItem.job_id !== normalizedJobId
+  );
+  if (mismatchedTakeoffItem) {
     throw new TakeoffError({
       status: 409,
       code: TakeoffErrorCode.CONFLICT,
-      message: "L'item takeoff ne correspond pas au job cible.",
+      message: "Un item takeoff ne correspond pas au job cible.",
       details: {
-        takeoff_item_id: payload.takeoff_item_id,
-        takeoff_job_id: takeoffItem.job_id,
+        takeoff_item_id: mismatchedTakeoffItem.id,
+        takeoff_job_id: mismatchedTakeoffItem.job_id,
         expected_job_id: normalizedJobId,
       },
       retryable: false,
@@ -2509,17 +2736,18 @@ export async function saveTakeoffDpgfManualLink(
     });
   }
 
-  const mutationErrorMessage = payload.takeoff_item_id
-    ? "Impossible d'enregistrer le lien manuel DPGF."
-    : "Impossible de supprimer le lien manuel DPGF.";
+  const mutationErrorMessage =
+    uniqueTakeoffItemIds.length > 0
+      ? "Impossible d'enregistrer les liens manuels DPGF."
+      : "Impossible de supprimer les liens manuels DPGF.";
 
-  const { data: savedLinkId, error: saveError } = await supabase.rpc(
-    "save_takeoff_dpgf_manual_link" as never,
+  const { data: savedLinkIds, error: saveError } = await supabase.rpc(
+    "save_takeoff_dpgf_manual_links" as never,
     {
       p_version_id: payload.version_id,
       p_takeoff_job_id: normalizedJobId,
       p_estimate_item_id: payload.estimate_item_id,
-      p_takeoff_item_id: payload.takeoff_item_id,
+      p_takeoff_item_ids: uniqueTakeoffItemIds,
       p_linked_by: userId,
     } as never
   );
@@ -2535,17 +2763,10 @@ export async function saveTakeoffDpgfManualLink(
     );
   }
 
-  if (!payload.takeoff_item_id) {
-    return {
-      deleted: true,
-      link: null,
-    };
-  }
-
-  const linkId = parseWithSchema(
-    z.string().uuid(),
-    savedLinkId,
-    "La reponse save_takeoff_dpgf_manual_link est invalide."
+  parseWithSchema(
+    z.array(z.string().uuid()),
+    savedLinkIds ?? [],
+    "La reponse save_takeoff_dpgf_manual_links est invalide."
   );
 
   const { data, error } = await supabase
@@ -2554,12 +2775,13 @@ export async function saveTakeoffDpgfManualLink(
     .eq("tenant_id" as never, tenantId as never)
     .eq("version_id" as never, payload.version_id as never)
     .eq("takeoff_job_id" as never, normalizedJobId as never)
-    .eq("id" as never, linkId as never)
-    .single();
+    .eq("estimate_item_id" as never, payload.estimate_item_id as never)
+    .order("created_at" as never, { ascending: true })
+    .order("id" as never, { ascending: true });
 
   if (error) {
     throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de recharger le lien manuel DPGF."),
+      mapSupabaseError(error, "Impossible de recharger les liens manuels DPGF."),
       {
         fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
         retryable: false,
@@ -2569,8 +2791,209 @@ export async function saveTakeoffDpgfManualLink(
   }
 
   return {
-    deleted: false,
-    link: normalizeTakeoffDpgfManualLinkRow(data),
+    links: normalizeTakeoffDpgfManualLinkRows((data ?? []) as unknown[]),
+  };
+}
+
+export async function saveTakeoffReviewDecision(
+  jobId: string,
+  input: SaveTakeoffReviewDecisionInput
+): Promise<SaveTakeoffReviewDecisionResponse> {
+  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const payload = parseWithSchema(
+    saveTakeoffReviewDecisionSchema,
+    input,
+    "Payload de decision DPGF invalide."
+  );
+
+  await assertTakeoffJobAccessibleForVersion({
+    supabase,
+    tenantId,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+  });
+
+  const [estimateItemRow, existingDecisionRow] = await Promise.all([
+    supabase
+      .from("estimate_items" as never)
+      .select(
+        "id, tenant_id, version_id, item_type, source_provider, source_file_name, source_page, position, title, description, quantity" as never
+      )
+      .eq("tenant_id" as never, tenantId as never)
+      .eq("id" as never, payload.estimate_item_id as never)
+      .maybeSingle(),
+    supabase
+      .from("takeoff_dpgf_review_decisions" as never)
+      .select(TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT as never)
+      .eq("tenant_id" as never, tenantId as never)
+      .eq("version_id" as never, payload.version_id as never)
+      .eq("takeoff_job_id" as never, normalizedJobId as never)
+      .eq("estimate_item_id" as never, payload.estimate_item_id as never)
+      .maybeSingle(),
+  ]);
+
+  if (estimateItemRow.error) {
+    throw toTakeoffError(
+      mapSupabaseError(estimateItemRow.error, "Impossible de charger la ligne DPGF."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  if (!estimateItemRow.data) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Ligne DPGF introuvable.",
+      details: {
+        estimate_item_id: payload.estimate_item_id,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const estimateItem = estimateItemRow.data as {
+    id: string;
+    tenant_id: string;
+    version_id: string;
+    item_type: "section" | "line";
+    source_provider: string | null;
+    source_file_name: string | null;
+    source_page: number | null;
+    position: number;
+    title: string;
+    description: string | null;
+    quantity: number | null;
+  };
+
+  if (estimateItem.version_id !== payload.version_id) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "La ligne DPGF n'appartient pas a la version cible.",
+      details: {
+        version_id: payload.version_id,
+        estimate_item_version_id: estimateItem.version_id,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  if (
+    estimateItem.item_type !== "line" ||
+    (estimateItem.source_provider !== "dpgf" &&
+      estimateItem.source_file_name === null)
+  ) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "La ligne cible n'est pas une ligne DPGF eligible.",
+      details: {
+        estimate_item_id: payload.estimate_item_id,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  if (existingDecisionRow.error) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        existingDecisionRow.error,
+        "Impossible de charger la decision DPGF existante."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  const existingDecision = (existingDecisionRow.data ?? null) as
+    | {
+        carried_over_from_version_id: string | null;
+        carried_over_at: string | null;
+      }
+    | null;
+
+  const normalizedReason =
+    typeof payload.reason === "string" && payload.reason.trim().length > 0
+      ? payload.reason.trim()
+      : null;
+  const reviewReference = buildTakeoffDpgfReviewReference({
+    sourceFileName: estimateItem.source_file_name,
+    sourcePage: estimateItem.source_page,
+    position: estimateItem.position,
+    title: estimateItem.title,
+    unit: estimateItem.description,
+  });
+  const decisionTimestamp = new Date().toISOString();
+  const upsertPayload = {
+    tenant_id: tenantId,
+    version_id: payload.version_id,
+    takeoff_job_id: normalizedJobId,
+    estimate_item_id: payload.estimate_item_id,
+    review_reference: reviewReference,
+    line_label: estimateItem.title,
+    line_position: estimateItem.position,
+    source_file_name: estimateItem.source_file_name,
+    source_page: estimateItem.source_page,
+    carried_over_from_version_id: existingDecision?.carried_over_from_version_id ?? null,
+    carried_over_at: existingDecision?.carried_over_at ?? null,
+    decision: payload.decision,
+    reason: normalizedReason,
+    decided_at: decisionTimestamp,
+    updated_at: decisionTimestamp,
+    decided_by: userId,
+  };
+
+  const { data, error } = await supabase
+    .from("takeoff_dpgf_review_decisions" as never)
+    .upsert(upsertPayload as never, {
+      onConflict: "tenant_id,version_id,takeoff_job_id,estimate_item_id",
+    })
+    .select(TAKEOFF_DPGF_REVIEW_DECISIONS_SELECT as never)
+    .single();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible d'enregistrer la decision DPGF."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  const savedDecisionRow = data as unknown;
+  const carriedOverVersionId =
+    isRecord(savedDecisionRow) &&
+    typeof savedDecisionRow.carried_over_from_version_id === "string"
+      ? savedDecisionRow.carried_over_from_version_id
+      : null;
+  const carriedOverVersionNumberById = await getEstimateVersionNumbersById({
+    supabase,
+    tenantId,
+    versionIds: carriedOverVersionId ? [carriedOverVersionId] : [],
+  });
+
+  return {
+    decision: buildTakeoffDpgfReviewDecisionRecord({
+      row: savedDecisionRow,
+      carriedOverVersionNumberById,
+    }),
   };
 }
 
@@ -4494,4 +4917,59 @@ export async function deleteTakeoffMappingRule(
     deleted: true,
     rule_id: ruleId,
   };
+}
+
+export async function fetchTakeoffDpgfSummaryForHub(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  jobId: string;
+  versionId: string;
+  projectId: string;
+}): Promise<TakeoffDpgfComparisonSummary> {
+  const [takeoffItems, estimateItems, manualLinks] = await Promise.all([
+    listAllTakeoffItemsByJobId({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      jobId: input.jobId,
+    }),
+    listTakeoffDpgfEstimateItems({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      versionId: input.versionId,
+    }),
+    listTakeoffDpgfManualLinks({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      versionId: input.versionId,
+      jobId: input.jobId,
+    }),
+  ]);
+
+  const dominantSourceFileName =
+    estimateItems.find((item) => item.source_file_name)?.source_file_name ?? null;
+  const unitByRowIndex =
+    estimateItems.length > 0
+      ? await resolveDpgfUnitByRowIndex({
+          supabase: input.supabase,
+          tenantId: input.tenantId,
+          projectId: input.projectId,
+          sourceFileName: dominantSourceFileName,
+        })
+      : new Map<number, string | null>();
+
+  const dpgfLines = normalizeDpgfComparisonEstimateItems({
+    rows: estimateItems,
+    unitByRowIndex,
+  });
+
+  const result = buildTakeoffDpgfComparison({
+    versionId: input.versionId,
+    jobId: input.jobId,
+    dpgfLines,
+    takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
+    manualLinks,
+    pageSize: 1,
+  });
+
+  return result.summary;
 }

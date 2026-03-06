@@ -11,6 +11,7 @@ import {
   listEstimateProjectVersions,
   type ListEstimateProjectVersionsResult,
 } from "@/lib/estimates/server";
+import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import type { Database } from "@/types/database";
 
 import {
@@ -49,6 +50,7 @@ export type AffaireListItem = {
   acceptedVersionId: string | null;
   acceptedVersionNumber: number | null;
   hasDpgf: boolean;
+  currentApprovalStatus: string | null;
 };
 
 export type AffaireListPageResult = {
@@ -146,13 +148,15 @@ export type AffaireHubPlansSummaryResult = {
   planFileCount: number;
   totalSizeBytes: number;
   latestJob: {
-    id: string;
-    status: string;
-    level: string;
-    source_file_name: string | null;
-    items_count: number;
-    created_at: string;
+    jobId: string;
+    status: "running" | "done" | "failed" | "review_required";
+    label: string;
+    estimateVersionId: string;
   } | null;
+  coveragePercent: number;
+  exceptionCount: number;
+  openQuestionsCount: number;
+  failureReasonLabel: string | null;
 };
 
 export type AffaireHubTimelineResult = ListEstimateProjectVersionsResult;
@@ -293,6 +297,7 @@ function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {
         ? null
         : toSafeInteger(row.accepted_version_number),
     hasDpgf: row.has_dpgf ?? false,
+    currentApprovalStatus: (row as Record<string, unknown>).current_approval_status as string | null ?? null,
   };
 }
 
@@ -497,6 +502,41 @@ async function fetchAffaireHubDpgfSourceWithContext(
   };
 }
 
+const FAILURE_REASON_LABELS: Record<string, string> = {
+  TAKEOFF_FILE_TYPE_INVALID: "Fichier invalide",
+  TAKEOFF_FILE_TOO_LARGE: "Fichier trop volumineux",
+  AI_SCHEMA: "Extraction incomplete",
+  TAKEOFF_LEVEL_C_INVALID_SCHEMA: "Extraction incomplete",
+  AI_TIMEOUT: "Delai depasse",
+  TAKEOFF_LEVEL_C_TIMEOUT: "Delai depasse",
+  AI_SAFETY: "Contenu bloque",
+  TAKEOFF_LEVEL_C_BUDGET_EXCEEDED: "Budget depasse",
+};
+
+function mapJobStatusToFE(
+  dbStatus: string,
+  exceptionCount: number
+): { status: "running" | "done" | "failed" | "review_required"; label: string } {
+  switch (dbStatus) {
+    case "pending":
+      return { status: "running", label: "Analyse en attente" };
+    case "processing":
+      return { status: "running", label: "Analyse en cours" };
+    case "completed":
+      return exceptionCount > 0
+        ? { status: "review_required", label: "Analyse a verifier" }
+        : { status: "done", label: "Analyse terminee" };
+    case "applied":
+      return { status: "done", label: "Analyse terminee" };
+    case "failed":
+      return { status: "failed", label: "Analyse echouee" };
+    case "canceled":
+      return { status: "failed", label: "Annulee" };
+    default:
+      return { status: "running", label: dbStatus };
+  }
+}
+
 async function fetchAffaireHubPlansSummaryWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
@@ -511,7 +551,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
     context.supabase
       .from("takeoff_jobs" as never)
       .select(
-        "id, status, level, source_file_name, created_at, estimate_versions!inner(project_id)" as never
+        "id, status, level, source_file_name, created_at, error_code, error_message, estimate_version_id, estimate_versions!inner(project_id)" as never
       )
       .eq("tenant_id" as never, context.tenantId as never)
       .eq("estimate_versions.project_id" as never, project.id as never)
@@ -590,27 +630,60 @@ async function fetchAffaireHubPlansSummaryWithContext(
     level: string;
     source_file_name: string | null;
     created_at: string;
+    error_code: string | null;
+    error_message: string | null;
+    estimate_version_id: string;
   } | null;
 
   let latestJob: AffaireHubPlansSummaryResult["latestJob"] = null;
-  if (latestJobRow) {
-    const { count: itemCount, error: itemCountError } = await context.supabase
-      .from("takeoff_items" as never)
-      .select("id" as never, { count: "exact", head: true })
-      .eq("tenant_id" as never, context.tenantId as never)
-      .eq("job_id" as never, latestJobRow.id as never);
+  let coveragePercent = 0;
+  let exceptionCount = 0;
+  let failureReasonLabel: string | null = null;
 
-    if (itemCountError) {
-      throw mapSupabaseError(itemCountError, "Impossible de compter les items du dernier job.");
+  if (latestJobRow) {
+    const isCompletedOrApplied =
+      latestJobRow.status === "completed" || latestJobRow.status === "applied";
+
+    if (isCompletedOrApplied) {
+      try {
+        const summary = await fetchTakeoffDpgfSummaryForHub({
+          supabase: context.supabase,
+          tenantId: context.tenantId,
+          jobId: latestJobRow.id,
+          versionId: latestJobRow.estimate_version_id,
+          projectId: project.id,
+        });
+
+        coveragePercent =
+          summary.total_lines > 0
+            ? Math.round(
+                ((summary.total_lines - summary.lines_without_proof) /
+                  summary.total_lines) *
+                  100
+              )
+            : 0;
+        exceptionCount =
+          summary.to_confirm +
+          summary.significant_gaps +
+          summary.forced_manual +
+          summary.unused_takeoff_items;
+      } catch {
+        // If compare fails, fall back to zero coverage/exceptions
+      }
     }
 
+    if (latestJobRow.status === "failed" || latestJobRow.status === "canceled") {
+      failureReasonLabel = latestJobRow.error_code
+        ? FAILURE_REASON_LABELS[latestJobRow.error_code] ?? null
+        : null;
+    }
+
+    const mapped = mapJobStatusToFE(latestJobRow.status, exceptionCount);
     latestJob = {
-      id: latestJobRow.id,
-      status: latestJobRow.status,
-      level: latestJobRow.level,
-      source_file_name: latestJobRow.source_file_name,
-      items_count: itemCount ?? 0,
-      created_at: latestJobRow.created_at,
+      jobId: latestJobRow.id,
+      status: mapped.status,
+      label: mapped.label,
+      estimateVersionId: latestJobRow.estimate_version_id,
     };
   }
 
@@ -619,6 +692,10 @@ async function fetchAffaireHubPlansSummaryWithContext(
     planFileCount,
     totalSizeBytes,
     latestJob,
+    coveragePercent,
+    exceptionCount,
+    openQuestionsCount: 0,
+    failureReasonLabel,
   };
 }
 
