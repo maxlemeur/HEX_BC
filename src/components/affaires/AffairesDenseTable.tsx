@@ -9,6 +9,13 @@ import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { useDeleteAffaire } from "./useDeleteAffaire";
 import type { AffaireListItem } from "./types";
 
+const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
+  required: { label: "A valider", className: "bg-amber-50 text-amber-700 border-amber-200" },
+  in_review: { label: "En revue", className: "bg-blue-50 text-blue-700 border-blue-200" },
+  approved: { label: "Approuvee", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  changes_requested: { label: "A reprendre", className: "bg-red-50 text-red-700 border-red-200" },
+};
+
 type AffairesEmptyVariant = "no-data" | "filtered";
 
 type Props = {
@@ -39,7 +46,7 @@ function AffairesEmptyState({
 }) {
   return (
     <tr>
-      <td colSpan={10} className="py-16 text-center">
+      <td colSpan={11} className="py-16 text-center">
         {emptyVariant === "no-data" ? (
           <EmptyState
             icon={
@@ -127,6 +134,9 @@ export function AffairesDenseTable({
               <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Derniere acceptee
               </th>
+              <th className="px-4 py-3 text-center text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
+                Approbation
+              </th>
               <th className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Total HT
               </th>
@@ -207,6 +217,17 @@ export function AffairesDenseTable({
                         <span className="text-xs text-[var(--slate-300)]">
                           -
                         </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {item.currentApprovalStatus && APPROVAL_BADGE[item.currentApprovalStatus] ? (
+                        <span
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[item.currentApprovalStatus].className}`}
+                        >
+                          {APPROVAL_BADGE[item.currentApprovalStatus].label}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-[var(--slate-300)]">-</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-[var(--slate-700)] whitespace-nowrap">

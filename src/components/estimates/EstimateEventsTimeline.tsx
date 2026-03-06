@@ -10,12 +10,15 @@ type EstimateEventsTimelineProps = {
   onRefresh: () => void;
 };
 
-const EVENT_LABELS: Record<EstimateVersionEventType, string> = {
+const EVENT_LABELS: Record<string, string> = {
   sent: "Envoye",
   accepted: "Accepte",
   archived: "Archive",
   rejected: "Rejete",
   seal_verified: "Sceau verifie",
+  approval_rules_evaluated: "Regles d'approbation evaluees",
+  approval_status_changed: "Statut d'approbation modifie",
+  approval_decided: "Decision d'approbation",
 };
 
 function toEventLabel(value: string) {

@@ -9,6 +9,13 @@ import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { useDeleteAffaire } from "./useDeleteAffaire";
 import type { AffaireListItem } from "./types";
 
+const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
+  required: { label: "A valider", className: "bg-amber-50 text-amber-700 border-amber-200" },
+  in_review: { label: "En revue", className: "bg-blue-50 text-blue-700 border-blue-200" },
+  approved: { label: "Approuvee", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  changes_requested: { label: "A reprendre", className: "bg-red-50 text-red-700 border-red-200" },
+};
+
 type AffairesEmptyVariant = "no-data" | "filtered";
 
 type Props = {
@@ -169,7 +176,7 @@ export function AffairesCardList({
               </p>
             )}
 
-            <div className="mb-3">
+            <div className="mb-3 flex flex-wrap items-center gap-1.5">
               {hasCurrentVersion ? (
                 <AffaireStatusBadges
                   currentVersionNumber={item.currentVersionNumber!}
@@ -179,6 +186,13 @@ export function AffairesCardList({
               ) : (
                 <span className="text-xs font-medium text-[var(--slate-500)]">
                   Aucun chiffrage
+                </span>
+              )}
+              {item.currentApprovalStatus && APPROVAL_BADGE[item.currentApprovalStatus] && (
+                <span
+                  className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[item.currentApprovalStatus].className}`}
+                >
+                  {APPROVAL_BADGE[item.currentApprovalStatus].label}
                 </span>
               )}
             </div>

@@ -1386,18 +1386,23 @@ function normalizeReviewComment(
 }
 
 function toDecisionAuditRuleSnapshots(
-  summary: EstimateApprovalSummaryCore
+  summary: EstimateApprovalSummaryCore,
+  ruleIds: string[]
 ): EstimateApprovalDecisionRule[] {
-  return summary.reasons.map((reason) => ({
-    ruleId: reason.ruleId,
-    label: reason.label,
-    signalKey: reason.signalKey,
-    message: reason.message,
-    thresholdValue: reason.thresholdValue,
-    actualValue: reason.actualValue,
-    sourceState: reason.sourceState,
-    approvalStatus: reason.approvalStatus,
-  }));
+  const decidedRuleIds = new Set(ruleIds);
+
+  return summary.reasons
+    .filter((reason) => decidedRuleIds.has(reason.ruleId))
+    .map((reason) => ({
+      ruleId: reason.ruleId,
+      label: reason.label,
+      signalKey: reason.signalKey,
+      message: reason.message,
+      thresholdValue: reason.thresholdValue,
+      actualValue: reason.actualValue,
+      sourceState: reason.sourceState,
+      approvalStatus: reason.approvalStatus,
+    }));
 }
 
 function toDecisionAuditScopeSnapshots(
@@ -1463,7 +1468,7 @@ function toApprovalDecisionAuditMetadata(input: {
     scopeLabel: comment.scopeLabel,
     comment: comment.comment,
   }));
-  const rulesTriggered = toDecisionAuditRuleSnapshots(input.summary);
+  const rulesTriggered = toDecisionAuditRuleSnapshots(input.summary, input.ruleIds);
 
   return {
     decision: input.decision,
@@ -1833,11 +1838,13 @@ async function listEstimateReviewComments(input: {
 }
 
 function escapeCsvCell(value: string) {
-  if (!/[;"\n\r]/.test(value)) {
-    return value;
+  const safeValue = /^[=+\-@]/.test(value) ? `'${value}` : value;
+
+  if (!/[;"\n\r]/.test(safeValue)) {
+    return safeValue;
   }
 
-  return `"${value.replace(/"/g, "\"\"")}"`;
+  return `"${safeValue.replace(/"/g, "\"\"")}"`;
 }
 
 function toApprovalDecisionCsvLine(values: string[]) {
@@ -1914,7 +1921,7 @@ export async function listEstimateApprovalDecisionJournal(input: {
   const context = await getAuthenticatedContext();
   await getVersionAccessOrThrow(context, input.versionId);
 
-  const query = context.supabase
+  const baseEventsQuery = context.supabase
     .from("estimate_version_events")
     .select(
       "id, estimate_version_id, event_type, metadata, created_by, occurred_at, created_at, profiles:created_by(full_name)"
@@ -1922,39 +1929,52 @@ export async function listEstimateApprovalDecisionJournal(input: {
     .eq("tenant_id", context.tenantId)
     .eq("estimate_version_id", input.versionId)
     .eq("event_type", "approval_decided")
-    .order("occurred_at", { ascending: false })
-    .order("created_at", { ascending: false });
+    .order("occurred_at", { ascending: false });
 
-  const { data, error } = await query;
+  const eventsQuery = input.actorUserId
+    ? baseEventsQuery.eq("created_by", input.actorUserId)
+    : baseEventsQuery;
+  const filteredEventsQuery = input.decision
+    ? eventsQuery.eq("metadata->>decision", input.decision)
+    : eventsQuery;
+
+  const { data, error } = await filteredEventsQuery.order("created_at", { ascending: false });
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger le journal de decision.");
   }
 
-  const allEvents = (((data ?? []) as unknown) as EstimateApprovalDecisionEventRow[]).map(
-    (row) => normalizeEstimateApprovalDecisionEvent(row)
+  const authorQuery = context.supabase
+    .from("estimate_version_events")
+    .select("created_by, profiles:created_by(full_name)")
+    .eq("tenant_id", context.tenantId)
+    .eq("estimate_version_id", input.versionId)
+    .eq("event_type", "approval_decided");
+  const { data: authorRows, error: authorError } = await authorQuery;
+
+  if (authorError) {
+    throw mapSupabaseError(
+      authorError,
+      "Impossible de charger les auteurs du journal de decision."
+    );
+  }
+
+  const events = (((data ?? []) as unknown) as EstimateApprovalDecisionEventRow[]).map((row) =>
+    normalizeEstimateApprovalDecisionEvent(row)
   );
-  const events = allEvents.filter((event) => {
-    if (input.actorUserId && event.actorUserId !== input.actorUserId) {
-      return false;
-    }
-
-    if (input.decision && event.decision !== input.decision) {
-      return false;
-    }
-
-    return true;
-  });
   const availableAuthors = [...new Map(
-    allEvents
-      .filter((event) => event.actorUserId)
-      .map((event) => [
-        event.actorUserId!,
+    ((((authorRows ?? []) as unknown) as Pick<
+      EstimateApprovalDecisionEventRow,
+      "created_by" | "profiles"
+    >[]))
+      .filter((row) => row.created_by)
+      .map((row) => [
+        row.created_by!,
         {
-          userId: event.actorUserId!,
+          userId: row.created_by!,
           actorName: resolveDecisionEventActorLabel({
-            actorUserId: event.actorUserId,
-            actorName: event.actorName,
+            actorUserId: row.created_by,
+            actorName: resolveEmbeddedOne(row.profiles)?.full_name ?? null,
           }),
         },
       ])

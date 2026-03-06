@@ -46,25 +46,25 @@ const DECISION_META: Record<
   }
 > = {
   approved: {
-    badgeLabel: "Approuvee",
+    badgeLabel: "Approuvée",
     badgeClassName: "bg-[var(--success)]/10 text-[var(--success)]",
     buttonLabel: "Approuver",
     requiresComment: false,
-    successTitle: "Version approuvee",
+    successTitle: "Version approuvée",
   },
   approved_with_reservations: {
-    badgeLabel: "Approuvee sous reserve",
+    badgeLabel: "Approuvée sous réserve",
     badgeClassName: "bg-[var(--warning-light)] text-[var(--warning)]",
-    buttonLabel: "Approuver sous reserve",
+    buttonLabel: "Approuver sous réserve",
     requiresComment: true,
-    successTitle: "Version approuvee sous reserve",
+    successTitle: "Version approuvée sous réserve",
   },
   changes_requested: {
-    badgeLabel: "Retour correction",
+    badgeLabel: "À corriger",
     badgeClassName: "bg-[var(--danger)]/10 text-[var(--danger)]",
     buttonLabel: "Renvoyer en correction",
     requiresComment: true,
-    successTitle: "Retour correction envoye",
+    successTitle: "Retour correction envoyé",
   },
 };
 
@@ -126,6 +126,7 @@ export function EstimateApprovalActions({
   const [draftComment, setDraftComment] = useState("");
   const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<EstimateReviewDecision | null>(null);
 
   const requestableReasons = summary.reasons.filter(
     (reason) => reason.approvalStatus === "missing" || reason.approvalStatus === "rejected"
@@ -144,6 +145,7 @@ export function EstimateApprovalActions({
     setDraftScopeId(null);
     setDraftComment("");
     setFormError(null);
+    setPendingConfirm(null);
   }
 
   function handleAddComment() {
@@ -187,11 +189,11 @@ export function EstimateApprovalActions({
           });
 
           toast.success({
-            title: "Demande envoyee",
+            title: "Demande envoyée",
             description:
               requestableReasons.length === 1
-                ? `Approbation demandee pour : ${requestableReasons[0].label}.`
-                : `${requestableReasons.length} approbations demandees : ${requestableReasons.map((reason) => reason.label).join(", ")}.`,
+                ? `Approbation demandée pour : ${requestableReasons[0].label}.`
+                : `${requestableReasons.length} approbations demandées : ${requestableReasons.map((reason) => reason.label).join(", ")}.`,
           });
           router.refresh();
         } catch (error) {
@@ -213,7 +215,7 @@ export function EstimateApprovalActions({
     if (DECISION_META[decision].requiresComment && draftComments.length === 0) {
       setFormError(
         decision === "approved_with_reservations"
-          ? "Ajoutez au moins une reserve avant de valider."
+          ? "Ajoutez au moins une réserve avant de valider."
           : "Ajoutez au moins un commentaire avant de renvoyer en correction."
       );
       return;
@@ -237,19 +239,19 @@ export function EstimateApprovalActions({
             title: DECISION_META[decision].successTitle,
             description:
               draftComments.length === 0
-                ? "La decision a ete historisee."
-                : `${draftComments.length} commentaire${draftComments.length > 1 ? "s" : ""} historise${draftComments.length > 1 ? "s" : ""}.`,
+                ? "La décision a été historisée."
+                : `${draftComments.length} commentaire${draftComments.length > 1 ? "s" : ""} historisé${draftComments.length > 1 ? "s" : ""}.`,
           });
           setDraftComments([]);
           resetDraftForm();
           router.refresh();
         } catch (error) {
           toast.error({
-            title: "Decision impossible",
+            title: "Décision impossible",
             description:
               error instanceof Error
                 ? error.message
-                : "Impossible d'enregistrer cette decision.",
+                : "Impossible d'enregistrer cette décision.",
           });
         }
       })();
@@ -280,7 +282,7 @@ export function EstimateApprovalActions({
                 {summary.activeCycle.requesterName
                   ? ` par ${summary.activeCycle.requesterName}`
                   : ""}
-                . {summary.activeCycle.pendingApprovalCount} regle
+                . {summary.activeCycle.pendingApprovalCount} règle
                 {summary.activeCycle.pendingApprovalCount > 1 ? "s" : ""} en attente.
               </p>
             </div>
@@ -317,7 +319,7 @@ export function EstimateApprovalActions({
               </h3>
               <p className="mt-1 text-xs text-[var(--slate-500)]">
                 Ciblez l'affaire, un lot, une ligne ou une exception sans ouvrir
-                l'editeur complet.
+                l'éditeur complet.
               </p>
             </div>
             {activeCycle ? (
@@ -330,7 +332,7 @@ export function EstimateApprovalActions({
           <div className="mt-4 grid gap-3 md:grid-cols-[160px_minmax(0,1fr)]">
             <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
               <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
-                Portee
+                Portée
               </span>
               <select
                 className="input"
@@ -366,7 +368,7 @@ export function EstimateApprovalActions({
                     setFormError(null);
                   }}
                 >
-                  <option value="">Choisir...</option>
+                  <option value="">Choisir…</option>
                   {scopeOptions.map((option) => (
                     <option key={`${option.scopeType}-${option.scopeId ?? "project"}`} value={option.scopeId ?? ""}>
                       {option.label}
@@ -388,7 +390,7 @@ export function EstimateApprovalActions({
                 setDraftComment(event.target.value);
                 setFormError(null);
               }}
-              placeholder="Expliquez ce qui est valide, ce qui reste reserve, ou ce qui doit etre corrige."
+              placeholder="Expliquez ce qui est validé, ce qui reste réservé, ou ce qui doit être corrigé."
             />
           </label>
 
@@ -454,7 +456,7 @@ export function EstimateApprovalActions({
             </div>
           ) : null}
 
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--slate-200)] pt-4">
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--slate-200)] pt-4">
             <button
               type="button"
               className="btn btn-primary btn-sm"
@@ -465,7 +467,7 @@ export function EstimateApprovalActions({
             </button>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className="btn btn-sm border-[var(--warning)] bg-[var(--warning)]/10 text-[var(--warning)] hover:bg-[var(--warning)]/20"
               disabled={isPending}
               onClick={() => runDecision("approved_with_reservations")}
             >
@@ -473,16 +475,51 @@ export function EstimateApprovalActions({
                 ? "En cours..."
                 : DECISION_META.approved_with_reservations.buttonLabel}
             </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={isPending}
-              onClick={() => runDecision("changes_requested")}
-            >
-              {isPending
-                ? "En cours..."
-                : DECISION_META.changes_requested.buttonLabel}
-            </button>
+
+            <div className="ml-auto" />
+
+            {pendingConfirm === "changes_requested" ? (
+              <span className="flex items-center gap-2">
+                <span className="text-xs text-[var(--danger)]">
+                  Confirmer le renvoi ?
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-sm border-[var(--danger)] bg-[var(--danger)] text-white hover:bg-[var(--danger)]/90"
+                  disabled={isPending}
+                  onClick={() => {
+                    setPendingConfirm(null);
+                    runDecision("changes_requested");
+                  }}
+                >
+                  {isPending ? "En cours..." : "Oui, renvoyer"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={isPending}
+                  onClick={() => setPendingConfirm(null)}
+                >
+                  Annuler
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm border-[var(--danger)]/30 bg-[var(--danger)]/5 text-[var(--danger)] hover:bg-[var(--danger)]/10"
+                disabled={isPending}
+                onClick={() => {
+                  setFormError(null);
+                  if (draftComments.length === 0) {
+                    setFormError("Ajoutez au moins un commentaire avant de renvoyer en correction.");
+                    return;
+                  }
+                  setPendingConfirm("changes_requested");
+                }}
+              >
+                {DECISION_META.changes_requested.buttonLabel}
+              </button>
+            )}
           </div>
         </section>
       ) : null}
@@ -492,10 +529,10 @@ export function EstimateApprovalActions({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-[var(--slate-800)]">
-                Derniere decision
+                Dernière décision
               </h3>
               <p className="mt-1 text-xs text-[var(--slate-500)]">
-                Cycle {latestReview.cycleNumber} decide le {formatDateTime(latestReview.decidedAt)}
+                Cycle {latestReview.cycleNumber} décidé le {formatDateTime(latestReview.decidedAt)}
                 {latestReview.deciderName ? ` par ${latestReview.deciderName}` : ""}.
               </p>
             </div>
@@ -504,43 +541,60 @@ export function EstimateApprovalActions({
 
           {latestReview.comments.length === 0 ? (
             <p className="mt-4 text-sm text-[var(--slate-600)]">
-              Aucun commentaire cible n'a ete enregistre sur ce cycle.
+              Aucun commentaire ciblé n'a été enregistré sur ce cycle.
             </p>
           ) : (
-            <div className="mt-4 space-y-3">
-              {latestReview.comments.map((comment) => (
-                <article
-                  key={comment.id}
-                  className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
-                        {SCOPE_LABELS[comment.scopeType]}
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
-                        {comment.scopeLabel}
-                      </p>
-                    </div>
-                    <span className="text-xs text-[var(--slate-500)]">
-                      {formatDateTime(comment.createdAt)}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-[var(--slate-700)]">{comment.comment}</p>
-                  {comment.authorName ? (
-                    <p className="mt-2 text-xs text-[var(--slate-500)]">
-                      Par {comment.authorName}
+            <div className="mt-4 space-y-4">
+              {(["approval_rule", "lot", "line", "project"] as const)
+                .map((scopeType) => ({
+                  scopeType,
+                  comments: latestReview.comments.filter(
+                    (comment) => comment.scopeType === scopeType
+                  ),
+                }))
+                .filter((group) => group.comments.length > 0)
+                .map((group) => (
+                  <div key={group.scopeType}>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                      {SCOPE_LABELS[group.scopeType]}
+                      {group.comments.length > 1
+                        ? ` (${group.comments.length})`
+                        : ""}
                     </p>
-                  ) : null}
-                </article>
-              ))}
+                    <div className="space-y-2">
+                      {group.comments.map((comment) => (
+                        <article
+                          key={comment.id}
+                          className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <p className="text-sm font-semibold text-[var(--slate-800)]">
+                              {comment.scopeLabel}
+                            </p>
+                            <span className="text-xs text-[var(--slate-500)]">
+                              {formatDateTime(comment.createdAt)}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm text-[var(--slate-700)]">
+                            {comment.comment}
+                          </p>
+                          {comment.authorName ? (
+                            <p className="mt-2 text-xs text-[var(--slate-500)]">
+                              Par {comment.authorName}
+                            </p>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ))}
             </div>
           )}
 
           {olderReviews.length > 0 ? (
             <details className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3">
               <summary className="cursor-pointer text-sm font-medium text-[var(--slate-700)]">
-                Voir les cycles precedents ({olderReviews.length})
+                Voir les cycles précédents ({olderReviews.length})
               </summary>
               <div className="mt-3 space-y-3">
                 {olderReviews.map((cycle) => (
@@ -554,7 +608,7 @@ export function EstimateApprovalActions({
                           Cycle {cycle.cycleNumber}
                         </p>
                         <p className="mt-1 text-xs text-[var(--slate-500)]">
-                          Demande du {formatDateTime(cycle.requestedAt)} • Decision du{" "}
+                          Demandé le {formatDateTime(cycle.requestedAt)} · Décidé le{" "}
                           {formatDateTime(cycle.decidedAt)}
                         </p>
                       </div>
@@ -573,7 +627,7 @@ export function EstimateApprovalActions({
                       </ul>
                     ) : (
                       <p className="mt-3 text-sm text-[var(--slate-500)]">
-                        Aucun commentaire sur ce cycle.
+                        Aucun commentaire ciblé sur ce cycle.
                       </p>
                     )}
                   </div>

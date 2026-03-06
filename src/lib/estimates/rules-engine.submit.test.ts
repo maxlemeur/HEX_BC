@@ -551,6 +551,152 @@ describe("submitEstimateApproval", () => {
     });
   });
 
+  it("journals only the decided rule snapshot for legacy approval decisions", async () => {
+    const targetRuleId = "99999999-9999-4999-8999-999999999999";
+    const otherRuleId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const targetApprovalId = "88888888-8888-4888-8888-888888888888";
+    const membershipBuilder = createMembershipBuilder("director");
+    const versionBuilder = createVersionAccessBuilder();
+    const pendingApprovalBuilder = createListBuilder([
+      {
+        id: targetApprovalId,
+        created_at: "2026-03-03T10:05:00.000Z",
+        updated_at: "2026-03-03T10:05:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        rule_id: targetRuleId,
+        requested_by: OWNER_ID,
+        approved_by: null,
+        status: "pending",
+        decided_at: null,
+      },
+    ]);
+    const approvalUpdateBuilder = createSingleUpdateBuilder({
+      id: targetApprovalId,
+      created_at: "2026-03-03T10:05:00.000Z",
+      updated_at: "2026-03-03T10:10:00.000Z",
+      tenant_id: TENANT_ID,
+      version_id: VERSION_ID,
+      rule_id: targetRuleId,
+      requested_by: OWNER_ID,
+      approved_by: USER_ID,
+      status: "approved",
+      decided_at: "2026-03-03T10:10:00.000Z",
+    });
+    const reviewCyclesBuilder = createListBuilder([]);
+    const reviewCommentsBuilder = createListBuilder([]);
+    const itemsBuilder = createListBuilder([]);
+    const rulesBuilder = createListBuilder([
+      {
+        id: targetRuleId,
+        created_at: "2026-03-03T09:00:00.000Z",
+        updated_at: "2026-03-03T09:00:00.000Z",
+        tenant_id: TENANT_ID,
+        rule_type: "require_approval",
+        scope_type: "global",
+        scope_id: null,
+        threshold_value: 100000,
+        action: "require_approval",
+        is_active: true,
+      },
+      {
+        id: otherRuleId,
+        created_at: "2026-03-03T09:00:00.000Z",
+        updated_at: "2026-03-03T09:00:00.000Z",
+        tenant_id: TENANT_ID,
+        rule_type: "require_approval",
+        scope_type: "global",
+        scope_id: null,
+        threshold_value: 200000,
+        action: "require_approval",
+        is_active: true,
+      },
+    ]);
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: null,
+    });
+
+    vi.mocked(createOptionalServiceRoleClient)
+      .mockReturnValueOnce({
+        rpc,
+      } as never)
+      .mockReturnValueOnce(null as never);
+
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => membershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => versionBuilder),
+        };
+      }
+
+      if (table === "estimate_approvals") {
+        return {
+          select: vi.fn(() => pendingApprovalBuilder),
+          update: vi.fn(() => approvalUpdateBuilder),
+        };
+      }
+
+      if (table === "estimate_review_cycles") {
+        return {
+          select: vi.fn(() => reviewCyclesBuilder),
+        };
+      }
+
+      if (table === "estimate_review_comments") {
+        return {
+          select: vi.fn(() => reviewCommentsBuilder),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => itemsBuilder),
+        };
+      }
+
+      if (table === "estimate_rules") {
+        return {
+          select: vi.fn(() => rulesBuilder),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    mockAuthenticatedSupabase({ from });
+
+    await submitEstimateApproval({
+      versionId: VERSION_ID,
+      action: "approve",
+      ruleId: targetRuleId,
+    });
+
+    expect(rpc).toHaveBeenCalledWith("log_estimate_version_event", {
+      p_estimate_version_id: VERSION_ID,
+      p_event_type: "approval_decided",
+      p_created_by: USER_ID,
+      p_occurred_at: "2026-03-03T10:10:00.000Z",
+      p_metadata: expect.objectContaining({
+        ruleIds: [targetRuleId],
+        rulesTriggered: [
+          expect.objectContaining({
+            ruleId: targetRuleId,
+          }),
+        ],
+      }),
+    });
+    expect(
+      rpc.mock.calls[0]?.[1]?.p_metadata?.rulesTriggered
+    ).toHaveLength(1);
+  });
+
   it("closes legacy review cycles from approvals in the current cycle only", async () => {
     const targetRuleId = "99999999-9999-4999-8999-999999999999";
     const targetApprovalId = "88888888-8888-4888-8888-888888888888";

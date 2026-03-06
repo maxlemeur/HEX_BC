@@ -73,96 +73,100 @@ function createVersionAccessBuilder() {
   return builder;
 }
 
-function createEventsBuilder() {
+function createDecisionEventRows() {
+  return [
+    {
+      id: "event-1",
+      estimate_version_id: VERSION_ID,
+      event_type: "approval_decided",
+      metadata: {
+        decision: "approved_with_reservations",
+        approvalOutcome: "approved",
+        cycleId: "cycle-2",
+        cycleNumber: 2,
+        commentCount: 1,
+        scopeCount: 1,
+        perimeterLabel: "Lot CFO",
+        comments: [
+          {
+            scopeType: "lot",
+            scopeId: "lot-1",
+            scopeLabel: "Lot CFO",
+            comment: "Confirmer la variante avant envoi.",
+          },
+        ],
+        scopes: [
+          {
+            scopeType: "lot",
+            scopeId: "lot-1",
+            scopeLabel: "Lot CFO",
+          },
+        ],
+        rulesTriggered: [
+          {
+            ruleId: "rule-1",
+            label: "Seuil montant HT",
+            signalKey: "total_ht_cents",
+            message: "Le montant HT depasse le seuil.",
+            thresholdValue: 300000,
+            actualValue: 350000,
+            sourceState: "ready",
+            approvalStatus: "pending",
+          },
+        ],
+      },
+      created_by: USER_ID,
+      occurred_at: "2026-03-06T10:00:00.000Z",
+      created_at: "2026-03-06T10:00:00.000Z",
+      profiles: {
+        full_name: "Nadia Directeur",
+      },
+    },
+    {
+      id: "event-2",
+      estimate_version_id: VERSION_ID,
+      event_type: "approval_decided",
+      metadata: {
+        decision: "rejected",
+        approvalOutcome: "rejected",
+        cycleId: "cycle-1",
+        cycleNumber: 1,
+        commentCount: 0,
+        scopeCount: 1,
+        perimeterLabel: "Seuil montant HT",
+        scopes: [
+          {
+            scopeType: "approval_rule",
+            scopeId: "rule-1",
+            scopeLabel: "Seuil montant HT",
+          },
+        ],
+        rulesTriggered: [
+          {
+            ruleId: "rule-1",
+            label: "Seuil montant HT",
+            signalKey: "total_ht_cents",
+            message: "Le montant HT depasse le seuil.",
+            thresholdValue: 300000,
+            actualValue: 340000,
+            sourceState: "ready",
+            approvalStatus: "pending",
+          },
+        ],
+      },
+      created_by: "99999999-9999-4999-8999-999999999999",
+      occurred_at: "2026-03-05T16:00:00.000Z",
+      created_at: "2026-03-05T16:00:00.000Z",
+      profiles: {
+        full_name: "Laurent Direction",
+      },
+    },
+  ];
+}
+
+function createEventsBuilder(data: unknown[]) {
   const builder = {
-    data: [
-      {
-        id: "event-1",
-        estimate_version_id: VERSION_ID,
-        event_type: "approval_decided",
-        metadata: {
-          decision: "approved_with_reservations",
-          approvalOutcome: "approved",
-          cycleId: "cycle-2",
-          cycleNumber: 2,
-          commentCount: 1,
-          scopeCount: 1,
-          perimeterLabel: "Lot CFO",
-          comments: [
-            {
-              scopeType: "lot",
-              scopeId: "lot-1",
-              scopeLabel: "Lot CFO",
-              comment: "Confirmer la variante avant envoi.",
-            },
-          ],
-          scopes: [
-            {
-              scopeType: "lot",
-              scopeId: "lot-1",
-              scopeLabel: "Lot CFO",
-            },
-          ],
-          rulesTriggered: [
-            {
-              ruleId: "rule-1",
-              label: "Seuil montant HT",
-              signalKey: "total_ht_cents",
-              message: "Le montant HT depasse le seuil.",
-              thresholdValue: 300000,
-              actualValue: 350000,
-              sourceState: "ready",
-              approvalStatus: "pending",
-            },
-          ],
-        },
-        created_by: USER_ID,
-        occurred_at: "2026-03-06T10:00:00.000Z",
-        created_at: "2026-03-06T10:00:00.000Z",
-        profiles: {
-          full_name: "Nadia Directeur",
-        },
-      },
-      {
-        id: "event-2",
-        estimate_version_id: VERSION_ID,
-        event_type: "approval_decided",
-        metadata: {
-          decision: "rejected",
-          approvalOutcome: "rejected",
-          cycleId: "cycle-1",
-          cycleNumber: 1,
-          commentCount: 0,
-          scopeCount: 1,
-          perimeterLabel: "Seuil montant HT",
-          scopes: [
-            {
-              scopeType: "approval_rule",
-              scopeId: "rule-1",
-              scopeLabel: "Seuil montant HT",
-            },
-          ],
-          rulesTriggered: [
-            {
-              ruleId: "rule-1",
-              label: "Seuil montant HT",
-              signalKey: "total_ht_cents",
-              message: "Le montant HT depasse le seuil.",
-              thresholdValue: 300000,
-              actualValue: 340000,
-              sourceState: "ready",
-              approvalStatus: "pending",
-            },
-          ],
-        },
-        created_by: "99999999-9999-4999-8999-999999999999",
-        occurred_at: "2026-03-05T16:00:00.000Z",
-        created_at: "2026-03-05T16:00:00.000Z",
-        profiles: {
-          full_name: "Laurent Direction",
-        },
-      },
-    ],
+    data,
     error: null,
     eq: vi.fn(),
     order: vi.fn(),
@@ -182,7 +186,9 @@ describe("approval decision journal", () => {
   it("lists decision events with filters while keeping all available authors", async () => {
     const membershipBuilder = createMembershipBuilder();
     const versionBuilder = createVersionAccessBuilder();
-    const eventsBuilder = createEventsBuilder();
+    const decisionEventRows = createDecisionEventRows();
+    const filteredEventsBuilder = createEventsBuilder([decisionEventRows[0]]);
+    const authorsBuilder = createEventsBuilder(decisionEventRows);
 
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
       auth: {
@@ -210,7 +216,11 @@ describe("approval decision journal", () => {
 
         if (table === "estimate_version_events") {
           return {
-            select: vi.fn(() => eventsBuilder),
+            select: vi.fn((columns: string) =>
+              columns.includes("id, estimate_version_id")
+                ? filteredEventsBuilder
+                : authorsBuilder
+            ),
           };
         }
 
@@ -245,6 +255,12 @@ describe("approval decision journal", () => {
       scopeLabel: "Lot CFO",
       comment: "Confirmer la variante avant envoi.",
     });
+    expect(filteredEventsBuilder.eq).toHaveBeenCalledWith("created_by", USER_ID);
+    expect(filteredEventsBuilder.eq).toHaveBeenCalledWith(
+      "metadata->>decision",
+      "approved_with_reservations"
+    );
+    expect(authorsBuilder.eq).not.toHaveBeenCalledWith("created_by", USER_ID);
   });
 
   it("builds a csv export with decision details", () => {
@@ -299,5 +315,59 @@ describe("approval decision journal", () => {
     expect(csv).toContain("Approuvee sous reserve");
     expect(csv).toContain("Lot CFO: Confirmer la variante avant envoi.");
     expect(csv).toContain("Seuil montant HT");
+  });
+
+  it("neutralizes formula-like values in the csv export", () => {
+    const csv = buildEstimateApprovalDecisionJournalCsv({
+      events: [
+        {
+          id: "event-3",
+          estimateVersionId: VERSION_ID,
+          occurredAt: "2026-03-06T11:00:00.000Z",
+          createdAt: "2026-03-06T11:00:00.000Z",
+          actorUserId: USER_ID,
+          actorName: "=HYPERLINK(\"https://example.com\")",
+          decision: "approved",
+          approvalOutcome: "approved",
+          cycleId: "cycle-3",
+          cycleNumber: 3,
+          commentCount: 1,
+          scopeCount: 1,
+          perimeterLabel: "@Lot CFO",
+          scopes: [
+            {
+              scopeType: "lot",
+              scopeId: "lot-3",
+              scopeLabel: "+Lot CFO",
+            },
+          ],
+          comments: [
+            {
+              scopeType: "lot",
+              scopeId: "lot-3",
+              scopeLabel: "=Lot CFO",
+              comment: "@Confirmer la variante",
+            },
+          ],
+          rulesTriggered: [
+            {
+              ruleId: "rule-3",
+              label: "-Seuil montant HT",
+              signalKey: "total_ht_cents",
+              message: "Le montant HT depasse le seuil.",
+              thresholdValue: 300000,
+              actualValue: 350000,
+              sourceState: "ready",
+              approvalStatus: "pending",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(csv).toContain("\"'=HYPERLINK(\"\"https://example.com\"\")\"");
+    expect(csv).toContain("'@Lot CFO");
+    expect(csv).toContain("'=Lot CFO: @Confirmer la variante");
+    expect(csv).toContain("'-Seuil montant HT");
   });
 });
