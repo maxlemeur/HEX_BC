@@ -102,4 +102,24 @@ describe("MembershipsManager", () => {
     );
     expect(badges.length).toBeGreaterThan(0);
   });
+
+  it("offers the director role in membership selectors", async () => {
+    let renderer: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(createElement(MembershipsManager));
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const options = renderer!.root.findAllByType("option");
+    const directorOptions = options.filter((option) => option.props.value === "director");
+
+    expect(directorOptions).toHaveLength(2);
+    expect(directorOptions.every((option) => option.children.includes("Directeur"))).toBe(
+      true
+    );
+  });
 });

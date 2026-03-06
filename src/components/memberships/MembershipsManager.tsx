@@ -404,6 +404,7 @@ export function MembershipsManager() {
             >
               <option value="admin">Administrateur</option>
               <option value="engineer">Ingenieur</option>
+              <option value="director">Directeur</option>
               <option value="viewer">Lecteur</option>
             </select>
           </div>
@@ -489,6 +490,7 @@ export function MembershipsManager() {
                           >
                             <option value="admin">Administrateur</option>
                             <option value="engineer">Ingenieur</option>
+                            <option value="director">Directeur</option>
                             <option value="viewer">Lecteur</option>
                           </select>
                         </div>

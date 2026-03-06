@@ -389,6 +389,16 @@ function canAccessOwnerResource(input: {
 }) {
   return (
     input.resourceUserId === input.context.userId ||
+    isTenantAdmin(input.context.tenantRole)
+  );
+}
+
+function canAccessApprovalResource(input: {
+  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
+  resourceUserId: string;
+}) {
+  return (
+    input.resourceUserId === input.context.userId ||
     isTenantApprover(input.context.tenantRole)
   );
 }
@@ -574,10 +584,8 @@ async function loadRuleSignalContext(input: {
         .filter((itemId): itemId is string => typeof itemId === "string" && itemId.length > 0)
     );
 
-    if (linkedItemIds.size > 0) {
-      const linkedCount = input.lineItemIds.filter((itemId) => linkedItemIds.has(itemId)).length;
-      context.dpgfCoverageBp = Math.round((linkedCount / input.lineItemIds.length) * 10000);
-    }
+    const linkedCount = input.lineItemIds.filter((itemId) => linkedItemIds.has(itemId)).length;
+    context.dpgfCoverageBp = Math.round((linkedCount / input.lineItemIds.length) * 10000);
   }
 
   return context;
@@ -1361,7 +1369,7 @@ async function getVersionAccessOrThrow(
   if (
     !project ||
     project.tenant_id !== context.tenantId ||
-    !canAccessOwnerResource({
+    !canAccessApprovalResource({
       context,
       resourceUserId: project.user_id,
     })
@@ -1380,6 +1388,13 @@ function assertAdminRole(context: Pick<AuthenticatedContext, "tenantRole">) {
     return;
   }
   throw forbidden("Action reservee aux administrateurs.");
+}
+
+function assertRequesterRole(context: Pick<AuthenticatedContext, "tenantRole">) {
+  if (context.tenantRole === "admin" || context.tenantRole === "engineer") {
+    return;
+  }
+  throw forbidden("Action reservee aux demandeurs d'approbation.");
 }
 
 function assertApproverRole(context: Pick<AuthenticatedContext, "tenantRole">) {
@@ -1453,6 +1468,17 @@ export async function submitEstimateApproval(
   const access = await getVersionAccessOrThrow(context, input.versionId);
 
   if (input.action === "request") {
+    assertRequesterRole(context);
+
+    if (
+      !canAccessOwnerResource({
+        context,
+        resourceUserId: access.project.user_id,
+      })
+    ) {
+      throw forbidden("Action reservee au proprietaire du chiffrage.");
+    }
+
     const ruleId = normalizeOptionalUuid(input.ruleId);
     if (!ruleId) {
       throw badRequest("rule_id est obligatoire pour une demande d'approbation.");

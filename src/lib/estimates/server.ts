@@ -2274,6 +2274,16 @@ function canAccessOwnerResource(input: {
   );
 }
 
+function canAccessEstimateReadResource(input: {
+  context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
+  resourceUserId: string;
+}) {
+  return (
+    canAccessOwnerResource(input) ||
+    input.context.tenantRole === "director"
+  );
+}
+
 export async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const supabase = await createSupabaseServerClient();
   const {
@@ -3139,7 +3149,7 @@ export async function listEstimateProjectVersions(input: {
   const project = projectData as EstimateProjectOwnerRow;
   if (
     project.tenant_id !== tenantId ||
-    !canAccessOwnerResource({
+    !canAccessEstimateReadResource({
       context,
       resourceUserId: project.user_id,
     })
@@ -3538,7 +3548,33 @@ export async function listEstimateVersionVariants(
 ): Promise<ListEstimateVersionVariantsResult> {
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
-  const { version } = await getVersionAccessOrThrow(supabase, versionId, context);
+  const { data, error } = await supabase
+    .from("estimate_versions")
+    .select(
+      "id, project_id, status, margin_mode, margin_multiplier, max_section_depth, tax_rate_bp, updated_at, total_ht_cents, total_tax_cents, total_ttc_cents, parent_version_id, variant_label, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+    )
+    .eq("id", versionId)
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (error || !data) {
+    throw notFound("Version de chiffrage introuvable.");
+  }
+
+  const version = data as unknown as VersionAccessRow;
+  const project = resolveEmbeddedOne(version.estimate_projects);
+
+  if (
+    !project ||
+    project.tenant_id !== tenantId ||
+    !canAccessEstimateReadResource({
+      context,
+      resourceUserId: project.user_id,
+    })
+  ) {
+    throw notFound("Version de chiffrage introuvable.");
+  }
+
   const baseVersionId = version.parent_version_id ?? version.id;
 
   const { data: versionsData, error: versionsError } = await supabase

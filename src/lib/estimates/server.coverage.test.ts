@@ -14,6 +14,7 @@ import {
   getEstimateTemplate,
   instantiateEstimateFromTemplate,
   listEstimateTemplates,
+  listEstimateProjectVersions,
   listEstimateVersionVariants,
   listEstimateVersionEvents,
   listLatestEstimates,
@@ -42,6 +43,7 @@ type PostgrestErrorLike = {
 type QueryResult<T = unknown> = {
   data: T;
   error: PostgrestErrorLike | null;
+  count?: number | null;
 };
 
 function chainResult<T>(result: QueryResult<T>) {
@@ -77,7 +79,9 @@ function chainResult<T>(result: QueryResult<T>) {
   return builder;
 }
 
-function createMembershipBuilder(role: "admin" | "engineer" = "engineer") {
+function createMembershipBuilder(
+  role: "admin" | "engineer" | "director" = "engineer"
+) {
   const membershipBuilder = {
     eq: vi.fn(),
     order: vi.fn(),
@@ -99,7 +103,7 @@ function createMembershipBuilder(role: "admin" | "engineer" = "engineer") {
   return membershipBuilder;
 }
 
-function createAuth(role: "admin" | "engineer" = "engineer") {
+function createAuth(role: "admin" | "engineer" | "director" = "engineer") {
   return {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -748,6 +752,180 @@ describe("estimate server coverage additions", () => {
       "Z",
       "AA",
     ]);
+  });
+
+  it("allows directors to load project version timelines", async () => {
+    const base = createAuth("director");
+    const projectBuilder = chainResult({
+      data: {
+        id: PROJECT_ID,
+        tenant_id: TENANT_ID,
+        user_id: "owner-2",
+      },
+      error: null,
+    });
+    const totalCountBuilder = chainResult({
+      data: null,
+      count: 1,
+      error: null,
+    });
+    const versionsBuilder = chainResult({
+      data: [
+        {
+          id: VERSION_ID,
+          project_id: PROJECT_ID,
+          version_number: 4,
+          status: "draft",
+          title: "Review",
+          updated_at: "2026-02-22T12:00:00.000Z",
+          created_at: "2026-02-22T11:00:00.000Z",
+          total_ttc_cents: 14400,
+          total_ht_cents: 12000,
+          parent_version_id: null,
+          variant_label: null,
+        },
+      ],
+      error: null,
+    });
+    const auditBuilder = chainResult({
+      data: [],
+      error: null,
+    });
+    const profilesBuilder = chainResult({
+      data: [],
+      error: null,
+    });
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_projects") {
+          return {
+            select: vi.fn(() => projectBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn((columns: string, options?: { count?: "exact"; head?: boolean }) => {
+              if (options?.count === "exact" && options?.head === true) {
+                return totalCountBuilder;
+              }
+
+              if (columns.includes("version_number")) {
+                return versionsBuilder;
+              }
+
+              throw new Error(`Unexpected select on estimate_versions: ${columns}`);
+            }),
+          };
+        }
+        if (table === "audit_logs") {
+          return {
+            select: vi.fn(() => auditBuilder),
+          };
+        }
+        if (table === "profiles") {
+          return {
+            select: vi.fn(() => profilesBuilder),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await listEstimateProjectVersions({
+      projectId: PROJECT_ID,
+      page: 1,
+      pageSize: 20,
+    });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.id).toBe(VERSION_ID);
+  });
+
+  it("allows directors to load variant comparisons for review", async () => {
+    const base = createAuth("director");
+    const versionAccessBuilder = createVersionAccessBuilder({
+      id: "variant-b",
+      parent_version_id: "base-version",
+    });
+    const variantsBuilder = chainResult({
+      data: [
+        {
+          id: "base-version",
+          project_id: PROJECT_ID,
+          version_number: 1,
+          status: "draft",
+          title: "Base",
+          total_ht_cents: 1000,
+          total_tax_cents: 200,
+          total_ttc_cents: 1200,
+          updated_at: "2026-02-22T08:00:00.000Z",
+          parent_version_id: null,
+          variant_label: null,
+        },
+        {
+          id: "variant-b",
+          project_id: PROJECT_ID,
+          version_number: 2,
+          status: "draft",
+          title: "Variant B",
+          total_ht_cents: 1200,
+          total_tax_cents: 240,
+          total_ttc_cents: 1440,
+          updated_at: "2026-02-22T10:00:00.000Z",
+          parent_version_id: "base-version",
+          variant_label: "B",
+        },
+      ],
+      error: null,
+    });
+    const lineItemsBuilder = chainResult({
+      data: [{ version_id: "variant-b" }],
+      error: null,
+    });
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn((columns: string) => {
+              if (columns.includes("estimate_projects")) {
+                return versionAccessBuilder;
+              }
+
+              return variantsBuilder;
+            }),
+          };
+        }
+        if (table === "estimate_items") {
+          return {
+            select: vi.fn(() => lineItemsBuilder),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await listEstimateVersionVariants("variant-b");
+
+    expect(result.base_version_id).toBe("base-version");
+    expect(result.items.map((item) => item.id)).toEqual(["base-version", "variant-b"]);
   });
 
   it("lists templates with search and computed line counts", async () => {

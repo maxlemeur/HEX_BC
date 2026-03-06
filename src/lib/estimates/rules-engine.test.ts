@@ -13,6 +13,10 @@ type QueryResult = {
 function createRulesEngineSupabaseMock(input: {
   rules: unknown[];
   approvals?: unknown[];
+  takeoffJobs?: unknown[];
+  takeoffVersionLinks?: unknown[];
+  takeoffDpgfLinks?: unknown[];
+  takeoffItems?: unknown[];
 }) {
   const rulesBuilder = {
     eq: () => rulesBuilder,
@@ -33,6 +37,32 @@ function createRulesEngineSupabaseMock(input: {
       } satisfies QueryResult),
   };
 
+  const takeoffJobsBuilder = {
+    data: input.takeoffJobs ?? [],
+    error: null,
+    eq: () => takeoffJobsBuilder,
+  };
+
+  const takeoffVersionLinksBuilder = {
+    data: input.takeoffVersionLinks ?? [],
+    error: null,
+    eq: () => takeoffVersionLinksBuilder,
+  };
+
+  const takeoffDpgfLinksBuilder = {
+    data: input.takeoffDpgfLinks ?? [],
+    error: null,
+    eq: () => takeoffDpgfLinksBuilder,
+    in: () => takeoffDpgfLinksBuilder,
+  };
+
+  const takeoffItemsBuilder = {
+    data: input.takeoffItems ?? [],
+    error: null,
+    eq: () => takeoffItemsBuilder,
+    in: () => takeoffItemsBuilder,
+  };
+
   return {
     from: (table: string) => {
       if (table === "estimate_rules") {
@@ -44,6 +74,30 @@ function createRulesEngineSupabaseMock(input: {
       if (table === "estimate_approvals") {
         return {
           select: () => approvalsBuilder,
+        };
+      }
+
+      if (table === "takeoff_jobs") {
+        return {
+          select: () => takeoffJobsBuilder,
+        };
+      }
+
+      if (table === "takeoff_version_links") {
+        return {
+          select: () => takeoffVersionLinksBuilder,
+        };
+      }
+
+      if (table === "takeoff_dpgf_links") {
+        return {
+          select: () => takeoffDpgfLinksBuilder,
+        };
+      }
+
+      if (table === "takeoff_items") {
+        return {
+          select: () => takeoffItemsBuilder,
         };
       }
 
@@ -305,6 +359,68 @@ describe("rules engine", () => {
       expect.objectContaining({
         metric_key: "critical_exceptions_count",
         source_state: "unavailable",
+      }),
+    ]);
+  });
+
+  it("treats missing DPGF links as zero coverage when takeoff jobs exist", async () => {
+    const ruleId = "d0d0d0d0-1111-4111-8111-111111111111";
+    const supabase = createRulesEngineSupabaseMock({
+      rules: [
+        {
+          id: ruleId,
+          created_at: "2026-02-23T09:00:00.000Z",
+          updated_at: "2026-02-23T09:00:00.000Z",
+          tenant_id: "22222222-2222-4222-8222-222222222222",
+          rule_type: "dpgf_coverage_min",
+          scope_type: "global",
+          scope_id: null,
+          threshold_value: 7500,
+          action: "require_approval",
+          is_active: true,
+        },
+      ],
+      takeoffJobs: [{ id: "job-1" }],
+      takeoffVersionLinks: [],
+      takeoffDpgfLinks: [],
+    });
+
+    const result = await evaluateRules({
+      supabase: supabase as never,
+      tenantId: "22222222-2222-4222-8222-222222222222",
+      version: {
+        id: "33333333-3333-4333-8333-333333333333",
+        project_id: "44444444-4444-4444-8444-444444444444",
+        margin_bp: 1500,
+        margin_multiplier: 1,
+        discount_bp: 100,
+        total_ht_cents: 90000,
+      },
+      project: {
+        id: "44444444-4444-4444-8444-444444444444",
+        client_name: "Client A",
+      },
+      items: [
+        {
+          id: "line-1",
+          category_id: null,
+          item_type: "line",
+        },
+        {
+          id: "line-2",
+          category_id: null,
+          item_type: "line",
+        },
+      ],
+    });
+
+    expect(result.unavailableSignals).toHaveLength(0);
+    expect(result.violations).toEqual([
+      expect.objectContaining({
+        rule_id: ruleId,
+        metric_key: "dpgf_coverage_bp",
+        actual_value: 0,
+        approval_status: "missing",
       }),
     ]);
   });
