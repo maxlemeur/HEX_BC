@@ -315,7 +315,7 @@ function buildProofs(input: {
       label: input.dpgf.title,
       source: input.dpgf.source_file_name
         ? `DPGF ${input.dpgf.source_file_name}`
-        : "DPGF importe",
+        : "DPGF importé",
       confidence_score: null,
       note:
         input.dpgf.source_page !== null
@@ -359,9 +359,9 @@ function buildProofs(input: {
       type: "formula",
       kind: "inference",
       label: `Somme de ${input.linkedTakeoffItems.length} items takeoff`,
-      source: "Aggregation manuelle",
+      source: "Agrégation manuelle",
       confidence_score: input.aggregatedMetrics.averageConfidence,
-      note: "La quantite takeoff agregee provient de plusieurs items relies.",
+      note: "La quantité takeoff agrégée provient de plusieurs items reliés.",
     });
   }
 
@@ -378,12 +378,12 @@ function buildProofs(input: {
       kind: decisionKind,
       label:
         input.appliedDecision.decision === "manual_fix"
-          ? "Hypothese manuelle"
+          ? "Hypothèse manuelle"
           : "Arbitrage de revue",
       source:
         input.appliedDecision.source === "carried_over"
-          ? "Decision reprise depuis une version precedente"
-          : "Decision de revue humaine",
+          ? "Décision reprise depuis une version précédente"
+          : "Décision de revue humaine",
       confidence_score: null,
       note: input.appliedDecision.reason,
     });
@@ -684,6 +684,21 @@ function buildUnusedTakeoffItems(
     }));
 }
 
+function buildManualLinkCandidates(
+  takeoffLines: NormalizedTakeoffLine[]
+): TakeoffDpgfComparisonUnusedTakeoffItem[] {
+  return takeoffLines.map((line) => ({
+    item_id: line.item_id,
+    designation: line.designation,
+    quantity: line.quantity,
+    unit: line.unit,
+    source_file_name: line.source_file_name,
+    source_page: line.source_page,
+    confidence_score: line.confidence,
+    evidence: line.evidence,
+  }));
+}
+
 function normalizeView(view: TakeoffDpgfComparisonView | undefined) {
   return view === "exceptions_only" ? "exceptions_only" : "all";
 }
@@ -821,6 +836,7 @@ export function buildTakeoffDpgfComparison(
     threshold,
     summary,
     rows: paginatedRows,
+    manual_link_candidates: buildManualLinkCandidates(normalizedTakeoffLines),
     unused_takeoff_items: unusedTakeoffItems,
     pagination: {
       page_size: pageSize,

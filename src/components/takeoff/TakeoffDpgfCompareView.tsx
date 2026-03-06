@@ -42,17 +42,24 @@ type ProofKind = TakeoffDpgfComparisonProof["kind"];
 type ManualLinkModalProps = {
   open: boolean;
   row: TakeoffDpgfComparisonRow | null;
-  unusedTakeoffItems: TakeoffDpgfComparisonUnusedTakeoffItem[];
+  rows: TakeoffDpgfComparisonRow[];
+  manualLinkCandidates: TakeoffDpgfComparisonUnusedTakeoffItem[];
   saving: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (takeoffItemIds: string[]) => Promise<void>;
+  onSaveHypothesis: (hypothesisText: string) => Promise<void>;
+};
+
+type ManualLinkCandidate = TakeoffDpgfComparisonUnusedTakeoffItem & {
+  is_current: boolean;
+  linked_line_label: string | null;
 };
 
 const STATUS_LABELS: Record<ReviewStatusFilter, string> = {
   all: "Tous statuts",
   reliable_match: "Fiable",
-  to_confirm: "A confirmer",
-  significant_gap: "Ecart fort",
+  to_confirm: "À confirmer",
+  significant_gap: "Écart fort",
   unlinked: "Sans preuve",
   forced_manual: "Revue manuelle",
 };
@@ -78,9 +85,9 @@ const STATUS_PANEL_CSS: Record<TakeoffDpgfReviewStatus, string> = {
 
 const DECISION_LABELS: Record<TakeoffDpgfReviewDecision, string> = {
   keep_dpgf: "Garder DPGF",
-  keep_takeoff: "Garder metre",
+  keep_takeoff: "Garder métré",
   manual_fix: "Corriger manuellement",
-  out_of_scope: "Hors perimetre",
+  out_of_scope: "Hors périmètre",
 };
 
 const DECISION_VARIANT: Record<
@@ -95,15 +102,31 @@ const DECISION_VARIANT: Record<
 
 const PROOF_KIND_LABELS: Record<ProofKind, string> = {
   fact: "Faits",
-  hypothesis: "Hypotheses",
-  inference: "Inferences",
+  hypothesis: "Hypothèses",
+  inference: "Inférences",
+};
+
+const PROOF_TYPE_LABELS: Record<TakeoffDpgfComparisonProof["type"], string> = {
+  dpgf: "DPGF",
+  takeoff: "Métré",
+  plan_zone: "Plan",
+  formula: "Formule",
+  comment: "Note",
+};
+
+const PROOF_TYPE_BORDER: Record<TakeoffDpgfComparisonProof["type"], string> = {
+  dpgf: "border-l-slate-400",
+  takeoff: "border-l-sky-400",
+  plan_zone: "border-l-violet-400",
+  formula: "border-l-amber-400",
+  comment: "border-l-emerald-400",
 };
 
 const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
   { value: "position", label: "Position DPGF" },
-  { value: "confidence_desc", label: "Confiance desc" },
-  { value: "delta_desc", label: "Ecart desc" },
-  { value: "matching_desc", label: "Matching desc" },
+  { value: "confidence_desc", label: "Confiance décr." },
+  { value: "delta_desc", label: "Écart décr." },
+  { value: "matching_desc", label: "Pertinence décr." },
 ];
 
 const STATUS_OPTIONS: Array<{ value: ReviewStatusFilter; label: string }> = [
@@ -130,8 +153,27 @@ function formatPercent(value: number | null) {
 }
 
 function formatConfidence(value: number | null) {
-  if (value === null || !Number.isFinite(value)) return "Indeterminee";
+  if (value === null || !Number.isFinite(value)) return "Indéterminée";
   return `${Math.round(value * 100)}%`;
+}
+
+function getDecisionImpactText(
+  decision: TakeoffDpgfReviewDecision | null,
+  row: TakeoffDpgfComparisonRow | null,
+): string | null {
+  if (!decision || !row) return null;
+  const unit = row.quantity_unit ?? "";
+  switch (decision) {
+    case "keep_dpgf":
+      return `Quantité retenue : ${formatNumber(row.dpgf_quantity)} ${unit}`.trim();
+    case "keep_takeoff":
+      if (row.takeoff_quantity === null) return "Quantité takeoff non consolidée";
+      return `Quantité retenue : ${formatNumber(row.takeoff_quantity)} ${unit} (${formatPercent(row.delta_percent)})`.trim();
+    case "manual_fix":
+      return "Vous devrez saisir la quantité corrigée manuellement.";
+    case "out_of_scope":
+      return "Cette ligne sera exclue du chiffrage.";
+  }
 }
 
 function formatProofConfidence(value: number | null) {
@@ -247,39 +289,72 @@ function SummaryCard({
   );
 }
 
+export function buildManualLinkCandidates(input: {
+  row: TakeoffDpgfComparisonRow | null;
+  rows: TakeoffDpgfComparisonRow[];
+  manualLinkCandidates: TakeoffDpgfComparisonUnusedTakeoffItem[];
+}): ManualLinkCandidate[] {
+  if (!input.row) {
+    return [];
+  }
+
+  const currentIds = new Set(input.row.linked_takeoff_items.map((item) => item.item_id));
+  const linkedLineLabelByItemId = new Map<string, string>();
+
+  for (const compareRow of input.rows) {
+    if (compareRow.line_id === input.row.line_id) {
+      continue;
+    }
+
+    for (const item of compareRow.linked_takeoff_items) {
+      linkedLineLabelByItemId.set(item.item_id, compareRow.line_label);
+    }
+  }
+
+  return input.manualLinkCandidates
+    .map((item) => ({
+      ...item,
+      is_current: currentIds.has(item.item_id),
+      linked_line_label: linkedLineLabelByItemId.get(item.item_id) ?? null,
+    }))
+    .sort((left, right) => {
+      if (left.is_current !== right.is_current) {
+        return left.is_current ? -1 : 1;
+      }
+
+      return left.designation.localeCompare(right.designation, "fr-FR");
+    });
+}
+
 function ManualLinkModal({
   open,
   row,
-  unusedTakeoffItems,
+  rows,
+  manualLinkCandidates,
   saving,
   onOpenChange,
   onSave,
+  onSaveHypothesis,
 }: Readonly<ManualLinkModalProps>) {
   const [selectedIds, setSelectedIds] = useState<string[]>(
     () => row?.linked_takeoff_items.map((item) => item.item_id) ?? []
   );
+  const [mode, setMode] = useState<"takeoff_items" | "hypothesis">("takeoff_items");
+  const [hypothesisText, setHypothesisText] = useState("");
+
+  useEffect(() => {
+    setSelectedIds(row?.linked_takeoff_items.map((item) => item.item_id) ?? []);
+    setMode("takeoff_items");
+    setHypothesisText("");
+  }, [row]);
 
   const candidates = useMemo(() => {
-    if (!row) return [];
-
-    const currentItems = row.linked_takeoff_items.map((item) => ({
-      item_id: item.item_id,
-      designation: item.designation,
-      quantity: item.quantity,
-      unit: item.unit,
-      source_file_name: item.source_file_name,
-      source_page: item.source_page,
-      confidence_score: item.confidence,
-      evidence: item.evidence,
-      is_current: true,
-    }));
-    const currentIds = new Set(currentItems.map((item) => item.item_id));
-    const remainingItems = unusedTakeoffItems
-      .filter((item) => !currentIds.has(item.item_id))
-      .map((item) => ({ ...item, is_current: false }));
-
-    return [...currentItems, ...remainingItems];
-  }, [row, unusedTakeoffItems]);
+    return buildManualLinkCandidates({
+      row,
+      rows,
+      manualLinkCandidates,
+    });
+  }, [manualLinkCandidates, row, rows]);
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
@@ -296,87 +371,153 @@ function ManualLinkModal({
               {row?.line_label ?? "Ligne inconnue"}
             </p>
             <p className="mt-1 text-sm text-[var(--slate-600)]">
-              Quantite DPGF: {formatNumber(row?.dpgf_quantity ?? null)} {row?.dpgf.unit ?? ""}
+              Quantité DPGF : {formatNumber(row?.dpgf_quantity ?? null)} {row?.dpgf.unit ?? ""}
             </p>
           </div>
 
-          <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
-            {candidates.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--slate-50)] p-6 text-sm text-[var(--slate-600)]">
-                Aucun item takeoff disponible pour un lien manuel.
-              </div>
-            ) : (
-              candidates.map((candidate) => {
-                const checked = selectedIds.includes(candidate.item_id);
+          <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+            <button
+              type="button"
+              className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                mode === "takeoff_items"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+              onClick={() => setMode("takeoff_items")}
+            >
+              Items takeoff
+            </button>
+            <button
+              type="button"
+              className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                mode === "hypothesis"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+              onClick={() => setMode("hypothesis")}
+            >
+              Hypothèse manuelle
+            </button>
+          </div>
 
-                return (
-                  <label
-                    key={candidate.item_id}
-                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
-                      checked
-                        ? "border-sky-300 bg-sky-50/80"
-                        : "border-[var(--border)] bg-white hover:bg-[var(--slate-50)]"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={checked}
-                      onChange={() => {
-                        setSelectedIds((current) =>
-                          checked
-                            ? current.filter((itemId) => itemId !== candidate.item_id)
-                            : [...current, candidate.item_id]
-                        );
-                      }}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium text-[var(--slate-900)]">
-                          {candidate.designation}
+          {mode === "takeoff_items" ? (
+            <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+              {candidates.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--slate-50)] p-6 text-sm text-[var(--slate-600)]">
+                  Aucun item takeoff disponible pour un lien manuel.
+                </div>
+              ) : (
+                candidates.map((candidate) => {
+                  const checked = selectedIds.includes(candidate.item_id);
+
+                  return (
+                    <label
+                      key={candidate.item_id}
+                      className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
+                        checked
+                          ? "border-sky-300 bg-sky-50/80"
+                          : "border-[var(--border)] bg-white hover:bg-[var(--slate-50)]"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={checked}
+                        onChange={() => {
+                          setSelectedIds((current) =>
+                            checked
+                              ? current.filter((itemId) => itemId !== candidate.item_id)
+                              : [...current, candidate.item_id]
+                          );
+                        }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-medium text-[var(--slate-900)]">
+                            {candidate.designation}
+                          </p>
+                          {candidate.is_current ? (
+                            <Badge variant="info" size="sm">
+                              Actuellement relié
+                            </Badge>
+                          ) : null}
+                          {candidate.linked_line_label ? (
+                            <Badge variant="warning" size="sm">
+                              Relié à {candidate.linked_line_label}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-xs text-[var(--slate-600)]">
+                          {formatNumber(candidate.quantity)} {candidate.unit} ·{" "}
+                          {candidate.source_file_name ?? "Source inconnue"}
+                          {candidate.source_page ? ` · p.${candidate.source_page}` : ""}
                         </p>
-                        {candidate.is_current ? (
-                          <Badge variant="info" size="sm">
-                            Actuellement relie
-                          </Badge>
+                        <p className="mt-1 text-xs text-[var(--slate-500)]">
+                          {formatProofConfidence(candidate.confidence_score)}
+                        </p>
+                        {candidate.evidence ? (
+                          <p className="mt-2 text-xs text-[var(--slate-600)]">
+                            {candidate.evidence}
+                          </p>
                         ) : null}
                       </div>
-                      <p className="mt-1 text-xs text-[var(--slate-600)]">
-                        {formatNumber(candidate.quantity)} {candidate.unit} ·{" "}
-                        {candidate.source_file_name ?? "Source inconnue"}
-                        {candidate.source_page ? ` · p.${candidate.source_page}` : ""}
-                      </p>
-                      <p className="mt-1 text-xs text-[var(--slate-500)]">
-                        {formatProofConfidence(candidate.confidence_score)}
-                      </p>
-                      {candidate.evidence ? (
-                        <p className="mt-2 text-xs text-[var(--slate-600)]">{candidate.evidence}</p>
-                      ) : null}
-                    </div>
-                  </label>
-                );
-              })
-            )}
-          </div>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-[var(--slate-600)]">
+                Décrivez votre hypothèse de quantité ou de périmètre pour cette ligne. Elle sera
+                enregistrée comme décision « corriger manuellement » et apparaîtra dans le panneau
+                de preuves sous forme d&apos;hypothèse après rafraîchissement.
+              </p>
+              <textarea
+                autoComplete="off"
+                className="form-input min-h-[160px] py-3"
+                value={hypothesisText}
+                placeholder="Ex : La quantité DPGF semble inclure les réserves techniques non visibles sur les plans. Je retiens 120 m² en attendant confirmation du maître d'œuvre…"
+                onChange={(event) => setHypothesisText(event.target.value)}
+                maxLength={2000}
+              />
+              <p className="text-xs text-[var(--slate-500)]">
+                {hypothesisText.length} / 2 000 caractères
+              </p>
+            </div>
+          )}
         </Modal.Body>
         <Modal.Footer>
           <Modal.Close>Annuler</Modal.Close>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void onSave([])}
-            disabled={saving || !row}
-          >
-            Retirer le lien manuel
-          </Button>
-          <Button
-            size="sm"
-            loading={saving}
-            disabled={!row}
-            onClick={() => void onSave(selectedIds)}
-          >
-            Enregistrer la selection
-          </Button>
+          {mode === "takeoff_items" ? (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void onSave([])}
+                disabled={saving || !row}
+              >
+                Retirer le lien manuel
+              </Button>
+              <Button
+                size="sm"
+                loading={saving}
+                disabled={!row}
+                onClick={() => void onSave(selectedIds)}
+              >
+                Enregistrer la sélection
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              loading={saving}
+              disabled={!row || hypothesisText.trim().length === 0}
+              onClick={() => void onSaveHypothesis(hypothesisText.trim())}
+            >
+              Enregistrer l&apos;hypothèse
+            </Button>
+          )}
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>
@@ -394,7 +535,7 @@ function ProofList({
     return (
       <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--slate-50)] p-4">
         <p className="text-sm font-medium text-[var(--slate-800)]">{label}</p>
-        <p className="mt-2 text-sm text-[var(--slate-600)]">Aucun element.</p>
+        <p className="mt-2 text-sm text-[var(--slate-600)]">Aucun élément.</p>
       </div>
     );
   }
@@ -405,20 +546,38 @@ function ProofList({
       {proofs.map((proof) => (
         <article
           key={proof.proof_id}
-          className="rounded-2xl border border-[var(--border)] bg-white p-4 shadow-sm"
+          className={`rounded-2xl border border-[var(--border)] border-l-4 ${PROOF_TYPE_BORDER[proof.type]} bg-white p-4 shadow-sm`}
         >
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold text-[var(--slate-900)]">{proof.label}</p>
             <Badge variant="neutral" size="sm">
-              {proof.type}
+              {PROOF_TYPE_LABELS[proof.type]}
             </Badge>
+            {proof.type === "plan_zone" && proof.source ? (
+              <Badge variant="info" size="sm">
+                {proof.source}
+              </Badge>
+            ) : null}
+            {proof.type === "formula" ? (
+              <Badge variant="warning" size="sm">
+                Agrégation
+              </Badge>
+            ) : null}
           </div>
-          <p className="mt-2 text-xs text-[var(--slate-600)]">Source: {proof.source}</p>
+          {proof.type !== "plan_zone" ? (
+            <p className="mt-2 text-xs text-[var(--slate-600)]">Source : {proof.source}</p>
+          ) : null}
           <p className="mt-1 text-xs text-[var(--slate-500)]">
             {formatProofConfidence(proof.confidence_score)}
           </p>
           {proof.note ? (
-            <p className="mt-2 text-sm leading-6 text-[var(--slate-700)]">{proof.note}</p>
+            proof.type === "comment" ? (
+              <blockquote className="mt-2 border-l-2 border-emerald-300 pl-3 text-sm italic leading-6 text-[var(--slate-700)]">
+                {proof.note}
+              </blockquote>
+            ) : (
+              <p className="mt-2 text-sm leading-6 text-[var(--slate-700)]">{proof.note}</p>
+            )
           ) : null}
         </article>
       ))}
@@ -514,6 +673,15 @@ export default function TakeoffDpgfCompareView({
     setDecisionReason(selectedRow.applied_decision?.reason ?? "");
   }, [selectedRow]);
 
+  const exceptionCounts = useMemo(() => {
+    const source = data.rows;
+    return {
+      significant_gap: source.filter((r) => r.review_status === "significant_gap").length,
+      to_confirm: source.filter((r) => r.review_status === "to_confirm").length,
+      unlinked: source.filter((r) => r.review_status === "unlinked").length,
+    };
+  }, [data.rows]);
+
   const proofGroups = useMemo(() => {
     if (!selectedRow) {
       return {
@@ -550,10 +718,10 @@ export default function TakeoffDpgfCompareView({
       });
 
       toast.success({
-        title: "Lien manuel mis a jour",
+        title: "Lien manuel mis à jour",
         description:
           takeoffItemIds.length > 0
-            ? `${takeoffItemIds.length} item(s) relies a la ligne DPGF.`
+            ? `${takeoffItemIds.length} item(s) reliés à la ligne DPGF.`
             : "La ligne repasse sans lien manuel explicite.",
       });
       setManualLinkModalOpen(false);
@@ -568,11 +736,37 @@ export default function TakeoffDpgfCompareView({
     }
   };
 
+  const handleHypothesisSave = async (hypothesisText: string) => {
+    if (!selectedRow) return;
+    setManualLinkSaving(true);
+    try {
+      await saveTakeoffReviewDecision(data.job_id, {
+        version_id: data.version_id,
+        estimate_item_id: selectedRow.dpgf.estimate_item_id,
+        decision: "manual_fix",
+        reason: hypothesisText,
+      });
+      toast.success({
+        title: "Hypothèse enregistrée",
+        description: `Hypothèse appliquée à la ligne ${selectedRow.line_label}.`,
+      });
+      setManualLinkModalOpen(false);
+      onRefresh();
+    } catch (error) {
+      toast.error({
+        title: "Impossible d'enregistrer l'hypothèse",
+        description: isTakeoffApiError(error) ? error.message : "Erreur inconnue.",
+      });
+    } finally {
+      setManualLinkSaving(false);
+    }
+  };
+
   const handleDecisionSave = async () => {
     if (!selectedRow || !draftDecision) {
       toast.info({
-        title: "Selection incomplete",
-        description: "Choisissez d'abord une decision humaine explicite.",
+        title: "Sélection incomplète",
+        description: "Choisissez d'abord une décision humaine explicite.",
       });
       return;
     }
@@ -587,13 +781,13 @@ export default function TakeoffDpgfCompareView({
       });
 
       toast.success({
-        title: "Decision enregistree",
-        description: `${DECISION_LABELS[draftDecision]} appliquee a la ligne.`,
+        title: "Décision enregistrée",
+        description: `${DECISION_LABELS[draftDecision]} appliquée à la ligne.`,
       });
       onRefresh();
     } catch (error) {
       toast.error({
-        title: "Impossible d'enregistrer la decision",
+        title: "Impossible d'enregistrer la décision",
         description: isTakeoffApiError(error) ? error.message : "Erreur inconnue.",
       });
     } finally {
@@ -613,7 +807,7 @@ export default function TakeoffDpgfCompareView({
               Comparaison DPGF explicable
             </h2>
             <p className="mt-2 text-sm leading-6 text-[var(--slate-600)]">
-              Les suggestions restent visibles mais ne sont jamais appliquees sans validation
+              Les suggestions restent visibles mais ne sont jamais appliquées sans validation
               humaine explicite.
             </p>
           </div>
@@ -653,12 +847,12 @@ export default function TakeoffDpgfCompareView({
             accent="text-emerald-700"
           />
           <SummaryCard
-            label="A confirmer"
+            label="À confirmer"
             value={data.summary.to_confirm}
             accent="text-amber-700"
           />
           <SummaryCard
-            label="Ecarts forts"
+            label="Écarts forts"
             value={data.summary.significant_gaps}
             accent="text-rose-700"
           />
@@ -750,7 +944,7 @@ export default function TakeoffDpgfCompareView({
 
           <div className="flex items-end">
             <Button type="button" size="sm" variant="secondary" onClick={onRefresh}>
-              Rafraichir
+              Rafraîchir
             </Button>
           </div>
         </div>
@@ -760,20 +954,66 @@ export default function TakeoffDpgfCompareView({
           {currentView === "all" ? "Tout" : "Exceptions seulement"}
           {isToolbarPending ? " · filtrage..." : ""}
         </p>
+
+        {currentView === "exceptions_only" ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setStatusFilter(statusFilter === "significant_gap" ? "all" : "significant_gap")
+              }
+              className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                statusFilter === "significant_gap"
+                  ? "bg-rose-100 text-rose-800"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {exceptionCounts.significant_gap} écarts forts
+            </button>
+            <span className="text-slate-300">·</span>
+            <button
+              type="button"
+              onClick={() =>
+                setStatusFilter(statusFilter === "to_confirm" ? "all" : "to_confirm")
+              }
+              className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                statusFilter === "to_confirm"
+                  ? "bg-amber-100 text-amber-800"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {exceptionCounts.to_confirm} à confirmer
+            </button>
+            <span className="text-slate-300">·</span>
+            <button
+              type="button"
+              onClick={() =>
+                setStatusFilter(statusFilter === "unlinked" ? "all" : "unlinked")
+              }
+              className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+                statusFilter === "unlinked"
+                  ? "bg-slate-200 text-slate-800"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {exceptionCounts.unlinked} sans preuve
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
         <section className="space-y-3">
           {filteredRows.length === 0 ? (
             <div className="rounded-[28px] border border-dashed border-[var(--border)] bg-white p-10 text-center text-sm text-[var(--slate-600)]">
-              Aucun resultat pour ce filtre.
+              Aucun résultat pour ce filtre.
             </div>
           ) : (
             filteredRows.map((row) => {
               const isSelected = row.line_id === selectedRow?.line_id;
               const quantityLabel =
                 row.takeoff_quantity === null
-                  ? "Quantite takeoff non consolidee"
+                  ? "Quantité takeoff non consolidée"
                   : `${formatNumber(row.takeoff_quantity)} ${row.quantity_unit ?? ""}`.trim();
 
               return (
@@ -835,7 +1075,7 @@ export default function TakeoffDpgfCompareView({
                       </p>
                     </div>
                     <div className="rounded-2xl border border-white/70 bg-white/75 p-3">
-                      <p className="text-xs text-[var(--slate-500)]">Ecart</p>
+                      <p className="text-xs text-[var(--slate-500)]">Écart</p>
                       <p className="mt-1 text-sm font-semibold text-[var(--slate-900)]">
                         {formatNumber(row.delta_absolute)} · {formatPercent(row.delta_percent)}
                       </p>
@@ -857,7 +1097,7 @@ export default function TakeoffDpgfCompareView({
                       ))
                     ) : (
                       <Badge variant="neutral" size="sm">
-                        Aucun item takeoff relie
+                        Aucun item takeoff relié
                       </Badge>
                     )}
                     {row.linked_takeoff_items.length > 3 ? (
@@ -876,7 +1116,7 @@ export default function TakeoffDpgfCompareView({
           {!selectedRow ? (
             <div className="rounded-[28px] border border-[var(--border)] bg-white p-6 shadow-sm">
               <p className="text-sm text-[var(--slate-600)]">
-                Selectionnez une ligne pour afficher les preuves, hypotheses et decisions.
+                Sélectionnez une ligne pour afficher les preuves, hypothèses et décisions.
               </p>
             </div>
           ) : (
@@ -884,7 +1124,7 @@ export default function TakeoffDpgfCompareView({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
-                    Revue detaillee
+                    Revue détaillée
                   </p>
                   <h3 className="mt-2 text-xl font-semibold text-[var(--slate-950)]">
                     {selectedRow.line_label}
@@ -933,12 +1173,12 @@ export default function TakeoffDpgfCompareView({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
-                      Decision humaine appliquee
+                      Décision humaine appliquée
                     </p>
                     <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
                       {selectedRow.applied_decision
                         ? DECISION_LABELS[selectedRow.applied_decision.decision]
-                        : "Aucune decision appliquee"}
+                        : "Aucune décision appliquée"}
                     </p>
                   </div>
                   {selectedRow.applied_decision ? (
@@ -973,7 +1213,7 @@ export default function TakeoffDpgfCompareView({
                       Arbitrage humain
                     </p>
                     <p className="mt-2 text-sm text-[var(--slate-600)]">
-                      Selection explicite obligatoire avant application.
+                      Sélection explicite obligatoire avant application.
                     </p>
                   </div>
                   <Button
@@ -997,6 +1237,12 @@ export default function TakeoffDpgfCompareView({
                   ))}
                 </div>
 
+                {draftDecision && selectedRow ? (
+                  <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    {getDecisionImpactText(draftDecision, selectedRow)}
+                  </p>
+                ) : null}
+
                 <div className="mt-4">
                   <label className="form-label" htmlFor="dpgf-review-reason">
                     Justification humaine
@@ -1007,7 +1253,7 @@ export default function TakeoffDpgfCompareView({
                     autoComplete="off"
                     className="form-input min-h-[120px] py-3"
                     value={decisionReason}
-                    placeholder="Distinguer les faits observes, les hypotheses retenues et les corrections manuelles a faire…"
+                    placeholder="Distinguer les faits observés, les hypothèses retenues et les corrections manuelles à faire…"
                     onChange={(event) => setDecisionReason(event.target.value)}
                     maxLength={2000}
                   />
@@ -1023,7 +1269,7 @@ export default function TakeoffDpgfCompareView({
                     loading={decisionSaving}
                     onClick={() => void handleDecisionSave()}
                   >
-                    Enregistrer la decision
+                    Enregistrer la décision
                   </Button>
                 </div>
               </div>
@@ -1036,10 +1282,12 @@ export default function TakeoffDpgfCompareView({
         key={`${selectedRow?.line_id ?? "empty"}:${manualLinkModalOpen ? "open" : "closed"}`}
         open={manualLinkModalOpen}
         row={selectedRow}
-        unusedTakeoffItems={data.unused_takeoff_items}
+        rows={data.rows}
+        manualLinkCandidates={data.manual_link_candidates}
         saving={manualLinkSaving}
         onOpenChange={setManualLinkModalOpen}
         onSave={handleManualLinkSave}
+        onSaveHypothesis={handleHypothesisSave}
       />
     </div>
   );
