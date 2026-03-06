@@ -3,6 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
+  buildAffaireRegisterSubmissionSignalMessage,
+  fetchAffaireRegisterGateSummary,
+} from "@/lib/affaires/register-server";
+import {
   normalizeEstimateApprovalDecision,
   resolveApprovalDecisionOutcome,
   type EstimateApprovalDecisionComment,
@@ -1337,6 +1341,10 @@ function toSubmissionReadinessSignal(input: {
   };
 }
 
+function dedupeSubmissionSignals(signals: EstimateApprovalSubmissionSignal[]) {
+  return [...new Map(signals.map((signal) => [signal.id, signal])).values()];
+}
+
 function buildSubmissionReadinessFromRulesEvaluation(input: {
   rulesEvaluation: EvaluateRulesResult;
 }): {
@@ -1378,12 +1386,77 @@ function buildSubmissionReadinessFromRulesEvaluation(input: {
       ),
   ];
 
-  const dedupe = (signals: EstimateApprovalSubmissionSignal[]) =>
-    [...new Map(signals.map((signal) => [signal.id, signal])).values()];
+  return {
+    blockers: dedupeSubmissionSignals(blockers),
+    alerts: dedupeSubmissionSignals(alerts),
+  };
+}
+
+async function enrichSubmissionReadinessWithAffaireRegister(input: {
+  supabase: SupabaseClient<Database> | Supabase;
+  projectId: string;
+  versionId: string;
+  submissionReadiness: {
+    blockers: EstimateApprovalSubmissionSignal[];
+    alerts: EstimateApprovalSubmissionSignal[];
+  };
+}) {
+  const registerSummary = await fetchAffaireRegisterGateSummary({
+    supabase: input.supabase as never,
+    projectId: input.projectId,
+    versionId: input.versionId,
+  });
+
+  const blockers = [...input.submissionReadiness.blockers];
+  const alerts = [...input.submissionReadiness.alerts];
+
+  if (registerSummary.criticalOpenEntries.length > 0) {
+    blockers.push(
+      toSubmissionReadinessSignal({
+        id: "register:critical_open_questions",
+        label: "Registre affaire",
+        message: buildAffaireRegisterSubmissionSignalMessage({
+          entries: registerSummary.criticalOpenEntries,
+          label: "Questions critiques ouvertes",
+          intro: "Des questions critiques restent ouvertes.",
+        }),
+      })
+    );
+  }
+
+  if (registerSummary.nonCriticalOpenEntries.length > 0) {
+    alerts.push(
+      toSubmissionReadinessSignal({
+        id: "register:open_questions_pending",
+        label: "Registre affaire",
+        message: buildAffaireRegisterSubmissionSignalMessage({
+          entries: registerSummary.nonCriticalOpenEntries,
+          label: "Questions ouvertes",
+          intro:
+            "Des hypotheses ou pieces manquantes restent ouvertes avant validation.",
+        }),
+      })
+    );
+  }
+
+  if (registerSummary.clarifyWithClientEntries.length > 0) {
+    alerts.push(
+      toSubmissionReadinessSignal({
+        id: "register:client_clarification_required",
+        label: "Registre affaire",
+        message: buildAffaireRegisterSubmissionSignalMessage({
+          entries: registerSummary.clarifyWithClientEntries,
+          label: "Clarifications client",
+          intro:
+            "Des points restent a clarifier avec le client avant envoi externe.",
+        }),
+      })
+    );
+  }
 
   return {
-    blockers: dedupe(blockers),
-    alerts: dedupe(alerts),
+    blockers: dedupeSubmissionSignals(blockers),
+    alerts: dedupeSubmissionSignals(alerts),
   };
 }
 
@@ -1525,8 +1598,13 @@ async function evaluateSubmissionReadiness(input: {
     preserveApprovedRequiresApproval: true,
   });
 
-  return buildSubmissionReadinessFromRulesEvaluation({
-    rulesEvaluation,
+  return enrichSubmissionReadinessWithAffaireRegister({
+    supabase: input.supabase,
+    projectId: input.project.id,
+    versionId: input.version.id,
+    submissionReadiness: buildSubmissionReadinessFromRulesEvaluation({
+      rulesEvaluation,
+    }),
   });
 }
 

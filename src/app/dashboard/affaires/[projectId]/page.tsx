@@ -5,6 +5,16 @@ import { getUserContext } from "@/lib/auth/server";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import {
+  parseAffaireRegisterCursorSearchParam,
+  parseAffaireRegisterKindSearchParam,
+  parseAffaireRegisterSeveritySearchParam,
+  parseAffaireRegisterStatusSearchParam,
+} from "@/lib/affaires/register";
+import {
+  fetchAffaireRegisterPage,
+  fetchAffaireRegisterScopeOptions,
+} from "@/lib/affaires/register-server";
+import {
   fetchAffaireHubDpgfSource,
   fetchAffaireHubMarginAnalysis,
   fetchAffaireHubPlansSummary,
@@ -58,6 +68,12 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const approvalJournalDecision = parseApprovalDecisionJournalStatusSearchParam(
     search[APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM]
   );
+  const registerStatus = parseAffaireRegisterStatusSearchParam(search.registerStatus);
+  const registerSeverity = parseAffaireRegisterSeveritySearchParam(
+    search.registerSeverity
+  );
+  const registerKind = parseAffaireRegisterKindSearchParam(search.registerKind);
+  const registerCursor = parseAffaireRegisterCursorSearchParam(search.registerCursor);
 
   const summaryPromise = fetchAffaireHubSummary(projectId);
   const timelinePromise = fetchAffaireHubTimeline(projectId, timelinePage);
@@ -96,16 +112,38 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   }
 
   const summary = summaryResult.value;
-  const approvalSummary = summary.currentVersion
-    ? await getEstimateApprovalSummary(summary.currentVersion.id).catch(() => null)
-    : null;
-  const approvalJournal = summary.currentVersion
-    ? await listEstimateApprovalDecisionJournal({
-        versionId: summary.currentVersion.id,
-        actorUserId: approvalJournalAuthor,
-        decision: approvalJournalDecision,
-      }).catch(() => null)
-    : null;
+  const currentVersionId = summary.currentVersion?.id ?? null;
+  const [
+    approvalSummaryResult,
+    approvalJournalResult,
+    registerPageResult,
+    registerScopeOptionsResult,
+  ] = await Promise.allSettled([
+    currentVersionId ? getEstimateApprovalSummary(currentVersionId) : Promise.resolve(null),
+    currentVersionId
+      ? listEstimateApprovalDecisionJournal({
+          versionId: currentVersionId,
+          actorUserId: approvalJournalAuthor,
+          decision: approvalJournalDecision,
+        })
+      : Promise.resolve(null),
+    fetchAffaireRegisterPage({
+      projectId,
+      versionId: currentVersionId,
+      status: registerStatus,
+      severity: registerSeverity,
+      kind: registerKind,
+      cursor: registerCursor,
+    }),
+    fetchAffaireRegisterScopeOptions({
+      projectId,
+      versionId: currentVersionId,
+    }),
+  ]);
+  const approvalSummary =
+    approvalSummaryResult.status === "fulfilled" ? approvalSummaryResult.value : null;
+  const approvalJournal =
+    approvalJournalResult.status === "fulfilled" ? approvalJournalResult.value : null;
   const viewerRole = profile?.tenant_role ?? null;
   const isReadOnlyReview = viewerRole === "director";
 
@@ -120,12 +158,19 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
 
   let plansSummary: Awaited<ReturnType<typeof fetchAffaireHubPlansSummary>> | null =
     null;
+  const registerPage =
+    registerPageResult.status === "fulfilled" ? registerPageResult.value : null;
+  const registerScopeOptions =
+    registerScopeOptionsResult.status === "fulfilled"
+      ? registerScopeOptionsResult.value
+      : { lots: [], lines: [] };
 
   const sectionErrors: {
     timeline?: string;
     dpgfSource?: string;
     marginAnalysis?: string;
     plansSummary?: string;
+    register?: string;
   } = {};
 
   if (timelineResult.status === "rejected") {
@@ -141,6 +186,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   if (marginResult.status === "rejected") {
     sectionErrors.marginAnalysis =
       "Impossible de charger l'analyse de marge pour le moment.";
+  }
+  if (registerPageResult.status === "rejected" || registerScopeOptionsResult.status === "rejected") {
+    sectionErrors.register =
+      "Impossible de charger le registre affaire pour le moment.";
   }
 
   const intakeWorkspace: AffaireIntakeWorkspace | null =
@@ -175,6 +224,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       sectionErrors={sectionErrors}
       justCreated={justCreated}
       intakeWorkspace={intakeWorkspace}
+      registerPage={registerPage}
+      registerScopeOptions={registerScopeOptions}
     />
   );
 }

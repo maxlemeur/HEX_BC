@@ -27,7 +27,12 @@ import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_a
 
 import { useToast } from "@/components/ui/Toast";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import type {
+  AffaireRegisterPageResult,
+  AffaireRegisterScopeOptions,
+} from "@/lib/affaires/register";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
+import { AffaireRegisterCard } from "./AffaireRegisterCard";
 import { IntakeWorkspace } from "./IntakeWorkspace";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
@@ -54,9 +59,12 @@ type AffaireHubProps = {
     dpgfSource?: string;
     marginAnalysis?: string;
     plansSummary?: string;
+    register?: string;
   };
   justCreated?: boolean;
   intakeWorkspace?: AffaireIntakeWorkspace | null;
+  registerPage?: AffaireRegisterPageResult | null;
+  registerScopeOptions?: AffaireRegisterScopeOptions;
 };
 
 /* ------------------------------------------------------------------ */
@@ -797,6 +805,8 @@ export function AffaireHub({
   sectionErrors,
   justCreated,
   intakeWorkspace,
+  registerPage,
+  registerScopeOptions,
 }: AffaireHubProps) {
   const router = useRouter();
   const toast = useToast();
@@ -1017,6 +1027,16 @@ export function AffaireHub({
           />
         </div>
       )}
+      <div className="mb-4">
+        <AffaireRegisterCard
+          projectId={summary.project.id}
+          versionId={summary.currentVersion?.id ?? null}
+          registerPage={registerPage ?? null}
+          scopeOptions={registerScopeOptions ?? { lots: [], lines: [] }}
+          isReadOnly={isReadOnlyReview}
+          errorMessage={sectionErrors?.register}
+        />
+      </div>
 
       {/* Unified Import Flow (full-width, replaces grid when active) */}
       {showImportFlow ? (

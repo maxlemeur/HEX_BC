@@ -9,9 +9,14 @@ vi.mock("@/lib/estimates/rules-engine", () => ({
   evaluateRules: vi.fn(),
 }));
 
+vi.mock("@/lib/affaires/register-server", () => ({
+  fetchAffaireRegisterGateSummary: vi.fn(),
+}));
+
 import {
   evaluateEstimateSendGating,
 } from "@/lib/estimates/gating";
+import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import {
   getFeatureFlagValueForTenant,
   getStalePriceDaysForTenant,
@@ -139,6 +144,12 @@ describe("estimate send gating", () => {
     vi.clearAllMocks();
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
     vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
+    vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+      openQuestionsCount: 0,
+      criticalOpenEntries: [],
+      nonCriticalOpenEntries: [],
+      clarifyWithClientEntries: [],
+    });
     vi.mocked(evaluateRules).mockResolvedValue({
       violations: [],
       blockingViolations: [],
@@ -366,6 +377,89 @@ describe("estimate send gating", () => {
         expect.objectContaining({
           key: "rule_violation",
           severity: "blocking",
+          count: 1,
+        }),
+      ])
+    );
+  });
+
+  it("adds register blockers and warnings to client send gating", async () => {
+    vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+      openQuestionsCount: 3,
+      criticalOpenEntries: [
+        {
+          id: "reg-1",
+          kind: "missing_piece",
+          severity: "critical",
+          status: "open",
+          text: "CCTP complet manquant",
+          scopeLabel: "Affaire test",
+        },
+      ],
+      nonCriticalOpenEntries: [
+        {
+          id: "reg-2",
+          kind: "assumption",
+          severity: "warning",
+          status: "open",
+          text: "Le phasage reste a confirmer",
+          scopeLabel: "Affaire test",
+        },
+      ],
+      clarifyWithClientEntries: [
+        {
+          id: "reg-3",
+          kind: "assumption",
+          severity: "warning",
+          status: "clarify_with_client",
+          text: "Valider la variante avec le client",
+          scopeLabel: "Lot CFO",
+        },
+      ],
+    });
+
+    const supabase = createSupabaseGatingMock({
+      items: [createLineItem({ id: "line-1", quantity: 1, unitPriceHtCents: 5000 })],
+      marginTiers: [],
+      documents: [{ id: "doc-1" }],
+    });
+
+    const result = await evaluateEstimateSendGating({
+      supabase: supabase as never,
+      tenantId: TENANT_ID,
+      version: {
+        id: VERSION_ID,
+        margin_mode: "fixed",
+        margin_multiplier: 1,
+        margin_bp: 1200,
+        discount_bp: 0,
+        total_ht_cents: 10000,
+        project_id: "55555555-5555-4555-8555-555555555555",
+      },
+      project: {
+        id: "55555555-5555-4555-8555-555555555555",
+        client_name: "Client A",
+        notes: null,
+      },
+    });
+
+    expect(result.canSend).toBe(false);
+    expect(result.blockingFlags).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "critical_open_questions",
+          count: 1,
+        }),
+        expect.objectContaining({
+          key: "client_clarification_required",
+          count: 1,
+        }),
+      ])
+    );
+    expect(result.warningFlags).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "open_questions_pending",
           count: 1,
         }),
       ])

@@ -23,6 +23,7 @@ import {
   type AffaireStatus,
   type NormalizedAffaireListQuery,
 } from "./schemas";
+import { fetchAffaireRegisterGateSummary } from "./register-server";
 
 type AffaireContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 
@@ -542,29 +543,35 @@ async function resolveTakeoffReviewVersionId(input: {
   projectId: string;
   sourceVersionId: string;
   jobId: string;
+  currentVersionId?: string | null;
 }) {
-  const { data: currentVersionData, error: currentVersionError } = await input.context.supabase
-    .from("estimate_versions" as never)
-    .select("id" as never)
-    .eq("tenant_id" as never, input.context.tenantId as never)
-    .eq("project_id" as never, input.projectId as never)
-    .order("version_number" as never, { ascending: false })
-    .order("updated_at" as never, { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (currentVersionError) {
-    throw mapSupabaseError(
-      currentVersionError,
-      "Impossible de resoudre la version courante pour la revue takeoff."
-    );
-  }
-
-  const currentVersionRow = (currentVersionData ?? null) as { id: string } | null;
   const currentVersionId =
-    currentVersionRow && typeof currentVersionRow.id === "string"
-      ? currentVersionRow.id
-      : null;
+    input.currentVersionId !== undefined
+      ? input.currentVersionId
+      : await (async () => {
+          const { data: currentVersionData, error: currentVersionError } =
+            await input.context.supabase
+              .from("estimate_versions" as never)
+              .select("id" as never)
+              .eq("tenant_id" as never, input.context.tenantId as never)
+              .eq("project_id" as never, input.projectId as never)
+              .order("version_number" as never, { ascending: false })
+              .order("updated_at" as never, { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+          if (currentVersionError) {
+            throw mapSupabaseError(
+              currentVersionError,
+              "Impossible de resoudre la version courante pour la revue takeoff."
+            );
+          }
+
+          const currentVersionRow = (currentVersionData ?? null) as { id: string } | null;
+          return currentVersionRow && typeof currentVersionRow.id === "string"
+            ? currentVersionRow.id
+            : null;
+        })();
 
   if (!currentVersionId || currentVersionId === input.sourceVersionId) {
     return input.sourceVersionId;
@@ -593,7 +600,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
 ): Promise<AffaireHubPlansSummaryResult> {
-  const [planSetsCountResult, latestJobResult] = await Promise.all([
+  const [planSetsCountResult, latestJobResult, currentVersionResult] = await Promise.all([
     context.supabase
       .from("plan_sets" as never)
       .select("id" as never, { count: "exact", head: true })
@@ -610,6 +617,15 @@ async function fetchAffaireHubPlansSummaryWithContext(
       .order("created_at" as never, { ascending: false })
       .limit(1)
       .maybeSingle(),
+    context.supabase
+      .from("estimate_versions" as never)
+      .select("id" as never)
+      .eq("tenant_id" as never, context.tenantId as never)
+      .eq("project_id" as never, project.id as never)
+      .order("version_number" as never, { ascending: false })
+      .order("updated_at" as never, { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (planSetsCountResult.error) {
@@ -621,6 +637,12 @@ async function fetchAffaireHubPlansSummaryWithContext(
 
   if (latestJobResult.error) {
     throw mapSupabaseError(latestJobResult.error, "Impossible de charger le dernier job takeoff.");
+  }
+  if (currentVersionResult.error) {
+    throw mapSupabaseError(
+      currentVersionResult.error,
+      "Impossible de charger la version courante du registre affaire."
+    );
   }
 
   const planSetCount = planSetsCountResult.count ?? 0;
@@ -691,6 +713,11 @@ async function fetchAffaireHubPlansSummaryWithContext(
   let coveragePercent: number | null = null;
   let exceptionCount: number | null = null;
   let failureReasonLabel: string | null = null;
+  const currentVersionId =
+    currentVersionResult.data &&
+    typeof (currentVersionResult.data as { id?: unknown }).id === "string"
+      ? ((currentVersionResult.data as { id: string }).id)
+      : null;
 
   if (latestJobRow) {
     const isCompletedOrApplied =
@@ -700,6 +727,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
       projectId: project.id,
       sourceVersionId: latestJobRow.estimate_version_id,
       jobId: latestJobRow.id,
+      currentVersionId,
     });
 
     if (isCompletedOrApplied) {
@@ -748,6 +776,12 @@ async function fetchAffaireHubPlansSummaryWithContext(
     };
   }
 
+  const registerSummary = await fetchAffaireRegisterGateSummary({
+    supabase: context.supabase as never,
+    projectId: project.id,
+    versionId: currentVersionId,
+  });
+
   return {
     planSetCount,
     planFileCount,
@@ -755,7 +789,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
     latestJob,
     coveragePercent,
     exceptionCount,
-    openQuestionsCount: 0,
+    openQuestionsCount: registerSummary.openQuestionsCount,
     failureReasonLabel,
   };
 }

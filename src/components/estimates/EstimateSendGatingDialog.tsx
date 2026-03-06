@@ -22,6 +22,24 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
   const marginTiersCount = details.margin_tiers_count;
   const totalHtCents = details.total_ht_cents;
   const budgetCeilingHtCents = details.budget_ceiling_ht_cents;
+  const registerEntries = Array.isArray(details.register_entries)
+    ? details.register_entries
+        .map((entry) => {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+            return null;
+          }
+          const record = entry as Record<string, unknown>;
+          const scopeLabel = typeof record.scopeLabel === "string" ? record.scopeLabel.trim() : "";
+          const text = typeof record.text === "string" ? record.text.trim() : "";
+
+          if (!text) {
+            return null;
+          }
+
+          return scopeLabel ? `${scopeLabel}: ${text}` : text;
+        })
+        .filter((entry): entry is string => entry !== null)
+    : [];
   const ruleViolations = Array.isArray(details.violations)
     ? details.violations
         .map((entry) => {
@@ -59,6 +77,14 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
     });
     if (ruleViolations.length > 3) {
       detailsLines.push(`...${ruleViolations.length - 3} regle(s) supplementaire(s).`);
+    }
+  }
+  if (registerEntries.length > 0) {
+    registerEntries.slice(0, 3).forEach((message) => {
+      detailsLines.push(`Registre: ${message}`);
+    });
+    if (registerEntries.length > 3) {
+      detailsLines.push(`...${registerEntries.length - 3} entree(s) registre supplementaire(s).`);
     }
   }
   if (flag.itemIds.length > 0) {

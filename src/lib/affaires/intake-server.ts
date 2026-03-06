@@ -55,6 +55,10 @@ import {
   type AffaireIntakeUploadStatus,
   type AffaireIntakeWorkspaceMissingPiece,
 } from "@/lib/affaires/intake";
+import {
+  syncAffaireRegisterFromBrief,
+  syncAffaireRegisterMissingPieces,
+} from "@/lib/affaires/register-server";
 
 type AuthenticatedContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
 
@@ -1662,6 +1666,14 @@ async function persistAffaireBriefDraft(input: {
     });
   }
 
+  await syncAffaireRegisterFromBrief({
+    supabase: input.supabase as never,
+    project: input.project,
+    assumptions: input.draft.assumptions,
+    sources: input.draft.sources,
+    actorUserId: input.actorUserId ?? null,
+  });
+
   return affaireIntakeBriefDraftSchema.parse({
     ...input.draft,
     status: nextStatus,
@@ -1679,6 +1691,20 @@ async function refreshAffaireBriefFromDocuments(input: {
   const uploadedDocuments = input.documents.filter(
     (document) => document.upload_status === "uploaded"
   );
+  const missingPieces = buildAffaireIntakeMissingPieces(
+    input.documents.map((document) => ({
+      uploadStatus: document.upload_status,
+      classificationStatus: document.classification_status,
+      documentKind: document.document_kind,
+    }))
+  );
+
+  await syncAffaireRegisterMissingPieces({
+    supabase: input.supabase as never,
+    project: input.project,
+    missingPieces,
+    actorUserId: input.actorUserId ?? null,
+  });
 
   if (uploadedDocuments.length === 0) {
     return null;
@@ -1695,13 +1721,7 @@ async function refreshAffaireBriefFromDocuments(input: {
       issues: document.issues,
       extracted_metadata: document.extracted_metadata,
     })),
-    missingPieces: buildAffaireIntakeMissingPieces(
-      input.documents.map((document) => ({
-        uploadStatus: document.upload_status,
-        classificationStatus: document.classification_status,
-        documentKind: document.document_kind,
-      }))
-    ),
+    missingPieces,
   });
 
   return persistAffaireBriefDraft({

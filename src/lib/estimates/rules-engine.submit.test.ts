@@ -9,10 +9,16 @@ vi.mock("@/lib/supabase/service-role", () => ({
   createServiceRoleClient: vi.fn(),
 }));
 
+vi.mock("@/lib/affaires/register-server", () => ({
+  buildAffaireRegisterSubmissionSignalMessage: vi.fn((input: { intro: string }) => input.intro),
+  fetchAffaireRegisterGateSummary: vi.fn(),
+}));
+
 import {
   getEstimateApprovalSummary,
   submitEstimateApproval,
 } from "@/lib/estimates/rules-engine";
+import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -157,6 +163,12 @@ describe("submitEstimateApproval", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(createOptionalServiceRoleClient).mockReturnValue(null as never);
+    vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+      openQuestionsCount: 0,
+      criticalOpenEntries: [],
+      nonCriticalOpenEntries: [],
+      clarifyWithClientEntries: [],
+    });
   });
 
   it("rejects approval requests from directors on non-owned estimates", async () => {
@@ -429,6 +441,127 @@ describe("submitEstimateApproval", () => {
       status: "pending",
       cycleId: "77777777-7777-4777-8777-777777777777",
     });
+  });
+
+  it("adds affaire register blockers and alerts to approval submission readiness", async () => {
+    const membershipBuilder = createMembershipBuilder("admin");
+    const versionBuilder = createVersionAccessBuilder();
+    const reviewCyclesBuilder = createListBuilder([]);
+    const reviewCommentsBuilder = createListBuilder([]);
+    const approvalsBuilder = createListBuilder([]);
+    const rulesBuilder = createListBuilder([]);
+    const itemsBuilder = createListBuilder([
+      {
+        id: "line-1",
+        category_id: null,
+        item_type: "line",
+        title: "Ligne test",
+        parent_id: null,
+        position: 1,
+      },
+    ]);
+
+    vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+      openQuestionsCount: 3,
+      criticalOpenEntries: [
+        {
+          id: "reg-1",
+          kind: "missing_piece",
+          severity: "critical",
+          status: "open",
+          text: "CCTP complet manquant",
+          scopeLabel: "Affaire test",
+        },
+      ],
+      nonCriticalOpenEntries: [
+        {
+          id: "reg-2",
+          kind: "assumption",
+          severity: "warning",
+          status: "open",
+          text: "Le phasage reste a confirmer",
+          scopeLabel: "Affaire test",
+        },
+      ],
+      clarifyWithClientEntries: [
+        {
+          id: "reg-3",
+          kind: "assumption",
+          severity: "warning",
+          status: "clarify_with_client",
+          text: "Valider la variante avec le client",
+          scopeLabel: "Affaire test",
+        },
+      ],
+    });
+
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => membershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => versionBuilder),
+        };
+      }
+
+      if (table === "estimate_review_cycles") {
+        return {
+          select: vi.fn(() => reviewCyclesBuilder),
+        };
+      }
+
+      if (table === "estimate_review_comments") {
+        return {
+          select: vi.fn(() => reviewCommentsBuilder),
+        };
+      }
+
+      if (table === "estimate_approvals") {
+        return {
+          select: vi.fn(() => approvalsBuilder),
+        };
+      }
+
+      if (table === "estimate_rules") {
+        return {
+          select: vi.fn(() => rulesBuilder),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => itemsBuilder),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    mockAuthenticatedSupabase({ from });
+
+    const summary = await getEstimateApprovalSummary(VERSION_ID);
+
+    expect(summary.submissionReadiness.blockers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "register:critical_open_questions",
+        }),
+      ])
+    );
+    expect(summary.submissionReadiness.alerts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "register:open_questions_pending",
+        }),
+        expect.objectContaining({
+          id: "register:client_clarification_required",
+        }),
+      ])
+    );
   });
 
   it("decides version-level reviews through the atomic RPC", async () => {

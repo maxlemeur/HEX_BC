@@ -11,6 +11,7 @@ import {
   computeEstimateQualityFlagsByItemId,
   type EstimateQualityFlagKey,
 } from "@/lib/estimate-quality";
+import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import type { Database } from "@/types/database";
 
 import { mapSupabaseError } from "./errors";
@@ -33,6 +34,9 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "total_exceeds_budget",
   "no_pdf_generated",
   "rule_violation",
+  "critical_open_questions",
+  "client_clarification_required",
+  "open_questions_pending",
 ] as const;
 
 export type EstimateGatingFlagKey = (typeof ESTIMATE_GATING_FLAG_KEYS)[number];
@@ -69,6 +73,21 @@ export const ESTIMATE_GATING_FLAG_META: Record<
     description:
       "Des regles metier (marge, remise, approbation) ne sont pas satisfaites.",
   },
+  critical_open_questions: {
+    label: "Questions critiques ouvertes",
+    description:
+      "Le registre affaire contient des hypotheses ou pieces manquantes critiques encore ouvertes.",
+  },
+  client_clarification_required: {
+    label: "Clarification client requise",
+    description:
+      "Le registre affaire contient des points a clarifier avec le client avant l'envoi.",
+  },
+  open_questions_pending: {
+    label: "Questions ouvertes a traiter",
+    description:
+      "Des hypotheses ou pieces manquantes non critiques restent ouvertes dans le registre affaire.",
+  },
 };
 
 const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
@@ -87,6 +106,9 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   total_exceeds_budget: "blocking",
   no_pdf_generated: "blocking",
   rule_violation: "blocking",
+  critical_open_questions: "blocking",
+  client_clarification_required: "blocking",
+  open_questions_pending: "warning",
 };
 
 export type EstimateGatingFlag = {
@@ -255,6 +277,7 @@ export async function evaluateEstimateSendGating(
     itemsResult,
     marginTiersResult,
     documentsResult,
+    registerSummary,
     stalePriceDays,
     blockingOverride,
     warningOverride,
@@ -277,6 +300,11 @@ export async function evaluateEstimateSendGating(
       .eq("tenant_id", tenantId)
       .eq("version_id", version.id)
       .limit(1),
+    fetchAffaireRegisterGateSummary({
+      supabase: supabase as never,
+      projectId: project.id,
+      versionId: version.id,
+    }),
     getStalePriceDaysForTenant(tenantId, { supabase }),
     getFeatureFlagValueForTenant(tenantId, GATING_BLOCKING_FLAGS_KEY, {
       supabase,
@@ -499,6 +527,48 @@ export async function evaluateEstimateSendGating(
       label: ESTIMATE_GATING_FLAG_META.rule_violation.label,
       description: ESTIMATE_GATING_FLAG_META.rule_violation.description,
       details: toRuleViolationDetails(rulesEvaluation.warningViolations),
+    });
+  }
+
+  if (registerSummary.criticalOpenEntries.length > 0) {
+    blockingFlags.push({
+      key: "critical_open_questions",
+      severity: "blocking",
+      count: registerSummary.criticalOpenEntries.length,
+      item_ids: [],
+      label: ESTIMATE_GATING_FLAG_META.critical_open_questions.label,
+      description: ESTIMATE_GATING_FLAG_META.critical_open_questions.description,
+      details: {
+        register_entries: registerSummary.criticalOpenEntries,
+      },
+    });
+  }
+
+  if (registerSummary.clarifyWithClientEntries.length > 0) {
+    blockingFlags.push({
+      key: "client_clarification_required",
+      severity: "blocking",
+      count: registerSummary.clarifyWithClientEntries.length,
+      item_ids: [],
+      label: ESTIMATE_GATING_FLAG_META.client_clarification_required.label,
+      description: ESTIMATE_GATING_FLAG_META.client_clarification_required.description,
+      details: {
+        register_entries: registerSummary.clarifyWithClientEntries,
+      },
+    });
+  }
+
+  if (registerSummary.nonCriticalOpenEntries.length > 0) {
+    warningFlags.push({
+      key: "open_questions_pending",
+      severity: "warning",
+      count: registerSummary.nonCriticalOpenEntries.length,
+      item_ids: [],
+      label: ESTIMATE_GATING_FLAG_META.open_questions_pending.label,
+      description: ESTIMATE_GATING_FLAG_META.open_questions_pending.description,
+      details: {
+        register_entries: registerSummary.nonCriticalOpenEntries,
+      },
     });
   }
 

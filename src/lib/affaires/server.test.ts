@@ -9,7 +9,12 @@ vi.mock("@/lib/takeoff/server", () => ({
   fetchTakeoffDpgfSummaryForHub: vi.fn(),
 }));
 
+vi.mock("@/lib/affaires/register-server", () => ({
+  fetchAffaireRegisterGateSummary: vi.fn(),
+}));
+
 import { ApiError } from "@/lib/estimates/errors";
+import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import {
   getAuthenticatedContext,
@@ -452,6 +457,12 @@ describe("affaires server (list + counters)", () => {
 describe("affaires hub server", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+      openQuestionsCount: 0,
+      criticalOpenEntries: [],
+      nonCriticalOpenEntries: [],
+      clarifyWithClientEntries: [],
+    });
   });
 
   it("returns hub summary with current, accepted and line count", async () => {
@@ -856,6 +867,73 @@ describe("affaires hub server", () => {
       exceptionCount: null,
       openQuestionsCount: 0,
       failureReasonLabel: null,
+    });
+  });
+
+  it("injects the register open questions count into the plans summary", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire registre",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            maybeSingle: {
+              data: {
+                id: "ver-9",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: {
+              data: null,
+              count: 0,
+              error: null,
+            },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+    vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
+      openQuestionsCount: 4,
+      criticalOpenEntries: [],
+      nonCriticalOpenEntries: [],
+      clarifyWithClientEntries: [],
+    });
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.openQuestionsCount).toBe(4);
+    expect(vi.mocked(fetchAffaireRegisterGateSummary)).toHaveBeenCalledWith({
+      supabase: context.supabase,
+      projectId: PROJECT_ID,
+      versionId: "ver-9",
     });
   });
 
