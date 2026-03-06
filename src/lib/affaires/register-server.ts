@@ -401,6 +401,24 @@ function extractRegisterEventComment(payload: Json | null | undefined) {
   return toStringOrNull(payload.comment);
 }
 
+function normalizeRegisterEventReason(reason: string | null) {
+  if (!reason) {
+    return null;
+  }
+
+  const normalized = reason.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^[a-z0-9_]+(?:\.[a-z0-9_]+)+$/i.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
 function normalizeAffaireRegisterEventRow(row: unknown): AffaireRegisterEventRow | null {
   if (!isRecord(row)) {
     return null;
@@ -482,7 +500,7 @@ function toAffaireRegisterTimelineEvent(
     comment:
       extractRegisterEventComment(row.after_payload) ??
       extractRegisterEventComment(row.before_payload) ??
-      row.reason,
+      normalizeRegisterEventReason(row.reason),
     beforeStatus: extractRegisterEventStatus(row.before_payload),
     afterStatus: extractRegisterEventStatus(row.after_payload),
     createdAt: row.created_at,
@@ -1067,12 +1085,10 @@ export async function fetchAffaireRegisterTimeline(input: {
   let query = context.supabase
     .from("affaire_register_events" as never)
     .select(EVENT_SELECT as never)
-    .eq("entry.project_id", project.id as never);
+    .eq("project_id", project.id as never);
 
   if (input.versionId) {
-    query = query.or(
-      `entry.version_id.is.null,entry.version_id.eq.${input.versionId}`
-    );
+    query = query.or(`version_id.is.null,version_id.eq.${input.versionId}`);
   }
 
   const { data, error } = await query

@@ -14,8 +14,6 @@ import {
 import {
   fetchAffaireRegisterPage,
   fetchAffaireRegisterScopeOptions,
-  fetchAffaireRegisterSummary,
-  fetchAffaireRegisterTimeline,
 } from "@/lib/affaires/register-server";
 import {
   fetchAffaireHubDpgfSource,
@@ -124,8 +122,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     approvalJournalResult,
     registerPageResult,
     registerScopeOptionsResult,
-    registerSummaryResult,
-    registerTimelineResult,
   ] = await Promise.allSettled([
     currentVersionId ? getEstimateApprovalSummary(currentVersionId) : Promise.resolve(null),
     currentVersionId
@@ -145,14 +141,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       focusEntryId: registerFocusEntryId,
     }),
     fetchAffaireRegisterScopeOptions({
-      projectId,
-      versionId: currentVersionId,
-    }),
-    fetchAffaireRegisterSummary({
-      projectId,
-      versionId: currentVersionId,
-    }),
-    fetchAffaireRegisterTimeline({
       projectId,
       versionId: currentVersionId,
     }),
@@ -181,10 +169,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     registerScopeOptionsResult.status === "fulfilled"
       ? registerScopeOptionsResult.value
       : { lots: [], lines: [] };
-  const registerSummary =
-    registerSummaryResult.status === "fulfilled" ? registerSummaryResult.value : null;
-  const registerTimeline =
-    registerTimelineResult.status === "fulfilled" ? registerTimelineResult.value : [];
+  const registerSummary = registerPage?.summary ?? null;
+  const registerTimeline = registerPage?.timeline ?? [];
 
   const sectionErrors: {
     timeline?: string;
@@ -210,9 +196,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   }
   if (
     registerPageResult.status === "rejected" ||
-    registerScopeOptionsResult.status === "rejected" ||
-    registerSummaryResult.status === "rejected" ||
-    registerTimelineResult.status === "rejected"
+    registerScopeOptionsResult.status === "rejected"
   ) {
     sectionErrors.register =
       "Impossible de charger le registre affaire pour le moment.";

@@ -75,6 +75,23 @@ function getErrorMessage(error: unknown) {
   return "Une erreur est survenue sur le registre affaire.";
 }
 
+function buildDerivedSummary(items: AffaireRegisterEntry[]): AffaireRegisterSummary {
+  const openQuestionsCount = items.filter((entry) => entry.status === "open").length;
+  const criticalOpenCount = items.filter(
+    (entry) => entry.status === "open" && entry.severity === "critical"
+  ).length;
+  const clarifyWithClientCount = items.filter(
+    (entry) => entry.status === "clarify_with_client"
+  ).length;
+
+  return {
+    openQuestionsCount,
+    criticalOpenCount,
+    nonCriticalOpenCount: Math.max(openQuestionsCount - criticalOpenCount, 0),
+    clarifyWithClientCount,
+  };
+}
+
 export function AffaireRegisterCard({
   projectId,
   versionId,
@@ -113,6 +130,7 @@ export function AffaireRegisterCard({
   });
 
   const items = registerPage?.items ?? [];
+  const isLoading = !errorMessage && registerPage === null;
   const activeScopeOptions =
     form.scopeType === "lot"
       ? scopeOptions.lots
@@ -123,6 +141,14 @@ export function AffaireRegisterCard({
   const filterSeverity = registerPage?.filters.severity ?? "";
   const filterKind = registerPage?.filters.kind ?? "";
   const hasActiveFilters = Boolean(filterStatus || filterSeverity || filterKind);
+  const effectiveSummary = summary ?? buildDerivedSummary(items);
+  const activeFiltersLabel = [
+    filterStatus ? AFFAIRE_REGISTER_STATUS_LABELS[filterStatus] : null,
+    filterSeverity ? AFFAIRE_REGISTER_SEVERITY_LABELS[filterSeverity] : null,
+    filterKind ? AFFAIRE_REGISTER_KIND_LABELS[filterKind] : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   function resolveTransitionPrompt(status: AffaireRegisterEntryStatus) {
     switch (status) {
@@ -214,6 +240,26 @@ export function AffaireRegisterCard({
         form.scopeLabel.trim().length > 0) ||
       ((form.scopeType === "lot" || form.scopeType === "line") &&
         form.scopeId.trim().length > 0));
+  const formHint =
+    form.scopeType === "project"
+      ? "Le point concernera toute l'affaire."
+      : form.scopeType === "lot"
+        ? "Selectionnez le lot precis concerne pour eviter une ambiguite de traitement."
+        : form.scopeType === "line"
+          ? "Selectionnez la ligne exacte impactee sur la version courante."
+          : "Renseignez une reference et un libelle lisibles pour tracer l'exception.";
+  const formReadinessMessage =
+    form.text.trim().length === 0
+      ? "Ajoutez une formulation courte, factuelle et actionnable."
+      : scopeHelpMessage
+        ? scopeHelpMessage
+        : form.scopeType === "exception" &&
+            (form.scopeRef.trim().length === 0 || form.scopeLabel.trim().length === 0)
+          ? "La reference et le libelle de l'exception sont requis."
+          : (form.scopeType === "lot" || form.scopeType === "line") &&
+              form.scopeId.trim().length === 0
+            ? "Selectionnez un scope cible pour activer l'ajout."
+            : "Pret a ajouter. Le point sera cree en statut ouvert et historise.";
 
   async function handleCreateEntry() {
     startMutationTransition(() => {
@@ -359,7 +405,7 @@ export function AffaireRegisterCard({
 
     if (entry.status === "clarify_with_client") {
       return (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" aria-label="Actions de statut">
           <button
             type="button"
             className="btn btn-secondary btn-sm"
@@ -389,7 +435,7 @@ export function AffaireRegisterCard({
     }
 
     return (
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2" aria-label="Actions de statut">
         <button
           type="button"
           className="btn btn-secondary btn-sm"
@@ -442,69 +488,116 @@ export function AffaireRegisterCard({
             Zones grises persistantes du dossier, historisees et actionnables.
           </p>
         </div>
-        {isReadOnly ? (
-          <div className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs text-[var(--slate-600)]">
-            Consultation uniquement
-          </div>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {hasActiveFilters ? (
+            <div className="rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-1 text-xs text-[var(--brand-blue)]">
+              Vue filtree{activeFiltersLabel ? ` · ${activeFiltersLabel}` : ""}
+            </div>
+          ) : null}
+          {isFilterPending ? (
+            <div
+              className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs text-[var(--slate-600)]"
+              aria-live="polite"
+            >
+              Mise a jour des filtres…
+            </div>
+          ) : null}
+          {isReadOnly ? (
+            <div className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs text-[var(--slate-600)]">
+              Consultation uniquement
+            </div>
+          ) : null}
+        </div>
       </div>
 
-      {summary ? (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <article className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-              Points ouverts
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
-              {summary.openQuestionsCount}
-            </p>
-          </article>
-          <button
-            type="button"
-            className="rounded-2xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-left transition-colors hover:bg-[var(--danger)]/10"
-            onClick={() =>
-              applyFilters({
-                status: "open",
-                severity: "critical",
-                kind: null,
-                cursor: null,
-              })
-            }
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--danger)]">
-              Critiques ouvertes
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
-              {summary.criticalOpenCount}
-            </p>
-          </button>
-          <article className="rounded-2xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--warning)]">
-              Ouverts hors critiques
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
-              {summary.nonCriticalOpenCount}
-            </p>
-          </article>
-          <button
-            type="button"
-            className="rounded-2xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3 text-left transition-colors hover:bg-[var(--brand-blue)]/10"
-            onClick={() =>
-              applyFilters({
-                status: "clarify_with_client",
-                severity: null,
-                kind: null,
-                cursor: null,
-              })
-            }
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
-              A clarifier client
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
-              {summary.clarifyWithClientCount}
-            </p>
-          </button>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <article className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+            Points ouverts
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+            {effectiveSummary.openQuestionsCount}
+          </p>
+          <p className="mt-2 text-xs text-[var(--slate-500)]">
+            {items.length} point{items.length > 1 ? "s" : ""} visible
+            {items.length > 1 ? "s" : ""} sur cette vue.
+          </p>
+        </article>
+        <button
+          type="button"
+          className="rounded-2xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-left transition-colors hover:bg-[var(--danger)]/10"
+          onClick={() =>
+            applyFilters({
+              status: "open",
+              severity: "critical",
+              kind: null,
+              cursor: null,
+            })
+          }
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--danger)]">
+            Critiques ouvertes
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+            {effectiveSummary.criticalOpenCount}
+          </p>
+          <p className="mt-2 text-xs text-[var(--slate-500)]">
+            A traiter avant toute validation ou envoi.
+          </p>
+        </button>
+        <article className="rounded-2xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--warning)]">
+            Ouverts hors critiques
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+            {effectiveSummary.nonCriticalOpenCount}
+          </p>
+          <p className="mt-2 text-xs text-[var(--slate-500)]">
+            Points encore actifs mais sans blocage critique.
+          </p>
+        </article>
+        <button
+          type="button"
+          className="rounded-2xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3 text-left transition-colors hover:bg-[var(--brand-blue)]/10"
+          onClick={() =>
+            applyFilters({
+              status: "clarify_with_client",
+              severity: null,
+              kind: null,
+              cursor: null,
+            })
+          }
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
+            A clarifier client
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+            {effectiveSummary.clarifyWithClientCount}
+          </p>
+          <p className="mt-2 text-xs text-[var(--slate-500)]">
+            Alerte la validation interne et bloque avant envoi client.
+          </p>
+        </button>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-[var(--slate-500)]">
+          Filtrez pour isoler les points a traiter, puis utilisez les actions de statut pour garder une trace explicite.
+        </p>
+        <div className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs text-[var(--slate-600)]">
+          {items.length} resultat{items.length > 1 ? "s" : ""}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div
+          className="mt-4 rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/80 px-4 py-8 text-center"
+          aria-live="polite"
+        >
+          <p className="text-sm font-medium text-[var(--slate-700)]">Chargement du registre…</p>
+          <p className="mt-2 text-sm text-[var(--slate-500)]">
+            Recuperation des points ouverts, avec historique recent et filtres disponibles.
+          </p>
         </div>
       ) : null}
 
@@ -576,11 +669,27 @@ export function AffaireRegisterCard({
 
       {!isReadOnly ? (
         <div className="mt-4 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-4">
-          <div className="grid gap-3 lg:grid-cols-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+                Ajouter un point manuel
+              </h3>
+              <p className="mt-1 text-xs text-[var(--slate-500)]">
+                Utilisez ce formulaire pour tracer une hypothese metier ou une piece manquante non detectee automatiquement.
+              </p>
+            </div>
+            <div className="rounded-full bg-white px-2.5 py-1 text-xs text-[var(--slate-600)]">
+              Creation historisee
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-[var(--slate-500)]">{formHint}</p>
+          <div className="mt-3 grid gap-3 lg:grid-cols-6">
             <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
               Type
               <select
                 className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                name="register-kind"
+                autoComplete="off"
                 value={form.kind}
                 onChange={(event) =>
                   setForm((current) => ({
@@ -600,6 +709,8 @@ export function AffaireRegisterCard({
               Severite
               <select
                 className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                name="register-severity"
+                autoComplete="off"
                 value={form.severity}
                 onChange={(event) =>
                   setForm((current) => ({
@@ -619,6 +730,8 @@ export function AffaireRegisterCard({
               Scope
               <select
                 className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                name="register-scope"
+                autoComplete="off"
                 value={form.scopeType}
                 onChange={(event) =>
                   setForm((current) => ({
@@ -641,12 +754,14 @@ export function AffaireRegisterCard({
                 ))}
               </select>
             </label>
-            {(form.scopeType === "lot" || form.scopeType === "line") ? (
+            {form.scopeType === "lot" || form.scopeType === "line" ? (
               <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-3">
                 {form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
                 <select
                   aria-label={form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
                   className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                  name={form.scopeType === "lot" ? "register-lot" : "register-line"}
+                  autoComplete="off"
                   value={form.scopeId}
                   onChange={(event) =>
                     setForm((current) => ({
@@ -672,6 +787,10 @@ export function AffaireRegisterCard({
                   Reference exception
                   <input
                     className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                    name="register-exception-ref"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="Ex. EXC-12..."
                     value={form.scopeRef}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -685,6 +804,9 @@ export function AffaireRegisterCard({
                   Libelle exception
                   <input
                     className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                    name="register-exception-label"
+                    autoComplete="off"
+                    placeholder="Ex. Reserve acoustique hall..."
                     value={form.scopeLabel}
                     onChange={(event) =>
                       setForm((current) => ({
@@ -703,6 +825,8 @@ export function AffaireRegisterCard({
               <textarea
                 rows={3}
                 className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                name="register-text"
+                placeholder="Decrivez le point a arbitrer, a confirmer ou la piece attendue..."
                 value={form.text}
                 onChange={(event) =>
                   setForm((current) => ({
@@ -716,6 +840,9 @@ export function AffaireRegisterCard({
               Source documentaire (facultatif)
               <input
                 className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                name="register-source"
+                autoComplete="off"
+                placeholder="Ex. note-client-v3.pdf..."
                 value={form.sourceFileName}
                 onChange={(event) =>
                   setForm((current) => ({
@@ -726,9 +853,18 @@ export function AffaireRegisterCard({
               />
             </label>
           </div>
-          {scopeHelpMessage ? (
-            <p className="mt-3 text-xs text-[var(--warning)]">{scopeHelpMessage}</p>
-          ) : null}
+          <p
+            className={`mt-3 text-xs ${
+              canCreateEntry
+                ? "text-[var(--success)]"
+                : scopeHelpMessage || form.text.trim().length > 0
+                  ? "text-[var(--warning)]"
+                  : "text-[var(--slate-500)]"
+            }`}
+            aria-live="polite"
+          >
+            {formReadinessMessage}
+          </p>
           <div className="mt-3 flex justify-end">
             <button
               type="button"
@@ -749,6 +885,7 @@ export function AffaireRegisterCard({
               ? "border-[var(--success)]/20 bg-[var(--success)]/5 text-[var(--slate-700)]"
               : "border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 text-[var(--slate-700)]"
           }`}
+          aria-live="polite"
         >
           {inlineFeedback.message}
         </div>
@@ -756,8 +893,19 @@ export function AffaireRegisterCard({
 
       <div className="mt-4 space-y-3">
         {items.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-4 py-8 text-center text-sm text-[var(--slate-500)]">
-            Aucune entree du registre pour ces filtres.
+          <div className="rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-4 py-8 text-center">
+            <p className="text-sm font-medium text-[var(--slate-700)]">
+              {hasActiveFilters
+                ? "Aucun point ne correspond a ces filtres."
+                : "Aucun point du registre sur cette vue pour le moment."}
+            </p>
+            <p className="mt-2 text-sm text-[var(--slate-500)]">
+              {hasActiveFilters
+                ? "Reinitialisez les filtres pour revenir a l'ensemble du registre."
+                : isReadOnly
+                  ? "Les futures hypotheses, pieces manquantes et transitions apparaitront ici."
+                  : "Ajoutez une hypothese ou une piece manquante pour demarrer une trace exploitable."}
+            </p>
           </div>
         ) : (
           items.map((entry) => (
@@ -792,12 +940,22 @@ export function AffaireRegisterCard({
                       MAJ: {formatDateTime(entry.updatedAt)}
                       {entry.updatedByName ? ` · ${entry.updatedByName}` : ""}
                     </span>
-                    {entry.sourceFileName ? (
-                      <span>Source: {entry.sourceFileName}</span>
-                    ) : null}
+                    {entry.sourceFileName ? <span>Source: {entry.sourceFileName}</span> : null}
                   </div>
                 </div>
-                {renderEntryActions(entry)}
+                <div className="w-full max-w-sm rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                    Prochaine action
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    {entry.status === "open"
+                      ? "Choisissez l'issue du point ou marquez un retour client requis."
+                      : entry.status === "clarify_with_client"
+                        ? "Ce point reste en attente d'un retour client avant envoi."
+                        : "Ce point est clos. Rouvrez-le si le contexte change."}
+                  </p>
+                  <div className="mt-3">{renderEntryActions(entry)}</div>
+                </div>
               </div>
             </article>
           ))
@@ -819,8 +977,13 @@ export function AffaireRegisterCard({
           </div>
         </div>
         {timelineEvents.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-[var(--slate-200)] bg-white px-4 py-6 text-sm text-[var(--slate-500)]">
-            Aucun evenement recent pour cette vue du registre.
+          <div className="mt-4 rounded-xl border border-dashed border-[var(--slate-200)] bg-white px-4 py-6 text-center">
+            <p className="text-sm font-medium text-[var(--slate-700)]">
+              Aucun evenement recent pour cette vue du registre.
+            </p>
+            <p className="mt-2 text-sm text-[var(--slate-500)]">
+              Les creations, changements de statut et commentaires de trace remonteront ici.
+            </p>
           </div>
         ) : (
           <div className="mt-4 space-y-3">
@@ -846,7 +1009,9 @@ export function AffaireRegisterCard({
                       <span>
                         {event.actorUserName || "Systeme"} · {formatDateTime(event.createdAt)}
                       </span>
-                      {event.beforeStatus && event.afterStatus && event.beforeStatus !== event.afterStatus ? (
+                      {event.beforeStatus &&
+                      event.afterStatus &&
+                      event.beforeStatus !== event.afterStatus ? (
                         <span>
                           {AFFAIRE_REGISTER_STATUS_LABELS[event.beforeStatus]} →{" "}
                           {AFFAIRE_REGISTER_STATUS_LABELS[event.afterStatus]}
@@ -866,27 +1031,41 @@ export function AffaireRegisterCard({
         )}
       </section>
 
-      <div className="mt-4 flex flex-wrap justify-between gap-2">
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          disabled={!registerPage?.filters.cursor || isFilterPending}
-          onClick={() => applyFilters({ cursor: null })}
-        >
-          Retour debut
-        </button>
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          disabled={!registerPage?.nextCursor || isFilterPending}
-          onClick={() =>
-            applyFilters({
-              cursor: registerPage?.nextCursor ?? null,
-            })
-          }
-        >
-          Page suivante
-        </button>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-[var(--slate-700)]">
+            {registerPage?.filters.cursor
+              ? "Vue paginee sur une tranche du registre"
+              : "Debut du registre pour cette vue"}
+          </p>
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            {registerPage?.nextCursor
+              ? "D'autres points sont disponibles. Chargez la suite pour poursuivre la revue."
+              : "Vous etes sur la derniere tranche disponible pour ces filtres."}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={!registerPage?.filters.cursor || isFilterPending}
+            onClick={() => applyFilters({ cursor: null })}
+          >
+            Revenir au debut
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={!registerPage?.nextCursor || isFilterPending}
+            onClick={() =>
+              applyFilters({
+                cursor: registerPage?.nextCursor ?? null,
+              })
+            }
+          >
+            Charger les points suivants
+          </button>
+        </div>
       </div>
 
       {pendingTransition ? (

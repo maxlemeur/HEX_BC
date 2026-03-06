@@ -70,8 +70,12 @@ describe("EstimateSendGatingDialog", () => {
         "Ces signaux n'interdisent pas toujours l'envoi, mais ils doivent etre assumes explicitement."
       )
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Ouvrir le registre affaire" })
-    ).toHaveAttribute("href", "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical");
+    const registerLinks = screen.getAllByRole("link", {
+      name: "Ouvrir le registre affaire",
+    });
+    expect(registerLinks[0]).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical"
+    );
   });
 });

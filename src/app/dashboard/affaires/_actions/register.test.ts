@@ -53,6 +53,7 @@ describe("affaire register server actions", () => {
         updatedByName: null,
         createdAt: "2026-03-06T10:00:00.000Z",
         updatedAt: "2026-03-06T10:00:00.000Z",
+        history: [],
       },
     });
 
@@ -115,6 +116,7 @@ describe("affaire register server actions", () => {
         updatedByName: null,
         createdAt: "2026-03-06T10:00:00.000Z",
         updatedAt: "2026-03-06T10:05:00.000Z",
+        history: [],
       },
     });
 

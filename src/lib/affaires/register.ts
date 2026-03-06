@@ -145,6 +145,7 @@ export type AffaireRegisterEntry = {
   updatedByName: string | null;
   createdAt: string;
   updatedAt: string;
+  history: AffaireRegisterTimelineEvent[];
 };
 
 export type AffaireRegisterTimelineEvent = {

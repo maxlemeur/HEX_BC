@@ -67,14 +67,18 @@ function buildRegisterPage(
         updatedByName: "Nadia Martin",
         createdAt: "2026-03-06T09:00:00.000Z",
         updatedAt: "2026-03-06T09:10:00.000Z",
+        history: [],
       },
     ],
     nextCursor: null,
+    summary: buildRegisterSummary(),
+    timeline: buildTimelineEvents(),
     filters: {
       status: null,
       severity: null,
       kind: null,
       cursor: null,
+      focusEntryId: null,
     },
     ...overrides,
   };
@@ -304,6 +308,7 @@ describe("AffaireRegisterCard", () => {
       />
     );
 
+    await user.type(screen.getByRole("textbox", { name: "Texte" }), "Verifier le lot");
     await user.selectOptions(screen.getByLabelText("Scope"), "line");
 
     expect(
@@ -330,5 +335,54 @@ describe("AffaireRegisterCard", () => {
     expect(screen.getByText("Historique recent du registre")).toBeInTheDocument();
     expect(screen.getByText("Statut modifie")).toBeInTheDocument();
     expect(screen.getByText("Attendre le retour du client.")).toBeInTheDocument();
+  });
+
+  it("shows a clearer filtered empty state and pagination guidance", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={buildRegisterPage({
+          items: [],
+          nextCursor: "cursor-2",
+          filters: {
+            status: "open",
+            severity: null,
+            kind: null,
+            cursor: "cursor-1",
+            focusEntryId: null,
+          },
+        })}
+        scopeOptions={{ lots: [], lines: [] }}
+        summary={buildRegisterSummary()}
+        timelineEvents={[]}
+      />
+    );
+
+    expect(
+      screen.getByText("Aucun point ne correspond a ces filtres.")
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Vue paginee sur une tranche du registre/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Revenir au debut" })
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Charger les points suivants" })
+    ).toBeEnabled();
+  });
+
+  it("shows a loading message and local summary fallback when data is pending", () => {
+    render(
+      <AffaireRegisterCard
+        projectId="11111111-1111-4111-8111-111111111111"
+        versionId="22222222-2222-4222-8222-222222222222"
+        registerPage={null}
+        scopeOptions={{ lots: [], lines: [] }}
+      />
+    );
+
+    expect(screen.getByText("Chargement du registre…")).toBeInTheDocument();
+    expect(screen.getByText("Points ouverts")).toBeInTheDocument();
+    expect(screen.getByText("Recuperation des points ouverts, avec historique recent et filtres disponibles.")).toBeInTheDocument();
   });
 });
