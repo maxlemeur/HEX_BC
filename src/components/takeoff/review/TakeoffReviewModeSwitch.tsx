@@ -49,8 +49,14 @@ export function TakeoffReviewModeSwitch({
   // Focus the target button after React re-renders (panel swap may steal focus)
   useEffect(() => {
     if (pendingFocusRef.current !== null) {
-      buttonRefs.current.get(pendingFocusRef.current)?.focus();
+      const target = pendingFocusRef.current;
       pendingFocusRef.current = null;
+      // Double-rAF to ensure focus runs after Suspense/lazy panel paint
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          buttonRefs.current.get(target)?.focus();
+        });
+      });
     }
   }, [mode]);
 
