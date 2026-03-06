@@ -140,6 +140,61 @@ export function CounterCard({
   );
 }
 
+/* --- Business-language labels (V3-007) --- */
+
+export const BUSINESS_LEVEL_LABEL_MAP: Record<string, string> = {
+  A: "Rapide",
+  B: "Standard",
+  C: "Detaille",
+};
+
+export const BUSINESS_LEVEL_FILTER_OPTIONS: Array<{
+  value: "all" | string;
+  label: string;
+}> = [
+  { value: "all", label: "Tous niveaux" },
+  { value: "A", label: "Rapide" },
+  { value: "B", label: "Standard" },
+  { value: "C", label: "Detaille" },
+];
+
+export const BUSINESS_STATUS_LABEL_MAP: Record<string, string> = {
+  pending: "En attente",
+  processing: "Analyse en cours",
+  completed: "Analyse terminee",
+  failed: "Analyse echouee",
+  canceled: "Annulee",
+  applied: "Appliquee",
+};
+
+export function getBusinessLevelLabel(level: string): string {
+  return BUSINESS_LEVEL_LABEL_MAP[level] ?? level;
+}
+
+export function getBusinessStatusLabel(status: string): string {
+  return BUSINESS_STATUS_LABEL_MAP[status] ?? status;
+}
+
+export function getConfidenceLabel(confidence: number | null): string {
+  if (confidence === null) return "Inconnue";
+  if (confidence >= 0.8) return "Elevee";
+  if (confidence >= 0.5) return "Moyenne";
+  return "Faible";
+}
+
+export function getConfidenceBadgeVariant(
+  label: string
+): "success" | "warning" | "error" | "neutral" {
+  if (label === "Elevee") return "success";
+  if (label === "Moyenne") return "warning";
+  if (label === "Faible") return "error";
+  return "neutral";
+}
+
+export function isCoverageLow(percent: number): boolean {
+  return percent < 50;
+}
+
 export function JobsTableSkeleton() {
   return (
     <section className="dashboard-card mt-4 p-6">

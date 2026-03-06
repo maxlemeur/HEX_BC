@@ -1,13 +1,14 @@
 import { notFound } from "next/navigation";
 
 import { HubBreadcrumb } from "@/components/HubBreadcrumb";
-import ProjectTakeoffJobList from "@/components/takeoff/ProjectTakeoffJobList";
+import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
 import { getUserContext } from "@/lib/auth/server";
 import {
   fetchAffaireProjectBasic,
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -28,9 +29,10 @@ export default async function AffaireTakeoffPage({ params }: Props) {
     notFound();
   }
 
-  const [projectResult, versionsResult] = await Promise.allSettled([
+  const [projectResult, versionsResult, planSetsResult] = await Promise.allSettled([
     fetchAffaireProjectBasic(projectId),
     fetchProjectVersionList(projectId),
+    fetchPlanSetsForProject(projectId),
   ]);
 
   if (projectResult.status === "rejected") {
@@ -49,6 +51,8 @@ export default async function AffaireTakeoffPage({ params }: Props) {
   const project = projectResult.value;
   const versions =
     versionsResult.status === "fulfilled" ? versionsResult.value : [];
+  const planSets =
+    planSetsResult.status === "fulfilled" ? planSetsResult.value : [];
 
   return (
     <>
@@ -57,20 +61,24 @@ export default async function AffaireTakeoffPage({ params }: Props) {
         hubLabel="Mes affaires"
         intermediateHref={`/dashboard/affaires/${projectId}`}
         intermediateLabel={project.name}
-        currentLabel="Extractions"
+        currentLabel="Metres"
       />
 
       <div className="mb-6">
         <h1 className="text-xl font-bold text-[var(--slate-900)]">
-          Extractions
+          Centre d&apos;activite &mdash; Metres
         </h1>
         <p className="mt-1 text-sm text-[var(--slate-500)]">
-          Historique des extractions de metres pour cette affaire, toutes
-          versions confondues.
+          Suivez les analyses de plans, les exceptions et l&apos;historique
+          d&apos;application.
         </p>
       </div>
 
-      <ProjectTakeoffJobList projectId={projectId} versions={versions} />
+      <TakeoffActivityCenter
+        projectId={projectId}
+        versions={versions}
+        planSets={planSets.map((ps) => ({ id: ps.id, name: ps.name }))}
+      />
     </>
   );
 }
