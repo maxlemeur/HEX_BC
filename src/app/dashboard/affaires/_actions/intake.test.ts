@@ -5,13 +5,23 @@ vi.mock("next/cache", () => ({
 }));
 
 vi.mock("@/lib/affaires/intake-server", () => ({
+  confirmAffaireBrief: vi.fn(),
   reclassifyAffaireDocument: vi.fn(),
+  updateAffaireBrief: vi.fn(),
 }));
 
 import { revalidatePath } from "next/cache";
 
-import { reclassifyAffaireDocument } from "@/app/dashboard/affaires/_actions/intake";
-import { reclassifyAffaireDocument as reclassifyAffaireDocumentServer } from "@/lib/affaires/intake-server";
+import {
+  confirmAffaireBrief,
+  reclassifyAffaireDocument,
+  updateAffaireBrief,
+} from "@/app/dashboard/affaires/_actions/intake";
+import {
+  confirmAffaireBrief as confirmAffaireBriefServer,
+  reclassifyAffaireDocument as reclassifyAffaireDocumentServer,
+  updateAffaireBrief as updateAffaireBriefServer,
+} from "@/lib/affaires/intake-server";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const DOCUMENT_ID = "22222222-2222-4222-8222-222222222222";
@@ -40,5 +50,59 @@ describe("affaire intake server actions", () => {
       `/dashboard/affaires/${PROJECT_ID}`
     );
     expect(result).toEqual({ ok: true });
+  });
+
+  it("updates a brief and revalidates the affaire paths", async () => {
+    vi.mocked(updateAffaireBriefServer).mockResolvedValue({
+      ok: true,
+      status: "a_confirmer",
+    });
+
+    const result = await updateAffaireBrief({
+      projectId: PROJECT_ID,
+      summary: "Synthese revisee",
+      scope: ["Lot gros oeuvre", "Lot facade"],
+      vigilancePoints: ["Verifier les plans d execution"],
+      assumptions: ["Le phasage reste a confirmer"],
+    });
+
+    expect(vi.mocked(updateAffaireBriefServer)).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      summary: "Synthese revisee",
+      scope: ["Lot gros oeuvre", "Lot facade"],
+      vigilancePoints: ["Verifier les plans d execution"],
+      assumptions: ["Le phasage reste a confirmer"],
+    });
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/dashboard/affaires");
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(
+      `/dashboard/affaires/${PROJECT_ID}`
+    );
+    expect(result).toEqual({
+      ok: true,
+      status: "a_confirmer",
+    });
+  });
+
+  it("confirms a brief and revalidates the affaire paths", async () => {
+    vi.mocked(confirmAffaireBriefServer).mockResolvedValue({
+      ok: true,
+      status: "confirme",
+    });
+
+    const result = await confirmAffaireBrief({
+      projectId: PROJECT_ID,
+    });
+
+    expect(vi.mocked(confirmAffaireBriefServer)).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+    });
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/dashboard/affaires");
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(
+      `/dashboard/affaires/${PROJECT_ID}`
+    );
+    expect(result).toEqual({
+      ok: true,
+      status: "confirme",
+    });
   });
 });

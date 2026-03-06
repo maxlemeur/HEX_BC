@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import * as XLSX from "xlsx";
+import { z } from "zod";
 
 import { getAuthenticatedContext } from "@/lib/estimates/server";
 import {
@@ -20,6 +21,10 @@ import {
   AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL,
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
   AFFAIRE_INTAKE_ALLOWED_MIME_TYPES,
+  AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
+  affaireIntakeBriefBlockKeySchema,
+  affaireIntakeBriefDraftSchema,
+  affaireIntakeBriefStatusSchema,
   affaireIntakeClassificationResultSchema,
   affaireIntakeClassificationSourceSchema,
   affaireIntakeClassificationStatusSchema,
@@ -36,7 +41,11 @@ import {
   inferAffaireIntakeMimeType,
   isMimeTypeSupportedForAiClassification,
   mergeAffaireDocumentClassificationWithHeuristic,
+  normalizeAffaireIntakeTextList,
   normalizeAffaireIntakeExtractedMetadata,
+  type AffaireIntakeBriefBlockKey,
+  type AffaireIntakeBriefDraft,
+  type AffaireIntakeBriefStatus,
   type AffaireIntakeClassificationResult,
   type AffaireIntakeClassificationSource,
   type AffaireIntakeClassificationStatus,
@@ -53,6 +62,9 @@ type AffaireProjectAccessRow = {
   id: string;
   tenant_id: string;
   user_id: string;
+  name: string;
+  reference: string | null;
+  client_name: string | null;
   is_archived: boolean;
 };
 
@@ -95,12 +107,54 @@ type AffaireIntakeDocumentRow = {
   updated_at: string;
 };
 
+type AffaireBriefRow = {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  upload_id: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  confirmed_by: string | null;
+  status: AffaireIntakeBriefStatus;
+  summary: string;
+  project_object: string;
+  scope: string[];
+  lots: string[];
+  received_pieces: string[];
+  assumptions: string[];
+  vigilance_points: string[];
+  missing_elements: string[];
+  generation_metadata: Record<string, unknown>;
+  last_generated_at: string | null;
+  confirmed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type AffaireBriefSourceRow = {
+  id: string;
+  tenant_id: string;
+  project_id: string;
+  brief_id: string;
+  source_document_id: string;
+  created_by: string | null;
+  block_key: AffaireIntakeBriefBlockKey;
+  entry_index: number;
+  source_file_name: string;
+  rationale: string | null;
+  created_at: string;
+};
+
 type AffaireIntakeSupabaseMutationQuery = {
   eq: (column: string, value: string) => PromiseLike<unknown>;
 };
 
 type AffaireIntakeSupabaseInsertTable = {
   insert: (values: unknown) => PromiseLike<unknown>;
+};
+
+type AffaireIntakeSupabaseDeleteTable = {
+  delete: () => AffaireIntakeSupabaseMutationQuery;
 };
 
 type AffaireIntakeSupabaseSelectQuery = {
@@ -154,10 +208,10 @@ export type AffaireIntakeWorkspace = {
     issues: string[];
   }>;
   missingPieces: AffaireIntakeWorkspaceMissingPiece[];
-  briefDraft: null;
+  briefDraft: AffaireIntakeBriefDraft | null;
 };
 
-const PROJECT_SELECT = "id, tenant_id, user_id, is_archived";
+const PROJECT_SELECT = "id, tenant_id, user_id, name, reference, client_name, is_archived";
 const UPLOAD_SELECT = [
   "id",
   "tenant_id",
@@ -195,11 +249,73 @@ const DOCUMENT_SELECT = [
   "created_at",
   "updated_at",
 ].join(", ");
+const BRIEF_SELECT = [
+  "id",
+  "tenant_id",
+  "project_id",
+  "upload_id",
+  "created_by",
+  "updated_by",
+  "confirmed_by",
+  "status",
+  "summary",
+  "project_object",
+  "scope",
+  "lots",
+  "received_pieces",
+  "assumptions",
+  "vigilance_points",
+  "missing_elements",
+  "generation_metadata",
+  "last_generated_at",
+  "confirmed_at",
+  "created_at",
+  "updated_at",
+].join(", ");
+const BRIEF_SOURCE_SELECT = [
+  "id",
+  "tenant_id",
+  "project_id",
+  "brief_id",
+  "source_document_id",
+  "created_by",
+  "block_key",
+  "entry_index",
+  "source_file_name",
+  "rationale",
+  "created_at",
+].join(", ");
 
 const AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION = "est371_affaire_intake_v1";
 const AFFAIRE_INTAKE_CLASSIFICATION_MODEL = "gemini-3-flash-preview";
 const AFFAIRE_INTAKE_CLASSIFICATION_THINKING_LEVEL = "low" as const;
+const AFFAIRE_BRIEF_PROMPT_VERSION = "est372_affaire_brief_v1";
+const AFFAIRE_BRIEF_MODEL = "gemini-3-flash-preview";
+const AFFAIRE_BRIEF_THINKING_LEVEL = "low" as const;
 const TEXT_SNIPPET_MAX_LENGTH = 12_000;
+
+const affaireBriefEntrySchema = z
+  .object({
+    text: z.string().trim().min(1).max(320),
+    sourceDocumentIds: z.array(z.string().uuid()).max(6).default([]),
+  })
+  .strict();
+
+const affaireBriefGenerationSchema = z
+  .object({
+    summary: affaireBriefEntrySchema,
+    projectObject: affaireBriefEntrySchema,
+    scope: z.array(affaireBriefEntrySchema).max(12),
+    lots: z.array(affaireBriefEntrySchema).max(20),
+    receivedPieces: z.array(affaireBriefEntrySchema).max(20),
+    assumptions: z.array(affaireBriefEntrySchema).max(12),
+    vigilancePoints: z.array(affaireBriefEntrySchema).max(12),
+    missingElements: z.array(affaireBriefEntrySchema).max(12),
+  })
+  .strict();
+
+type AffaireBriefEntry = z.infer<typeof affaireBriefEntrySchema>;
+type AffaireBriefGeneration = z.infer<typeof affaireBriefGenerationSchema>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -240,6 +356,13 @@ function getAffaireIntakeSelectTable(
   table: string
 ) {
   return supabase.from(table) as AffaireIntakeSupabaseSelectTable;
+}
+
+function getAffaireIntakeDeleteTable(
+  supabase: AffaireIntakeSupabaseClient,
+  table: string
+) {
+  return supabase.from(table) as AffaireIntakeSupabaseDeleteTable;
 }
 
 function getAffaireIntakeUpdateTable(
@@ -330,6 +453,99 @@ function normalizeDocumentRow(row: unknown): AffaireIntakeDocumentRow | null {
     manually_overridden_at: toStringOrNull(row.manually_overridden_at),
     created_at: toStringOrNull(row.created_at) ?? new Date(0).toISOString(),
     updated_at: toStringOrNull(row.updated_at) ?? new Date(0).toISOString(),
+  };
+}
+
+function normalizeJsonTextArray(
+  value: unknown,
+  maxItems: number,
+  maxLength: number
+) {
+  const values = Array.isArray(value)
+    ? value
+    : Array.isArray((value as { values?: unknown[] } | null)?.values)
+      ? ((value as { values?: unknown[] }).values ?? [])
+      : [];
+
+  return normalizeAffaireIntakeTextList(
+    values.map((item) => (typeof item === "string" ? item : null)),
+    {
+      maxItems,
+      maxLength,
+    }
+  );
+}
+
+function normalizeAffaireBriefRow(row: unknown): AffaireBriefRow | null {
+  if (!isRecord(row)) {
+    return null;
+  }
+
+  const status = affaireIntakeBriefStatusSchema.safeParse(row.status);
+  if (
+    !status.success ||
+    typeof row.id !== "string" ||
+    typeof row.summary !== "string" ||
+    typeof row.project_object !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    tenant_id: typeof row.tenant_id === "string" ? row.tenant_id : "",
+    project_id: typeof row.project_id === "string" ? row.project_id : "",
+    upload_id: toStringOrNull(row.upload_id),
+    created_by: toStringOrNull(row.created_by),
+    updated_by: toStringOrNull(row.updated_by),
+    confirmed_by: toStringOrNull(row.confirmed_by),
+    status: status.data,
+    summary: row.summary.trim(),
+    project_object: row.project_object.trim(),
+    scope: normalizeJsonTextArray(row.scope, 12, 280),
+    lots: normalizeJsonTextArray(row.lots, 20, 160),
+    received_pieces: normalizeJsonTextArray(row.received_pieces, 20, 255),
+    assumptions: normalizeJsonTextArray(row.assumptions, 12, 280),
+    vigilance_points: normalizeJsonTextArray(row.vigilance_points, 12, 280),
+    missing_elements: normalizeJsonTextArray(row.missing_elements, 12, 280),
+    generation_metadata: isRecord(row.generation_metadata)
+      ? row.generation_metadata
+      : {},
+    last_generated_at: toStringOrNull(row.last_generated_at),
+    confirmed_at: toStringOrNull(row.confirmed_at),
+    created_at: toStringOrNull(row.created_at) ?? new Date(0).toISOString(),
+    updated_at: toStringOrNull(row.updated_at) ?? new Date(0).toISOString(),
+  };
+}
+
+function normalizeAffaireBriefSourceRow(row: unknown): AffaireBriefSourceRow | null {
+  if (!isRecord(row)) {
+    return null;
+  }
+
+  const blockKey = affaireIntakeBriefBlockKeySchema.safeParse(row.block_key);
+  if (
+    !blockKey.success ||
+    typeof row.id !== "string" ||
+    typeof row.brief_id !== "string" ||
+    typeof row.source_document_id !== "string" ||
+    typeof row.source_file_name !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    tenant_id: typeof row.tenant_id === "string" ? row.tenant_id : "",
+    project_id: typeof row.project_id === "string" ? row.project_id : "",
+    brief_id: row.brief_id,
+    source_document_id: row.source_document_id,
+    created_by: toStringOrNull(row.created_by),
+    block_key: blockKey.data,
+    entry_index: Math.max(0, Math.trunc(toNumberOrZero(row.entry_index))),
+    source_file_name: row.source_file_name.trim(),
+    rationale: toStringOrNull(row.rationale),
+    created_at: toStringOrNull(row.created_at) ?? new Date(0).toISOString(),
   };
 }
 
@@ -542,6 +758,34 @@ async function requireAffaireProjectOwnerOrAdmin(
   context: AuthenticatedContext;
   project: AffaireProjectAccessRow;
 }> {
+  return requireAffaireProjectAccess(projectId, "owner_or_admin");
+}
+
+async function requireAffaireProjectReadAccess(
+  projectId: string
+): Promise<{
+  context: AuthenticatedContext;
+  project: AffaireProjectAccessRow;
+}> {
+  return requireAffaireProjectAccess(projectId, "reader");
+}
+
+async function requireAffaireProjectBriefEditor(
+  projectId: string
+): Promise<{
+  context: AuthenticatedContext;
+  project: AffaireProjectAccessRow;
+}> {
+  return requireAffaireProjectAccess(projectId, "brief_editor");
+}
+
+async function requireAffaireProjectAccess(
+  projectId: string,
+  mode: "owner_or_admin" | "reader" | "brief_editor"
+): Promise<{
+  context: AuthenticatedContext;
+  project: AffaireProjectAccessRow;
+}> {
   const context = await getAuthenticatedContext();
   const { data, error } = await context.supabase
     .from("estimate_projects")
@@ -560,7 +804,18 @@ async function requireAffaireProjectOwnerOrAdmin(
     throw notFound("Affaire introuvable.");
   }
 
-  if (project.user_id !== context.userId && context.tenantRole !== "admin") {
+  const isOwner = project.user_id === context.userId;
+  const isAdmin = context.tenantRole === "admin";
+  const isDirector = context.tenantRole === "director";
+
+  const hasAccess =
+    mode === "reader"
+      ? isOwner || isAdmin || isDirector
+      : mode === "brief_editor"
+        ? isOwner || isAdmin || isDirector
+        : isOwner || isAdmin;
+
+  if (!hasAccess) {
     throw forbidden("Acces refuse a cette affaire.");
   }
 
@@ -582,7 +837,10 @@ async function insertAffaireIntakeEvent(input: {
     | "document.classified"
     | "document.classification_failed"
     | "document.reclassified"
-    | "upload.completed";
+    | "upload.completed"
+    | "brief.generated"
+    | "brief.updated"
+    | "brief.confirmed";
   reason?: string | null;
   beforePayload?: unknown;
   afterPayload?: unknown;
@@ -608,6 +866,851 @@ async function insertAffaireIntakeEvent(input: {
       error,
     });
   }
+}
+
+type AffaireBriefGenerationDocument = Pick<
+  AffaireIntakeDocumentRow,
+  "id" | "file_name" | "document_kind" | "confidence" | "issues" | "extracted_metadata"
+>;
+
+function pickPrimaryMetadataValue(
+  documents: AffaireBriefGenerationDocument[],
+  selector: (document: AffaireBriefGenerationDocument) => string | null
+) {
+  const counts = new Map<string, number>();
+
+  for (const document of documents) {
+    const value = selector(document)?.trim();
+    if (!value) {
+      continue;
+    }
+
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], "fr"))
+    .at(0)?.[0] ?? null;
+}
+
+function pickEarliestDeadline(documents: AffaireBriefGenerationDocument[]) {
+  const deadlines = documents
+    .map((document) => document.extracted_metadata.deadlineAt)
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .map((value) => new Date(value))
+    .filter((value) => !Number.isNaN(value.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime());
+
+  return deadlines[0]?.toISOString() ?? null;
+}
+
+function pickDocumentIdsForBrief(
+  documents: AffaireBriefGenerationDocument[],
+  predicate: (document: AffaireBriefGenerationDocument) => boolean,
+  limit = 4
+) {
+  return documents
+    .filter(predicate)
+    .sort((left, right) => (right.confidence ?? 0) - (left.confidence ?? 0))
+    .slice(0, limit)
+    .map((document) => document.id);
+}
+
+function createBriefEntry(
+  text: string,
+  sourceDocumentIds: string[]
+): AffaireBriefEntry {
+  return affaireBriefEntrySchema.parse({
+    text,
+    sourceDocumentIds,
+  });
+}
+
+function buildReceivedPiecesEntries(
+  documents: AffaireBriefGenerationDocument[]
+) {
+  return documents.map((document) =>
+    createBriefEntry(
+      `${AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[document.document_kind]} · ${document.file_name}`,
+      [document.id]
+    )
+  );
+}
+
+function buildFallbackAffaireBrief(input: {
+  project: AffaireProjectAccessRow;
+  uploadId: string;
+  documents: AffaireBriefGenerationDocument[];
+  missingPieces: AffaireIntakeWorkspaceMissingPiece[];
+}): AffaireBriefGeneration {
+  const projectName =
+    pickPrimaryMetadataValue(
+      input.documents,
+      (document) => document.extracted_metadata.projectName
+    ) ?? input.project.name;
+  const clientName = pickPrimaryMetadataValue(
+    input.documents,
+    (document) => document.extracted_metadata.clientName
+  ) ?? input.project.client_name;
+  const earliestDeadline = pickEarliestDeadline(input.documents);
+  const lots = normalizeAffaireIntakeTextList(
+    input.documents.flatMap((document) => document.extracted_metadata.detectedLots),
+    {
+      maxItems: 20,
+      maxLength: 160,
+    }
+  );
+  const reviewDocuments = input.documents.filter(
+    (document) => document.document_kind === "a_classer" || (document.confidence ?? 0) < 0.65
+  );
+  const scopeEntries: AffaireBriefEntry[] = [];
+  const assumptionEntries: AffaireBriefEntry[] = [];
+  const vigilanceEntries: AffaireBriefEntry[] = [];
+  const missingEntries: AffaireBriefEntry[] = [];
+
+  if (lots.length > 0) {
+    for (const lot of lots.slice(0, 8)) {
+      scopeEntries.push(
+        createBriefEntry(
+          `Le dossier couvre le lot ${lot}.`,
+          pickDocumentIdsForBrief(input.documents, (document) =>
+            document.extracted_metadata.detectedLots.includes(lot)
+          )
+        )
+      );
+    }
+  } else {
+    scopeEntries.push(
+      createBriefEntry(
+        "Le perimetre detaille reste a confirmer a partir des pieces recues.",
+        pickDocumentIdsForBrief(input.documents, () => true)
+      )
+    );
+  }
+
+  if (clientName) {
+    scopeEntries.unshift(
+      createBriefEntry(
+        `Le projet semble porte pour ${clientName}.`,
+        pickDocumentIdsForBrief(
+          input.documents,
+          (document) => document.extracted_metadata.clientName === clientName
+        )
+      )
+    );
+  }
+
+  if (earliestDeadline) {
+    vigilanceEntries.push(
+      createBriefEntry(
+        `Une echeance explicite a ete detectee pour le ${new Date(earliestDeadline).toLocaleDateString("fr-FR")}.`,
+        pickDocumentIdsForBrief(
+          input.documents,
+          (document) => document.extracted_metadata.deadlineAt === earliestDeadline
+        )
+      )
+    );
+  }
+
+  if (reviewDocuments.length > 0) {
+    vigilanceEntries.push(
+      createBriefEntry(
+        `${reviewDocuments.length} piece(s) doivent encore etre confirmees ou reclassifiees avant cadrage final.`,
+        reviewDocuments.map((document) => document.id).slice(0, 6)
+      )
+    );
+  }
+
+  if (!clientName) {
+    assumptionEntries.push(
+      createBriefEntry(
+        "Le client ou maitre d'ouvrage reste a confirmer humainement.",
+        pickDocumentIdsForBrief(input.documents, () => true)
+      )
+    );
+  }
+
+  if (lots.length === 0) {
+    assumptionEntries.push(
+      createBriefEntry(
+        "Les lots concernes doivent etre verifies avant lancement du chiffrage detaille.",
+        pickDocumentIdsForBrief(input.documents, () => true)
+      )
+    );
+  }
+
+  for (const piece of input.missingPieces) {
+    missingEntries.push(
+      createBriefEntry(
+        piece.label,
+        pickDocumentIdsForBrief(input.documents, () => true)
+      )
+    );
+  }
+
+  for (const document of reviewDocuments.slice(0, 6)) {
+    const issue = document.issues[0] ?? "Classification a confirmer.";
+    missingEntries.push(createBriefEntry(issue, [document.id]));
+  }
+
+  const receivedPieces = buildReceivedPiecesEntries(input.documents).slice(0, 20);
+  const projectSourceIds = pickDocumentIdsForBrief(
+    input.documents,
+    (document) =>
+      Boolean(document.extracted_metadata.projectName) ||
+      Boolean(document.extracted_metadata.clientName) ||
+      document.extracted_metadata.detectedLots.length > 0,
+    6
+  );
+  const summaryParts = [
+    `Brief provisoire du dossier ${projectName}.`,
+    clientName ? `Client detecte: ${clientName}.` : "Client a confirmer.",
+    `${input.documents.length} piece(s) ont ete retenues dans l'intake.`,
+    lots.length > 0
+      ? `${lots.length} lot(s) ont ete identifies.`
+      : "Le lotissement reste a preciser.",
+  ];
+
+  return affaireBriefGenerationSchema.parse({
+    summary: createBriefEntry(summaryParts.join(" "), projectSourceIds),
+    projectObject: createBriefEntry(
+      lots.length > 0
+        ? `${projectName} · lots ${lots.slice(0, 4).join(", ")}`
+        : `${projectName} · perimetre a confirmer`,
+      projectSourceIds
+    ),
+    scope: scopeEntries.slice(0, 12),
+    lots: lots
+      .slice(0, 20)
+      .map((lot) =>
+        createBriefEntry(
+          lot,
+          pickDocumentIdsForBrief(input.documents, (document) =>
+            document.extracted_metadata.detectedLots.includes(lot)
+          )
+        )
+      ),
+    receivedPieces,
+    assumptions: assumptionEntries.slice(0, 12),
+    vigilancePoints: vigilanceEntries.slice(0, 12),
+    missingElements: missingEntries.slice(0, 12),
+  });
+}
+
+function buildBriefGenerationPrompt(input: {
+  project: AffaireProjectAccessRow;
+  documents: AffaireBriefGenerationDocument[];
+  missingPieces: AffaireIntakeWorkspaceMissingPiece[];
+}) {
+  return [
+    "ROLE",
+    "Tu produis un brief affaire BTP a partir d'un workspace d'intake deja classe.",
+    "",
+    "CONTRAINTE",
+    "Retourne uniquement un JSON strict conforme au schema fourni.",
+    "Chaque entree doit reutiliser uniquement les sourceDocumentIds presents dans l'inventaire.",
+    "N'invente ni document, ni lot, ni client, ni echeance.",
+    "Le ton doit etre professionnel, concis et exploitable par un chiffreur ou une validatrice.",
+    "",
+    "PROMPT_VERSION",
+    AFFAIRE_BRIEF_PROMPT_VERSION,
+    "",
+    "PROJET",
+    JSON.stringify(
+      {
+        projectId: input.project.id,
+        projectName: input.project.name,
+        projectReference: input.project.reference,
+        clientName: input.project.client_name,
+        ownerUserId: input.project.user_id,
+      },
+      null,
+      2
+    ),
+    "",
+    "INVENTAIRE_DOCUMENTS",
+    JSON.stringify(
+      input.documents.map((document) => ({
+        documentId: document.id,
+        fileName: document.file_name,
+        detectedCategory: document.document_kind,
+        confidence: document.confidence,
+        extractedMetadata: document.extracted_metadata,
+        issues: document.issues,
+      })),
+      null,
+      2
+    ),
+    "",
+    "PIECES_MANQUANTES",
+    JSON.stringify(input.missingPieces, null, 2),
+    "",
+    "REGLES_METIER",
+    "1. summary et projectObject doivent etre une phrase courte et lisible.",
+    "2. receivedPieces doit lister les pieces recues sans omettre une categorie importante.",
+    "3. assumptions et vigilancePoints doivent mettre en evidence les zones grises, sans dramatiser.",
+    "4. missingElements doit reprendre les vrais manques ou doutes encore ouverts.",
+    "5. Quand aucune source documentaire directe n'est disponible pour une entree, reutilise les pieces les plus proches plutot que d'inventer.",
+  ].join("\n");
+}
+
+function sanitizeEntrySourceDocumentIds(
+  sourceDocumentIds: ReadonlyArray<string>,
+  validDocumentIds: Set<string>,
+  fallbackSourceDocumentIds: string[]
+) {
+  const sanitized = normalizeAffaireIntakeTextList(
+    sourceDocumentIds.map((value) => (validDocumentIds.has(value) ? value : null)),
+    {
+      maxItems: 6,
+      maxLength: 64,
+    }
+  );
+
+  return sanitized.length > 0 ? sanitized : fallbackSourceDocumentIds.slice(0, 6);
+}
+
+function sanitizeBriefEntry(
+  entry: AffaireBriefEntry | null | undefined,
+  fallbackEntry: AffaireBriefEntry,
+  validDocumentIds: Set<string>
+) {
+  if (!entry || typeof entry.text !== "string" || entry.text.trim().length === 0) {
+    return fallbackEntry;
+  }
+
+  return createBriefEntry(
+    entry.text,
+    sanitizeEntrySourceDocumentIds(
+      entry.sourceDocumentIds,
+      validDocumentIds,
+      fallbackEntry.sourceDocumentIds
+    )
+  );
+}
+
+function sanitizeBriefEntryArray(
+  entries: ReadonlyArray<AffaireBriefEntry> | null | undefined,
+  fallbackEntries: ReadonlyArray<AffaireBriefEntry>,
+  validDocumentIds: Set<string>
+) {
+  if (!entries || entries.length === 0) {
+    return [...fallbackEntries];
+  }
+
+  return entries
+    .slice(0, fallbackEntries.length > 0 ? Math.max(entries.length, fallbackEntries.length) : entries.length)
+    .map((entry, index) =>
+      sanitizeBriefEntry(
+        entry,
+        fallbackEntries[index] ?? fallbackEntries[0] ?? createBriefEntry("Source a confirmer.", []),
+        validDocumentIds
+      )
+    );
+}
+
+function mergeGeneratedAffaireBriefWithFallback(input: {
+  generated: AffaireBriefGeneration | null;
+  fallback: AffaireBriefGeneration;
+  documents: AffaireBriefGenerationDocument[];
+}): AffaireBriefGeneration {
+  const validDocumentIds = new Set(input.documents.map((document) => document.id));
+  const generated = input.generated;
+
+  return affaireBriefGenerationSchema.parse({
+    summary: sanitizeBriefEntry(generated?.summary, input.fallback.summary, validDocumentIds),
+    projectObject: sanitizeBriefEntry(
+      generated?.projectObject,
+      input.fallback.projectObject,
+      validDocumentIds
+    ),
+    scope: sanitizeBriefEntryArray(
+      generated?.scope,
+      input.fallback.scope,
+      validDocumentIds
+    )
+      .slice(0, 12),
+    lots: sanitizeBriefEntryArray(
+      generated?.lots,
+      input.fallback.lots,
+      validDocumentIds
+    )
+      .slice(0, 20),
+    receivedPieces: input.fallback.receivedPieces,
+    assumptions: sanitizeBriefEntryArray(
+      generated?.assumptions,
+      input.fallback.assumptions,
+      validDocumentIds
+    )
+      .slice(0, 12),
+    vigilancePoints: sanitizeBriefEntryArray(
+      generated?.vigilancePoints,
+      input.fallback.vigilancePoints,
+      validDocumentIds
+    )
+      .slice(0, 12),
+    missingElements: sanitizeBriefEntryArray(
+      generated?.missingElements,
+      input.fallback.missingElements,
+      validDocumentIds
+    )
+      .slice(0, 12),
+  });
+}
+
+function buildBriefSourcesFromGeneration(
+  generation: AffaireBriefGeneration,
+  documents: AffaireBriefGenerationDocument[]
+) {
+  const documentsById = new Map(
+    documents.map((document) => [document.id, document.file_name] as const)
+  );
+  const sources: AffaireIntakeBriefDraft["sources"] = [];
+  const pushSources = (
+    blockKey: AffaireIntakeBriefBlockKey,
+    entryIndex: number,
+    entry: AffaireBriefEntry
+  ) => {
+    for (const sourceDocumentId of entry.sourceDocumentIds) {
+      const sourceFileName = documentsById.get(sourceDocumentId);
+      if (!sourceFileName) {
+        continue;
+      }
+
+      sources.push({
+        blockKey,
+        entryIndex,
+        sourceDocumentId,
+        sourceFileName,
+        rationale: null,
+      });
+    }
+  };
+
+  pushSources("summary", 0, generation.summary);
+  pushSources("project_object", 0, generation.projectObject);
+  generation.scope.forEach((entry, index) => pushSources("scope", index, entry));
+  generation.lots.forEach((entry, index) => pushSources("lots", index, entry));
+  generation.receivedPieces.forEach((entry, index) =>
+    pushSources("received_pieces", index, entry)
+  );
+  generation.assumptions.forEach((entry, index) =>
+    pushSources("assumptions", index, entry)
+  );
+  generation.vigilancePoints.forEach((entry, index) =>
+    pushSources("vigilance_points", index, entry)
+  );
+  generation.missingElements.forEach((entry, index) =>
+    pushSources("missing_elements", index, entry)
+  );
+
+  return sources;
+}
+
+function toAffaireBriefDraft(input: {
+  generation: AffaireBriefGeneration;
+  uploadId: string;
+  status: AffaireIntakeBriefStatus;
+  lastGeneratedAt: string;
+  confirmedAt: string | null;
+  documents: AffaireBriefGenerationDocument[];
+}): AffaireIntakeBriefDraft {
+  return affaireIntakeBriefDraftSchema.parse({
+    status: input.status,
+    summary: input.generation.summary.text,
+    projectObject: input.generation.projectObject.text,
+    scope: input.generation.scope.map((entry) => entry.text),
+    lots: input.generation.lots.map((entry) => entry.text),
+    receivedPieces: input.generation.receivedPieces.map((entry) => entry.text),
+    assumptions: input.generation.assumptions.map((entry) => entry.text),
+    vigilancePoints: input.generation.vigilancePoints.map((entry) => entry.text),
+    missingElements: input.generation.missingElements.map((entry) => entry.text),
+    sources: buildBriefSourcesFromGeneration(input.generation, input.documents),
+    uploadId: input.uploadId,
+    lastGeneratedAt: input.lastGeneratedAt,
+    confirmedAt: input.confirmedAt,
+  });
+}
+
+function normalizeAffaireBriefDraftFromRows(input: {
+  brief: AffaireBriefRow;
+  sources: AffaireBriefSourceRow[];
+}): AffaireIntakeBriefDraft {
+  return affaireIntakeBriefDraftSchema.parse({
+    status: input.brief.status,
+    summary: input.brief.summary,
+    projectObject: input.brief.project_object,
+    scope: input.brief.scope,
+    lots: input.brief.lots,
+    receivedPieces: input.brief.received_pieces,
+    assumptions: input.brief.assumptions,
+    vigilancePoints: input.brief.vigilance_points,
+    missingElements: input.brief.missing_elements,
+    sources: input.sources.map((source) => ({
+      blockKey: source.block_key,
+      entryIndex: source.entry_index,
+      sourceDocumentId: source.source_document_id,
+      sourceFileName: source.source_file_name,
+      rationale: source.rationale,
+    })),
+    uploadId: input.brief.upload_id,
+    lastGeneratedAt: input.brief.last_generated_at,
+    confirmedAt: input.brief.confirmed_at,
+  });
+}
+
+function getComparableBriefPayload(brief: AffaireIntakeBriefDraft) {
+  return JSON.stringify({
+    summary: brief.summary,
+    projectObject: brief.projectObject,
+    scope: brief.scope,
+    lots: brief.lots,
+    receivedPieces: brief.receivedPieces,
+    assumptions: brief.assumptions,
+    vigilancePoints: brief.vigilancePoints,
+    missingElements: brief.missingElements,
+    sources: [...brief.sources].sort((left, right) =>
+      `${left.blockKey}:${left.entryIndex}:${left.sourceDocumentId}`.localeCompare(
+        `${right.blockKey}:${right.entryIndex}:${right.sourceDocumentId}`,
+        "fr"
+      )
+    ),
+  });
+}
+
+async function fetchAffaireBriefForProject(input: {
+  supabase: AffaireIntakeSupabaseClient;
+  projectId: string;
+}) {
+  const briefTable = input.supabase.from("affaire_briefs" as never) as {
+    select: (columns: string) => {
+      eq: (column: string, value: string) => {
+        order: (
+          column: string,
+          options: { ascending: boolean }
+        ) => {
+          maybeSingle: () => PromiseLike<unknown>;
+        };
+      };
+    };
+  };
+  const { data, error } = await resolveSupabaseQuery<{
+    data: unknown;
+    error: unknown;
+  }>(
+    briefTable
+      .select(BRIEF_SELECT)
+      .eq("project_id", input.projectId)
+      .order("updated_at", { ascending: false })
+      .maybeSingle()
+  );
+
+  if (error) {
+    throw internalError("Impossible de charger le brief affaire.", error);
+  }
+
+  const brief = normalizeAffaireBriefRow(data);
+  if (!brief) {
+    return null;
+  }
+
+  const sourceTable = input.supabase.from("affaire_brief_source_links" as never) as {
+    select: (columns: string) => {
+      eq: (column: string, value: string) => {
+        order: (
+          column: string,
+          options: { ascending: boolean }
+        ) => PromiseLike<unknown>;
+      };
+    };
+  };
+  const { data: sourceData, error: sourceError } = await resolveSupabaseQuery<{
+    data: unknown[];
+    error: unknown;
+  }>(
+    sourceTable
+      .select(BRIEF_SOURCE_SELECT)
+      .eq("brief_id", brief.id)
+      .order("block_key", { ascending: true })
+  );
+
+  if (sourceError) {
+    throw internalError("Impossible de charger les sources du brief affaire.", sourceError);
+  }
+
+  const sources = (sourceData ?? [])
+    .map(normalizeAffaireBriefSourceRow)
+    .filter((row): row is AffaireBriefSourceRow => row !== null)
+    .sort((left, right) =>
+      `${left.block_key}:${left.entry_index}:${left.source_document_id}`.localeCompare(
+        `${right.block_key}:${right.entry_index}:${right.source_document_id}`,
+        "fr"
+      )
+    );
+
+  return {
+    brief,
+    sources,
+    draft: normalizeAffaireBriefDraftFromRows({
+      brief,
+      sources,
+    }),
+  };
+}
+
+async function generateAffaireBriefDraft(input: {
+  project: AffaireProjectAccessRow;
+  uploadId: string;
+  documents: AffaireBriefGenerationDocument[];
+  missingPieces: AffaireIntakeWorkspaceMissingPiece[];
+}): Promise<AffaireIntakeBriefDraft> {
+  const fallback = buildFallbackAffaireBrief({
+    project: input.project,
+    uploadId: input.uploadId,
+    documents: input.documents,
+    missingPieces: input.missingPieces,
+  });
+
+  let generated: AffaireBriefGeneration | null = null;
+
+  try {
+    const result = await callGeminiStructured({
+      prompt: buildBriefGenerationPrompt({
+        project: input.project,
+        documents: input.documents,
+        missingPieces: input.missingPieces,
+      }),
+      schema: affaireBriefGenerationSchema,
+      thinkingLevel: AFFAIRE_BRIEF_THINKING_LEVEL,
+      context: {
+        model: AFFAIRE_BRIEF_MODEL,
+        promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION,
+      },
+    });
+
+    generated = result.data;
+  } catch (error) {
+    console.error("Affaire brief AI generation failed", {
+      projectId: input.project.id,
+      uploadId: input.uploadId,
+      error,
+    });
+  }
+
+  const generation = mergeGeneratedAffaireBriefWithFallback({
+    generated,
+    fallback,
+    documents: input.documents,
+  });
+  const lastGeneratedAt = new Date().toISOString();
+
+  return toAffaireBriefDraft({
+    generation,
+    uploadId: input.uploadId,
+    status: "a_confirmer",
+    lastGeneratedAt,
+    confirmedAt: null,
+    documents: input.documents,
+  });
+}
+
+async function persistAffaireBriefDraft(input: {
+  supabase: AffaireIntakeSupabaseClient;
+  project: AffaireProjectAccessRow;
+  uploadId: string;
+  draft: AffaireIntakeBriefDraft;
+  actorUserId?: string | null;
+}) {
+  const existing = await fetchAffaireBriefForProject({
+    supabase: input.supabase,
+    projectId: input.project.id,
+  });
+
+  const currentDraft = existing?.draft ?? null;
+  const contentChanged =
+    !currentDraft ||
+    getComparableBriefPayload(currentDraft) !== getComparableBriefPayload(input.draft) ||
+    currentDraft.uploadId !== input.draft.uploadId;
+
+  const nextStatus: AffaireIntakeBriefStatus =
+    contentChanged || !currentDraft
+      ? "a_confirmer"
+      : currentDraft.status;
+  const nextConfirmedAt =
+    nextStatus === "confirme" ? currentDraft?.confirmedAt ?? null : null;
+
+  const payload = {
+    project_id: input.project.id,
+    upload_id: input.uploadId,
+    created_by: existing?.brief.created_by ?? input.actorUserId ?? null,
+    updated_by: input.actorUserId ?? null,
+    confirmed_by:
+      nextStatus === "confirme" ? existing?.brief.confirmed_by ?? null : null,
+    status: nextStatus,
+    summary: input.draft.summary,
+    project_object: input.draft.projectObject,
+    scope: input.draft.scope,
+    lots: input.draft.lots,
+    received_pieces: input.draft.receivedPieces,
+    assumptions: input.draft.assumptions,
+    vigilance_points: input.draft.vigilancePoints,
+    missing_elements: input.draft.missingElements,
+    generation_metadata: {
+      prompt_version: AFFAIRE_BRIEF_PROMPT_VERSION,
+      generated_from_upload_id: input.uploadId,
+      regenerated_by: input.actorUserId ?? null,
+    },
+    last_generated_at: input.draft.lastGeneratedAt,
+    confirmed_at: nextConfirmedAt,
+  } as const;
+
+  const briefMutationTable = input.supabase.from("affaire_briefs" as never) as {
+    update: (values: unknown) => {
+      eq: (column: string, value: string) => {
+        select: (columns: string) => {
+          single: () => PromiseLike<unknown>;
+        };
+      };
+    };
+    insert: (values: unknown) => {
+      select: (columns: string) => {
+        single: () => PromiseLike<unknown>;
+      };
+    };
+  };
+  const query = existing
+    ? (briefMutationTable
+        .update(payload as never)
+        .eq("id", existing.brief.id)
+        .select(BRIEF_SELECT)
+        .single() as PromiseLike<{ data: unknown; error: unknown }>)
+    : (briefMutationTable
+        .insert(payload as never)
+        .select(BRIEF_SELECT)
+        .single() as PromiseLike<{ data: unknown; error: unknown }>);
+
+  const { data, error } = await resolveSupabaseQuery<{
+    data: unknown;
+    error: unknown;
+  }>(query);
+
+  if (error) {
+    throw internalError("Impossible de persister le brief affaire.", error);
+  }
+
+  const brief = normalizeAffaireBriefRow(data);
+  if (!brief) {
+    throw internalError("Le brief affaire retourne une reponse invalide.");
+  }
+
+  if (existing) {
+    const { error: deleteError } = await resolveSupabaseQuery<{ error: unknown }>(
+      getAffaireIntakeDeleteTable(input.supabase, "affaire_brief_source_links")
+        .delete()
+        .eq("brief_id", brief.id)
+    );
+
+    if (deleteError) {
+      throw internalError("Impossible de remplacer les sources du brief affaire.", deleteError);
+    }
+  }
+
+  if (input.draft.sources.length > 0) {
+    const { error: insertSourceError } = await resolveSupabaseQuery<{
+      error: unknown;
+    }>(
+      getAffaireIntakeInsertTable(input.supabase, "affaire_brief_source_links")
+        .insert(
+          input.draft.sources.map((source) => ({
+            brief_id: brief.id,
+            source_document_id: source.sourceDocumentId,
+            created_by: input.actorUserId ?? null,
+            block_key: source.blockKey,
+            entry_index: source.entryIndex,
+            source_file_name: source.sourceFileName,
+            rationale: source.rationale,
+          }))
+        )
+    );
+
+    if (insertSourceError) {
+      throw internalError(
+        "Impossible de persister les sources du brief affaire.",
+        insertSourceError
+      );
+    }
+  }
+
+  if (contentChanged) {
+    await insertAffaireIntakeEvent({
+      supabase: input.supabase,
+      uploadId: input.uploadId,
+      actorUserId: input.actorUserId ?? null,
+      eventType: "brief.generated",
+      beforePayload: currentDraft
+        ? {
+            status: currentDraft.status,
+            summary: currentDraft.summary,
+          }
+        : null,
+      afterPayload: {
+        status: nextStatus,
+        summary: input.draft.summary,
+        scope_count: input.draft.scope.length,
+        assumption_count: input.draft.assumptions.length,
+      },
+    });
+  }
+
+  return affaireIntakeBriefDraftSchema.parse({
+    ...input.draft,
+    status: nextStatus,
+    confirmedAt: nextConfirmedAt,
+  });
+}
+
+async function refreshAffaireBriefFromDocuments(input: {
+  supabase: AffaireIntakeSupabaseClient;
+  project: AffaireProjectAccessRow;
+  uploadId: string;
+  documents: AffaireIntakeDocumentRow[];
+  actorUserId?: string | null;
+}) {
+  const uploadedDocuments = input.documents.filter(
+    (document) => document.upload_status === "uploaded"
+  );
+
+  if (uploadedDocuments.length === 0) {
+    return null;
+  }
+
+  const briefDraft = await generateAffaireBriefDraft({
+    project: input.project,
+    uploadId: input.uploadId,
+    documents: uploadedDocuments.map((document) => ({
+      id: document.id,
+      file_name: document.file_name,
+      document_kind: document.document_kind,
+      confidence: document.confidence,
+      issues: document.issues,
+      extracted_metadata: document.extracted_metadata,
+    })),
+    missingPieces: buildAffaireIntakeMissingPieces(
+      input.documents.map((document) => ({
+        uploadStatus: document.upload_status,
+        classificationStatus: document.classification_status,
+        documentKind: document.document_kind,
+      }))
+    ),
+  });
+
+  return persistAffaireBriefDraft({
+    supabase: input.supabase,
+    project: input.project,
+    uploadId: input.uploadId,
+    draft: briefDraft,
+    actorUserId: input.actorUserId,
+  });
 }
 
 async function updateUploadStatusFromStoredDocuments(input: {
@@ -1185,6 +2288,59 @@ export async function processAffaireIntakeUpload(uploadId: string) {
     uploadId: upload.id,
   });
 
+  const [{ data: refreshedDocsData, error: refreshedDocsError }, { data: projectData, error: projectError }] =
+    await Promise.all([
+      resolveSupabaseQuery<{
+        data: unknown[];
+        error: unknown;
+      }>(
+        supabase
+          .from("affaire_intake_documents" as never)
+          .select(DOCUMENT_SELECT as never)
+          .eq("upload_id", upload.id)
+          .order("created_at", { ascending: true })
+      ),
+      resolveSupabaseQuery<{
+        data: unknown;
+        error: unknown;
+      }>(
+        supabase
+          .from("estimate_projects" as never)
+          .select(PROJECT_SELECT as never)
+          .eq("id", upload.project_id)
+          .maybeSingle()
+      ),
+    ]);
+
+  if (!refreshedDocsError && !projectError) {
+    const refreshedDocuments = (refreshedDocsData ?? [])
+      .map(normalizeDocumentRow)
+      .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+    const project = projectData as AffaireProjectAccessRow | null;
+
+    if (project && !project.is_archived) {
+      await refreshAffaireBriefFromDocuments({
+        supabase,
+        project,
+        uploadId: upload.id,
+        documents: refreshedDocuments,
+      }).catch((error) => {
+        console.error("Affaire brief refresh failed after intake processing", {
+          uploadId: upload.id,
+          projectId: upload.project_id,
+          error,
+        });
+      });
+    }
+  } else {
+    console.error("Failed to load data for affaire brief refresh", {
+      uploadId: upload.id,
+      projectId: upload.project_id,
+      refreshedDocsError,
+      projectError,
+    });
+  }
+
   await insertAffaireIntakeEvent({
     supabase,
     uploadId: upload.id,
@@ -1200,7 +2356,7 @@ export async function processAffaireIntakeUpload(uploadId: string) {
 export async function fetchAffaireIntakeWorkspace(
   projectId: string
 ): Promise<AffaireIntakeWorkspace> {
-  const { context, project } = await requireAffaireProjectOwnerOrAdmin(projectId);
+  const { context, project } = await requireAffaireProjectReadAccess(projectId);
 
   const { data: uploadData, error: uploadError } = await resolveSupabaseQuery<{
     data: unknown;
@@ -1226,12 +2382,17 @@ export async function fetchAffaireIntakeWorkspace(
   const upload = normalizeUploadRow(uploadData);
 
   if (!upload) {
+    const brief = await fetchAffaireBriefForProject({
+      supabase: context.supabase,
+      projectId: project.id,
+    });
+
     return {
       projectId: project.id,
       uploadId: null,
       documents: [],
       missingPieces: [],
-      briefDraft: null,
+      briefDraft: brief?.draft ?? null,
     };
   }
 
@@ -1256,6 +2417,10 @@ export async function fetchAffaireIntakeWorkspace(
   const documents = (docsData ?? [])
     .map(normalizeDocumentRow)
     .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+  const brief = await fetchAffaireBriefForProject({
+    supabase: context.supabase,
+    projectId: project.id,
+  });
 
   return {
     projectId: project.id,
@@ -1278,8 +2443,157 @@ export async function fetchAffaireIntakeWorkspace(
         documentKind: document.document_kind,
       }))
     ),
-    briefDraft: null,
+    briefDraft: brief?.draft ?? null,
   };
+}
+
+export async function updateAffaireBrief(input: {
+  projectId: string;
+  summary: string;
+  scope: string[];
+  vigilancePoints: string[];
+  assumptions: string[];
+}) {
+  const { context, project } = await requireAffaireProjectBriefEditor(
+    input.projectId
+  );
+  const existing = await fetchAffaireBriefForProject({
+    supabase: context.supabase,
+    projectId: project.id,
+  });
+
+  if (!existing) {
+    throw notFound("Brief affaire introuvable.");
+  }
+
+  const nextDraft = affaireIntakeBriefDraftSchema.parse({
+    ...existing.draft,
+    summary: input.summary.trim(),
+    scope: normalizeAffaireIntakeTextList(input.scope, {
+      maxItems: 12,
+      maxLength: 280,
+    }),
+    vigilancePoints: normalizeAffaireIntakeTextList(input.vigilancePoints, {
+      maxItems: 12,
+      maxLength: 280,
+    }),
+    assumptions: normalizeAffaireIntakeTextList(input.assumptions, {
+      maxItems: 12,
+      maxLength: 280,
+    }),
+    status: "a_confirmer",
+    confirmedAt: null,
+  });
+
+  const contentChanged =
+    getComparableBriefPayload(existing.draft) !== getComparableBriefPayload(nextDraft) ||
+    existing.draft.status !== nextDraft.status;
+
+  if (!contentChanged) {
+    return {
+      ok: true,
+      status: existing.draft.status,
+    } as const;
+  }
+
+  const { error } = await resolveSupabaseQuery<{ error: unknown }>(
+    context.supabase
+      .from("affaire_briefs" as never)
+      .update({
+        summary: nextDraft.summary,
+        scope: nextDraft.scope,
+        vigilance_points: nextDraft.vigilancePoints,
+        assumptions: nextDraft.assumptions,
+        status: "a_confirmer",
+        confirmed_at: null,
+        confirmed_by: null,
+        updated_by: context.userId,
+      } as never)
+      .eq("id", existing.brief.id)
+  );
+
+  if (error) {
+    throw internalError("Impossible de mettre a jour le brief affaire.", error);
+  }
+
+  await insertAffaireIntakeEvent({
+    supabase: context.supabase,
+    uploadId: existing.brief.upload_id,
+    actorUserId: context.userId,
+    eventType: "brief.updated",
+    beforePayload: {
+      status: existing.draft.status,
+      summary: existing.draft.summary,
+    },
+    afterPayload: {
+      status: "a_confirmer",
+      summary: nextDraft.summary,
+      scope_count: nextDraft.scope.length,
+      assumption_count: nextDraft.assumptions.length,
+    },
+  });
+
+  return {
+    ok: true,
+    status: "a_confirmer",
+  } as const;
+}
+
+export async function confirmAffaireBrief(input: { projectId: string }) {
+  const { context, project } = await requireAffaireProjectBriefEditor(
+    input.projectId
+  );
+  const existing = await fetchAffaireBriefForProject({
+    supabase: context.supabase,
+    projectId: project.id,
+  });
+
+  if (!existing) {
+    throw notFound("Brief affaire introuvable.");
+  }
+
+  if (existing.draft.status === "confirme") {
+    return {
+      ok: true,
+      status: "confirme",
+    } as const;
+  }
+
+  const confirmedAt = new Date().toISOString();
+  const { error } = await resolveSupabaseQuery<{ error: unknown }>(
+    context.supabase
+      .from("affaire_briefs" as never)
+      .update({
+        status: "confirme",
+        confirmed_at: confirmedAt,
+        confirmed_by: context.userId,
+        updated_by: context.userId,
+      } as never)
+      .eq("id", existing.brief.id)
+  );
+
+  if (error) {
+    throw internalError("Impossible de confirmer le brief affaire.", error);
+  }
+
+  await insertAffaireIntakeEvent({
+    supabase: context.supabase,
+    uploadId: existing.brief.upload_id,
+    actorUserId: context.userId,
+    eventType: "brief.confirmed",
+    beforePayload: {
+      status: existing.draft.status,
+    },
+    afterPayload: {
+      status: "confirme",
+      confirmed_at: confirmedAt,
+    },
+  });
+
+  return {
+    ok: true,
+    status: "confirme",
+  } as const;
 }
 
 export async function reclassifyAffaireDocument(input: {
@@ -1374,6 +2688,37 @@ export async function reclassifyAffaireDocument(input: {
   await updateUploadStatusFromStoredDocuments({
     supabase: context.supabase,
     uploadId: document.upload_id,
+  });
+
+  const { data: refreshedDocsData, error: refreshedDocsError } =
+    await resolveSupabaseQuery<{
+      data: unknown[];
+      error: unknown;
+    }>(
+      context.supabase
+        .from("affaire_intake_documents" as never)
+        .select(DOCUMENT_SELECT as never)
+        .eq("upload_id", document.upload_id)
+        .order("created_at", { ascending: true })
+    );
+
+  if (refreshedDocsError) {
+    throw internalError(
+      "Impossible de recharger les documents intake apres reclassification.",
+      refreshedDocsError
+    );
+  }
+
+  const refreshedDocuments = (refreshedDocsData ?? [])
+    .map(normalizeDocumentRow)
+    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+
+  await refreshAffaireBriefFromDocuments({
+    supabase: context.supabase,
+    project,
+    uploadId: document.upload_id,
+    documents: refreshedDocuments,
+    actorUserId: context.userId,
   });
 
   return { ok: true } as const;

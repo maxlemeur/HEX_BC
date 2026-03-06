@@ -40,18 +40,6 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   source_metadata?: unknown;
   source_extracted_at?: string | null;
 };
-type EstimateItemInsert = Database["public"]["Tables"]["estimate_items"]["Insert"] & {
-  source_provider?: string | null;
-  source_job_id?: string | null;
-  source_file_name?: string | null;
-  source_page?: number | null;
-};
-type EstimateItemUpdate = Database["public"]["Tables"]["estimate_items"]["Update"] & {
-  source_provider?: string | null;
-  source_job_id?: string | null;
-  source_file_name?: string | null;
-  source_page?: number | null;
-};
 type EstimateStructureDraftRow =
   Database["public"]["Tables"]["estimate_structure_drafts"]["Row"];
 type EstimateStructureDraftInsert =
@@ -100,6 +88,27 @@ type EmbeddedProjectAccess = Pick<
   | "notes"
   | "is_archived"
 >;
+
+type AffaireBriefRow = {
+  id: string;
+  project_id: string;
+  status: string;
+  summary: string;
+  project_object: string;
+  scope: unknown;
+  lots: unknown;
+  received_pieces: unknown;
+  assumptions: unknown;
+  vigilance_points: unknown;
+  missing_elements: unknown;
+};
+
+type AffaireBriefSourceLinkRow = {
+  source_document_id: string;
+  block_key: string;
+  entry_index: number;
+  source_file_name: string;
+};
 
 type VersionAccessRow = Pick<
   EstimateVersionRow,
@@ -555,6 +564,10 @@ function pickStringArray(value: unknown) {
   return value
     .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
     .filter((entry) => entry.length > 0);
+}
+
+function pickAffaireBriefTextArray(value: unknown, limit: number) {
+  return pickStringArray(value).slice(0, limit);
 }
 
 function normalizeEvidenceEntries(value: unknown): EstimateStructureDraftEvidenceEntry[] {
@@ -1639,6 +1652,119 @@ async function loadStructureDraftSourceBundle(input: {
     });
   }
 
+  const { data: confirmedBriefData, error: confirmedBriefError } = await supabase
+    .from("affaire_briefs" as never)
+    .select(
+      "id, project_id, status, summary, project_object, scope, lots, received_pieces, assumptions, vigilance_points, missing_elements" as never
+    )
+    .eq("project_id", project.id)
+    .eq("status", "confirme")
+    .maybeSingle();
+
+  if (confirmedBriefError) {
+    throw mapSupabaseError(
+      confirmedBriefError,
+      "Impossible de charger le brief affaire confirme."
+    );
+  }
+
+  const confirmedBrief =
+    (confirmedBriefData as AffaireBriefRow | null) && confirmedBriefData
+      ? (confirmedBriefData as AffaireBriefRow)
+      : null;
+
+  if (confirmedBrief?.id) {
+    const { data: confirmedBriefSourceData, error: confirmedBriefSourceError } =
+      await supabase
+        .from("affaire_brief_source_links" as never)
+        .select(
+          "source_document_id, block_key, entry_index, source_file_name" as never
+        )
+        .eq("brief_id", confirmedBrief.id);
+
+    if (confirmedBriefSourceError) {
+      throw mapSupabaseError(
+        confirmedBriefSourceError,
+        "Impossible de charger les sources du brief affaire confirme."
+      );
+    }
+
+    const sourceLinks = (confirmedBriefSourceData ?? []) as AffaireBriefSourceLinkRow[];
+    const sourceFileNamesByEntry = new Map<string, string[]>();
+
+    for (const sourceLink of sourceLinks) {
+      const key = `${sourceLink.block_key}:${sourceLink.entry_index}`;
+      const current = sourceFileNamesByEntry.get(key) ?? [];
+      current.push(sourceLink.source_file_name);
+      sourceFileNamesByEntry.set(key, current);
+    }
+
+    const pushBriefEntry = (
+      blockKey: string,
+      entryIndex: number,
+      label: string,
+      excerpt: string | null
+    ) => {
+      const text = toNullableText(label);
+      if (!text) return;
+
+      const path = truncatePath(["Brief confirme", text]);
+      const sourceFileNames = sourceFileNamesByEntry.get(`${blockKey}:${entryIndex}`) ?? [];
+      sourceEntries.push({
+        id: `brief-${blockKey}-${entryIndex}`,
+        kind: "confirmed_brief",
+        type: "brief",
+        label: "Brief confirme",
+        path,
+        excerpt:
+          excerpt ?? (sourceFileNames.length > 0 ? sourceFileNames.join(" · ") : null),
+        fact: `Brief confirme: ${text}`,
+        hypothesis: null,
+        inference: null,
+        weight: 1.55,
+      });
+    };
+
+    pushBriefEntry("summary", 0, confirmedBrief.summary, null);
+    pushBriefEntry("project_object", 0, confirmedBrief.project_object, null);
+    pickAffaireBriefTextArray(confirmedBrief.scope, 8).forEach((entry, index) =>
+      pushBriefEntry("scope", index, entry, null)
+    );
+    pickAffaireBriefTextArray(confirmedBrief.lots, 12).forEach((entry, index) =>
+      pushBriefEntry("lots", index, entry, null)
+    );
+    pickAffaireBriefTextArray(confirmedBrief.received_pieces, 12).forEach(
+      (entry, index) => pushBriefEntry("received_pieces", index, entry, null)
+    );
+    pickAffaireBriefTextArray(confirmedBrief.assumptions, 8).forEach((entry, index) =>
+      pushBriefEntry("assumptions", index, entry, null)
+    );
+    pickAffaireBriefTextArray(confirmedBrief.vigilance_points, 8).forEach(
+      (entry, index) => pushBriefEntry("vigilance_points", index, entry, null)
+    );
+    pickAffaireBriefTextArray(confirmedBrief.missing_elements, 8).forEach(
+      (entry, index) => pushBriefEntry("missing_elements", index, entry, null)
+    );
+
+    sourceSummaries.push({
+      kind: "confirmed_brief",
+      label: "Brief confirme",
+      available: true,
+      used: sourceLinks.length > 0 || Boolean(confirmedBrief.summary),
+      detail: sourceLinks.length > 0
+        ? `${sourceLinks.length} lien(s) de source relies au brief`
+        : "Brief confirme sans liens de source exploites",
+    });
+  } else {
+    sourceSummaries.push({
+      kind: "confirmed_brief",
+      label: "Brief confirme",
+      available: false,
+      used: false,
+      detail: "Aucun brief confirme disponible.",
+    });
+  }
+
   const projectNotes = toNullableText(project.notes);
   if (projectNotes) {
     parseProjectNotesPaths(projectNotes).forEach((path, index) => {
@@ -1672,14 +1798,6 @@ async function loadStructureDraftSourceBundle(input: {
       detail: "Aucune note affaire exploitable.",
     });
   }
-
-  sourceSummaries.push({
-    kind: "confirmed_brief",
-    label: "Brief confirme",
-    available: false,
-    used: false,
-    detail: "Contrat E21 non branche sur cette branche main.",
-  });
 
   const dedupedEntries = Array.from(
     new Map(

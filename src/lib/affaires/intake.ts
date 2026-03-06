@@ -66,6 +66,20 @@ export const affaireIntakeClassificationStatusSchema = z.enum([
 ]);
 
 export const affaireIntakeClassificationSourceSchema = z.enum(["ai", "manual"]);
+export const affaireIntakeBriefStatusSchema = z.enum([
+  "a_confirmer",
+  "confirme",
+]);
+export const affaireIntakeBriefBlockKeySchema = z.enum([
+  "summary",
+  "project_object",
+  "scope",
+  "lots",
+  "received_pieces",
+  "assumptions",
+  "vigilance_points",
+  "missing_elements",
+]);
 
 export const affaireIntakeExtractedMetadataSchema = z
   .object({
@@ -107,6 +121,12 @@ export type AffaireIntakeClassificationStatus = z.infer<
 export type AffaireIntakeClassificationSource = z.infer<
   typeof affaireIntakeClassificationSourceSchema
 >;
+export type AffaireIntakeBriefStatus = z.infer<
+  typeof affaireIntakeBriefStatusSchema
+>;
+export type AffaireIntakeBriefBlockKey = z.infer<
+  typeof affaireIntakeBriefBlockKeySchema
+>;
 export type AffaireIntakeExtractedMetadata = z.infer<
   typeof affaireIntakeExtractedMetadataSchema
 >;
@@ -125,6 +145,68 @@ export type AffaireIntakeWorkspaceDocumentSummary = {
   classificationStatus: AffaireIntakeClassificationStatus;
   documentKind: AffaireIntakeDocumentKind;
 };
+
+export const AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS: Record<
+  AffaireIntakeDocumentKind,
+  string
+> = {
+  dpgf: "DPGF",
+  plans: "Plans",
+  cctp: "CCTP",
+  bpu_dqe: "BPU / DQE",
+  annexes: "Annexes",
+  emails: "Emails / courriers",
+  a_classer: "A classer",
+};
+
+export const AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS: Record<
+  AffaireIntakeBriefBlockKey,
+  string
+> = {
+  summary: "Synthese",
+  project_object: "Objet du projet",
+  scope: "Perimetre detecte",
+  lots: "Lots concernes",
+  received_pieces: "Pieces recues",
+  assumptions: "Hypotheses initiales",
+  vigilance_points: "Points de vigilance",
+  missing_elements: "Elements manquants",
+};
+
+export const affaireIntakeBriefSourceSchema = z
+  .object({
+    blockKey: affaireIntakeBriefBlockKeySchema,
+    entryIndex: z.number().int().min(0),
+    sourceDocumentId: z.string().uuid(),
+    sourceFileName: z.string().trim().min(1).max(255),
+    rationale: z.string().trim().max(240).nullable(),
+  })
+  .strict();
+
+export const affaireIntakeBriefDraftSchema = z
+  .object({
+    status: affaireIntakeBriefStatusSchema,
+    summary: z.string().trim().min(1).max(900),
+    projectObject: z.string().trim().min(1).max(400),
+    scope: z.array(z.string().trim().min(1).max(280)).max(12),
+    lots: z.array(z.string().trim().min(1).max(160)).max(20),
+    receivedPieces: z.array(z.string().trim().min(1).max(255)).max(20),
+    assumptions: z.array(z.string().trim().min(1).max(280)).max(12),
+    vigilancePoints: z.array(z.string().trim().min(1).max(280)).max(12),
+    missingElements: z.array(z.string().trim().min(1).max(280)).max(12),
+    sources: z.array(affaireIntakeBriefSourceSchema).max(120),
+    uploadId: z.string().uuid().nullable(),
+    lastGeneratedAt: z.string().datetime().nullable(),
+    confirmedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+
+export type AffaireIntakeBriefSource = z.infer<
+  typeof affaireIntakeBriefSourceSchema
+>;
+export type AffaireIntakeBriefDraft = z.infer<
+  typeof affaireIntakeBriefDraftSchema
+>;
 
 const DEFAULT_EXTRACTED_METADATA: AffaireIntakeExtractedMetadata = {
   projectName: null,
@@ -463,4 +545,37 @@ export function buildAffaireIntakeMissingPieces(
   }
 
   return missingPieces;
+}
+
+export function normalizeAffaireIntakeTextList(
+  values: ReadonlyArray<string | null | undefined>,
+  options: {
+    maxItems: number;
+    maxLength: number;
+  }
+) {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const rawValue of values) {
+    const value = typeof rawValue === "string" ? rawValue.trim() : "";
+    if (!value) {
+      continue;
+    }
+
+    const nextValue = value.slice(0, options.maxLength).trim();
+    const dedupeKey = nextValue.toLowerCase();
+    if (!nextValue || seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    normalized.push(nextValue);
+
+    if (normalized.length >= options.maxItems) {
+      break;
+    }
+  }
+
+  return normalized;
 }

@@ -5,6 +5,7 @@ import {
   deriveAffaireIntakeUploadStatusFromDocuments,
   getHeuristicAffaireDocumentClassification,
   mergeAffaireDocumentClassificationWithHeuristic,
+  normalizeAffaireIntakeTextList,
 } from "@/lib/affaires/intake";
 
 describe("affaire intake helpers", () => {
@@ -107,5 +108,17 @@ describe("affaire intake helpers", () => {
         }),
       ])
     );
+  });
+
+  it("normalizes and deduplicates editable brief lists", () => {
+    expect(
+      normalizeAffaireIntakeTextList(
+        ["  Lot gros oeuvre  ", "", "LOT GROS OEUVRE", "Facade"],
+        {
+          maxItems: 5,
+          maxLength: 40,
+        }
+      )
+    ).toEqual(["Lot gros oeuvre", "Facade"]);
   });
 });
