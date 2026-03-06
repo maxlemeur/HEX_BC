@@ -14,6 +14,7 @@ import {
 
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
+import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
@@ -97,6 +98,7 @@ import {
 import {
   batchEstimateOperations,
   acquireEstimateDraftLock,
+  applyEstimateStructureDraft,
   bulkUpdateEstimateItems,
   createEstimateItem,
   createEstimateLaborRole,
@@ -110,6 +112,7 @@ import {
   fetchEstimateDraftVersions,
   fetchEstimateEditorData,
   fetchEstimateItemsForVersion,
+  type ApplyEstimateStructureDraftPayload,
   fetchAffaireLinkedDpgfSource,
   fetchEstimateOutlierDismissedFlags,
   fetchEstimateVersionEvents,
@@ -1303,6 +1306,7 @@ export type EstimateEditorStateModel = {
     isSettingsDrawerOpen: boolean;
     isBulkSuggestDialogOpen: boolean;
     isImportFromEstimateDialogOpen: boolean;
+    isEstimateStructureDraftDialogOpen: boolean;
     isSendGatingDialogOpen: boolean;
   };
   actions: {
@@ -1331,6 +1335,9 @@ export type EstimateEditorStateModel = {
         bulkSuggestDialogProps: ComponentProps<typeof BulkSuggestDialog>;
         importFromEstimateDialogProps:
           | ComponentProps<typeof ImportFromEstimateDialog>
+          | null;
+        estimateStructureDraftDialogProps:
+          | ComponentProps<typeof EstimateStructureDraftDialog>
           | null;
         sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog>;
       };
@@ -1431,6 +1438,10 @@ export function useEstimateEditorState({
   >([]);
   const [isImportFromEstimateDialogOpen, setIsImportFromEstimateDialogOpen] =
     useState(false);
+  const [
+    isEstimateStructureDraftDialogOpen,
+    setIsEstimateStructureDraftDialogOpen,
+  ] = useState(false);
   const [importSummaryMessage, setImportSummaryMessage] =
     useState<string | null>(null);
   const [linkedDpgfSource, setLinkedDpgfSource] =
@@ -5074,6 +5085,92 @@ export function useEstimateEditorState({
     ]
   );
 
+  const handleOpenEstimateStructureDraftDialog = useCallback(() => {
+    if (isReadOnly) {
+      setActionError(readOnlyActionErrorMessage);
+      return;
+    }
+    if (isConflictLocked) {
+      setActionError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+
+    if (!versionRef.current?.id) {
+      setActionError("Version introuvable.");
+      return;
+    }
+
+    setActionError(null);
+    setImportSummaryMessage(null);
+    setIsEstimateStructureDraftDialogOpen(true);
+  }, [
+    conflictState?.message,
+    isConflictLocked,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+  ]);
+
+  const handleConfirmEstimateStructureDraftDialog = useCallback(
+    async (draftId: string, input: ApplyEstimateStructureDraftPayload) => {
+      if (isReadOnly) {
+        throw new Error(readOnlyActionErrorMessage);
+      }
+      if (isConflictLocked) {
+        throw new Error(
+          conflictState?.message ?? "Version modifiee par un autre utilisateur"
+        );
+      }
+
+      const versionSnapshot = versionRef.current;
+      if (!versionSnapshot?.id) {
+        throw new Error("Version introuvable.");
+      }
+
+      setActionError(null);
+      setImportSummaryMessage(null);
+
+      const result = await applyEstimateStructureDraft(
+        versionSnapshot.id,
+        draftId,
+        input
+      );
+      await reloadItems();
+      setTotalsOutOfSync(false);
+
+      setImportSummaryMessage(
+        `${result.createdCount} section(s) creee(s), ${result.mergedCount} fusion(s), ${result.skippedCount} ignoree(s).`
+      );
+
+      if (result.versionToken?.updated_at) {
+        applyVersionToken(result.versionToken.updated_at);
+        return;
+      }
+
+      await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
+        fetchEstimateEditorData,
+        onVersionToken: (updatedAt) => {
+          applyVersionToken(updatedAt);
+        },
+        onError: (error) => {
+          console.error(
+            "Impossible de rafraichir le jeton de version apres application de structure IA.",
+            error
+          );
+        },
+      });
+    },
+    [
+      applyVersionToken,
+      conflictState?.message,
+      isConflictLocked,
+      isReadOnly,
+      readOnlyActionErrorMessage,
+      reloadItems,
+    ]
+  );
+
   const handleImportDpgfSource = useCallback(async () => {
     if (isReadOnly) {
       setActionError(readOnlyActionErrorMessage);
@@ -6878,6 +6975,7 @@ export function useEstimateEditorState({
       onDuplicateSection: handleDuplicateSection,
       onDuplicateSectionToVersion: handleDuplicateSectionToVersion,
       onOpenImportFromEstimateDialog: handleOpenImportFromEstimateDialog,
+      onOpenEstimateStructureDraftDialog: handleOpenEstimateStructureDraftDialog,
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,
       onTrackSuggestionCorrections: handleTrackSuggestionCorrections,
@@ -6925,6 +7023,7 @@ export function useEstimateEditorState({
       handleDuplicateSection,
       handleDuplicateSectionToVersion,
       handleOpenImportFromEstimateDialog,
+      handleOpenEstimateStructureDraftDialog,
       handleApplyBulkMajoration,
       handleBulkDeleteLines,
       handleBulkMoveLines,
@@ -6981,6 +7080,9 @@ export function useEstimateEditorState({
   }, []);
   const closeImportFromEstimateDialog = useCallback(() => {
     setIsImportFromEstimateDialogOpen(false);
+  }, []);
+  const closeEstimateStructureDraftDialog = useCallback(() => {
+    setIsEstimateStructureDraftDialogOpen(false);
   }, []);
   const closeSendGatingDialog = useCallback(() => {
     if (isUpdatingStatus) return;
@@ -7196,6 +7298,57 @@ export function useEstimateEditorState({
     ]
   );
 
+  const estimateStructureDraftDialogProps = useMemo<
+    ComponentProps<typeof EstimateStructureDraftDialog> | null
+  >(
+    () => {
+      if (!isEstimateStructureDraftDialogOpen || !version) {
+        return null;
+      }
+
+      const sectionItems = items.filter((item) => item.item_type === "section");
+      const sectionById = new Map(sectionItems.map((item) => [item.id, item] as const));
+      const computePath = (itemId: string) => {
+        const parts: string[] = [];
+        let cursor = sectionById.get(itemId);
+        while (cursor) {
+          parts.unshift(cursor.title ?? "Section");
+          cursor = cursor.parent_id ? sectionById.get(cursor.parent_id) : undefined;
+        }
+        return parts.join(" > ");
+      };
+      const computeLevel = (itemId: string) => {
+        let level = 0;
+        let cursor = sectionById.get(itemId);
+        while (cursor) {
+          level += 1;
+          cursor = cursor.parent_id ? sectionById.get(cursor.parent_id) : undefined;
+        }
+        return Math.max(1, level);
+      };
+
+      return {
+        isOpen: true,
+        targetVersionId: version.id,
+        hasExistingItems: items.length > 0,
+        existingSections: sectionItems.map((item) => ({
+          id: item.id,
+          path: computePath(item.id),
+          hierarchyLevel: computeLevel(item.id),
+        })),
+        onClose: closeEstimateStructureDraftDialog,
+        onConfirm: handleConfirmEstimateStructureDraftDialog,
+      };
+    },
+    [
+      closeEstimateStructureDraftDialog,
+      handleConfirmEstimateStructureDraftDialog,
+      isEstimateStructureDraftDialogOpen,
+      items,
+      version,
+    ]
+  );
+
   const sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog> = {
     isOpen: isSendGatingDialogOpen,
     isSubmitting: isUpdatingStatus,
@@ -7218,6 +7371,7 @@ export function useEstimateEditorState({
     isSettingsDrawerOpen,
     isBulkSuggestDialogOpen,
     isImportFromEstimateDialogOpen,
+    isEstimateStructureDraftDialogOpen,
     isSendGatingDialogOpen,
   };
 
@@ -7270,6 +7424,7 @@ export function useEstimateEditorState({
       drawerProps,
       bulkSuggestDialogProps,
       importFromEstimateDialogProps,
+      estimateStructureDraftDialogProps,
       sendGatingDialogProps,
     },
   };

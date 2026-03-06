@@ -1819,6 +1819,153 @@ export type Database = {
         };
         Relationships: [];
       };
+      estimate_structure_draft_applications: {
+        Row: {
+          id: string;
+          created_at: string;
+          tenant_id: string;
+          draft_id: string;
+          draft_node_id: string;
+          target_version_id: string;
+          estimate_item_id: string;
+          applied_action: string;
+          applied_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          draft_id: string;
+          draft_node_id: string;
+          target_version_id: string;
+          estimate_item_id: string;
+          applied_action: string;
+          applied_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          tenant_id?: string;
+          draft_id?: string;
+          draft_node_id?: string;
+          target_version_id?: string;
+          estimate_item_id?: string;
+          applied_action?: string;
+          applied_by?: string | null;
+        };
+        Relationships: [];
+      };
+      estimate_structure_draft_nodes: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          draft_id: string;
+          parent_node_id: string | null;
+          order_index: number;
+          hierarchy_level: number;
+          label: string;
+          normalized_label: string;
+          confidence: number;
+          default_action: string;
+          duplicate_match_item_id: string | null;
+          duplicate_match_path: string | null;
+          provenance: Json;
+          facts: Json;
+          hypotheses: Json;
+          inferences: Json;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          draft_id: string;
+          parent_node_id?: string | null;
+          order_index: number;
+          hierarchy_level: number;
+          label: string;
+          normalized_label: string;
+          confidence: number;
+          default_action: string;
+          duplicate_match_item_id?: string | null;
+          duplicate_match_path?: string | null;
+          provenance?: Json;
+          facts?: Json;
+          hypotheses?: Json;
+          inferences?: Json;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          draft_id?: string;
+          parent_node_id?: string | null;
+          order_index?: number;
+          hierarchy_level?: number;
+          label?: string;
+          normalized_label?: string;
+          confidence?: number;
+          default_action?: string;
+          duplicate_match_item_id?: string | null;
+          duplicate_match_path?: string | null;
+          provenance?: Json;
+          facts?: Json;
+          hypotheses?: Json;
+          inferences?: Json;
+        };
+        Relationships: [];
+      };
+      estimate_structure_drafts: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          project_id: string;
+          target_version_id: string;
+          created_by: string;
+          status: string;
+          strategy: string;
+          summary: Json;
+          source_overview: Json;
+          generation_metadata: Json;
+          applied_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id: string;
+          target_version_id: string;
+          created_by: string;
+          status?: string;
+          strategy?: string;
+          summary?: Json;
+          source_overview?: Json;
+          generation_metadata?: Json;
+          applied_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id?: string;
+          target_version_id?: string;
+          created_by?: string;
+          status?: string;
+          strategy?: string;
+          summary?: Json;
+          source_overview?: Json;
+          generation_metadata?: Json;
+          applied_at?: string | null;
+        };
+        Relationships: [];
+      };
       estimate_items: {
         Row: {
           id: string;

@@ -290,6 +290,7 @@ type EstimateEditorTableProps = {
   bulkSuggestionEligibleCount: number;
   onOpenBulkSuggestDialog: () => void;
   onOpenImportFromEstimateDialog?: () => void;
+  onOpenEstimateStructureDraftDialog?: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
   onMoveItem: (
     itemId: string,
@@ -799,6 +800,7 @@ export function EstimateEditorTable({
   bulkSuggestionEligibleCount,
   onOpenBulkSuggestDialog,
   onOpenImportFromEstimateDialog,
+  onOpenEstimateStructureDraftDialog,
   onReorder,
   onMoveItem,
   scrollToItemId,
@@ -2280,6 +2282,7 @@ export function EstimateEditorTable({
           onOpenBulkSuggestDialog={onOpenBulkSuggestDialog}
           onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
           onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
+          onOpenEstimateStructureDraftDialog={onOpenEstimateStructureDraftDialog}
           onAddRootSection={() => onAddSection(null)}
           rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
           onExpandAllSections={handleExpandAllSections}

@@ -957,6 +957,110 @@ export const importEstimateSectionsSchema = z.preprocess(
   })
 );
 
+export const estimateStructureDraftStrategySchema = z.enum(["hybrid"]);
+export const estimateStructureDraftSourceKindSchema = z.enum([
+  "linked_dpgf",
+  "historical_versions",
+  "template_library",
+  "assembly_library",
+  "project_notes",
+  "confirmed_brief",
+]);
+export const estimateStructureDraftNodeActionSchema = z.enum([
+  "create",
+  "merge",
+  "skip",
+]);
+export const estimateStructureDraftApplyModeSchema = z.enum([
+  "create_empty",
+  "merge_existing",
+]);
+
+export const generateEstimateStructureDraftSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null || value === "") {
+      return {};
+    }
+
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      strategy: record.strategy,
+    };
+  },
+  z.object({
+    strategy: estimateStructureDraftStrategySchema.optional().default("hybrid"),
+  })
+);
+
+const estimateStructureDraftNodeIdsSchema = z
+  .array(uuidSchema)
+  .min(1, "selected_root_node_ids ne peut pas etre vide.")
+  .max(200, "selected_root_node_ids ne peut pas contenir plus de 200 noeuds.")
+  .superRefine((nodeIds, ctx) => {
+    const uniqueIds = new Set<string>();
+
+    nodeIds.forEach((nodeId, index) => {
+      if (!uniqueIds.has(nodeId)) {
+        uniqueIds.add(nodeId);
+        return;
+      }
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "selected_root_node_ids doit contenir des identifiants uniques.",
+        path: [index],
+      });
+    });
+  });
+
+const estimateStructureDraftOverrideSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      node_id: record.node_id ?? record.nodeId,
+      action: record.action,
+      rename_to: record.rename_to ?? record.renameTo,
+      merge_into_item_id:
+        record.merge_into_item_id ?? record.mergeIntoItemId ?? null,
+    };
+  },
+  z.object({
+    node_id: uuidSchema,
+    action: estimateStructureDraftNodeActionSchema,
+    rename_to: optionalNullableTextSchema.optional(),
+    merge_into_item_id: nullableUuidSchema.optional(),
+  })
+);
+
+export const applyEstimateStructureDraftSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      mode: record.mode,
+      selected_root_node_ids:
+        record.selected_root_node_ids ?? record.selectedRootNodeIds,
+      overrides: record.overrides,
+    };
+  },
+  z.object({
+    mode: estimateStructureDraftApplyModeSchema,
+    selected_root_node_ids: estimateStructureDraftNodeIdsSchema,
+    overrides: z.array(estimateStructureDraftOverrideSchema).max(500).optional().default([]),
+  })
+);
+
 export const importLinkedDpgfSourceSchema = z.preprocess(
   (value) => {
     if (value === undefined || value === null || value === "") {

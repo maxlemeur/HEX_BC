@@ -52,14 +52,15 @@ import {
   normalizeEstimateItemAid,
   parseEstimateItemAidRegexPattern,
 } from "./schemas";
+import { enrichEstimateItemsWithAiStructureProvenance } from "./structure-drafts";
 import type {
   BulkUpdateEstimateItemsInput,
   BulkUpdateEstimateVersionPatchInput,
+  CreateEstimateItemInput,
   CreateEstimateAssemblyInput,
   CreateEstimateInput,
   CreateEstimateCategoryInput,
   CreateEstimateTemplateFromVersionInput,
-  CreateEstimateItemInput,
   CreateLaborRoleInput,
   CreateMarginTierInput,
   DuplicateEstimateTemplateInput,
@@ -116,6 +117,7 @@ type EstimateItemProvenanceFields = {
   source_level?: string | null;
   source_extracted_at?: string | null;
   source_version_number?: number | null;
+  source_metadata?: Json | null;
 };
 type EstimateItemWithProvenanceRow = EstimateItemRow & EstimateItemProvenanceFields;
 type TakeoffJobProvenanceRow = {
@@ -2144,6 +2146,22 @@ async function enrichEstimateItemsWithTakeoffProvenance(input: {
       source_version_number: sourceVersionNumber,
     };
   });
+}
+
+async function enrichEstimateItemsWithSourceMetadata(input: {
+  supabase: Supabase;
+  tenantId: string;
+  targetVersionId: string;
+  items: EstimateItemRow[];
+}): Promise<EstimateItemWithProvenanceRow[]> {
+  const withTakeoff = await enrichEstimateItemsWithTakeoffProvenance(input);
+  const withAiStructure = await enrichEstimateItemsWithAiStructureProvenance({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    items: withTakeoff,
+  });
+
+  return withAiStructure as EstimateItemWithProvenanceRow[];
 }
 
 function escapeIlikeToken(value: string) {
@@ -5712,7 +5730,7 @@ export async function getEstimateVersionDetails(versionId: string) {
     );
   }
 
-  const items = await enrichEstimateItemsWithTakeoffProvenance({
+  const items = await enrichEstimateItemsWithSourceMetadata({
     supabase,
     tenantId,
     targetVersionId: versionId,
@@ -5749,7 +5767,7 @@ export async function listEstimateItems(versionId: string) {
     throw mapSupabaseError(error, "Impossible de charger les lignes.");
   }
 
-  const items = await enrichEstimateItemsWithTakeoffProvenance({
+  const items = await enrichEstimateItemsWithSourceMetadata({
     supabase,
     tenantId,
     targetVersionId: versionId,

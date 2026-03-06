@@ -62,6 +62,7 @@ type EstimateEditorToolbarProps = {
   onOpenBulkSuggestDialog: () => void;
   onOpenAssemblyPicker: () => void;
   onOpenImportFromEstimateDialog?: () => void;
+  onOpenEstimateStructureDraftDialog?: () => void;
   onAddRootSection: () => void;
   rootAddSectionLabel?: string;
   onExpandAllSections?: () => void;
@@ -137,6 +138,7 @@ export function EstimateEditorToolbar({
   onOpenBulkSuggestDialog,
   onOpenAssemblyPicker,
   onOpenImportFromEstimateDialog,
+  onOpenEstimateStructureDraftDialog,
   onAddRootSection,
   rootAddSectionLabel = "+ Ajouter un Lot",
   onExpandAllSections,
@@ -291,6 +293,17 @@ export function EstimateEditorToolbar({
             data-testid="estimate-editor-import-from-estimate-button"
           >
             Importer depuis...
+          </button>
+        ) : null}
+        {onOpenEstimateStructureDraftDialog ? (
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={onOpenEstimateStructureDraftDialog}
+            disabled={meta.isReadOnly}
+            data-testid="estimate-editor-open-structure-draft-button"
+          >
+            Structure IA
           </button>
         ) : null}
 

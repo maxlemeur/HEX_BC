@@ -5,6 +5,7 @@ import { memo, useMemo } from "react";
 import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateEditorSkeleton } from "@/components/estimates/EstimateEditorSkeleton";
+import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
 import { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
 import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
@@ -130,6 +131,13 @@ export function EstimateEditorPage({ versionId }: EstimateEditorPageProps) {
       {readyMeta.importFromEstimateDialogProps ? (
         <div data-testid="estimate-editor-import-from-estimate-dialog-region">
           <ImportFromEstimateDialog {...readyMeta.importFromEstimateDialogProps} />
+        </div>
+      ) : null}
+      {readyMeta.estimateStructureDraftDialogProps ? (
+        <div data-testid="estimate-editor-structure-draft-dialog-region">
+          <EstimateStructureDraftDialog
+            {...readyMeta.estimateStructureDraftDialogProps}
+          />
         </div>
       ) : null}
       <div data-testid="estimate-editor-send-gating-dialog-region">

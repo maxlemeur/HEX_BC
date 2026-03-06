@@ -1403,6 +1403,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
     "extracted_at",
     "extraction_date",
   ]);
+  const sourceMetadata =
+    (item as Record<string, unknown>).source_metadata ?? null;
 
   return (
     <div
@@ -1507,6 +1509,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 sourceLevel={sourceLevel}
                 extractedAt={sourceExtractedAt}
                 sourceVersionNumber={item.source_version_number}
+                sourceMetadata={sourceMetadata}
               />
               {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
                 <div className="estimate-quality-dots">
