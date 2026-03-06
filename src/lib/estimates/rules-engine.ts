@@ -168,6 +168,14 @@ type EstimateReviewCommentInsert = {
   created_by: string;
 };
 
+type DecideEstimateReviewCycleResult = {
+  cycle_id: string;
+  cycle_number: number;
+  approval_ids: string[];
+  rule_ids: string[];
+  comment_count: number;
+};
+
 type EstimateRulesTable = {
   Row: EstimateRuleRow;
   Insert: EstimateRuleInsert;
@@ -1995,6 +2003,13 @@ async function enrichEstimateApprovalSummary(input: {
   });
 
   const activeCycleRow = cycleRows.find((cycle) => cycle.decision === null) ?? null;
+  const activeCyclePendingApprovals =
+    activeCycleRow !== null
+      ? await listPendingApprovalsForVersion({
+          context: input.context,
+          versionId: input.version.id,
+        })
+      : [];
   const reviewHistory = cycleRows
     .filter((cycle): cycle is EstimateReviewCycleWithProfilesRow & { decision: EstimateReviewDecision; decided_at: string; decided_by: string } => cycle.decision !== null && cycle.decided_at !== null && cycle.decided_by !== null)
     .map((cycle) => ({
@@ -2002,9 +2017,7 @@ async function enrichEstimateApprovalSummary(input: {
       comments: commentsByCycleId.get(cycle.id) ?? [],
     }));
   const latestCompletedCycle = reviewHistory[0] ?? null;
-  const pendingApprovalCount = input.summary.reasons.filter(
-    (reason) => reason.approvalStatus === "pending" && reason.approvalId
-  ).length;
+  const pendingApprovalCount = activeCyclePendingApprovals.length;
   const requestableReasonCount = input.summary.reasons.filter(
     (reason) => reason.approvalStatus === "missing" || reason.approvalStatus === "rejected"
   ).length;
@@ -2562,6 +2575,28 @@ async function listPendingApprovalsForVersion(input: {
   return (data ?? []) as EstimateApprovalRow[];
 }
 
+async function listApprovalsForReviewCycle(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  requestedAt: string;
+}) {
+  const { data, error } = await input.context.supabase
+    .from("estimate_approvals")
+    .select(
+      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
+    )
+    .eq("tenant_id", input.context.tenantId)
+    .eq("version_id", input.versionId)
+    .gte("created_at", input.requestedAt)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les approbations du cycle de revue.");
+  }
+
+  return (data ?? []) as EstimateApprovalRow[];
+}
+
 async function closeReviewCycle(input: {
   context: AuthenticatedContext;
   cycleId: string;
@@ -2595,39 +2630,49 @@ async function closeReviewCycle(input: {
   return data as EstimateReviewCycleRow;
 }
 
-async function insertReviewComments(input: {
+async function decideReviewCycleAtomically(input: {
   context: AuthenticatedContext;
-  versionId: string;
   cycleId: string;
+  decision: EstimateReviewDecision;
   comments: NormalizedDecisionComment[];
 }) {
-  if (input.comments.length === 0) {
-    return [] as EstimateReviewCommentRow[];
-  }
-
-  const payload = input.comments.map((comment) => ({
-    tenant_id: input.context.tenantId,
-    version_id: input.versionId,
-    cycle_id: input.cycleId,
-    scope_type: comment.scopeType,
-    scope_id: comment.scopeId,
-    scope_label: comment.scopeLabel,
-    comment: comment.comment,
-    created_by: input.context.userId,
-  })) satisfies EstimateReviewCommentInsert[];
-
-  const { data, error } = await input.context.supabase
-    .from("estimate_review_comments")
-    .insert(payload)
-    .select(
-      "id, created_at, tenant_id, version_id, cycle_id, scope_type, scope_id, scope_label, comment, created_by"
-    );
+  const { data, error } = await input.context.supabase.rpc(
+    "decide_estimate_review_cycle" as never,
+    {
+      p_cycle_id: input.cycleId,
+      p_decision: input.decision,
+      p_comments: input.comments.map((comment) => ({
+        scope_type: comment.scopeType,
+        scope_id: comment.scopeId,
+        scope_label: comment.scopeLabel,
+        comment: comment.comment,
+      })),
+    } as never
+  );
 
   if (error) {
-    throw mapSupabaseError(error, "Impossible d'enregistrer les commentaires de revue.");
+    if (error.message.includes("ESTIMATE_APPROVALS_PENDING_NOT_FOUND")) {
+      throw badRequest("Aucune approbation en attente n'est disponible.");
+    }
+
+    if (
+      error.message.includes("ESTIMATE_REVIEW_CYCLE_ALREADY_CLOSED") ||
+      error.message.includes("ESTIMATE_REVIEW_CYCLE_NOT_FOUND")
+    ) {
+      throw badRequest("Aucun cycle de revue actif n'est disponible.");
+    }
+
+    throw mapSupabaseError(error, "Impossible d'enregistrer la decision d'approbation.");
   }
 
-  return (data ?? []) as EstimateReviewCommentRow[];
+  const row = Array.isArray(data)
+    ? ((data[0] as unknown) as DecideEstimateReviewCycleResult | undefined)
+    : undefined;
+  if (!row) {
+    throw badRequest("Impossible d'enregistrer la decision d'approbation.");
+  }
+
+  return row;
 }
 
 async function maybeCloseOpenReviewCycleAfterLegacyDecision(input: {
@@ -2644,21 +2689,13 @@ async function maybeCloseOpenReviewCycleAfterLegacyDecision(input: {
     return null;
   }
 
-  const { data, error } = await input.context.supabase
-    .from("estimate_approvals")
-    .select(
-      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
-    )
-    .eq("tenant_id", input.context.tenantId)
-    .eq("version_id", input.versionId)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de consolider le cycle de revue.");
-  }
-
+  const cycleApprovals = await listApprovalsForReviewCycle({
+    context: input.context,
+    versionId: input.versionId,
+    requestedAt: openCycle.requested_at,
+  });
   const latestByRule = resolveLatestApprovalByRule({
-    approvals: (data ?? []) as EstimateApprovalRow[],
+    approvals: cycleApprovals,
   });
   const decision =
     [...latestByRule.values()].some((approval) => approval.status === "rejected")
@@ -2886,42 +2923,18 @@ export async function submitEstimateApproval(
       targets: commentTargets,
     });
     const decidedAt = new Date().toISOString();
-    const nextStatus = resolveApprovalStatusFromReviewDecision(input.decision);
-
-    const { data, error } = await context.supabase
-      .from("estimate_approvals")
-      .update({
-        status: nextStatus,
-        approved_by: context.userId,
-        decided_at: decidedAt,
-      })
-      .eq("tenant_id", context.tenantId)
-      .eq("version_id", input.versionId)
-      .eq("status", "pending")
-      .select(
-        "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
-      );
-
-    if (error) {
-      throw mapSupabaseError(error, "Impossible d'enregistrer la decision d'approbation.");
-    }
-
-    const updatedApprovals = (data ?? []) as EstimateApprovalRow[];
-    if (updatedApprovals.length === 0) {
-      throw badRequest("Aucune approbation en attente n'a pu etre mise a jour.");
-    }
-
-    const savedComments = await insertReviewComments({
-      context,
-      versionId: input.versionId,
-      cycleId: activeCycle.id,
-      comments: normalizedComments,
-    });
-    const closedCycle = await closeReviewCycle({
+    const updatedApprovals = pendingApprovals.map((approval) => ({
+      ...approval,
+      status: resolveApprovalStatusFromReviewDecision(input.decision),
+      approved_by: context.userId,
+      decided_at: decidedAt,
+      updated_at: decidedAt,
+    }));
+    const decisionResult = await decideReviewCycleAtomically({
       context,
       cycleId: activeCycle.id,
       decision: input.decision,
-      decidedAt,
+      comments: normalizedComments,
     });
 
     await logEstimateVersionEvent({
@@ -2931,15 +2944,13 @@ export async function submitEstimateApproval(
       occurredAt: decidedAt,
       metadata: toApprovalDecisionAuditMetadata({
         decision: input.decision,
-        approvalIds: updatedApprovals.map((approval) => approval.id),
-        ruleIds: updatedApprovals.map((approval) => approval.rule_id),
-        cycleId: closedCycle.id,
-        cycleNumber: closedCycle.cycle_number,
+        cycleId: decisionResult.cycle_id,
+        cycleNumber: decisionResult.cycle_number,
+        approvalIds: decisionResult.approval_ids,
+        ruleIds: decisionResult.rule_ids,
         comments: normalizedComments,
         fallbackScopes: summary.reasons
-          .filter((reason) =>
-            updatedApprovals.some((approval) => approval.rule_id === reason.ruleId)
-          )
+          .filter((reason) => decisionResult.rule_ids.includes(reason.ruleId))
           .map((reason) => ({
             scopeType: "approval_rule" as const,
             scopeId: reason.ruleId,
@@ -3072,10 +3083,10 @@ export async function submitEstimateApproval(
     occurredAt: (data as EstimateApprovalRow).decided_at ?? decidedAt,
     metadata: toApprovalDecisionAuditMetadata({
       decision: closedCycle?.decision ?? legacyDecision,
-      approvalIds: [(data as EstimateApprovalRow).id],
-      ruleIds: [(data as EstimateApprovalRow).rule_id],
       cycleId: closedCycle?.id ?? null,
       cycleNumber: closedCycle?.cycle_number ?? null,
+      approvalIds: [(data as EstimateApprovalRow).id],
+      ruleIds: [(data as EstimateApprovalRow).rule_id],
       comments: [],
       fallbackScopes: legacyRuleScope
         ? [
