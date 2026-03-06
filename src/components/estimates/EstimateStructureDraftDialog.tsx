@@ -16,6 +16,8 @@ type ExistingSectionOption = {
   id: string;
   path: string;
   hierarchyLevel: number;
+  parentId: string | null;
+  title: string;
 };
 
 type EstimateStructureDraftDialogProps = {
@@ -38,7 +40,32 @@ type NodeOverrideState = {
 
 type FlatStructureDraftNode = EstimateStructureDraftNode & {
   path: string[];
-  isSelectedRoot: boolean;
+};
+
+type ExistingSectionLookup = ExistingSectionOption & {
+  normalizedTitle: string;
+};
+
+type MergeParentContext =
+  | {
+      kind: "existing";
+      parentId: string | null;
+    }
+  | {
+      kind: "created";
+    }
+  | {
+      kind: "blocked";
+      reason: string;
+    };
+
+type NodeMergeState = {
+  mergeCandidates: ExistingSectionLookup[];
+  resolvedMergeTargetId: string | null;
+  resolvedMergeTargetPath: string | null;
+  requiresExplicitMergeTarget: boolean;
+  hasInvalidMergeConfiguration: boolean;
+  blockingReason: string | null;
 };
 
 function sourceKindLabel(kind: EstimateStructureDraft["sources"][number]["kind"]) {
@@ -100,22 +127,183 @@ function confidenceText(node: EstimateStructureDraftNode) {
 function flattenNodes(nodes: EstimateStructureDraftNode[]) {
   const flattened: FlatStructureDraftNode[] = [];
 
-  const visit = (
-    node: EstimateStructureDraftNode,
-    path: string[],
-    isSelectedRoot: boolean
-  ) => {
+  const visit = (node: EstimateStructureDraftNode, path: string[]) => {
     const nextPath = [...path, node.label];
     flattened.push({
       ...node,
       path: nextPath,
-      isSelectedRoot,
     });
-    node.children.forEach((child) => visit(child, nextPath, isSelectedRoot));
+    node.children.forEach((child) => visit(child, nextPath));
   };
 
-  nodes.forEach((node) => visit(node, [], false));
+  nodes.forEach((node) => visit(node, []));
   return flattened;
+}
+
+function normalizeSectionTitleKey(value: string | null | undefined) {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return "section";
+  }
+
+  return normalized
+    .normalize("NFD")
+    .replace(/\p{Diacritic}+/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function buildSourceCoverageSummary(
+  sources: EstimateStructureDraft["sources"]
+) {
+  const usedSources = sources.filter((source) => source.used);
+  const availableNotUsedSources = sources.filter(
+    (source) => source.available && !source.used
+  );
+  const confirmedBrief = sources.find((source) => source.kind === "confirmed_brief");
+  const statements = [
+    `Fait: ${usedSources.length} source(s) alimente(nt) cette preview.`,
+  ];
+
+  if (confirmedBrief?.available) {
+    statements.push("Fait: un brief confirme est disponible pour cette affaire.");
+  } else {
+    statements.push("Fait: aucun brief confirme n'est disponible pour cette affaire.");
+  }
+
+  if (availableNotUsedSources.length > 0) {
+    statements.push(
+      `Fait: ${availableNotUsedSources.length} source(s) supplementaire(s) reste(nt) disponible(s) sans etre retenue(s).`
+    );
+  }
+
+  return statements.join(" ");
+}
+
+function buildNodeMergeStates(input: {
+  draftNodes: EstimateStructureDraftNode[];
+  existingSections: ExistingSectionOption[];
+  overrides: Record<string, NodeOverrideState>;
+}) {
+  const existingSectionLookup = input.existingSections.map((section) => ({
+    ...section,
+    normalizedTitle: normalizeSectionTitleKey(section.title),
+  }));
+  const sectionsByParent = new Map<string, ExistingSectionLookup[]>();
+
+  existingSectionLookup.forEach((section) => {
+    const key = section.parentId ?? "__root__";
+    const siblings = sectionsByParent.get(key);
+    if (siblings) {
+      siblings.push(section);
+      return;
+    }
+
+    sectionsByParent.set(key, [section]);
+  });
+
+  const states = new Map<string, NodeMergeState>();
+
+  const resolveMergeTarget = (
+    node: EstimateStructureDraftNode,
+    candidates: ExistingSectionLookup[]
+  ) => {
+    const overrideTargetId = input.overrides[node.id]?.mergeIntoItemId?.trim() ?? "";
+    if (overrideTargetId.length > 0) {
+      const explicitTarget =
+        candidates.find((candidate) => candidate.id === overrideTargetId) ?? null;
+
+      return explicitTarget;
+    }
+
+    if (node.duplicateMatchItemId) {
+      const duplicateTarget =
+        candidates.find((candidate) => candidate.id === node.duplicateMatchItemId) ??
+        null;
+      if (duplicateTarget) {
+        return duplicateTarget;
+      }
+    }
+
+    return (
+      candidates.find(
+        (candidate) => candidate.normalizedTitle === node.normalizedLabel
+      ) ?? null
+    );
+  };
+
+  const visit = (
+    node: EstimateStructureDraftNode,
+    parentContext: MergeParentContext
+  ) => {
+    const requestedAction =
+      input.overrides[node.id]?.action ?? node.defaultAction;
+    const mergeCandidates =
+      parentContext.kind === "existing"
+        ? (
+            sectionsByParent.get(parentContext.parentId ?? "__root__") ?? []
+          ).filter(
+            (section) => section.hierarchyLevel === node.hierarchyLevel
+          )
+        : [];
+    const resolvedMergeTarget = resolveMergeTarget(node, mergeCandidates);
+    const requiresExplicitMergeTarget =
+      requestedAction === "merge" &&
+      parentContext.kind === "existing" &&
+      mergeCandidates.length > 0 &&
+      resolvedMergeTarget === null;
+    const blockingReason =
+      parentContext.kind === "blocked" ? parentContext.reason : null;
+    const hasInvalidMergeConfiguration =
+      requestedAction === "merge" &&
+      (blockingReason !== null ||
+        mergeCandidates.length === 0 ||
+        requiresExplicitMergeTarget);
+
+    states.set(node.id, {
+      mergeCandidates,
+      resolvedMergeTargetId: resolvedMergeTarget?.id ?? null,
+      resolvedMergeTargetPath: resolvedMergeTarget?.path ?? null,
+      requiresExplicitMergeTarget,
+      hasInvalidMergeConfiguration,
+      blockingReason,
+    });
+
+    let nextParentContext: MergeParentContext;
+    if (requestedAction === "skip") {
+      nextParentContext = {
+        kind: "blocked",
+        reason: "Le parent est ignore, son sous-arbre ne sera pas applique.",
+      };
+    } else if (requestedAction === "create") {
+      nextParentContext = {
+        kind: "created",
+      };
+    } else if (resolvedMergeTarget) {
+      nextParentContext = {
+        kind: "existing",
+        parentId: resolvedMergeTarget.id,
+      };
+    } else {
+      nextParentContext = {
+        kind: "blocked",
+        reason:
+          "Choisissez d'abord une cible de fusion compatible pour ce parent.",
+      };
+    }
+
+    node.children.forEach((child) => visit(child, nextParentContext));
+  };
+
+  input.draftNodes.forEach((node) =>
+    visit(node, {
+      kind: "existing",
+      parentId: null,
+    })
+  );
+
+  return states;
 }
 
 export function EstimateStructureDraftDialog({
@@ -203,6 +391,26 @@ export function EstimateStructureDraftDialog({
     draft.nodes.forEach((node) => visit(node, false));
     return flatNodes.filter((node) => selected.has(node.id));
   }, [draft, flatNodes, rootIdSet]);
+  const sourceCoverageSummary = useMemo(
+    () => (draft ? buildSourceCoverageSummary(draft.sources) : null),
+    [draft]
+  );
+  const nodeMergeStates = useMemo(
+    () =>
+      buildNodeMergeStates({
+        draftNodes: draft?.nodes ?? [],
+        existingSections,
+        overrides,
+      }),
+    [draft?.nodes, existingSections, overrides]
+  );
+  const hasInvalidMergeConfiguration = useMemo(
+    () =>
+      selectedNodes.some(
+        (node) => nodeMergeStates.get(node.id)?.hasInvalidMergeConfiguration
+      ),
+    [nodeMergeStates, selectedNodes]
+  );
 
   const canContinueFromStep1 =
     !isLoadingDraft && !draftError && Boolean(draft?.nodes.length);
@@ -236,7 +444,7 @@ export function EstimateStructureDraftDialog({
   };
 
   const handleSubmit = async () => {
-    if (!draft || selectedRootIds.length === 0) {
+    if (!draft || selectedRootIds.length === 0 || hasInvalidMergeConfiguration) {
       return;
     }
 
@@ -256,8 +464,17 @@ export function EstimateStructureDraftDialog({
           const hasActionOverride = override.action !== node.defaultAction;
           const renameTo = override.renameTo.trim();
           const mergeIntoItemId = override.mergeIntoItemId.trim();
+          const nodeMergeState = nodeMergeStates.get(node.id);
+          const isValidMergeTarget =
+            mergeIntoItemId.length === 0 ||
+            Boolean(
+              nodeMergeState?.mergeCandidates.some(
+                (candidate) => candidate.id === mergeIntoItemId
+              )
+            );
+          const sanitizedMergeIntoItemId = isValidMergeTarget ? mergeIntoItemId : "";
 
-          if (!hasActionOverride && !renameTo && !mergeIntoItemId) {
+          if (!hasActionOverride && !renameTo && !sanitizedMergeIntoItemId) {
             return null;
           }
 
@@ -265,7 +482,10 @@ export function EstimateStructureDraftDialog({
             nodeId: node.id,
             action: override.action,
             renameTo: renameTo.length > 0 ? renameTo : null,
-            mergeIntoItemId: mergeIntoItemId.length > 0 ? mergeIntoItemId : null,
+            mergeIntoItemId:
+              sanitizedMergeIntoItemId.length > 0
+                ? sanitizedMergeIntoItemId
+                : null,
           };
         })
         .filter((value) => value !== null);
@@ -385,9 +605,11 @@ export function EstimateStructureDraftDialog({
                         <h3 className="text-sm font-semibold text-[var(--slate-900)]">
                           Provenance utilisee
                         </h3>
-                        <p className="mt-1 text-sm text-[var(--slate-500)]">
-                          Fait: sources disponibles. Hypothese: le brief E21 n&apos;est pas branche sur `main`.
-                        </p>
+                        {sourceCoverageSummary ? (
+                          <p className="mt-1 text-sm text-[var(--slate-500)]">
+                            {sourceCoverageSummary}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -614,19 +836,44 @@ export function EstimateStructureDraftDialog({
                   Overrides par noeud
                 </h3>
                 <p className="mt-1 text-sm text-[var(--slate-500)]">
-                  Fait: les actions ci-dessous seront appliquees. Hypothese: une fusion sur un parent cree n&apos;est pas autorisee.
+                  Fait: seules les cibles de fusion compatibles avec le parent final sont proposees.
                 </p>
                 <div className="mt-4 space-y-3">
                   {selectedNodes.map((node) => {
                     const override = overrides[node.id];
                     const action = override?.action ?? node.defaultAction;
-                    const mergeCandidates = existingSections.filter(
-                      (section) => section.hierarchyLevel === node.hierarchyLevel
-                    );
+                    const nodeMergeState = nodeMergeStates.get(node.id);
+                    const mergeCandidates = nodeMergeState?.mergeCandidates ?? [];
+                    const canMerge =
+                      !nodeMergeState?.blockingReason && mergeCandidates.length > 0;
+                    const mergeTargetValue =
+                      action === "merge" &&
+                      override?.mergeIntoItemId &&
+                      mergeCandidates.some(
+                        (section) => section.id === override.mergeIntoItemId
+                      )
+                        ? override.mergeIntoItemId
+                        : "";
+                    let mergeGuidanceText: string | null = null;
+
+                    if (action === "merge") {
+                      if (nodeMergeState?.blockingReason) {
+                        mergeGuidanceText = nodeMergeState.blockingReason;
+                      } else if (mergeCandidates.length === 0) {
+                        mergeGuidanceText =
+                          "Aucune cible de fusion compatible n'existe sous le parent final.";
+                      } else if (nodeMergeState?.requiresExplicitMergeTarget) {
+                        mergeGuidanceText =
+                          "Selectionnez une cible de fusion compatible avant application.";
+                      } else if (nodeMergeState?.resolvedMergeTargetPath) {
+                        mergeGuidanceText = `Cible retenue: ${nodeMergeState.resolvedMergeTargetPath}`;
+                      }
+                    }
 
                     return (
                       <div
                         key={node.id}
+                        data-testid={`estimate-structure-draft-node-${node.id}`}
                         className="rounded-xl border border-[var(--slate-200)] bg-white p-4"
                       >
                         <div
@@ -651,7 +898,9 @@ export function EstimateStructureDraftDialog({
                             }
                           >
                             <option value="create">Creer</option>
-                            <option value="merge">Fusionner</option>
+                            <option value="merge" disabled={!canMerge}>
+                              Fusionner
+                            </option>
                             <option value="skip">Ignorer</option>
                           </select>
                         </div>
@@ -676,21 +925,30 @@ export function EstimateStructureDraftDialog({
                             Cible de fusion
                             <select
                               className="input mt-2 w-full"
-                              value={override?.mergeIntoItemId ?? ""}
+                              value={mergeTargetValue}
                               onChange={(event) =>
                                 updateOverride(node.id, {
                                   mergeIntoItemId: event.target.value,
                                 })
                               }
-                              disabled={action !== "merge" || mergeCandidates.length === 0}
+                              disabled={action !== "merge" || !canMerge}
                             >
-                              <option value="">Auto</option>
+                              <option value="">
+                                {nodeMergeState?.requiresExplicitMergeTarget
+                                  ? "Choisir une cible"
+                                  : "Auto"}
+                              </option>
                               {mergeCandidates.map((section) => (
                                 <option key={section.id} value={section.id}>
                                   {section.path}
                                 </option>
                               ))}
                             </select>
+                            {mergeGuidanceText ? (
+                              <p className="mt-2 text-xs text-[var(--amber-700)]">
+                                {mergeGuidanceText}
+                              </p>
+                            ) : null}
                           </label>
 
                           <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-3">
@@ -716,6 +974,11 @@ export function EstimateStructureDraftDialog({
                 </div>
               </div>
 
+              {hasInvalidMergeConfiguration ? (
+                <div className="alert alert-warning">
+                  Corrigez les noeuds signales avant d&apos;appliquer la structure: certaines fusions n&apos;ont pas de cible compatible.
+                </div>
+              ) : null}
               {submitError ? <div className="alert alert-error">{submitError}</div> : null}
             </div>
           ) : null}
@@ -748,7 +1011,11 @@ export function EstimateStructureDraftDialog({
                 type="button"
                 className="btn btn-primary btn-sm"
                 onClick={() => void handleSubmit()}
-                disabled={isSubmitting || selectedRootIds.length === 0}
+                disabled={
+                  isSubmitting ||
+                  selectedRootIds.length === 0 ||
+                  hasInvalidMergeConfiguration
+                }
               >
                 {isSubmitting ? "Application..." : "Appliquer la structure"}
               </button>

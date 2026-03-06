@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -31,7 +31,7 @@ const draftFixture = {
       label: "Brief confirme",
       available: false,
       used: false,
-      detail: "Indisponible sur main",
+      detail: "Aucun brief confirme disponible.",
     },
   ],
   summary: {
@@ -120,6 +120,8 @@ describe("EstimateStructureDraftDialog", () => {
             id: "section-existing",
             path: "Peinture",
             hierarchyLevel: 1,
+            parentId: null,
+            title: "Peinture",
           },
         ]}
         onClose={onClose}
@@ -128,6 +130,11 @@ describe("EstimateStructureDraftDialog", () => {
     );
 
     await screen.findByText("Provenance utilisee");
+    expect(
+      screen.getByText(
+        /Fait: 1 source\(s\) alimente\(nt\) cette preview\. Fait: aucun brief confirme n'est disponible pour cette affaire\./i
+      )
+    ).toBeInTheDocument();
     expect(generateEstimateStructureDraft).toHaveBeenCalledWith("version-1", {
       strategy: "hybrid",
     });
@@ -188,5 +195,86 @@ describe("EstimateStructureDraftDialog", () => {
     ).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Fermer" }));
+  });
+
+  it("limits merge targets to sections that stay under the resolved parent", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <EstimateStructureDraftDialog
+        isOpen
+        targetVersionId="version-1"
+        hasExistingItems
+        existingSections={[
+          {
+            id: "section-existing",
+            path: "Peinture",
+            hierarchyLevel: 1,
+            parentId: null,
+            title: "Peinture",
+          },
+          {
+            id: "section-compatible-child",
+            path: "Peinture > Preparation existante",
+            hierarchyLevel: 2,
+            parentId: "section-existing",
+            title: "Preparation existante",
+          },
+          {
+            id: "section-other-root",
+            path: "Electricite",
+            hierarchyLevel: 1,
+            parentId: null,
+            title: "Electricite",
+          },
+          {
+            id: "section-invalid-child",
+            path: "Electricite > Preparation existante",
+            hierarchyLevel: 2,
+            parentId: "section-other-root",
+            title: "Preparation existante",
+          },
+        ]}
+        onClose={vi.fn()}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await screen.findByText("Provenance utilisee");
+    await user.click(screen.getByRole("button", { name: "Continuer" }));
+    await screen.findByText("Lots a retenir");
+    await user.click(screen.getByRole("button", { name: "Continuer" }));
+    await screen.findByText("Overrides par noeud");
+
+    const childNodeCard = screen.getByTestId(
+      "estimate-structure-draft-node-child-node"
+    );
+    const [childActionSelect, childMergeTargetSelect] =
+      within(childNodeCard).getAllByRole("combobox");
+
+    await user.selectOptions(childActionSelect, "merge");
+
+    const optionLabels = within(childMergeTargetSelect)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+
+    expect(optionLabels).toContain("Peinture > Preparation existante");
+    expect(optionLabels).not.toContain("Electricite > Preparation existante");
+    expect(
+      within(childNodeCard).getByText(
+        /Selectionnez une cible de fusion compatible avant application\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Appliquer la structure" })
+    ).toBeDisabled();
+
+    await user.selectOptions(childMergeTargetSelect, "section-compatible-child");
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Appliquer la structure" })
+      ).not.toBeDisabled();
+    });
   });
 });

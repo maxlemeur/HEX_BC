@@ -2446,10 +2446,41 @@ export async function applyEstimateStructureDraft(
     parentItemId: string | null;
     overrideMergeIntoItemId: string | null | undefined;
   }) => {
-    const preferredTargetId =
-      inputMerge.overrideMergeIntoItemId ?? inputMerge.node.duplicate_match_item_id;
-    const preferredTarget =
-      preferredTargetId ? sectionById.get(preferredTargetId) ?? null : null;
+    if (inputMerge.overrideMergeIntoItemId) {
+      const explicitTarget =
+        sectionById.get(inputMerge.overrideMergeIntoItemId) ?? null;
+
+      if (!explicitTarget) {
+        throw badRequest(
+          "La cible de fusion selectionnee est introuvable.",
+          {
+            node_id: inputMerge.node.id,
+            merge_into_item_id: inputMerge.overrideMergeIntoItemId,
+          },
+          "ESTIMATE_STRUCTURE_DRAFT_INVALID_MERGE_TARGET"
+        );
+      }
+
+      if (
+        explicitTarget.parent_id !== inputMerge.parentItemId ||
+        explicitTarget.hierarchy_level !== inputMerge.node.hierarchy_level
+      ) {
+        throw badRequest(
+          "La cible de fusion selectionnee n'est pas compatible avec le parent final.",
+          {
+            node_id: inputMerge.node.id,
+            merge_into_item_id: inputMerge.overrideMergeIntoItemId,
+          },
+          "ESTIMATE_STRUCTURE_DRAFT_INVALID_MERGE_TARGET"
+        );
+      }
+
+      return explicitTarget;
+    }
+
+    const preferredTarget = inputMerge.node.duplicate_match_item_id
+      ? sectionById.get(inputMerge.node.duplicate_match_item_id) ?? null
+      : null;
 
     if (
       preferredTarget &&

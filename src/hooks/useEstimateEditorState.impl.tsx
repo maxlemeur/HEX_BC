@@ -7335,6 +7335,8 @@ export function useEstimateEditorState({
           id: item.id,
           path: computePath(item.id),
           hierarchyLevel: computeLevel(item.id),
+          parentId: item.parent_id,
+          title: item.title ?? "Section",
         })),
         onClose: closeEstimateStructureDraftDialog,
         onConfirm: handleConfirmEstimateStructureDraftDialog,

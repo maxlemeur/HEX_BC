@@ -19,6 +19,8 @@ const DRAFT_ID = "55555555-5555-4555-8555-555555555555";
 const ROOT_NODE_ID = "66666666-6666-4666-8666-666666666666";
 const CHILD_NODE_ID = "77777777-7777-4777-8777-777777777777";
 const EXISTING_SECTION_ID = "88888888-8888-4888-8888-888888888888";
+const OTHER_ROOT_SECTION_ID = "99999999-9999-4999-8999-999999999999";
+const OTHER_CHILD_SECTION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 function createMembershipBuilder() {
   const builder = {
@@ -198,7 +200,61 @@ function createDraftNodesBuilder() {
   return builder;
 }
 
-function createEstimateItemsBuilder() {
+function buildEstimateSectionRow(input: {
+  id: string;
+  parentId: string | null;
+  position: number;
+  title: string;
+}) {
+  return {
+    id: input.id,
+    tenant_id: TENANT_ID,
+    version_id: VERSION_ID,
+    parent_id: input.parentId,
+    item_type: "section",
+    position: input.position,
+    title: input.title,
+    description: null,
+    quantity: null,
+    unit_price_ht_cents: null,
+    tax_rate_bp: null,
+    k_fo: null,
+    h_mo: null,
+    h_mo_majoration: 1,
+    k_mo: null,
+    h_mo_atelier: null,
+    k_mo_atelier: 1,
+    labor_role_atelier_id: null,
+    h_mo_chantier: null,
+    k_mo_chantier: 1,
+    labor_role_chantier_id: null,
+    pu_ht_cents: null,
+    labor_role_id: null,
+    category_id: null,
+    supply_type_id: null,
+    selected_supplier_price_id: null,
+    line_total_ht_cents: null,
+    line_tax_cents: null,
+    line_total_ttc_cents: null,
+    source_provider: "manual",
+    source_job_id: null,
+    source_file_name: null,
+    source_page: null,
+    created_at: "2026-03-06T09:00:00.000Z",
+    updated_at: "2026-03-06T09:00:00.000Z",
+  };
+}
+
+function createEstimateItemsBuilder(
+  rows = [
+    buildEstimateSectionRow({
+      id: EXISTING_SECTION_ID,
+      parentId: null,
+      position: 1,
+      title: "Lot cible",
+    }),
+  ]
+) {
   const builder = {
     eq: vi.fn(),
     order: vi.fn(),
@@ -207,45 +263,7 @@ function createEstimateItemsBuilder() {
   const ordered = vi
     .fn()
     .mockResolvedValue({
-      data: [
-        {
-          id: EXISTING_SECTION_ID,
-          tenant_id: TENANT_ID,
-          version_id: VERSION_ID,
-          parent_id: null,
-          item_type: "section",
-          position: 1,
-          title: "Lot cible",
-          description: null,
-          quantity: null,
-          unit_price_ht_cents: null,
-          tax_rate_bp: null,
-          k_fo: null,
-          h_mo: null,
-          h_mo_majoration: 1,
-          k_mo: null,
-          h_mo_atelier: null,
-          k_mo_atelier: 1,
-          labor_role_atelier_id: null,
-          h_mo_chantier: null,
-          k_mo_chantier: 1,
-          labor_role_chantier_id: null,
-          pu_ht_cents: null,
-          labor_role_id: null,
-          category_id: null,
-          supply_type_id: null,
-          selected_supplier_price_id: null,
-          line_total_ht_cents: null,
-          line_tax_cents: null,
-          line_total_ttc_cents: null,
-          source_provider: "manual",
-          source_job_id: null,
-          source_file_name: null,
-          source_page: null,
-          created_at: "2026-03-06T09:00:00.000Z",
-          updated_at: "2026-03-06T09:00:00.000Z",
-        },
-      ],
+      data: rows,
       error: null,
     });
 
@@ -261,13 +279,15 @@ function createEstimateItemsBuilder() {
   return builder;
 }
 
-function createApplySupabaseMock() {
+function createApplySupabaseMock(options?: {
+  estimateItems?: ReturnType<typeof buildEstimateSectionRow>[];
+}) {
   const membershipBuilder = createMembershipBuilder();
   const versionBuilder = createVersionAccessBuilder();
   const draftLockBuilder = createDraftLockBuilder();
   const draftBuilder = createDraftBuilder();
   const draftNodesBuilder = createDraftNodesBuilder();
-  const estimateItemsBuilder = createEstimateItemsBuilder();
+  const estimateItemsBuilder = createEstimateItemsBuilder(options?.estimateItems);
   const rpc = vi.fn().mockResolvedValue({
     data: [
       {
@@ -394,6 +414,51 @@ describe("applyEstimateStructureDraft", () => {
         ]),
       })
     );
+  });
+
+  it("rejects an explicit merge target when it is outside the compatible parent scope", async () => {
+    const { supabase, rpc } = createApplySupabaseMock({
+      estimateItems: [
+        buildEstimateSectionRow({
+          id: EXISTING_SECTION_ID,
+          parentId: null,
+          position: 1,
+          title: "Lot cible",
+        }),
+        buildEstimateSectionRow({
+          id: OTHER_ROOT_SECTION_ID,
+          parentId: null,
+          position: 2,
+          title: "Autre lot",
+        }),
+        buildEstimateSectionRow({
+          id: OTHER_CHILD_SECTION_ID,
+          parentId: OTHER_ROOT_SECTION_ID,
+          position: 1,
+          title: "Sous lot hors parent",
+        }),
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      applyEstimateStructureDraft(VERSION_ID, DRAFT_ID, {
+        mode: "merge_existing",
+        selected_root_node_ids: [ROOT_NODE_ID],
+        overrides: [
+          {
+            node_id: CHILD_NODE_ID,
+            action: "merge",
+            merge_into_item_id: OTHER_CHILD_SECTION_ID,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      message:
+        "La cible de fusion selectionnee n'est pas compatible avec le parent final.",
+    });
+
+    expect(rpc).not.toHaveBeenCalled();
   });
 });
 
