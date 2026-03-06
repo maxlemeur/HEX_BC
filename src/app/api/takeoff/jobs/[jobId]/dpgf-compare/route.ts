@@ -4,8 +4,8 @@ import { ok, toErrorResponse } from "@/lib/estimates/errors";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
 import { buildTakeoffRowRiskMap } from "@/lib/takeoff/risk-radar";
 import {
+  fetchTakeoffActiveRiskAlerts,
   fetchDpgfTakeoffComparison,
-  fetchTakeoffRiskRadar,
   parseTakeoffDpgfComparisonQuery,
 } from "@/lib/takeoff/server";
 
@@ -24,14 +24,14 @@ export async function GET(
   try {
     const jobId = await getJobId(params);
     const query = parseTakeoffDpgfComparisonQuery(toQueryObject(request));
-    const [data, radar] = await Promise.all([
+    const [data, alerts] = await Promise.all([
       fetchDpgfTakeoffComparison(jobId, query),
-      fetchTakeoffRiskRadar(jobId, {
+      fetchTakeoffActiveRiskAlerts(jobId, {
         version_id: query.version_id,
       }),
     ]);
     const lineRiskByLineId = buildTakeoffRowRiskMap(
-      radar.items.filter((item) => item.scope_type === "line")
+      alerts.filter((item) => item.scope_type === "line")
     );
 
     return ok({

@@ -44,6 +44,14 @@ const STATUS_VARIANTS = {
   false_positive: "neutral",
 } as const;
 
+function findLatestReviewableJob(
+  jobs: Awaited<ReturnType<typeof listTakeoffJobs>>["jobs"] | undefined
+) {
+  return (
+    jobs?.find((job) => job.status === "completed" || job.status === "applied") ?? null
+  );
+}
+
 export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -104,12 +112,11 @@ export default function TakeoffExceptionsTab({ projectId, versionId }: Props) {
         ...(versionId
           ? { estimate_version_id: versionId }
           : { project_id: projectId }),
-        status: "completed",
-        limit: 1,
+        limit: 20,
       })
   );
 
-  const latestJob = jobsData?.jobs?.[0] ?? null;
+  const latestJob = findLatestReviewableJob(jobsData?.jobs);
 
   const { data: radarData, isLoading } = useSWR(
     latestJob

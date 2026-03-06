@@ -2246,6 +2246,7 @@ type EstimateRiskVersionContext = {
 };
 
 type ExistingRiskAlertRecord = TakeoffRiskAlert & {
+  is_active: boolean;
   scope_ref: string;
 };
 
@@ -2656,7 +2657,8 @@ async function listExistingRiskAlertRecords(input: {
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("version_id" as never, input.versionId as never)
     .eq("takeoff_job_id" as never, input.jobId as never)
-    .eq("is_active" as never, true as never);
+    .order("updated_at" as never, { ascending: false })
+    .order("id" as never, { ascending: false });
 
   if (error) {
     throw toTakeoffError(
@@ -2669,7 +2671,7 @@ async function listExistingRiskAlertRecords(input: {
     );
   }
 
-  return ((data ?? []) as Record<string, unknown>[])
+  const records = ((data ?? []) as Record<string, unknown>[])
     .map((row) => {
       const normalized = normalizeRiskAlertRow(row);
       if (!normalized || typeof row.scope_ref !== "string") {
@@ -2678,10 +2680,25 @@ async function listExistingRiskAlertRecords(input: {
 
       return {
         ...normalized,
+        is_active: row.is_active === true,
         scope_ref: row.scope_ref,
       } satisfies ExistingRiskAlertRecord;
     })
     .filter((row): row is ExistingRiskAlertRecord => row !== null);
+
+  const recordsByKey = new Map<string, ExistingRiskAlertRecord>();
+  for (const record of records) {
+    const key = buildRiskAlertIdentityKey({
+      scope_type: record.scope_type,
+      scope_ref: record.scope_ref,
+      cause_code: record.cause_code,
+    });
+    if (!recordsByKey.has(key)) {
+      recordsByKey.set(key, record);
+    }
+  }
+
+  return Array.from(recordsByKey.values());
 }
 
 async function syncTakeoffRiskRadarProjection(input: {
@@ -2877,6 +2894,9 @@ async function syncTakeoffRiskRadarProjection(input: {
 
   const staleAlertIds = existingAlerts
     .filter((alert) => {
+      if (!alert.is_active) {
+        return false;
+      }
       const key = buildRiskAlertIdentityKey({
         scope_type: alert.scope_type,
         scope_ref: alert.scope_ref,
@@ -3617,6 +3637,37 @@ export async function fetchTakeoffRiskRadar(
       scope: input.scope ?? null,
       lot_id: input.lot_id ?? null,
     },
+  });
+}
+
+export async function fetchTakeoffActiveRiskAlerts(
+  jobId: string,
+  input: Pick<TakeoffRiskRadarQuery, "version_id">
+): Promise<TakeoffRiskAlert[]> {
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const normalizedVersionId = parseWithSchema(
+    z.string().uuid("version_id invalide."),
+    input.version_id,
+    "version_id invalide."
+  );
+
+  await assertTakeoffJobAccessibleForVersion({
+    supabase,
+    tenantId,
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
+  });
+
+  return listActiveTakeoffRiskAlerts({
+    supabase,
+    tenantId,
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
   });
 }
 
