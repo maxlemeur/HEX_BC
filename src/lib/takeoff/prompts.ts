@@ -21,15 +21,15 @@ export type TakeoffModelConfig = {
 
 export const TAKEOFF_LEVEL_MODEL_MATRIX = {
   A: {
-    model: "gemini-2.5-flash",
+    model: "gemini-3-flash-preview",
     thinkingLevel: "low",
   },
   B: {
-    model: "gemini-2.5-pro",
+    model: "gemini-3-pro-preview",
     thinkingLevel: "medium",
   },
   C: {
-    model: "gemini-2.5-pro",
+    model: "gemini-3-pro-preview",
     thinkingLevel: "high",
   },
 } as const satisfies Record<TakeoffPromptLevel, TakeoffModelConfig>;

@@ -129,7 +129,7 @@ function baseJob(
       `${tenantId}/${id}/${"a".repeat(64)}-niveau-a.csv`,
     prompt_version: input.prompt_version ?? "takeoff-a-v1",
     schema_version: input.schema_version ?? "v1",
-    model: input.model ?? "gemini-2.5-flash",
+    model: input.model ?? "gemini-3-flash-preview",
     thinking_level: input.thinking_level ?? "high",
     media_resolution: input.media_resolution ?? null,
     retry_count: input.retry_count ?? 0,

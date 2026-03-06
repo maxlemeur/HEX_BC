@@ -42,7 +42,7 @@ function createJob(overrides: Partial<TakeoffJobSummary> = {}): TakeoffJobSummar
     source_file_size_bytes: overrides.source_file_size_bytes ?? 1024,
     prompt_version: overrides.prompt_version ?? "takeoff-a-v1",
     schema_version: overrides.schema_version ?? "v1",
-    model: overrides.model ?? "gemini-2.5-flash",
+    model: overrides.model ?? "gemini-3-flash-preview",
     thinking_level: overrides.thinking_level ?? "high",
     media_resolution: overrides.media_resolution ?? null,
     retry_count: overrides.retry_count ?? 1,

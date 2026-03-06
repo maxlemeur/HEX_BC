@@ -227,7 +227,7 @@ function buildGeminiResult(
     },
     costCents: overrides.costCents ?? 42,
     durationMs: overrides.durationMs ?? 1_800,
-    model: overrides.model ?? "gemini-2.5-flash",
+    model: overrides.model ?? "gemini-3-flash-preview",
     promptVersion: overrides.promptVersion ?? "takeoff-a-v1",
   };
 }
@@ -1504,7 +1504,7 @@ describe("processLevelB", () => {
         tokenCount: 5_200,
         costCents: 154,
         durationMs: 3_800,
-        model: "gemini-2.5-pro",
+        model: "gemini-3-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -1533,7 +1533,7 @@ describe("processLevelB", () => {
         files: [expect.objectContaining({ mimeType: "application/pdf" })],
         context: expect.objectContaining({
           level: "B",
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-b-v1",
         }),
       })
@@ -1555,7 +1555,7 @@ describe("processLevelB", () => {
       source_file_name: "niveau-b.pdf",
       processing_mode: "pdf_vision",
       tables_count: 1,
-      model: "gemini-2.5-pro",
+      model: "gemini-3-pro-preview",
       prompt_version: "takeoff-b-v1",
     });
     expect(mock.state.takeoffResults[0]?.tables).toEqual(
@@ -1603,7 +1603,7 @@ describe("processLevelB", () => {
     );
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(exchange, {
-        model: "gemini-2.5-pro",
+        model: "gemini-3-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -1698,7 +1698,7 @@ describe("processLevelB", () => {
 
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(exchange, {
-        model: "gemini-2.5-pro",
+        model: "gemini-3-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -1816,7 +1816,7 @@ describe("processLevelB", () => {
           tokenCount: 400,
           costCents: 20,
           durationMs: 900,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -1825,7 +1825,7 @@ describe("processLevelB", () => {
           tokenCount: 450,
           costCents: 23,
           durationMs: 1_000,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -1834,7 +1834,7 @@ describe("processLevelB", () => {
           tokenCount: 500,
           costCents: 26,
           durationMs: 1_100,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -1932,7 +1932,7 @@ describe("processLevelB", () => {
           tokenCount: 300,
           costCents: 15,
           durationMs: 700,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -1941,7 +1941,7 @@ describe("processLevelB", () => {
           tokenCount: 420,
           costCents: 20,
           durationMs: 850,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -2049,7 +2049,7 @@ describe("processLevelB", () => {
           tokenCount: 500,
           costCents: 25,
           durationMs: 900,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -2058,7 +2058,7 @@ describe("processLevelB", () => {
           tokenCount: 520,
           costCents: 26,
           durationMs: 950,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -2118,7 +2118,7 @@ describe("processLevelB", () => {
 
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(invalidPayload, {
-        model: "gemini-2.5-pro",
+        model: "gemini-3-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -2334,7 +2334,7 @@ describe("processLevelC", () => {
           tokenCount: 600,
           costCents: 30,
           durationMs: 1_000,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-c-v1",
         })
       )
@@ -2343,7 +2343,7 @@ describe("processLevelC", () => {
           tokenCount: 700,
           costCents: 35,
           durationMs: 1_100,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-c-v1",
         })
       )
@@ -2352,7 +2352,7 @@ describe("processLevelC", () => {
           tokenCount: 500,
           costCents: 20,
           durationMs: 900,
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
           promptVersion: "takeoff-c-v1",
         })
       );
@@ -2467,7 +2467,7 @@ describe("processLevelC", () => {
         tokenCount: 900,
         costCents: 40,
         durationMs: 900,
-        model: "gemini-2.5-pro",
+        model: "gemini-3-pro-preview",
         promptVersion: "takeoff-c-v1",
       })
     );
@@ -2574,7 +2574,7 @@ describe("processLevelC", () => {
         tokenCount: 400,
         costCents: 25,
         durationMs: 900,
-        model: "gemini-2.5-pro",
+        model: "gemini-3-pro-preview",
         promptVersion: "takeoff-c-v1",
       })
     );
@@ -2695,7 +2695,7 @@ describe("processLevelC", () => {
         tokenCount: 1_200,
         costCents: 40,
         durationMs: 900,
-        model: "gemini-2.5-pro",
+        model: "gemini-3-pro-preview",
         promptVersion: "takeoff-c-v1",
       })
     );

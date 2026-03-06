@@ -65,7 +65,7 @@ function createSupabaseMock() {
         id: "job-c-1",
         status: "failed",
         level: "C",
-        model: "gemini-2.5-pro",
+        model: "gemini-3-pro-preview",
         duration_ms: null,
         cost_cents: 12,
         retry_count: 1,

@@ -454,7 +454,7 @@ describe("enrichEstimateItemsWithAiStructureProvenance", () => {
             id: DRAFT_ID,
             created_at: "2026-03-06T09:01:00.000Z",
             generation_metadata: {
-              model: "gemini-2.5-pro",
+              model: "gemini-3-pro-preview",
               used_fallback: false,
             },
           },

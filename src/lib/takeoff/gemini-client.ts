@@ -4,7 +4,7 @@ import { mapGeminiErrorToTakeoffError, TakeoffError } from "@/lib/takeoff/errors
 import type { TakeoffMetadata } from "@/lib/takeoff/types";
 import { zodToGeminiJsonSchema } from "@/lib/takeoff/schemas";
 
-const DEFAULT_MODEL = "gemini-2.5-pro";
+const DEFAULT_MODEL = "gemini-3-pro-preview";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 250;
@@ -24,6 +24,8 @@ type GeminiProviderResponse = {
   finishReason?: string | null;
   safetyBlocked?: boolean;
 };
+
+type GeminiProviderThinkingLevel = "LOW" | "MEDIUM" | "HIGH";
 
 type GeminiCallLoggerPayload = {
   job_id: string | null;
@@ -214,19 +216,21 @@ async function invokeGeminiApi(input: {
     },
   ];
 
+  const generationConfig: Record<string, unknown> = {
+    responseMimeType: "application/json",
+    responseSchema: input.schema,
+  };
+
+  if (input.thinkingLevel && supportsGemini3ThinkingLevel(input.model)) {
+    // Gemini REST expects thinkingConfig inside generationConfig with uppercase enum values.
+    generationConfig.thinkingConfig = {
+      thinkingLevel: toGeminiProviderThinkingLevel(input.thinkingLevel),
+    };
+  }
+
   const payload = {
     contents,
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: input.schema,
-    },
-    ...(input.thinkingLevel
-      ? {
-          thinkingConfig: {
-            thinkingLevel: input.thinkingLevel,
-          },
-        }
-      : {}),
+    generationConfig,
   };
 
   try {
@@ -326,8 +330,8 @@ function estimateCostCents(model: string, usage: GeminiTokenUsage) {
   const outputTokens = usage.candidatesTokenCount ?? 0;
 
   const pricingUsdPerMillion: Record<string, { input: number; output: number }> = {
-    "gemini-2.5-pro": { input: 1.25, output: 10 },
-    "gemini-2.5-flash": { input: 0.3, output: 2.5 },
+    "gemini-3-pro-preview": { input: 2, output: 12 },
+    "gemini-3-flash-preview": { input: 0.25, output: 1.5 },
   };
 
   const pricing = pricingUsdPerMillion[model];
@@ -340,6 +344,23 @@ function estimateCostCents(model: string, usage: GeminiTokenUsage) {
     (outputTokens / 1_000_000) * pricing.output;
 
   return Math.max(0, Math.round(usd * 100));
+}
+
+function supportsGemini3ThinkingLevel(model: string) {
+  return model.trim().toLowerCase().startsWith("gemini-3");
+}
+
+function toGeminiProviderThinkingLevel(
+  thinkingLevel: GeminiThinkingLevel
+): GeminiProviderThinkingLevel {
+  switch (thinkingLevel) {
+    case "low":
+      return "LOW";
+    case "medium":
+      return "MEDIUM";
+    case "high":
+      return "HIGH";
+  }
 }
 
 export async function callGeminiStructured<T>(

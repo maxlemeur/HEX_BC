@@ -22,7 +22,7 @@ const JOB_SUMMARY = {
   source_file_size_bytes: 2048,
   prompt_version: "takeoff-a-v1",
   schema_version: "v1",
-  model: "gemini-2.5-flash",
+  model: "gemini-3-flash-preview",
   thinking_level: "high",
   media_resolution: null,
   retry_count: 0,

@@ -361,7 +361,7 @@ describe("GET /api/takeoff/jobs", () => {
           source_file_size_bytes: 1024,
           prompt_version: "takeoff-a-v1",
           schema_version: "v1",
-          model: "gemini-2.5-flash",
+          model: "gemini-3-flash-preview",
           thinking_level: "high",
           media_resolution: null,
           retry_count: 1,

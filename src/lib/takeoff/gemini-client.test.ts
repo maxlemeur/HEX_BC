@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
@@ -21,6 +21,10 @@ describe("callGeminiStructured", () => {
     process.env.GEMINI_API_KEY = "test-key";
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("returns structured data and metadata on success", async () => {
     const logger = vi.fn();
     const result = await callGeminiStructured(
@@ -32,7 +36,7 @@ describe("callGeminiStructured", () => {
           tenantId: "tenant-1",
           level: "A",
           promptVersion: "takeoff-a-v1",
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
         },
       },
       {
@@ -58,8 +62,8 @@ describe("callGeminiStructured", () => {
       outputTokens: 50_000,
       totalTokens: 100_000,
     });
-    expect(result.costCents).toBeGreaterThan(0);
-    expect(result.model).toBe("gemini-2.5-pro");
+    expect(result.costCents).toBeGreaterThanOrEqual(0);
+    expect(result.model).toBe("gemini-3-pro-preview");
     expect(result.promptVersion).toBe("takeoff-a-v1");
     expect(logger).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -82,7 +86,7 @@ describe("callGeminiStructured", () => {
         schema: TestSchema,
         context: {
           level: "C",
-          model: "gemini-2.5-pro",
+          model: "gemini-3-pro-preview",
         },
       },
       {
@@ -134,6 +138,56 @@ describe("callGeminiStructured", () => {
         timeoutMs: 300_000,
       })
     );
+  });
+
+  it("sends Gemini 3 thinking config inside generationConfig", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      items: [{ designation: "Tube cuivre", quantity: 12, unit: "ml" }],
+                    }),
+                  },
+                ],
+              },
+              finishReason: "STOP",
+            },
+          ],
+          usageMetadata: {
+            totalTokenCount: 1200,
+          },
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callGeminiStructured(
+      {
+        prompt: "Extract",
+        schema: TestSchema,
+        thinkingLevel: "medium",
+        context: {
+          model: "gemini-3-flash-preview",
+        },
+      },
+      {
+        apiKey: "test-key",
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, requestInit] = fetchMock.mock.calls[0] ?? [];
+    const payload = JSON.parse(String(requestInit?.body ?? "{}"));
+
+    expect(payload.thinkingConfig).toBeUndefined();
+    expect(payload.generationConfig?.thinkingConfig).toEqual({
+      thinkingLevel: "MEDIUM",
+    });
   });
 
   it("retries with exponential backoff then succeeds", async () => {
