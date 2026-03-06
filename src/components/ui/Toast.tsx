@@ -44,6 +44,7 @@ type ToastContextValue = {
 const DEFAULT_DURATION_MS = 4000;
 const MAX_VISIBLE = 3;
 const EXIT_ANIMATION_MS = 200;
+const MISSING_PROVIDER_TOAST_ID = "missing-toast-provider";
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
@@ -52,6 +53,17 @@ const TOAST_VARIANTS: Record<ToastVariant, string> = {
   error: "border-danger/30 bg-error-light text-slate-800",
   warning: "border-warning/30 bg-warning-light text-slate-800",
   info: "border-info/30 bg-info-light text-slate-800",
+};
+
+let hasWarnedAboutMissingToastProvider = false;
+
+const missingToastProviderFallback: ToastContextValue = {
+  push: () => MISSING_PROVIDER_TOAST_ID,
+  dismiss: () => {},
+  success: () => MISSING_PROVIDER_TOAST_ID,
+  error: () => MISSING_PROVIDER_TOAST_ID,
+  warning: () => MISSING_PROVIDER_TOAST_ID,
+  info: () => MISSING_PROVIDER_TOAST_ID,
 };
 
 /* ────────────────── Toast (single item) ────────────────── */
@@ -259,7 +271,12 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
 export function useToast() {
   const context = useContext(ToastContext);
   if (!context) {
-    throw new Error("useToast must be used within ToastProvider");
+    if (process.env.NODE_ENV !== "production" && !hasWarnedAboutMissingToastProvider) {
+      hasWarnedAboutMissingToastProvider = true;
+      console.error("useToast called without ToastProvider. Toasts will be ignored.");
+    }
+
+    return missingToastProviderFallback;
   }
 
   return context;

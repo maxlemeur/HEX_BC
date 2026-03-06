@@ -84,6 +84,27 @@ function getToastTitles(renderer: ReactTestRenderer) {
 /* ── Tests ── */
 
 describe("ui/Toast", () => {
+  it("falls back to a noop toast api when rendered without provider", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let toastApi: ToastApi | null = null;
+
+    await act(async () => {
+      create(
+        createElement(ToastHarness, {
+          captureToast: (toast) => {
+            toastApi = toast;
+          },
+        })
+      );
+    });
+
+    expect(toastApi).not.toBeNull();
+    expect(toastApi!.success({ title: "Saved" })).toBe("missing-toast-provider");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "useToast called without ToastProvider. Toasts will be ignored."
+    );
+  });
+
   it("pushes and auto-dismisses toasts", async () => {
     vi.useFakeTimers();
 
