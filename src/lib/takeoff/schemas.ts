@@ -625,7 +625,7 @@ function sanitizeGeminiJsonSchema(value: unknown): unknown {
 
   const result: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
-    if (key === "$schema") {
+    if (key === "$schema" || key === "additionalProperties") {
       continue;
     }
 

@@ -294,6 +294,10 @@ describe("zodToGeminiJsonSchema", () => {
       expect.arrayContaining(["items", "warnings", "metadata"])
     );
     expect(jsonSchema).not.toHaveProperty("$schema");
+    expect(jsonSchema).not.toHaveProperty("additionalProperties");
+    expect(
+      JSON.stringify(jsonSchema).includes("\"additionalProperties\"")
+    ).toBe(false);
   });
 
   it("preserves representable nullable-string constraints from transformed fields", () => {
