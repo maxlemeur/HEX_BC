@@ -8,6 +8,9 @@ import {
   getAuthenticatedContext,
   insertAssemblyIntoVersion,
 } from "@/lib/estimates/server";
+import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { isPriceStale } from "@/lib/catalogue/stale-prices";
+import { computeEstimateQualityFlagsByItemId } from "@/lib/estimate-quality";
 import {
   badRequest,
   forbidden,
@@ -15,6 +18,9 @@ import {
   notFound,
   unprocessableEntity,
 } from "@/lib/estimates/errors";
+import { detectEstimateOutliers } from "@/lib/estimates/outlier-detection";
+import { evaluateRules } from "@/lib/estimates/rules-engine";
+import { getStalePriceDaysForTenant } from "@/lib/feature-flags";
 import {
   TakeoffError,
   TakeoffErrorCode,
@@ -93,6 +99,10 @@ import {
   type TakeoffMappingRuleDeleteResponse,
   type TakeoffMappingRuleMutationResponse,
   type TakeoffMappingRulesListResponse,
+  type TakeoffRiskAlert,
+  type TakeoffRiskRadarResponse,
+  type UpdateTakeoffRiskAlertStatusInput,
+  type UpdateTakeoffRiskAlertStatusResponse,
   type UpdateTakeoffMappingRuleInput,
 } from "@/lib/takeoff/types";
 import {
@@ -101,6 +111,11 @@ import {
   TAKEOFF_COMPARE_MIN_THRESHOLD,
   buildTakeoffDiff,
 } from "@/lib/takeoff/diff";
+import {
+  buildTakeoffRiskCandidates,
+  buildTakeoffRiskRadarResponse,
+  normalizeRiskAlertRow,
+} from "@/lib/takeoff/risk-radar";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
@@ -248,6 +263,65 @@ const ESTIMATE_DPGF_COMPARE_SELECT = [
   "source_provider",
   "item_type",
   "updated_at",
+].join(", ");
+const ESTIMATE_RISK_ITEMS_SELECT = [
+  "id",
+  "parent_id",
+  "item_type",
+  "title",
+  "description",
+  "quantity",
+  "category_id",
+  "selected_supplier_price_id",
+  "unit_price_ht_cents",
+  "tax_rate_bp",
+  "h_mo",
+  "labor_role_id",
+  "h_mo_atelier",
+  "labor_role_atelier_id",
+  "k_mo_atelier",
+  "h_mo_chantier",
+  "labor_role_chantier_id",
+  "k_mo_chantier",
+].join(", ");
+const ESTIMATE_RISK_VERSION_SELECT = [
+  "id",
+  "project_id",
+  "margin_bp",
+  "margin_multiplier",
+  "discount_bp",
+  "total_ht_cents",
+  "tax_rate_bp",
+  "estimate_projects!inner(id, name, client_name)",
+].join(", ");
+const ESTIMATE_RISK_ALERTS_SELECT = [
+  "id",
+  "created_at",
+  "updated_at",
+  "tenant_id",
+  "project_id",
+  "version_id",
+  "takeoff_job_id",
+  "scope_type",
+  "scope_ref",
+  "scope_id",
+  "scope_label",
+  "cause_code",
+  "severity",
+  "status",
+  "risk_score",
+  "margin_bucket",
+  "line_id",
+  "lot_id",
+  "reason_labels",
+  "provenance",
+  "metadata",
+  "review_note",
+  "reviewed_at",
+  "reviewed_by",
+  "is_active",
+  "first_detected_at",
+  "last_detected_at",
 ].join(", ");
 const TAKEOFF_APPLIED_ESTIMATE_ITEMS_SELECT = [
   "id",
@@ -638,6 +712,16 @@ export const takeoffLineEvidencePanelQuerySchema = z
   })
   .strict();
 
+export const takeoffRiskRadarQuerySchema = z
+  .object({
+    version_id: requiredUuidSearchParamSchema,
+    severity: z.enum(["info", "warning", "critical"]).optional(),
+    status: z.enum(["to_process", "assumed", "false_positive"]).optional(),
+    scope: z.enum(["project", "lot", "line"]).optional(),
+    lot_id: z.string().uuid("lot_id invalide.").optional(),
+  })
+  .strict();
+
 export const saveTakeoffDpgfManualLinkSchema = z
   .object({
     version_id: z.string().uuid("version_id invalide."),
@@ -657,6 +741,26 @@ export const saveTakeoffReviewDecisionSchema = z
     reason: z.string().trim().max(2000).nullable().optional(),
   })
   .strict();
+
+export const updateTakeoffRiskAlertStatusSchema = z
+  .object({
+    version_id: z.string().uuid("version_id invalide."),
+    status: z.enum(["to_process", "assumed", "false_positive"]),
+    review_note: z.string().trim().max(2000).nullable().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      (value.status === "assumed" || value.status === "false_positive") &&
+      (!value.review_note || value.review_note.trim().length === 0)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["review_note"],
+        message: "Une note humaine explicite est obligatoire pour ce statut.",
+      });
+    }
+  });
 
 export const takeoffApplyPayloadSchema = takeoffApplyRequestSchema;
 
@@ -686,6 +790,7 @@ export type TakeoffDpgfComparisonQuery = z.infer<
 export type TakeoffLineEvidencePanelQuery = z.infer<
   typeof takeoffLineEvidencePanelQuerySchema
 >;
+export type TakeoffRiskRadarQuery = z.infer<typeof takeoffRiskRadarQuerySchema>;
 export type SaveTakeoffReviewDecisionPayload = z.infer<
   typeof saveTakeoffReviewDecisionSchema
 >;
@@ -1382,6 +1487,16 @@ export function parseTakeoffLineEvidencePanelQuery(
     takeoffLineEvidencePanelQuerySchema,
     payload,
     "Parametres du panneau preuves invalides."
+  );
+}
+
+export function parseTakeoffRiskRadarQuery(
+  payload: unknown
+): TakeoffRiskRadarQuery {
+  return parseWithSchema(
+    takeoffRiskRadarQuerySchema,
+    payload,
+    "Parametres du radar de risque invalides."
   );
 }
 
@@ -2097,6 +2212,731 @@ async function resolveDpgfUnitByRowIndex(input: {
   return buildDpgfUnitByRowIndex(rows);
 }
 
+type EstimateRiskItemRow = {
+  id: string;
+  parent_id: string | null;
+  item_type: string;
+  title: string;
+  description: string | null;
+  quantity: number | null;
+  category_id: string | null;
+  selected_supplier_price_id: string | null;
+  unit_price_ht_cents: number | null;
+  tax_rate_bp: number | null;
+  h_mo: number | null;
+  labor_role_id: string | null;
+  h_mo_atelier: number | null;
+  labor_role_atelier_id: string | null;
+  k_mo_atelier: number | null;
+  h_mo_chantier: number | null;
+  labor_role_chantier_id: string | null;
+  k_mo_chantier: number | null;
+};
+
+type EstimateRiskVersionContext = {
+  id: string;
+  project_id: string;
+  margin_bp: number | null;
+  margin_multiplier: number | null;
+  discount_bp: number | null;
+  total_ht_cents: number | null;
+  tax_rate_bp: number | null;
+  project_name: string;
+  client_name: string | null;
+};
+
+type ExistingRiskAlertRecord = TakeoffRiskAlert & {
+  scope_ref: string;
+};
+
+function resolveEmbeddedProjectRecord(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.find((entry) => isRecord(entry)) ?? null;
+  }
+
+  return isRecord(value) ? value : null;
+}
+
+function hasRiskLaborSplitPayload(item: EstimateRiskItemRow) {
+  return (
+    item.h_mo_atelier !== null ||
+    item.labor_role_atelier_id !== null ||
+    item.h_mo_chantier !== null ||
+    item.labor_role_chantier_id !== null ||
+    ((item.k_mo_atelier ?? 1) !== 1) ||
+    ((item.k_mo_chantier ?? 1) !== 1)
+  );
+}
+
+function buildDismissedOutlierFlagsByItemId(
+  rows: Array<{ item_id: string; flag_key: "price_outlier" | "quantity_outlier" }>
+) {
+  const result: Record<string, Array<"price_outlier" | "quantity_outlier">> = {};
+
+  for (const row of rows) {
+    const current = result[row.item_id] ?? [];
+    if (current.includes(row.flag_key)) {
+      continue;
+    }
+
+    result[row.item_id] = [...current, row.flag_key];
+  }
+
+  return result;
+}
+
+function buildRiskAlertIdentityKey(input: {
+  scope_type: string;
+  scope_ref: string;
+  cause_code: string;
+}) {
+  return `${input.scope_type}:${input.scope_ref}:${input.cause_code}`;
+}
+
+async function listEstimateRiskItems(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_items" as never)
+    .select(ESTIMATE_RISK_ITEMS_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .order("position" as never, { ascending: true })
+    .order("created_at" as never, { ascending: true })
+    .order("id" as never, { ascending: true });
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les items de risque de la version."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return (data ?? []) as EstimateRiskItemRow[];
+}
+
+async function loadEstimateRiskVersionContext(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+}): Promise<EstimateRiskVersionContext> {
+  const { data, error } = await input.supabase
+    .from("estimate_versions" as never)
+    .select(ESTIMATE_RISK_VERSION_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("id" as never, input.versionId as never)
+    .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger le contexte de risque de la version."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  if (!data || !isRecord(data)) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Version cible introuvable.",
+      details: {
+        version_id: input.versionId,
+      },
+      retryable: false,
+    });
+  }
+
+  const versionRow = data as Record<string, unknown>;
+  const embeddedProject = resolveEmbeddedProjectRecord(versionRow.estimate_projects);
+  if (!embeddedProject) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Projet de la version introuvable.",
+      details: {
+        version_id: input.versionId,
+      },
+      retryable: false,
+    });
+  }
+
+  return {
+    id: typeof versionRow.id === "string" ? versionRow.id : input.versionId,
+    project_id:
+      typeof versionRow.project_id === "string"
+        ? versionRow.project_id
+        : (typeof embeddedProject.id === "string" ? embeddedProject.id : ""),
+    margin_bp:
+      typeof versionRow.margin_bp === "number" ? versionRow.margin_bp : null,
+    margin_multiplier:
+      typeof versionRow.margin_multiplier === "number"
+        ? versionRow.margin_multiplier
+        : null,
+    discount_bp:
+      typeof versionRow.discount_bp === "number" ? versionRow.discount_bp : null,
+    total_ht_cents:
+      typeof versionRow.total_ht_cents === "number"
+        ? versionRow.total_ht_cents
+        : null,
+    tax_rate_bp:
+      typeof versionRow.tax_rate_bp === "number" ? versionRow.tax_rate_bp : null,
+    project_name:
+      typeof embeddedProject.name === "string" && embeddedProject.name.trim().length > 0
+        ? embeddedProject.name
+        : "Affaire",
+    client_name:
+      typeof embeddedProject.client_name === "string" ? embeddedProject.client_name : null,
+  };
+}
+
+async function loadDismissedOutlierFlagsByItemId(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_item_outlier_dismissals" as never)
+    .select("item_id, flag_key" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .order("dismissed_at" as never, { ascending: true });
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les outliers dismiss."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  return buildDismissedOutlierFlagsByItemId(
+    ((data ?? []) as Array<{ item_id: string; flag_key: "price_outlier" | "quantity_outlier" }>)
+      .filter(
+        (row) =>
+          row.flag_key === "price_outlier" || row.flag_key === "quantity_outlier"
+      )
+  );
+}
+
+async function loadStaleSupplierPriceItemIds(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  items: EstimateRiskItemRow[];
+}) {
+  const stalePriceDays = await getStalePriceDaysForTenant(input.tenantId, {
+    supabase: input.supabase as never,
+  });
+  const selectedSupplierPriceIds = Array.from(
+    new Set(
+      input.items
+        .filter((item) => item.item_type === "line")
+        .map((item) => item.selected_supplier_price_id)
+        .filter((priceId): priceId is string => typeof priceId === "string" && priceId.length > 0)
+    )
+  );
+
+  if (selectedSupplierPriceIds.length === 0) {
+    return new Set<string>();
+  }
+
+  const { data, error } = await input.supabase
+    .from("supplier_pricebook" as never)
+    .select("id, updated_at, created_at" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .in("id" as never, selectedSupplierPriceIds as never);
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les prix fournisseurs selectionnes."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  const stalePriceIds = new Set(
+    ((data ?? []) as Array<{ id: string; updated_at: string | null; created_at: string | null }>)
+      .filter((price) =>
+        isPriceStale(
+          {
+            updatedAt: price.updated_at,
+            createdAt: price.created_at,
+          },
+          stalePriceDays
+        )
+      )
+      .map((price) => price.id)
+  );
+
+  return new Set(
+    input.items
+      .filter((item) => item.item_type === "line")
+      .filter((item) => {
+        const selectedSupplierPriceId = item.selected_supplier_price_id ?? null;
+        return selectedSupplierPriceId ? stalePriceIds.has(selectedSupplierPriceId) : false;
+      })
+      .map((item) => item.id)
+  );
+}
+
+async function loadApplicableMinMarginThresholdBp(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  projectId: string;
+  categoryIds: Set<string>;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_rules" as never)
+    .select("scope_type, scope_id, threshold_value" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("is_active" as never, true as never)
+    .eq("rule_type" as never, "min_margin" as never);
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les seuils de marge applicables."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+      }
+    );
+  }
+
+  const thresholds = ((data ?? []) as Array<{
+    scope_type: "global" | "category" | "client";
+    scope_id: string | null;
+    threshold_value: number;
+  }>)
+    .filter((rule) => {
+      if (rule.scope_type === "global") {
+        return true;
+      }
+
+      if (rule.scope_type === "category") {
+        return typeof rule.scope_id === "string" && input.categoryIds.has(rule.scope_id);
+      }
+
+      if (rule.scope_type === "client") {
+        return typeof rule.scope_id === "string" && rule.scope_id === input.projectId;
+      }
+
+      return false;
+    })
+    .map((rule) => rule.threshold_value)
+    .filter((value) => Number.isFinite(value));
+
+  if (thresholds.length === 0) {
+    return null;
+  }
+
+  return Math.max(...thresholds);
+}
+
+async function fetchAllTakeoffDpgfComparisonRows(input: {
+  jobId: string;
+  versionId: string;
+  threshold?: number;
+}) {
+  const rows: TakeoffDpgfComparisonResponse["rows"] = [];
+  let cursor: string | undefined;
+  let response: TakeoffDpgfComparisonResponse | null = null;
+  const seenCursors = new Set<string>();
+
+  while (true) {
+    response = await fetchDpgfTakeoffComparison(input.jobId, {
+      version_id: input.versionId,
+      cursor,
+      page_size: TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
+      view: "all",
+      threshold: input.threshold,
+    });
+    rows.push(...response.rows);
+
+    const nextCursor = response.pagination.next_cursor;
+    if (!nextCursor) {
+      break;
+    }
+
+    if (seenCursors.has(nextCursor)) {
+      throw new TakeoffError({
+        status: 500,
+        code: TakeoffErrorCode.INTERNAL_ERROR,
+        message: "Pagination incoherente pendant le recalcul du radar de risque.",
+        details: {
+          job_id: input.jobId,
+          version_id: input.versionId,
+          cursor: nextCursor,
+        },
+        retryable: false,
+        jobId: input.jobId,
+      });
+    }
+
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  if (!response) {
+    throw new TakeoffError({
+      status: 500,
+      code: TakeoffErrorCode.INTERNAL_ERROR,
+      message: "Impossible de recalculer la comparaison DPGF complete.",
+      details: {
+        job_id: input.jobId,
+        version_id: input.versionId,
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
+
+  return {
+    ...response,
+    rows,
+    pagination: {
+      ...response.pagination,
+      next_cursor: null,
+      total: rows.length,
+    },
+  };
+}
+
+async function listActiveTakeoffRiskAlerts(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  jobId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_risk_alerts" as never)
+    .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .eq("takeoff_job_id" as never, input.jobId as never)
+    .eq("is_active" as never, true as never)
+    .order("updated_at" as never, { ascending: false })
+    .order("id" as never, { ascending: false });
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger les alertes de risque actives."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.jobId,
+      }
+    );
+  }
+
+  return ((data ?? []) as Record<string, unknown>[])
+    .map((row) => normalizeRiskAlertRow(row))
+    .filter((row): row is TakeoffRiskAlert => row !== null);
+}
+
+async function listExistingRiskAlertRecords(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  jobId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_risk_alerts" as never)
+    .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .eq("takeoff_job_id" as never, input.jobId as never)
+    .eq("is_active" as never, true as never);
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de charger la projection existante du radar de risque."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.jobId,
+      }
+    );
+  }
+
+  return ((data ?? []) as Record<string, unknown>[])
+    .map((row) => {
+      const normalized = normalizeRiskAlertRow(row);
+      if (!normalized || typeof row.scope_ref !== "string") {
+        return null;
+      }
+
+      return {
+        ...normalized,
+        scope_ref: row.scope_ref,
+      } satisfies ExistingRiskAlertRecord;
+    })
+    .filter((row): row is ExistingRiskAlertRecord => row !== null);
+}
+
+async function syncTakeoffRiskRadarProjection(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  versionId: string;
+  jobId: string;
+  projectId: string;
+  comparisonRows: TakeoffDpgfComparisonResponse["rows"];
+}) {
+  const [versionContext, estimateItems, dismissedOutlierFlagsByItemId, intakeWorkspace] =
+    await Promise.all([
+      loadEstimateRiskVersionContext({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+      }),
+      listEstimateRiskItems({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+      }),
+      loadDismissedOutlierFlagsByItemId({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+      }),
+      fetchAffaireIntakeWorkspace(input.projectId).catch(() => ({
+        projectId: input.projectId,
+        uploadId: null,
+        documents: [],
+        missingPieces: [],
+        briefDraft: null,
+      })),
+    ]);
+
+  const staleSupplierPriceItemIds = await loadStaleSupplierPriceItemIds({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    items: estimateItems,
+  });
+  const hasAtLeastOneSplitLine = estimateItems.some(
+    (item) => item.item_type === "line" && hasRiskLaborSplitPayload(item)
+  );
+  const outlierFlagsByItemId = detectEstimateOutliers({
+    items: estimateItems as never,
+  });
+  const qualityFlagsByItemId = computeEstimateQualityFlagsByItemId(
+    estimateItems as never,
+    {
+      outlierFlagsByItemId,
+      dismissedOutlierFlagsByItemId,
+      staleSupplierPriceItemIds,
+      isLaborSplitEnabled: hasAtLeastOneSplitLine,
+    }
+  );
+  const categoryIds = new Set(
+    estimateItems
+      .filter((item) => item.item_type === "line")
+      .map((item) => item.category_id)
+      .filter((categoryId): categoryId is string => typeof categoryId === "string")
+  );
+  const applicableMarginThresholdBp = await loadApplicableMinMarginThresholdBp({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    projectId: input.projectId,
+    categoryIds,
+  });
+  const rulesEvaluation = await evaluateRules({
+    supabase: input.supabase as never,
+    tenantId: input.tenantId,
+    version: {
+      id: versionContext.id,
+      project_id: versionContext.project_id,
+      total_ht_cents: versionContext.total_ht_cents ?? 0,
+      margin_bp: versionContext.margin_bp,
+      margin_multiplier: versionContext.margin_multiplier,
+      discount_bp: versionContext.discount_bp,
+    },
+    project: {
+      id: input.projectId,
+      client_name: versionContext.client_name,
+    },
+    items: estimateItems
+      .filter((item) => item.item_type === "line")
+      .map((item) => ({
+        id: item.id,
+        category_id: item.category_id,
+        item_type: item.item_type as "line" | "section",
+      })),
+  });
+  const minMarginViolation =
+    rulesEvaluation.violations.find((violation) => violation.rule_type === "min_margin") ?? null;
+
+  const marginThresholdBp =
+    applicableMarginThresholdBp ?? (versionContext.margin_bp !== null ? 1000 : null);
+  const shouldRaiseMarginAlert =
+    minMarginViolation !== null ||
+    (applicableMarginThresholdBp === null &&
+      versionContext.margin_bp !== null &&
+      versionContext.margin_bp < 1000);
+  const { candidates, lotLabelById } = buildTakeoffRiskCandidates({
+    comparisonRows: input.comparisonRows,
+    estimateItems,
+    projectId: input.projectId,
+    projectLabel: versionContext.project_name,
+    qualityFlagsByItemId,
+    versionTaxRateBp: versionContext.tax_rate_bp,
+    marginThresholdBp: shouldRaiseMarginAlert ? marginThresholdBp : applicableMarginThresholdBp,
+    versionMarginBp: versionContext.margin_bp,
+    missingPieces: intakeWorkspace.missingPieces,
+  });
+  const filteredCandidates = shouldRaiseMarginAlert
+    ? candidates
+    : candidates.filter((candidate) => candidate.cause_code !== "insufficient_margin");
+
+  const existingAlerts = await listExistingRiskAlertRecords({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+    jobId: input.jobId,
+  });
+  const existingByKey = new Map(
+    existingAlerts.map((alert) => [
+      buildRiskAlertIdentityKey({
+        scope_type: alert.scope_type,
+        scope_ref: alert.scope_ref,
+        cause_code: alert.cause_code,
+      }),
+      alert,
+    ])
+  );
+  const now = new Date().toISOString();
+  const nextKeys = new Set<string>();
+  const inserts: Record<string, unknown>[] = [];
+  const updates: Array<{ id: string; payload: Record<string, unknown> }> = [];
+
+  for (const candidate of filteredCandidates) {
+    const key = buildRiskAlertIdentityKey({
+      scope_type: candidate.scope_type,
+      scope_ref: candidate.scope_ref,
+      cause_code: candidate.cause_code,
+    });
+    nextKeys.add(key);
+
+    const existing = existingByKey.get(key) ?? null;
+    const basePayload = {
+      tenant_id: input.tenantId,
+      project_id: input.projectId,
+      version_id: input.versionId,
+      takeoff_job_id: input.jobId,
+      scope_type: candidate.scope_type,
+      scope_ref: candidate.scope_ref,
+      scope_id: candidate.scope_id,
+      scope_label: candidate.scope_label,
+      cause_code: candidate.cause_code,
+      severity: candidate.severity,
+      risk_score: candidate.risk_score,
+      margin_bucket: candidate.margin_bucket,
+      line_id: candidate.line_id,
+      lot_id: candidate.lot_id,
+      reason_labels: candidate.reason_labels,
+      provenance: candidate.provenance,
+      metadata: candidate.metadata,
+      is_active: true,
+      last_detected_at: now,
+      updated_at: now,
+    } satisfies Record<string, unknown>;
+
+    if (existing) {
+      updates.push({
+        id: existing.alert_id,
+        payload: {
+          ...basePayload,
+          status: existing.status,
+          review_note: existing.review_note,
+          reviewed_at: existing.reviewed_at,
+          reviewed_by: existing.reviewed_by,
+        },
+      });
+      continue;
+    }
+
+    inserts.push({
+      ...basePayload,
+      status: "to_process",
+      review_note: null,
+      reviewed_at: null,
+      reviewed_by: null,
+      first_detected_at: now,
+    });
+  }
+
+  const staleAlertIds = existingAlerts
+    .filter((alert) => {
+      const key = buildRiskAlertIdentityKey({
+        scope_type: alert.scope_type,
+        scope_ref: alert.scope_ref,
+        cause_code: alert.cause_code,
+      });
+      return !nextKeys.has(key);
+    })
+    .map((alert) => alert.alert_id);
+
+  await Promise.all([
+    ...updates.map(({ id, payload }) =>
+      input.supabase
+        .from("estimate_risk_alerts" as never)
+        .update(payload as never)
+        .eq("tenant_id" as never, input.tenantId as never)
+        .eq("id" as never, id as never)
+    ),
+    inserts.length > 0
+      ? input.supabase.from("estimate_risk_alerts" as never).insert(inserts as never)
+      : Promise.resolve({ error: null }),
+    staleAlertIds.length > 0
+      ? input.supabase
+          .from("estimate_risk_alerts" as never)
+          .update({
+            is_active: false,
+            last_detected_at: now,
+            updated_at: now,
+          } as never)
+          .eq("tenant_id" as never, input.tenantId as never)
+          .in("id" as never, staleAlertIds as never)
+      : Promise.resolve({ error: null }),
+  ]).then((results) => {
+    for (const result of results) {
+      if (result && "error" in result && result.error) {
+        throw toTakeoffError(
+          mapSupabaseError(result.error, "Impossible de synchroniser le radar de risque."),
+          {
+            fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+            retryable: false,
+            jobId: input.jobId,
+          }
+        );
+      }
+    }
+  });
+
+  const alerts = await listActiveTakeoffRiskAlerts({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+    jobId: input.jobId,
+  });
+
+  return {
+    alerts,
+    lotLabelById,
+    projectLabel: versionContext.project_name,
+  };
+}
+
 function resolveTakeoffJobsPeriodStart(
   period: ListTakeoffJobsQuery["period"]
 ): string | null {
@@ -2722,6 +3562,62 @@ export async function fetchDpgfTakeoffComparison(
     }),
     rows: hydratedRows,
   };
+}
+
+export async function fetchTakeoffRiskRadar(
+  jobId: string,
+  input: TakeoffRiskRadarQuery
+): Promise<TakeoffRiskRadarResponse> {
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const normalizedVersionId = parseWithSchema(
+    z.string().uuid("version_id invalide."),
+    input.version_id,
+    "version_id invalide."
+  );
+
+  await assertTakeoffJobAccessibleForVersion({
+    supabase,
+    tenantId,
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
+  });
+  const projectId = await getEstimateVersionProjectIdOrThrow({
+    supabase,
+    tenantId,
+    versionId: normalizedVersionId,
+  });
+  const fullComparison = await fetchAllTakeoffDpgfComparisonRows({
+    jobId: normalizedJobId,
+    versionId: normalizedVersionId,
+  });
+  const { alerts, lotLabelById, projectLabel } = await syncTakeoffRiskRadarProjection({
+    supabase,
+    tenantId,
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
+    projectId,
+    comparisonRows: fullComparison.rows,
+  });
+
+  return buildTakeoffRiskRadarResponse({
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
+    alerts,
+    projectId,
+    projectLabel,
+    lotLabelById,
+    filters: {
+      severity: input.severity ?? null,
+      status: input.status ?? null,
+      scope: input.scope ?? null,
+      lot_id: input.lot_id ?? null,
+    },
+  });
 }
 
 async function refreshTakeoffLineEvidenceSnapshot(input: {
@@ -3418,6 +4314,119 @@ export async function saveTakeoffReviewDecision(
 
   return {
     decision,
+  };
+}
+
+export async function updateTakeoffRiskAlertStatus(
+  jobId: string,
+  alertId: string,
+  input: UpdateTakeoffRiskAlertStatusInput
+): Promise<UpdateTakeoffRiskAlertStatusResponse> {
+  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const normalizedAlertId = parseWithSchema(
+    z.string().uuid("alert_id invalide."),
+    alertId,
+    "alert_id invalide."
+  );
+  const payload = parseWithSchema(
+    updateTakeoffRiskAlertStatusSchema,
+    input,
+    "Payload de statut risque invalide."
+  );
+
+  await assertTakeoffJobAccessibleForVersion({
+    supabase,
+    tenantId,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+  });
+
+  const { data: alertRow, error: alertError } = await supabase
+    .from("estimate_risk_alerts" as never)
+    .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("id" as never, normalizedAlertId as never)
+    .eq("version_id" as never, payload.version_id as never)
+    .eq("takeoff_job_id" as never, normalizedJobId as never)
+    .eq("is_active" as never, true as never)
+    .maybeSingle();
+
+  if (alertError) {
+    throw toTakeoffError(
+      mapSupabaseError(alertError, "Impossible de charger l'alerte de risque."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  if (!alertRow) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Alerte de risque introuvable.",
+      details: {
+        alert_id: normalizedAlertId,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const now = new Date().toISOString();
+  const normalizedReviewNote =
+    payload.status === "to_process"
+      ? null
+      : payload.review_note?.trim().length
+        ? payload.review_note.trim()
+        : null;
+  const { data, error } = await supabase
+    .from("estimate_risk_alerts" as never)
+    .update(
+      {
+        status: payload.status,
+        review_note: normalizedReviewNote,
+        reviewed_at: payload.status === "to_process" ? null : now,
+        reviewed_by: payload.status === "to_process" ? null : userId,
+        updated_at: now,
+      } as never
+    )
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("id" as never, normalizedAlertId as never)
+    .select(ESTIMATE_RISK_ALERTS_SELECT as never)
+    .single();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de mettre a jour l'alerte de risque."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  const alert = normalizeRiskAlertRow((data ?? null) as Record<string, unknown>);
+  if (!alert) {
+    throw unprocessableEntity(
+      "Alerte de risque invalide en base apres mise a jour.",
+      {
+        alert_id: normalizedAlertId,
+      },
+      "VALIDATION_ERROR"
+    );
+  }
+
+  return {
+    alert,
   };
 }
 

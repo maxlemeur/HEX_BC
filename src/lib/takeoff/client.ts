@@ -13,10 +13,13 @@ import type {
   SaveTakeoffDpgfManualLinkResponse as SharedSaveTakeoffDpgfManualLinkResponse,
   SaveTakeoffReviewDecisionInput as SharedSaveTakeoffReviewDecisionInput,
   SaveTakeoffReviewDecisionResponse as SharedSaveTakeoffReviewDecisionResponse,
+  TakeoffActivityCenterResponse as SharedTakeoffActivityCenterResponse,
   TakeoffApiError as TakeoffApiErrorShape,
   TakeoffApplyRequest as SharedTakeoffApplyRequest,
   TakeoffApplyResponse as SharedTakeoffApplyResponse,
   TakeoffDpgfComparisonResponse as SharedTakeoffDpgfComparisonResponse,
+  TakeoffRiskRadarQuery as SharedTakeoffRiskRadarQuery,
+  TakeoffRiskRadarResponse as SharedTakeoffRiskRadarResponse,
   TakeoffItemBatchPatchRequest as SharedTakeoffItemBatchPatchRequest,
   TakeoffItemBatchPatchResponse as SharedTakeoffItemBatchPatchResponse,
   TakeoffJobCompareResponse as SharedTakeoffJobCompareResponse,
@@ -35,6 +38,8 @@ import type {
   TakeoffMappingRulesListResponse as SharedTakeoffMappingRulesListResponse,
   TakeoffPreviewConversionRequest as SharedTakeoffPreviewConversionRequest,
   TakeoffPreviewConversionResponse as SharedTakeoffPreviewConversionResponse,
+  UpdateTakeoffRiskAlertStatusInput as SharedUpdateTakeoffRiskAlertStatusInput,
+  UpdateTakeoffRiskAlertStatusResponse as SharedUpdateTakeoffRiskAlertStatusResponse,
   UpdateTakeoffMappingRuleInput as SharedUpdateTakeoffMappingRuleInput,
 } from "@/lib/takeoff/types";
 
@@ -79,6 +84,14 @@ export type SaveTakeoffReviewDecisionInput =
   SharedSaveTakeoffReviewDecisionInput;
 export type SaveTakeoffReviewDecisionResponse =
   SharedSaveTakeoffReviewDecisionResponse;
+export type TakeoffActivityCenterResponse =
+  SharedTakeoffActivityCenterResponse;
+export type TakeoffRiskRadarQuery = SharedTakeoffRiskRadarQuery;
+export type TakeoffRiskRadarResponse = SharedTakeoffRiskRadarResponse;
+export type UpdateTakeoffRiskAlertStatusInput =
+  SharedUpdateTakeoffRiskAlertStatusInput;
+export type UpdateTakeoffRiskAlertStatusResponse =
+  SharedUpdateTakeoffRiskAlertStatusResponse;
 
 type ApiEnvelope<T> = {
   ok?: boolean;
@@ -857,6 +870,41 @@ export async function saveTakeoffReviewDecision(
   );
 }
 
+export async function fetchTakeoffRiskRadar(
+  jobId: string,
+  query: TakeoffRiskRadarQuery,
+  options?: { signal?: AbortSignal }
+): Promise<TakeoffRiskRadarResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("version_id", query.version_id);
+  if (query.severity) searchParams.set("severity", query.severity);
+  if (query.status) searchParams.set("status", query.status);
+  if (query.scope) searchParams.set("scope", query.scope);
+  if (query.lot_id) searchParams.set("lot_id", query.lot_id);
+
+  return requestTakeoffJson<TakeoffRiskRadarResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/risk-radar?${searchParams.toString()}`,
+    { method: "GET", signal: options?.signal },
+    "Impossible de charger le radar de risque."
+  );
+}
+
+export async function updateTakeoffRiskAlertStatus(
+  jobId: string,
+  alertId: string,
+  input: UpdateTakeoffRiskAlertStatusInput
+): Promise<UpdateTakeoffRiskAlertStatusResponse> {
+  return requestTakeoffJson<UpdateTakeoffRiskAlertStatusResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/risk-alerts/${encodeURIComponent(alertId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+    "Impossible de mettre a jour le statut du risque."
+  );
+}
+
 export function uploadFileToSignedUrl(
   file: File,
   url: string,
@@ -949,4 +997,36 @@ export function uploadFileToSignedUrl(
       );
     }
   });
+}
+
+/* ─── Activity Center API (V3-007) ─── */
+
+export async function fetchTakeoffActivityCenter(
+  projectId: string,
+  filters: {
+    versionId?: string | null;
+    lot?: string | null;
+    planSetId?: string | null;
+    status?: string | null;
+    level?: string | null;
+    period?: string | null;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<TakeoffActivityCenterResponse> {
+  const params = new URLSearchParams();
+  params.set("project_id", projectId);
+  if (filters.versionId) params.set("versionId", filters.versionId);
+  if (filters.lot) params.set("lot", filters.lot);
+  if (filters.planSetId) params.set("planSetId", filters.planSetId);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.level) params.set("level", filters.level);
+  if (filters.period) params.set("period", filters.period);
+  if (filters.limit != null) params.set("limit", String(filters.limit));
+  if (filters.offset != null) params.set("offset", String(filters.offset));
+  return requestTakeoffJson<TakeoffActivityCenterResponse>(
+    `/api/takeoff/activity-center?${params.toString()}`,
+    { method: "GET" },
+    "Impossible de charger le centre d'activite metres."
+  );
 }

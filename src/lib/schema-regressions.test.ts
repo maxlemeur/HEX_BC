@@ -21,6 +21,9 @@ describe("schema regressions", () => {
   const estimateLineEvidenceMigrationSql = readSql(
     "supabase/migrations/20260306213000_est391_line_evidence_graph.sql"
   );
+  const estimateRiskAlertsMigrationSql = readSql(
+    "supabase/migrations/20260306232000_est393_takeoff_risk_radar.sql"
+  );
   const structureDraftAtomicApplyMigrationSql = readSql(
     "supabase/migrations/20260306200000_est382_structure_draft_atomic_apply_fix.sql"
   );
@@ -178,6 +181,33 @@ describe("schema regressions", () => {
       /create policy "Current tenant can select estimate line evidences"/
     );
     expect(estimateLineEvidenceMigrationSql).toMatch(
+      /takeoff_version_links[\s\S]*can_access_takeoff_estimate_version/
+    );
+  });
+
+  it("defines persistent takeoff risk alerts with active-identity and open-queue indexes", () => {
+    expect(estimateRiskAlertsMigrationSql).toMatch(
+      /create table if not exists public\.estimate_risk_alerts/
+    );
+    expect(estimateRiskAlertsMigrationSql).toMatch(
+      /cause_code in \([\s\S]*'missing_proof'[\s\S]*'missing_piece'[\s\S]*\)/
+    );
+    expect(estimateRiskAlertsMigrationSql).toMatch(
+      /create unique index if not exists estimate_risk_alerts_active_identity_idx[\s\S]*where is_active/
+    );
+    expect(estimateRiskAlertsMigrationSql).toMatch(
+      /create index if not exists estimate_risk_alerts_open_queue_idx[\s\S]*where is_active and status = 'to_process'/
+    );
+    expect(estimateRiskAlertsMigrationSql).toMatch(
+      /add constraint estimate_risk_alerts_review_note_required_check/
+    );
+    expect(estimateRiskAlertsMigrationSql).toMatch(
+      /alter table if exists public\.estimate_risk_alerts force row level security;/
+    );
+    expect(estimateRiskAlertsMigrationSql).toMatch(
+      /create policy "Current tenant can select estimate risk alerts"/
+    );
+    expect(estimateRiskAlertsMigrationSql).toMatch(
       /takeoff_version_links[\s\S]*can_access_takeoff_estimate_version/
     );
   });

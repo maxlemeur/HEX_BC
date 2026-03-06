@@ -1362,6 +1362,83 @@ const takeoffDpgfUnusedTakeoffItemSchema = z.object({
   confidence_score: z.number().min(0).max(1).nullable(),
   evidence: z.string().nullable(),
 });
+const takeoffRiskSeveritySchema = z.enum(["info", "warning", "critical"]);
+const takeoffRiskStatusSchema = z.enum([
+  "to_process",
+  "assumed",
+  "false_positive",
+]);
+const takeoffRiskScopeTypeSchema = z.enum(["project", "lot", "line"]);
+const takeoffRiskMarginBucketSchema = z.enum([
+  "negative",
+  "thin",
+  "healthy",
+  "unknown",
+]);
+const takeoffRiskCauseCodeSchema = z.enum([
+  "missing_proof",
+  "dpgf_takeoff_gap",
+  "atypical_price",
+  "insufficient_margin",
+  "vat_inconsistency",
+  "missing_piece",
+]);
+const takeoffRiskProvenanceEntrySchema = z.object({
+  kind: takeoffDpgfComparisonEvidenceKindSchema,
+  label: z.string(),
+  source: z.string(),
+  confidence_score: z.number().min(0).max(1).nullable(),
+  note: z.string().nullable(),
+});
+const takeoffDpgfLineRiskSummarySchema = z.object({
+  score: z.number().int().min(0).max(100),
+  severity: takeoffRiskSeveritySchema,
+  causes: z.array(z.string()),
+  status: takeoffRiskStatusSchema.nullable(),
+});
+const takeoffRiskAlertSchema = z.object({
+  alert_id: uuidSchema,
+  scope_type: takeoffRiskScopeTypeSchema,
+  scope_id: uuidSchema.nullable(),
+  scope_label: z.string(),
+  line_id: uuidSchema.nullable(),
+  lot_id: uuidSchema.nullable(),
+  cause_code: takeoffRiskCauseCodeSchema,
+  cause_label: z.string(),
+  severity: takeoffRiskSeveritySchema,
+  risk_score: z.number().int().min(0).max(100),
+  status: takeoffRiskStatusSchema,
+  margin_bucket: takeoffRiskMarginBucketSchema,
+  reason_labels: z.array(z.string()),
+  provenance: z.array(takeoffRiskProvenanceEntrySchema),
+  review_note: z.string().nullable(),
+  reviewed_at: z.string().nullable(),
+  reviewed_by: uuidSchema.nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  metadata: z.record(z.string(), z.unknown()),
+});
+const takeoffRiskRadarScopeSummarySchema = z.object({
+  scope_type: z.enum(["project", "lot"]),
+  scope_id: uuidSchema.nullable(),
+  scope_label: z.string(),
+  score: z.number().int().min(0).max(100),
+  severity: takeoffRiskSeveritySchema,
+  open_alerts_count: z.number().int().min(0),
+  critical_alerts_count: z.number().int().min(0),
+  top_causes: z.array(z.string()),
+});
+const takeoffRiskRadarSummarySchema = z.object({
+  to_process_count: z.number().int().min(0),
+  assumed_count: z.number().int().min(0),
+  false_positive_count: z.number().int().min(0),
+  critical_count: z.number().int().min(0),
+  warning_count: z.number().int().min(0),
+  info_count: z.number().int().min(0),
+  top_causes: z.array(z.string()),
+  project_score: z.number().int().min(0).max(100),
+  project_severity: takeoffRiskSeveritySchema,
+});
 const takeoffDpgfComparisonRowSchema = z.object({
   line_id: uuidSchema,
   line_label: z.string(),
@@ -1381,6 +1458,7 @@ const takeoffDpgfComparisonRowSchema = z.object({
   is_exception: z.boolean(),
   manual_link_count: z.number().int().min(0),
   matched_by: z.enum(["auto", "manual"]).nullable(),
+  risk: takeoffDpgfLineRiskSummarySchema.nullable(),
 });
 const takeoffDpgfComparisonSummarySchema = z.object({
   reliable_matches: z.number().int().min(0),
@@ -1398,12 +1476,21 @@ const takeoffDpgfComparisonDataSchema = z.object({
   threshold: z.number().min(0).max(1),
   summary: takeoffDpgfComparisonSummarySchema,
   rows: z.array(takeoffDpgfComparisonRowSchema),
+  manual_link_candidates: z.array(takeoffDpgfUnusedTakeoffItemSchema),
   unused_takeoff_items: z.array(takeoffDpgfUnusedTakeoffItemSchema),
   pagination: z.object({
     page_size: z.number().int().min(1),
     next_cursor: z.string().nullable(),
     total: z.number().int().min(0),
   }),
+});
+const takeoffRiskRadarDataSchema = z.object({
+  version_id: uuidSchema,
+  job_id: uuidSchema,
+  summary: takeoffRiskRadarSummarySchema,
+  project: takeoffRiskRadarScopeSummarySchema,
+  lots: z.array(takeoffRiskRadarScopeSummarySchema),
+  items: z.array(takeoffRiskAlertSchema),
 });
 const takeoffLineEvidenceStatusSchema = z.enum([
   "active",
@@ -1460,6 +1547,14 @@ const takeoffDpgfReviewDecisionRequestSchema = z.object({
 });
 const takeoffDpgfReviewDecisionResponseDataSchema = z.object({
   decision: takeoffDpgfReviewDecisionRecordSchema,
+});
+const takeoffRiskAlertStatusRequestSchema = z.object({
+  version_id: uuidSchema,
+  status: takeoffRiskStatusSchema,
+  review_note: z.string().max(2000).nullable().optional(),
+});
+const takeoffRiskAlertStatusResponseDataSchema = z.object({
+  alert: takeoffRiskAlertSchema,
 });
 const takeoffMetricsKpisSchema = z.object({
   totalJobs: z.number().int().min(0),
@@ -2053,6 +2148,14 @@ const apiTakeoffReviewDecisionSchemaDefinition = successResponseSchemaDefinition
   "ApiTakeoffReviewDecisionResponse",
   takeoffDpgfReviewDecisionResponseDataSchema
 );
+const apiTakeoffRiskRadarSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffRiskRadarResponse",
+  takeoffRiskRadarDataSchema
+);
+const apiTakeoffRiskAlertStatusSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffRiskAlertStatusResponse",
+  takeoffRiskAlertStatusResponseDataSchema
+);
 const apiTakeoffMetricsStatsSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffMetricsStatsResponse",
   takeoffMetricsDataSchema
@@ -2183,6 +2286,12 @@ const takeoffLineIdPathParameter = pathParameter({
   name: "lineId",
   description: "Identifiant UUID de la ligne DPGF cible.",
   schemaName: "TakeoffLineIdPathParameter",
+  schema: uuidSchema,
+});
+const takeoffRiskAlertIdPathParameter = pathParameter({
+  name: "alertId",
+  description: "Identifiant UUID de l'alerte de risque.",
+  schemaName: "TakeoffRiskAlertIdPathParameter",
   schema: uuidSchema,
 });
 
@@ -2342,6 +2451,34 @@ const takeoffDpgfCompareViewQueryParameter = queryParameter({
     "Filtre serveur de vue DPGF: toutes les lignes ou uniquement les exceptions.",
   schemaName: "TakeoffDpgfCompareViewQueryParameter",
   schema: takeoffDpgfComparisonViewSchema,
+  required: false,
+});
+const takeoffRiskSeverityQueryParameter = queryParameter({
+  name: "severity",
+  description: "Filtre optionnel sur la severite du signal de risque.",
+  schemaName: "TakeoffRiskSeverityQueryParameter",
+  schema: takeoffRiskSeveritySchema,
+  required: false,
+});
+const takeoffRiskStatusQueryParameter = queryParameter({
+  name: "status",
+  description: "Filtre optionnel sur le statut de revue du signal de risque.",
+  schemaName: "TakeoffRiskStatusQueryParameter",
+  schema: takeoffRiskStatusSchema,
+  required: false,
+});
+const takeoffRiskScopeQueryParameter = queryParameter({
+  name: "scope",
+  description: "Filtre optionnel sur le scope du signal de risque.",
+  schemaName: "TakeoffRiskScopeQueryParameter",
+  schema: takeoffRiskScopeTypeSchema,
+  required: false,
+});
+const takeoffRiskLotIdQueryParameter = queryParameter({
+  name: "lot_id",
+  description: "Filtre optionnel sur le lot associe a l'alerte.",
+  schemaName: "TakeoffRiskLotIdQueryParameter",
+  schema: uuidSchema,
   required: false,
 });
 
@@ -2731,6 +2868,12 @@ const patchTakeoffReviewDecisionBody = jsonBody({
     "Decision humaine explicite appliquee a une ligne DPGF avec justification optionnelle.",
   schema: takeoffDpgfReviewDecisionRequestSchema,
 });
+const patchTakeoffRiskAlertStatusBody = jsonBody({
+  name: "PatchTakeoffRiskAlertStatusRequest",
+  description:
+    "Changement explicite du statut d'une alerte de risque, avec note humaine obligatoire pour assumed / false_positive.",
+  schema: takeoffRiskAlertStatusRequestSchema,
+});
 
 const mappingRulesErrorResponses: Record<string, OpenApiResponseDefinition> = {
   "400": jsonResponse(
@@ -3076,6 +3219,46 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Decision de revue DPGF enregistree.",
         apiTakeoffReviewDecisionSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/risk-radar",
+    summary: "Charger le radar canonique de risque takeoff",
+    description:
+      "Retourne les scores affaire / lots et la file priorisee des signaux de risque explicables pour une version et un job takeoff donnes.",
+    tags: ["Takeoff"],
+    parameters: [
+      takeoffJobIdPathParameter,
+      takeoffDpgfCompareVersionIdQueryParameter,
+      takeoffRiskSeverityQueryParameter,
+      takeoffRiskStatusQueryParameter,
+      takeoffRiskScopeQueryParameter,
+      takeoffRiskLotIdQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Radar de risque retourne.",
+        apiTakeoffRiskRadarSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "patch",
+    path: "/api/takeoff/jobs/{jobId}/risk-alerts/{alertId}",
+    summary: "Mettre a jour le statut explicite d'une alerte de risque",
+    description:
+      "Passe une alerte de risque en to_process, assumed ou false_positive. assumed / false_positive exigent une note humaine explicite.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter, takeoffRiskAlertIdPathParameter],
+    requestBody: patchTakeoffRiskAlertStatusBody,
+    responses: {
+      "200": jsonResponse(
+        "Statut de l'alerte de risque mis a jour.",
+        apiTakeoffRiskAlertStatusSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
     },

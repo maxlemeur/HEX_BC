@@ -6,6 +6,7 @@ FS-B porte les contrats backend pour :
 
 - `V3-010` comparaison DPGF vs takeoff preuve-centrique
 - `EST-391` evidence graph par ligne
+- `EST-393` radar de risque explicable par affaire / lot / ligne
 - `EST-392` suggestion de prix avec fourchette et sources
 
 Ces surfaces doivent etre deleguees a une equipe UX.
@@ -136,6 +137,7 @@ linkDpgfLineToTakeoffItems(input: {
 Note:
 - `rows[].proofs` est hydrate depuis la projection persistante `estimate_line_evidences`, pas depuis un calcul uniquement en memoire.
 - `linesWithoutProof` doit compter les lignes dont les preuves actives sont limitees a `dpgf`.
+- `rows[].risk` resume le score ligne visible dans la review, mais n'applique jamais un statut ou une decision automatiquement.
 
 ### 2) Evidence graph
 
@@ -194,7 +196,117 @@ Notes:
 - Le panneau UX detaille reste delegue; FS-B livre ici le contrat, l'historique et la provenance.
 - L'export PDF / annexe des preuves principales est hors scope `EST-391`.
 
-### 3) Suggestion de prix
+### 3) Radar de risque explicable
+
+Server fetcher:
+```ts
+fetchTakeoffRiskRadar(input: {
+  versionId: string;
+  takeoffJobId: string;
+  severity?: "info" | "warning" | "critical" | null;
+  status?: "to_process" | "assumed" | "false_positive" | null;
+  scope?: "project" | "lot" | "line" | null;
+  lotId?: string | null;
+}): Promise<{
+  summary: {
+    toProcessCount: number;
+    assumedCount: number;
+    falsePositiveCount: number;
+    criticalCount: number;
+    warningCount: number;
+    infoCount: number;
+    topCauses: string[];
+    projectScore: number;
+    projectSeverity: "info" | "warning" | "critical";
+  };
+  project: {
+    scopeType: "project";
+    scopeId: string;
+    scopeLabel: string;
+    score: number;
+    severity: "info" | "warning" | "critical";
+    openAlertsCount: number;
+    criticalAlertsCount: number;
+    topCauses: string[];
+  };
+  lots: Array<{
+    scopeType: "lot";
+    scopeId: string | null;
+    scopeLabel: string;
+    score: number;
+    severity: "info" | "warning" | "critical";
+    openAlertsCount: number;
+    criticalAlertsCount: number;
+    topCauses: string[];
+  }>;
+  items: Array<{
+    alertId: string;
+    scopeType: "project" | "lot" | "line";
+    scopeId: string | null;
+    scopeLabel: string;
+    lineId: string | null;
+    lotId: string | null;
+    causeCode:
+      | "missing_proof"
+      | "dpgf_takeoff_gap"
+      | "atypical_price"
+      | "insufficient_margin"
+      | "vat_inconsistency"
+      | "missing_piece";
+    causeLabel: string;
+    severity: "info" | "warning" | "critical";
+    riskScore: number;
+    status: "to_process" | "assumed" | "false_positive";
+    marginBucket: "negative" | "thin" | "healthy" | "unknown";
+    reasonLabels: string[];
+    provenance: Array<{
+      kind: "fact" | "hypothesis" | "inference";
+      label: string;
+      source: string;
+      confidenceScore: number | null;
+      note: string | null;
+    }>;
+    reviewNote: string | null;
+    reviewedAt: string | null;
+    reviewedBy: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}>;
+```
+
+Mutation:
+```ts
+updateTakeoffRiskAlertStatus(input: {
+  versionId: string;
+  takeoffJobId: string;
+  alertId: string;
+  status: "to_process" | "assumed" | "false_positive";
+  reviewNote?: string | null;
+}): Promise<{
+  alert: {
+    alertId: string;
+    status: "to_process" | "assumed" | "false_positive";
+    reviewNote: string | null;
+    reviewedAt: string | null;
+    reviewedBy: string | null;
+  };
+}>;
+```
+
+HTTP routes:
+```http
+GET /api/takeoff/jobs/:jobId/risk-radar?version_id=:versionId&severity=:severity&status=:status&scope=:scope&lot_id=:lotId
+PATCH /api/takeoff/jobs/:jobId/risk-alerts/:alertId
+```
+
+Notes:
+- La projection persistante est `estimate_risk_alerts`, active / inactive, avec preservation du statut humain lors des recalculs.
+- `warning` cote backend doit se rendre en label UX `Attention`.
+- La marge utilise les regles `estimate_rules.min_margin` quand elles sont applicables; a defaut, le seuil de vigilance radar tombe a `10.0%` (`1000 bp`).
+- Aucune action IA n'applique un statut sans validation humaine explicite; `assumed` et `false_positive` exigent une note humaine.
+
+### 4) Suggestion de prix
 
 Server Action:
 ```ts

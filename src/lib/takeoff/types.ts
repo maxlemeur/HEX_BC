@@ -468,6 +468,83 @@ export type TakeoffDpgfComparisonUnusedTakeoffItem = {
   evidence: string | null;
 };
 
+export type TakeoffRiskSeverity = "info" | "warning" | "critical";
+export type TakeoffRiskStatus = "to_process" | "assumed" | "false_positive";
+export type TakeoffRiskScopeType = "project" | "lot" | "line";
+export type TakeoffRiskMarginBucket =
+  | "negative"
+  | "thin"
+  | "healthy"
+  | "unknown";
+export type TakeoffRiskCauseCode =
+  | "missing_proof"
+  | "dpgf_takeoff_gap"
+  | "atypical_price"
+  | "insufficient_margin"
+  | "vat_inconsistency"
+  | "missing_piece";
+
+export type TakeoffRiskProvenanceEntry = {
+  kind: TakeoffDpgfComparisonEvidenceKind;
+  label: string;
+  source: string;
+  confidence_score: number | null;
+  note: string | null;
+};
+
+export type TakeoffDpgfLineRiskSummary = {
+  score: number;
+  severity: TakeoffRiskSeverity;
+  causes: string[];
+  status: TakeoffRiskStatus | null;
+};
+
+export type TakeoffRiskAlert = {
+  alert_id: string;
+  scope_type: TakeoffRiskScopeType;
+  scope_id: string | null;
+  scope_label: string;
+  line_id: string | null;
+  lot_id: string | null;
+  cause_code: TakeoffRiskCauseCode;
+  cause_label: string;
+  severity: TakeoffRiskSeverity;
+  risk_score: number;
+  status: TakeoffRiskStatus;
+  margin_bucket: TakeoffRiskMarginBucket;
+  reason_labels: string[];
+  provenance: TakeoffRiskProvenanceEntry[];
+  review_note: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  created_at: string;
+  updated_at: string;
+  metadata: Record<string, unknown>;
+};
+
+export type TakeoffRiskRadarScopeSummary = {
+  scope_type: Exclude<TakeoffRiskScopeType, "line">;
+  scope_id: string | null;
+  scope_label: string;
+  score: number;
+  severity: TakeoffRiskSeverity;
+  open_alerts_count: number;
+  critical_alerts_count: number;
+  top_causes: string[];
+};
+
+export type TakeoffRiskRadarSummary = {
+  to_process_count: number;
+  assumed_count: number;
+  false_positive_count: number;
+  critical_count: number;
+  warning_count: number;
+  info_count: number;
+  top_causes: string[];
+  project_score: number;
+  project_severity: TakeoffRiskSeverity;
+};
+
 export type TakeoffDpgfComparisonRow = {
   line_id: string;
   line_label: string;
@@ -487,6 +564,7 @@ export type TakeoffDpgfComparisonRow = {
   is_exception: boolean;
   manual_link_count: number;
   matched_by: "auto" | "manual" | null;
+  risk: TakeoffDpgfLineRiskSummary | null;
 };
 
 export type TakeoffDpgfComparisonSummary = {
@@ -513,6 +591,33 @@ export type TakeoffDpgfComparisonResponse = {
     next_cursor: string | null;
     total: number;
   };
+};
+
+export type TakeoffRiskRadarResponse = {
+  version_id: string;
+  job_id: string;
+  summary: TakeoffRiskRadarSummary;
+  project: TakeoffRiskRadarScopeSummary;
+  lots: TakeoffRiskRadarScopeSummary[];
+  items: TakeoffRiskAlert[];
+};
+
+export type TakeoffRiskRadarQuery = {
+  version_id: string;
+  severity?: TakeoffRiskSeverity | null;
+  status?: TakeoffRiskStatus | null;
+  scope?: TakeoffRiskScopeType | null;
+  lot_id?: string | null;
+};
+
+export type UpdateTakeoffRiskAlertStatusInput = {
+  version_id: string;
+  status: TakeoffRiskStatus;
+  review_note?: string | null;
+};
+
+export type UpdateTakeoffRiskAlertStatusResponse = {
+  alert: TakeoffRiskAlert;
 };
 
 export type TakeoffDpgfManualLinkRecord = {
@@ -790,4 +895,71 @@ export type TakeoffMetricsStatsPayload = {
   topErrors: TakeoffMetricsErrorEntry[];
   reliability: TakeoffMetricsReliability;
   recentJobs: TakeoffMetricsRecentJob[];
+};
+
+/* --- Activity Center types (V3-007) --- */
+
+export type TakeoffActivityCenterConfidenceLabel =
+  | "Elevee"
+  | "Moyenne"
+  | "Faible";
+export type TakeoffActivityCenterLevelLabel =
+  | "Rapide"
+  | "Standard"
+  | "Detaille";
+
+export type TakeoffActivityCenterCounters = {
+  technicalJobs: number;
+  usableJobs: number;
+  blockingExceptionsJobs: number;
+};
+
+export type TakeoffActivityCenterJobRow = {
+  jobId: string;
+  estimateVersionId: string;
+  versionLabel: string;
+  lotLabel: string | null;
+  planSetLabel: string | null;
+  levelLabel: TakeoffActivityCenterLevelLabel;
+  statusLabel: string;
+  statusRaw: TakeoffJobStatus | string;
+  itemCount: number;
+  coveragePercent: number;
+  exceptionCount: number;
+  confidenceLabel: TakeoffActivityCenterConfidenceLabel;
+  appliedCount: number;
+  createdAt: string;
+  carriedOverFrom: string | null;
+  neverApplied: boolean;
+  retryCount: number;
+};
+
+export type TakeoffActivityCenterFilters = {
+  versionId?: string | null;
+  lot?: string | null;
+  planSetId?: string | null;
+  status?: TakeoffJobStatus | null;
+  level?: TakeoffLevel | null;
+  period?: TakeoffJobListPeriod | null;
+};
+
+export type TakeoffActivityCenterResponse = {
+  counters: TakeoffActivityCenterCounters;
+  jobs: TakeoffActivityCenterJobRow[];
+  pagination: { limit: number; offset: number; total: number };
+};
+
+export type TakeoffApplicationHistoryEntry = {
+  jobId: string;
+  versionLabel: string;
+  appliedAt: string;
+  appliedBy: string | null;
+  strategy: string;
+  createdCount: number;
+  updatedCount: number;
+  ignoredCount: number;
+};
+
+export type TakeoffApplicationHistoryResponse = {
+  entries: TakeoffApplicationHistoryEntry[];
 };

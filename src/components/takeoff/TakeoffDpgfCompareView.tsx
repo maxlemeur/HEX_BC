@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import useSWR from "swr";
 import {
   startTransition,
   useDeferredValue,
@@ -15,9 +16,11 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import {
+  fetchTakeoffRiskRadar,
   isTakeoffApiError,
   saveTakeoffDpgfManualLink,
   saveTakeoffReviewDecision,
+  updateTakeoffRiskAlertStatus,
 } from "@/lib/takeoff/client";
 import type {
   TakeoffDpgfComparisonProof,
@@ -27,6 +30,9 @@ import type {
   TakeoffDpgfComparisonView,
   TakeoffDpgfReviewDecision,
   TakeoffDpgfReviewStatus,
+  TakeoffRiskAlert,
+  TakeoffRiskSeverity,
+  TakeoffRiskStatus,
 } from "@/lib/takeoff/types";
 
 type TakeoffDpgfCompareViewProps = {
@@ -39,6 +45,12 @@ type TakeoffDpgfCompareViewProps = {
 type ReviewStatusFilter = TakeoffDpgfReviewStatus | "all";
 type SortKey = "position" | "confidence_desc" | "delta_desc" | "matching_desc";
 type ProofKind = TakeoffDpgfComparisonProof["kind"];
+type RiskActionTarget = {
+  alertId: string;
+  status: Extract<TakeoffRiskStatus, "assumed" | "false_positive">;
+  causeLabel: string;
+  scopeLabel: string;
+};
 
 type ManualLinkModalProps = {
   open: boolean;
@@ -113,6 +125,36 @@ const PROOF_KIND_LABELS: Record<ProofKind, string> = {
   fact: "Faits",
   hypothesis: "Hypothèses",
   inference: "Inférences",
+};
+
+const RISK_SEVERITY_LABELS: Record<TakeoffRiskSeverity, string> = {
+  info: "Info",
+  warning: "Attention",
+  critical: "Critique",
+};
+
+const RISK_SEVERITY_VARIANT: Record<
+  TakeoffRiskSeverity,
+  "info" | "warning" | "error"
+> = {
+  info: "info",
+  warning: "warning",
+  critical: "error",
+};
+
+const RISK_STATUS_LABELS: Record<TakeoffRiskStatus, string> = {
+  to_process: "A traiter",
+  assumed: "Assume",
+  false_positive: "Faux positif",
+};
+
+const RISK_STATUS_VARIANT: Record<
+  TakeoffRiskStatus,
+  "warning" | "success" | "neutral"
+> = {
+  to_process: "warning",
+  assumed: "success",
+  false_positive: "neutral",
 };
 
 const PROOF_TYPE_LABELS: Record<TakeoffDpgfComparisonProof["type"], string> = {
@@ -630,7 +672,26 @@ export default function TakeoffDpgfCompareView({
   const [decisionReason, setDecisionReason] = useState("");
   const [draftDecision, setDraftDecision] = useState<TakeoffDpgfReviewDecision | null>(null);
   const [decisionSaving, setDecisionSaving] = useState(false);
+  const [riskActionTarget, setRiskActionTarget] = useState<RiskActionTarget | null>(null);
+  const [riskReviewNote, setRiskReviewNote] = useState("");
+  const [riskStatusSaving, setRiskStatusSaving] = useState(false);
   const [isToolbarPending, startToolbarTransition] = useTransition();
+  const {
+    data: riskRadar,
+    error: riskRadarError,
+    isLoading: riskRadarLoading,
+    mutate: mutateRiskRadar,
+  } = useSWR(
+    ["takeoff-risk-radar", data.job_id, data.version_id],
+    () =>
+      fetchTakeoffRiskRadar(data.job_id, {
+        version_id: data.version_id,
+      }),
+    {
+      revalidateOnFocus: true,
+      keepPreviousData: true,
+    }
+  );
 
   useEffect(() => {
     if (data.rows.some((row) => row.line_id === selectedRowId)) {
@@ -679,6 +740,15 @@ export default function TakeoffDpgfCompareView({
     setDecisionReason(selectedRow.applied_decision?.reason ?? "");
   }, [selectedRow]);
 
+  useEffect(() => {
+    if (!riskActionTarget) {
+      setRiskReviewNote("");
+      return;
+    }
+
+    setRiskReviewNote("");
+  }, [riskActionTarget]);
+
   const exceptionCounts = useMemo(() => {
     const source = data.rows;
     return {
@@ -703,6 +773,21 @@ export default function TakeoffDpgfCompareView({
       inference: selectedRow.proofs.filter((proof) => proof.kind === "inference"),
     } satisfies Record<ProofKind, TakeoffDpgfComparisonProof[]>;
   }, [selectedRow]);
+
+  const openRiskItems = useMemo(
+    () => (riskRadar?.items ?? []).filter((item) => item.status === "to_process"),
+    [riskRadar]
+  );
+
+  const selectedLineRiskItems = useMemo(() => {
+    if (!selectedRow) {
+      return [] as TakeoffRiskAlert[];
+    }
+
+    return (riskRadar?.items ?? []).filter(
+      (item) => item.scope_type === "line" && item.line_id === selectedRow.line_id
+    );
+  }, [riskRadar, selectedRow]);
 
   const handleViewChange = (nextView: TakeoffDpgfComparisonView) => {
     if (nextView === currentView) return;
@@ -732,6 +817,7 @@ export default function TakeoffDpgfCompareView({
       });
       setManualLinkModalOpen(false);
       onRefresh();
+      void mutateRiskRadar();
     } catch (error) {
       toast.error({
         title: "Impossible de sauvegarder le lien manuel",
@@ -758,6 +844,7 @@ export default function TakeoffDpgfCompareView({
       });
       setManualLinkModalOpen(false);
       onRefresh();
+      void mutateRiskRadar();
     } catch (error) {
       toast.error({
         title: "Impossible d'enregistrer l'hypothèse",
@@ -791,6 +878,7 @@ export default function TakeoffDpgfCompareView({
         description: `${DECISION_LABELS[draftDecision]} appliquée à la ligne.`,
       });
       onRefresh();
+      void mutateRiskRadar();
     } catch (error) {
       toast.error({
         title: "Impossible d'enregistrer la décision",
@@ -798,6 +886,36 @@ export default function TakeoffDpgfCompareView({
       });
     } finally {
       setDecisionSaving(false);
+    }
+  };
+
+  const handleRiskStatusSave = async () => {
+    if (!riskActionTarget) {
+      return;
+    }
+
+    setRiskStatusSaving(true);
+    try {
+      await updateTakeoffRiskAlertStatus(data.job_id, riskActionTarget.alertId, {
+        version_id: data.version_id,
+        status: riskActionTarget.status,
+        review_note: riskReviewNote.trim(),
+      });
+
+      toast.success({
+        title: "Statut de risque mis a jour",
+        description: `${riskActionTarget.causeLabel} passe en ${RISK_STATUS_LABELS[riskActionTarget.status].toLocaleLowerCase("fr-FR")}.`,
+      });
+      setRiskActionTarget(null);
+      onRefresh();
+      void mutateRiskRadar();
+    } catch (error) {
+      toast.error({
+        title: "Impossible de mettre a jour le risque",
+        description: isTakeoffApiError(error) ? error.message : "Erreur inconnue.",
+      });
+    } finally {
+      setRiskStatusSaving(false);
     }
   };
 
@@ -880,6 +998,182 @@ export default function TakeoffDpgfCompareView({
         </div>
       </section>
 
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
+        <div className="rounded-[28px] border border-[var(--border)] bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                Radar affaire
+              </p>
+              <h3 className="mt-2 text-xl font-semibold text-[var(--slate-950)]">
+                Risque explicable sur la version
+              </h3>
+            </div>
+            {riskRadar?.project ? (
+              <Badge variant={RISK_SEVERITY_VARIANT[riskRadar.project.severity]}>
+                {RISK_SEVERITY_LABELS[riskRadar.project.severity]} · {riskRadar.project.score}/100
+              </Badge>
+            ) : null}
+          </div>
+
+          {riskRadarLoading ? (
+            <p className="mt-3 text-sm text-[var(--slate-600)]">Chargement du radar de risque…</p>
+          ) : riskRadarError ? (
+            <p className="mt-3 text-sm text-[var(--danger)]">
+              {isTakeoffApiError(riskRadarError)
+                ? riskRadarError.message
+                : "Impossible de charger le radar de risque."}
+            </p>
+          ) : riskRadar ? (
+            <>
+              <p className="mt-3 text-sm leading-6 text-[var(--slate-600)]">
+                Causes dominantes :{" "}
+                {riskRadar.summary.top_causes.length > 0
+                  ? riskRadar.summary.top_causes.join(" · ")
+                  : "Aucun signal ouvert."}
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <SummaryCard
+                  label="Projet"
+                  value={riskRadar.summary.project_score}
+                  accent="text-[var(--slate-950)]"
+                />
+                <SummaryCard
+                  label="A traiter"
+                  value={riskRadar.summary.to_process_count}
+                  accent="text-amber-700"
+                />
+                <SummaryCard
+                  label="Assumes"
+                  value={riskRadar.summary.assumed_count}
+                  accent="text-emerald-700"
+                />
+                <SummaryCard
+                  label="Critiques"
+                  value={riskRadar.summary.critical_count}
+                  accent="text-rose-700"
+                />
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {riskRadar.lots.length > 0 ? (
+                  riskRadar.lots.slice(0, 4).map((lot) => (
+                    <Badge
+                      key={`${lot.scope_id ?? lot.scope_label}`}
+                      variant={RISK_SEVERITY_VARIANT[lot.severity]}
+                    >
+                      {lot.scope_label} · {lot.score}/100
+                    </Badge>
+                  ))
+                ) : (
+                  <Badge variant="neutral">Aucun lot en tension</Badge>
+                )}
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        <div className="rounded-[28px] border border-[var(--border)] bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                A traiter
+              </p>
+              <h3 className="mt-2 text-xl font-semibold text-[var(--slate-950)]">
+                Signaux prioritaires
+              </h3>
+            </div>
+            <Badge variant="warning">
+              {openRiskItems.length} ouverts
+            </Badge>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {openRiskItems.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--slate-50)] p-4 text-sm text-[var(--slate-600)]">
+                Aucun signal ouvert a traiter.
+              </div>
+            ) : (
+              openRiskItems.slice(0, 6).map((item) => (
+                <article
+                  key={item.alert_id}
+                  className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={RISK_SEVERITY_VARIANT[item.severity]} size="sm">
+                          {RISK_SEVERITY_LABELS[item.severity]}
+                        </Badge>
+                        <Badge variant={RISK_STATUS_VARIANT[item.status]} size="sm">
+                          {RISK_STATUS_LABELS[item.status]}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+                        {item.scope_label}
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        {item.cause_label} · {item.risk_score}/100
+                      </p>
+                      {item.reason_labels[0] ? (
+                        <p className="mt-2 text-sm text-[var(--slate-700)]">
+                          {item.reason_labels[0]}
+                        </p>
+                      ) : null}
+                    </div>
+                    {item.line_id ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          startTransition(() => {
+                            setSelectedRowId(item.line_id);
+                          })
+                        }
+                      >
+                        Ouvrir
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        setRiskActionTarget({
+                          alertId: item.alert_id,
+                          status: "assumed",
+                          causeLabel: item.cause_label,
+                          scopeLabel: item.scope_label,
+                        })
+                      }
+                    >
+                      Assumer
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        setRiskActionTarget({
+                          alertId: item.alert_id,
+                          status: "false_positive",
+                          causeLabel: item.cause_label,
+                          scopeLabel: item.scope_label,
+                        })
+                      }
+                    >
+                      Faux positif
+                    </Button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+
       <section className="rounded-[28px] border border-[var(--border)] bg-white p-4 shadow-sm">
         <div className="grid gap-3 lg:grid-cols-[minmax(220px,260px)_minmax(220px,260px)_1fr_auto]">
           <div>
@@ -949,7 +1243,15 @@ export default function TakeoffDpgfCompareView({
           </div>
 
           <div className="flex items-end">
-            <Button type="button" size="sm" variant="secondary" onClick={onRefresh}>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                onRefresh();
+                void mutateRiskRadar();
+              }}
+            >
               Rafraîchir
             </Button>
           </div>
@@ -965,9 +1267,13 @@ export default function TakeoffDpgfCompareView({
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() =>
-                setStatusFilter(statusFilter === "significant_gap" ? "all" : "significant_gap")
-              }
+              onClick={() => {
+                startToolbarTransition(() => {
+                  setStatusFilter(
+                    statusFilter === "significant_gap" ? "all" : "significant_gap"
+                  );
+                });
+              }}
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 statusFilter === "significant_gap"
                   ? "bg-rose-100 text-rose-800"
@@ -979,9 +1285,11 @@ export default function TakeoffDpgfCompareView({
             <span className="text-slate-300">·</span>
             <button
               type="button"
-              onClick={() =>
-                setStatusFilter(statusFilter === "to_confirm" ? "all" : "to_confirm")
-              }
+              onClick={() => {
+                startToolbarTransition(() => {
+                  setStatusFilter(statusFilter === "to_confirm" ? "all" : "to_confirm");
+                });
+              }}
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 statusFilter === "to_confirm"
                   ? "bg-amber-100 text-amber-800"
@@ -993,9 +1301,11 @@ export default function TakeoffDpgfCompareView({
             <span className="text-slate-300">·</span>
             <button
               type="button"
-              onClick={() =>
-                setStatusFilter(statusFilter === "unlinked" ? "all" : "unlinked")
-              }
+              onClick={() => {
+                startToolbarTransition(() => {
+                  setStatusFilter(statusFilter === "unlinked" ? "all" : "unlinked");
+                });
+              }}
               className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 statusFilter === "unlinked"
                   ? "bg-slate-200 text-slate-800"
@@ -1043,6 +1353,14 @@ export default function TakeoffDpgfCompareView({
                         <Badge variant={STATUS_BADGE_VARIANT[row.review_status]} size="sm">
                           {STATUS_LABELS[row.review_status]}
                         </Badge>
+                        {row.risk ? (
+                          <Badge
+                            variant={RISK_SEVERITY_VARIANT[row.risk.severity]}
+                            size="sm"
+                          >
+                            {RISK_SEVERITY_LABELS[row.risk.severity]} · {row.risk.score}/100
+                          </Badge>
+                        ) : null}
                         {row.matched_by ? (
                           <Badge variant={row.matched_by === "manual" ? "info" : "neutral"} size="sm">
                             {row.matched_by === "manual" ? "Lien manuel" : "Auto"}
@@ -1064,6 +1382,11 @@ export default function TakeoffDpgfCompareView({
                       <p className="mt-1 text-lg font-semibold text-[var(--slate-950)]">
                         {formatConfidence(row.confidence_score)}
                       </p>
+                      {row.risk?.causes[0] ? (
+                        <p className="mt-1 text-xs text-[var(--slate-600)]">
+                          {row.risk.causes[0]}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1172,6 +1495,157 @@ export default function TakeoffDpgfCompareView({
                   <p className="mt-1 text-xs text-[var(--slate-600)]">
                     Confiance globale {formatConfidence(selectedRow.confidence_score)}
                   </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                      Radar ligne
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+                      {selectedRow.risk
+                        ? `${RISK_SEVERITY_LABELS[selectedRow.risk.severity]} · ${selectedRow.risk.score}/100`
+                        : "Aucun signal specifique sur cette ligne"}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--slate-600)]">
+                      {selectedRow.risk?.causes.length
+                        ? selectedRow.risk.causes.join(" · ")
+                        : "Le radar complet reste visible dans la file A traiter."}
+                    </p>
+                  </div>
+                  {selectedRow.risk?.status ? (
+                    <Badge variant={RISK_STATUS_VARIANT[selectedRow.risk.status]}>
+                      {RISK_STATUS_LABELS[selectedRow.risk.status]}
+                    </Badge>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {selectedLineRiskItems.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-[var(--border)] bg-white p-4 text-sm text-[var(--slate-600)]">
+                      Aucun signal de risque persistant sur cette ligne.
+                    </div>
+                  ) : (
+                    selectedLineRiskItems.map((item) => (
+                      <article
+                        key={item.alert_id}
+                        className="rounded-2xl border border-[var(--border)] bg-white p-4"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge
+                                variant={RISK_SEVERITY_VARIANT[item.severity]}
+                                size="sm"
+                              >
+                                {RISK_SEVERITY_LABELS[item.severity]}
+                              </Badge>
+                              <Badge
+                                variant={RISK_STATUS_VARIANT[item.status]}
+                                size="sm"
+                              >
+                                {RISK_STATUS_LABELS[item.status]}
+                              </Badge>
+                            </div>
+                            <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+                              {item.cause_label}
+                            </p>
+                          </div>
+                          <p className="text-sm font-semibold text-[var(--slate-900)]">
+                            {item.risk_score}/100
+                          </p>
+                        </div>
+
+                        {item.reason_labels.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {item.reason_labels.map((reason) => (
+                              <Badge key={reason} variant="neutral" size="sm">
+                                {reason}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {item.provenance.length > 0 ? (
+                          <div className="mt-3 space-y-2">
+                            {item.provenance.map((entry) => (
+                              <div
+                                key={[
+                                  item.alert_id,
+                                  entry.kind,
+                                  entry.label,
+                                  entry.source,
+                                  entry.note ?? "",
+                                ].join("-")}
+                                className="rounded-xl border border-[var(--border)] bg-[var(--slate-50)] px-3 py-2"
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="neutral" size="sm">
+                                    {PROOF_KIND_LABELS[entry.kind]}
+                                  </Badge>
+                                  <p className="text-xs font-semibold text-[var(--slate-900)]">
+                                    {entry.label}
+                                  </p>
+                                </div>
+                                <p className="mt-1 text-xs text-[var(--slate-600)]">
+                                  {entry.source}
+                                  {entry.confidence_score !== null
+                                    ? ` · ${formatProofConfidence(entry.confidence_score)}`
+                                    : ""}
+                                </p>
+                                {entry.note ? (
+                                  <p className="mt-1 text-xs leading-5 text-[var(--slate-600)]">
+                                    {entry.note}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {item.review_note ? (
+                          <p className="mt-3 text-xs leading-5 text-[var(--slate-600)]">
+                            Note humaine : {item.review_note}
+                          </p>
+                        ) : null}
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                              setRiskActionTarget({
+                                alertId: item.alert_id,
+                                status: "assumed",
+                                causeLabel: item.cause_label,
+                                scopeLabel: item.scope_label,
+                              })
+                            }
+                          >
+                            Assumer
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setRiskActionTarget({
+                                alertId: item.alert_id,
+                                status: "false_positive",
+                                causeLabel: item.cause_label,
+                                scopeLabel: item.scope_label,
+                              })
+                            }
+                          >
+                            Faux positif
+                          </Button>
+                        </div>
+                      </article>
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -1328,6 +1802,68 @@ export default function TakeoffDpgfCompareView({
           surfaceLabel="Preuves persistantes"
         />
       ) : null}
+
+      <Modal.Root
+        open={riskActionTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRiskActionTarget(null);
+          }
+        }}
+      >
+        <Modal.Content className="max-w-2xl">
+          <Modal.Header>
+            <Modal.Title>Statut explicite du risque</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                Signal cible
+              </p>
+              <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">
+                {riskActionTarget?.causeLabel ?? "Signal"}
+              </p>
+              <p className="mt-1 text-sm text-[var(--slate-600)]">
+                {riskActionTarget?.scopeLabel ?? "Scope inconnu"} ·{" "}
+                {riskActionTarget
+                  ? RISK_STATUS_LABELS[riskActionTarget.status]
+                  : "Statut"}
+              </p>
+            </div>
+            <div className="mt-4">
+              <label className="form-label" htmlFor="risk-review-note">
+                Note humaine obligatoire
+              </label>
+              <textarea
+                id="risk-review-note"
+                name="risk_review_note"
+                autoComplete="off"
+                className="form-input min-h-[140px] py-3"
+                value={riskReviewNote}
+                placeholder="Distinguer le fait observe, l'hypothese retenue et la raison de l'arbitrage humain."
+                onChange={(event) => setRiskReviewNote(event.target.value)}
+                maxLength={2000}
+              />
+              <p className="mt-2 text-xs text-[var(--slate-500)]">
+                Aucune suggestion IA n&apos;est appliquee silencieusement. Ce changement reste explicite
+                et justifie.
+              </p>
+            </div>
+          </Modal.Body>
+          <Modal.Footer>
+            <Modal.Close>Annuler</Modal.Close>
+            <Button
+              type="button"
+              size="sm"
+              loading={riskStatusSaving}
+              disabled={riskReviewNote.trim().length === 0}
+              onClick={() => void handleRiskStatusSave()}
+            >
+              Enregistrer le statut
+            </Button>
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
     </div>
   );
 }

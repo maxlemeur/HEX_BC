@@ -626,6 +626,7 @@ function buildRow(input: {
         : input.linkedTakeoffItems.length > 0
           ? "auto"
           : null,
+    risk: null,
   };
 }
 

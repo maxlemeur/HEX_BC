@@ -32,6 +32,7 @@ import {
   resolveTakeoffMaxNavigablePagesByOffset,
 } from "@/components/takeoff/takeoff-job-list-shared";
 import { EmptyState } from "@/components/ui/EmptyState";
+import TakeoffExceptionsTab from "@/components/takeoff/TakeoffExceptionsTab";
 
 type Props = {
   projectId: string;
@@ -627,6 +628,25 @@ export default function ProjectTakeoffJobList({
           </div>
         </section>
       ) : null}
+
+      <section className="dashboard-card p-5 sm:p-6">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-[var(--slate-900)]">
+              Exceptions &amp; risques
+            </h2>
+            <p className="mt-1 text-sm text-[var(--slate-500)]">
+              Provenance, confiance et signaux de risque pour la version en cours
+              de revue.
+            </p>
+          </div>
+        </div>
+
+        <TakeoffExceptionsTab
+          projectId={projectId}
+          versionId={versionFilter === "all" ? null : versionFilter}
+        />
+      </section>
     </section>
   );
 }

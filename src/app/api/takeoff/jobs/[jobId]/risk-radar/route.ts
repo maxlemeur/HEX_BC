@@ -2,11 +2,9 @@ import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
 import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
-import { buildTakeoffRowRiskMap } from "@/lib/takeoff/risk-radar";
 import {
-  fetchDpgfTakeoffComparison,
   fetchTakeoffRiskRadar,
-  parseTakeoffDpgfComparisonQuery,
+  parseTakeoffRiskRadarQuery,
 } from "@/lib/takeoff/server";
 
 function toQueryObject(request: Request) {
@@ -23,24 +21,10 @@ export async function GET(
 ) {
   try {
     const jobId = await getJobId(params);
-    const query = parseTakeoffDpgfComparisonQuery(toQueryObject(request));
-    const [data, radar] = await Promise.all([
-      fetchDpgfTakeoffComparison(jobId, query),
-      fetchTakeoffRiskRadar(jobId, {
-        version_id: query.version_id,
-      }),
-    ]);
-    const lineRiskByLineId = buildTakeoffRowRiskMap(
-      radar.items.filter((item) => item.scope_type === "line")
-    );
+    const query = parseTakeoffRiskRadarQuery(toQueryObject(request));
+    const data = await fetchTakeoffRiskRadar(jobId, query);
 
-    return ok({
-      ...data,
-      rows: data.rows.map((row) => ({
-        ...row,
-        risk: lineRiskByLineId.get(row.line_id) ?? row.risk,
-      })),
-    });
+    return ok(data);
   } catch (error) {
     if (error instanceof TakeoffError) {
       return NextResponse.json(toTakeoffErrorResponse(error), {
