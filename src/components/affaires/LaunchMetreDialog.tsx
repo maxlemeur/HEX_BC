@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
@@ -26,6 +26,17 @@ type LaunchMetreDialogProps = {
 
 export function LaunchMetreDialog({
   open,
+  ...props
+}: LaunchMetreDialogProps) {
+  if (!open) {
+    return null;
+  }
+
+  return <LaunchMetreDialogContent {...props} open={open} />;
+}
+
+function LaunchMetreDialogContent({
+  open,
   onOpenChange,
   projectId,
   draftVersionId,
@@ -36,14 +47,9 @@ export function LaunchMetreDialog({
   const toast = useToast();
   const [isUploading, setIsUploading] = useState(false);
   const [launchSuccess, setLaunchSuccess] = useState(false);
-  const stayButtonRef = useRef<HTMLButtonElement>(null);
-
-  // Focus the "Rester sur le hub" button when success state shows
-  useEffect(() => {
-    if (launchSuccess) {
-      stayButtonRef.current?.focus();
-    }
-  }, [launchSuccess]);
+  const focusStayButton = useCallback((button: HTMLButtonElement | null) => {
+    button?.focus();
+  }, []);
 
   const handleSuccess = useCallback(() => {
     setIsUploading(false);
@@ -65,9 +71,6 @@ export function LaunchMetreDialog({
     (nextOpen: boolean) => {
       if (!nextOpen && isUploading) {
         return;
-      }
-      if (nextOpen) {
-        setLaunchSuccess(false);
       }
       onOpenChange(nextOpen);
     },
@@ -117,7 +120,7 @@ export function LaunchMetreDialog({
               )}
               <div className="flex items-center justify-center gap-3 pt-2">
                 <button
-                  ref={stayButtonRef}
+                  ref={focusStayButton}
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() => onOpenChange(false)}
@@ -187,6 +190,7 @@ export function LaunchMetreDialog({
                   {ANALYSIS_LEVELS.map((level) => (
                     <label
                       key={level.id}
+                      aria-label={level.label}
                       className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${
                         level.enabled
                           ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 cursor-pointer"

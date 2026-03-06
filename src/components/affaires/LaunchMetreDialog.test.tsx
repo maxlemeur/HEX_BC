@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -195,6 +195,39 @@ describe("LaunchMetreDialog", () => {
     await user.click(screen.getByRole("button", { name: "Rester sur le hub" }));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("resets the success state when the parent reopens the dialog", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <LaunchMetreDialog
+        {...defaultProps}
+        onOpenChange={onOpenChange}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Trigger Success" }));
+    expect(screen.getByText("Analyse lancee avec succes")).toBeInTheDocument();
+
+    rerender(
+      <LaunchMetreDialog
+        {...defaultProps}
+        open={false}
+        onOpenChange={onOpenChange}
+      />
+    );
+
+    rerender(
+      <LaunchMetreDialog
+        {...defaultProps}
+        open
+        onOpenChange={onOpenChange}
+      />
+    );
+
+    expect(screen.queryByText("Analyse lancee avec succes")).not.toBeInTheDocument();
+    expect(screen.getByTestId("takeoff-upload-form")).toBeInTheDocument();
   });
 
   it("renders business-friendly analysis level labels", () => {

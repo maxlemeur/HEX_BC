@@ -116,6 +116,18 @@ export function buildNavigationItems(input: BuildNavGroupsInput): CommandItem[] 
 const RECENTS_KEY = "command-palette-recents";
 const MAX_RECENTS = 5;
 
+export function shouldShowAnalysePlansAction(params: {
+  pathname: string;
+  isTakeoffEnabled: boolean;
+  tenantRole: string | null;
+}) {
+  return (
+    /^\/dashboard\/affaires\/[^/]+$/.test(params.pathname) &&
+    params.isTakeoffEnabled &&
+    params.tenantRole !== "director"
+  );
+}
+
 export function fuzzyMatch(query: string, item: CommandItem): boolean {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const target = [item.label, item.description ?? "", ...(item.keywords ?? [])]
@@ -206,9 +218,12 @@ export function useCommandPalette() {
     [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled, lastAffaireId]
   );
   const allItems = useMemo(() => {
-    const isOnAffairePage = /^\/dashboard\/affaires\/[^/]+$/.test(pathname);
     const contextualActions: CommandItem[] =
-      isOnAffairePage && isTakeoffEnabled
+      shouldShowAnalysePlansAction({
+        pathname,
+        isTakeoffEnabled,
+        tenantRole,
+      })
         ? [
             {
               id: "action-analyse-plans",
@@ -222,7 +237,7 @@ export function useCommandPalette() {
           ]
         : [];
     return [...ACTION_ITEMS, ...contextualActions, ...navigationItems];
-  }, [navigationItems, pathname, isTakeoffEnabled]);
+  }, [navigationItems, pathname, isTakeoffEnabled, tenantRole]);
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
