@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +43,17 @@ export function TakeoffReviewModeSwitch({
   mode,
   onModeChange,
 }: TakeoffReviewModeSwitchProps) {
+  const buttonRefs = useRef<Map<ReviewMode, HTMLButtonElement>>(new Map());
+  const pendingFocusRef = useRef<ReviewMode | null>(null);
+
+  // Focus the target button after React re-renders (panel swap may steal focus)
+  useEffect(() => {
+    if (pendingFocusRef.current !== null) {
+      buttonRefs.current.get(pendingFocusRef.current)?.focus();
+      pendingFocusRef.current = null;
+    }
+  }, [mode]);
+
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       const currentIndex = MODE_OPTIONS.findIndex((o) => o.value === mode);
@@ -65,7 +76,9 @@ export function TakeoffReviewModeSwitch({
         return;
       }
 
-      onModeChange(MODE_OPTIONS[nextIndex].value);
+      const nextMode = MODE_OPTIONS[nextIndex].value;
+      pendingFocusRef.current = nextMode;
+      onModeChange(nextMode);
     },
     [mode, onModeChange]
   );
@@ -82,6 +95,9 @@ export function TakeoffReviewModeSwitch({
         return (
           <button
             key={option.value}
+            ref={(el) => {
+              if (el) buttonRefs.current.set(option.value, el);
+            }}
             type="button"
             role="radio"
             aria-checked={isSelected}

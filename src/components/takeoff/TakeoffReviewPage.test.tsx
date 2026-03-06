@@ -304,7 +304,7 @@ describe("TakeoffReviewPage", () => {
     expect(mockReplace).toHaveBeenCalledWith("?view=items", { scroll: false });
   });
 
-  it("renders tables view when a simplified user opens a tables deep link", async () => {
+  it("keeps the production tables deep link when a simplified user opens assisted mode", async () => {
     mockUiMode("simplified");
     mockSearchParams = new URLSearchParams("view=tables");
     vi.mocked(fetchTakeoffJob).mockResolvedValue(
@@ -335,7 +335,7 @@ describe("TakeoffReviewPage", () => {
       screen.getByRole("radio", { name: /Assiste/ })
     ).toBeDefined();
     expect(screen.queryByPlaceholderText("Rechercher par titre...")).toBeNull();
-    expect(mockReplace).toHaveBeenCalledWith("?view=items", { scroll: false });
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it("does not show a tables tab when no tables exist", async () => {
@@ -606,7 +606,7 @@ describe("TakeoffReviewPage", () => {
     );
   });
 
-  it("renders compare view when a simplified user opens a compare deep link", async () => {
+  it("keeps the production compare deep link when a simplified user opens assisted mode", async () => {
     mockUiMode("simplified");
     mockSearchParams = new URLSearchParams(
       "view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8"
@@ -686,10 +686,7 @@ describe("TakeoffReviewPage", () => {
       screen.getByRole("radio", { name: /Assiste/ })
     ).toBeDefined();
     expect(screen.queryByText("Resume des changements")).toBeNull();
-    expect(mockReplace).toHaveBeenCalledWith(
-      "?view=items&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8",
-      { scroll: false }
-    );
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it("switches review mode via mode switch without persisting the profile mode", async () => {
@@ -723,5 +720,140 @@ describe("TakeoffReviewPage", () => {
       expect.stringContaining("reviewMode=production"),
       { scroll: false }
     );
+  });
+
+  it("preserves the production tab when switching away and back", async () => {
+    mockSearchParams = new URLSearchParams(
+      "reviewMode=production&view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8"
+    );
+
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(
+      makeMockResponse([makeItem()], { level: "A" })
+    );
+    vi.mocked(listTakeoffJobs).mockResolvedValue({
+      jobs: [
+        {
+          ...makeMockResponse([makeItem()]).job,
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          source_file_name: "niveau-a.csv",
+          status: "completed",
+        },
+      ],
+      counters: {
+        total: 1,
+        processing: 0,
+        completed: 1,
+        failed: 0,
+        canceled: 0,
+      },
+      pagination: {
+        limit: 20,
+        offset: 0,
+        total: 1,
+      },
+    });
+    vi.mocked(fetchTakeoffJobCompare).mockResolvedValue({
+      base_job_id: JOB_ID,
+      other_job_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      threshold: 0.8,
+      summary: {
+        added: 1,
+        removed: 0,
+        changed: 0,
+        unchanged: 1,
+        total_base: 1,
+        total_other: 2,
+      },
+      added: [
+        {
+          key: "added:1",
+          change_type: "added",
+          other_item: makeItem({
+            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            designation: "Vis",
+          }),
+        },
+      ],
+      removed: [],
+      changed: [],
+      unchanged: [
+        {
+          key: "unchanged:1",
+          change_type: "unchanged",
+          base_item: makeItem(),
+          other_item: makeItem({
+            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          }),
+          match_score: 1,
+          match_strategy: "designation_fuzzy",
+        },
+      ],
+    });
+
+    const { rerender } = render(
+      <TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Resume des changements")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("radio", { name: /Assiste/ }));
+
+    expect(mockReplace).toHaveBeenLastCalledWith(
+      "?reviewMode=assisted&view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8",
+      { scroll: false }
+    );
+
+    mockSearchParams = new URLSearchParams(
+      "reviewMode=assisted&view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8"
+    );
+    rerender(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("radio", { name: /Production/ }));
+
+    expect(mockReplace).toHaveBeenLastCalledWith(
+      "?view=compare&compareWith=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa&threshold=0.8",
+      { scroll: false }
+    );
+  });
+
+  it("persists assisted review progress across mode switches", async () => {
+    mockUiMode("simplified");
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(
+      makeMockResponse([makeItem()])
+    );
+
+    const { rerender } = render(
+      <TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Accepter" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Accepte" })).toBeDefined();
+    });
+
+    mockSearchParams = new URLSearchParams("reviewMode=production");
+    rerender(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "Items (1)" })).toBeDefined();
+    });
+
+    mockSearchParams = new URLSearchParams();
+    rerender(<TakeoffReviewPage jobId={JOB_ID} versionId={VERSION_ID} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Accepte" })).toBeDefined();
+    });
   });
 });

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -484,8 +485,41 @@ export default function TakeoffReviewTable({
     selectedIds.has(i.id)
   ).length;
 
+  // ---- Keyboard shortcuts for row actions
+  const containerRef = useRef<HTMLDivElement>(null);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      // Only fire when not editing a cell
+      if (navigation.editingCell) return;
+
+      const activeRowId = navigation.activeCell?.rowId;
+      if (!activeRowId) return;
+
+      const activeItem = items.find((i) => i.id === activeRowId);
+      if (!activeItem) return;
+
+      const key = e.key.toLowerCase();
+
+      if (key === "e") {
+        e.preventDefault();
+        if (activeItem.is_excluded) {
+          onIncludeItems([activeRowId]);
+        } else {
+          onExcludeItems([activeRowId]);
+        }
+      } else if (key === "v") {
+        e.preventDefault();
+        onUpdateItem(activeRowId, "is_verified", !activeItem.is_verified);
+      } else if (key === "p") {
+        e.preventDefault();
+        onOpenEvidencePanel?.(activeRowId);
+      }
+    },
+    [navigation.editingCell, navigation.activeCell, items, onIncludeItems, onExcludeItems, onUpdateItem, onOpenEvidencePanel]
+  );
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 rounded-lg" ref={containerRef} tabIndex={0} onKeyDown={handleKeyDown}>
       {/* ---- Filters ---- */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Search */}
@@ -619,6 +653,13 @@ export default function TakeoffReviewTable({
           {filteredItems.length} / {items.length} affiche(s)
         </span>
       </div>
+
+      {/* ---- Keyboard shortcuts hint ---- */}
+      <p className="text-xs text-[var(--slate-400)]">
+        Raccourcis : <kbd className="rounded border border-[var(--border)] px-1">E</kbd> exclure/inclure,{" "}
+        <kbd className="rounded border border-[var(--border)] px-1">V</kbd> verifier,{" "}
+        <kbd className="rounded border border-[var(--border)] px-1">P</kbd> preuve
+      </p>
 
       {/* ---- Bulk actions bar ---- */}
       {selectedCount > 0 && (

@@ -9,6 +9,7 @@ import { useMemo } from "react";
 type ReviewProgressBarProps = {
   acceptedCount: number;
   rejectedCount: number;
+  markedForReviewCount?: number;
   totalCount: number;
 };
 
@@ -19,21 +20,24 @@ type ReviewProgressBarProps = {
 export function ReviewProgressBar({
   acceptedCount,
   rejectedCount,
+  markedForReviewCount = 0,
   totalCount,
 }: ReviewProgressBarProps) {
-  const { reviewedCount, pendingCount, acceptedPct, rejectedPct } =
+  const { reviewedCount, pendingCount, acceptedPct, rejectedPct, markedPct } =
     useMemo(() => {
-      const reviewed = acceptedCount + rejectedCount;
+      const reviewed = acceptedCount + rejectedCount + markedForReviewCount;
       const pending = totalCount - reviewed;
       const aPct = totalCount > 0 ? (acceptedCount / totalCount) * 100 : 0;
       const rPct = totalCount > 0 ? (rejectedCount / totalCount) * 100 : 0;
+      const mPct = totalCount > 0 ? (markedForReviewCount / totalCount) * 100 : 0;
       return {
         reviewedCount: reviewed,
         pendingCount: pending,
         acceptedPct: aPct,
         rejectedPct: rPct,
+        markedPct: mPct,
       };
-    }, [acceptedCount, rejectedCount, totalCount]);
+    }, [acceptedCount, rejectedCount, markedForReviewCount, totalCount]);
 
   const allReviewed = reviewedCount === totalCount && totalCount > 0;
 
@@ -57,6 +61,12 @@ export function ReviewProgressBar({
           <div
             className="h-full bg-[var(--success)] transition-all duration-500"
             style={{ width: `${acceptedPct}%` }}
+          />
+        )}
+        {markedPct > 0 && (
+          <div
+            className="h-full bg-[var(--warning)] transition-all duration-500"
+            style={{ width: `${markedPct}%` }}
           />
         )}
         {rejectedPct > 0 && (
@@ -88,6 +98,16 @@ export function ReviewProgressBar({
           </span>{" "}
           <span className="text-[var(--slate-500)]">acceptes</span>
         </span>
+
+        {markedForReviewCount > 0 && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--warning)]" />
+            <span className="font-medium text-[var(--slate-700)]">
+              {markedForReviewCount}
+            </span>{" "}
+            <span className="text-[var(--slate-500)]">a revoir</span>
+          </span>
+        )}
 
         <span className="flex items-center gap-1.5">
           <svg

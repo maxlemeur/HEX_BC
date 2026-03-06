@@ -18,8 +18,10 @@ type ReviewItemCardProps = {
   item: ReviewItem;
   isReviewed: boolean;
   isAccepted: boolean;
+  isMarkedForReview?: boolean;
   onAccept: () => void;
   onReject: () => void;
+  onMarkForReview?: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -98,6 +100,25 @@ function WarningIcon({ className }: { className?: string }) {
   );
 }
 
+function EyeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+      <path
+        fillRule="evenodd"
+        d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -106,8 +127,10 @@ export function ReviewItemCard({
   item,
   isReviewed,
   isAccepted,
+  isMarkedForReview = false,
   onAccept,
   onReject,
+  onMarkForReview,
 }: ReviewItemCardProps) {
   const anomalies = useMemo(() => detectAnomalies(item), [item]);
   const isRejected = isReviewed && !isAccepted;
@@ -118,11 +141,13 @@ export function ReviewItemCard({
   const badgeVariant = getConfidenceBadgeVariant(item.confidence);
 
   // Card style by state
-  const cardClass = isAccepted
-    ? "border-l-4 border-l-[var(--success)] bg-emerald-50/50"
-    : isRejected
-      ? "border-l-4 border-l-[var(--danger)] bg-rose-50/50 opacity-70"
-      : "border border-[var(--border)] bg-white";
+  const cardClass = isMarkedForReview
+    ? "border-l-4 border-l-[var(--warning)] bg-amber-50/50"
+    : isAccepted
+      ? "border-l-4 border-l-[var(--success)] bg-emerald-50/50"
+      : isRejected
+        ? "border-l-4 border-l-[var(--danger)] bg-rose-50/50 opacity-70"
+        : "border border-[var(--border)] bg-white";
 
   // Source reference
   const sourceRef = item.source_file_name
@@ -204,6 +229,17 @@ export function ReviewItemCard({
           >
             {isAccepted ? "Accepte" : "Accepter"}
           </Button>
+          {onMarkForReview && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onMarkForReview}
+              className="active:scale-[0.98] transition-transform duration-150"
+              leftIcon={<EyeIcon className="h-4 w-4" />}
+            >
+              {isMarkedForReview ? "Marque" : "A revoir"}
+            </Button>
+          )}
           <Button
             variant="danger"
             size="sm"

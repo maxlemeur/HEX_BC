@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import { useCallback, useMemo, useTransition } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -16,6 +17,10 @@ import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 
 type AssistedReviewPanelProps = {
   items: ReviewItem[];
+  reviewedIds: Set<string>;
+  markedForReviewIds: Set<string>;
+  onReviewedIdsChange: Dispatch<SetStateAction<Set<string>>>;
+  onMarkedForReviewIdsChange: Dispatch<SetStateAction<Set<string>>>;
   onExcludeItems: (itemIds: string[]) => void;
   onIncludeItems: (itemIds: string[]) => void;
   onApplyClick: () => void;
@@ -28,48 +33,26 @@ type AssistedReviewPanelProps = {
 
 export function AssistedReviewPanel({
   items,
+  reviewedIds,
+  markedForReviewIds,
+  onReviewedIdsChange,
+  onMarkedForReviewIdsChange,
   onExcludeItems,
   onIncludeItems,
   onApplyClick,
   isApplyReady,
 }: AssistedReviewPanelProps) {
   const toast = useToast();
-  const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
-  const previousExcludedStateRef = useRef<Map<string, boolean> | null>(null);
 
-  useEffect(() => {
-    setReviewedIds((previousReviewedIds) => {
-      const validItemIds = new Set(items.map((item) => item.id));
-      const nextReviewedIds = new Set(
-        Array.from(previousReviewedIds).filter((itemId) => validItemIds.has(itemId))
-      );
-      let changed = nextReviewedIds.size !== previousReviewedIds.size;
-
-      if (previousExcludedStateRef.current !== null) {
-        for (const item of items) {
-          if (!previousExcludedStateRef.current.get(item.id) && item.is_excluded) {
-            if (!nextReviewedIds.has(item.id)) {
-              nextReviewedIds.add(item.id);
-              changed = true;
-            }
-          }
-        }
-      }
-
-      previousExcludedStateRef.current = new Map(
-        items.map((item) => [item.id, item.is_excluded] as const)
-      );
-
-      return changed ? nextReviewedIds : previousReviewedIds;
-    });
-  }, [items]);
-
-  const { acceptedCount, rejectedCount, pendingCount } = useMemo(() => {
+  const { acceptedCount, rejectedCount, markedForReviewCount, pendingCount } = useMemo(() => {
     let accepted = 0;
     let rejected = 0;
+    let markedForReview = 0;
     for (const item of items) {
-      if (reviewedIds.has(item.id)) {
+      if (markedForReviewIds.has(item.id)) {
+        markedForReview++;
+      } else if (reviewedIds.has(item.id)) {
         if (item.is_excluded) {
           rejected++;
         } else {
@@ -80,40 +63,65 @@ export function AssistedReviewPanel({
     return {
       acceptedCount: accepted,
       rejectedCount: rejected,
+      markedForReviewCount: markedForReview,
       pendingCount: items.length - reviewedIds.size,
     };
-  }, [items, reviewedIds]);
+  }, [items, reviewedIds, markedForReviewIds]);
 
   const handleAccept = useCallback(
     (itemId: string) => {
       onIncludeItems([itemId]);
-      setReviewedIds((prev) => new Set(prev).add(itemId));
+      onReviewedIdsChange((prev) => new Set(prev).add(itemId));
+      onMarkedForReviewIdsChange((prev) => {
+        if (!prev.has(itemId)) return prev;
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
     },
-    [onIncludeItems]
+    [onIncludeItems, onMarkedForReviewIdsChange, onReviewedIdsChange]
   );
 
   const handleReject = useCallback(
     (itemId: string) => {
       onExcludeItems([itemId]);
+      onMarkedForReviewIdsChange((prev) => {
+        if (!prev.has(itemId)) return prev;
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
     },
-    [onExcludeItems]
+    [onExcludeItems, onMarkedForReviewIdsChange]
+  );
+
+  const handleMarkForReview = useCallback(
+    (itemId: string) => {
+      onMarkedForReviewIdsChange((prev) => new Set(prev).add(itemId));
+      onReviewedIdsChange((prev) => new Set(prev).add(itemId));
+    },
+    [onMarkedForReviewIdsChange, onReviewedIdsChange]
   );
 
   const handleAcceptAll = useCallback(() => {
     startTransition(() => {
       const idsToAccept = items
-        .filter((item) => item.is_excluded)
+        .filter((item) => item.is_excluded && !markedForReviewIds.has(item.id))
         .map((item) => item.id);
       if (idsToAccept.length > 0) {
         onIncludeItems(idsToAccept);
       }
-      setReviewedIds(new Set(items.map((i) => i.id)));
+      const allIds = new Set(items.map((i) => i.id));
+      onReviewedIdsChange(allIds);
+      const skipped = markedForReviewIds.size;
       toast.success({
-        title: `${items.length} items acceptes`,
-        description: "Tous les items ont ete marques comme revus.",
+        title: `${items.length - skipped} items acceptes`,
+        description: skipped > 0
+          ? `${skipped} item(s) "a revoir" non affecte(s).`
+          : "Tous les items ont ete marques comme revus.",
       });
     });
-  }, [items, onIncludeItems, toast]);
+  }, [items, markedForReviewIds, onIncludeItems, onReviewedIdsChange, toast]);
 
   if (items.length === 0) {
     return (
@@ -145,6 +153,7 @@ export function AssistedReviewPanel({
       <ReviewProgressBar
         acceptedCount={acceptedCount}
         rejectedCount={rejectedCount}
+        markedForReviewCount={markedForReviewCount}
         totalCount={items.length}
       />
 
@@ -160,6 +169,9 @@ export function AssistedReviewPanel({
           )}
           {rejectedCount > 0 && (
             <Badge variant="error" size="sm">{rejectedCount} ecarte{rejectedCount > 1 ? "s" : ""}</Badge>
+          )}
+          {markedForReviewCount > 0 && (
+            <Badge variant="warning" size="sm">{markedForReviewCount} a revoir</Badge>
           )}
           {pendingCount > 0 && (
             <Badge variant="neutral" size="sm">{pendingCount} a examiner</Badge>
@@ -186,7 +198,8 @@ export function AssistedReviewPanel({
       >
         {items.map((item) => {
           const isReviewed = reviewedIds.has(item.id);
-          const isAccepted = isReviewed && !item.is_excluded;
+          const isMarkedForReview = markedForReviewIds.has(item.id);
+          const isAccepted = isReviewed && !item.is_excluded && !isMarkedForReview;
 
           return (
             <ReviewItemCard
@@ -194,8 +207,10 @@ export function AssistedReviewPanel({
               item={item}
               isReviewed={isReviewed}
               isAccepted={isAccepted}
+              isMarkedForReview={isMarkedForReview}
               onAccept={() => handleAccept(item.id)}
               onReject={() => handleReject(item.id)}
+              onMarkForReview={() => handleMarkForReview(item.id)}
             />
           );
         })}

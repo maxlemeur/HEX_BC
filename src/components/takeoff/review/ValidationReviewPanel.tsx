@@ -22,7 +22,7 @@ type ValidationReviewPanelProps = {
   isApplyReady: boolean;
 };
 
-type ValidationFilter = "all" | "low_confidence" | "missing_evidence" | "anomalies" | "unverified";
+type ValidationFilter = "all" | "low_confidence" | "missing_evidence" | "anomalies" | "unverified" | "open_hypotheses";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -34,6 +34,7 @@ const FILTER_OPTIONS: { value: ValidationFilter; label: string }[] = [
   { value: "missing_evidence", label: "Sans preuve" },
   { value: "anomalies", label: "Anomalies" },
   { value: "unverified", label: "Non verifies" },
+  { value: "open_hypotheses", label: "Hypotheses ouvertes" },
 ];
 
 const ISSUE_LABELS: Record<string, string> = {
@@ -42,6 +43,7 @@ const ISSUE_LABELS: Record<string, string> = {
   zero_quantity: "Quantite nulle",
   empty_designation: "Designation manquante",
   unverified: "Non verifie",
+  open_hypotheses: "Hypothese ouverte",
 };
 
 // ---------------------------------------------------------------------------
@@ -70,6 +72,15 @@ function flagItems(items: ReviewItem[]): FlaggedItem[] {
       issues.push("unverified");
     }
 
+    // Open hypothesis: has evidence but unverified with low confidence
+    if (
+      item.evidence !== null &&
+      !item.is_verified &&
+      (item.confidence === null || item.confidence < 0.8)
+    ) {
+      issues.push("open_hypotheses");
+    }
+
     if (issues.length > 0) {
       result.push({ item, issues });
     }
@@ -88,6 +99,7 @@ function matchesFilter(flagged: FlaggedItem, filter: ValidationFilter): boolean 
       (i) => i === "zero_quantity" || i === "empty_designation"
     );
   }
+  if (filter === "open_hypotheses") return flagged.issues.includes("open_hypotheses");
   return true;
 }
 
@@ -143,6 +155,12 @@ export function ValidationReviewPanel({
     const coveragePct = total > 0
       ? Math.round((includedItems.filter((i) => !!i.evidence).length / total) * 100)
       : 0;
+    const openHypotheses = includedItems.filter(
+      (i) =>
+        i.evidence !== null &&
+        !i.is_verified &&
+        (i.confidence === null || i.confidence < 0.8)
+    ).length;
 
     return {
       total,
@@ -152,6 +170,7 @@ export function ValidationReviewPanel({
       unverified,
       verified,
       coveragePct,
+      openHypotheses,
       flaggedCount: flaggedItems.length,
       cleanCount: total - flaggedItems.length,
     };
@@ -179,7 +198,7 @@ export function ValidationReviewPanel({
           Resume de validation
         </h2>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
           <SummaryCard
             label="Items inclus"
             value={summary.total}
@@ -206,21 +225,29 @@ export function ValidationReviewPanel({
             variant={summary.withAnomalies === 0 ? "success" : "error"}
           />
           <SummaryCard
+            label="Hypotheses ouvertes"
+            value={summary.openHypotheses}
+            variant={summary.openHypotheses === 0 ? "success" : "warning"}
+          />
+          <SummaryCard
             label="Verifies"
             value={`${summary.verified} / ${summary.total}`}
             variant={summary.unverified === 0 ? "success" : "neutral"}
           />
         </div>
 
-        {summary.flaggedCount === 0 && (
+        {summary.total === 0 ? (
+          <p className="mt-3 text-sm text-[var(--slate-600)]" role="status">
+            Tous les items sont exclus. Reintegrez au moins un item pour pouvoir appliquer l&apos;extraction.
+          </p>
+        ) : summary.flaggedCount === 0 ? (
           <p
             className="mt-3 text-sm font-medium text-[var(--success)]"
             role="status"
           >
             Tous les items sont conformes. L&apos;extraction est prete a etre appliquee.
           </p>
-        )}
-        {summary.flaggedCount > 0 && (
+        ) : (
           <p className="mt-3 text-sm text-[var(--slate-600)]" role="status">
             {summary.flaggedCount} item{summary.flaggedCount > 1 ? "s" : ""} necessite{summary.flaggedCount > 1 ? "nt" : ""} une attention
             &mdash; {summary.cleanCount} item{summary.cleanCount !== 1 ? "s" : ""} sans probleme.

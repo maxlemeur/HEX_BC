@@ -27,6 +27,7 @@ import { useUiMode } from "@/hooks/useUiMode";
 import {
   hasBlockingAnomaly,
 } from "@/components/takeoff/TakeoffReviewTable";
+import { getBusinessLevelLabel } from "@/components/takeoff/takeoff-job-list-shared";
 import {
   TakeoffApplyWizard,
   type TakeoffApplyWizardSubmitPayload,
@@ -339,12 +340,6 @@ export default function TakeoffReviewPage({
     [router, searchParams]
   );
 
-  useEffect(() => {
-    if (currentReviewMode !== "production" && requestedTab !== "items") {
-      setActiveTab("items");
-    }
-  }, [currentReviewMode, requestedTab, setActiveTab]);
-
   // ---- Data state
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [tables, setTables] = useState<TakeoffTable[]>([]);
@@ -366,6 +361,17 @@ export default function TakeoffReviewPage({
   const [dpgfCompareLoading, setDpgfCompareLoading] = useState(false);
   const [dpgfCompareError, setDpgfCompareError] = useState<string | null>(null);
   const dpgfCompareFetchedRef = useRef(false);
+
+  // ---- Assisted review state
+  const [assistedReviewedIds, setAssistedReviewedIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [assistedMarkedForReviewIds, setAssistedMarkedForReviewIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const assistedPreviousExcludedStateRef = useRef<Map<string, boolean> | null>(
+    null
+  );
 
   // ---- Exclusion modal state
   const [exclusionModalOpen, setExclusionModalOpen] = useState(false);
@@ -779,6 +785,50 @@ export default function TakeoffReviewPage({
     };
   }, [hasDirty, performSave]);
 
+  useEffect(() => {
+    const validItemIds = new Set(items.map((item) => item.id));
+
+    setAssistedReviewedIds((previousReviewedIds) => {
+      const nextReviewedIds = new Set(
+        Array.from(previousReviewedIds).filter((itemId) => validItemIds.has(itemId))
+      );
+      let changed = nextReviewedIds.size !== previousReviewedIds.size;
+
+      if (assistedPreviousExcludedStateRef.current !== null) {
+        for (const item of items) {
+          if (
+            !assistedPreviousExcludedStateRef.current.get(item.id) &&
+            item.is_excluded &&
+            !nextReviewedIds.has(item.id)
+          ) {
+            nextReviewedIds.add(item.id);
+            changed = true;
+          }
+        }
+      }
+
+      assistedPreviousExcludedStateRef.current = new Map(
+        items.map((item) => [item.id, item.is_excluded] as const)
+      );
+
+      return changed ? nextReviewedIds : previousReviewedIds;
+    });
+
+    setAssistedMarkedForReviewIds((previousMarkedIds) => {
+      const nextMarkedIds = new Set(
+        Array.from(previousMarkedIds).filter((itemId) => {
+          if (!validItemIds.has(itemId)) return false;
+          const item = items.find((candidate) => candidate.id === itemId);
+          return item ? !item.is_excluded : false;
+        })
+      );
+
+      return nextMarkedIds.size === previousMarkedIds.size
+        ? previousMarkedIds
+        : nextMarkedIds;
+    });
+  }, [items]);
+
   // ---- Exclusion actions (shared between views)
   const handleExcludeItems = useCallback(
     (itemIds: string[]) => {
@@ -1124,7 +1174,7 @@ export default function TakeoffReviewPage({
             {items.length} item(s) extraits
             {jobLevel && (
               <Badge variant="neutral" size="sm" className="ml-2">
-                Niveau {jobLevel}
+                {getBusinessLevelLabel(jobLevel)}
               </Badge>
             )}
           </p>
@@ -1152,6 +1202,10 @@ export default function TakeoffReviewPage({
       {currentReviewMode === "assisted" ? (
         <AssistedReviewPanel
           items={items}
+          reviewedIds={assistedReviewedIds}
+          markedForReviewIds={assistedMarkedForReviewIds}
+          onReviewedIdsChange={setAssistedReviewedIds}
+          onMarkedForReviewIdsChange={setAssistedMarkedForReviewIds}
           onExcludeItems={handleExcludeItems}
           onIncludeItems={handleIncludeItems}
           onApplyClick={handleOpenApplyWizard}
