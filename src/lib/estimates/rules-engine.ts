@@ -2,6 +2,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  normalizeEstimateApprovalDecision,
+  resolveApprovalDecisionOutcome,
+  type EstimateApprovalDecisionComment,
+  type EstimateApprovalDecisionEvent,
+  type EstimateApprovalDecisionFilter,
+  type EstimateApprovalDecisionJournal,
+  type EstimateApprovalDecisionRule,
+  type EstimateApprovalDecisionScope,
+} from "@/lib/estimates/approval-decision-journal";
 import type { Database, Json } from "@/types/database";
 import { computeEstimateItemNumbering } from "@/lib/estimates/numbering";
 
@@ -243,6 +253,24 @@ type EstimateReviewCycleWithProfilesRow = EstimateReviewCycleRow & {
 
 type EstimateReviewCommentWithProfilesRow = EstimateReviewCommentRow & {
   created_by_profile: EmbeddedProfileName | EmbeddedProfileName[] | null;
+};
+
+type EstimateVersionEventAuthor = Pick<
+  Database["public"]["Tables"]["profiles"]["Row"],
+  "full_name"
+>;
+
+type EstimateApprovalDecisionEventRow = Pick<
+  Database["public"]["Tables"]["estimate_version_events"]["Row"],
+  | "id"
+  | "estimate_version_id"
+  | "event_type"
+  | "metadata"
+  | "created_by"
+  | "occurred_at"
+  | "created_at"
+> & {
+  profiles: EstimateVersionEventAuthor | EstimateVersionEventAuthor[] | null;
 };
 
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
@@ -1349,6 +1377,313 @@ function normalizeReviewComment(
   };
 }
 
+function toDecisionAuditRuleSnapshots(
+  summary: EstimateApprovalSummaryCore
+): EstimateApprovalDecisionRule[] {
+  return summary.reasons.map((reason) => ({
+    ruleId: reason.ruleId,
+    label: reason.label,
+    signalKey: reason.signalKey,
+    message: reason.message,
+    thresholdValue: reason.thresholdValue,
+    actualValue: reason.actualValue,
+    sourceState: reason.sourceState,
+    approvalStatus: reason.approvalStatus,
+  }));
+}
+
+function toDecisionAuditScopeSnapshots(
+  comments: NormalizedDecisionComment[]
+): EstimateApprovalDecisionScope[] {
+  const seen = new Set<string>();
+
+  return comments
+    .map((comment) => ({
+      scopeType: comment.scopeType,
+      scopeId: comment.scopeId,
+      scopeLabel: comment.scopeLabel,
+    }))
+    .filter((scope) => {
+      const key = `${scope.scopeType}:${scope.scopeId ?? "project"}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+function resolveDecisionEventPerimeterLabel(input: {
+  scopes: EstimateApprovalDecisionScope[];
+  rulesTriggered: EstimateApprovalDecisionRule[];
+}) {
+  const labels = [
+    ...input.scopes.map((scope) => scope.scopeLabel.trim()),
+    ...(input.scopes.length === 0
+      ? input.rulesTriggered.map((rule) => rule.label.trim())
+      : []),
+  ].filter((label) => label.length > 0);
+
+  const distinctLabels = [...new Set(labels)];
+  if (distinctLabels.length === 0) {
+    return "Affaire complete";
+  }
+
+  if (distinctLabels.length === 1) {
+    return distinctLabels[0]!;
+  }
+
+  return `${distinctLabels[0]} + ${distinctLabels.length - 1} autres`;
+}
+
+function toApprovalDecisionAuditMetadata(input: {
+  decision: EstimateReviewDecision;
+  cycleId: string | null;
+  cycleNumber: number | null;
+  approvalIds: string[];
+  ruleIds: string[];
+  comments: NormalizedDecisionComment[];
+  fallbackScopes?: EstimateApprovalDecisionScope[];
+  summary: EstimateApprovalSummaryCore;
+}): Json {
+  const scopesFromComments = toDecisionAuditScopeSnapshots(input.comments);
+  const scopes =
+    scopesFromComments.length > 0 ? scopesFromComments : input.fallbackScopes ?? [];
+  const comments: EstimateApprovalDecisionComment[] = input.comments.map((comment) => ({
+    scopeType: comment.scopeType,
+    scopeId: comment.scopeId,
+    scopeLabel: comment.scopeLabel,
+    comment: comment.comment,
+  }));
+  const rulesTriggered = toDecisionAuditRuleSnapshots(input.summary);
+
+  return {
+    decision: input.decision,
+    approvalOutcome: resolveApprovalDecisionOutcome(input.decision),
+    cycleId: input.cycleId,
+    cycleNumber: input.cycleNumber,
+    approvalIds: input.approvalIds,
+    ruleIds: input.ruleIds,
+    commentCount: comments.length,
+    scopeCount: scopes.length,
+    perimeterLabel: resolveDecisionEventPerimeterLabel({
+      scopes,
+      rulesTriggered,
+    }),
+    scopes,
+    comments,
+    rulesTriggered,
+  } satisfies Json;
+}
+
+function normalizeDecisionEventScope(
+  value: unknown
+): EstimateApprovalDecisionScope | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const scopeType = "scopeType" in value ? value.scopeType : null;
+  const scopeLabel = "scopeLabel" in value ? value.scopeLabel : null;
+  const scopeId = "scopeId" in value ? value.scopeId : null;
+
+  if (
+    scopeType !== "project" &&
+    scopeType !== "lot" &&
+    scopeType !== "line" &&
+    scopeType !== "approval_rule"
+  ) {
+    return null;
+  }
+
+  if (typeof scopeLabel !== "string" || scopeLabel.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    scopeType,
+    scopeId: typeof scopeId === "string" && scopeId.trim().length > 0 ? scopeId : null,
+    scopeLabel: scopeLabel.trim(),
+  };
+}
+
+function normalizeDecisionEventComment(
+  value: unknown
+): EstimateApprovalDecisionComment | null {
+  const scope = normalizeDecisionEventScope(value);
+  if (!scope || !value || typeof value !== "object") {
+    return null;
+  }
+
+  const comment = "comment" in value ? value.comment : null;
+  if (typeof comment !== "string" || comment.trim().length === 0) {
+    return null;
+  }
+
+  return {
+    ...scope,
+    comment: comment.trim(),
+  };
+}
+
+function normalizeDecisionEventRule(
+  value: unknown
+): EstimateApprovalDecisionRule | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const ruleId = "ruleId" in value ? value.ruleId : null;
+  const label = "label" in value ? value.label : null;
+  const signalKey = "signalKey" in value ? value.signalKey : null;
+  const message = "message" in value ? value.message : null;
+  const thresholdValue = "thresholdValue" in value ? value.thresholdValue : null;
+  const actualValue = "actualValue" in value ? value.actualValue : null;
+  const sourceState = "sourceState" in value ? value.sourceState : null;
+  const approvalStatus = "approvalStatus" in value ? value.approvalStatus : null;
+
+  if (
+    typeof ruleId !== "string" ||
+    ruleId.trim().length === 0 ||
+    typeof label !== "string" ||
+    label.trim().length === 0 ||
+    typeof signalKey !== "string" ||
+    signalKey.trim().length === 0 ||
+    typeof message !== "string" ||
+    message.trim().length === 0
+  ) {
+    return null;
+  }
+
+  const normalizedThresholdValue = normalizeThresholdValue(thresholdValue);
+  if (normalizedThresholdValue === null) {
+    return null;
+  }
+
+  const normalizedActualValue =
+    actualValue === null ? null : normalizeThresholdValue(actualValue);
+
+  return {
+    ruleId: ruleId.trim(),
+    label: label.trim(),
+    signalKey: signalKey.trim(),
+    message: message.trim(),
+    thresholdValue: normalizedThresholdValue,
+    actualValue: normalizedActualValue,
+    sourceState: sourceState === "unavailable" ? "unavailable" : "ready",
+    approvalStatus:
+      approvalStatus === "missing" ||
+      approvalStatus === "pending" ||
+      approvalStatus === "approved" ||
+      approvalStatus === "rejected"
+        ? approvalStatus
+        : null,
+  };
+}
+
+function resolveDecisionEventActorLabel(input: {
+  actorUserId: string | null;
+  actorName: string | null;
+}) {
+  if (input.actorName && input.actorName.trim().length > 0) {
+    return input.actorName.trim();
+  }
+
+  if (input.actorUserId && input.actorUserId.trim().length > 0) {
+    return `Utilisateur ${input.actorUserId.slice(0, 8)}`;
+  }
+
+  return "Systeme";
+}
+
+function normalizeApprovalOutcome(
+  value: unknown
+): EstimateApprovalDecisionEvent["approvalOutcome"] | null {
+  if (value === "approved" || value === "rejected") {
+    return value;
+  }
+
+  return null;
+}
+
+function normalizeEstimateApprovalDecisionEvent(
+  row: EstimateApprovalDecisionEventRow
+): EstimateApprovalDecisionEvent {
+  const profile = resolveEmbeddedOne(row.profiles);
+  const actorName = profile?.full_name?.trim() ?? null;
+  const metadata: Record<string, unknown> =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+  const comments = Array.isArray(metadata.comments)
+    ? metadata.comments
+        .map((comment) => normalizeDecisionEventComment(comment))
+        .filter((comment): comment is EstimateApprovalDecisionComment => comment !== null)
+    : [];
+  const scopesFromMetadata = Array.isArray(metadata.scopes)
+    ? metadata.scopes
+        .map((scope) => normalizeDecisionEventScope(scope))
+        .filter((scope): scope is EstimateApprovalDecisionScope => scope !== null)
+    : [];
+  const scopes =
+    scopesFromMetadata.length > 0
+      ? scopesFromMetadata
+      : toDecisionAuditScopeSnapshots(
+          comments.map((comment) => ({
+            scopeType: comment.scopeType,
+            scopeId: comment.scopeId,
+            scopeLabel: comment.scopeLabel,
+            comment: comment.comment,
+          }))
+        );
+  const rulesTriggered = Array.isArray(metadata.rulesTriggered)
+    ? metadata.rulesTriggered
+        .map((rule) => normalizeDecisionEventRule(rule))
+        .filter((rule): rule is EstimateApprovalDecisionRule => rule !== null)
+    : [];
+  const decision =
+    normalizeEstimateApprovalDecision(metadata.decision) ??
+    (normalizeApprovalOutcome(metadata.approvalOutcome) === "rejected"
+      ? "changes_requested"
+      : "approved");
+  const approvalOutcome =
+    normalizeApprovalOutcome(metadata.approvalOutcome) ??
+    resolveApprovalDecisionOutcome(decision);
+  const perimeterLabel =
+    typeof metadata.perimeterLabel === "string" && metadata.perimeterLabel.trim().length > 0
+      ? metadata.perimeterLabel.trim()
+      : resolveDecisionEventPerimeterLabel({
+          scopes,
+          rulesTriggered,
+        });
+  const cycleId =
+    typeof metadata.cycleId === "string" && metadata.cycleId.trim().length > 0
+      ? metadata.cycleId
+      : null;
+  const cycleNumber = normalizeThresholdValue(metadata.cycleNumber);
+  const commentCount = normalizeThresholdValue(metadata.commentCount) ?? comments.length;
+  const scopeCount = normalizeThresholdValue(metadata.scopeCount) ?? scopes.length;
+
+  return {
+    id: row.id,
+    estimateVersionId: row.estimate_version_id,
+    occurredAt: row.occurred_at,
+    createdAt: row.created_at,
+    actorUserId: row.created_by,
+    actorName,
+    decision,
+    approvalOutcome,
+    cycleId,
+    cycleNumber: cycleNumber !== null ? Math.trunc(cycleNumber) : null,
+    commentCount: Math.max(0, Math.trunc(commentCount)),
+    scopeCount: Math.max(0, Math.trunc(scopeCount)),
+    perimeterLabel,
+    scopes,
+    comments,
+    rulesTriggered,
+  };
+}
+
 function buildEstimateReviewCommentTargets(input: {
   project: EmbeddedApprovalProjectAccess;
   items: RulesEngineItemAccess[];
@@ -1487,6 +1822,144 @@ async function listEstimateReviewComments(input: {
   }
 
   return ((data ?? []) as unknown) as EstimateReviewCommentWithProfilesRow[];
+}
+
+function escapeCsvCell(value: string) {
+  if (!/[;"\n\r]/.test(value)) {
+    return value;
+  }
+
+  return `"${value.replace(/"/g, "\"\"")}"`;
+}
+
+function toApprovalDecisionCsvLine(values: string[]) {
+  return values.map((value) => escapeCsvCell(value)).join(";");
+}
+
+function toApprovalDecisionCsvDecisionLabel(
+  decision: EstimateApprovalDecisionFilter
+) {
+  if (decision === "approved") {
+    return "Approuvee";
+  }
+
+  if (decision === "approved_with_reservations") {
+    return "Approuvee sous reserve";
+  }
+
+  return "Retour correction";
+}
+
+export function buildEstimateApprovalDecisionJournalCsv(
+  journal: Pick<EstimateApprovalDecisionJournal, "events">
+) {
+  const lines = [
+    toApprovalDecisionCsvLine([
+      "date_decision",
+      "decision",
+      "auteur",
+      "cycle",
+      "perimetre",
+      "portees",
+      "commentaires",
+      "regles_declenchees",
+      "nb_commentaires",
+      "nb_portees",
+    ]),
+    ...journal.events.map((event) =>
+      toApprovalDecisionCsvLine([
+        event.occurredAt,
+        toApprovalDecisionCsvDecisionLabel(event.decision),
+        resolveDecisionEventActorLabel({
+          actorUserId: event.actorUserId,
+          actorName: event.actorName,
+        }),
+        event.cycleNumber !== null ? `Cycle ${event.cycleNumber}` : "-",
+        event.perimeterLabel,
+        event.scopes.length > 0
+          ? event.scopes
+              .map((scope) => `${scope.scopeType}:${scope.scopeLabel}`)
+              .join(" | ")
+          : "-",
+        event.comments.length > 0
+          ? event.comments
+              .map((comment) => `${comment.scopeLabel}: ${comment.comment}`)
+              .join(" | ")
+          : "-",
+        event.rulesTriggered.length > 0
+          ? event.rulesTriggered.map((rule) => rule.label).join(" | ")
+          : "-",
+        String(event.commentCount),
+        String(event.scopeCount),
+      ])
+    ),
+  ];
+
+  return `${lines.join("\n")}\n`;
+}
+
+export async function listEstimateApprovalDecisionJournal(input: {
+  versionId: string;
+  actorUserId?: string | null;
+  decision?: EstimateApprovalDecisionFilter | null;
+}): Promise<EstimateApprovalDecisionJournal> {
+  const context = await getAuthenticatedContext();
+  await getVersionAccessOrThrow(context, input.versionId);
+
+  const query = context.supabase
+    .from("estimate_version_events")
+    .select(
+      "id, estimate_version_id, event_type, metadata, created_by, occurred_at, created_at, profiles:created_by(full_name)"
+    )
+    .eq("tenant_id", context.tenantId)
+    .eq("estimate_version_id", input.versionId)
+    .eq("event_type", "approval_decided")
+    .order("occurred_at", { ascending: false })
+    .order("created_at", { ascending: false });
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger le journal de decision.");
+  }
+
+  const allEvents = (((data ?? []) as unknown) as EstimateApprovalDecisionEventRow[]).map(
+    (row) => normalizeEstimateApprovalDecisionEvent(row)
+  );
+  const events = allEvents.filter((event) => {
+    if (input.actorUserId && event.actorUserId !== input.actorUserId) {
+      return false;
+    }
+
+    if (input.decision && event.decision !== input.decision) {
+      return false;
+    }
+
+    return true;
+  });
+  const availableAuthors = [...new Map(
+    allEvents
+      .filter((event) => event.actorUserId)
+      .map((event) => [
+        event.actorUserId!,
+        {
+          userId: event.actorUserId!,
+          actorName: resolveDecisionEventActorLabel({
+            actorUserId: event.actorUserId,
+            actorName: event.actorName,
+          }),
+        },
+      ])
+  ).values()].sort((left, right) => left.actorName.localeCompare(right.actorName));
+
+  return {
+    events,
+    availableAuthors,
+    filters: {
+      actorUserId: input.actorUserId ?? null,
+      decision: input.decision ?? null,
+    },
+  };
 }
 
 async function enrichEstimateApprovalSummary(input: {
@@ -2456,19 +2929,24 @@ export async function submitEstimateApproval(
       eventType: "approval_decided",
       actorUserId: context.userId,
       occurredAt: decidedAt,
-      metadata: {
-        cycleId: closedCycle.id,
-        cycleNumber: closedCycle.cycle_number,
+      metadata: toApprovalDecisionAuditMetadata({
         decision: input.decision,
         approvalIds: updatedApprovals.map((approval) => approval.id),
         ruleIds: updatedApprovals.map((approval) => approval.rule_id),
-        commentCount: savedComments.length,
-        scopes: savedComments.map((comment) => ({
-          scopeType: comment.scope_type,
-          scopeId: comment.scope_id,
-          scopeLabel: comment.scope_label,
-        })),
-      } satisfies Json,
+        cycleId: closedCycle.id,
+        cycleNumber: closedCycle.cycle_number,
+        comments: normalizedComments,
+        fallbackScopes: summary.reasons
+          .filter((reason) =>
+            updatedApprovals.some((approval) => approval.rule_id === reason.ruleId)
+          )
+          .map((reason) => ({
+            scopeType: "approval_rule" as const,
+            scopeId: reason.ruleId,
+            scopeLabel: reason.label,
+          })),
+        summary,
+      }),
     });
 
     await syncEstimateApprovalSummary({
@@ -2527,6 +3005,32 @@ export async function submitEstimateApproval(
     throw badRequest("La demande d'approbation n'est plus en attente.");
   }
 
+  const legacyItems = await loadApprovalSummaryItems({
+    context,
+    versionId: input.versionId,
+  });
+  const legacySummary = await evaluateApprovalSummary({
+    supabase: context.supabase,
+    tenantId: context.tenantId,
+    version: {
+      id: access.version.id,
+      project_id: access.version.project_id,
+      total_ht_cents: access.version.total_ht_cents,
+      margin_bp: access.version.margin_bp,
+      margin_multiplier: access.version.margin_multiplier,
+      discount_bp: access.version.discount_bp,
+    },
+    project: {
+      id: access.project.id,
+      client_name: access.project.client_name,
+    },
+    items: legacyItems,
+  });
+  const legacyDecision: EstimateReviewDecision =
+    input.action === "approve" ? "approved" : "changes_requested";
+  const legacyRuleScope = legacySummary.reasons.find(
+    (reason) => reason.ruleId === targetApproval.rule_id
+  );
   const nextStatus: EstimateApprovalStatus =
     input.action === "approve" ? "approved" : "rejected";
   const decidedAt = new Date().toISOString();
@@ -2566,14 +3070,24 @@ export async function submitEstimateApproval(
     eventType: "approval_decided",
     actorUserId: context.userId,
     occurredAt: (data as EstimateApprovalRow).decided_at ?? decidedAt,
-    metadata: {
-      approvalId: (data as EstimateApprovalRow).id,
-      ruleId: (data as EstimateApprovalRow).rule_id,
-      decision: (data as EstimateApprovalRow).status,
+    metadata: toApprovalDecisionAuditMetadata({
+      decision: closedCycle?.decision ?? legacyDecision,
+      approvalIds: [(data as EstimateApprovalRow).id],
+      ruleIds: [(data as EstimateApprovalRow).rule_id],
       cycleId: closedCycle?.id ?? null,
       cycleNumber: closedCycle?.cycle_number ?? null,
-      reviewDecision: closedCycle?.decision ?? null,
-    } satisfies Json,
+      comments: [],
+      fallbackScopes: legacyRuleScope
+        ? [
+            {
+              scopeType: "approval_rule",
+              scopeId: legacyRuleScope.ruleId,
+              scopeLabel: legacyRuleScope.label,
+            },
+          ]
+        : [],
+      summary: legacySummary,
+    }),
   });
 
   await syncEstimateApprovalSummary({

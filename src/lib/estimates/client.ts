@@ -1,4 +1,13 @@
 import type { Database } from "@/types/database";
+import {
+  isEstimateApprovalDecisionFilter,
+  type EstimateApprovalDecisionComment,
+  type EstimateApprovalDecisionEvent,
+  type EstimateApprovalDecisionFilter,
+  type EstimateApprovalDecisionJournal,
+  type EstimateApprovalDecisionRule,
+  type EstimateApprovalDecisionScope,
+} from "@/lib/estimates/approval-decision-journal";
 import type {
   EstimateOutlierFlagKey,
   EstimateOutlierFlagsByItemId,
@@ -9,7 +18,16 @@ type EstimateProjectRow =
   Database["public"]["Tables"]["estimate_projects"]["Row"];
 type EstimateVersionRow =
   Database["public"]["Tables"]["estimate_versions"]["Row"];
-type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"] & {
+  source_provider?: string | null;
+  source_job_id?: string | null;
+  source_file_name?: string | null;
+  source_page?: number | null;
+  source_level?: string | null;
+  source_version_number?: number | null;
+  source_extracted_at?: string | null;
+  source_metadata?: unknown;
+};
 type EstimateTemplateItem =
   Database["public"]["Tables"]["estimate_template_items"]["Row"];
 type EstimateAssemblyItemRow =
@@ -28,7 +46,10 @@ export type EstimateVersionEventType =
   | "accepted"
   | "archived"
   | "rejected"
-  | "seal_verified";
+  | "seal_verified"
+  | "approval_rules_evaluated"
+  | "approval_status_changed"
+  | "approval_decided";
 
 const ESTIMATE_STATUS_VALUES: EstimateStatus[] = [
   "draft",
@@ -118,6 +139,98 @@ export type ImportEstimateSectionsResult = {
   importedLinesCount: number;
   createdSectionIds: string[];
   createdLineIds: string[];
+  versionToken: EstimateVersionToken | null;
+};
+
+export type EstimateStructureDraftSourceKind =
+  | "linked_dpgf"
+  | "historical_versions"
+  | "template_library"
+  | "assembly_library"
+  | "project_notes"
+  | "confirmed_brief";
+
+export type EstimateStructureDraftStrategy = "hybrid";
+export type EstimateStructureDraftNodeAction = "create" | "merge" | "skip";
+export type EstimateStructureDraftApplyMode =
+  | "create_empty"
+  | "merge_existing";
+
+export type EstimateStructureDraftEvidenceEntry = {
+  type: "dpgf" | "history" | "template" | "assembly" | "brief";
+  label: string;
+  excerpt: string | null;
+};
+
+export type EstimateStructureDraftNode = {
+  id: string;
+  parentId: string | null;
+  orderIndex: number;
+  hierarchyLevel: number;
+  label: string;
+  normalizedLabel: string;
+  confidence: number;
+  confidenceLabel: "elevee" | "moyenne" | "faible";
+  defaultAction: EstimateStructureDraftNodeAction;
+  duplicateMatchItemId: string | null;
+  duplicateMatchPath: string | null;
+  provenance: EstimateStructureDraftEvidenceEntry[];
+  facts: string[];
+  hypotheses: string[];
+  inferences: string[];
+  children: EstimateStructureDraftNode[];
+};
+
+export type EstimateStructureDraftSourceSummary = {
+  kind: EstimateStructureDraftSourceKind;
+  label: string;
+  available: boolean;
+  used: boolean;
+  detail: string | null;
+};
+
+export type EstimateStructureDraftSummary = {
+  rootCount: number;
+  newCount: number;
+  mergeCount: number;
+  duplicateCount: number;
+  lowConfidenceCount: number;
+};
+
+export type EstimateStructureDraft = {
+  draftId: string;
+  versionId: string;
+  strategy: EstimateStructureDraftStrategy;
+  sources: EstimateStructureDraftSourceSummary[];
+  summary: EstimateStructureDraftSummary;
+  nodes: EstimateStructureDraftNode[];
+  generatedAt: string;
+};
+
+export type GenerateEstimateStructureDraftPayload = {
+  strategy?: EstimateStructureDraftStrategy;
+};
+
+export type ApplyEstimateStructureDraftPayload = {
+  mode: EstimateStructureDraftApplyMode;
+  selectedRootNodeIds: string[];
+  overrides?: Array<{
+    nodeId: string;
+    action: EstimateStructureDraftNodeAction;
+    renameTo?: string | null;
+    mergeIntoItemId?: string | null;
+  }>;
+};
+
+export type ApplyEstimateStructureDraftResult = {
+  draftId: string;
+  versionId: string;
+  mode: EstimateStructureDraftApplyMode;
+  createdCount: number;
+  mergedCount: number;
+  skippedCount: number;
+  createdItemIds: string[];
+  mergedItemIds: string[];
   versionToken: EstimateVersionToken | null;
 };
 
@@ -1584,6 +1697,277 @@ function parseImportEstimateSectionsResult(
   };
 }
 
+function isEstimateStructureDraftSourceKind(
+  value: string
+): value is EstimateStructureDraftSourceKind {
+  return (
+    value === "linked_dpgf" ||
+    value === "historical_versions" ||
+    value === "template_library" ||
+    value === "assembly_library" ||
+    value === "project_notes" ||
+    value === "confirmed_brief"
+  );
+}
+
+function isEstimateStructureDraftNodeAction(
+  value: string
+): value is EstimateStructureDraftNodeAction {
+  return value === "create" || value === "merge" || value === "skip";
+}
+
+function isEstimateStructureDraftApplyMode(
+  value: string
+): value is EstimateStructureDraftApplyMode {
+  return value === "create_empty" || value === "merge_existing";
+}
+
+function parseEstimateStructureDraftEvidenceEntry(
+  value: unknown
+): EstimateStructureDraftEvidenceEntry | null {
+  if (!isRecord(value)) return null;
+
+  const type = toStringValue(value.type);
+  const label = toStringValue(value.label);
+  if (
+    !type ||
+    !label ||
+    (type !== "dpgf" &&
+      type !== "history" &&
+      type !== "template" &&
+      type !== "assembly" &&
+      type !== "brief")
+  ) {
+    return null;
+  }
+
+  return {
+    type,
+    label,
+    excerpt: toStringValue(value.excerpt),
+  };
+}
+
+function parseEstimateStructureDraftNode(
+  value: unknown
+): EstimateStructureDraftNode | null {
+  if (!isRecord(value)) return null;
+
+  const id = toStringValue(value.id);
+  const label = toStringValue(value.label);
+  const normalizedLabel =
+    toStringValue(value.normalizedLabel) ??
+    toStringValue(value.normalized_label);
+  const orderIndex =
+    toNumber(value.orderIndex) ?? toNumber(value.order_index);
+  const hierarchyLevel =
+    toNumber(value.hierarchyLevel) ?? toNumber(value.hierarchy_level);
+  const confidence = toNumber(value.confidence);
+  const confidenceLabel =
+    toStringValue(value.confidenceLabel) ??
+    toStringValue(value.confidence_label);
+  const defaultAction =
+    toStringValue(value.defaultAction) ??
+    toStringValue(value.default_action);
+
+  if (
+    !id ||
+    !label ||
+    !normalizedLabel ||
+    orderIndex === null ||
+    hierarchyLevel === null ||
+    confidence === null ||
+    !confidenceLabel ||
+    (confidenceLabel !== "elevee" &&
+      confidenceLabel !== "moyenne" &&
+      confidenceLabel !== "faible") ||
+    !defaultAction ||
+    !isEstimateStructureDraftNodeAction(defaultAction)
+  ) {
+    return null;
+  }
+
+  const children = pickArray(value, ["children"])
+    .map((entry) => parseEstimateStructureDraftNode(entry))
+    .filter((entry): entry is EstimateStructureDraftNode => entry !== null);
+
+  return {
+    id,
+    parentId:
+      parseOptionalNullableStringProperty(value, ["parent_id", "parentId"]) ?? null,
+    orderIndex: Math.max(0, Math.trunc(orderIndex)),
+    hierarchyLevel: Math.max(1, Math.trunc(hierarchyLevel)),
+    label,
+    normalizedLabel,
+    confidence: Math.max(0, Math.min(1, confidence)),
+    confidenceLabel,
+    defaultAction,
+    duplicateMatchItemId:
+      parseOptionalNullableStringProperty(value, [
+        "duplicate_match_item_id",
+        "duplicateMatchItemId",
+      ]) ?? null,
+    duplicateMatchPath:
+      parseOptionalNullableStringProperty(value, [
+        "duplicate_match_path",
+        "duplicateMatchPath",
+      ]) ?? null,
+    provenance: pickArray(value, ["provenance"])
+      .map((entry) => parseEstimateStructureDraftEvidenceEntry(entry))
+      .filter(
+        (entry): entry is EstimateStructureDraftEvidenceEntry => entry !== null
+      ),
+    facts: pickArray(value, ["facts"])
+      .map((entry) => toStringValue(entry))
+      .filter((entry): entry is string => entry !== null),
+    hypotheses: pickArray(value, ["hypotheses"])
+      .map((entry) => toStringValue(entry))
+      .filter((entry): entry is string => entry !== null),
+    inferences: pickArray(value, ["inferences"])
+      .map((entry) => toStringValue(entry))
+      .filter((entry): entry is string => entry !== null),
+    children,
+  };
+}
+
+function parseEstimateStructureDraftSourceSummary(
+  value: unknown
+): EstimateStructureDraftSourceSummary | null {
+  if (!isRecord(value)) return null;
+
+  const kind = toStringValue(value.kind);
+  const label = toStringValue(value.label);
+  if (!kind || !label || !isEstimateStructureDraftSourceKind(kind)) {
+    return null;
+  }
+
+  return {
+    kind,
+    label,
+    available: toBooleanValue(value.available) ?? false,
+    used: toBooleanValue(value.used) ?? false,
+    detail: toStringValue(value.detail),
+  };
+}
+
+function parseEstimateStructureDraftSummary(
+  value: unknown
+): EstimateStructureDraftSummary | null {
+  if (!isRecord(value)) return null;
+
+  const rootCount = toNumber(value.rootCount) ?? toNumber(value.root_count);
+  const newCount = toNumber(value.newCount) ?? toNumber(value.new_count);
+  const mergeCount = toNumber(value.mergeCount) ?? toNumber(value.merge_count);
+  const duplicateCount =
+    toNumber(value.duplicateCount) ?? toNumber(value.duplicate_count);
+  const lowConfidenceCount =
+    toNumber(value.lowConfidenceCount) ?? toNumber(value.low_confidence_count);
+
+  if (
+    rootCount === null ||
+    newCount === null ||
+    mergeCount === null ||
+    duplicateCount === null ||
+    lowConfidenceCount === null
+  ) {
+    return null;
+  }
+
+  return {
+    rootCount: Math.max(0, Math.trunc(rootCount)),
+    newCount: Math.max(0, Math.trunc(newCount)),
+    mergeCount: Math.max(0, Math.trunc(mergeCount)),
+    duplicateCount: Math.max(0, Math.trunc(duplicateCount)),
+    lowConfidenceCount: Math.max(0, Math.trunc(lowConfidenceCount)),
+  };
+}
+
+function parseEstimateStructureDraft(
+  payload: unknown
+): EstimateStructureDraft | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const draftId = toStringValue(root.draftId) ?? toStringValue(root.draft_id);
+  const versionId =
+    toStringValue(root.versionId) ?? toStringValue(root.version_id);
+  const strategy = toStringValue(root.strategy);
+  const generatedAt =
+    toStringValue(root.generatedAt) ?? toStringValue(root.generated_at);
+  const summary = parseEstimateStructureDraftSummary(
+    pickRecord(root, ["summary"]) ?? root.summary
+  );
+
+  if (!draftId || !versionId || strategy !== "hybrid" || !generatedAt || !summary) {
+    return null;
+  }
+
+  return {
+    draftId,
+    versionId,
+    strategy,
+    sources: pickArray(root, ["sources"])
+      .map((entry) => parseEstimateStructureDraftSourceSummary(entry))
+      .filter(
+        (entry): entry is EstimateStructureDraftSourceSummary => entry !== null
+      ),
+    summary,
+    nodes: pickArray(root, ["nodes"])
+      .map((entry) => parseEstimateStructureDraftNode(entry))
+      .filter((entry): entry is EstimateStructureDraftNode => entry !== null),
+    generatedAt,
+  };
+}
+
+function parseApplyEstimateStructureDraftResult(
+  payload: unknown
+): ApplyEstimateStructureDraftResult | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const draftId = toStringValue(root.draftId) ?? toStringValue(root.draft_id);
+  const versionId =
+    toStringValue(root.versionId) ?? toStringValue(root.version_id);
+  const mode = toStringValue(root.mode);
+  const createdCount =
+    toNumber(root.createdCount) ?? toNumber(root.created_count);
+  const mergedCount =
+    toNumber(root.mergedCount) ?? toNumber(root.merged_count);
+  const skippedCount =
+    toNumber(root.skippedCount) ?? toNumber(root.skipped_count);
+
+  if (
+    !draftId ||
+    !versionId ||
+    !mode ||
+    !isEstimateStructureDraftApplyMode(mode) ||
+    createdCount === null ||
+    mergedCount === null ||
+    skippedCount === null
+  ) {
+    return null;
+  }
+
+  const createdItemIds = pickArray(root, ["createdItemIds", "created_item_ids"])
+    .map((entry) => toStringValue(entry))
+    .filter((entry): entry is string => entry !== null);
+  const mergedItemIds = pickArray(root, ["mergedItemIds", "merged_item_ids"])
+    .map((entry) => toStringValue(entry))
+    .filter((entry): entry is string => entry !== null);
+
+  return {
+    draftId,
+    versionId,
+    mode,
+    createdCount: Math.max(0, Math.trunc(createdCount)),
+    mergedCount: Math.max(0, Math.trunc(mergedCount)),
+    skippedCount: Math.max(0, Math.trunc(skippedCount)),
+    createdItemIds,
+    mergedItemIds,
+    versionToken: parseVersionToken(root),
+  };
+}
+
 function parseAffaireLinkedDpgfSource(payload: unknown): AffaireLinkedDpgfSource {
   const root = getRootPayload(payload);
   if (root === null) {
@@ -1861,6 +2245,219 @@ function parseEstimateVersionEvents(payload: unknown): EstimateVersionEvent[] {
   return rows
     .map((entry) => normalizeEstimateVersionEvent(entry))
     .filter((entry): entry is EstimateVersionEvent => entry !== null);
+}
+
+function normalizeApprovalDecisionScope(
+  value: unknown
+): EstimateApprovalDecisionScope | null {
+  if (!isRecord(value)) return null;
+
+  const scopeType = toStringValue(value.scopeType) ?? toStringValue(value.scope_type);
+  const scopeLabel = toStringValue(value.scopeLabel) ?? toStringValue(value.scope_label);
+  const scopeId = toStringValue(value.scopeId) ?? toStringValue(value.scope_id) ?? null;
+
+  if (
+    scopeType !== "project" &&
+    scopeType !== "lot" &&
+    scopeType !== "line" &&
+    scopeType !== "approval_rule"
+  ) {
+    return null;
+  }
+
+  if (!scopeLabel) {
+    return null;
+  }
+
+  return {
+    scopeType,
+    scopeId,
+    scopeLabel,
+  };
+}
+
+function normalizeApprovalDecisionComment(
+  value: unknown
+): EstimateApprovalDecisionComment | null {
+  if (!isRecord(value)) return null;
+
+  const scope = normalizeApprovalDecisionScope(value);
+  const comment = toStringValue(value.comment);
+  if (!scope || !comment) {
+    return null;
+  }
+
+  return {
+    ...scope,
+    comment,
+  };
+}
+
+function normalizeApprovalDecisionRule(
+  value: unknown
+): EstimateApprovalDecisionRule | null {
+  if (!isRecord(value)) return null;
+
+  const ruleId = toStringValue(value.ruleId) ?? toStringValue(value.rule_id);
+  const label = toStringValue(value.label);
+  const signalKey = toStringValue(value.signalKey) ?? toStringValue(value.signal_key);
+  const message = toStringValue(value.message);
+  const thresholdValue = toNumber(value.thresholdValue) ?? toNumber(value.threshold_value);
+  const actualValue = toNumber(value.actualValue) ?? toNumber(value.actual_value);
+  const sourceState =
+    toStringValue(value.sourceState) ?? toStringValue(value.source_state);
+  const approvalStatus =
+    toStringValue(value.approvalStatus) ?? toStringValue(value.approval_status);
+
+  if (
+    !ruleId ||
+    !label ||
+    !signalKey ||
+    !message ||
+    thresholdValue === null
+  ) {
+    return null;
+  }
+
+  return {
+    ruleId,
+    label,
+    signalKey,
+    message,
+    thresholdValue,
+    actualValue,
+    sourceState: sourceState === "unavailable" ? "unavailable" : "ready",
+    approvalStatus:
+      approvalStatus === "missing" ||
+      approvalStatus === "pending" ||
+      approvalStatus === "approved" ||
+      approvalStatus === "rejected"
+        ? approvalStatus
+        : null,
+  };
+}
+
+function normalizeEstimateApprovalDecisionEvent(
+  value: unknown
+): EstimateApprovalDecisionEvent | null {
+  if (!isRecord(value)) return null;
+
+  const id = toStringValue(value.id);
+  const estimateVersionId =
+    toStringValue(value.estimateVersionId) ??
+    toStringValue(value.estimate_version_id);
+  const occurredAt =
+    toStringValue(value.occurredAt) ??
+    toStringValue(value.occurred_at);
+  const createdAt =
+    toStringValue(value.createdAt) ??
+    toStringValue(value.created_at);
+  const decisionRaw = toStringValue(value.decision);
+  const approvalOutcome =
+    toStringValue(value.approvalOutcome) ??
+    toStringValue(value.approval_outcome);
+  const commentCount = toNumber(value.commentCount) ?? toNumber(value.comment_count);
+  const scopeCount = toNumber(value.scopeCount) ?? toNumber(value.scope_count);
+  const perimeterLabel =
+    toStringValue(value.perimeterLabel) ??
+    toStringValue(value.perimeter_label);
+  const scopes = pickArray(value, ["scopes"])
+    .map((entry) => normalizeApprovalDecisionScope(entry))
+    .filter((entry): entry is EstimateApprovalDecisionScope => entry !== null);
+  const comments = pickArray(value, ["comments"])
+    .map((entry) => normalizeApprovalDecisionComment(entry))
+    .filter((entry): entry is EstimateApprovalDecisionComment => entry !== null);
+  const rulesTriggered = pickArray(value, ["rulesTriggered", "rules_triggered"])
+    .map((entry) => normalizeApprovalDecisionRule(entry))
+    .filter((entry): entry is EstimateApprovalDecisionRule => entry !== null);
+
+  if (
+    !id ||
+    !estimateVersionId ||
+    !occurredAt ||
+    !createdAt ||
+    !decisionRaw ||
+    !isEstimateApprovalDecisionFilter(decisionRaw) ||
+    !perimeterLabel ||
+    (approvalOutcome !== "approved" && approvalOutcome !== "rejected")
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    estimateVersionId,
+    occurredAt,
+    createdAt,
+    actorUserId:
+      toStringValue(value.actorUserId) ??
+      toStringValue(value.actor_user_id) ??
+      null,
+    actorName:
+      toStringValue(value.actorName) ??
+      toStringValue(value.actor_name) ??
+      null,
+    decision: decisionRaw,
+    approvalOutcome,
+    cycleId:
+      toStringValue(value.cycleId) ??
+      toStringValue(value.cycle_id) ??
+      null,
+    cycleNumber:
+      toNumber(value.cycleNumber) ?? toNumber(value.cycle_number) ?? null,
+    commentCount: commentCount !== null ? Math.max(0, Math.trunc(commentCount)) : 0,
+    scopeCount: scopeCount !== null ? Math.max(0, Math.trunc(scopeCount)) : 0,
+    perimeterLabel,
+    scopes,
+    comments,
+    rulesTriggered,
+  };
+}
+
+function parseEstimateApprovalDecisionJournal(
+  payload: unknown
+): EstimateApprovalDecisionJournal | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const events = pickArray(root, ["events"])
+    .map((entry) => normalizeEstimateApprovalDecisionEvent(entry))
+    .filter((entry): entry is EstimateApprovalDecisionEvent => entry !== null);
+  const availableAuthors = pickArray(root, ["availableAuthors", "available_authors"])
+    .map((entry) => {
+      if (!isRecord(entry)) return null;
+      const userId = toStringValue(entry.userId) ?? toStringValue(entry.user_id);
+      const actorName =
+        toStringValue(entry.actorName) ?? toStringValue(entry.actor_name);
+      if (!userId || !actorName) return null;
+      return {
+        userId,
+        actorName,
+      };
+    })
+    .filter(
+      (entry): entry is EstimateApprovalDecisionJournal["availableAuthors"][number] =>
+        entry !== null
+    );
+  const filtersNode = isRecord(root.filters) ? root.filters : {};
+  const decisionRaw =
+    toStringValue(filtersNode.decision) ?? toStringValue(filtersNode.status);
+  const decision =
+    decisionRaw && isEstimateApprovalDecisionFilter(decisionRaw)
+      ? decisionRaw
+      : null;
+
+  return {
+    events,
+    availableAuthors,
+    filters: {
+      actorUserId:
+        toStringValue(filtersNode.actorUserId) ??
+        toStringValue(filtersNode.actor_user_id) ??
+        null,
+      decision,
+    },
+  };
 }
 
 function parseVersionToken(payload: unknown): EstimateVersionToken | null {
@@ -2247,6 +2844,86 @@ export async function importEstimateSections(
   return parsed;
 }
 
+export async function generateEstimateStructureDraft(
+  targetVersionId: string,
+  input: GenerateEstimateStructureDraftPayload = {}
+): Promise<EstimateStructureDraft> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${targetVersionId}/structure-drafts`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        strategy: input.strategy ?? "hybrid",
+      }),
+    },
+    "Impossible de generer la preview de structure."
+  );
+
+  const parsed = parseEstimateStructureDraft(payload);
+  if (!parsed) {
+    throw new Error("Impossible de lire la preview de structure.");
+  }
+
+  return parsed;
+}
+
+export async function fetchEstimateStructureDraft(
+  targetVersionId: string,
+  draftId: string
+): Promise<EstimateStructureDraft> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${targetVersionId}/structure-drafts/${draftId}`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger la preview de structure."
+  );
+
+  const parsed = parseEstimateStructureDraft(payload);
+  if (!parsed) {
+    throw new Error("Impossible de lire la preview de structure.");
+  }
+
+  return parsed;
+}
+
+export async function applyEstimateStructureDraft(
+  targetVersionId: string,
+  draftId: string,
+  input: ApplyEstimateStructureDraftPayload
+): Promise<ApplyEstimateStructureDraftResult> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${targetVersionId}/structure-drafts/${draftId}/apply`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        mode: input.mode,
+        selectedRootNodeIds: input.selectedRootNodeIds,
+        overrides: (input.overrides ?? []).map((override) => ({
+          nodeId: override.nodeId,
+          action: override.action,
+          renameTo: override.renameTo ?? null,
+          mergeIntoItemId: override.mergeIntoItemId ?? null,
+        })),
+      }),
+    },
+    "Impossible d'appliquer la preview de structure."
+  );
+
+  const parsed = parseApplyEstimateStructureDraftResult(payload);
+  if (!parsed) {
+    throw new Error("Impossible de lire le resultat d'application.");
+  }
+
+  return parsed;
+}
+
 export async function importLinkedDpgfSource(
   targetVersionId: string,
   input: ImportLinkedDpgfSourcePayload = {}
@@ -2488,6 +3165,94 @@ export async function fetchEstimateVersionEvents(
   );
 
   return parseEstimateVersionEvents(payload);
+}
+
+function buildApprovalJournalQuery(input?: {
+  authorUserId?: string | null;
+  decision?: EstimateApprovalDecisionFilter | null;
+  format?: "json" | "csv";
+}) {
+  const searchParams = new URLSearchParams();
+
+  if (input?.authorUserId) {
+    searchParams.set("author", input.authorUserId);
+  }
+
+  if (input?.decision) {
+    searchParams.set("status", input.decision);
+  }
+
+  if (input?.format) {
+    searchParams.set("format", input.format);
+  }
+
+  const query = searchParams.toString();
+  return query.length > 0 ? `?${query}` : "";
+}
+
+export async function fetchEstimateApprovalDecisionJournal(
+  versionId: string,
+  filters?: {
+    authorUserId?: string | null;
+    decision?: EstimateApprovalDecisionFilter | null;
+  }
+): Promise<EstimateApprovalDecisionJournal> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/approval-journal${buildApprovalJournalQuery(filters)}`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger le journal de decision."
+  );
+
+  const parsed = parseEstimateApprovalDecisionJournal(payload);
+  if (!parsed) {
+    throw new Error("Reponse journal d'approbation invalide.");
+  }
+
+  return parsed;
+}
+
+export async function downloadEstimateApprovalDecisionJournalCsv(
+  versionId: string,
+  filters?: {
+    authorUserId?: string | null;
+    decision?: EstimateApprovalDecisionFilter | null;
+  }
+): Promise<EstimateExportResult> {
+  const response = await fetch(
+    `/api/estimates/${versionId}/approval-journal${buildApprovalJournalQuery({
+      ...filters,
+      format: "csv",
+    })}`,
+    {
+      method: "GET",
+      credentials: "same-origin",
+    }
+  );
+
+  if (!response.ok) {
+    const payload = await readJson(response);
+    throw new EstimateApiError(
+      toErrorMessage(payload, "Impossible d'exporter le journal de decision."),
+      response.status,
+      extractErrorDetails(payload),
+      extractErrorCode(payload)
+    );
+  }
+
+  const blob = await response.blob();
+  const filename =
+    extractFilenameFromContentDisposition(
+      response.headers.get("Content-Disposition")
+    ) ?? `approval-journal-${versionId}.csv`;
+
+  triggerDownload(blob, filename);
+
+  return {
+    filename,
+    size: blob.size,
+  };
 }
 
 export async function fetchEstimateItemsForVersion(

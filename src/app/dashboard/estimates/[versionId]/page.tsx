@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { EstimateDocument } from "@/components/EstimateDocument";
 import { EstimateApprovalActions } from "@/components/estimates/EstimateApprovalActions";
+import { EstimateApprovalDecisionJournalCard } from "@/components/estimates/EstimateApprovalDecisionJournalCard";
 import { EstimateApprovalSummaryCard } from "@/components/estimates/EstimateApprovalSummaryCard";
 import { EstimateTimeline } from "@/components/estimates/EstimateTimeline";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
@@ -18,7 +19,10 @@ import {
 import { getUserContext } from "@/lib/auth/server";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
-import { getEstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import {
+  getEstimateApprovalSummary,
+  listEstimateApprovalDecisionJournal,
+} from "@/lib/estimates/rules-engine";
 import {
   listEstimateProjectVersions,
   listEstimateVersionVariants,
@@ -118,6 +122,9 @@ export default async function EstimateDetailPage({
   const supabase = await createSupabaseServerClient();
   const userContextPromise = getUserContext();
   const approvalSummaryPromise = getEstimateApprovalSummary(versionId).catch(() => null);
+  const approvalJournalPromise = listEstimateApprovalDecisionJournal({
+    versionId,
+  }).catch(() => null);
 
   const versionPromise = supabase
     .from("estimate_versions")
@@ -133,11 +140,12 @@ export default async function EstimateDetailPage({
     .eq("version_id", versionId)
     .order("position", { ascending: true });
 
-  const [versionResult, itemsResult, userContext, approvalSummary] = await Promise.all([
+  const [versionResult, itemsResult, userContext, approvalSummary, approvalJournal] = await Promise.all([
     versionPromise,
     itemsPromise,
     userContextPromise,
     approvalSummaryPromise,
+    approvalJournalPromise,
   ]);
 
   if (versionResult.error || !versionResult.data) {
@@ -378,6 +386,12 @@ export default async function EstimateDetailPage({
                   summary={approvalSummary}
                 />
               </EstimateApprovalSummaryCard>
+            ) : null}
+            {approvalJournal ? (
+              <EstimateApprovalDecisionJournalCard
+                versionId={versionId}
+                initialJournal={approvalJournal}
+              />
             ) : null}
             <EstimateTimeline
               currentVersionId={versionId}

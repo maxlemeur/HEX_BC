@@ -9,7 +9,10 @@ import {
   fetchAffaireHubSummary,
   fetchAffaireHubTimeline,
 } from "@/lib/affaires/server";
-import { getEstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import {
+  getEstimateApprovalSummary,
+  listEstimateApprovalDecisionJournal,
+} from "@/lib/estimates/rules-engine";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 type Props = {
@@ -79,6 +82,11 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const approvalSummary = summary.currentVersion
     ? await getEstimateApprovalSummary(summary.currentVersion.id).catch(() => null)
     : null;
+  const approvalJournal = summary.currentVersion
+    ? await listEstimateApprovalDecisionJournal({
+        versionId: summary.currentVersion.id,
+      }).catch(() => null)
+    : null;
   const viewerRole = profile?.tenant_role ?? null;
   const isReadOnlyReview = viewerRole === "director";
 
@@ -136,6 +144,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       dpgfSource={dpgfSource}
       marginAnalysis={marginAnalysis}
       approvalSummary={approvalSummary}
+      approvalJournal={approvalJournal}
       isReadOnlyReview={isReadOnlyReview}
       plansSummary={plansSummary}
       takeoffEnabled={takeoffEnabled}
