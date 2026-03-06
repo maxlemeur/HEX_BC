@@ -421,11 +421,8 @@ export function DashboardShell({
       </aside>
 
       <main
-        className="flex-1 min-h-screen transition-[padding-left] duration-300 ease-in-out"
+        className="min-w-0 flex-1 min-h-screen pl-0 transition-[padding-left] duration-300 ease-in-out md:pl-[var(--sidebar-offset)]"
         style={{
-          paddingLeft: collapsed
-            ? "var(--sidebar-collapsed-width)"
-            : "var(--sidebar-width)",
           ["--sidebar-offset" as string]: collapsed
             ? "var(--sidebar-collapsed-width)"
             : "var(--sidebar-width)",

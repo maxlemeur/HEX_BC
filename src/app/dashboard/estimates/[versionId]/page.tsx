@@ -20,6 +20,12 @@ import { getUserContext } from "@/lib/auth/server";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
 import {
+  APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
+  APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM,
+  parseApprovalDecisionJournalAuthorSearchParam,
+  parseApprovalDecisionJournalStatusSearchParam,
+} from "@/lib/estimates/approval-decision-journal";
+import {
   getEstimateApprovalSummary,
   listEstimateApprovalDecisionJournal,
 } from "@/lib/estimates/rules-engine";
@@ -119,11 +125,19 @@ export default async function EstimateDetailPage({
     ? await searchParams
     : ({} as EstimateDetailPageSearchParams);
   const timelinePage = parseHistoryPage(resolvedSearchParams.historyPage);
+  const approvalJournalAuthor = parseApprovalDecisionJournalAuthorSearchParam(
+    resolvedSearchParams[APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM]
+  );
+  const approvalJournalDecision = parseApprovalDecisionJournalStatusSearchParam(
+    resolvedSearchParams[APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM]
+  );
   const supabase = await createSupabaseServerClient();
   const userContextPromise = getUserContext();
   const approvalSummaryPromise = getEstimateApprovalSummary(versionId).catch(() => null);
   const approvalJournalPromise = listEstimateApprovalDecisionJournal({
     versionId,
+    actorUserId: approvalJournalAuthor,
+    decision: approvalJournalDecision,
   }).catch(() => null);
 
   const versionPromise = supabase

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -11,6 +10,10 @@ import {
 import type {
   EstimateApprovalDecisionFilter,
   EstimateApprovalDecisionJournal,
+} from "@/lib/estimates/approval-decision-journal";
+import {
+  APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
+  APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM,
 } from "@/lib/estimates/approval-decision-journal";
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
@@ -48,9 +51,6 @@ const SCOPE_LABELS = {
   line: "Ligne",
   approval_rule: "Exception",
 } as const;
-
-const AUTHOR_QUERY_PARAM = "approvalJournalAuthor";
-const STATUS_QUERY_PARAM = "approvalJournalStatus";
 
 function formatDateTime(value: string) {
   const date = new Date(value);
@@ -97,9 +97,6 @@ export function EstimateApprovalDecisionJournalCard({
   title?: string;
 }>) {
   const toast = useToast();
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [journal, setJournal] = useState(initialJournal);
   const [selectedAuthor, setSelectedAuthor] = useState(
     initialJournal.filters.actorUserId ?? ""
@@ -110,8 +107,6 @@ export function EstimateApprovalDecisionJournalCard({
   const [error, setError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isPending, startTransition] = useTransition();
-  const authorParam = searchParams.get(AUTHOR_QUERY_PARAM) ?? "";
-  const statusParam = parseDecisionFilter(searchParams.get(STATUS_QUERY_PARAM));
 
   useEffect(() => {
     setJournal(initialJournal);
@@ -155,91 +150,75 @@ export function EstimateApprovalDecisionJournalCard({
     authorUserId?: string | null;
     decision?: EstimateApprovalDecisionFilter | null;
   }) {
-    const params = new URLSearchParams(searchParams.toString());
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
     const nextAuthor = nextFilters.authorUserId ?? null;
     const nextDecision = nextFilters.decision ?? null;
 
     if (nextAuthor) {
-      params.set(AUTHOR_QUERY_PARAM, nextAuthor);
+      params.set(APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM, nextAuthor);
     } else {
-      params.delete(AUTHOR_QUERY_PARAM);
+      params.delete(APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM);
     }
 
     if (nextDecision) {
-      params.set(STATUS_QUERY_PARAM, nextDecision);
+      params.set(APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM, nextDecision);
     } else {
-      params.delete(STATUS_QUERY_PARAM);
+      params.delete(APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM);
     }
 
     const nextSearch = params.toString();
-    router.replace(nextSearch ? `${pathname}?${nextSearch}` : pathname, {
-      scroll: false,
-    });
+    const nextUrl = nextSearch
+      ? `${window.location.pathname}?${nextSearch}`
+      : window.location.pathname;
+    window.history.replaceState(window.history.state, "", nextUrl);
   }
 
-  useEffect(() => {
-    const currentAuthor = journal.filters.actorUserId ?? "";
-    const currentDecision = journal.filters.decision ?? "";
-
-    if (authorParam === currentAuthor && statusParam === currentDecision) {
-      setSelectedAuthor(authorParam);
-      setSelectedDecision(statusParam);
-      return;
-    }
-
-    setSelectedAuthor(authorParam);
-    setSelectedDecision(statusParam);
-
-    startTransition(() => {
-      void (async () => {
-        try {
-          const nextJournal = await fetchEstimateApprovalDecisionJournal(versionId, {
-            authorUserId: authorParam || null,
-            decision: statusParam || null,
-          });
-
-          setJournal(nextJournal);
-          setError(null);
-        } catch (loadError) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Impossible de charger le journal de decision."
-          );
-        }
-      })();
-    });
-  }, [
-    authorParam,
-    journal.filters.actorUserId,
-    journal.filters.decision,
-    startTransition,
-    statusParam,
-    versionId,
-  ]);
+  function applyFilters(nextFilters: {
+    authorUserId?: string | null;
+    decision?: EstimateApprovalDecisionFilter | null;
+  }) {
+    setSelectedAuthor(nextFilters.authorUserId ?? "");
+    setSelectedDecision(nextFilters.decision ?? "");
+    setError(null);
+    updateUrlFilters(nextFilters);
+    loadJournal(nextFilters);
+  }
 
   return (
-    <section className="dashboard-card p-5" aria-busy={isPending}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <section
+      className="dashboard-card min-w-0 overflow-hidden p-5"
+      aria-busy={isPending}
+    >
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1 basis-[14rem]">
           <h2 className="text-sm font-semibold text-[var(--slate-800)]">{title}</h2>
           <p className="mt-1 text-xs text-[var(--slate-500)]">
             Decisions historisees, filtrables par auteur et statut.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
           <button
             type="button"
             className="btn btn-secondary btn-sm"
             disabled={isPending}
-            onClick={() => loadJournal()}
+            onClick={() =>
+              loadJournal({
+                authorUserId: selectedAuthor || null,
+                decision:
+                  (selectedDecision as EstimateApprovalDecisionFilter | "") || null,
+              })
+            }
           >
             {isPending ? "Chargement…" : "Actualiser"}
           </button>
           <button
             type="button"
             className="btn btn-secondary btn-sm"
-            disabled={isExporting}
+            disabled={isExporting || journal.events.length === 0}
             onClick={() => {
               setIsExporting(true);
               void (async () => {
@@ -272,29 +251,30 @@ export function EstimateApprovalDecisionJournalCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px]">
+      <div className="mt-4 flex flex-wrap gap-3">
         <div
-          className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2 text-sm text-[var(--slate-600)]"
+          className="basis-full rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2 text-sm text-[var(--slate-600)]"
           aria-live="polite"
         >
           {journal.events.length} decision
           {journal.events.length > 1 ? "s" : ""}
-          {selectedAuthor || selectedDecision ? " visible(s) avec les filtres actifs." : " historique(s) sur cette version."}
+          {selectedAuthor || selectedDecision
+            ? " visible(s) avec les filtres actifs."
+            : " historique(s) sur cette version."}
         </div>
 
-        <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
+        <label className="flex min-w-0 flex-1 basis-[180px] flex-col gap-1 text-sm text-[var(--slate-700)]">
           <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
             Auteur
           </span>
           <select
-            className="input"
+            className="input w-full min-w-0"
             name="approval-journal-author"
             value={selectedAuthor}
             disabled={isPending}
             onChange={(event) => {
               const nextAuthor = event.target.value;
-              setSelectedAuthor(nextAuthor);
-              updateUrlFilters({
+              applyFilters({
                 authorUserId: nextAuthor || null,
                 decision:
                   (selectedDecision as EstimateApprovalDecisionFilter | "") || null,
@@ -310,19 +290,18 @@ export function EstimateApprovalDecisionJournalCard({
           </select>
         </label>
 
-        <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
+        <label className="flex min-w-0 flex-1 basis-[180px] flex-col gap-1 text-sm text-[var(--slate-700)]">
           <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
             Statut
           </span>
           <select
-            className="input"
+            className="input w-full min-w-0"
             name="approval-journal-status"
             value={selectedDecision}
             disabled={isPending}
             onChange={(event) => {
               const nextDecision = parseDecisionFilter(event.target.value);
-              setSelectedDecision(nextDecision);
-              updateUrlFilters({
+              applyFilters({
                 authorUserId: selectedAuthor || null,
                 decision: nextDecision || null,
               });

@@ -15,6 +15,11 @@ export const APPROVAL_DECISION_FILTER_VALUES = [
   "changes_requested",
 ] as const;
 
+export const APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM =
+  "approvalJournalAuthor";
+export const APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM =
+  "approvalJournalStatus";
+
 export type EstimateApprovalDecisionFilter =
   (typeof APPROVAL_DECISION_FILTER_VALUES)[number];
 
@@ -105,4 +110,26 @@ export function resolveApprovalDecisionOutcome(
     | EstimateApprovalDecisionFilter
 ): EstimateApprovalDecisionOutcome {
   return decision === "changes_requested" ? "rejected" : "approved";
+}
+
+function firstSearchParamValue(value: string | string[] | null | undefined) {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  return value ?? null;
+}
+
+export function parseApprovalDecisionJournalAuthorSearchParam(
+  value: string | string[] | null | undefined
+) {
+  const normalized = firstSearchParamValue(value)?.trim() ?? "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function parseApprovalDecisionJournalStatusSearchParam(
+  value: string | string[] | null | undefined
+): EstimateApprovalDecisionFilter | null {
+  const normalized = firstSearchParamValue(value)?.trim() ?? "";
+  return isEstimateApprovalDecisionFilter(normalized) ? normalized : null;
 }

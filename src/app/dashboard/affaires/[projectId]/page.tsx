@@ -10,6 +10,12 @@ import {
   fetchAffaireHubTimeline,
 } from "@/lib/affaires/server";
 import {
+  APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
+  APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM,
+  parseApprovalDecisionJournalAuthorSearchParam,
+  parseApprovalDecisionJournalStatusSearchParam,
+} from "@/lib/estimates/approval-decision-journal";
+import {
   getEstimateApprovalSummary,
   listEstimateApprovalDecisionJournal,
 } from "@/lib/estimates/rules-engine";
@@ -44,6 +50,12 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     timelinePageRaw > 0
       ? timelinePageRaw
       : undefined;
+  const approvalJournalAuthor = parseApprovalDecisionJournalAuthorSearchParam(
+    search[APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM]
+  );
+  const approvalJournalDecision = parseApprovalDecisionJournalStatusSearchParam(
+    search[APPROVAL_DECISION_JOURNAL_STATUS_QUERY_PARAM]
+  );
 
   const summaryPromise = fetchAffaireHubSummary(projectId);
   const timelinePromise = fetchAffaireHubTimeline(projectId, timelinePage);
@@ -85,6 +97,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const approvalJournal = summary.currentVersion
     ? await listEstimateApprovalDecisionJournal({
         versionId: summary.currentVersion.id,
+        actorUserId: approvalJournalAuthor,
+        decision: approvalJournalDecision,
       }).catch(() => null)
     : null;
   const viewerRole = profile?.tenant_role ?? null;
