@@ -31,6 +31,10 @@ type TenantMembershipRow = Pick<
   Database["public"]["Tables"]["tenant_memberships"]["Row"],
   "tenant_id" | "role" | "is_default" | "created_at"
 >;
+type TenantMembershipAccessRow = Pick<
+  Database["public"]["Tables"]["tenant_memberships"]["Row"],
+  "tenant_id" | "user_id" | "role" | "is_default" | "created_at"
+>;
 
 type EstimateRuleType = "min_margin" | "max_discount" | "require_approval";
 type ExtendedEstimateRuleType =
@@ -123,6 +127,8 @@ type EstimateReviewCycleRow = {
   decision: EstimateReviewDecision | null;
   decided_at: string | null;
   carried_over_from_cycle_id: string | null;
+  submission_message: string | null;
+  assigned_reviewer_id: string | null;
 };
 
 type EstimateReviewCycleInsert = {
@@ -138,6 +144,8 @@ type EstimateReviewCycleInsert = {
   decision?: EstimateReviewDecision | null;
   decided_at?: string | null;
   carried_over_from_cycle_id?: string | null;
+  submission_message?: string | null;
+  assigned_reviewer_id?: string | null;
 };
 
 type EstimateReviewCycleUpdate = Partial<EstimateReviewCycleInsert>;
@@ -228,6 +236,10 @@ type EmbeddedProfileName = Pick<
   Database["public"]["Tables"]["profiles"]["Row"],
   "full_name"
 >;
+type EmbeddedReviewerProfile = Pick<
+  Database["public"]["Tables"]["profiles"]["Row"],
+  "id" | "full_name" | "work_email"
+>;
 
 type EmbeddedApprovalProjectAccess = Pick<
   EstimateProjectRow,
@@ -257,6 +269,7 @@ type VersionAccessRow = Pick<
 type EstimateReviewCycleWithProfilesRow = EstimateReviewCycleRow & {
   requested_by_profile: EmbeddedProfileName | EmbeddedProfileName[] | null;
   decided_by_profile: EmbeddedProfileName | EmbeddedProfileName[] | null;
+  assigned_reviewer_profile: EmbeddedReviewerProfile | EmbeddedReviewerProfile[] | null;
 };
 
 type EstimateReviewCommentWithProfilesRow = EstimateReviewCommentRow & {
@@ -364,6 +377,7 @@ export type EstimateApprovalDecisionCommentInput = {
 
 export type SubmitEstimateApprovalAction =
   | "request"
+  | "submit_for_review"
   | "approve"
   | "reject"
   | "decide";
@@ -371,8 +385,22 @@ export type SubmitEstimateApprovalAction =
 export type SubmitEstimateApprovalInput =
   | {
       versionId: string;
+      action: "submit_for_review";
+      ruleIds: string[];
+      submissionMessage?: string | null;
+      assignedReviewerUserId?: string | null;
+    }
+  | {
+      versionId: string;
       action: "request";
       ruleId: string;
+    }
+  | {
+      versionId: string;
+      action: "submit_for_review";
+      ruleIds: string[];
+      submissionMessage?: string;
+      assignedReviewerUserId?: string | null;
     }
   | {
       versionId: string;
@@ -389,6 +417,27 @@ export type SubmitEstimateApprovalInput =
 
 export type SubmitEstimateApprovalResult = {
   approval: EstimateApprovalRow;
+  cycle?: SubmitEstimateReviewRequestResult["cycle"];
+  requestedApprovalCount?: number;
+  requestedRuleIds?: string[];
+};
+
+export type SubmitEstimateReviewRequestInput = {
+  versionId: string;
+  submissionMessage?: string | null;
+  assignedReviewerId?: string | null;
+};
+
+export type SubmitEstimateReviewRequestResult = {
+  cycle: {
+    id: string;
+    cycleNumber: number;
+    requestedAt: string;
+    submissionMessage: string | null;
+    assignedReviewer: EstimateApprovalReviewer;
+  };
+  requestedApprovalCount: number;
+  requestedRuleIds: string[];
 };
 
 type RuleCheckInput = {
@@ -441,6 +490,12 @@ export type EstimateApprovalReviewComment = {
   authorName: string | null;
 };
 
+export type EstimateApprovalReviewer = {
+  userId: string;
+  fullName: string;
+  workEmail: string | null;
+};
+
 export type EstimateApprovalReviewCycle = {
   id: string;
   cycleNumber: number;
@@ -452,7 +507,15 @@ export type EstimateApprovalReviewCycle = {
   decidedBy: string;
   deciderName: string | null;
   carriedOverFromCycleId: string | null;
+  submissionMessage: string | null;
+  assignedReviewer: EstimateApprovalReviewer | null;
   comments: EstimateApprovalReviewComment[];
+};
+
+export type EstimateApprovalSubmissionSignal = {
+  id: string;
+  label: string;
+  message: string;
 };
 
 type EstimateApprovalSummaryCore = {
@@ -475,6 +538,7 @@ type EstimateApprovalSummaryCore = {
 
 export type EstimateApprovalSummary = EstimateApprovalSummaryCore & {
   permissions: {
+    canPrepareRequest: boolean;
     canRequest: boolean;
     canDecide: boolean;
   };
@@ -485,8 +549,15 @@ export type EstimateApprovalSummary = EstimateApprovalSummaryCore & {
     requestedBy: string;
     requesterName: string | null;
     pendingApprovalCount: number;
+    submissionMessage: string | null;
+    assignedReviewer: EstimateApprovalReviewer | null;
   } | null;
   reviewHistory: EstimateApprovalReviewCycle[];
+  availableReviewers: EstimateApprovalReviewer[];
+  submissionReadiness: {
+    blockers: EstimateApprovalSubmissionSignal[];
+    alerts: EstimateApprovalSubmissionSignal[];
+  };
   commentTargets: {
     project: EstimateApprovalCommentTarget;
     lots: EstimateApprovalCommentTarget[];
@@ -1247,29 +1318,93 @@ function resolveApprovalWorkflowStatus(input: {
   return "required";
 }
 
-export async function evaluateApprovalSummary(input: {
-  supabase: SupabaseClient<Database> | Supabase;
-  tenantId: string;
-  version: RulesEngineVersion;
-  project: RulesEngineProject;
-  items: RulesEngineItemAccess[];
-  evaluatedAt?: string;
-}): Promise<EstimateApprovalSummaryCore> {
-  const rulesEvaluation = await evaluateRules({
-    supabase: input.supabase,
-    tenantId: input.tenantId,
-    version: input.version,
-    project: input.project,
-    items: input.items,
-    preserveApprovedRequiresApproval: true,
-  });
+function isApprovalWorkflowSignal(input: {
+  action: EstimateRuleAction;
+  ruleType: ExtendedEstimateRuleType;
+}) {
+  return input.action === "require_approval" || input.ruleType === "require_approval";
+}
 
-  const approvalReasons = rulesEvaluation.violations.filter((violation) =>
-    violation.action === "require_approval" || violation.rule_type === "require_approval"
+function toSubmissionReadinessSignal(input: {
+  id: string;
+  label: string;
+  message: string;
+}): EstimateApprovalSubmissionSignal {
+  return {
+    id: input.id,
+    label: input.label,
+    message: input.message,
+  };
+}
+
+function buildSubmissionReadinessFromRulesEvaluation(input: {
+  rulesEvaluation: EvaluateRulesResult;
+}): {
+  blockers: EstimateApprovalSubmissionSignal[];
+  alerts: EstimateApprovalSubmissionSignal[];
+} {
+  const blockers = input.rulesEvaluation.blockingViolations
+    .filter(
+      (violation) =>
+        !isApprovalWorkflowSignal({
+          action: violation.action,
+          ruleType: violation.rule_type,
+        })
+    )
+    .map((violation) =>
+      toSubmissionReadinessSignal({
+        id: `rule:${violation.rule_id}`,
+        label: resolveApprovalSummaryLabel(violation.rule_type),
+        message: violation.message,
+      })
+    );
+
+  const alerts = [
+    ...input.rulesEvaluation.warningViolations.map((violation) =>
+      toSubmissionReadinessSignal({
+        id: `rule:${violation.rule_id}`,
+        label: resolveApprovalSummaryLabel(violation.rule_type),
+        message: violation.message,
+      })
+    ),
+    ...input.rulesEvaluation.unavailableSignals
+      .filter((signal) => signal.action !== "block")
+      .map((signal) =>
+        toSubmissionReadinessSignal({
+          id: `signal:${signal.rule_id}`,
+          label: resolveApprovalSummaryLabel(signal.rule_type),
+          message: signal.message,
+        })
+      ),
+  ];
+
+  const dedupe = (signals: EstimateApprovalSubmissionSignal[]) =>
+    [...new Map(signals.map((signal) => [signal.id, signal])).values()];
+
+  return {
+    blockers: dedupe(blockers),
+    alerts: dedupe(alerts),
+  };
+}
+
+function buildApprovalSummaryFromRulesEvaluation(input: {
+  rulesEvaluation: EvaluateRulesResult;
+  evaluatedAt: string;
+}): EstimateApprovalSummaryCore {
+  const approvalReasons = input.rulesEvaluation.violations.filter((violation) =>
+    isApprovalWorkflowSignal({
+      action: violation.action,
+      ruleType: violation.rule_type,
+    })
   );
 
-  const unavailableSignals = rulesEvaluation.unavailableSignals
-    .filter((signal) => signal.action === "require_approval" || signal.rule_type === "require_approval")
+  const unavailableSignals = input.rulesEvaluation.unavailableSignals
+    .filter((signal) =>
+      isApprovalWorkflowSignal({
+        action: signal.action,
+        ruleType: signal.rule_type,
+      })
+    )
     .map((signal) => signal.metric_key)
     .sort((left, right) => left.localeCompare(right));
 
@@ -1284,7 +1419,9 @@ export async function evaluateApprovalSummary(input: {
     )
     .sort((left, right) => {
       const leftTimestamp = Date.parse(left.approval_decided_at ?? left.approval_created_at ?? "");
-      const rightTimestamp = Date.parse(right.approval_decided_at ?? right.approval_created_at ?? "");
+      const rightTimestamp = Date.parse(
+        right.approval_decided_at ?? right.approval_created_at ?? ""
+      );
       return rightTimestamp - leftTimestamp;
     })[0];
   const latestDecisionStatus =
@@ -1299,7 +1436,7 @@ export async function evaluateApprovalSummary(input: {
       approvalReasons,
     }),
     requiresApproval: approvalReasons.length > 0,
-    evaluatedAt: input.evaluatedAt ?? new Date().toISOString(),
+    evaluatedAt: input.evaluatedAt,
     reasons: approvalReasons.map((reason) => ({
       ruleId: reason.rule_id,
       label: resolveApprovalSummaryLabel(reason.rule_type),
@@ -1331,6 +1468,68 @@ export async function evaluateApprovalSummary(input: {
   };
 }
 
+async function evaluateApprovalSummaryBundle(input: {
+  supabase: SupabaseClient<Database> | Supabase;
+  tenantId: string;
+  version: RulesEngineVersion;
+  project: RulesEngineProject;
+  items: RulesEngineItemAccess[];
+  evaluatedAt?: string;
+}) {
+  const evaluatedAt = input.evaluatedAt ?? new Date().toISOString();
+  const rulesEvaluation = await evaluateRules({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    version: input.version,
+    project: input.project,
+    items: input.items,
+    preserveApprovedRequiresApproval: true,
+  });
+
+  return {
+    summary: buildApprovalSummaryFromRulesEvaluation({
+      rulesEvaluation,
+      evaluatedAt,
+    }),
+    submissionReadiness: buildSubmissionReadinessFromRulesEvaluation({
+      rulesEvaluation,
+    }),
+  };
+}
+
+export async function evaluateApprovalSummary(input: {
+  supabase: SupabaseClient<Database> | Supabase;
+  tenantId: string;
+  version: RulesEngineVersion;
+  project: RulesEngineProject;
+  items: RulesEngineItemAccess[];
+  evaluatedAt?: string;
+}): Promise<EstimateApprovalSummaryCore> {
+  const { summary } = await evaluateApprovalSummaryBundle(input);
+  return summary;
+}
+
+async function evaluateSubmissionReadiness(input: {
+  supabase: SupabaseClient<Database> | Supabase;
+  tenantId: string;
+  version: RulesEngineVersion;
+  project: RulesEngineProject;
+  items: RulesEngineItemAccess[];
+}) {
+  const rulesEvaluation = await evaluateRules({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    version: input.version,
+    project: input.project,
+    items: input.items,
+    preserveApprovedRequiresApproval: true,
+  });
+
+  return buildSubmissionReadinessFromRulesEvaluation({
+    rulesEvaluation,
+  });
+}
+
 function toApprovalSummaryStorage(summary: EstimateApprovalSummaryCore): Json {
   return {
     requiresApproval: summary.requiresApproval,
@@ -1356,6 +1555,8 @@ function toApprovalSummaryStorage(summary: EstimateApprovalSummaryCore): Json {
 function normalizeReviewCycle(
   row: EstimateReviewCycleWithProfilesRow
 ): Omit<EstimateApprovalReviewCycle, "comments"> {
+  const assignedReviewerProfile = resolveEmbeddedOne(row.assigned_reviewer_profile);
+
   return {
     id: row.id,
     cycleNumber: row.cycle_number,
@@ -1367,7 +1568,29 @@ function normalizeReviewCycle(
     decidedBy: row.decided_by!,
     deciderName: resolveEmbeddedOne(row.decided_by_profile)?.full_name ?? null,
     carriedOverFromCycleId: row.carried_over_from_cycle_id,
+    submissionMessage: row.submission_message,
+    assignedReviewer: assignedReviewerProfile
+      ? {
+          userId: assignedReviewerProfile.id,
+          fullName:
+            assignedReviewerProfile.full_name?.trim() || "Validateur",
+          workEmail: assignedReviewerProfile.work_email ?? null,
+        }
+      : null,
   };
+}
+
+function normalizeAssignedReviewer(
+  row: Pick<EstimateReviewCycleWithProfilesRow, "assigned_reviewer_profile">
+) {
+  const assignedReviewerProfile = resolveEmbeddedOne(row.assigned_reviewer_profile);
+  return assignedReviewerProfile
+    ? {
+        userId: assignedReviewerProfile.id,
+        fullName: assignedReviewerProfile.full_name?.trim() || "Validateur",
+        workEmail: assignedReviewerProfile.work_email ?? null,
+      }
+    : null;
 }
 
 function normalizeReviewComment(
@@ -1382,6 +1605,99 @@ function normalizeReviewComment(
     createdAt: row.created_at,
     createdBy: row.created_by,
     authorName: resolveEmbeddedOne(row.created_by_profile)?.full_name ?? null,
+  };
+}
+
+function normalizeAvailableReviewer(input: {
+  membership: TenantMembershipAccessRow;
+  profile: EmbeddedReviewerProfile | null;
+}): EstimateApprovalReviewer {
+  return {
+    userId: input.membership.user_id,
+    fullName:
+      input.profile?.full_name?.trim() ||
+      input.profile?.work_email?.trim() ||
+      `Utilisateur ${input.membership.user_id.slice(0, 8)}`,
+    workEmail: input.profile?.work_email ?? null,
+  };
+}
+
+async function listAvailableEstimateApprovalReviewers(input: {
+  context: AuthenticatedContext;
+}) {
+  const { data: membershipRows, error: membershipError } = await input.context.supabase
+    .from("tenant_memberships")
+    .select("tenant_id, user_id, role, is_default, created_at")
+    .eq("tenant_id", input.context.tenantId)
+    .in("role", ["admin", "director"])
+    .order("role", { ascending: true })
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true });
+
+  if (membershipError) {
+    throw mapSupabaseError(
+      membershipError,
+      "Impossible de charger les validateurs disponibles."
+    );
+  }
+
+  const memberships = (membershipRows ?? []) as TenantMembershipAccessRow[];
+  if (memberships.length === 0) {
+    return [] as EstimateApprovalReviewer[];
+  }
+
+  const reviewerUserIds = [...new Set(memberships.map((membership) => membership.user_id))];
+  const { data: profileRows, error: profileError } = await input.context.supabase
+    .from("profiles")
+    .select("id, full_name, work_email")
+    .in("id", reviewerUserIds);
+
+  if (profileError) {
+    throw mapSupabaseError(
+      profileError,
+      "Impossible de charger les profils des validateurs."
+    );
+  }
+
+  const profileById = new Map<string, EmbeddedReviewerProfile>();
+  ((profileRows ?? []) as EmbeddedReviewerProfile[]).forEach((profile) => {
+    profileById.set(profile.id, profile);
+  });
+
+  return memberships
+    .filter(
+      (membership, index, all) =>
+        all.findIndex((candidate) => candidate.user_id === membership.user_id) === index
+    )
+    .map((membership) =>
+      normalizeAvailableReviewer({
+        membership,
+        profile: profileById.get(membership.user_id) ?? null,
+      })
+    )
+    .sort((left, right) => left.fullName.localeCompare(right.fullName));
+}
+
+function buildSubmissionSignalId(input: {
+  ruleId: string;
+  metricKey: string;
+  severity: RuleViolationSeverity;
+}) {
+  return `${input.severity}:${input.ruleId}:${input.metricKey}`;
+}
+
+function toSubmissionSignal(
+  entry: EstimateRuleViolation | EstimateRuleUnavailableSignal,
+  severity: RuleViolationSeverity
+): EstimateApprovalSubmissionSignal {
+  return {
+    id: buildSubmissionSignalId({
+      ruleId: entry.rule_id,
+      metricKey: entry.metric_key,
+      severity,
+    }),
+    label: resolveApprovalSummaryLabel(entry.rule_type),
+    message: entry.message,
   };
 }
 
@@ -1780,12 +2096,15 @@ async function listEstimateReviewCycles(input: {
         "cycle_number",
         "requested_by",
         "requested_at",
+        "submission_message",
+        "assigned_reviewer_id",
         "decided_by",
         "decision",
         "decided_at",
         "carried_over_from_cycle_id",
         "requested_by_profile:requested_by(full_name)",
         "decided_by_profile:decided_by(full_name)",
+        "assigned_reviewer_profile:assigned_reviewer_id(id, full_name, work_email)",
       ].join(", ")
     )
     .eq("tenant_id", input.context.tenantId)
@@ -1996,6 +2315,10 @@ async function enrichEstimateApprovalSummary(input: {
   project: EmbeddedApprovalProjectAccess;
   items: RulesEngineItemAccess[];
   summary: EstimateApprovalSummaryCore;
+  submissionReadiness: {
+    blockers: EstimateApprovalSubmissionSignal[];
+    alerts: EstimateApprovalSubmissionSignal[];
+  };
 }): Promise<EstimateApprovalSummary> {
   const cycleRows = await listEstimateReviewCycles({
     context: input.context,
@@ -2041,13 +2364,29 @@ async function enrichEstimateApprovalSummary(input: {
   const requestableReasonCount = input.summary.reasons.filter(
     (reason) => reason.approvalStatus === "missing" || reason.approvalStatus === "rejected"
   ).length;
-  const canRequest =
+  const availableReviewers = await listAvailableEstimateApprovalReviewers({
+    context: input.context,
+  });
+  const canPrepareRequest =
     (input.context.tenantRole === "admin" || input.context.tenantRole === "engineer") &&
     canAccessOwnerResource({
       context: input.context,
       resourceUserId: input.project.user_id,
-    }) &&
-    requestableReasonCount > 0;
+    });
+  const submissionBlockers = [...input.submissionReadiness.blockers];
+  if (availableReviewers.length === 0) {
+    submissionBlockers.push({
+      id: "reviewer:none",
+      label: "Validateur indisponible",
+      message:
+        "Aucun role admin ou director n'est disponible pour prendre la revue.",
+    });
+  }
+  const canRequest =
+    canPrepareRequest &&
+    activeCycleRow === null &&
+    requestableReasonCount > 0 &&
+    submissionBlockers.length === 0;
   const canDecide =
     isTenantApprover(input.context.tenantRole) &&
     activeCycleRow !== null &&
@@ -2062,6 +2401,8 @@ async function enrichEstimateApprovalSummary(input: {
           requesterName:
             resolveEmbeddedOne(activeCycleRow.requested_by_profile)?.full_name ?? null,
           pendingApprovalCount,
+          submissionMessage: activeCycleRow.submission_message,
+          assignedReviewer: normalizeAssignedReviewer(activeCycleRow),
         }
       : null;
 
@@ -2094,11 +2435,17 @@ async function enrichEstimateApprovalSummary(input: {
     ...input.summary,
     latestDecision,
     permissions: {
+      canPrepareRequest,
       canRequest,
       canDecide,
     },
     activeCycle,
     reviewHistory,
+    availableReviewers,
+    submissionReadiness: {
+      blockers: submissionBlockers,
+      alerts: input.submissionReadiness.alerts,
+    },
     commentTargets: buildEstimateReviewCommentTargets({
       project: input.project,
       items: input.items,
@@ -2208,6 +2555,23 @@ async function syncEstimateApprovalSummary(input: {
     items,
     evaluatedAt,
   });
+  const submissionReadiness = await evaluateSubmissionReadiness({
+    supabase: input.context.supabase,
+    tenantId: input.context.tenantId,
+    version: {
+      id: input.version.id,
+      project_id: input.version.project_id,
+      total_ht_cents: input.version.total_ht_cents,
+      margin_bp: input.version.margin_bp,
+      margin_multiplier: input.version.margin_multiplier,
+      discount_bp: input.version.discount_bp,
+    },
+    project: {
+      id: input.project.id,
+      client_name: input.project.client_name,
+    },
+    items,
+  });
 
   const previousStatus = input.version.approval_status ?? "not_required";
   const storedSummary = (input.version.approval_summary ?? null) as Json | null;
@@ -2223,6 +2587,7 @@ async function syncEstimateApprovalSummary(input: {
       version: input.version,
       project: input.project,
       items,
+      submissionReadiness,
       summary: {
         ...coreSummary,
         evaluatedAt: input.version.approval_evaluated_at ?? coreSummary.evaluatedAt,
@@ -2243,6 +2608,7 @@ async function syncEstimateApprovalSummary(input: {
       version: input.version,
       project: input.project,
       items,
+      submissionReadiness,
       summary: coreSummary,
     });
   }
@@ -2299,6 +2665,7 @@ async function syncEstimateApprovalSummary(input: {
     version: input.version,
     project: input.project,
     items,
+    submissionReadiness,
     summary: coreSummary,
   });
 }
@@ -2493,7 +2860,7 @@ async function findOpenReviewCycle(input: {
   const { data, error } = await input.context.supabase
     .from("estimate_review_cycles")
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, decided_by, decision, decided_at, carried_over_from_cycle_id"
+      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, submission_message, assigned_reviewer_id, decided_by, decision, decided_at, carried_over_from_cycle_id"
     )
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
@@ -2515,7 +2882,7 @@ async function findLatestReviewCycle(input: {
   const { data, error } = await input.context.supabase
     .from("estimate_review_cycles")
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, decided_by, decision, decided_at, carried_over_from_cycle_id"
+      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, submission_message, assigned_reviewer_id, decided_by, decision, decided_at, carried_over_from_cycle_id"
     )
     .eq("tenant_id", input.context.tenantId)
     .eq("version_id", input.versionId)
@@ -2532,6 +2899,8 @@ async function findLatestReviewCycle(input: {
 async function ensureOpenReviewCycle(input: {
   context: AuthenticatedContext;
   versionId: string;
+  submissionMessage?: string | null;
+  assignedReviewerId?: string | null;
 }) {
   const existing = await findOpenReviewCycle(input);
   if (existing) {
@@ -2546,13 +2915,15 @@ async function ensureOpenReviewCycle(input: {
     requested_by: input.context.userId,
     requested_at: new Date().toISOString(),
     carried_over_from_cycle_id: latestCycle?.id ?? null,
+    submission_message: input.submissionMessage?.trim() || null,
+    assigned_reviewer_id: input.assignedReviewerId ?? null,
   };
 
   const { data, error } = await input.context.supabase
     .from("estimate_review_cycles")
     .insert(payload)
     .select(
-      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, decided_by, decision, decided_at, carried_over_from_cycle_id"
+      "id, created_at, updated_at, tenant_id, version_id, cycle_number, requested_by, requested_at, submission_message, assigned_reviewer_id, decided_by, decision, decided_at, carried_over_from_cycle_id"
     )
     .single();
 
@@ -2780,11 +3151,210 @@ async function findLatestApprovalForRule(input: {
   return row ?? null;
 }
 
+async function resolveAssignedReviewerOrThrow(input: {
+  context: AuthenticatedContext;
+  reviewerUserId: string | null;
+}) {
+  const availableReviewers = await listAvailableEstimateApprovalReviewers({
+    context: input.context,
+  });
+  if (availableReviewers.length === 0) {
+    throw badRequest("Aucun validateur n'est disponible pour ce tenant.");
+  }
+
+  if (!input.reviewerUserId) {
+    return availableReviewers[0]!;
+  }
+
+  const assignedReviewer =
+    availableReviewers.find((reviewer) => reviewer.userId === input.reviewerUserId) ?? null;
+  if (!assignedReviewer) {
+    throw badRequest("Le validateur assigne n'est pas autorise sur ce tenant.");
+  }
+
+  return assignedReviewer;
+}
+
+async function ensurePendingApprovalForRule(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  ruleId: string;
+}) {
+  const existingPending = await findLatestApprovalForRule({
+    context: input.context,
+    versionId: input.versionId,
+    ruleId: input.ruleId,
+    status: "pending",
+  });
+
+  if (existingPending) {
+    return existingPending;
+  }
+
+  const payload: EstimateApprovalInsert = {
+    tenant_id: input.context.tenantId,
+    version_id: input.versionId,
+    rule_id: input.ruleId,
+    requested_by: input.context.userId,
+    status: "pending",
+    approved_by: null,
+    decided_at: null,
+  };
+
+  const { data, error } = await input.context.supabase
+    .from("estimate_approvals")
+    .insert(payload)
+    .select(
+      "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
+    )
+    .single();
+
+  if (error || !data) {
+    if (error?.code === "23505") {
+      const racedPending = await findLatestApprovalForRule({
+        context: input.context,
+        versionId: input.versionId,
+        ruleId: input.ruleId,
+        status: "pending",
+      });
+
+      if (racedPending) {
+        return racedPending;
+      }
+    }
+
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de creer la demande d'approbation.");
+    }
+
+    throw badRequest("Impossible de creer la demande d'approbation.");
+  }
+
+  return data as EstimateApprovalRow;
+}
+
 export async function submitEstimateApproval(
   input: SubmitEstimateApprovalInput
 ): Promise<SubmitEstimateApprovalResult> {
   const context = await getAuthenticatedContext();
   const access = await getVersionAccessOrThrow(context, input.versionId);
+
+  if (input.action === "submit_for_review") {
+    assertRequesterRole(context);
+
+    if (
+      !canAccessOwnerResource({
+        context,
+        resourceUserId: access.project.user_id,
+      })
+    ) {
+      throw forbidden("Action reservee au proprietaire du chiffrage.");
+    }
+
+    const items = await loadApprovalSummaryItems({
+      context,
+      versionId: input.versionId,
+    });
+    const [summary, submissionReadiness, assignedReviewer] = await Promise.all([
+      evaluateApprovalSummary({
+        supabase: context.supabase,
+        tenantId: context.tenantId,
+        version: {
+          id: access.version.id,
+          project_id: access.version.project_id,
+          total_ht_cents: access.version.total_ht_cents,
+          margin_bp: access.version.margin_bp,
+          margin_multiplier: access.version.margin_multiplier,
+          discount_bp: access.version.discount_bp,
+        },
+        project: {
+          id: access.project.id,
+          client_name: access.project.client_name,
+        },
+        items,
+      }),
+      evaluateSubmissionReadiness({
+        supabase: context.supabase,
+        tenantId: context.tenantId,
+        version: {
+          id: access.version.id,
+          project_id: access.version.project_id,
+          total_ht_cents: access.version.total_ht_cents,
+          margin_bp: access.version.margin_bp,
+          margin_multiplier: access.version.margin_multiplier,
+          discount_bp: access.version.discount_bp,
+        },
+        project: {
+          id: access.project.id,
+          client_name: access.project.client_name,
+        },
+        items,
+      }),
+      resolveAssignedReviewerOrThrow({
+        context,
+        reviewerUserId: normalizeOptionalUuid(input.assignedReviewerUserId ?? undefined),
+      }),
+    ]);
+
+    if (submissionReadiness.blockers.length > 0) {
+      throw badRequest("Des blocants restent a lever avant la soumission.");
+    }
+
+    const requestedRuleIdSet = new Set(
+      input.ruleIds
+        .map((ruleId) => normalizeOptionalUuid(ruleId))
+        .filter((ruleId): ruleId is string => ruleId !== null)
+    );
+    const requestableReasons = summary.reasons.filter(
+      (reason) =>
+        (reason.approvalStatus === "missing" || reason.approvalStatus === "rejected") &&
+        (requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(reason.ruleId))
+    );
+
+    if (requestableReasons.length === 0) {
+      throw badRequest("Aucune regle de validation ne peut etre soumise.");
+    }
+
+    const cycle = await ensureOpenReviewCycle({
+      context,
+      versionId: input.versionId,
+      submissionMessage: input.submissionMessage?.trim() || null,
+      assignedReviewerId: assignedReviewer.userId,
+    });
+
+    let latestApproval: EstimateApprovalRow | null = null;
+    for (const reason of requestableReasons) {
+      latestApproval = await ensurePendingApprovalForRule({
+        context,
+        versionId: input.versionId,
+        ruleId: reason.ruleId,
+      });
+    }
+
+    if (!latestApproval) {
+      throw badRequest("Aucune approbation n'a pu etre ouverte.");
+    }
+
+    await syncEstimateApprovalSummary({
+      context,
+      version: access.version,
+      project: access.project,
+      trigger: "approval_request",
+    });
+
+    return {
+      approval: latestApproval,
+      cycle: {
+        id: cycle.id,
+        cycleNumber: cycle.cycle_number,
+        requestedAt: cycle.requested_at,
+        submissionMessage: cycle.submission_message,
+        assignedReviewer,
+      },
+      requestedApprovalCount: requestableReasons.length,
+      requestedRuleIds: requestableReasons.map((reason) => reason.ruleId),
+    };
+  }
 
   if (input.action === "request") {
     assertRequesterRole(context);
@@ -2816,67 +3386,11 @@ export async function submitEstimateApproval(
       context,
       versionId: input.versionId,
     });
-
-    const existingPending = await findLatestApprovalForRule({
+    const approval = await ensurePendingApprovalForRule({
       context,
       versionId: input.versionId,
       ruleId,
-      status: "pending",
     });
-
-    if (existingPending) {
-      await syncEstimateApprovalSummary({
-        context,
-        version: access.version,
-        project: access.project,
-        trigger: "approval_request",
-      });
-
-      return {
-        approval: existingPending,
-      };
-    }
-
-    const payload: EstimateApprovalInsert = {
-      tenant_id: context.tenantId,
-      version_id: input.versionId,
-      rule_id: ruleId,
-      requested_by: context.userId,
-      status: "pending",
-      approved_by: null,
-      decided_at: null,
-    };
-
-    const { data, error } = await context.supabase
-      .from("estimate_approvals")
-      .insert(payload)
-      .select(
-        "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
-      )
-      .single();
-
-    if (error || !data) {
-      if (error?.code === "23505") {
-        const racedPending = await findLatestApprovalForRule({
-          context,
-          versionId: input.versionId,
-          ruleId,
-          status: "pending",
-        });
-
-        if (racedPending) {
-          return {
-            approval: racedPending,
-          };
-        }
-      }
-
-      if (error) {
-        throw mapSupabaseError(error, "Impossible de creer la demande d'approbation.");
-      }
-
-      throw badRequest("Impossible de creer la demande d'approbation.");
-    }
 
     await syncEstimateApprovalSummary({
       context,
@@ -2886,7 +3400,7 @@ export async function submitEstimateApproval(
     });
 
     return {
-      approval: data as EstimateApprovalRow,
+      approval,
     };
   }
 

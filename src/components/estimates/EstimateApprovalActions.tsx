@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 
 import {
   decideEstimateApprovalAction,
-  requestEstimateApprovalAction,
+  submitEstimateForReviewAction,
 } from "@/app/dashboard/_actions/estimate-approval";
 import { useToast } from "@/components/ui/Toast";
 import type {
@@ -18,6 +18,13 @@ import type {
 type DraftComment = EstimateApprovalDecisionCommentInput & {
   id: string;
   scopeLabel: string;
+};
+
+export type EstimateApprovalSubmissionOverview = {
+  coveragePercent: number | null;
+  exceptionCount: number | null;
+  openQuestionsCount: number | null;
+  marginPercent: number | null;
 };
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
@@ -108,14 +115,32 @@ function renderDecisionBadge(decision: EstimateReviewDecision) {
   );
 }
 
+function formatPercent(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "Indisponible";
+  }
+
+  return `${value.toFixed(1)}%`;
+}
+
+function formatCount(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "Indisponible";
+  }
+
+  return new Intl.NumberFormat("fr-FR").format(value);
+}
+
 export function EstimateApprovalActions({
   versionId,
   projectId,
   summary,
+  submissionOverview,
 }: Readonly<{
   versionId: string;
   projectId: string;
   summary: EstimateApprovalSummary;
+  submissionOverview: EstimateApprovalSubmissionOverview;
 }>) {
   const router = useRouter();
   const toast = useToast();
@@ -127,6 +152,11 @@ export function EstimateApprovalActions({
   const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<EstimateReviewDecision | null>(null);
+  const [showSubmitPanel, setShowSubmitPanel] = useState(false);
+  const [submissionMessage, setSubmissionMessage] = useState("");
+  const [assignedReviewerUserId, setAssignedReviewerUserId] = useState<string | null>(
+    summary.availableReviewers[0]?.userId ?? null
+  );
 
   const requestableReasons = summary.reasons.filter(
     (reason) => reason.approvalStatus === "missing" || reason.approvalStatus === "rejected"
@@ -174,7 +204,7 @@ export function EstimateApprovalActions({
     resetDraftForm();
   }
 
-  function runRequestAction() {
+  function runSubmitAction() {
     if (requestableReasons.length === 0) {
       return;
     }
@@ -182,19 +212,28 @@ export function EstimateApprovalActions({
     startTransition(() => {
       void (async () => {
         try {
-          await requestEstimateApprovalAction({
+          const selectedReviewer =
+            summary.availableReviewers.find(
+              (reviewer) => reviewer.userId === assignedReviewerUserId
+            ) ?? summary.availableReviewers[0] ?? null;
+
+          await submitEstimateForReviewAction({
             versionId,
             projectId,
             ruleIds: requestableReasons.map((reason) => reason.ruleId),
+            submissionMessage: submissionMessage.trim() || undefined,
+            assignedReviewerUserId: selectedReviewer?.userId ?? null,
           });
 
           toast.success({
-            title: "Demande envoyée",
+            title: "Version soumise a validation",
             description:
-              requestableReasons.length === 1
-                ? `Approbation demandée pour : ${requestableReasons[0].label}.`
-                : `${requestableReasons.length} approbations demandées : ${requestableReasons.map((reason) => reason.label).join(", ")}.`,
+              selectedReviewer
+                ? `Dossier transmis a ${selectedReviewer.fullName}.`
+                : "Dossier transmis a la validation.",
           });
+          setShowSubmitPanel(false);
+          setSubmissionMessage("");
           router.refresh();
         } catch (error) {
           toast.error({
@@ -202,7 +241,7 @@ export function EstimateApprovalActions({
             description:
               error instanceof Error
                 ? error.message
-                : "Impossible de demander l'approbation.",
+                : "Impossible de soumettre la version a validation.",
           });
         }
       })();
@@ -259,7 +298,7 @@ export function EstimateApprovalActions({
   }
 
   const showPanel =
-    summary.permissions.canRequest ||
+    summary.permissions.canPrepareRequest ||
     summary.permissions.canDecide ||
     summary.reviewHistory.length > 0 ||
     summary.activeCycle !== null;
@@ -290,24 +329,278 @@ export function EstimateApprovalActions({
               En revue
             </span>
           </div>
+          {summary.activeCycle.assignedReviewer ? (
+            <p className="mt-3 text-sm text-[var(--slate-700)]">
+              Validateur assigne:{" "}
+              <span className="font-medium text-[var(--slate-800)]">
+                {summary.activeCycle.assignedReviewer.fullName}
+              </span>
+              {summary.activeCycle.assignedReviewer.workEmail
+                ? ` (${summary.activeCycle.assignedReviewer.workEmail})`
+                : ""}
+            </p>
+          ) : null}
+          {summary.activeCycle.submissionMessage ? (
+            <div className="mt-3 rounded-xl border border-white/70 bg-white/80 px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                Message de contexte
+              </p>
+              <p className="mt-1 text-sm text-[var(--slate-700)]">
+                {summary.activeCycle.submissionMessage}
+              </p>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
-      {summary.permissions.canRequest ? (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={isPending}
-            onClick={runRequestAction}
-          >
-            {isPending
-              ? "En cours..."
-              : requestableReasons.length > 1
-                ? `Demander approbation (${requestableReasons.length})`
-                : "Demander approbation"}
-          </button>
-        </div>
+      {summary.permissions.canPrepareRequest ? (
+        <section className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+                Soumission a validation
+              </h3>
+              <p className="mt-1 text-xs text-[var(--slate-500)]">
+                Verifiez les blocants, les alertes restantes et le contexte avant d&apos;envoyer le dossier.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={isPending || summary.activeCycle !== null}
+              onClick={() => {
+                setFormError(null);
+                setShowSubmitPanel((current) => !current);
+              }}
+            >
+              {showSubmitPanel ? "Fermer" : "Soumettre a validation"}
+            </button>
+          </div>
+
+          {showSubmitPanel ? (
+            <div className="mt-4 space-y-4 border-t border-[var(--slate-200)] pt-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                    Couverture
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
+                    {formatPercent(submissionOverview.coveragePercent)}
+                  </p>
+                </article>
+                <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                    Exceptions
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
+                    {formatCount(submissionOverview.exceptionCount)}
+                  </p>
+                </article>
+                <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                    Hypotheses ouvertes
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
+                    {formatCount(submissionOverview.openQuestionsCount)}
+                  </p>
+                </article>
+                <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                    Marge
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
+                    {formatPercent(submissionOverview.marginPercent)}
+                  </p>
+                </article>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <section className="rounded-xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--danger)]">
+                        Blocants
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        Ces points empechent la soumission tant qu&apos;ils restent ouverts.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--danger)]">
+                      {summary.submissionReadiness.blockers.length}
+                    </span>
+                  </div>
+                  {summary.submissionReadiness.blockers.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {summary.submissionReadiness.blockers.map((entry) => (
+                        <article
+                          key={entry.id}
+                          className="rounded-xl border border-[var(--danger)]/15 bg-white/90 px-3 py-3"
+                        >
+                          <p className="text-sm font-semibold text-[var(--slate-800)]">
+                            {entry.label}
+                          </p>
+                          <p className="mt-1 text-sm text-[var(--slate-700)]">
+                            {entry.message}
+                          </p>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-[var(--slate-600)]">
+                      Aucun blocant dur detecte.
+                    </p>
+                  )}
+                </section>
+
+                <section className="rounded-xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--warning)]">
+                        Alertes
+                      </p>
+                      <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        Visibles pour la validation, mais non bloquantes pour l&apos;envoi.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--warning)]">
+                      {summary.submissionReadiness.alerts.length}
+                    </span>
+                  </div>
+                  {summary.submissionReadiness.alerts.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {summary.submissionReadiness.alerts.map((entry) => (
+                        <article
+                          key={entry.id}
+                          className="rounded-xl border border-[var(--warning)]/15 bg-white/90 px-3 py-3"
+                        >
+                          <p className="text-sm font-semibold text-[var(--slate-800)]">
+                            {entry.label}
+                          </p>
+                          <p className="mt-1 text-sm text-[var(--slate-700)]">
+                            {entry.message}
+                          </p>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-[var(--slate-600)]">
+                      Aucune alerte complementaire.
+                    </p>
+                  )}
+                </section>
+              </div>
+
+              <section className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-4">
+                <p className="text-sm font-semibold text-[var(--slate-800)]">
+                  Regles declenchees
+                </p>
+                {summary.reasons.length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {summary.reasons.map((reason) => (
+                      <article
+                        key={`${reason.ruleId}-${reason.approvalId ?? "pending"}`}
+                        className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <p className="text-sm font-semibold text-[var(--slate-800)]">
+                            {reason.label}
+                          </p>
+                          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--slate-600)]">
+                            {reason.approvalStatus === "approved"
+                              ? "Approuvee"
+                              : reason.approvalStatus === "pending"
+                                ? "En revue"
+                                : reason.approvalStatus === "rejected"
+                                  ? "A reprendre"
+                                  : "A soumettre"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm text-[var(--slate-700)]">
+                          {reason.message}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-[var(--slate-600)]">
+                    Aucune regle d&apos;approbation active sur cette version.
+                  </p>
+                )}
+              </section>
+
+              <div className="grid gap-3 md:grid-cols-[240px_minmax(0,1fr)]">
+                {summary.availableReviewers.length > 0 ? (
+                  <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
+                    <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                      Validateur
+                    </span>
+                    <select
+                      className="input"
+                      value={assignedReviewerUserId ?? ""}
+                      onChange={(event) =>
+                        setAssignedReviewerUserId(event.target.value || null)
+                      }
+                    >
+                      {summary.availableReviewers.map((reviewer) => (
+                        <option key={reviewer.userId} value={reviewer.userId}>
+                          {reviewer.fullName}
+                          {reviewer.workEmail ? ` - ${reviewer.workEmail}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-[var(--slate-200)] bg-white px-3 py-3 text-sm text-[var(--slate-600)]">
+                    Aucun validateur admin ou director n&apos;est disponible pour ce tenant.
+                  </div>
+                )}
+
+                <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
+                  <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                    Message de contexte
+                  </span>
+                  <textarea
+                    className="input min-h-[112px] resize-y py-3"
+                    value={submissionMessage}
+                    onChange={(event) => setSubmissionMessage(event.target.value)}
+                    placeholder="Precisez les points a surveiller, les arbitrages deja faits et ce qui reste a confirmer."
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 border-t border-[var(--slate-200)] pt-4">
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={
+                    isPending ||
+                    requestableReasons.length === 0 ||
+                    summary.submissionReadiness.blockers.length > 0 ||
+                    summary.availableReviewers.length === 0
+                  }
+                  onClick={runSubmitAction}
+                >
+                  {isPending ? "En cours..." : "Confirmer la soumission"}
+                </button>
+                {requestableReasons.length === 0 ? (
+                  <p className="text-xs text-[var(--slate-500)]">
+                    Aucune regle de validation n&apos;est actuellement declenchee sur cette version.
+                  </p>
+                ) : null}
+                {summary.submissionReadiness.blockers.length > 0 ? (
+                  <p className="text-xs text-[var(--danger)]">
+                    Corrigez les blocants avant d&apos;envoyer a la validation.
+                  </p>
+                ) : null}
+                {summary.activeCycle !== null ? (
+                  <p className="text-xs text-[var(--brand-blue)]">
+                    Cette version est deja en revue.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       {summary.permissions.canDecide ? (
@@ -539,6 +832,28 @@ export function EstimateApprovalActions({
             {renderDecisionBadge(latestReview.decision)}
           </div>
 
+          {latestReview.assignedReviewer ? (
+            <p className="mt-4 text-sm text-[var(--slate-700)]">
+              Validateur assigne:{" "}
+              <span className="font-medium text-[var(--slate-800)]">
+                {latestReview.assignedReviewer.fullName}
+              </span>
+              {latestReview.assignedReviewer.workEmail
+                ? ` (${latestReview.assignedReviewer.workEmail})`
+                : ""}
+            </p>
+          ) : null}
+          {latestReview.submissionMessage ? (
+            <div className="mt-4 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                Message de contexte
+              </p>
+              <p className="mt-1 text-sm text-[var(--slate-700)]">
+                {latestReview.submissionMessage}
+              </p>
+            </div>
+          ) : null}
+
           {latestReview.comments.length === 0 ? (
             <p className="mt-4 text-sm text-[var(--slate-600)]">
               Aucun commentaire ciblé n'a été enregistré sur ce cycle.
@@ -614,6 +929,16 @@ export function EstimateApprovalActions({
                       </div>
                       {renderDecisionBadge(cycle.decision)}
                     </div>
+                    {cycle.assignedReviewer ? (
+                      <p className="mt-3 text-sm text-[var(--slate-700)]">
+                        Validateur assigne: {cycle.assignedReviewer.fullName}
+                      </p>
+                    ) : null}
+                    {cycle.submissionMessage ? (
+                      <p className="mt-2 text-sm text-[var(--slate-600)]">
+                        {cycle.submissionMessage}
+                      </p>
+                    ) : null}
                     {cycle.comments.length > 0 ? (
                       <ul className="mt-3 space-y-2">
                         {cycle.comments.map((comment) => (

@@ -87,6 +87,43 @@ describe("estimate approve route", () => {
     );
   });
 
+  it("submits a version for review with reviewer context", async () => {
+    vi.mocked(submitEstimateApproval).mockResolvedValue({
+      approval: {
+        id: "33333333-3333-4333-8333-333333333333",
+        version_id: VERSION_ID,
+        rule_id: "22222222-2222-4222-8222-222222222222",
+        status: "pending",
+      },
+    } as never);
+
+    const request = new Request("http://localhost", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "submit_for_review",
+        rule_ids: ["22222222-2222-4222-8222-222222222222"],
+        submission_message: "Verifier la couverture metre sur les lots CFO/CFA.",
+        assigned_reviewer_user_id: "44444444-4444-4444-8444-444444444444",
+      }),
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ versionId: VERSION_ID }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(vi.mocked(submitEstimateApproval)).toHaveBeenCalledWith({
+      versionId: VERSION_ID,
+      action: "submit_for_review",
+      ruleIds: ["22222222-2222-4222-8222-222222222222"],
+      submissionMessage: "Verifier la couverture metre sur les lots CFO/CFA.",
+      assignedReviewerUserId: "44444444-4444-4444-8444-444444444444",
+    });
+  });
+
   it("approves an existing request with 200", async () => {
     vi.mocked(submitEstimateApproval).mockResolvedValue({
       approval: {

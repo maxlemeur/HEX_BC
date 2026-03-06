@@ -1063,6 +1063,12 @@ export function AffaireHub({
                       versionId={summary.currentVersion.id}
                       projectId={summary.project.id}
                       summary={approvalSummary}
+                      submissionOverview={{
+                        coveragePercent: plansSummary?.coveragePercent ?? null,
+                        exceptionCount: plansSummary?.exceptionCount ?? null,
+                        openQuestionsCount: plansSummary?.openQuestionsCount ?? null,
+                        marginPercent: summary.currentVersion.marginPercent ?? null,
+                      }}
                     />
                   ) : null}
                 </EstimateApprovalSummaryCard>

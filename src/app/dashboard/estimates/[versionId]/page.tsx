@@ -12,6 +12,7 @@ import { DuplicateEstimateButton } from "@/components/estimates/DuplicateEstimat
 import { EstimateStatusActions } from "@/components/estimates/EstimateStatusActions";
 import { VariantComparisonTable } from "@/components/estimates/VariantComparisonTable";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
+import { fetchAffaireHubPlansSummary } from "@/lib/affaires/server";
 import {
   SealIntegrityBadge,
   type SealIntegrityState,
@@ -189,6 +190,7 @@ export default async function EstimateDetailPage({
       { supabase }
     ),
   ]);
+  const plansSummary = await fetchAffaireHubPlansSummary(version.project_id).catch(() => null);
   const laborRoleIds = Array.from(
     new Set(
       items
@@ -398,6 +400,15 @@ export default async function EstimateDetailPage({
                   versionId={versionId}
                   projectId={version.project_id}
                   summary={approvalSummary}
+                  submissionOverview={{
+                    coveragePercent: plansSummary?.coveragePercent ?? null,
+                    exceptionCount: plansSummary?.exceptionCount ?? null,
+                    openQuestionsCount: plansSummary?.openQuestionsCount ?? null,
+                    marginPercent:
+                      Number.isFinite(appliedMarginMultiplier) && appliedMarginMultiplier > 0
+                        ? (1 - 1 / appliedMarginMultiplier) * 100
+                        : 0,
+                  }}
                 />
               </EstimateApprovalSummaryCard>
             ) : null}

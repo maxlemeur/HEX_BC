@@ -15,6 +15,13 @@ const requestApprovalSchema = z.object({
   rule_id: z.string().uuid("rule_id invalide."),
 });
 
+const submitForReviewSchema = z.object({
+  action: z.literal("submit_for_review"),
+  rule_ids: z.array(z.string().uuid("rule_ids invalide.")).min(1, "Au moins une regle est requise."),
+  submission_message: z.string().trim().max(2000, "Le message est trop long.").optional(),
+  assigned_reviewer_user_id: z.string().uuid("assigned_reviewer_user_id invalide.").nullable().optional(),
+});
+
 const approveRejectApprovalSchema = z
   .object({
     action: z.enum(["approve", "reject"]),
@@ -67,6 +74,7 @@ const decideApprovalSchema = z.object({
 
 const postApproveSchema = z.union([
   requestApprovalSchema,
+  submitForReviewSchema,
   approveRejectApprovalSchema,
   decideApprovalSchema,
 ]);
@@ -93,6 +101,16 @@ function toSubmitInput(input: {
       versionId: input.versionId,
       action: "request",
       ruleId: input.body.rule_id,
+    };
+  }
+
+  if (input.body.action === "submit_for_review") {
+    return {
+      versionId: input.versionId,
+      action: "submit_for_review",
+      ruleIds: input.body.rule_ids,
+      submissionMessage: input.body.submission_message,
+      assignedReviewerUserId: input.body.assigned_reviewer_user_id ?? null,
     };
   }
 
@@ -130,7 +148,10 @@ export async function POST(
     });
 
     const data = await submitEstimateApproval(payload);
-    return ok(data, payload.action === "request" ? 201 : 200);
+    return ok(
+      data,
+      payload.action === "request" || payload.action === "submit_for_review" ? 201 : 200
+    );
   } catch (error) {
     return toErrorResponse(error);
   }

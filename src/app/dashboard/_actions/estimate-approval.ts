@@ -3,6 +3,7 @@
 import {
   submitEstimateApproval,
   type EstimateApprovalDecisionCommentInput,
+  type SubmitEstimateReviewRequestResult,
   type EstimateReviewDecision,
 } from "@/lib/estimates/rules-engine";
 import { revalidatePath } from "next/cache";
@@ -29,6 +30,34 @@ export async function requestEstimateApprovalAction(input: {
 
   revalidateApprovalPaths(input.versionId, input.projectId);
   return lastResult;
+}
+
+export async function submitEstimateForReviewAction(input: {
+  versionId: string;
+  projectId: string;
+  ruleIds: string[];
+  submissionMessage?: string | null;
+  assignedReviewerUserId?: string | null;
+}): Promise<SubmitEstimateReviewRequestResult> {
+  const result = await submitEstimateApproval({
+    versionId: input.versionId,
+    action: "submit_for_review",
+    ruleIds: input.ruleIds,
+    submissionMessage: input.submissionMessage ?? null,
+    assignedReviewerUserId: input.assignedReviewerUserId ?? null,
+  });
+
+  revalidateApprovalPaths(input.versionId, input.projectId);
+
+  if (!result.cycle || !result.requestedApprovalCount || !result.requestedRuleIds) {
+    throw new Error("Soumission de revue incomplete.");
+  }
+
+  return {
+    cycle: result.cycle,
+    requestedApprovalCount: result.requestedApprovalCount,
+    requestedRuleIds: result.requestedRuleIds,
+  };
 }
 
 export async function decideEstimateApprovalAction(input: {
