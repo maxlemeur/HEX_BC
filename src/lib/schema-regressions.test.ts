@@ -18,6 +18,9 @@ describe("schema regressions", () => {
   const takeoffDpgfReviewDecisionsMigrationSql = readSql(
     "supabase/migrations/20260306153000_v3_010_takeoff_review_decisions_and_multi_links.sql"
   );
+  const structureDraftAtomicApplyMigrationSql = readSql(
+    "supabase/migrations/20260306200000_est382_structure_draft_atomic_apply_fix.sql"
+  );
 
   it("drops tenant and catalogue tables in schema reset block", () => {
     expect(schemaSql).toMatch(/drop table if exists public\.tenants cascade;/);
@@ -145,7 +148,28 @@ describe("schema regressions", () => {
       /create temporary table _estimate_item_map/
     );
     expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
+      /insert into public\.takeoff_version_links[\s\S]*target_version_id[\s\S]*new_version_id[\s\S]*insert into public\.takeoff_dpgf_review_decisions/
+    );
+    expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
       /insert into public\.takeoff_dpgf_review_decisions[\s\S]*carried_over_from_version_id[\s\S]*carried_over_at/
+    );
+  });
+
+  it("keeps structure draft apply transactional and supports level-4 draft nodes", () => {
+    expect(structureDraftAtomicApplyMigrationSql).toMatch(
+      /check \(hierarchy_level between 1 and 4\)/
+    );
+    expect(structureDraftAtomicApplyMigrationSql).toMatch(
+      /create or replace function public\.apply_estimate_structure_draft\(/
+    );
+    expect(structureDraftAtomicApplyMigrationSql).toMatch(
+      /from public\.estimate_structure_drafts d[\s\S]*for update;/
+    );
+    expect(structureDraftAtomicApplyMigrationSql).toMatch(
+      /insert into public\.estimate_structure_draft_applications/
+    );
+    expect(structureDraftAtomicApplyMigrationSql).toMatch(
+      /grant execute on function public\.apply_estimate_structure_draft\(/
     );
   });
 });

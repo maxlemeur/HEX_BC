@@ -2244,6 +2244,22 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      apply_estimate_structure_draft: {
+        Args: {
+          p_draft_id: string;
+          p_target_version_id: string;
+          p_applied_by: string;
+          p_created_items?: Json;
+          p_updated_items?: Json;
+          p_application_rows?: Json;
+          p_applied_at?: string;
+        };
+        Returns: {
+          created_count: number;
+          updated_count: number;
+          application_count: number;
+        }[];
+      };
       bulk_create_supplier_prices: {
         Args: {
           price_rows: Json;

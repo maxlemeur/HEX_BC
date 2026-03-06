@@ -62,6 +62,8 @@ type EstimateStructureDraftNodeInsert =
   Database["public"]["Tables"]["estimate_structure_draft_nodes"]["Insert"];
 type EstimateStructureDraftApplicationInsert =
   Database["public"]["Tables"]["estimate_structure_draft_applications"]["Insert"];
+type EstimateStructureDraftApplyRpcResult =
+  Database["public"]["Functions"]["apply_estimate_structure_draft"]["Returns"][number];
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type TenantMembershipRow = Pick<
@@ -263,6 +265,27 @@ type EstimateStructureDraftSourceBundle = {
 
 type MutableExistingSection = EstimateStructureExistingSection;
 
+type EstimateStructureDraftPlannedCreate = {
+  id: string;
+  parent_id: string | null;
+  item_type: "section";
+  position: number;
+  title: string;
+  source_provider: string | null;
+  source_job_id: string | null;
+  source_file_name: string | null;
+  source_page: number | null;
+};
+
+type EstimateStructureDraftPlannedUpdate = {
+  id: string;
+  title: string | null;
+  source_provider: string | null;
+  source_job_id: string | null;
+  source_file_name: string | null;
+  source_page: number | null;
+};
+
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
 const ROOT_PARENT_KEY = "__root__";
 const ESTIMATE_STRUCTURE_PROVIDER = "ai_structure";
@@ -272,6 +295,7 @@ const ESTIMATE_STRUCTURE_PROMPT_MODEL = "gemini-2.5-pro";
 const ESTIMATE_STRUCTURE_PROMPT_THINKING_LEVEL = "medium" as const;
 const ESTIMATE_STRUCTURE_MAX_SOURCE_ENTRIES = 80;
 const ESTIMATE_STRUCTURE_MAX_CHILDREN = 14;
+const ESTIMATE_STRUCTURE_MAX_HIERARCHY_LEVEL = 4;
 
 const EstimateStructureGeminiNodeSchema: z.ZodType<EstimateStructureGeminiNode> =
   z.lazy(() =>
@@ -813,14 +837,14 @@ function truncatePath(path: string[]) {
   return path
     .map((segment) => toNullableText(segment))
     .filter((segment): segment is string => segment !== null)
-    .slice(0, 3);
+    .slice(0, ESTIMATE_STRUCTURE_MAX_HIERARCHY_LEVEL);
 }
 
 function buildPathKey(path: string[]) {
   return truncatePath(path).map((segment) => normalizeSectionTitleKey(segment)).join(">");
 }
 
-function inferDpgfPath(title: string) {
+export function inferDpgfPath(title: string) {
   const normalized = title
     .replace(/[|;]+/g, " / ")
     .replace(/[–—]+/g, " - ")
@@ -2155,6 +2179,24 @@ function computeSectionPath(
   return parts.join(" > ");
 }
 
+function throwEstimateStructureDraftApplyRpcErrorIfNeeded(error: {
+  message?: string | null;
+}) {
+  const normalizedMessage = (error.message ?? "").toLowerCase();
+
+  if (normalizedMessage.includes("estimate_structure_draft_not_pending")) {
+    throw conflict(
+      "Cette preview n'est plus applicable.",
+      { status: "applied" },
+      "ESTIMATE_STRUCTURE_DRAFT_NOT_PENDING"
+    );
+  }
+
+  if (normalizedMessage.includes("estimate_structure_draft_not_found")) {
+    throw notFound("Preview de structure introuvable.");
+  }
+}
+
 export async function applyEstimateStructureDraft(
   versionId: string,
   draftId: string,
@@ -2262,6 +2304,8 @@ export async function applyEstimateStructureDraft(
 
   const createdItemIds: string[] = [];
   const mergedItemIds = new Set<string>();
+  const plannedCreates: EstimateStructureDraftPlannedCreate[] = [];
+  const plannedUpdates: EstimateStructureDraftPlannedUpdate[] = [];
   const applicationRows: EstimateStructureDraftApplicationInsert[] = [];
   let createdCount = 0;
   let mergedCount = 0;
@@ -2341,21 +2385,14 @@ export async function applyEstimateStructureDraft(
       }
 
       if (renameTo && renameTo !== mergeTarget.title) {
-        const { error: updateError } = await supabase
-          .from("estimate_items")
-          .update({
-            title: renameTo,
-            source_provider: ESTIMATE_STRUCTURE_PROVIDER,
-            source_file_name: ESTIMATE_STRUCTURE_SOURCE_FILE_NAME,
-            source_page: null,
-            source_job_id: null,
-          } satisfies EstimateItemUpdate)
-          .eq("tenant_id", tenantId)
-          .eq("id", mergeTarget.id);
-
-        if (updateError) {
-          throw mapSupabaseError(updateError, "Impossible de renommer la section fusionnee.");
-        }
+        plannedUpdates.push({
+          id: mergeTarget.id,
+          title: renameTo,
+          source_provider: ESTIMATE_STRUCTURE_PROVIDER,
+          source_file_name: ESTIMATE_STRUCTURE_SOURCE_FILE_NAME,
+          source_page: null,
+          source_job_id: null,
+        });
 
         mergeTarget.title = renameTo;
         mergeTarget.normalized_label = normalizeSectionTitleKey(renameTo);
@@ -2383,10 +2420,8 @@ export async function applyEstimateStructureDraft(
 
     const insertedId = randomUUID();
     const position = allocateNextPosition(parentItemId);
-    const insertPayload: EstimateItemInsert = {
+    const insertPayload: EstimateStructureDraftPlannedCreate = {
       id: insertedId,
-      tenant_id: tenantId,
-      version_id: versionId,
       parent_id: parentItemId,
       item_type: "section",
       position,
@@ -2395,32 +2430,15 @@ export async function applyEstimateStructureDraft(
       source_job_id: null,
       source_file_name: ESTIMATE_STRUCTURE_SOURCE_FILE_NAME,
       source_page: null,
-      h_mo_majoration: 1,
-      k_mo_atelier: 1,
-      k_mo_chantier: 1,
-      selected_supplier_price_id: null,
     };
-
-    const { data: insertedSection, error: insertError } = await supabase
-      .from("estimate_items")
-      .insert(insertPayload)
-      .select("id, parent_id, position, title")
-      .single();
-
-    if (insertError || !insertedSection) {
-      if (insertError) {
-        throw mapSupabaseError(insertError, "Impossible de creer la section IA.");
-      }
-
-      throw badRequest("Impossible de creer la section IA.");
-    }
+    plannedCreates.push(insertPayload);
 
     const mutableSection: MutableExistingSection = {
-      id: insertedSection.id,
-      parent_id: insertedSection.parent_id,
-      position: insertedSection.position,
-      title: insertedSection.title,
-      normalized_label: normalizeSectionTitleKey(insertedSection.title),
+      id: insertPayload.id,
+      parent_id: insertPayload.parent_id,
+      position: insertPayload.position,
+      title: insertPayload.title,
+      normalized_label: normalizeSectionTitleKey(insertPayload.title),
       hierarchy_level: node.hierarchy_level,
       path: "",
     };
@@ -2435,18 +2453,18 @@ export async function applyEstimateStructureDraft(
       draft_id: draftId,
       draft_node_id: node.id,
       target_version_id: versionId,
-      estimate_item_id: insertedSection.id,
+      estimate_item_id: insertPayload.id,
       applied_action: "create",
       applied_by: userId,
     });
     createdCount += 1;
-    createdItemIds.push(insertedSection.id);
+    createdItemIds.push(insertPayload.id);
 
     for (const child of node.children) {
-      await applyNode(child, insertedSection.id);
+      await applyNode(child, insertPayload.id);
     }
 
-    return insertedSection.id;
+    return insertPayload.id;
   };
 
   for (const rootNodeId of input.selected_root_node_ids) {
@@ -2457,30 +2475,30 @@ export async function applyEstimateStructureDraft(
     await applyNode(rootNode, null);
   }
 
-  if (applicationRows.length > 0) {
-    const { error: applicationError } = await supabase
-      .from("estimate_structure_draft_applications")
-      .insert(applicationRows);
-
-    if (applicationError) {
-      throw mapSupabaseError(
-        applicationError,
-        "Impossible d'enregistrer la provenance d'application."
-      );
+  const { data: applyRpcData, error: applyRpcError } = await supabase.rpc(
+    "apply_estimate_structure_draft",
+    {
+      p_draft_id: draftId,
+      p_target_version_id: versionId,
+      p_applied_by: userId,
+      p_created_items: toJson(plannedCreates),
+      p_updated_items: toJson(plannedUpdates),
+      p_application_rows: toJson(applicationRows),
+      p_applied_at: new Date().toISOString(),
     }
+  );
+
+  if (applyRpcError) {
+    throwEstimateStructureDraftApplyRpcErrorIfNeeded(applyRpcError);
+    throw mapSupabaseError(applyRpcError, "Impossible d'appliquer la preview de structure.");
   }
 
-  const { error: draftUpdateError } = await supabase
-    .from("estimate_structure_drafts")
-    .update({
-      status: "applied",
-      applied_at: new Date().toISOString(),
-    })
-    .eq("tenant_id", tenantId)
-    .eq("id", draftId);
+  const rpcResult = Array.isArray(applyRpcData)
+    ? ((applyRpcData[0] as EstimateStructureDraftApplyRpcResult | undefined) ?? null)
+    : null;
 
-  if (draftUpdateError) {
-    throw mapSupabaseError(draftUpdateError, "Impossible de marquer la preview comme appliquee.");
+  if (!rpcResult) {
+    throw badRequest("Impossible d'appliquer la preview de structure.");
   }
 
   const versionToken = await fetchEstimateVersionToken({
@@ -2507,11 +2525,9 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
   tenantId: string;
   items: EstimateItemRow[];
 }) {
-  const aiStructureItemIds = input.items
-    .filter((item) => toNullableText(item.source_provider) === ESTIMATE_STRUCTURE_PROVIDER)
-    .map((item) => item.id);
+  const itemIds = input.items.map((item) => item.id);
 
-  if (aiStructureItemIds.length === 0) {
+  if (itemIds.length === 0) {
     return input.items;
   }
 
@@ -2521,7 +2537,7 @@ export async function enrichEstimateItemsWithAiStructureProvenance(input: {
       "draft_id, draft_node_id, estimate_item_id, applied_action, created_at"
     )
     .eq("tenant_id", input.tenantId)
-    .in("estimate_item_id", aiStructureItemIds);
+    .in("estimate_item_id", itemIds);
 
   if (applicationError || !applicationData || applicationData.length === 0) {
     return input.items;
