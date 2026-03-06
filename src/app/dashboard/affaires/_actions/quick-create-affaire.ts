@@ -229,15 +229,6 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
       reference,
     });
 
-    await ensureImportProjectLink({
-      supabase,
-      importId,
-      projectId,
-      tenantId: membership.tenant_id,
-      userId: user.id,
-      isTenantAdmin,
-    });
-
     revalidateQuickCreatePaths(projectId, versionId);
     redirect(`/dashboard/affaires/${projectId}?created=1`);
   }

@@ -283,6 +283,32 @@ function ActionBar({
   );
 }
 
+function FirstVersionActionBar({ projectId }: { projectId: string }) {
+  return (
+    <div className="action-bar animate-fade-in stagger-1">
+      <Link
+        href={`/dashboard/estimates/new?projectId=${projectId}`}
+        className="btn btn-primary btn-sm inline-flex items-center gap-1.5"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="12" x2="12" y1="5" y2="19" />
+          <line x1="5" x2="19" y1="12" y2="12" />
+        </svg>
+        Creer une premiere version
+      </Link>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Section: Progress Strip (filled state)                             */
 /* ------------------------------------------------------------------ */
@@ -822,7 +848,7 @@ export function AffaireHub({
   const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
   const draftVersionId =
     summary.currentVersion?.status === "draft" ? summary.currentVersion.id : null;
-  const hasAnyVersion = summary.currentVersion !== null;
+  const hasAnyVersion = summary.versionsCount > 0;
 
   const [showImportFlow, setShowImportFlow] = useState(false);
   const [importResult, setImportResult] =
@@ -932,15 +958,19 @@ export function AffaireHub({
         />
       ) : (
         <>
-          <ActionBar
-            summary={summary}
-            takeoffEnabled={takeoffEnabled}
-            plansSummary={plansSummary}
-            pendingAction={pendingAction}
-            onDuplicate={() => void handleDuplicate()}
-            onCreateVariant={() => void handleCreateVariant()}
-            onLaunchMetre={() => setShowLaunchMetreDialog(true)}
-          />
+          {summary.versionsCount === 0 ? (
+            <FirstVersionActionBar projectId={summary.project.id} />
+          ) : (
+            <ActionBar
+              summary={summary}
+              takeoffEnabled={takeoffEnabled}
+              plansSummary={plansSummary}
+              pendingAction={pendingAction}
+              onDuplicate={() => void handleDuplicate()}
+              onCreateVariant={() => void handleCreateVariant()}
+              onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+            />
+          )}
 
           {actionError && (
             <div className="alert alert-error mb-4 px-3 py-2 text-xs">

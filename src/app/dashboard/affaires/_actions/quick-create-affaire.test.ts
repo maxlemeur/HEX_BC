@@ -149,6 +149,21 @@ function createEstimateProjectsInsertBuilder(projectId: string) {
   };
 }
 
+function createEstimateVersionsInsertBuilder(versionId: string) {
+  const single = vi.fn().mockResolvedValue({
+    data: { id: versionId },
+    error: null,
+  });
+  const select = vi.fn(() => ({ single }));
+  const insert = vi.fn(() => ({ select }));
+
+  return {
+    insert,
+    select,
+    single,
+  };
+}
+
 function createSupabaseStub(input: {
   role: "engineer" | "admin" | "viewer";
   importProjectId?: string | null;
@@ -176,6 +191,7 @@ function createSupabaseStub(input: {
   const projectInsertBuilder = createEstimateProjectsInsertBuilder(
     input.createdProjectId ?? CREATED_PROJECT_ID
   );
+  const versionInsertBuilder = createEstimateVersionsInsertBuilder(CREATED_VERSION_ID);
 
   const tableQueues: Record<string, unknown[]> = {
     tenant_memberships: [membershipBuilder],
@@ -186,6 +202,7 @@ function createSupabaseStub(input: {
     dpgf_rows_mapped: mappedRowsBuilder ? [mappedRowsBuilder] : [],
     dpgf_mappings: latestMappingBuilder ? [latestMappingBuilder] : [],
     estimate_projects: [projectInsertBuilder],
+    estimate_versions: [versionInsertBuilder],
   };
 
   const supabase = {
@@ -206,6 +223,11 @@ function createSupabaseStub(input: {
           insert: (builder as ReturnType<typeof createEstimateProjectsInsertBuilder>).insert,
         };
       }
+      if (table === "estimate_versions") {
+        return {
+          insert: (builder as ReturnType<typeof createEstimateVersionsInsertBuilder>).insert,
+        };
+      }
       return builder;
     }),
     rpc: vi.fn().mockResolvedValue(
@@ -219,6 +241,7 @@ function createSupabaseStub(input: {
   return {
     supabase,
     projectInsertBuilder,
+    versionInsertBuilder,
     importUpdateBuilder,
   };
 }
@@ -378,22 +401,24 @@ describe("quickCreateAffaire", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
-  it("rejects import with zero valid mapped rows", async () => {
-    const { supabase } = createSupabaseStub({
-      role: "engineer",
-      importProjectId: null,
-      mappedRows: [
-        {
-          id: "mapped-invalid",
-          payload: {
-            mapped_row: {
-              designation: "",
-              quantity: "0",
+  it("creates an empty affaire without linking a non-importable source", async () => {
+    const { supabase, importUpdateBuilder, projectInsertBuilder, versionInsertBuilder } =
+      createSupabaseStub({
+        role: "engineer",
+        importProjectId: null,
+        enableImportLinkUpdate: true,
+        mappedRows: [
+          {
+            id: "mapped-invalid",
+            payload: {
+              mapped_row: {
+                designation: "",
+                quantity: "0",
+              },
             },
           },
-        },
-      ],
-    });
+        ],
+      });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     await expect(
@@ -401,8 +426,14 @@ describe("quickCreateAffaire", () => {
         projectName: "Affaire invalide",
         importId: IMPORT_ID,
       })
-    ).rejects.toThrow("Aucune ligne valide a inserer pour creer le chiffrage.");
+    ).rejects.toThrow(`NEXT_REDIRECT:/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`);
 
+    expect(projectInsertBuilder.insert).toHaveBeenCalledTimes(1);
+    expect(versionInsertBuilder.insert).toHaveBeenCalledWith({
+      project_id: CREATED_PROJECT_ID,
+      version_number: 1,
+    });
+    expect(importUpdateBuilder?.update).not.toHaveBeenCalled();
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
