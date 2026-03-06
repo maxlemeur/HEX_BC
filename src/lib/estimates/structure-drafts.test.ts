@@ -281,6 +281,14 @@ function createEstimateItemsBuilder(
 
 function createApplySupabaseMock(options?: {
   estimateItems?: ReturnType<typeof buildEstimateSectionRow>[];
+  rpcResponse?: {
+    data: unknown;
+    error: {
+      code?: string | null;
+      message?: string | null;
+      details?: string | null;
+    } | null;
+  };
 }) {
   const membershipBuilder = createMembershipBuilder();
   const versionBuilder = createVersionAccessBuilder();
@@ -288,16 +296,43 @@ function createApplySupabaseMock(options?: {
   const draftBuilder = createDraftBuilder();
   const draftNodesBuilder = createDraftNodesBuilder();
   const estimateItemsBuilder = createEstimateItemsBuilder(options?.estimateItems);
-  const rpc = vi.fn().mockResolvedValue({
-    data: [
-      {
-        created_count: 1,
-        updated_count: 0,
-        application_count: 2,
-      },
-    ],
-    error: null,
-  });
+  const estimateItemsInsert = vi.fn().mockResolvedValue({ data: null, error: null });
+  const estimateItemsUpdateEq = vi.fn();
+  const estimateItemsUpdateBuilder = {
+    eq: estimateItemsUpdateEq,
+  };
+  estimateItemsUpdateEq.mockReturnValue(estimateItemsUpdateBuilder);
+  const estimateItemsUpdate = vi
+    .fn()
+    .mockReturnValue(estimateItemsUpdateBuilder);
+
+  const draftApplicationsInsert = vi.fn().mockResolvedValue({ data: null, error: null });
+  const draftStatusUpdateEq = vi.fn();
+  const draftStatusUpdateBuilder = {
+    eq: draftStatusUpdateEq,
+  };
+  draftStatusUpdateEq.mockReturnValue(draftStatusUpdateBuilder);
+  const draftStatusUpdate = vi.fn().mockReturnValue(draftStatusUpdateBuilder);
+
+  const versionTouchUpdateEq = vi.fn();
+  const versionTouchUpdateBuilder = {
+    eq: versionTouchUpdateEq,
+  };
+  versionTouchUpdateEq.mockReturnValue(versionTouchUpdateBuilder);
+  const versionTouchUpdate = vi.fn().mockReturnValue(versionTouchUpdateBuilder);
+
+  const rpc = vi.fn().mockResolvedValue(
+    options?.rpcResponse ?? {
+      data: [
+        {
+          created_count: 1,
+          updated_count: 0,
+          application_count: 2,
+        },
+      ],
+      error: null,
+    }
+  );
 
   const supabase = {
     auth: {
@@ -320,6 +355,7 @@ function createApplySupabaseMock(options?: {
       if (table === "estimate_versions") {
         return {
           select: vi.fn(() => versionBuilder),
+          update: versionTouchUpdate,
         };
       }
 
@@ -332,6 +368,7 @@ function createApplySupabaseMock(options?: {
       if (table === "estimate_structure_drafts") {
         return {
           select: vi.fn(() => draftBuilder),
+          update: draftStatusUpdate,
         };
       }
 
@@ -344,6 +381,14 @@ function createApplySupabaseMock(options?: {
       if (table === "estimate_items") {
         return {
           select: vi.fn(() => estimateItemsBuilder),
+          insert: estimateItemsInsert,
+          update: estimateItemsUpdate,
+        };
+      }
+
+      if (table === "estimate_structure_draft_applications") {
+        return {
+          insert: draftApplicationsInsert,
         };
       }
 
@@ -355,6 +400,11 @@ function createApplySupabaseMock(options?: {
   return {
     supabase,
     rpc,
+    estimateItemsInsert,
+    estimateItemsUpdate,
+    draftApplicationsInsert,
+    draftStatusUpdate,
+    versionTouchUpdate,
   };
 }
 
@@ -459,6 +509,71 @@ describe("applyEstimateStructureDraft", () => {
     });
 
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("falls back to manual writes when the apply RPC is missing from the schema cache", async () => {
+    const {
+      supabase,
+      rpc,
+      estimateItemsInsert,
+      draftApplicationsInsert,
+      draftStatusUpdate,
+      versionTouchUpdate,
+    } = createApplySupabaseMock({
+      rpcResponse: {
+        data: null,
+        error: {
+          code: "PGRST202",
+          message: "Could not find the function public.apply_estimate_structure_draft",
+          details:
+            "Searched for the function public.apply_estimate_structure_draft with parameters p_application_rows, p_applied_at, p_applied_by, p_created_items, p_draft_id, p_target_version_id, p_updated_items but no matches were found in the schema cache.",
+        },
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await applyEstimateStructureDraft(VERSION_ID, DRAFT_ID, {
+      mode: "merge_existing",
+      selected_root_node_ids: [ROOT_NODE_ID],
+      overrides: [],
+    });
+
+    expect(result.created_count).toBe(1);
+    expect(result.merged_count).toBe(1);
+    expect(rpc).toHaveBeenCalledWith(
+      "apply_estimate_structure_draft",
+      expect.any(Object)
+    );
+    expect(estimateItemsInsert).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          version_id: VERSION_ID,
+          parent_id: EXISTING_SECTION_ID,
+          title: "Sous lot IA",
+          item_type: "section",
+        }),
+      ])
+    );
+    expect(draftApplicationsInsert).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          draft_id: DRAFT_ID,
+          draft_node_id: ROOT_NODE_ID,
+          estimate_item_id: EXISTING_SECTION_ID,
+          applied_action: "merge",
+        }),
+      ])
+    );
+    expect(draftStatusUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "applied",
+      })
+    );
+    expect(versionTouchUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        updated_at: expect.any(String),
+      })
+    );
   });
 });
 

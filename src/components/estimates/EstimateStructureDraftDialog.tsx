@@ -6,11 +6,60 @@ import {
   fetchEstimateStructureDraft,
   generateEstimateStructureDraft,
   type ApplyEstimateStructureDraftPayload,
+  type ApplyEstimateStructureDraftResult,
   type EstimateStructureDraft,
   type EstimateStructureDraftApplyMode,
   type EstimateStructureDraftNode,
   type EstimateStructureDraftNodeAction,
 } from "@/lib/estimates/client";
+
+export type { ApplyEstimateStructureDraftResult };
+
+const WIZARD_STEPS = [
+  { step: 1, label: "Sources" },
+  { step: 2, label: "Selection" },
+  { step: 3, label: "Application" },
+] as const;
+
+type TreeFilterKey = "create" | "merge" | "skip" | "low_confidence" | "duplicate";
+
+const TREE_FILTER_CHIPS: Array<{
+  key: TreeFilterKey;
+  label: string;
+  activeClass: string;
+  inactiveClass: string;
+}> = [
+  {
+    key: "create",
+    label: "Nouveau",
+    activeClass: "bg-emerald-100 text-emerald-800 border-emerald-300",
+    inactiveClass: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
+  },
+  {
+    key: "merge",
+    label: "Fusion",
+    activeClass: "bg-amber-100 text-amber-800 border-amber-300",
+    inactiveClass: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
+  },
+  {
+    key: "skip",
+    label: "Ignore",
+    activeClass: "bg-slate-200 text-slate-800 border-slate-400",
+    inactiveClass: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
+  },
+  {
+    key: "low_confidence",
+    label: "Confiance faible",
+    activeClass: "bg-rose-100 text-rose-800 border-rose-300",
+    inactiveClass: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
+  },
+  {
+    key: "duplicate",
+    label: "Doublons",
+    activeClass: "bg-violet-100 text-violet-800 border-violet-300",
+    inactiveClass: "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
+  },
+];
 
 type ExistingSectionOption = {
   id: string;
@@ -25,11 +74,11 @@ type EstimateStructureDraftDialogProps = {
   targetVersionId: string;
   hasExistingItems: boolean;
   existingSections: ExistingSectionOption[];
-  onClose: () => void;
+  onClose: (result?: ApplyEstimateStructureDraftResult) => void;
   onConfirm: (
     draftId: string,
     input: ApplyEstimateStructureDraftPayload
-  ) => Promise<void>;
+  ) => Promise<ApplyEstimateStructureDraftResult>;
 };
 
 type NodeOverrideState = {
@@ -322,7 +371,7 @@ export function EstimateStructureDraftDialog({
   onClose,
   onConfirm,
 }: EstimateStructureDraftDialogProps) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [draft, setDraft] = useState<EstimateStructureDraft | null>(null);
   const [isLoadingDraft, setIsLoadingDraft] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -333,6 +382,8 @@ export function EstimateStructureDraftDialog({
   const [overrides, setOverrides] = useState<Record<string, NodeOverrideState>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<Set<TreeFilterKey>>(new Set());
+  const [applyResult, setApplyResult] = useState<ApplyEstimateStructureDraftResult | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -348,6 +399,8 @@ export function EstimateStructureDraftDialog({
     setDraft(null);
     setSelectedRootIds([]);
     setIsLoadingDraft(true);
+    setActiveFilters(new Set());
+    setApplyResult(null);
 
     async function loadDraft() {
       try {
@@ -419,6 +472,60 @@ export function EstimateStructureDraftDialog({
       ),
     [nodeMergeStates, selectedNodes]
   );
+
+  const stickySummaryCounts = useMemo(() => {
+    const counts = { selectedLots: 0, createCount: 0, mergeCount: 0, skipCount: 0, lowConfidenceCount: 0, duplicateCount: 0 };
+    const rootSet = new Set(selectedRootIds);
+    counts.selectedLots = rootSet.size;
+    for (const node of selectedNodes) {
+      const action = overrides[node.id]?.action ?? node.defaultAction;
+      if (action === "create") counts.createCount++;
+      if (action === "merge") counts.mergeCount++;
+      if (action === "skip") counts.skipCount++;
+      if (node.confidenceLabel === "faible") counts.lowConfidenceCount++;
+      if (node.duplicateMatchItemId) counts.duplicateCount++;
+    }
+    return counts;
+  }, [selectedNodes, overrides, selectedRootIds]);
+
+  const filterCounts = useMemo(() => {
+    const counts: Record<TreeFilterKey, number> = { create: 0, merge: 0, skip: 0, low_confidence: 0, duplicate: 0 };
+    for (const node of flatNodes) {
+      const action = overrides[node.id]?.action ?? node.defaultAction;
+      if (action === "create") counts.create++;
+      if (action === "merge") counts.merge++;
+      if (action === "skip") counts.skip++;
+      if (node.confidenceLabel === "faible") counts.low_confidence++;
+      if (node.duplicateMatchItemId) counts.duplicate++;
+    }
+    return counts;
+  }, [flatNodes, overrides]);
+
+  const filteredFlatNodeIds = useMemo<Set<string> | null>(() => {
+    if (activeFilters.size === 0) return null;
+    const matching = new Set<string>();
+    const parentMap = new Map(flatNodes.map((n) => [n.id, n.parentId]));
+    for (const node of flatNodes) {
+      const action = overrides[node.id]?.action ?? node.defaultAction;
+      let matches = false;
+      if (activeFilters.has("create") && action === "create") matches = true;
+      if (activeFilters.has("merge") && action === "merge") matches = true;
+      if (activeFilters.has("skip") && action === "skip") matches = true;
+      if (activeFilters.has("low_confidence") && node.confidenceLabel === "faible") matches = true;
+      if (activeFilters.has("duplicate") && node.duplicateMatchItemId) matches = true;
+      if (matches) {
+        matching.add(node.id);
+        let parentId = parentMap.get(node.id);
+        while (parentId) {
+          matching.add(parentId);
+          parentId = parentMap.get(parentId);
+        }
+      }
+    }
+    return matching;
+  }, [activeFilters, flatNodes, overrides]);
+  const hasFilteredPreviewResults =
+    filteredFlatNodeIds === null || filteredFlatNodeIds.size > 0;
 
   const canContinueFromStep1 =
     !isLoadingDraft && !draftError && Boolean(draft?.nodes.length);
@@ -504,8 +611,9 @@ export function EstimateStructureDraftDialog({
         overrides: draftOverrides,
       };
 
-      await onConfirm(draft.draftId, payload);
-      onClose();
+      const result = await onConfirm(draft.draftId, payload);
+      setApplyResult(result);
+      setStep(4);
     } catch (error) {
       setSubmitError(
         error instanceof Error
@@ -538,14 +646,54 @@ export function EstimateStructureDraftDialog({
               >
                 Structure IA
               </h2>
-              <p className="mt-1 text-sm text-[var(--slate-500)]">
-                Etape {step} / 3. Aucune proposition n&apos;est appliquee sans votre validation explicite.
-              </p>
+              <nav aria-label="Etapes du wizard" className="mt-3">
+                <ol className="flex items-center gap-0">
+                  {WIZARD_STEPS.map((ws, index) => {
+                    const isDone = step > ws.step || step === 4;
+                    const isActive = step === ws.step;
+                    return (
+                      <li key={ws.step} className="flex items-center">
+                        {index > 0 && (
+                          <div
+                            className={`mx-2 h-0.5 w-8 rounded ${
+                              isDone ? "bg-emerald-400" : isActive ? "bg-blue-300" : "bg-slate-200"
+                            }`}
+                          />
+                        )}
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold ${
+                              isDone
+                                ? "bg-emerald-100 text-emerald-700"
+                                : isActive
+                                  ? "bg-blue-600 text-white"
+                                  : "bg-slate-100 text-slate-500"
+                            }`}
+                          >
+                            {isDone ? "\u2713" : ws.step}
+                          </span>
+                          <span
+                            className={`text-sm font-medium ${
+                              isDone
+                                ? "text-emerald-700"
+                                : isActive
+                                  ? "text-blue-700"
+                                  : "text-slate-400"
+                            }`}
+                          >
+                            {ws.label}
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </nav>
             </div>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              onClick={onClose}
+              onClick={() => onClose()}
               disabled={isSubmitting}
             >
               Fermer
@@ -554,6 +702,35 @@ export function EstimateStructureDraftDialog({
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+          {(step === 2 || step === 3) && draft ? (
+            <div className="sticky top-0 z-10 -mx-6 -mt-5 mb-4 border-b border-[var(--slate-200)] bg-white/95 px-6 py-3 backdrop-blur-sm">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+                <span className="font-medium text-[var(--slate-700)]">
+                  {stickySummaryCounts.selectedLots} lot(s)
+                </span>
+                <span className="text-emerald-700">
+                  {stickySummaryCounts.createCount} creation(s)
+                </span>
+                <span className="text-amber-700">
+                  {stickySummaryCounts.mergeCount} fusion(s)
+                </span>
+                <span className="text-slate-500">
+                  {stickySummaryCounts.skipCount} ignore(s)
+                </span>
+                {stickySummaryCounts.lowConfidenceCount > 0 && (
+                  <span className="text-rose-600">
+                    {stickySummaryCounts.lowConfidenceCount} confiance faible
+                  </span>
+                )}
+                {stickySummaryCounts.duplicateCount > 0 && (
+                  <span className="text-violet-600">
+                    {stickySummaryCounts.duplicateCount} doublon(s)
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : null}
+
           {step === 1 ? (
             <div className="space-y-4">
               {isLoadingDraft ? (
@@ -704,8 +881,46 @@ export function EstimateStructureDraftDialog({
                   <h3 className="text-sm font-semibold text-[var(--slate-900)]">
                     Preview arborescente
                   </h3>
+                  <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Filtrer les noeuds">
+                    {TREE_FILTER_CHIPS.map((chip) => {
+                      const isActive = activeFilters.has(chip.key);
+                      return (
+                        <button
+                          key={chip.key}
+                          type="button"
+                          aria-pressed={isActive}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                            isActive ? chip.activeClass : chip.inactiveClass
+                          }`}
+                          onClick={() => {
+                            setActiveFilters((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(chip.key)) {
+                                next.delete(chip.key);
+                              } else {
+                                next.add(chip.key);
+                              }
+                              return next;
+                            });
+                          }}
+                        >
+                          {chip.label}
+                          <span className="text-[10px] opacity-70">{filterCounts[chip.key]}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                   <div className="mt-4 space-y-3">
+                    {!hasFilteredPreviewResults ? (
+                      <div className="rounded-xl border border-dashed border-[var(--slate-300)] bg-[var(--slate-50)] p-4 text-sm text-[var(--slate-600)]">
+                        Aucun nœud ne correspond aux filtres actifs.
+                        Desactivez un filtre pour réafficher la preview.
+                      </div>
+                    ) : null}
                     {flatNodes.map((node) => {
+                      if (filteredFlatNodeIds && !filteredFlatNodeIds.has(node.id)) {
+                        return null;
+                      }
                       const isDisabled =
                         node.hierarchyLevel === 1 && !selectedRootIds.includes(node.id);
                       const resolvedAction =
@@ -990,19 +1205,95 @@ export function EstimateStructureDraftDialog({
               {submitError ? <div className="alert alert-error">{submitError}</div> : null}
             </div>
           ) : null}
+
+          {step === 4 && applyResult ? (
+            <div className="space-y-5">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-lg text-emerald-700">
+                  {"\u2713"}
+                </span>
+                <h3 className="text-lg font-semibold text-[var(--slate-900)]">
+                  Structure appliquee
+                </h3>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
+                  <p className="text-2xl font-semibold text-emerald-700">{applyResult.createdCount}</p>
+                  <p className="mt-1 text-sm text-emerald-600">creation(s)</p>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+                  <p className="text-2xl font-semibold text-amber-700">{applyResult.mergedCount}</p>
+                  <p className="mt-1 text-sm text-amber-600">fusion(s)</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
+                  <p className="text-2xl font-semibold text-slate-600">{applyResult.skippedCount}</p>
+                  <p className="mt-1 text-sm text-slate-500">ignoree(s)</p>
+                </div>
+              </div>
+
+              {selectedNodes.filter((n) => (overrides[n.id]?.action ?? n.defaultAction) === "create").length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-[var(--slate-700)]">Sections creees</h4>
+                  <ul className="mt-2 space-y-1">
+                    {selectedNodes
+                      .filter((n) => (overrides[n.id]?.action ?? n.defaultAction) === "create")
+                      .map((n) => (
+                        <li
+                          key={n.id}
+                          className="rounded-lg border-l-4 border-emerald-400 bg-emerald-50 px-3 py-2 text-sm text-[var(--slate-800)]"
+                        >
+                          {n.path.join(" > ")}
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+
+              {selectedNodes.filter((n) => (overrides[n.id]?.action ?? n.defaultAction) === "merge").length > 0 && (
+                <div>
+                  <h4 className="text-sm font-semibold text-[var(--slate-700)]">Sections fusionnees</h4>
+                  <ul className="mt-2 space-y-1">
+                    {selectedNodes
+                      .filter((n) => (overrides[n.id]?.action ?? n.defaultAction) === "merge")
+                      .map((n) => (
+                        <li
+                          key={n.id}
+                          className="rounded-lg border-l-4 border-amber-400 bg-amber-50 px-3 py-2 text-sm text-[var(--slate-800)]"
+                        >
+                          {n.path.join(" > ")}
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-[var(--slate-200)] px-6 py-4">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => setStep((current) => (current > 1 ? ((current - 1) as 1 | 2 | 3) : current))}
-            disabled={step === 1 || isSubmitting}
-          >
-            Retour
-          </button>
+          {step === 4 ? (
+            <div />
+          ) : (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setStep((current) => (current > 1 ? ((current - 1) as 1 | 2 | 3 | 4) : current))}
+              disabled={step === 1 || isSubmitting}
+            >
+              Retour
+            </button>
+          )}
           <div className="flex items-center gap-2">
-            {step < 3 ? (
+            {step === 4 ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => onClose(applyResult ?? undefined)}
+              >
+                Fermer
+              </button>
+            ) : step < 3 ? (
               <button
                 type="button"
                 className="btn btn-primary btn-sm"

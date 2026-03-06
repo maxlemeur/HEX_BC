@@ -1444,6 +1444,7 @@ export function useEstimateEditorState({
   ] = useState(false);
   const [importSummaryMessage, setImportSummaryMessage] =
     useState<string | null>(null);
+  const [highlightedItemIds, setHighlightedItemIds] = useState<Set<string>>(new Set());
   const [linkedDpgfSource, setLinkedDpgfSource] =
     useState<AffaireLinkedDpgfSource>(null);
   const [isLoadingLinkedDpgfSource, setIsLoadingLinkedDpgfSource] =
@@ -5145,21 +5146,22 @@ export function useEstimateEditorState({
 
       if (result.versionToken?.updated_at) {
         applyVersionToken(result.versionToken.updated_at);
-        return;
+      } else {
+        await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
+          fetchEstimateEditorData,
+          onVersionToken: (updatedAt) => {
+            applyVersionToken(updatedAt);
+          },
+          onError: (error) => {
+            console.error(
+              "Impossible de rafraichir le jeton de version apres application de structure IA.",
+              error
+            );
+          },
+        });
       }
 
-      await refreshVersionTokenAfterAssemblyInsert(versionSnapshot.id, {
-        fetchEstimateEditorData,
-        onVersionToken: (updatedAt) => {
-          applyVersionToken(updatedAt);
-        },
-        onError: (error) => {
-          console.error(
-            "Impossible de rafraichir le jeton de version apres application de structure IA.",
-            error
-          );
-        },
-      });
+      return result;
     },
     [
       applyVersionToken,
@@ -6997,6 +6999,7 @@ export function useEstimateEditorState({
       scrollToItemId: checklistScrollTargetItemId,
       onScrollToItemHandled: handleChecklistScrollHandled,
       virtualization: editorTableVirtualization,
+      highlightedItemIds,
       onOpenSettings: () => handleOpenSettingsDrawer(),
       headerRight: (
         <EstimateChecklist
@@ -7016,6 +7019,7 @@ export function useEstimateEditorState({
       dismissedOutlierFlagsByItemId,
       editorTableBaseConfig,
       editorTableVirtualization,
+      highlightedItemIds,
       handleAddLine,
       handleAddSection,
       handleInsertAssembly,
@@ -7081,9 +7085,22 @@ export function useEstimateEditorState({
   const closeImportFromEstimateDialog = useCallback(() => {
     setIsImportFromEstimateDialogOpen(false);
   }, []);
-  const closeEstimateStructureDraftDialog = useCallback(() => {
-    setIsEstimateStructureDraftDialogOpen(false);
-  }, []);
+  const closeEstimateStructureDraftDialog = useCallback(
+    (result?: { createdItemIds?: string[]; mergedItemIds?: string[] }) => {
+      setIsEstimateStructureDraftDialogOpen(false);
+      if (result) {
+        const ids = new Set([
+          ...(result.createdItemIds ?? []),
+          ...(result.mergedItemIds ?? []),
+        ]);
+        if (ids.size > 0) {
+          setHighlightedItemIds(ids);
+          setTimeout(() => setHighlightedItemIds(new Set()), 5000);
+        }
+      }
+    },
+    []
+  );
   const closeSendGatingDialog = useCallback(() => {
     if (isUpdatingStatus) return;
     setIsSendGatingDialogOpen(false);

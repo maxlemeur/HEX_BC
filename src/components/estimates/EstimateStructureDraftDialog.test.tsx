@@ -108,7 +108,20 @@ describe("EstimateStructureDraftDialog", () => {
   it("loads the draft preview and only applies after explicit confirmation", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    const onConfirm = vi.fn().mockResolvedValue(undefined);
+    const onConfirm = vi.fn().mockResolvedValue({
+      draftId: "draft-1",
+      versionId: "version-1",
+      mode: "merge_existing",
+      createdCount: 1,
+      mergedCount: 1,
+      skippedCount: 0,
+      createdItemIds: ["created-1"],
+      mergedItemIds: ["section-existing"],
+      version: {
+        id: "version-1",
+        updatedAt: "2026-03-06T18:10:00.000Z",
+      },
+    });
 
     render(
       <EstimateStructureDraftDialog
@@ -166,6 +179,14 @@ describe("EstimateStructureDraftDialog", () => {
         overrides: [],
       });
     });
+
+    await screen.findByText("Structure appliquee");
+    expect(onClose).not.toHaveBeenCalled();
+
+    const dialog = screen.getByRole("dialog");
+    const actionButtons = within(dialog).getAllByRole("button", { name: "Fermer" });
+    await user.click(actionButtons[actionButtons.length - 1]);
+
     await waitFor(() => {
       expect(onClose).toHaveBeenCalledTimes(1);
     });
@@ -347,5 +368,56 @@ describe("EstimateStructureDraftDialog", () => {
     expect(
       screen.getByRole("button", { name: "Appliquer la structure" })
     ).not.toBeDisabled();
+  });
+
+  it("shows an explicit empty state when filters hide every preview node", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <EstimateStructureDraftDialog
+        isOpen
+        targetVersionId="version-1"
+        hasExistingItems
+        existingSections={[
+          {
+            id: "section-existing",
+            path: "Peinture",
+            hierarchyLevel: 1,
+            parentId: null,
+            title: "Peinture",
+          },
+        ]}
+        onClose={vi.fn()}
+        onConfirm={vi.fn().mockResolvedValue({
+          draftId: "draft-1",
+          versionId: "version-1",
+          mode: "merge_existing",
+          createdCount: 0,
+          mergedCount: 1,
+          skippedCount: 0,
+          createdItemIds: [],
+          mergedItemIds: ["section-existing"],
+          version: {
+            id: "version-1",
+            updatedAt: "2026-03-06T18:10:00.000Z",
+          },
+        })}
+      />
+    );
+
+    await screen.findByText("Provenance utilisee");
+    await user.click(screen.getByRole("button", { name: "Continuer" }));
+    await screen.findByText("Preview arborescente");
+
+    await user.click(screen.getByRole("button", { name: /Ignore0/i }));
+
+    expect(
+      await screen.findByText(
+        /Aucun nœud ne correspond aux filtres actifs\./i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Desactivez un filtre pour réafficher la preview\./i)
+    ).toBeInTheDocument();
   });
 });

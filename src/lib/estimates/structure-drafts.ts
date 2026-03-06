@@ -2298,7 +2298,9 @@ function computeSectionPath(
 }
 
 function throwEstimateStructureDraftApplyRpcErrorIfNeeded(error: {
+  code?: string | null;
   message?: string | null;
+  details?: string | null;
 }) {
   const normalizedMessage = (error.message ?? "").toLowerCase();
 
@@ -2312,6 +2314,156 @@ function throwEstimateStructureDraftApplyRpcErrorIfNeeded(error: {
 
   if (normalizedMessage.includes("estimate_structure_draft_not_found")) {
     throw notFound("Preview de structure introuvable.");
+  }
+}
+
+function isApplyEstimateStructureDraftRpcMissing(error: {
+  code?: string | null;
+  message?: string | null;
+  details?: string | null;
+}) {
+  const normalizedMessage = (error.message ?? "").toLowerCase();
+  const normalizedDetails = (error.details ?? "").toLowerCase();
+
+  return (
+    error.code === "PGRST202" ||
+    normalizedMessage.includes("apply_estimate_structure_draft") ||
+    normalizedDetails.includes("apply_estimate_structure_draft")
+  );
+}
+
+async function applyEstimateStructureDraftWithoutRpc(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+  draftId: string;
+  appliedAt: string;
+  plannedCreates: EstimateStructureDraftPlannedCreate[];
+  plannedUpdates: EstimateStructureDraftPlannedUpdate[];
+  applicationRows: EstimateStructureDraftApplicationInsert[];
+}) {
+  const {
+    supabase,
+    tenantId,
+    versionId,
+    draftId,
+    appliedAt,
+    plannedCreates,
+    plannedUpdates,
+    applicationRows,
+  } = input;
+
+  if (plannedCreates.length > 0) {
+    const createRows: Database["public"]["Tables"]["estimate_items"]["Insert"][] =
+      plannedCreates.map((item) => ({
+        id: item.id,
+        tenant_id: tenantId,
+        version_id: versionId,
+        parent_id: item.parent_id,
+        item_type: item.item_type,
+        position: item.position,
+        title: item.title,
+        source_provider: item.source_provider,
+        source_job_id: item.source_job_id,
+        source_file_name: item.source_file_name,
+        source_page: item.source_page,
+        h_mo_majoration: 1,
+        k_mo_atelier: 1,
+        k_mo_chantier: 1,
+      }));
+    const { error: createError } = await supabase
+      .from("estimate_items")
+      .insert(createRows);
+
+    if (createError) {
+      throw mapSupabaseError(
+        createError,
+        "Impossible d'appliquer la preview de structure."
+      );
+    }
+  }
+
+  if (plannedUpdates.length > 0) {
+    const updateResults = await Promise.all(
+      plannedUpdates.map((item) =>
+        supabase
+          .from("estimate_items")
+          .update({
+            title: item.title ?? undefined,
+            source_provider: item.source_provider ?? undefined,
+            source_job_id: item.source_job_id ?? undefined,
+            source_file_name: item.source_file_name ?? undefined,
+            source_page: item.source_page ?? undefined,
+          })
+          .eq("tenant_id", tenantId)
+          .eq("version_id", versionId)
+          .eq("id", item.id)
+          .eq("item_type", "section")
+      )
+    );
+
+    const updateError = updateResults.find((result) => result.error)?.error ?? null;
+    if (updateError) {
+      throw mapSupabaseError(
+        updateError,
+        "Impossible d'appliquer la preview de structure."
+      );
+    }
+  }
+
+  if (applicationRows.length > 0) {
+    const { error: insertApplicationsError } = await supabase
+      .from("estimate_structure_draft_applications")
+      .insert(
+        applicationRows.map((row) => ({
+          tenant_id: tenantId,
+          draft_id: draftId,
+          draft_node_id: row.draft_node_id,
+          target_version_id: versionId,
+          estimate_item_id: row.estimate_item_id,
+          applied_action: row.applied_action,
+          applied_by: row.applied_by,
+        }))
+      );
+
+    if (insertApplicationsError) {
+      throw mapSupabaseError(
+        insertApplicationsError,
+        "Impossible d'appliquer la preview de structure."
+      );
+    }
+  }
+
+  const { error: updateDraftError } = await supabase
+    .from("estimate_structure_drafts")
+    .update({
+      status: "applied",
+      applied_at: appliedAt,
+      updated_at: appliedAt,
+    })
+    .eq("tenant_id", tenantId)
+    .eq("id", draftId);
+
+  if (updateDraftError) {
+    throw mapSupabaseError(
+      updateDraftError,
+      "Impossible d'appliquer la preview de structure."
+    );
+  }
+
+  const { error: touchVersionError } = await supabase
+    .from("estimate_versions")
+    .update({
+      updated_at: appliedAt,
+    })
+    .eq("tenant_id", tenantId)
+    .eq("id", versionId);
+
+  if (touchVersionError) {
+    throw mapSupabaseError(
+      touchVersionError,
+      "Impossible d'appliquer la preview de structure."
+    );
   }
 }
 
@@ -2624,6 +2776,7 @@ export async function applyEstimateStructureDraft(
     await applyNode(rootNode, null);
   }
 
+  const appliedAt = new Date().toISOString();
   const { data: applyRpcData, error: applyRpcError } = await supabase.rpc(
     "apply_estimate_structure_draft",
     {
@@ -2633,20 +2786,39 @@ export async function applyEstimateStructureDraft(
       p_created_items: toJson(plannedCreates),
       p_updated_items: toJson(plannedUpdates),
       p_application_rows: toJson(applicationRows),
-      p_applied_at: new Date().toISOString(),
+      p_applied_at: appliedAt,
     }
   );
 
   if (applyRpcError) {
     throwEstimateStructureDraftApplyRpcErrorIfNeeded(applyRpcError);
-    throw mapSupabaseError(applyRpcError, "Impossible d'appliquer la preview de structure.");
+    if (isApplyEstimateStructureDraftRpcMissing(applyRpcError)) {
+      console.warn(
+        "apply_estimate_structure_draft RPC missing from schema cache, using non-atomic fallback."
+      );
+      await applyEstimateStructureDraftWithoutRpc({
+        supabase,
+        tenantId,
+        versionId,
+        draftId,
+        appliedAt,
+        plannedCreates,
+        plannedUpdates,
+        applicationRows,
+      });
+    } else {
+      throw mapSupabaseError(
+        applyRpcError,
+        "Impossible d'appliquer la preview de structure."
+      );
+    }
   }
 
   const rpcResult = Array.isArray(applyRpcData)
     ? ((applyRpcData[0] as EstimateStructureDraftApplyRpcResult | undefined) ?? null)
     : null;
 
-  if (!rpcResult) {
+  if (!rpcResult && !applyRpcError) {
     throw badRequest("Impossible d'appliquer la preview de structure.");
   }
 
