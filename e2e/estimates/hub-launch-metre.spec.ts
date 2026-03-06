@@ -31,12 +31,12 @@ async function extractProjectId(page: import("@playwright/test").Page, versionId
   return projectId as string;
 }
 
-test.describe("V3-009 — Action rapide Lancer un metre", () => {
+test.describe("V3-009 — Action rapide Analyser les plans", () => {
   test.beforeEach(async ({ page }) => {
     await loginWithUi(page);
   });
 
-  test("launch metre from QuickActionsCard opens dialog, uploads CSV, redirects to takeoff", async ({ page }) => {
+  test("launch metre from action bar opens dialog, uploads CSV, navigates to takeoff via success CTA", async ({ page }) => {
     // 1. Create a fresh affaire (creates project with draft version)
     const projectName = buildEstimateName("V3009-METRE");
     const { versionId } = await createEstimateViaWizard(page, {
@@ -67,20 +67,20 @@ test.describe("V3-009 — Action rapide Lancer un metre", () => {
     // 3. Navigate back to the hub affaire
     await page.goto(`/dashboard/affaires/${projectId}`);
 
-    // 4. Check the "Lancer un metre" button is visible in QuickActionsCard
-    const quickActionsSection = page.locator("section").filter({ hasText: "Actions rapides" });
-    await expect(quickActionsSection).toBeVisible({ timeout: 10_000 });
+    // 4. Check the "Analyser les plans" button is visible in the action bar
+    const actionBar = page.locator(".action-bar");
+    await expect(actionBar).toBeVisible({ timeout: 10_000 });
 
-    const launchButton = quickActionsSection.getByRole("button", {
-      name: /Lancer un metre/i,
+    const launchButton = actionBar.getByRole("button", {
+      name: /Analyser les plans/i,
     });
     await expect(launchButton).toBeVisible({ timeout: 5_000 });
 
-    // 5. Click "Lancer un metre" → dialog should open
+    // 5. Click "Analyser les plans" → dialog should open
     await launchButton.click();
     const metreDialog = page.getByRole("dialog");
     await expect(metreDialog).toBeVisible();
-    await expect(metreDialog.getByText(/Lancer un metre/i)).toBeVisible();
+    await expect(metreDialog.getByText(/Analyser les plans/i)).toBeVisible();
 
     // 6. Upload CSV file via the TakeoffUploadForm inside the dialog
     const fileInput = metreDialog.locator("input[type='file']").first();
@@ -92,7 +92,12 @@ test.describe("V3-009 — Action rapide Lancer un metre", () => {
     // Submit
     await metreDialog.getByRole("button", { name: /Lancer l'extraction/i }).click();
 
-    // 7. Verify redirection to the takeoff page
+    // 7. After success, click "Centre d'activite" to navigate to takeoff page
+    const activityButton = metreDialog.getByRole("button", { name: /Centre d'activit/i });
+    await expect(activityButton).toBeVisible({ timeout: 30_000 });
+    await activityButton.click();
+
+    // 8. Verify redirection to the takeoff page
     await expect(page).toHaveURL(
       new RegExp(`/dashboard/affaires/${projectId}/takeoff`),
       { timeout: 30_000 }

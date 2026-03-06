@@ -630,7 +630,7 @@ body {
 .stagger-6 { animation-delay: 0.3s; }
 .stagger-7 { animation-delay: 0.35s; }
 
-/* Action bar */
+/* Action bar — scrollable on small viewports */
 .action-bar {
   display: flex;
   flex-wrap: wrap;
@@ -641,6 +641,7 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   padding: 16px;
   margin-bottom: 16px;
+  overflow: auto visible;
 }
 
 /* Progress strip */
@@ -725,13 +726,13 @@ body {
   min-height: 297mm;
 }
 
-/* Sidebar gradient accent bar */
 @media (max-width: 767px) {
   .document-page {
     min-height: auto;
   }
 }
 
+/* Sidebar gradient accent bar */
 .sidebar-accent {
   position: absolute;
   left: 0;

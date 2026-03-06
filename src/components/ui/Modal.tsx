@@ -123,7 +123,7 @@ function Content({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={cn(
-          "relative z-10 w-full max-w-2xl rounded-2xl border border-slate-200 bg-surface p-6 shadow-2xl",
+          "relative z-10 w-full max-w-[calc(100vw-2rem)] sm:max-w-2xl rounded-2xl border border-slate-200 bg-surface p-6 shadow-2xl",
           className
         )}
         onMouseDown={(event) => {

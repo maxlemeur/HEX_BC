@@ -386,29 +386,31 @@ export function TakeoffUploadForm({
           </div>
         ) : null}
 
-        <fieldset>
-          <legend className="form-label mb-2">Niveau d&apos;extraction</legend>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="flex items-center gap-2 rounded-xl border border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 px-3 py-2">
-              <input type="radio" name="takeoff-level" checked readOnly />
-              <span className="text-sm font-medium text-[var(--slate-800)]">
-                Niveau A
-              </span>
-            </label>
-            <label className="flex items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-100)] px-3 py-2 opacity-70">
-              <input type="radio" name="takeoff-level" disabled />
-              <span className="text-sm text-[var(--slate-600)]">
-                Niveau B (bientot)
-              </span>
-            </label>
-            <label className="flex items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-100)] px-3 py-2 opacity-70">
-              <input type="radio" name="takeoff-level" disabled />
-              <span className="text-sm text-[var(--slate-600)]">
-                Niveau C (bientot)
-              </span>
-            </label>
-          </div>
-        </fieldset>
+        {!compact && (
+          <fieldset>
+            <legend className="form-label mb-2">Niveau d&apos;extraction</legend>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="flex items-center gap-2 rounded-xl border border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 px-3 py-2">
+                <input type="radio" name="takeoff-level" checked readOnly />
+                <span className="text-sm font-medium text-[var(--slate-800)]">
+                  Niveau A
+                </span>
+              </label>
+              <label className="flex items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-100)] px-3 py-2 opacity-70">
+                <input type="radio" name="takeoff-level" disabled />
+                <span className="text-sm text-[var(--slate-600)]">
+                  Niveau B (bientot)
+                </span>
+              </label>
+              <label className="flex items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-100)] px-3 py-2 opacity-70">
+                <input type="radio" name="takeoff-level" disabled />
+                <span className="text-sm text-[var(--slate-600)]">
+                  Niveau C (bientot)
+                </span>
+              </label>
+            </div>
+          </fieldset>
+        )}
 
         {(submitState === "loading" || uploadProgress > 0) && (
           <div>
