@@ -71,6 +71,17 @@ const TakeoffLineEvidencePanel = dynamic(
   }
 );
 
+const PriceSuggestionPanel = dynamic(
+  () =>
+    import("@/components/takeoff/PriceSuggestionPanel").then((mod) => ({
+      default: mod.PriceSuggestionPanel,
+    })),
+  {
+    ssr: false,
+    loading: () => null,
+  }
+);
+
 type ManualLinkCandidate = TakeoffDpgfComparisonUnusedTakeoffItem & {
   is_current: boolean;
   linked_line_label: string | null;
@@ -668,6 +679,7 @@ export default function TakeoffDpgfCompareView({
   const [selectedRowId, setSelectedRowId] = useState<string | null>(data.rows[0]?.line_id ?? null);
   const [manualLinkModalOpen, setManualLinkModalOpen] = useState(false);
   const [evidencePanelOpen, setEvidencePanelOpen] = useState(false);
+  const [priceSuggestionPanelOpen, setPriceSuggestionPanelOpen] = useState(false);
   const [manualLinkSaving, setManualLinkSaving] = useState(false);
   const [decisionReason, setDecisionReason] = useState("");
   const [draftDecision, setDraftDecision] = useState<TakeoffDpgfReviewDecision | null>(null);
@@ -1690,15 +1702,26 @@ export default function TakeoffDpgfCompareView({
                       Provenance détaillée, historique et remplacements de preuves.
                     </p>
                   </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setEvidencePanelOpen(true)}
-                    data-testid="takeoff-dpgf-open-evidence-panel-button"
-                  >
-                    Historique et provenance
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setPriceSuggestionPanelOpen(true)}
+                      data-testid="takeoff-dpgf-open-price-suggestion-button"
+                    >
+                      Suggestion de prix
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setEvidencePanelOpen(true)}
+                      data-testid="takeoff-dpgf-open-evidence-panel-button"
+                    >
+                      Historique et provenance
+                    </Button>
+                  </div>
                 </div>
                 <ProofList label={PROOF_KIND_LABELS.fact} proofs={proofGroups.fact} />
                 <ProofList label={PROOF_KIND_LABELS.hypothesis} proofs={proofGroups.hypothesis} />
@@ -1790,17 +1813,31 @@ export default function TakeoffDpgfCompareView({
       />
 
       {selectedRow ? (
-        <TakeoffLineEvidencePanel
-          open={evidencePanelOpen}
-          onOpenChange={setEvidencePanelOpen}
-          jobId={data.job_id}
-          versionId={data.version_id}
-          lineId={selectedRow.dpgf.estimate_item_id}
-          lineLabel={selectedRow.line_label}
-          sourceFileName={selectedRow.dpgf.source_file_name}
-          sourcePage={selectedRow.dpgf.source_page}
-          surfaceLabel="Preuves persistantes"
-        />
+        <>
+          <TakeoffLineEvidencePanel
+            open={evidencePanelOpen}
+            onOpenChange={setEvidencePanelOpen}
+            jobId={data.job_id}
+            versionId={data.version_id}
+            lineId={selectedRow.dpgf.estimate_item_id}
+            lineLabel={selectedRow.line_label}
+            sourceFileName={selectedRow.dpgf.source_file_name}
+            sourcePage={selectedRow.dpgf.source_page}
+            surfaceLabel="Preuves persistantes"
+          />
+          <PriceSuggestionPanel
+            open={priceSuggestionPanelOpen}
+            onOpenChange={setPriceSuggestionPanelOpen}
+            jobId={data.job_id}
+            versionId={data.version_id}
+            estimateItemId={selectedRow.dpgf.estimate_item_id}
+            lineLabel={selectedRow.line_label}
+            onReviewComplete={() => {
+              onRefresh();
+              void mutateRiskRadar();
+            }}
+          />
+        </>
       ) : null}
 
       <Modal.Root
