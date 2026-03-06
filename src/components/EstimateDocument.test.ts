@@ -397,4 +397,12 @@ describe("EstimateDocument - EST-121", () => {
     expect(markup).not.toContain("Type FO");
     expect(markup).not.toContain("Marge");
   });
+
+  it("confine le debordement mobile au tableau du document", () => {
+    const markup = renderEstimateDocument([]);
+
+    expect(markup).toContain("document-page relative mx-auto my-5 flex w-full max-w-full");
+    expect(markup).toContain("overflow-x-auto");
+    expect(markup).toContain("min-w-[40rem] md:min-w-0");
+  });
 });

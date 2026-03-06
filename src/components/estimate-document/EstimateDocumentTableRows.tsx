@@ -58,7 +58,7 @@ function EstimateDocumentSectionRow({
 
   return (
     <tr className={sectionRowClassName}>
-      <td className="px-6 py-3 print:px-4 print:py-2">
+      <td className="px-4 py-3 sm:px-6 print:px-4 print:py-2">
         <div style={{ paddingLeft: `${depth * 16}px` }}>
           <div className="text-xs uppercase tracking-wide text-[var(--slate-500)]">
             {numberingById[item.id] ? (
@@ -70,10 +70,10 @@ function EstimateDocumentSectionRow({
           </div>
         </div>
       </td>
-      <td className="w-20 px-3 py-3 text-center text-slate-500 print:px-2 print:py-2">-</td>
-      <td className="w-16 px-3 py-3 text-center text-slate-500 print:px-2 print:py-2">-</td>
-      <td className="w-28 px-3 py-3 text-right text-slate-500 print:px-2 print:py-2">-</td>
-      <td className="w-32 px-4 py-3 text-right font-medium text-slate-600 print:px-2 print:py-2 print:text-slate-700">
+      <td className="w-20 px-2 py-3 text-center text-slate-500 sm:px-3 print:px-2 print:py-2">-</td>
+      <td className="w-16 px-2 py-3 text-center text-slate-500 sm:px-3 print:px-2 print:py-2">-</td>
+      <td className="w-28 px-2 py-3 text-right text-slate-500 sm:px-3 print:px-2 print:py-2">-</td>
+      <td className="w-32 px-3 py-3 text-right font-medium text-slate-600 sm:px-4 print:px-2 print:py-2 print:text-slate-700">
         {formatCurrency(totals.totalHtCents, resolvedCurrency)}
       </td>
     </tr>
@@ -89,7 +89,7 @@ function EstimateDocumentLineRow({
 
   return (
     <tr className="bg-white print-color-adjust">
-      <td className="px-6 py-4 font-medium text-slate-800 print:px-4 print:py-2 print:text-slate-900">
+      <td className="px-4 py-4 font-medium text-slate-800 sm:px-6 print:px-4 print:py-2 print:text-slate-900">
         <div
           style={{ paddingLeft: `${depth * 16}px` }}
           className="flex items-center gap-2"
@@ -97,16 +97,16 @@ function EstimateDocumentLineRow({
           <span>{resolveTitle(item)}</span>
         </div>
       </td>
-      <td className="w-20 px-3 py-4 text-center font-semibold print:px-2 print:py-2">
+      <td className="w-20 px-2 py-4 text-center font-semibold sm:px-3 print:px-2 print:py-2">
         {formatQuantity(item.quantity)}
       </td>
-      <td className="w-16 px-3 py-4 text-center print:px-2 print:py-2">
+      <td className="w-16 px-2 py-4 text-center sm:px-3 print:px-2 print:py-2">
         {item.description?.trim() || "-"}
       </td>
-      <td className="w-28 px-3 py-4 text-right print:px-2 print:py-2">
+      <td className="w-28 px-2 py-4 text-right sm:px-3 print:px-2 print:py-2">
         {formatCurrency(item.pu_ht_cents ?? 0, resolvedCurrency)}
       </td>
-      <td className="w-32 px-4 py-4 text-right font-bold print:px-2 print:py-2">
+      <td className="w-32 px-3 py-4 text-right font-bold sm:px-4 print:px-2 print:py-2">
         {formatCurrency(item.line_total_ht_cents ?? 0, resolvedCurrency)}
       </td>
     </tr>

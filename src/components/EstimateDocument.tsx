@@ -90,20 +90,20 @@ export function EstimateDocument({
   });
 
   return (
-    <div className="document-page relative mx-auto my-5 flex flex-col overflow-hidden bg-white px-[50px] pb-[50px] pt-[40px] shadow-2xl print:m-0 print:px-8 print:pb-8 print:pt-6 print:shadow-none">
+    <div className="document-page relative mx-auto my-5 flex w-full max-w-full flex-col overflow-hidden bg-white px-4 pb-6 pt-6 shadow-2xl sm:px-6 sm:pb-8 sm:pt-8 md:px-[50px] md:pb-[50px] md:pt-[40px] print:m-0 print:px-8 print:pb-8 print:pt-6 print:shadow-none">
       <div className="sidebar-accent print-color-adjust" />
 
       <div className="mb-6">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <Image
             src="/logo-hydro-express.jpg"
             alt="Hydro eXpress"
             width={250}
             height={100}
-            className="h-[100px] w-auto object-contain print:h-[80px]"
+            className="h-16 w-auto object-contain sm:h-[100px] print:h-[80px]"
             priority
           />
-          <div className="max-w-[220px] rounded-lg border border-border bg-surface-subtle px-4 py-3 text-right text-sm print:px-3 print:py-2 print:text-xs">
+          <div className="w-full max-w-none rounded-lg border border-border bg-surface-subtle px-4 py-3 text-left text-sm sm:max-w-[220px] sm:text-right print:px-3 print:py-2 print:text-xs">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Etablissement principal :
             </p>
@@ -118,8 +118,8 @@ export function EstimateDocument({
           </div>
         </div>
 
-        <div className="mt-4 flex items-start print:mt-3">
-          <div className="w-[240px] shrink-0 text-sm">
+        <div className="mt-4 flex flex-col gap-4 print:mt-3 sm:flex-row sm:items-start">
+          <div className="w-full text-sm sm:w-[240px] sm:shrink-0">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Projet
             </p>
@@ -136,8 +136,8 @@ export function EstimateDocument({
             ) : null}
           </div>
 
-          <div className="flex-1 text-center self-center">
-            <h2 className="mb-2 whitespace-nowrap text-[30px] font-black uppercase tracking-tight text-foreground print:mb-1 print:text-[25px]">
+          <div className="self-start text-left sm:flex-1 sm:self-center sm:text-center">
+            <h2 className="mb-2 text-[26px] font-black uppercase tracking-tight text-foreground sm:whitespace-nowrap sm:text-[30px] print:mb-1 print:text-[25px]">
               Devis
             </h2>
             <p className="inline-block rounded-lg border border-border bg-surface-subtle px-4 py-1.5 font-mono text-xs uppercase tracking-wide text-muted-foreground">
@@ -148,12 +148,12 @@ export function EstimateDocument({
             </p>
           </div>
 
-          <div className="w-[220px] shrink-0"></div>
+          <div className="hidden w-[220px] shrink-0 sm:block"></div>
         </div>
       </div>
 
-      <div className="mb-8 grid grid-cols-2 gap-8 print:mb-3">
-        <div className="rounded-xl border border-border bg-surface-subtle p-6 print:p-4">
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 sm:gap-8 print:mb-3">
+        <div className="rounded-xl border border-border bg-surface-subtle p-4 sm:p-6 print:p-4">
           <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
             Informations devis
           </h4>
@@ -179,7 +179,7 @@ export function EstimateDocument({
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-surface-subtle p-6 print:p-4">
+        <div className="rounded-xl border border-border bg-surface-subtle p-4 sm:p-6 print:p-4">
           <h4 className="mb-4 text-center text-xs font-bold uppercase tracking-wide text-brand-orange print:mb-2">
             Conditions
           </h4>
@@ -200,8 +200,8 @@ export function EstimateDocument({
         </div>
       </div>
 
-      <div className="mb-6 overflow-hidden rounded-xl border border-border shadow-sm print:mb-3">
-        <table className="w-full">
+      <div className="mb-6 overflow-x-auto rounded-xl border border-border shadow-sm print:mb-3 print:overflow-visible">
+        <table className="w-full min-w-[40rem] md:min-w-0">
           <thead>
             <tr className="table-head bg-brand-blue text-left text-xs font-bold uppercase tracking-wide text-white print-color-adjust">
               <th className="px-6 py-4 align-middle whitespace-nowrap print:px-4 print:py-2">Designation</th>

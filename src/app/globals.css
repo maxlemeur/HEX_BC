@@ -721,11 +721,17 @@ body {
 
 /* A4 Document page dimensions */
 .document-page {
-  width: 210mm;
+  width: min(210mm, 100%);
   min-height: 297mm;
 }
 
 /* Sidebar gradient accent bar */
+@media (max-width: 767px) {
+  .document-page {
+    min-height: auto;
+  }
+}
+
 .sidebar-accent {
   position: absolute;
   left: 0;
