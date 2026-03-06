@@ -6,6 +6,21 @@
 - Dev server running : `npm run dev` sur `http://localhost:3000`
 - Affaires de seed disponibles (prefixe `V3005-`)
 
+### Plan PDF de test
+
+Un faux plan BTP est disponible pour tester la fonctionnalite metre :
+
+```
+docs/test-fixtures/fake-plan-lot-archi.pdf
+```
+
+- **Page 1** : Plan RDC cote d'un T3 (sejour, cuisine, 2 chambres, SDB, WC, terrasse)
+- **Page 2** : Tableau recapitulatif avec 24 postes (surfaces m2, lineaires ml, comptages u)
+- Genere par `python3 scripts/generate-fake-plan.py`
+
+**Utilisation :** importer ce PDF dans une affaire V3005-PLANS via la page Plans,
+puis lancer un metre pour obtenir un job takeoff avec des items extractibles.
+
 ## Scenarios de test
 
 ### 1. Empty state — Affaire sans plans
