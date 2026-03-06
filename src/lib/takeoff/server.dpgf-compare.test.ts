@@ -448,6 +448,12 @@ function createSupabaseMock() {
                   return false;
                 }
                 if (
+                  filters.review_reference &&
+                  decision.review_reference !== filters.review_reference
+                ) {
+                  return false;
+                }
+                if (
                   filters.estimate_item_id &&
                   decision.estimate_item_id !== filters.estimate_item_id
                 ) {
@@ -921,6 +927,79 @@ describe("takeoff DPGF comparison server helpers", () => {
       carried_over_from_version_number: 2,
     });
     expect(mock.state.reviewDecisions[0]?.decision).toBe("manual_fix");
+  });
+
+  it("inherits carry-over provenance from the linked source decision on first save", async () => {
+    const mock = createSupabaseMock();
+    mock.state.reviewDecisions = [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        tenant_id: TENANT_ID,
+        version_id: SOURCE_VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        review_reference: buildTakeoffDpgfReviewReference({
+          sourceFileName: "dpgf.xlsx",
+          sourcePage: 12,
+          position: 1,
+          title: "Faux plafond acoustique",
+          unit: "m2",
+        }),
+        line_label: "Faux plafond acoustique",
+        line_position: 1,
+        source_file_name: "dpgf.xlsx",
+        source_page: 12,
+        carried_over_from_version_id: null,
+        carried_over_at: null,
+        decision: "keep_dpgf",
+        reason: "Decision issue de la version precedente.",
+        decided_at: "2026-03-06T10:10:00.000Z",
+        updated_at: "2026-03-06T10:10:00.000Z",
+        decided_by: USER_ID,
+      },
+    ];
+
+    vi.mocked(listAccessibleTakeoffJobsForVersion).mockResolvedValue([
+      {
+        id: JOB_ID,
+        estimate_version_id: VERSION_ID,
+        status: "completed",
+        level: "A",
+        source_file_name: "plans.pdf",
+        source_file_type: "application/pdf",
+        source_file_size_bytes: 1200,
+        created_at: "2026-03-06T09:59:00.000Z",
+        updated_at: "2026-03-06T10:01:00.000Z",
+        linked_from_version_id: SOURCE_VERSION_ID,
+        linked_from_version_number: 2,
+        is_linked: true,
+      },
+    ]);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await saveTakeoffReviewDecision(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: ESTIMATE_ITEM_ID,
+      decision: "keep_takeoff",
+      reason: "Application explicite sur la version courante.",
+    });
+
+    expect(response.decision).toMatchObject({
+      decision: "keep_takeoff",
+      source: "carried_over",
+      carried_over_from_version_id: SOURCE_VERSION_ID,
+      carried_over_from_version_number: 2,
+    });
+    expect(
+      mock.state.reviewDecisions.find((decision) => decision.version_id === VERSION_ID)
+    ).toMatchObject({
+      carried_over_from_version_id: SOURCE_VERSION_ID,
+    });
   });
 
   it("builds review carry-over references from the resolved DPGF unit", async () => {

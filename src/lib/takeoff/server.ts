@@ -2811,7 +2811,7 @@ export async function saveTakeoffReviewDecision(
     "Payload de decision DPGF invalide."
   );
 
-  await assertTakeoffJobAccessibleForVersion({
+  const accessibleJob = await assertTakeoffJobAccessibleForVersion({
     supabase,
     tenantId,
     versionId: payload.version_id,
@@ -2931,14 +2931,84 @@ export async function saveTakeoffReviewDecision(
     typeof payload.reason === "string" && payload.reason.trim().length > 0
       ? payload.reason.trim()
       : null;
+  const projectId = await getEstimateVersionProjectIdOrThrow({
+    supabase,
+    tenantId,
+    versionId: payload.version_id,
+  });
+  const dpgfUnitByRowIndex =
+    typeof estimateItem.source_page === "number"
+      ? await resolveDpgfUnitByRowIndex({
+          supabase,
+          tenantId,
+          projectId,
+          sourceFileName: estimateItem.source_file_name,
+        })
+      : new Map<number, string | null>();
   const reviewReference = buildTakeoffDpgfReviewReference({
     sourceFileName: estimateItem.source_file_name,
     sourcePage: estimateItem.source_page,
     position: estimateItem.position,
     title: estimateItem.title,
-    unit: estimateItem.description,
+    unit:
+      typeof estimateItem.source_page === "number"
+        ? dpgfUnitByRowIndex.get(estimateItem.source_page) ?? null
+        : null,
   });
   const decisionTimestamp = new Date().toISOString();
+  let inheritedCarryOverDecision:
+    | {
+        carried_over_from_version_id: string | null;
+        carried_over_at: string | null;
+      }
+    | null = existingDecision;
+
+  if (!inheritedCarryOverDecision && accessibleJob.linked_from_version_id) {
+    const sourceDecisionRow = await supabase
+      .from("takeoff_dpgf_review_decisions" as never)
+      .select(
+        "carried_over_from_version_id, carried_over_at, updated_at" as never
+      )
+      .eq("tenant_id" as never, tenantId as never)
+      .eq("version_id" as never, accessibleJob.linked_from_version_id as never)
+      .eq("takeoff_job_id" as never, normalizedJobId as never)
+      .eq("review_reference" as never, reviewReference as never)
+      .order("updated_at" as never, { ascending: false })
+      .maybeSingle();
+
+    if (sourceDecisionRow.error) {
+      throw toTakeoffError(
+        mapSupabaseError(
+          sourceDecisionRow.error,
+          "Impossible de charger la decision DPGF source."
+        ),
+        {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          retryable: false,
+          jobId: normalizedJobId,
+        }
+      );
+    }
+
+    if (sourceDecisionRow.data) {
+      const sourceDecision = sourceDecisionRow.data as {
+        carried_over_from_version_id: string | null;
+        carried_over_at: string | null;
+        updated_at: string | null;
+      };
+
+      inheritedCarryOverDecision = {
+        carried_over_from_version_id:
+          sourceDecision.carried_over_from_version_id ??
+          accessibleJob.linked_from_version_id,
+        carried_over_at:
+          sourceDecision.carried_over_at ??
+          sourceDecision.updated_at ??
+          decisionTimestamp,
+      };
+    }
+  }
+
   const upsertPayload = {
     tenant_id: tenantId,
     version_id: payload.version_id,
@@ -2949,8 +3019,9 @@ export async function saveTakeoffReviewDecision(
     line_position: estimateItem.position,
     source_file_name: estimateItem.source_file_name,
     source_page: estimateItem.source_page,
-    carried_over_from_version_id: existingDecision?.carried_over_from_version_id ?? null,
-    carried_over_at: existingDecision?.carried_over_at ?? null,
+    carried_over_from_version_id:
+      inheritedCarryOverDecision?.carried_over_from_version_id ?? null,
+    carried_over_at: inheritedCarryOverDecision?.carried_over_at ?? null,
     decision: payload.decision,
     reason: normalizedReason,
     decided_at: decisionTimestamp,
