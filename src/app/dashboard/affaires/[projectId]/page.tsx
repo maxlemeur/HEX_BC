@@ -9,6 +9,7 @@ import {
   fetchAffaireHubSummary,
   fetchAffaireHubTimeline,
 } from "@/lib/affaires/server";
+import { getEstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 type Props = {
@@ -17,7 +18,7 @@ type Props = {
 };
 
 export default async function AffaireHubPage({ params, searchParams }: Props) {
-  const [{ projectId }, search, { tenantId }] = await Promise.all([
+  const [{ projectId }, search, { tenantId, profile }] = await Promise.all([
     params,
     searchParams,
     getUserContext(),
@@ -75,6 +76,11 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   }
 
   const summary = summaryResult.value;
+  const approvalSummary = summary.currentVersion
+    ? await getEstimateApprovalSummary(summary.currentVersion.id).catch(() => null)
+    : null;
+  const viewerRole = profile?.tenant_role ?? null;
+  const isReadOnlyReview = viewerRole === "director";
 
   const timeline =
     timelineResult.status === "fulfilled" ? timelineResult.value : null;
@@ -129,6 +135,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       timeline={timeline}
       dpgfSource={dpgfSource}
       marginAnalysis={marginAnalysis}
+      approvalSummary={approvalSummary}
+      isReadOnlyReview={isReadOnlyReview}
       plansSummary={plansSummary}
       takeoffEnabled={takeoffEnabled}
       sectionErrors={sectionErrors}

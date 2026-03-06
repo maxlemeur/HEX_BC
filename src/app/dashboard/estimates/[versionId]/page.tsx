@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 
 import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { EstimateDocument } from "@/components/EstimateDocument";
+import { EstimateApprovalActions } from "@/components/estimates/EstimateApprovalActions";
+import { EstimateApprovalSummaryCard } from "@/components/estimates/EstimateApprovalSummaryCard";
 import { EstimateTimeline } from "@/components/estimates/EstimateTimeline";
 import { EstimatePdfDownloadButton } from "@/components/estimates/EstimatePdfDownloadButton";
 import { DuplicateEstimateButton } from "@/components/estimates/DuplicateEstimateButton";
@@ -13,8 +15,10 @@ import {
   SealIntegrityBadge,
   type SealIntegrityState,
 } from "@/components/estimates/SealIntegrityBadge";
+import { getUserContext } from "@/lib/auth/server";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { getEstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import {
   listEstimateProjectVersions,
   listEstimateVersionVariants,
@@ -112,6 +116,8 @@ export default async function EstimateDetailPage({
     : ({} as EstimateDetailPageSearchParams);
   const timelinePage = parseHistoryPage(resolvedSearchParams.historyPage);
   const supabase = await createSupabaseServerClient();
+  const userContextPromise = getUserContext();
+  const approvalSummaryPromise = getEstimateApprovalSummary(versionId).catch(() => null);
 
   const versionPromise = supabase
     .from("estimate_versions")
@@ -127,9 +133,11 @@ export default async function EstimateDetailPage({
     .eq("version_id", versionId)
     .order("position", { ascending: true });
 
-  const [versionResult, itemsResult] = await Promise.all([
+  const [versionResult, itemsResult, userContext, approvalSummary] = await Promise.all([
     versionPromise,
     itemsPromise,
+    userContextPromise,
+    approvalSummaryPromise,
   ]);
 
   if (versionResult.error || !versionResult.data) {
@@ -143,6 +151,8 @@ export default async function EstimateDetailPage({
   const version = versionResult.data as EstimateVersion;
   const items = (itemsResult.data ?? []) as EstimateItem[];
   const project = resolveProject(version.estimate_projects);
+  const tenantRole = userContext.profile?.tenant_role ?? null;
+  const canEditVersion = tenantRole === "admin" || tenantRole === "engineer";
   const [versionTimeline, variantComparison, isLaborSplitEnabled] = await Promise.all([
     listEstimateProjectVersions({
       projectId: version.project_id,
@@ -284,12 +294,14 @@ export default async function EstimateDetailPage({
           <Link className="btn btn-secondary btn-sm" href={`/dashboard/estimates/${versionId}/diff`}>
             Comparer
           </Link>
-          <Link
-            className="btn btn-primary btn-sm"
-            href={`/dashboard/estimates/${versionId}/edit`}
-          >
-            Éditer
-          </Link>
+          {canEditVersion ? (
+            <Link
+              className="btn btn-primary btn-sm"
+              href={`/dashboard/estimates/${versionId}/edit`}
+            >
+              Éditer
+            </Link>
+          ) : null}
           <details className="relative">
             <summary className="btn btn-secondary btn-sm cursor-pointer list-none select-none">
               Plus d&apos;actions
@@ -301,8 +313,8 @@ export default async function EstimateDetailPage({
               >
                 Comparer
               </Link>
-              <SaveAsTemplateButton versionId={versionId} />
-              <DuplicateEstimateButton versionId={versionId} />
+              {canEditVersion ? <SaveAsTemplateButton versionId={versionId} /> : null}
+              {canEditVersion ? <DuplicateEstimateButton versionId={versionId} /> : null}
               <Link
                 className="btn btn-ghost btn-sm w-full justify-start"
                 href={`/dashboard/estimates/${versionId}/print`}
@@ -330,11 +342,13 @@ export default async function EstimateDetailPage({
                   <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">Statut</p>
                   <div className="mt-1">
                     <StatusBadge status={version.status} />
-                    <EstimateStatusActions
-                      versionId={versionId}
-                      currentStatus={version.status as "draft" | "sent" | "accepted" | "archived"}
-                      projectName={project?.name ?? undefined}
-                    />
+                    {canEditVersion ? (
+                      <EstimateStatusActions
+                        versionId={versionId}
+                        currentStatus={version.status as "draft" | "sent" | "accepted" | "archived"}
+                        projectName={project?.name ?? undefined}
+                      />
+                    ) : null}
                   </div>
                 </div>
                 <div>
@@ -355,11 +369,22 @@ export default async function EstimateDetailPage({
           );
         })()}
         <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[360px_minmax(0,1fr)]">
-          <EstimateTimeline
-            currentVersionId={versionId}
-            versions={versionTimeline.items}
-            pagination={versionTimeline.pagination}
-          />
+          <div className="space-y-6">
+            {approvalSummary ? (
+              <EstimateApprovalSummaryCard summary={approvalSummary}>
+                <EstimateApprovalActions
+                  versionId={versionId}
+                  summary={approvalSummary}
+                  tenantRole={tenantRole}
+                />
+              </EstimateApprovalSummaryCard>
+            ) : null}
+            <EstimateTimeline
+              currentVersionId={versionId}
+              versions={versionTimeline.items}
+              pagination={versionTimeline.pagination}
+            />
+          </div>
           <EstimateDocument
             projectName={project?.name ?? "Projet"}
             projectClient={project?.client_name}

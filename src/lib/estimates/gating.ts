@@ -402,10 +402,13 @@ export async function evaluateEstimateSendGating(
       id: project.id,
       client_name: project.client_name,
     },
-    items: items.map((item) => ({
-      id: item.id,
-      category_id: item.category_id,
-    })),
+    items: items
+      .filter((item) => item.item_type === "line")
+      .map((item) => ({
+        id: item.id,
+        category_id: item.category_id,
+        item_type: item.item_type,
+      })),
   });
 
   const blockingFlags: EstimateGatingFlag[] = [];
@@ -467,6 +470,9 @@ export async function evaluateEstimateSendGating(
         comparator: violation.comparator,
         approval_status: violation.approval_status,
         approval_id: violation.approval_id,
+        approval_created_at: violation.approval_created_at,
+        approval_decided_at: violation.approval_decided_at,
+        source_state: violation.source_state,
         message: violation.message,
       })),
     } satisfies Record<string, unknown>;

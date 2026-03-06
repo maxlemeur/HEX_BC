@@ -267,7 +267,9 @@ function decodeAffaireCursor(cursor: string): AffaireCursorPayload {
 }
 
 function getOwnerScopeUserId(context: AffaireContext): string | null {
-  return context.tenantRole === "admin" ? null : context.userId;
+  return context.tenantRole === "admin" || context.tenantRole === "director"
+    ? null
+    : context.userId;
 }
 
 function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {

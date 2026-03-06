@@ -9,14 +9,34 @@ import {
   updateEstimateRuleForCurrentTenant,
 } from "@/lib/estimates/rules-engine";
 
-type RuleType = "min_margin" | "max_discount" | "require_approval";
+type RuleType =
+  | "min_margin"
+  | "max_discount"
+  | "require_approval"
+  | "critical_exceptions_max"
+  | "missing_line_evidence_max"
+  | "dpgf_coverage_min"
+  | "takeoff_evidence_coverage_min";
 type ScopeType = "global" | "category" | "client";
 type RuleAction = "warn" | "block" | "require_approval";
 
 const RULE_TYPE_OPTIONS: Array<{ value: RuleType; label: string }> = [
   { value: "min_margin", label: "Marge minimum" },
   { value: "max_discount", label: "Remise maximum" },
-  { value: "require_approval", label: "Approbation requise" },
+  { value: "require_approval", label: "Seuil montant HT" },
+  { value: "dpgf_coverage_min", label: "Couverture DPGF minimum" },
+  {
+    value: "takeoff_evidence_coverage_min",
+    label: "Couverture preuves takeoff minimum",
+  },
+  {
+    value: "critical_exceptions_max",
+    label: "Exceptions critiques maximum",
+  },
+  {
+    value: "missing_line_evidence_max",
+    label: "Lignes sans preuve maximum",
+  },
 ];
 
 const SCOPE_TYPE_OPTIONS: Array<{ value: ScopeType; label: string }> = [
@@ -26,9 +46,9 @@ const SCOPE_TYPE_OPTIONS: Array<{ value: ScopeType; label: string }> = [
 ];
 
 const ACTION_OPTIONS: Array<{ value: RuleAction; label: string }> = [
-  { value: "warn", label: "Warn" },
-  { value: "block", label: "Block" },
-  { value: "require_approval", label: "Require approval" },
+  { value: "warn", label: "Alerte" },
+  { value: "block", label: "Blocage" },
+  { value: "require_approval", label: "Demande d'approbation" },
 ];
 
 function normalizeOptionalUuid(value: FormDataEntryValue | null) {

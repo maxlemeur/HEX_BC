@@ -143,6 +143,7 @@ describe("estimate send gating", () => {
       violations: [],
       blockingViolations: [],
       warningViolations: [],
+      unavailableSignals: [],
     });
   });
 
@@ -304,6 +305,9 @@ describe("estimate send gating", () => {
           comparator: ">=",
           approval_status: null,
           approval_id: null,
+          approval_created_at: null,
+          approval_decided_at: null,
+          source_state: "ready",
           message: "Violation marge minimum.",
         },
       ],
@@ -321,10 +325,14 @@ describe("estimate send gating", () => {
           comparator: ">=",
           approval_status: null,
           approval_id: null,
+          approval_created_at: null,
+          approval_decided_at: null,
+          source_state: "ready",
           message: "Violation marge minimum.",
         },
       ],
       warningViolations: [],
+      unavailableSignals: [],
     });
 
     const supabase = createSupabaseGatingMock({

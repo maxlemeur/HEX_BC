@@ -20,7 +20,7 @@ export type NavGroup = {
   items: NavItem[];
 };
 
-export type TenantRole = "admin" | "engineer" | "viewer";
+export type TenantRole = "admin" | "engineer" | "viewer" | "director";
 
 export type BuildNavGroupsInput = {
   role: TenantRole | null;

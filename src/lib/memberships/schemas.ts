@@ -2,7 +2,12 @@ import { z } from "zod";
 
 const UUID_ERROR_MESSAGE = "Identifiant invalide.";
 
-export const tenantRoleSchema = z.enum(["admin", "engineer", "viewer"]);
+export const tenantRoleSchema = z.enum([
+  "admin",
+  "engineer",
+  "viewer",
+  "director",
+]);
 
 export const membershipsListQuerySchema = z.object({
   search: z

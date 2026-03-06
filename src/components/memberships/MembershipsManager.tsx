@@ -53,11 +53,13 @@ const ROLE_LABELS: Record<TenantRole, string> = {
   admin: "Administrateur",
   engineer: "Ingenieur",
   viewer: "Lecteur",
+  director: "Directeur",
 };
 
-function roleBadgeVariant(role: TenantRole): "info" | "warning" | "neutral" {
+function roleBadgeVariant(role: TenantRole): "info" | "warning" | "neutral" | "success" {
   if (role === "admin") return "info";
   if (role === "engineer") return "warning";
+  if (role === "director") return "success";
   return "neutral";
 }
 

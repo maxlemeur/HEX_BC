@@ -82,7 +82,7 @@ export type Database = {
           updated_at: string;
           tenant_id: string;
           user_id: string;
-          role: "admin" | "engineer" | "viewer";
+          role: "admin" | "engineer" | "viewer" | "director";
           is_default: boolean;
         };
         Insert: {
@@ -91,7 +91,7 @@ export type Database = {
           updated_at?: string;
           tenant_id: string;
           user_id: string;
-          role?: "admin" | "engineer" | "viewer";
+          role?: "admin" | "engineer" | "viewer" | "director";
           is_default?: boolean;
         };
         Update: {
@@ -100,7 +100,7 @@ export type Database = {
           updated_at?: string;
           tenant_id?: string;
           user_id?: string;
-          role?: "admin" | "engineer" | "viewer";
+          role?: "admin" | "engineer" | "viewer" | "director";
           is_default?: boolean;
         };
         Relationships: [];
@@ -870,6 +870,14 @@ export type Database = {
           project_id: string;
           version_number: number;
           status: "draft" | "sent" | "accepted" | "archived";
+          approval_status:
+            | "not_required"
+            | "required"
+            | "in_review"
+            | "approved"
+            | "changes_requested";
+          approval_summary: Json;
+          approval_evaluated_at: string | null;
           title: string | null;
           date_devis: string;
           validite_jours: number;
@@ -900,6 +908,14 @@ export type Database = {
           project_id: string;
           version_number: number;
           status?: "draft" | "sent" | "accepted" | "archived";
+          approval_status?:
+            | "not_required"
+            | "required"
+            | "in_review"
+            | "approved"
+            | "changes_requested";
+          approval_summary?: Json;
+          approval_evaluated_at?: string | null;
           title?: string | null;
           date_devis?: string;
           validite_jours?: number;
@@ -930,6 +946,14 @@ export type Database = {
           project_id?: string;
           version_number?: number;
           status?: "draft" | "sent" | "accepted" | "archived";
+          approval_status?:
+            | "not_required"
+            | "required"
+            | "in_review"
+            | "approved"
+            | "changes_requested";
+          approval_summary?: Json;
+          approval_evaluated_at?: string | null;
           title?: string | null;
           date_devis?: string;
           validite_jours?: number;
@@ -2439,7 +2463,13 @@ export type Database = {
       estimate_discount_mode: "simple" | "cascade";
       estimate_rounding_mode: "none" | "nearest" | "up" | "down";
       estimate_rule_match_type: "keyword";
-      tenant_role: "admin" | "engineer" | "viewer";
+      estimate_version_approval_status:
+        | "not_required"
+        | "required"
+        | "in_review"
+        | "approved"
+        | "changes_requested";
+      tenant_role: "admin" | "engineer" | "viewer" | "director";
     };
     CompositeTypes: {
       [_ in never]: never;

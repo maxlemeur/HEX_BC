@@ -42,6 +42,7 @@ const ROLE_LABELS: Record<TenantRole, string> = {
   admin: "Administrateur",
   engineer: "Ingenieur",
   viewer: "Lecteur",
+  director: "Directeur",
 };
 
 function roleBadgeClass(role: TenantRole) {
@@ -51,6 +52,10 @@ function roleBadgeClass(role: TenantRole) {
 
   if (role === "engineer") {
     return "inline-flex items-center rounded-full bg-[var(--warning-light)] px-2.5 py-0.5 text-xs font-medium text-[var(--warning)]";
+  }
+
+  if (role === "director") {
+    return "inline-flex items-center rounded-full bg-[var(--success)]/10 px-2.5 py-0.5 text-xs font-medium text-[var(--success)]";
   }
 
   return "inline-flex items-center rounded-full bg-[var(--slate-100)] px-2.5 py-0.5 text-xs font-medium text-[var(--slate-600)]";

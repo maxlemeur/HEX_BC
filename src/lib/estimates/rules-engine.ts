@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 
 import {
   badRequest,
@@ -21,16 +22,24 @@ type TenantMembershipRow = Pick<
 >;
 
 type EstimateRuleType = "min_margin" | "max_discount" | "require_approval";
+type ExtendedEstimateRuleType =
+  | EstimateRuleType
+  | "critical_exceptions_max"
+  | "missing_line_evidence_max"
+  | "dpgf_coverage_min"
+  | "takeoff_evidence_coverage_min";
 type EstimateRuleScopeType = "global" | "category" | "client";
 type EstimateRuleAction = "warn" | "block" | "require_approval";
 type EstimateApprovalStatus = "pending" | "approved" | "rejected";
+export type EstimateVersionApprovalStatus =
+  Database["public"]["Enums"]["estimate_version_approval_status"];
 
 type EstimateRuleRow = {
   id: string;
   created_at: string;
   updated_at: string;
   tenant_id: string;
-  rule_type: EstimateRuleType;
+  rule_type: ExtendedEstimateRuleType;
   scope_type: EstimateRuleScopeType;
   scope_id: string | null;
   threshold_value: number;
@@ -43,7 +52,7 @@ type EstimateRuleInsert = {
   created_at?: string;
   updated_at?: string;
   tenant_id?: string;
-  rule_type: EstimateRuleType;
+  rule_type: ExtendedEstimateRuleType;
   scope_type?: EstimateRuleScopeType;
   scope_id?: string | null;
   threshold_value: number;
@@ -113,16 +122,33 @@ type AuthenticatedContext = {
   tenantRole: TenantRole;
 };
 
-type EmbeddedProjectAccess = Pick<EstimateProjectRow, "id" | "tenant_id" | "user_id">;
+type EmbeddedApprovalProjectAccess = Pick<
+  EstimateProjectRow,
+  "id" | "tenant_id" | "user_id" | "client_name"
+>;
 
 type VersionAccessRow = Pick<
   EstimateVersionRow,
-  "id" | "tenant_id" | "status" | "project_id"
+  | "id"
+  | "tenant_id"
+  | "status"
+  | "project_id"
+  | "total_ht_cents"
+  | "margin_bp"
+  | "margin_multiplier"
+  | "discount_bp"
+  | "approval_status"
+  | "approval_summary"
+  | "approval_evaluated_at"
 > & {
-  estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
+  estimate_projects:
+    | EmbeddedApprovalProjectAccess
+    | EmbeddedApprovalProjectAccess[]
+    | null;
 };
 
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
+const TENANT_DIRECTOR_ROLE: TenantRole = "director";
 
 export type RulesEngineVersion = Pick<
   EstimateVersionRow,
@@ -136,22 +162,54 @@ export type RulesEngineVersion = Pick<
 export type RulesEngineProject = Pick<EstimateProjectRow, "id" | "client_name">;
 
 export type RulesEngineItem = Pick<EstimateItemRow, "id" | "category_id">;
+export type RulesEngineItemAccess = Pick<
+  EstimateItemRow,
+  "id" | "category_id"
+> &
+  Partial<Pick<EstimateItemRow, "item_type">>;
 
 export type RuleViolationSeverity = "blocking" | "warning";
 
 export type EstimateRuleViolation = {
   rule_id: string;
-  rule_type: EstimateRuleType;
+  rule_type: ExtendedEstimateRuleType;
   scope_type: EstimateRuleScopeType;
   scope_id: string | null;
   threshold_value: number;
   action: EstimateRuleAction;
   severity: RuleViolationSeverity;
-  metric_key: "margin_bp" | "discount_bp" | "total_ht_cents";
+  metric_key:
+    | "margin_bp"
+    | "discount_bp"
+    | "total_ht_cents"
+    | "critical_exceptions_count"
+    | "missing_line_evidence_count"
+    | "dpgf_coverage_bp"
+    | "takeoff_evidence_coverage_bp";
   actual_value: number;
   comparator: ">=" | "<=";
   approval_status: EstimateApprovalStatus | "missing" | null;
   approval_id: string | null;
+  approval_created_at: string | null;
+  approval_decided_at: string | null;
+  source_state: "ready";
+  message: string;
+};
+
+export type EstimateRuleUnavailableSignal = {
+  rule_id: string;
+  rule_type: ExtendedEstimateRuleType;
+  scope_type: EstimateRuleScopeType;
+  scope_id: string | null;
+  threshold_value: number;
+  action: EstimateRuleAction;
+  metric_key:
+    | "critical_exceptions_count"
+    | "missing_line_evidence_count"
+    | "dpgf_coverage_bp"
+    | "takeoff_evidence_coverage_bp";
+  comparator: ">=" | "<=";
+  source_state: "unavailable";
   message: string;
 };
 
@@ -159,6 +217,7 @@ export type EvaluateRulesResult = {
   violations: EstimateRuleViolation[];
   blockingViolations: EstimateRuleViolation[];
   warningViolations: EstimateRuleViolation[];
+  unavailableSignals: EstimateRuleUnavailableSignal[];
 };
 
 export type EstimateRuleRecord = EstimateRuleRow;
@@ -187,10 +246,74 @@ type RuleCheckResult = {
   threshold: number;
 };
 
+type RuleSignalContext = {
+  criticalExceptionsCount: number | null;
+  missingLineEvidenceCount: number | null;
+  dpgfCoverageBp: number | null;
+  takeoffEvidenceCoverageBp: number | null;
+};
+
+type ApprovalSummaryReason = {
+  ruleId: string;
+  label: string;
+  signalKey: EstimateRuleViolation["metric_key"];
+  thresholdValue: number;
+  actualValue: number | null;
+  sourceState: "ready" | "unavailable";
+  message: string;
+  action: EstimateRuleAction;
+  approvalStatus: EstimateRuleViolation["approval_status"] | null;
+  approvalId: string | null;
+  approvalCreatedAt: string | null;
+  approvalDecidedAt: string | null;
+};
+
+export type EstimateApprovalSummary = {
+  approvalStatus: EstimateVersionApprovalStatus;
+  requiresApproval: boolean;
+  evaluatedAt: string;
+  reasons: ApprovalSummaryReason[];
+  latestDecision: {
+    approvalId: string;
+    status: EstimateApprovalStatus;
+    decidedAt: string | null;
+    createdAt: string;
+  } | null;
+  unavailableSignals: string[];
+};
+
+type ApprovalAuditTrigger = "read" | "approval_request" | "approval_decision";
+
 function resolveEmbeddedOne<T>(value: T | T[] | null): T | null {
   if (!value) return null;
   if (Array.isArray(value)) return value[0] ?? null;
   return value;
+}
+
+function sortJsonValue(value: Json | null): Json | null {
+  if (value === null) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => sortJsonValue(entry as Json)) as Json;
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value).sort(([left], [right]) =>
+      left.localeCompare(right)
+    );
+
+    return Object.fromEntries(
+      entries.map(([key, entryValue]) => [key, sortJsonValue(entryValue as Json)])
+    ) as Json;
+  }
+
+  return value;
+}
+
+function stableJsonStringify(value: Json | null) {
+  return JSON.stringify(sortJsonValue(value));
 }
 
 function toFiniteNumber(value: unknown, fallback = 0) {
@@ -206,6 +329,26 @@ function normalizeThresholdValue(value: unknown) {
     return null;
   }
   return normalized;
+}
+
+const PERCENT_FORMATTER = new Intl.NumberFormat("fr-FR", {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
+
+const CURRENCY_FORMATTER = new Intl.NumberFormat("fr-FR", {
+  style: "currency",
+  currency: "EUR",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
+function formatPercentBp(value: number) {
+  return `${PERCENT_FORMATTER.format(value / 100)}%`;
+}
+
+function formatEuroCents(value: number) {
+  return CURRENCY_FORMATTER.format(value / 100);
 }
 
 function resolveVersionMarginBp(version: RulesEngineVersion) {
@@ -232,13 +375,21 @@ function isTenantAdmin(tenantRole: TenantRole) {
   return tenantRole === TENANT_ADMIN_ROLE;
 }
 
+function isTenantDirector(tenantRole: TenantRole) {
+  return tenantRole === TENANT_DIRECTOR_ROLE;
+}
+
+function isTenantApprover(tenantRole: TenantRole) {
+  return isTenantAdmin(tenantRole) || isTenantDirector(tenantRole);
+}
+
 function canAccessOwnerResource(input: {
   context: Pick<AuthenticatedContext, "userId" | "tenantRole">;
   resourceUserId: string;
 }) {
   return (
     input.resourceUserId === input.context.userId ||
-    isTenantAdmin(input.context.tenantRole)
+    isTenantApprover(input.context.tenantRole)
   );
 }
 
@@ -270,6 +421,166 @@ function isRuleInScope(input: {
   }
 
   return false;
+}
+
+function isApprovalRule(rule: EstimateRuleRow) {
+  return rule.action === "require_approval" || rule.rule_type === "require_approval";
+}
+
+function requiresTakeoffEvidenceCoverage(ruleType: ExtendedEstimateRuleType) {
+  return ruleType === "takeoff_evidence_coverage_min";
+}
+
+function requiresDpgfCoverage(ruleType: ExtendedEstimateRuleType) {
+  return ruleType === "dpgf_coverage_min";
+}
+
+function requiresUnavailableSignal(ruleType: ExtendedEstimateRuleType) {
+  return (
+    ruleType === "critical_exceptions_max" ||
+    ruleType === "missing_line_evidence_max"
+  );
+}
+
+async function resolveRelatedTakeoffJobIds(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+}) {
+  const [directJobsResult, linkedJobsResult] = await Promise.all([
+    input.supabase
+      .from("takeoff_jobs" as never)
+      .select("id" as never)
+      .eq("tenant_id" as never, input.tenantId as never)
+      .eq("estimate_version_id" as never, input.versionId as never),
+    input.supabase
+      .from("takeoff_version_links" as never)
+      .select("takeoff_job_id" as never)
+      .eq("tenant_id" as never, input.tenantId as never)
+      .eq("target_version_id" as never, input.versionId as never),
+  ]);
+
+  if (directJobsResult.error) {
+    throw mapSupabaseError(
+      directJobsResult.error,
+      "Impossible de charger les jobs takeoff de la version."
+    );
+  }
+
+  if (linkedJobsResult.error) {
+    throw mapSupabaseError(
+      linkedJobsResult.error,
+      "Impossible de charger les liens takeoff de la version."
+    );
+  }
+
+  return Array.from(
+    new Set(
+      [
+        ...((directJobsResult.data ?? []) as Array<{ id?: string | null }>).map(
+          (row) => row.id ?? null
+        ),
+        ...((linkedJobsResult.data ?? []) as Array<{ takeoff_job_id?: string | null }>).map(
+          (row) => row.takeoff_job_id ?? null
+        ),
+      ].filter((jobId): jobId is string => typeof jobId === "string" && jobId.length > 0)
+    )
+  );
+}
+
+async function loadRuleSignalContext(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+  lineItemIds: string[];
+  rules: EstimateRuleRow[];
+}): Promise<RuleSignalContext> {
+  const shouldLoadUnavailableSignals = input.rules.some((rule) =>
+    requiresUnavailableSignal(rule.rule_type)
+  );
+  const shouldLoadDpgfCoverage = input.rules.some((rule) =>
+    requiresDpgfCoverage(rule.rule_type)
+  );
+  const shouldLoadTakeoffEvidenceCoverage = input.rules.some((rule) =>
+    requiresTakeoffEvidenceCoverage(rule.rule_type)
+  );
+
+  const context: RuleSignalContext = {
+    criticalExceptionsCount: shouldLoadUnavailableSignals ? null : null,
+    missingLineEvidenceCount: shouldLoadUnavailableSignals ? null : null,
+    dpgfCoverageBp: null,
+    takeoffEvidenceCoverageBp: null,
+  };
+
+  if (!shouldLoadDpgfCoverage && !shouldLoadTakeoffEvidenceCoverage) {
+    return context;
+  }
+
+  const relatedJobIds = await resolveRelatedTakeoffJobIds({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+  });
+
+  if (relatedJobIds.length === 0) {
+    return context;
+  }
+
+  if (shouldLoadTakeoffEvidenceCoverage) {
+    const { data, error } = await input.supabase
+      .from("takeoff_items" as never)
+      .select("id, evidence" as never)
+      .eq("tenant_id" as never, input.tenantId as never)
+      .in("job_id" as never, relatedJobIds as never);
+
+    if (error) {
+      throw mapSupabaseError(
+        error,
+        "Impossible de charger les preuves takeoff pour les regles d'approbation."
+      );
+    }
+
+    const rows = (data ?? []) as Array<{ id?: string | null; evidence?: string | null }>;
+    if (rows.length > 0) {
+      const withEvidenceCount = rows.filter((row) => {
+        const evidence = typeof row.evidence === "string" ? row.evidence.trim() : "";
+        return evidence.length > 0;
+      }).length;
+
+      context.takeoffEvidenceCoverageBp = Math.round(
+        (withEvidenceCount / rows.length) * 10000
+      );
+    }
+  }
+
+  if (shouldLoadDpgfCoverage && input.lineItemIds.length > 0) {
+    const { data, error } = await input.supabase
+      .from("takeoff_dpgf_links" as never)
+      .select("estimate_item_id" as never)
+      .eq("tenant_id" as never, input.tenantId as never)
+      .eq("version_id" as never, input.versionId as never)
+      .in("takeoff_job_id" as never, relatedJobIds as never);
+
+    if (error) {
+      throw mapSupabaseError(
+        error,
+        "Impossible de charger la couverture DPGF pour les regles d'approbation."
+      );
+    }
+
+    const linkedItemIds = new Set(
+      ((data ?? []) as Array<{ estimate_item_id?: string | null }>)
+        .map((row) => row.estimate_item_id ?? null)
+        .filter((itemId): itemId is string => typeof itemId === "string" && itemId.length > 0)
+    );
+
+    if (linkedItemIds.size > 0) {
+      const linkedCount = input.lineItemIds.filter((itemId) => linkedItemIds.has(itemId)).length;
+      context.dpgfCoverageBp = Math.round((linkedCount / input.lineItemIds.length) * 10000);
+    }
+  }
+
+  return context;
 }
 
 export function checkMarginRule(input: RuleCheckInput): RuleCheckResult {
@@ -310,14 +621,21 @@ function resolveSeverityForRuleAction(action: EstimateRuleAction): RuleViolation
 function resolveMetricForRule(input: {
   rule: EstimateRuleRow;
   version: RulesEngineVersion;
+  signalContext: RuleSignalContext;
 }):
   | {
       metricKey: EstimateRuleViolation["metric_key"];
       check: RuleCheckResult;
       comparator: EstimateRuleViolation["comparator"];
+      sourceState: "ready";
+    }
+  | {
+      metricKey: EstimateRuleUnavailableSignal["metric_key"];
+      comparator: EstimateRuleUnavailableSignal["comparator"];
+      sourceState: "unavailable";
     }
   | null {
-  const { rule, version } = input;
+  const { rule, version, signalContext } = input;
   const thresholdValue = rule.threshold_value;
 
   if (rule.rule_type === "min_margin") {
@@ -328,6 +646,7 @@ function resolveMetricForRule(input: {
         threshold: thresholdValue,
       }),
       comparator: ">=",
+      sourceState: "ready",
     };
   }
 
@@ -339,6 +658,7 @@ function resolveMetricForRule(input: {
         threshold: thresholdValue,
       }),
       comparator: "<=",
+      sourceState: "ready",
     };
   }
 
@@ -350,6 +670,63 @@ function resolveMetricForRule(input: {
         threshold: thresholdValue,
       }),
       comparator: "<=",
+      sourceState: "ready",
+    };
+  }
+
+  if (rule.rule_type === "dpgf_coverage_min") {
+    if (signalContext.dpgfCoverageBp === null) {
+      return {
+        metricKey: "dpgf_coverage_bp",
+        comparator: ">=",
+        sourceState: "unavailable",
+      };
+    }
+
+    return {
+      metricKey: "dpgf_coverage_bp",
+      check: checkMarginRule({
+        actualValue: signalContext.dpgfCoverageBp,
+        threshold: thresholdValue,
+      }),
+      comparator: ">=",
+      sourceState: "ready",
+    };
+  }
+
+  if (rule.rule_type === "takeoff_evidence_coverage_min") {
+    if (signalContext.takeoffEvidenceCoverageBp === null) {
+      return {
+        metricKey: "takeoff_evidence_coverage_bp",
+        comparator: ">=",
+        sourceState: "unavailable",
+      };
+    }
+
+    return {
+      metricKey: "takeoff_evidence_coverage_bp",
+      check: checkMarginRule({
+        actualValue: signalContext.takeoffEvidenceCoverageBp,
+        threshold: thresholdValue,
+      }),
+      comparator: ">=",
+      sourceState: "ready",
+    };
+  }
+
+  if (rule.rule_type === "critical_exceptions_max") {
+    return {
+      metricKey: "critical_exceptions_count",
+      comparator: "<=",
+      sourceState: "unavailable",
+    };
+  }
+
+  if (rule.rule_type === "missing_line_evidence_max") {
+    return {
+      metricKey: "missing_line_evidence_count",
+      comparator: "<=",
+      sourceState: "unavailable",
     };
   }
 
@@ -363,7 +740,23 @@ function resolveViolationMessage(input: {
   thresholdValue: number;
   approvalStatus: EstimateRuleViolation["approval_status"];
 }) {
-  const base = `Regle ${input.rule.rule_type} (${input.metricKey}) non respectee: ${input.actualValue} (seuil ${input.thresholdValue}).`;
+  let base: string;
+
+  if (input.rule.rule_type === "min_margin") {
+    base = `Marge previsionnelle ${formatPercentBp(input.actualValue)} sous le seuil ${formatPercentBp(input.thresholdValue)}.`;
+  } else if (input.rule.rule_type === "max_discount") {
+    base = `Remise ${formatPercentBp(input.actualValue)} au-dessus du maximum ${formatPercentBp(input.thresholdValue)}.`;
+  } else if (input.rule.rule_type === "require_approval") {
+    base = `Montant HT ${formatEuroCents(input.actualValue)} au-dessus du seuil de validation ${formatEuroCents(input.thresholdValue)}.`;
+  } else if (input.rule.rule_type === "dpgf_coverage_min") {
+    base = `Couverture DPGF ${formatPercentBp(input.actualValue)} sous le minimum ${formatPercentBp(input.thresholdValue)}.`;
+  } else if (input.rule.rule_type === "takeoff_evidence_coverage_min") {
+    base = `Couverture preuves takeoff ${formatPercentBp(input.actualValue)} sous le minimum ${formatPercentBp(input.thresholdValue)}.`;
+  } else if (input.rule.rule_type === "critical_exceptions_max") {
+    base = `Exceptions critiques ${input.actualValue} au-dessus du maximum ${input.thresholdValue}.`;
+  } else {
+    base = `Lignes a enjeu sans preuve ${input.actualValue} au-dessus du maximum ${input.thresholdValue}.`;
+  }
 
   if (input.approvalStatus === null) {
     return base;
@@ -382,6 +775,25 @@ function resolveViolationMessage(input: {
   }
 
   return `${base} Approbation enregistree.`;
+}
+
+function resolveUnavailableSignalMessage(input: {
+  rule: EstimateRuleRow;
+  metricKey: EstimateRuleUnavailableSignal["metric_key"];
+}) {
+  if (input.rule.rule_type === "critical_exceptions_max") {
+    return "Signal indisponible: le comptage des exceptions critiques n'est pas encore stabilise pour cette version.";
+  }
+
+  if (input.rule.rule_type === "missing_line_evidence_max") {
+    return "Signal indisponible: les lignes a enjeu sans preuve ne sont pas encore calculees de facon canonique.";
+  }
+
+  if (input.rule.rule_type === "dpgf_coverage_min") {
+    return "Signal indisponible: aucune couverture DPGF exploitable n'est disponible pour cette version.";
+  }
+
+  return "Signal indisponible: aucune couverture de preuves takeoff exploitable n'est disponible pour cette version.";
 }
 
 function resolveLatestApprovalByRule(input: {
@@ -403,7 +815,8 @@ export async function evaluateRules(input: {
   tenantId: string;
   version: RulesEngineVersion;
   project: RulesEngineProject;
-  items: RulesEngineItem[];
+  items: RulesEngineItemAccess[];
+  preserveApprovedRequiresApproval?: boolean;
 }): Promise<EvaluateRulesResult> {
   const supabase = toRulesSupabaseClient(input.supabase);
 
@@ -433,16 +846,29 @@ export async function evaluateRules(input: {
       violations: [],
       blockingViolations: [],
       warningViolations: [],
+      unavailableSignals: [],
     };
   }
 
   const categoryIdSet = new Set<string>();
+  const lineItemIds: string[] = [];
   input.items.forEach((item) => {
+    if (item.item_type === "line") {
+      lineItemIds.push(item.id);
+    }
     const categoryId = item.category_id ?? null;
     if (typeof categoryId !== "string" || categoryId.length === 0) {
       return;
     }
     categoryIdSet.add(categoryId);
+  });
+
+  const signalContext = await loadRuleSignalContext({
+    supabase,
+    tenantId: input.tenantId,
+    versionId: input.version.id,
+    lineItemIds,
+    rules,
   });
 
   const relevantRuleIds = rules.map((rule) => rule.id);
@@ -468,6 +894,7 @@ export async function evaluateRules(input: {
   });
 
   const violations: EstimateRuleViolation[] = [];
+  const unavailableSignals: EstimateRuleUnavailableSignal[] = [];
 
   rules.forEach((rule) => {
     if (!isRuleInScope({ rule, project: input.project, categoryIdSet })) {
@@ -477,17 +904,44 @@ export async function evaluateRules(input: {
     const metric = resolveMetricForRule({
       rule,
       version: input.version,
+      signalContext,
     });
 
-    if (!metric || !metric.check.violated) {
+    if (!metric) {
+      return;
+    }
+
+    if (metric.sourceState === "unavailable") {
+      unavailableSignals.push({
+        rule_id: rule.id,
+        rule_type: rule.rule_type,
+        scope_type: rule.scope_type,
+        scope_id: rule.scope_id,
+        threshold_value: rule.threshold_value,
+        action: rule.action,
+        metric_key: metric.metricKey,
+        comparator: metric.comparator,
+        source_state: "unavailable",
+        message: resolveUnavailableSignalMessage({
+          rule,
+          metricKey: metric.metricKey,
+        }),
+      });
+      return;
+    }
+
+    if (!metric.check.violated) {
       return;
     }
 
     const latestApproval = latestApprovalByRule.get(rule.id) ?? null;
-    const requiresApproval =
-      rule.action === "require_approval" || rule.rule_type === "require_approval";
+    const requiresApproval = isApprovalRule(rule);
 
-    if (requiresApproval && latestApproval?.status === "approved") {
+    if (
+      requiresApproval &&
+      latestApproval?.status === "approved" &&
+      input.preserveApprovedRequiresApproval !== true
+    ) {
       return;
     }
 
@@ -512,6 +966,9 @@ export async function evaluateRules(input: {
       comparator: metric.comparator,
       approval_status: approvalStatus,
       approval_id: latestApproval?.id ?? null,
+      approval_created_at: latestApproval?.created_at ?? null,
+      approval_decided_at: latestApproval?.decided_at ?? null,
+      source_state: "ready",
       message: resolveViolationMessage({
         rule,
         metricKey: metric.metricKey,
@@ -533,7 +990,314 @@ export async function evaluateRules(input: {
     violations: sorted,
     blockingViolations: sorted.filter((entry) => entry.severity === "blocking"),
     warningViolations: sorted.filter((entry) => entry.severity === "warning"),
+    unavailableSignals,
   };
+}
+
+function resolveApprovalSummaryLabel(ruleType: ExtendedEstimateRuleType) {
+  if (ruleType === "min_margin") return "Marge minimum";
+  if (ruleType === "max_discount") return "Remise maximum";
+  if (ruleType === "require_approval") return "Seuil montant HT";
+  if (ruleType === "dpgf_coverage_min") return "Couverture DPGF minimum";
+  if (ruleType === "takeoff_evidence_coverage_min") return "Couverture preuves takeoff minimum";
+  if (ruleType === "critical_exceptions_max") return "Exceptions critiques maximum";
+  return "Lignes sans preuve maximum";
+}
+
+function resolveApprovalWorkflowStatus(input: {
+  approvalReasons: EstimateRuleViolation[];
+}): EstimateVersionApprovalStatus {
+  if (input.approvalReasons.length === 0) {
+    return "not_required";
+  }
+
+  if (input.approvalReasons.some((reason) => reason.approval_status === "rejected")) {
+    return "changes_requested";
+  }
+
+  if (input.approvalReasons.every((reason) => reason.approval_status === "approved")) {
+    return "approved";
+  }
+
+  if (input.approvalReasons.some((reason) => reason.approval_status === "pending")) {
+    return "in_review";
+  }
+
+  return "required";
+}
+
+export async function evaluateApprovalSummary(input: {
+  supabase: SupabaseClient<Database> | Supabase;
+  tenantId: string;
+  version: RulesEngineVersion;
+  project: RulesEngineProject;
+  items: RulesEngineItemAccess[];
+  evaluatedAt?: string;
+}): Promise<EstimateApprovalSummary> {
+  const rulesEvaluation = await evaluateRules({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    version: input.version,
+    project: input.project,
+    items: input.items,
+    preserveApprovedRequiresApproval: true,
+  });
+
+  const approvalReasons = rulesEvaluation.violations.filter((violation) =>
+    violation.action === "require_approval" || violation.rule_type === "require_approval"
+  );
+
+  const unavailableSignals = rulesEvaluation.unavailableSignals
+    .filter((signal) => signal.action === "require_approval" || signal.rule_type === "require_approval")
+    .map((signal) => signal.metric_key)
+    .sort((left, right) => left.localeCompare(right));
+
+  const latestDecision = [...approvalReasons]
+    .filter(
+      (reason) =>
+        reason.approval_id &&
+        reason.approval_created_at &&
+        (reason.approval_status === "pending" ||
+          reason.approval_status === "approved" ||
+          reason.approval_status === "rejected")
+    )
+    .sort((left, right) => {
+      const leftTimestamp = Date.parse(left.approval_decided_at ?? left.approval_created_at ?? "");
+      const rightTimestamp = Date.parse(right.approval_decided_at ?? right.approval_created_at ?? "");
+      return rightTimestamp - leftTimestamp;
+    })[0];
+  const latestDecisionStatus =
+    latestDecision?.approval_status === "pending" ||
+    latestDecision?.approval_status === "approved" ||
+    latestDecision?.approval_status === "rejected"
+      ? latestDecision.approval_status
+      : null;
+
+  return {
+    approvalStatus: resolveApprovalWorkflowStatus({
+      approvalReasons,
+    }),
+    requiresApproval: approvalReasons.length > 0,
+    evaluatedAt: input.evaluatedAt ?? new Date().toISOString(),
+    reasons: approvalReasons.map((reason) => ({
+      ruleId: reason.rule_id,
+      label: resolveApprovalSummaryLabel(reason.rule_type),
+      signalKey: reason.metric_key,
+      thresholdValue: reason.threshold_value,
+      actualValue: reason.actual_value,
+      sourceState: reason.source_state,
+      message: reason.message,
+      action: reason.action,
+      approvalStatus: reason.approval_status,
+      approvalId: reason.approval_id,
+      approvalCreatedAt: reason.approval_created_at,
+      approvalDecidedAt: reason.approval_decided_at,
+    })),
+    latestDecision:
+      latestDecision?.approval_id && latestDecisionStatus && latestDecision.approval_created_at
+        ? {
+            approvalId: latestDecision.approval_id,
+            status: latestDecisionStatus,
+            decidedAt: latestDecision.approval_decided_at,
+            createdAt: latestDecision.approval_created_at,
+          }
+        : null,
+    unavailableSignals,
+  };
+}
+
+function toApprovalSummaryStorage(summary: EstimateApprovalSummary): Json {
+  return {
+    requiresApproval: summary.requiresApproval,
+    reasons: summary.reasons.map((reason) => ({
+      ruleId: reason.ruleId,
+      label: reason.label,
+      signalKey: reason.signalKey,
+      thresholdValue: reason.thresholdValue,
+      actualValue: reason.actualValue,
+      sourceState: reason.sourceState,
+      message: reason.message,
+      action: reason.action,
+      approvalStatus: reason.approvalStatus,
+      approvalId: reason.approvalId,
+      approvalCreatedAt: reason.approvalCreatedAt,
+      approvalDecidedAt: reason.approvalDecidedAt,
+    })),
+    latestDecision: summary.latestDecision,
+    unavailableSignals: summary.unavailableSignals,
+  } satisfies Json;
+}
+
+function toApprovalSummaryAuditMetadata(input: {
+  summary: EstimateApprovalSummary;
+  trigger: ApprovalAuditTrigger;
+  previousStatus: EstimateVersionApprovalStatus;
+}): Json {
+  return {
+    trigger: input.trigger,
+    previousStatus: input.previousStatus,
+    approvalStatus: input.summary.approvalStatus,
+    evaluatedAt: input.summary.evaluatedAt,
+    summary: toApprovalSummaryStorage(input.summary),
+  } satisfies Json;
+}
+
+async function logEstimateVersionEvent(input: {
+  versionId: string;
+  eventType:
+    | "approval_rules_evaluated"
+    | "approval_status_changed"
+    | "approval_decided";
+  actorUserId: string | null;
+  metadata?: Json;
+  occurredAt?: string;
+}) {
+  const rpcClient = createServiceRoleClient();
+  const { error } = await rpcClient.rpc("log_estimate_version_event", {
+    p_estimate_version_id: input.versionId,
+    p_event_type: input.eventType,
+    p_created_by: input.actorUserId,
+    p_metadata: input.metadata ?? {},
+    p_occurred_at: input.occurredAt ?? new Date().toISOString(),
+  });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible d'enregistrer l'evenement d'approbation."
+    );
+  }
+}
+
+async function loadApprovalSummaryItems(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+}) {
+  const { data, error } = await input.context.supabase
+    .from("estimate_items")
+    .select("id, category_id, item_type")
+    .eq("tenant_id", input.context.tenantId)
+    .eq("version_id", input.versionId);
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger les lignes pour le resume d'approbation."
+    );
+  }
+
+  return (data ?? []) as RulesEngineItemAccess[];
+}
+
+async function syncEstimateApprovalSummary(input: {
+  context: AuthenticatedContext;
+  version: VersionAccessRow;
+  project: EmbeddedApprovalProjectAccess;
+  trigger: ApprovalAuditTrigger;
+  actorUserId?: string | null;
+}): Promise<EstimateApprovalSummary> {
+  const items = await loadApprovalSummaryItems({
+    context: input.context,
+    versionId: input.version.id,
+  });
+  const evaluatedAt = new Date().toISOString();
+  const summary = await evaluateApprovalSummary({
+    supabase: input.context.supabase,
+    tenantId: input.context.tenantId,
+    version: {
+      id: input.version.id,
+      project_id: input.version.project_id,
+      total_ht_cents: input.version.total_ht_cents,
+      margin_bp: input.version.margin_bp,
+      margin_multiplier: input.version.margin_multiplier,
+      discount_bp: input.version.discount_bp,
+    },
+    project: {
+      id: input.project.id,
+      client_name: input.project.client_name,
+    },
+    items,
+    evaluatedAt,
+  });
+
+  const previousStatus = input.version.approval_status ?? "not_required";
+  const storedSummary = (input.version.approval_summary ?? null) as Json | null;
+  const nextSummary = toApprovalSummaryStorage(summary);
+  const summaryChanged =
+    previousStatus !== summary.approvalStatus ||
+    stableJsonStringify(storedSummary) !== stableJsonStringify(nextSummary) ||
+    !input.version.approval_evaluated_at;
+
+  if (!summaryChanged) {
+    return {
+      ...summary,
+      evaluatedAt: input.version.approval_evaluated_at ?? summary.evaluatedAt,
+    };
+  }
+
+  const serviceRoleClient = createServiceRoleClient();
+  const { error: updateError } = await serviceRoleClient
+    .from("estimate_versions")
+    .update({
+      approval_status: summary.approvalStatus,
+      approval_summary: nextSummary,
+      approval_evaluated_at: summary.evaluatedAt,
+    })
+    .eq("tenant_id", input.context.tenantId)
+    .eq("id", input.version.id);
+
+  if (updateError) {
+    throw mapSupabaseError(
+      updateError,
+      "Impossible de projeter le resume d'approbation."
+    );
+  }
+
+  await logEstimateVersionEvent({
+    versionId: input.version.id,
+    eventType: "approval_rules_evaluated",
+    actorUserId: input.actorUserId ?? input.context.userId,
+    occurredAt: summary.evaluatedAt,
+    metadata: toApprovalSummaryAuditMetadata({
+      summary,
+      trigger: input.trigger,
+      previousStatus,
+    }),
+  });
+
+  if (previousStatus !== summary.approvalStatus) {
+    await logEstimateVersionEvent({
+      versionId: input.version.id,
+      eventType: "approval_status_changed",
+      actorUserId: input.actorUserId ?? input.context.userId,
+      occurredAt: summary.evaluatedAt,
+      metadata: {
+        previousStatus,
+        nextStatus: summary.approvalStatus,
+        reasons: summary.reasons.map((reason) => ({
+          ruleId: reason.ruleId,
+          approvalStatus: reason.approvalStatus,
+          message: reason.message,
+        })),
+      } satisfies Json,
+    });
+  }
+
+  return summary;
+}
+
+export async function getEstimateApprovalSummary(
+  versionId: string
+): Promise<EstimateApprovalSummary> {
+  const context = await getAuthenticatedContext();
+  const { version, project } = await getVersionAccessOrThrow(context, versionId);
+
+  return syncEstimateApprovalSummary({
+    context,
+    version,
+    project,
+    trigger: "read",
+  });
 }
 
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
@@ -577,10 +1341,12 @@ async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
 async function getVersionAccessOrThrow(
   context: AuthenticatedContext,
   versionId: string
-): Promise<{ version: VersionAccessRow; project: EmbeddedProjectAccess }> {
+): Promise<{ version: VersionAccessRow; project: EmbeddedApprovalProjectAccess }> {
   const { data, error } = await context.supabase
     .from("estimate_versions")
-    .select("id, tenant_id, status, project_id, estimate_projects!inner(id, tenant_id, user_id)")
+    .select(
+      "id, tenant_id, status, project_id, total_ht_cents, margin_bp, margin_multiplier, discount_bp, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, client_name)"
+    )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
     .single();
@@ -614,6 +1380,13 @@ function assertAdminRole(context: Pick<AuthenticatedContext, "tenantRole">) {
     return;
   }
   throw forbidden("Action reservee aux administrateurs.");
+}
+
+function assertApproverRole(context: Pick<AuthenticatedContext, "tenantRole">) {
+  if (isTenantApprover(context.tenantRole)) {
+    return;
+  }
+  throw forbidden("Action reservee aux roles de validation.");
 }
 
 function normalizeOptionalUuid(value: string | undefined) {
@@ -677,7 +1450,7 @@ export async function submitEstimateApproval(
   input: SubmitEstimateApprovalInput
 ): Promise<SubmitEstimateApprovalResult> {
   const context = await getAuthenticatedContext();
-  await getVersionAccessOrThrow(context, input.versionId);
+  const access = await getVersionAccessOrThrow(context, input.versionId);
 
   if (input.action === "request") {
     const ruleId = normalizeOptionalUuid(input.ruleId);
@@ -702,6 +1475,13 @@ export async function submitEstimateApproval(
     });
 
     if (existingPending) {
+      await syncEstimateApprovalSummary({
+        context,
+        version: access.version,
+        project: access.project,
+        trigger: "approval_request",
+      });
+
       return {
         approval: existingPending,
       };
@@ -748,12 +1528,19 @@ export async function submitEstimateApproval(
       throw badRequest("Impossible de creer la demande d'approbation.");
     }
 
+    await syncEstimateApprovalSummary({
+      context,
+      version: access.version,
+      project: access.project,
+      trigger: "approval_request",
+    });
+
     return {
       approval: data as EstimateApprovalRow,
     };
   }
 
-  assertAdminRole(context);
+  assertApproverRole(context);
 
   const ruleId = normalizeOptionalUuid(input.ruleId);
   const approvalId = normalizeOptionalUuid(input.approvalId);
@@ -825,6 +1612,25 @@ export async function submitEstimateApproval(
     throw badRequest("Impossible d'enregistrer la decision d'approbation.");
   }
 
+  await logEstimateVersionEvent({
+    versionId: input.versionId,
+    eventType: "approval_decided",
+    actorUserId: context.userId,
+    occurredAt: (data as EstimateApprovalRow).decided_at ?? new Date().toISOString(),
+    metadata: {
+      approvalId: (data as EstimateApprovalRow).id,
+      ruleId: (data as EstimateApprovalRow).rule_id,
+      decision: (data as EstimateApprovalRow).status,
+    } satisfies Json,
+  });
+
+  await syncEstimateApprovalSummary({
+    context,
+    version: access.version,
+    project: access.project,
+    trigger: "approval_decision",
+  });
+
   return {
     approval: data as EstimateApprovalRow,
   };
@@ -853,7 +1659,7 @@ export async function listEstimateRulesForCurrentTenant() {
 }
 
 export async function createEstimateRuleForCurrentTenant(input: {
-  rule_type: EstimateRuleType;
+  rule_type: ExtendedEstimateRuleType;
   scope_type: EstimateRuleScopeType;
   scope_id: string | null;
   threshold_value: number;
@@ -897,7 +1703,7 @@ export async function createEstimateRuleForCurrentTenant(input: {
 export async function updateEstimateRuleForCurrentTenant(input: {
   id: string;
   patch: {
-    rule_type?: EstimateRuleType;
+    rule_type?: ExtendedEstimateRuleType;
     scope_type?: EstimateRuleScopeType;
     scope_id?: string | null;
     threshold_value?: number;

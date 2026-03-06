@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { EstimateApprovalSummaryCard } from "@/components/estimates/EstimateApprovalSummaryCard";
 import {
   createEstimateVariant,
   duplicateEstimateVersion,
@@ -18,6 +19,7 @@ import type {
   AffaireHubSummaryResult,
   AffaireHubTimelineResult,
 } from "@/lib/affaires/server";
+import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 
 import { useToast } from "@/components/ui/Toast";
@@ -37,6 +39,8 @@ type AffaireHubProps = {
   timeline: AffaireHubTimelineResult | null;
   dpgfSource: AffaireHubDpgfSourceResult;
   marginAnalysis?: AffaireHubMarginAnalysisResult | null;
+  approvalSummary?: EstimateApprovalSummary | null;
+  isReadOnlyReview?: boolean;
   plansSummary?: AffaireHubPlansSummaryData | null;
   takeoffEnabled?: boolean;
   sectionErrors?: {
@@ -455,12 +459,14 @@ function VersionTimelineCard({
   projectId,
   currentVersionId,
   acceptedVersionId,
+  isReadOnlyReview,
   errorMessage,
 }: {
   timeline: AffaireHubTimelineResult | null;
   projectId: string;
   currentVersionId: string | null;
   acceptedVersionId: string | null;
+  isReadOnlyReview?: boolean;
   errorMessage?: string;
 }) {
   if (timeline === null) {
@@ -547,7 +553,11 @@ function VersionTimelineCard({
                   />
 
                   <Link
-                    href={`/dashboard/estimates/${version.id}/edit`}
+                    href={
+                      isReadOnlyReview
+                        ? `/dashboard/estimates/${version.id}`
+                        : `/dashboard/estimates/${version.id}/edit`
+                    }
                     className={`block rounded-xl border px-3 py-3 transition-colors sm:px-4 ${
                       isCurrent
                         ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
@@ -703,13 +713,15 @@ function DpgfSourceCard({
           <p className="text-sm text-[var(--slate-500)]">
             Aucun import DPGF lie a cette affaire.
           </p>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm mt-3 inline-flex"
-            onClick={onStartImport}
-          >
-            Importer un DPGF
-          </button>
+          {onStartImport ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm mt-3 inline-flex"
+              onClick={onStartImport}
+            >
+              Importer un DPGF
+            </button>
+          ) : null}
         </div>
       ) : (
         <div className="space-y-3">
@@ -770,6 +782,8 @@ export function AffaireHub({
   timeline,
   dpgfSource,
   marginAnalysis,
+  approvalSummary,
+  isReadOnlyReview = false,
   plansSummary,
   takeoffEnabled = false,
   sectionErrors,
@@ -959,9 +973,9 @@ export function AffaireHub({
         />
       ) : (
         <>
-          {summary.versionsCount === 0 ? (
+          {summary.versionsCount === 0 && !isReadOnlyReview ? (
             <FirstVersionActionBar projectId={summary.project.id} />
-          ) : (
+          ) : summary.versionsCount > 0 && !isReadOnlyReview ? (
             <ActionBar
               summary={summary}
               takeoffEnabled={takeoffEnabled}
@@ -971,7 +985,7 @@ export function AffaireHub({
               onCreateVariant={() => void handleCreateVariant()}
               onLaunchMetre={() => setShowLaunchMetreDialog(true)}
             />
-          )}
+          ) : null}
 
           {actionError && (
             <div className="alert alert-error mb-4 px-3 py-2 text-xs">
@@ -995,25 +1009,35 @@ export function AffaireHub({
                 projectId={summary.project.id}
                 currentVersionId={currentVersionId}
                 acceptedVersionId={acceptedVersionId}
+                isReadOnlyReview={isReadOnlyReview}
                 errorMessage={sectionErrors?.timeline}
               />
             </div>
 
             <div className="space-y-4">
+              {approvalSummary ? (
+                <EstimateApprovalSummaryCard summary={approvalSummary} />
+              ) : null}
               <DpgfSourceCard
                 dpgfSource={dpgfSource}
                 errorMessage={sectionErrors?.dpgfSource}
-                onStartImport={() => {
-                  setImportResult(null);
-                  setShowImportFlow(true);
-                }}
+                onStartImport={
+                  isReadOnlyReview
+                    ? undefined
+                    : () => {
+                        setImportResult(null);
+                        setShowImportFlow(true);
+                      }
+                }
               />
               {takeoffEnabled ? (
                 <PlansMetresCard
                   plans={plansSummary ?? null}
                   projectId={summary.project.id}
                   errorMessage={sectionErrors?.plansSummary}
-                  onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+                  onLaunchMetre={
+                    isReadOnlyReview ? undefined : () => setShowLaunchMetreDialog(true)
+                  }
                 />
               ) : null}
             </div>
@@ -1021,13 +1045,15 @@ export function AffaireHub({
         </>
       )}
 
-      <LaunchMetreDialog
-        open={showLaunchMetreDialog}
-        onOpenChange={setShowLaunchMetreDialog}
-        projectId={summary.project.id}
-        draftVersionId={draftVersionId}
-        hasAnyVersion={hasAnyVersion}
-      />
+      {!isReadOnlyReview ? (
+        <LaunchMetreDialog
+          open={showLaunchMetreDialog}
+          onOpenChange={setShowLaunchMetreDialog}
+          projectId={summary.project.id}
+          draftVersionId={draftVersionId}
+          hasAnyVersion={hasAnyVersion}
+        />
+      ) : null}
     </div>
   );
 }

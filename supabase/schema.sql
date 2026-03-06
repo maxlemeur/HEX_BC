@@ -44,6 +44,7 @@ drop type if exists purchase_order_status;
 drop type if exists employee_role;
 drop type if exists order_status;
 drop type if exists estimate_status;
+drop type if exists estimate_version_approval_status;
 drop type if exists estimate_item_type;
 drop type if exists estimate_rounding_mode;
 drop type if exists estimate_margin_mode;
@@ -67,6 +68,19 @@ do $$
 begin
   if not exists (select 1 from pg_type where typname = 'estimate_status') then
     create type estimate_status as enum ('draft', 'sent', 'accepted', 'archived');
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'estimate_version_approval_status') then
+    create type estimate_version_approval_status as enum (
+      'not_required',
+      'required',
+      'in_review',
+      'approved',
+      'changes_requested'
+    );
   end if;
 end $$;
 
@@ -336,6 +350,9 @@ create table public.estimate_versions (
   project_id uuid not null references public.estimate_projects(id) on delete cascade,
   version_number integer not null,
   status estimate_status not null default 'draft',
+  approval_status public.estimate_version_approval_status not null default 'not_required',
+  approval_summary jsonb not null default '{}'::jsonb,
+  approval_evaluated_at timestamptz,
   title text,
   date_devis date not null default current_date,
   validite_jours integer not null default 30 check (validite_jours > 0),
@@ -362,10 +379,6 @@ language plpgsql
 as $$
 begin
   if old.status <> 'draft' then
-    if new.status = old.status then
-      raise exception 'Estimate version is read-only';
-    end if;
-
     if new.created_at is distinct from old.created_at
       or new.project_id is distinct from old.project_id
       or new.version_number is distinct from old.version_number
@@ -382,6 +395,9 @@ begin
       or new.total_ht_cents is distinct from old.total_ht_cents
       or new.total_tax_cents is distinct from old.total_tax_cents
       or new.total_ttc_cents is distinct from old.total_ttc_cents
+      or new.parent_version_id is distinct from old.parent_version_id
+      or new.variant_label is distinct from old.variant_label
+      or new.tenant_id is distinct from old.tenant_id
     then
       raise exception 'Estimate version is read-only';
     end if;
@@ -2241,7 +2257,7 @@ create policy "Users can delete own dpgf imports"
 
 do $$
 begin
-  create type public.tenant_role as enum ('admin', 'engineer', 'viewer');
+  create type public.tenant_role as enum ('admin', 'engineer', 'viewer', 'director');
 exception
   when duplicate_object then null;
 end
@@ -3108,6 +3124,8 @@ create index if not exists estimate_projects_tenant_user_id_idx
   on public.estimate_projects (tenant_id, user_id);
 create index if not exists estimate_versions_tenant_id_idx
   on public.estimate_versions (tenant_id);
+create index if not exists estimate_versions_tenant_approval_status_idx
+  on public.estimate_versions (tenant_id, approval_status, updated_at desc);
 create index if not exists estimate_items_tenant_id_idx
   on public.estimate_items (tenant_id);
 create index if not exists estimate_categories_tenant_id_idx
@@ -3619,6 +3637,20 @@ create policy "Users can insert own purchase orders"
     )
   );
 
+create policy "Tenant directors can view estimate projects"
+  on public.estimate_projects
+  for select
+  to authenticated
+  using (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['director'::public.tenant_role]
+      )
+    )
+  );
+
 create policy "Users can update own purchase orders"
   on public.purchase_orders
   for update
@@ -3833,6 +3865,26 @@ create policy "Users can manage estimate versions"
     )
   );
 
+create policy "Tenant directors can view estimate versions"
+  on public.estimate_versions
+  for select
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.estimate_projects p
+      where p.id = estimate_versions.project_id
+        and p.tenant_id = estimate_versions.tenant_id
+        and (select public.is_tenant_member(p.tenant_id))
+        and (
+          select public.has_tenant_role(
+            p.tenant_id,
+            array['director'::public.tenant_role]
+          )
+        )
+    )
+  );
+
 create policy "Users can view estimate items"
   on public.estimate_items
   for select
@@ -3847,7 +3899,12 @@ create policy "Users can view estimate items"
         and (select public.is_tenant_member(v.tenant_id))
         and (
           p.user_id = (select auth.uid())
-          or (select public.has_tenant_role(v.tenant_id, array['admin'::public.tenant_role]))
+          or (
+            select public.has_tenant_role(
+              v.tenant_id,
+              array['admin'::public.tenant_role, 'director'::public.tenant_role]
+            )
+          )
         )
     )
   );
@@ -3986,6 +4043,20 @@ create policy "Users can manage labor roles"
     and (
       user_id = (select auth.uid())
       or (select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role]))
+    )
+  );
+
+create policy "Tenant directors can view labor roles"
+  on public.labor_roles
+  for select
+  to authenticated
+  using (
+    (select public.is_tenant_member(tenant_id))
+    and (
+      select public.has_tenant_role(
+        tenant_id,
+        array['director'::public.tenant_role]
+      )
     )
   );
 
@@ -4916,7 +4987,16 @@ create table if not exists public.estimate_version_events (
   tenant_id uuid not null references public.tenants(id) on delete restrict,
   estimate_version_id uuid not null references public.estimate_versions(id) on delete cascade,
   event_type text not null check (
-    event_type in ('sent', 'accepted', 'archived', 'rejected', 'seal_verified')
+    event_type in (
+      'sent',
+      'accepted',
+      'archived',
+      'rejected',
+      'seal_verified',
+      'approval_rules_evaluated',
+      'approval_status_changed',
+      'approval_decided'
+    )
   ),
   metadata jsonb not null default '{}'::jsonb,
   created_by uuid references public.profiles(id) on delete set null
@@ -5007,7 +5087,16 @@ begin
         detail = 'event_type is required.';
   end if;
 
-  if normalized_event_type not in ('sent', 'accepted', 'archived', 'rejected', 'seal_verified') then
+  if normalized_event_type not in (
+    'sent',
+    'accepted',
+    'archived',
+    'rejected',
+    'seal_verified',
+    'approval_rules_evaluated',
+    'approval_status_changed',
+    'approval_decided'
+  ) then
     raise exception
       using
         errcode = '22023',
@@ -9000,7 +9089,15 @@ on conflict (tenant_id, flag_key) do nothing;
 
 do $$
 begin
-  create type public.estimate_rule_type as enum ('min_margin', 'max_discount', 'require_approval');
+  create type public.estimate_rule_type as enum (
+    'min_margin',
+    'max_discount',
+    'require_approval',
+    'critical_exceptions_max',
+    'missing_line_evidence_max',
+    'dpgf_coverage_min',
+    'takeoff_evidence_coverage_min'
+  );
 exception
   when duplicate_object then null;
 end
@@ -9278,6 +9375,7 @@ drop policy if exists "Tenant admins can manage estimate rules" on public.estima
 drop policy if exists "Tenant members can view estimate approvals" on public.estimate_approvals;
 drop policy if exists "Tenant members can create estimate approvals" on public.estimate_approvals;
 drop policy if exists "Tenant admins can decide estimate approvals" on public.estimate_approvals;
+drop policy if exists "Tenant approvers can decide estimate approvals" on public.estimate_approvals;
 
 create policy "Tenant members can view estimate rules"
   on public.estimate_rules
@@ -9310,13 +9408,25 @@ create policy "Tenant members can create estimate approvals"
     and decided_at is null
   );
 
-create policy "Tenant admins can decide estimate approvals"
+create policy "Tenant approvers can decide estimate approvals"
   on public.estimate_approvals
   for update
   to authenticated
-  using ((select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role])))
+  using (
+    (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'director'::public.tenant_role]
+      )
+    )
+  )
   with check (
-    (select public.has_tenant_role(tenant_id, array['admin'::public.tenant_role]))
+    (
+      select public.has_tenant_role(
+        tenant_id,
+        array['admin'::public.tenant_role, 'director'::public.tenant_role]
+      )
+    )
     and (
       status = 'pending'
       or (
