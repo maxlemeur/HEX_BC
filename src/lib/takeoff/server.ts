@@ -1986,6 +1986,12 @@ function buildPriceSuggestionStatus(
   return "applied";
 }
 
+function isTakeoffPriceSuggestionPending(
+  suggestion: Pick<TakeoffPriceSuggestionRow, "status" | "reviewed_at">
+) {
+  return suggestion.status === "pending" && suggestion.reviewed_at === null;
+}
+
 function buildPriceSuggestionQueryText(line: {
   title: string;
   description: string | null;
@@ -2287,14 +2293,20 @@ async function collectTakeoffPriceSuggestionSources(input: {
         sameProject,
         categoryMatch,
         unitMatch,
+        qualifiesAsSameProjectHistory:
+          sameProject &&
+          similarity >= 0.2 &&
+          (categoryMatch || unitMatch || similarity >= 0.55),
         freshnessLabel,
         versionNumber: versionMeta?.version_number ?? null,
       };
     })
-    .filter((entry) => entry.sameProject || entry.similarity >= 0.55)
+    .filter(
+      (entry) => entry.qualifiesAsSameProjectHistory || entry.similarity >= 0.55
+    )
     .sort((left, right) => {
-      if (left.sameProject !== right.sameProject) {
-        return left.sameProject ? -1 : 1;
+      if (left.qualifiesAsSameProjectHistory !== right.qualifiesAsSameProjectHistory) {
+        return left.qualifiesAsSameProjectHistory ? -1 : 1;
       }
       if (Math.abs(right.similarity - left.similarity) > 0.0001) {
         return right.similarity - left.similarity;
@@ -2307,7 +2319,9 @@ async function collectTakeoffPriceSuggestionSources(input: {
 
   for (const candidate of internalCandidates) {
     const sourceKind: TakeoffPriceSuggestionSourceKind =
-      candidate.sameProject || candidate.similarity >= 0.82 ? "history" : "similar_item";
+      candidate.qualifiesAsSameProjectHistory || candidate.similarity >= 0.82
+        ? "history"
+        : "similar_item";
     const confidenceScore = Math.max(
       sourceKind === "history" ? 0.45 : 0.3,
       Math.min(1, candidate.similarity + (candidate.sameProject ? 0.15 : 0))
@@ -5040,7 +5054,11 @@ export async function requestTakeoffPriceSuggestion(
     suggestion: builtSuggestion,
   });
 
-  if (existingSuggestion && existingSuggestion.snapshot_fingerprint === snapshotFingerprint) {
+  if (
+    existingSuggestion &&
+    existingSuggestion.snapshot_fingerprint === snapshotFingerprint &&
+    payload.force_refresh !== true
+  ) {
     const sourceRows = await listTakeoffPriceSuggestionSourceRows({
       supabase,
       tenantId,
@@ -5301,26 +5319,25 @@ export async function reviewTakeoffPriceSuggestion(
     });
   }
 
+  if (!isTakeoffPriceSuggestionPending(suggestionRow)) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "La suggestion de prix cible n'est plus en attente de revue.",
+      details: {
+        suggestion_id: normalizedSuggestionId,
+        status: suggestionRow.status,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
   const selectedPriceCents = getPriceSuggestionSelectedPriceCents({
     action: payload.action,
     suggestion: suggestionRow,
   });
   const nextStatus = buildPriceSuggestionStatus(payload.action);
-  let appliedItem: ReviewTakeoffPriceSuggestionResponse["applied_item"] = null;
-
-  if (payload.action === "apply_low" || payload.action === "apply_target" || payload.action === "apply_high") {
-    const updateResult = await updateEstimateItem(payload.version_id, {
-      id: suggestionRow.estimate_item_id,
-      unit_price_ht_cents: selectedPriceCents ?? 0,
-    });
-
-    appliedItem = {
-      id: updateResult.item.id,
-      unit_price_ht_cents: updateResult.item.unit_price_ht_cents ?? null,
-      updated_at: updateResult.item.updated_at,
-    };
-  }
-
   const reviewTimestamp = new Date().toISOString();
   const reviewUpdateResult = await supabase
     .from("takeoff_price_suggestions" as never)
@@ -5334,6 +5351,7 @@ export async function reviewTakeoffPriceSuggestion(
     } as never)
     .eq("tenant_id" as never, tenantId as never)
     .eq("id" as never, normalizedSuggestionId as never)
+    .eq("status" as never, "pending" as never)
     .select(TAKEOFF_PRICE_SUGGESTIONS_SELECT as never)
     .single();
   const updatedSuggestionData = reviewUpdateResult.data as unknown;
@@ -5354,9 +5372,12 @@ export async function reviewTakeoffPriceSuggestion(
     }
 
     throw new TakeoffError({
-      status: 500,
-      code: TakeoffErrorCode.INTERNAL_ERROR,
-      message: "La suggestion de prix mise a jour est introuvable apres revue.",
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "La suggestion de prix cible n'est plus en attente de revue.",
+      details: {
+        suggestion_id: normalizedSuggestionId,
+      },
       retryable: false,
       jobId: normalizedJobId,
     });
@@ -5364,6 +5385,42 @@ export async function reviewTakeoffPriceSuggestion(
 
   const updatedSuggestion =
     normalizeTakeoffPriceSuggestionRow(updatedSuggestionData);
+  let appliedItem: ReviewTakeoffPriceSuggestionResponse["applied_item"] = null;
+
+  if (
+    payload.action === "apply_low" ||
+    payload.action === "apply_target" ||
+    payload.action === "apply_high"
+  ) {
+    try {
+      const updateResult = await updateEstimateItem(payload.version_id, {
+        id: suggestionRow.estimate_item_id,
+        unit_price_ht_cents: selectedPriceCents ?? 0,
+      });
+
+      appliedItem = {
+        id: updateResult.item.id,
+        unit_price_ht_cents: updateResult.item.unit_price_ht_cents ?? null,
+        updated_at: updateResult.item.updated_at,
+      };
+    } catch (error) {
+      await supabase
+        .from("takeoff_price_suggestions" as never)
+        .update({
+          status: suggestionRow.status,
+          selected_action: suggestionRow.selected_action,
+          selected_price_cents: suggestionRow.selected_price_cents,
+          review_note: suggestionRow.review_note,
+          reviewed_at: suggestionRow.reviewed_at,
+          reviewed_by: suggestionRow.reviewed_by,
+        } as never)
+        .eq("tenant_id" as never, tenantId as never)
+        .eq("id" as never, normalizedSuggestionId as never);
+
+      throw error;
+    }
+  }
+
   const sourceRows = await listTakeoffPriceSuggestionSourceRows({
     supabase,
     tenantId,

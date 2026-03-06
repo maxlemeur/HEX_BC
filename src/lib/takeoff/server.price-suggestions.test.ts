@@ -39,6 +39,7 @@ const LINE_ID = "55555555-5555-4555-8555-555555555555";
 const PROJECT_ID = "66666666-6666-4666-8666-666666666666";
 const HISTORY_LINE_ID = "77777777-7777-4777-8777-777777777777";
 const OTHER_VERSION_ID = "88888888-8888-4888-8888-888888888888";
+const UNRELATED_HISTORY_LINE_ID = "99999999-9999-4999-8999-999999999998";
 
 type EstimateItemRow = {
   id: string;
@@ -574,6 +575,46 @@ describe("takeoff price suggestion server helpers", () => {
     );
   });
 
+  it("ignores unrelated same-project history rows when building the snapshot", async () => {
+    const mock = createSupabaseMock();
+    mock.state.estimateItems.push({
+      id: UNRELATED_HISTORY_LINE_ID,
+      tenant_id: TENANT_ID,
+      version_id: OTHER_VERSION_ID,
+      position: 3,
+      title: "Peinture facade exterieure",
+      description: "Ravalement lot facade",
+      quantity: 40,
+      selected_supplier_price_id: null,
+      source_file_name: null,
+      source_page: null,
+      source_provider: "manual",
+      item_type: "line",
+      unit: "ml",
+      category_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      unit_price_ht_cents: 9900,
+      updated_at: "2026-02-09T10:00:00.000Z",
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+    });
+
+    expect(
+      response.suggestion.sources.map((source) => source.source_record_id)
+    ).toContain(HISTORY_LINE_ID);
+    expect(
+      response.suggestion.sources.map((source) => source.source_record_id)
+    ).not.toContain(UNRELATED_HISTORY_LINE_ID);
+  });
+
   it("requires an explicit review note and applies the selected bound through estimate update", async () => {
     const mock = createSupabaseMock();
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
@@ -614,5 +655,86 @@ describe("takeoff price suggestion server helpers", () => {
       "Validation humaine explicite de la borne centrale."
     );
     expect(reviewed.applied_item?.unit_price_ht_cents).toBe(1230);
+  });
+
+  it("rejects a second review once the snapshot is no longer pending", async () => {
+    const mock = createSupabaseMock();
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+    vi.mocked(updateEstimateItem).mockResolvedValue({
+      item: {
+        id: LINE_ID,
+        unit_price_ht_cents: 1230,
+        updated_at: "2026-03-06T10:05:00.000Z",
+      },
+    } as never);
+
+    const created = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+    });
+
+    await reviewTakeoffPriceSuggestion(JOB_ID, created.suggestion.suggestion_id, {
+      version_id: VERSION_ID,
+      action: "apply_target",
+      review_note: "Premiere revue validee.",
+    });
+
+    await expect(
+      reviewTakeoffPriceSuggestion(JOB_ID, created.suggestion.suggestion_id, {
+        version_id: VERSION_ID,
+        action: "reject",
+        review_note: "Seconde revue concurrente.",
+      })
+    ).rejects.toMatchObject({
+      status: 409,
+    });
+
+    expect(updateEstimateItem).toHaveBeenCalledTimes(1);
+    expect(mock.state.suggestions[0]).toMatchObject({
+      status: "applied",
+      selected_action: "apply_target",
+      review_note: "Premiere revue validee.",
+    });
+  });
+
+  it("creates a fresh pending snapshot when force_refresh is requested", async () => {
+    const mock = createSupabaseMock();
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const created = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+    });
+
+    await reviewTakeoffPriceSuggestion(JOB_ID, created.suggestion.suggestion_id, {
+      version_id: VERSION_ID,
+      action: "reject",
+      review_note: "Premiere revue cloturee.",
+    });
+
+    const refreshed = await requestTakeoffPriceSuggestion(JOB_ID, {
+      version_id: VERSION_ID,
+      estimate_item_id: LINE_ID,
+      force_refresh: true,
+    });
+
+    expect(refreshed.suggestion.suggestion_id).not.toBe(created.suggestion.suggestion_id);
+    expect(refreshed.suggestion.status).toBe("pending");
+    expect(mock.state.suggestions).toHaveLength(2);
+    expect(mock.state.suggestions[0]).toMatchObject({
+      id: created.suggestion.suggestion_id,
+      superseded_by_suggestion_id: refreshed.suggestion.suggestion_id,
+    });
+    expect(mock.state.suggestions[0]?.superseded_at).not.toBeNull();
   });
 });
