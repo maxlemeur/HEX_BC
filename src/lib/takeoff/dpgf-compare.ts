@@ -629,7 +629,7 @@ function buildRow(input: {
   };
 }
 
-function buildSummary(input: {
+export function buildTakeoffDpgfComparisonSummary(input: {
   rows: TakeoffDpgfComparisonRow[];
   unusedTakeoffItems: TakeoffDpgfComparisonUnusedTakeoffItem[];
 }): TakeoffDpgfComparisonSummary {
@@ -821,7 +821,7 @@ export function buildTakeoffDpgfComparison(
   }
 
   const unusedTakeoffItems = buildUnusedTakeoffItems(normalizedTakeoffLines, usedTakeoffIds);
-  const summary = buildSummary({ rows, unusedTakeoffItems });
+  const summary = buildTakeoffDpgfComparisonSummary({ rows, unusedTakeoffItems });
   const visibleRows =
     view === "exceptions_only"
       ? rows.filter((row) => row.is_exception)

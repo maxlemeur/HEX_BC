@@ -197,6 +197,26 @@ function buildReplacementKey(input: Record<string, unknown>) {
   return stableSerialize(input);
 }
 
+function buildEvidenceReplacementKey(input: {
+  evidence_type: EvidenceRow["evidence_type"];
+  estimate_item_id?: string;
+  source_record_table?: string | null;
+  source_record_id?: string | null;
+}) {
+  const sourceRecordTable = input.source_record_table ?? null;
+  const sourceRecordId = input.source_record_id ?? null;
+
+  return buildReplacementKey({
+    type: input.evidence_type,
+    source_record_table: sourceRecordTable,
+    source_record_id: sourceRecordId,
+    estimate_item_id:
+      sourceRecordTable === null && sourceRecordId === null
+        ? input.estimate_item_id ?? null
+        : null,
+  });
+}
+
 function formatCurrencyCents(value: number, currency: string) {
   const normalizedCurrency = currency.trim().length > 0 ? currency : "EUR";
   return new Intl.NumberFormat("fr-FR", {
@@ -228,8 +248,8 @@ function buildDesiredEvidences(input: {
       note: input.row.dpgf.source_page !== null ? `Ligne source ${input.row.dpgf.source_page}` : null,
       position: input.row.dpgf.position,
     }),
-    replacement_key: buildReplacementKey({
-      type: "dpgf",
+    replacement_key: buildEvidenceReplacementKey({
+      evidence_type: "dpgf",
       source_record_table: "estimate_items",
       source_record_id: input.row.line_id,
     }),
@@ -272,8 +292,8 @@ function buildDesiredEvidences(input: {
         confidence_score: item.confidence,
         note: item.evidence,
       }),
-      replacement_key: buildReplacementKey({
-        type: "takeoff",
+      replacement_key: buildEvidenceReplacementKey({
+        evidence_type: "takeoff",
         source_record_table: "takeoff_items",
         source_record_id: item.item_id,
       }),
@@ -314,8 +334,8 @@ function buildDesiredEvidences(input: {
           confidence_score: item.confidence,
           note: item.evidence,
         }),
-        replacement_key: buildReplacementKey({
-          type: "plan_zone",
+        replacement_key: buildEvidenceReplacementKey({
+          evidence_type: "plan_zone",
           source_record_table: "takeoff_items",
           source_record_id: item.item_id,
         }),
@@ -351,9 +371,9 @@ function buildDesiredEvidences(input: {
         takeoff_quantity: input.row.takeoff_quantity,
         quantity_unit: input.row.quantity_unit,
       }),
-      replacement_key: buildReplacementKey({
-        type: "formula",
-        line_id: input.row.line_id,
+      replacement_key: buildEvidenceReplacementKey({
+        evidence_type: "formula",
+        estimate_item_id: input.row.line_id,
       }),
       evidence_type: "formula",
       evidence_kind: "inference",
@@ -388,8 +408,8 @@ function buildDesiredEvidences(input: {
           input.supplierPrice.currency
         ),
       }),
-      replacement_key: buildReplacementKey({
-        type: "price_source",
+      replacement_key: buildEvidenceReplacementKey({
+        evidence_type: "price_source",
         source_record_table: "supplier_pricebook",
         source_record_id: input.supplierPrice.id,
       }),
@@ -434,8 +454,8 @@ function buildDesiredEvidences(input: {
         reason: input.row.applied_decision.reason,
         source: input.row.applied_decision.source,
       }),
-      replacement_key: buildReplacementKey({
-        type: "comment",
+      replacement_key: buildEvidenceReplacementKey({
+        evidence_type: "comment",
         source_record_table: "takeoff_dpgf_review_decisions",
         source_record_id: input.row.applied_decision.id,
       }),
@@ -629,13 +649,11 @@ export async function syncTakeoffLineEvidences(input: {
 
       invalidateIds.push(existing.id);
       removedByReplacementKey.set(
-        buildReplacementKey({
-          type: existing.evidence_type,
-          kind: existing.evidence_kind,
+        buildEvidenceReplacementKey({
+          evidence_type: existing.evidence_type,
+          estimate_item_id: existing.estimate_item_id,
           source_record_table: existing.source_record_table,
           source_record_id: existing.source_record_id,
-          label: existing.label,
-          source_label: existing.source_label,
         }),
         existing
       );

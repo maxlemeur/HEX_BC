@@ -42,6 +42,7 @@ import {
   TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
   buildTakeoffDpgfReviewReference,
   buildTakeoffDpgfComparison,
+  buildTakeoffDpgfComparisonSummary,
 } from "@/lib/takeoff/dpgf-compare";
 import {
   listSupplierPriceEvidenceRows,
@@ -2715,6 +2716,10 @@ export async function fetchDpgfTakeoffComparison(
 
   return {
     ...comparison,
+    summary: buildTakeoffDpgfComparisonSummary({
+      rows: hydratedRows,
+      unusedTakeoffItems: comparison.unused_takeoff_items,
+    }),
     rows: hydratedRows,
   };
 }
@@ -2794,8 +2799,20 @@ async function refreshTakeoffLineEvidenceSnapshot(input: {
   const filteredEstimateItems = estimateItems.filter((item) =>
     uniqueEstimateItemIds.includes(item.id)
   );
-  if (filteredEstimateItems.length === 0) {
-    return;
+  const missingEstimateItemId = uniqueEstimateItemIds.find(
+    (estimateItemId) => !filteredEstimateItems.some((item) => item.id === estimateItemId)
+  );
+  if (missingEstimateItemId) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Ligne DPGF introuvable.",
+      details: {
+        estimate_item_id: missingEstimateItemId,
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
   }
 
   const dominantSourceFileName =
@@ -2810,6 +2827,21 @@ async function refreshTakeoffLineEvidenceSnapshot(input: {
     rows: filteredEstimateItems,
     unitByRowIndex,
   });
+  const missingDpgfLineId = uniqueEstimateItemIds.find(
+    (estimateItemId) => !dpgfLines.some((line) => line.estimate_item_id === estimateItemId)
+  );
+  if (missingDpgfLineId) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Ligne DPGF introuvable.",
+      details: {
+        estimate_item_id: missingDpgfLineId,
+      },
+      retryable: false,
+      jobId: input.jobId,
+    });
+  }
   const comparison = buildTakeoffDpgfComparison({
     versionId: input.versionId,
     jobId: input.jobId,

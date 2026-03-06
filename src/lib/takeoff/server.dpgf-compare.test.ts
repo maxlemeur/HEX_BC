@@ -18,6 +18,7 @@ vi.mock("@/lib/takeoff/version-links", () => ({
 
 import { getAuthenticatedContext } from "@/lib/estimates/server";
 import { buildTakeoffDpgfReviewReference } from "@/lib/takeoff/dpgf-compare";
+import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   fetchDpgfTakeoffComparison,
@@ -1091,6 +1092,34 @@ describe("takeoff DPGF comparison server helpers", () => {
     });
   });
 
+  it("recomputes lines_without_proof from hydrated persisted evidence", async () => {
+    const mock = createSupabaseMock();
+    mock.state.takeoffItems = [];
+    mock.state.estimateItems = [
+      {
+        ...mock.state.estimateItems[0]!,
+        selected_supplier_price_id: "abababab-abab-4bab-8bab-abababababab",
+      },
+    ];
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await fetchDpgfTakeoffComparison(
+      JOB_ID,
+      parseTakeoffDpgfComparisonQuery({
+        version_id: VERSION_ID,
+        view: "all",
+      })
+    );
+
+    expect(response.rows[0]?.proofs.some((proof) => proof.type === "price_source")).toBe(true);
+    expect(response.summary.lines_without_proof).toBe(0);
+  });
+
   it("replaces the manual links for a DPGF line via the multi-link RPC", async () => {
     const mock = createSupabaseMock();
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
@@ -1245,6 +1274,103 @@ describe("takeoff DPGF comparison server helpers", () => {
       author_name: "Nadia Review",
       status: "invalidated",
     });
+  });
+
+  it("returns NOT_FOUND when the requested line is absent from the target version", async () => {
+    const mock = createSupabaseMock();
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    await expect(
+      fetchTakeoffLineEvidencePanel(JOB_ID, {
+        version_id: VERSION_ID,
+        line_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.NOT_FOUND,
+      status: 404,
+    });
+  });
+
+  it("preserves supersession links when evidence snapshots are replaced", async () => {
+    const mock = createSupabaseMock();
+    mock.state.reviewDecisions = [
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        review_reference: "dpgf xlsx row 12",
+        line_label: "Faux plafond acoustique",
+        line_position: 1,
+        source_file_name: "dpgf.xlsx",
+        source_page: 12,
+        carried_over_from_version_id: null,
+        carried_over_at: null,
+        decision: "manual_fix",
+        reason: "Hypothese mise a jour.",
+        decided_at: "2026-03-06T10:10:00.000Z",
+        updated_at: "2026-03-06T10:10:00.000Z",
+        decided_by: USER_ID,
+      },
+    ];
+    mock.state.evidences = [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        created_at: "2026-03-06T09:55:00.000Z",
+        tenant_id: TENANT_ID,
+        project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        version_id: VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        fingerprint: "stale-comment",
+        evidence_type: "comment",
+        evidence_kind: "hypothesis",
+        label: "Hypothese manuelle",
+        source_label: "Decision de revue humaine",
+        source_file_name: null,
+        source_page: null,
+        confidence_score: null,
+        note: "Ancienne hypothese.",
+        source_record_table: "takeoff_dpgf_review_decisions",
+        source_record_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        payload: {},
+        author_user_id: USER_ID,
+        invalidated_at: null,
+        invalidated_by: null,
+        invalidation_reason: null,
+        supersedes_evidence_id: null,
+      },
+    ];
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const panel = await fetchTakeoffLineEvidencePanel(JOB_ID, {
+      version_id: VERSION_ID,
+      line_id: ESTIMATE_ITEM_ID,
+    });
+
+    const activeComment = panel.evidences.find((evidence) => evidence.type === "comment");
+    expect(activeComment).toMatchObject({
+      note: "Hypothese mise a jour.",
+      supersedes_evidence_id: "99999999-9999-4999-8999-999999999999",
+    });
+    expect(panel.history).toContainEqual(
+      expect.objectContaining({
+        evidence_id: "99999999-9999-4999-8999-999999999999",
+        status: "replaced",
+        replaced_by_evidence_id: activeComment?.evidence_id ?? null,
+      })
+    );
   });
 
   it("inherits carry-over provenance from the linked source decision on first save", async () => {
