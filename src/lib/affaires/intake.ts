@@ -85,7 +85,7 @@ export const affaireIntakeExtractedMetadataSchema = z
   .object({
     projectName: z.string().trim().max(255).nullable(),
     clientName: z.string().trim().max(255).nullable(),
-    deadlineAt: z.string().datetime().nullable(),
+    deadlineAt: z.string().datetime({ offset: true }).nullable(),
     detectedLots: z.array(z.string().trim().min(1).max(160)).max(20),
     detectedVariants: z.array(z.string().trim().min(1).max(160)).max(20),
   })
@@ -196,8 +196,8 @@ export const affaireIntakeBriefDraftSchema = z
     missingElements: z.array(z.string().trim().min(1).max(280)).max(12),
     sources: z.array(affaireIntakeBriefSourceSchema).max(120),
     uploadId: z.string().uuid().nullable(),
-    lastGeneratedAt: z.string().datetime().nullable(),
-    confirmedAt: z.string().datetime().nullable(),
+    lastGeneratedAt: z.string().datetime({ offset: true }).nullable(),
+    confirmedAt: z.string().datetime({ offset: true }).nullable(),
   })
   .strict();
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  affaireIntakeBriefDraftSchema,
+  affaireIntakeExtractedMetadataSchema,
   buildAffaireIntakeMissingPieces,
   deriveAffaireIntakeUploadStatusFromDocuments,
   getHeuristicAffaireDocumentClassification,
@@ -120,5 +122,43 @@ describe("affaire intake helpers", () => {
         }
       )
     ).toEqual(["Lot gros oeuvre", "Facade"]);
+  });
+
+  it("accepts postgres timestamps with timezone offsets in brief payloads", () => {
+    expect(
+      affaireIntakeExtractedMetadataSchema.safeParse({
+        projectName: null,
+        clientName: null,
+        deadlineAt: "2026-03-06T21:33:39.288+00:00",
+        detectedLots: [],
+        detectedVariants: [],
+      }).success
+    ).toBe(true);
+
+    expect(
+      affaireIntakeBriefDraftSchema.safeParse({
+        status: "a_confirmer",
+        summary: "Brief provisoire.",
+        projectObject: "Projet a confirmer",
+        scope: ["Lot plomberie"],
+        lots: ["Plomberie"],
+        receivedPieces: ["Plans · sample-plan.pdf"],
+        assumptions: ["Client a confirmer"],
+        vigilancePoints: ["Verifier le perimetre"],
+        missingElements: ["DPGF manquant"],
+        sources: [
+          {
+            blockKey: "summary",
+            entryIndex: 0,
+            sourceDocumentId: "8ce5d0a8-8e1d-4a68-9e04-1248c8a34d27",
+            sourceFileName: "sample-plan.pdf",
+            rationale: null,
+          },
+        ],
+        uploadId: "c4afc8ca-f94e-43e3-9780-7ee807e0e9be",
+        lastGeneratedAt: "2026-03-06T21:33:39.288+00:00",
+        confirmedAt: "2026-03-06T21:34:39.288+00:00",
+      }).success
+    ).toBe(true);
   });
 });
