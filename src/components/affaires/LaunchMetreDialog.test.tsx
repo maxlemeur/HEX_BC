@@ -46,6 +46,16 @@ vi.mock("@/components/takeoff/TakeoffUploadForm", () => ({
   },
 }));
 
+const defaultProps = {
+  open: true,
+  onOpenChange: vi.fn(),
+  projectId: "proj-1",
+  draftVersionId: "draft-v1" as string | null,
+  hasAnyVersion: true,
+  plansSummary: { planSetCount: 2, planFileCount: 5 },
+  versionLabel: "V3 (brouillon)",
+};
+
 describe("LaunchMetreDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -55,16 +65,13 @@ describe("LaunchMetreDialog", () => {
     cleanup();
   });
 
+  it("renders dialog with title 'Analyser les plans'", () => {
+    render(<LaunchMetreDialog {...defaultProps} />);
+    expect(screen.getByText("Analyser les plans")).toBeInTheDocument();
+  });
+
   it("renders TakeoffUploadForm when draftVersionId is provided", () => {
-    render(
-      <LaunchMetreDialog
-        open
-        onOpenChange={vi.fn()}
-        projectId="proj-1"
-        draftVersionId="draft-v1"
-        hasAnyVersion
-      />
-    );
+    render(<LaunchMetreDialog {...defaultProps} />);
 
     expect(screen.getByTestId("takeoff-upload-form")).toBeInTheDocument();
     expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
@@ -76,11 +83,8 @@ describe("LaunchMetreDialog", () => {
   it("shows non-draft message when draftVersionId is null but versions exist", () => {
     render(
       <LaunchMetreDialog
-        open
-        onOpenChange={vi.fn()}
-        projectId="proj-1"
+        {...defaultProps}
         draftVersionId={null}
-        hasAnyVersion
       />
     );
 
@@ -95,9 +99,7 @@ describe("LaunchMetreDialog", () => {
   it("shows no-version message when no versions exist", () => {
     render(
       <LaunchMetreDialog
-        open
-        onOpenChange={vi.fn()}
-        projectId="proj-1"
+        {...defaultProps}
         draftVersionId={null}
         hasAnyVersion={false}
       />
@@ -112,16 +114,7 @@ describe("LaunchMetreDialog", () => {
   });
 
   it("does not render content when closed", () => {
-    render(
-      <LaunchMetreDialog
-        open={false}
-        onOpenChange={vi.fn()}
-        projectId="proj-1"
-        draftVersionId="draft-v1"
-        hasAnyVersion
-      />
-    );
-
+    render(<LaunchMetreDialog {...defaultProps} open={false} />);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -131,11 +124,8 @@ describe("LaunchMetreDialog", () => {
 
     render(
       <LaunchMetreDialog
-        open
+        {...defaultProps}
         onOpenChange={onOpenChange}
-        projectId="proj-1"
-        draftVersionId="draft-v1"
-        hasAnyVersion
       />
     );
 
@@ -152,29 +142,108 @@ describe("LaunchMetreDialog", () => {
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
-  it("closes and redirects after a successful launch", async () => {
+  it("shows success state with navigation buttons after a successful launch", async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
 
     render(
       <LaunchMetreDialog
-        open
+        {...defaultProps}
         onOpenChange={onOpenChange}
-        projectId="proj-1"
-        draftVersionId="draft-v1"
-        hasAnyVersion
       />
     );
 
     await user.click(screen.getByRole("button", { name: "Trigger Success" }));
 
-    await waitFor(() => {
-      expect(onOpenChange).toHaveBeenCalledWith(false);
-    });
-    expect(toastSuccessMock).toHaveBeenCalledWith({
-      title: "Extraction lancee",
-      description: "Redirection vers les extractions...",
-    });
-    expect(pushMock).toHaveBeenCalledWith("/dashboard/affaires/proj-1/takeoff");
+    // Should NOT auto-close the dialog
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    // Should show success state
+    expect(screen.getByText("Analyse lancee avec succes")).toBeInTheDocument();
+
+    // Should show enriched toast
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Analyse lancee",
+        durationMs: 6000,
+      })
+    );
+    expect(toastSuccessMock.mock.calls[0][0].description).toContain("V3 (brouillon)");
+    expect(toastSuccessMock.mock.calls[0][0].description).toContain("5 fichier(s)");
+
+    // Should show two navigation buttons
+    expect(
+      screen.getByRole("button", { name: "Rester sur le hub" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Centre d'activite/i })
+    ).toHaveAttribute("href", "/dashboard/affaires/proj-1/takeoff");
+  });
+
+  it("closes dialog when 'Rester sur le hub' is clicked", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+
+    render(
+      <LaunchMetreDialog
+        {...defaultProps}
+        onOpenChange={onOpenChange}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Trigger Success" }));
+    await user.click(screen.getByRole("button", { name: "Rester sur le hub" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("renders business-friendly analysis level labels", () => {
+    render(<LaunchMetreDialog {...defaultProps} />);
+
+    expect(screen.getByText("Rapide")).toBeInTheDocument();
+    expect(screen.getByText("Standard")).toBeInTheDocument();
+    expect(screen.getByText("Detaille")).toBeInTheDocument();
+  });
+
+  it("has Standard and Detaille levels disabled", () => {
+    render(<LaunchMetreDialog {...defaultProps} />);
+
+    const radios = screen.getAllByRole("radio");
+    // Rapide is checked and enabled
+    expect(radios[0]).toBeChecked();
+    expect(radios[0]).not.toBeDisabled();
+    // Standard and Detaille are disabled
+    expect(radios[1]).toBeDisabled();
+    expect(radios[2]).toBeDisabled();
+  });
+
+  it("shows '(bientot)' text on disabled analysis levels", () => {
+    render(<LaunchMetreDialog {...defaultProps} />);
+
+    const bientotLabels = screen.getAllByText("(bientot)");
+    expect(bientotLabels).toHaveLength(2);
+  });
+
+  it("displays plan summary info when provided", () => {
+    render(<LaunchMetreDialog {...defaultProps} />);
+
+    expect(screen.getByText(/5 fichier\(s\) dans 2 jeu\(x\)/)).toBeInTheDocument();
+  });
+
+  it("displays version label with check icon", () => {
+    render(<LaunchMetreDialog {...defaultProps} />);
+
+    expect(screen.getByText("V3 (brouillon)")).toBeInTheDocument();
+    expect(screen.getByText("Version cible")).toBeInTheDocument();
+  });
+
+  it("success state has aria-live region for screen readers", async () => {
+    const user = userEvent.setup();
+
+    render(<LaunchMetreDialog {...defaultProps} />);
+    await user.click(screen.getByRole("button", { name: "Trigger Success" }));
+
+    const liveRegion = screen.getByText("Analyse lancee avec succes").closest("[aria-live]");
+    expect(liveRegion).toHaveAttribute("aria-live", "polite");
   });
 });

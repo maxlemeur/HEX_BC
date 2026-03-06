@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { EstimateApprovalActions } from "@/components/estimates/EstimateApprovalActions";
+import { EstimateApprovalDecisionJournalCard } from "@/components/estimates/EstimateApprovalDecisionJournalCard";
 import { EstimateApprovalSummaryCard } from "@/components/estimates/EstimateApprovalSummaryCard";
 import {
   createEstimateVariant,
@@ -20,6 +21,7 @@ import type {
   AffaireHubSummaryResult,
   AffaireHubTimelineResult,
 } from "@/lib/affaires/server";
+import type { EstimateApprovalDecisionJournal } from "@/lib/estimates/approval-decision-journal";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { ConfirmUnifiedImportFlowResult } from "@/app/dashboard/affaires/_actions/import-flow";
 
@@ -41,6 +43,7 @@ type AffaireHubProps = {
   dpgfSource: AffaireHubDpgfSourceResult;
   marginAnalysis?: AffaireHubMarginAnalysisResult | null;
   approvalSummary?: EstimateApprovalSummary | null;
+  approvalJournal?: EstimateApprovalDecisionJournal | null;
   isReadOnlyReview?: boolean;
   plansSummary?: AffaireHubPlansSummaryData | null;
   takeoffEnabled?: boolean;
@@ -281,7 +284,7 @@ function ActionBar({
             <path d="M3 9h18" />
             <path d="M9 3v18" />
           </svg>
-          Lancer un metre
+          Analyser les plans
         </button>
       )}
     </div>
@@ -784,6 +787,7 @@ export function AffaireHub({
   dpgfSource,
   marginAnalysis,
   approvalSummary,
+  approvalJournal,
   isReadOnlyReview = false,
   plansSummary,
   takeoffEnabled = false,
@@ -866,6 +870,13 @@ export function AffaireHub({
   }, [summary.project.id, plansSummary?.planSetCount]);
 
   const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
+
+  // Bridge: command palette dispatches "open-analyse-plans" custom event
+  useEffect(() => {
+    const handler = () => setShowLaunchMetreDialog(true);
+    document.addEventListener("open-analyse-plans", handler);
+    return () => document.removeEventListener("open-analyse-plans", handler);
+  }, []);
   const draftVersionId =
     summary.currentVersion?.status === "draft" ? summary.currentVersion.id : null;
   const hasAnyVersion = summary.versionsCount > 0;
@@ -1056,6 +1067,12 @@ export function AffaireHub({
                   ) : null}
                 </EstimateApprovalSummaryCard>
               ) : null}
+              {summary.currentVersion && approvalJournal ? (
+                <EstimateApprovalDecisionJournalCard
+                  versionId={summary.currentVersion.id}
+                  initialJournal={approvalJournal}
+                />
+              ) : null}
               <DpgfSourceCard
                 dpgfSource={dpgfSource}
                 errorMessage={sectionErrors?.dpgfSource}
@@ -1098,6 +1115,12 @@ export function AffaireHub({
           projectId={summary.project.id}
           draftVersionId={draftVersionId}
           hasAnyVersion={hasAnyVersion}
+          plansSummary={plansSummary}
+          versionLabel={
+            summary.currentVersion
+              ? `V${summary.currentVersion.versionNumber}${summary.currentVersion.status === "draft" ? " (brouillon)" : ""}`
+              : undefined
+          }
         />
       ) : null}
     </div>

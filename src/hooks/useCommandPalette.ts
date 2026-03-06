@@ -205,10 +205,24 @@ export function useCommandPalette() {
       }),
     [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled, lastAffaireId]
   );
-  const allItems = useMemo(
-    () => [...ACTION_ITEMS, ...navigationItems],
-    [navigationItems]
-  );
+  const allItems = useMemo(() => {
+    const isOnAffairePage = /^\/dashboard\/affaires\/[^/]+$/.test(pathname);
+    const contextualActions: CommandItem[] =
+      isOnAffairePage && isTakeoffEnabled
+        ? [
+            {
+              id: "action-analyse-plans",
+              group: "actions",
+              label: "Analyser les plans",
+              description: "Lancer une analyse des plans",
+              keywords: ["analyser", "plans", "metre", "takeoff", "extraction", "analyse"],
+              action: () =>
+                document.dispatchEvent(new CustomEvent("open-analyse-plans")),
+            },
+          ]
+        : [];
+    return [...ACTION_ITEMS, ...contextualActions, ...navigationItems];
+  }, [navigationItems, pathname, isTakeoffEnabled]);
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
