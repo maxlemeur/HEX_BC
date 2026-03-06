@@ -840,8 +840,8 @@ describe("affaires hub server", () => {
       planFileCount: 0,
       totalSizeBytes: 0,
       latestJob: null,
-      coveragePercent: 0,
-      exceptionCount: 0,
+      coveragePercent: null,
+      exceptionCount: null,
       openQuestionsCount: 0,
       failureReasonLabel: null,
     });
@@ -916,8 +916,8 @@ describe("affaires hub server", () => {
       planFileCount: 3,
       totalSizeBytes: 600,
       latestJob: null,
-      coveragePercent: 0,
-      exceptionCount: 0,
+      coveragePercent: null,
+      exceptionCount: null,
       openQuestionsCount: 0,
       failureReasonLabel: null,
     });
@@ -1001,8 +1001,8 @@ describe("affaires hub server", () => {
       planFileCount: 1001,
       totalSizeBytes: 15030,
       latestJob: null,
-      coveragePercent: 0,
-      exceptionCount: 0,
+      coveragePercent: null,
+      exceptionCount: null,
       openQuestionsCount: 0,
       failureReasonLabel: null,
     });
@@ -1066,8 +1066,8 @@ describe("affaires hub server", () => {
       label: "Analyse en attente",
       estimateVersionId: "ver-2",
     });
-    expect(summary.coveragePercent).toBe(0);
-    expect(summary.exceptionCount).toBe(0);
+    expect(summary.coveragePercent).toBeNull();
+    expect(summary.exceptionCount).toBeNull();
     expect(fetchTakeoffDpgfSummaryForHub).not.toHaveBeenCalled();
   });
 
@@ -1321,6 +1321,68 @@ describe("affaires hub server", () => {
     expect(summary.latestJob?.label).toBe("Analyse terminee");
     expect(summary.coveragePercent).toBe(100);
     expect(summary.exceptionCount).toBe(0);
+  });
+
+  it("returns null coverage when compare engine fails (degraded state)", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Degraded",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: { data: null, count: 1, error: null },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-7",
+                status: "completed",
+                level: "B",
+                source_file_name: null,
+                created_at: "2026-03-05T11:00:00+00:00",
+                error_code: null,
+                error_message: null,
+                estimate_version_id: "ver-7",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          { limit: { data: null, count: 1, error: null } },
+          { limit: { data: [{ file_size_bytes: 100 }], error: null } },
+        ],
+      },
+    });
+
+    vi.mocked(fetchTakeoffDpgfSummaryForHub).mockRejectedValue(
+      new Error("Transient DB error")
+    );
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.coveragePercent).toBeNull();
+    expect(summary.exceptionCount).toBeNull();
+    expect(summary.latestJob?.status).toBe("done");
+    expect(summary.latestJob?.label).toBe("Analyse terminee");
   });
 
   it("returns NOT_FOUND when project is not accessible", async () => {

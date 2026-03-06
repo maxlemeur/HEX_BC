@@ -4926,7 +4926,7 @@ export async function fetchTakeoffDpgfSummaryForHub(input: {
   versionId: string;
   projectId: string;
 }): Promise<TakeoffDpgfComparisonSummary> {
-  const [takeoffItems, estimateItems, manualLinks] = await Promise.all([
+  const [takeoffItems, estimateItems, manualLinks, reviewDecisions] = await Promise.all([
     listAllTakeoffItemsByJobId({
       supabase: input.supabase,
       tenantId: input.tenantId,
@@ -4938,6 +4938,12 @@ export async function fetchTakeoffDpgfSummaryForHub(input: {
       versionId: input.versionId,
     }),
     listTakeoffDpgfManualLinks({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      versionId: input.versionId,
+      jobId: input.jobId,
+    }),
+    listTakeoffDpgfReviewDecisions({
       supabase: input.supabase,
       tenantId: input.tenantId,
       versionId: input.versionId,
@@ -4968,6 +4974,7 @@ export async function fetchTakeoffDpgfSummaryForHub(input: {
     dpgfLines,
     takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
     manualLinks,
+    reviewDecisions,
     pageSize: 1,
   });
 

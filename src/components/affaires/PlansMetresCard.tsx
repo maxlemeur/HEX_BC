@@ -4,7 +4,6 @@ import Link from "next/link";
 
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeProps } from "@/components/ui/Badge";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 
 /* ------------------------------------------------------------------ */
@@ -21,8 +20,8 @@ export type AffaireHubPlansSummaryData = {
     label: string;
     estimateVersionId: string;
   } | null;
-  coveragePercent: number;
-  exceptionCount: number;
+  coveragePercent: number | null;
+  exceptionCount: number | null;
   openQuestionsCount: number;
   failureReasonLabel: string | null;
 };
@@ -32,6 +31,7 @@ type PlansMetresCardProps = {
   projectId: string;
   errorMessage?: string;
   onLaunchMetre?: () => void;
+  onDismissEmpty?: () => void;
 };
 
 /* ------------------------------------------------------------------ */
@@ -102,6 +102,7 @@ export function PlansMetresCard({
   projectId,
   errorMessage,
   onLaunchMetre,
+  onDismissEmpty,
 }: PlansMetresCardProps) {
   /* Error state */
   if (errorMessage) {
@@ -124,8 +125,8 @@ export function PlansMetresCard({
         <h2 className="mb-3 text-sm font-semibold text-[var(--slate-800)]">
           Plans, preuves & exceptions
         </h2>
-        <EmptyState
-          icon={
+        <div className="animate-fade-in flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-6 py-10 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-white text-[var(--slate-400)] shadow-sm ring-1 ring-[var(--slate-200)]">
             <svg
               width="26"
               height="26"
@@ -141,13 +142,29 @@ export function PlansMetresCard({
               <path d="M3 9h18" />
               <path d="M9 3v18" />
             </svg>
-          }
-          title="Importez vos plans pour lancer l'analyse"
-          description="Les plans PDF permettent d'extraire automatiquement les metres, de les comparer au DPGF et de detecter les ecarts."
-          actionLabel="Ajouter les plans"
-          actionHref={`/dashboard/affaires/${projectId}/plans`}
-          className="py-10"
-        />
+          </div>
+          <h3 className="text-base font-semibold text-[var(--slate-800)]">
+            Importez vos plans pour lancer l&apos;analyse
+          </h3>
+          <p className="mt-1 max-w-md text-sm text-[var(--slate-500)]">
+            Les plans PDF permettent d&apos;extraire automatiquement les metres, de les comparer au DPGF et de detecter les ecarts.
+          </p>
+          <div className="mt-5 flex items-center gap-3">
+            <Link
+              href={`/dashboard/affaires/${projectId}/plans`}
+              className="btn btn-primary btn-sm inline-flex"
+            >
+              Ajouter les plans
+            </Link>
+            <button
+              type="button"
+              className="text-sm text-[var(--slate-500)] underline underline-offset-2 hover:text-[var(--slate-700)]"
+              onClick={onDismissEmpty}
+            >
+              Continuer sans plans
+            </button>
+          </div>
+        </div>
       </section>
     );
   }
@@ -158,18 +175,22 @@ export function PlansMetresCard({
     ? FE_STATUS_BADGE[latestJob.status] ?? ("neutral" as BadgeVariant)
     : null;
 
-  const showSummary =
+  const isCompletedState =
     latestJob &&
     (latestJob.status === "done" || latestJob.status === "review_required");
 
+  const coverageAvailable =
+    plans.coveragePercent !== null && plans.exceptionCount !== null;
+
+  const { coveragePercent, exceptionCount } = plans;
   const summarySegments: string[] = [];
-  if (showSummary) {
-    if (plans.coveragePercent > 0) {
-      summarySegments.push(`${plans.coveragePercent} % des postes couverts`);
+  if (isCompletedState && coveragePercent !== null && exceptionCount !== null) {
+    if (coveragePercent > 0) {
+      summarySegments.push(`${coveragePercent} % des postes couverts`);
     }
-    if (plans.exceptionCount > 0) {
+    if (exceptionCount > 0) {
       summarySegments.push(
-        `${plans.exceptionCount} ecart${plans.exceptionCount !== 1 ? "s" : ""} majeur${plans.exceptionCount !== 1 ? "s" : ""}`
+        `${exceptionCount} ecart${exceptionCount !== 1 ? "s" : ""} majeur${exceptionCount !== 1 ? "s" : ""}`
       );
     }
     if (plans.openQuestionsCount > 0) {
@@ -214,12 +235,20 @@ export function PlansMetresCard({
       )}
 
       {/* Business summary */}
-      {showSummary && summarySegments.length > 0 && (
+      {isCompletedState && !coverageAvailable && (
+        <p
+          className="mt-2 text-xs text-[var(--slate-500)] italic"
+          aria-live="polite"
+        >
+          Couverture indisponible
+        </p>
+      )}
+      {isCompletedState && coverageAvailable && summarySegments.length > 0 && (
         <p
           className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--slate-600)]"
           aria-live="polite"
         >
-          {plans.exceptionCount > 0 && (
+          {exceptionCount !== null && exceptionCount > 0 && (
             <span className="inline-flex items-center gap-1 text-[var(--warning)]">
               <WarningIcon />
             </span>

@@ -153,8 +153,8 @@ export type AffaireHubPlansSummaryResult = {
     label: string;
     estimateVersionId: string;
   } | null;
-  coveragePercent: number;
-  exceptionCount: number;
+  coveragePercent: number | null;
+  exceptionCount: number | null;
   openQuestionsCount: number;
   failureReasonLabel: string | null;
 };
@@ -636,8 +636,8 @@ async function fetchAffaireHubPlansSummaryWithContext(
   } | null;
 
   let latestJob: AffaireHubPlansSummaryResult["latestJob"] = null;
-  let coveragePercent = 0;
-  let exceptionCount = 0;
+  let coveragePercent: number | null = null;
+  let exceptionCount: number | null = null;
   let failureReasonLabel: string | null = null;
 
   if (latestJobRow) {
@@ -668,7 +668,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
           summary.forced_manual +
           summary.unused_takeoff_items;
       } catch {
-        // If compare fails, fall back to zero coverage/exceptions
+        // Leave coveragePercent/exceptionCount as null — UI will show degraded state
       }
     }
 
@@ -678,7 +678,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
         : null;
     }
 
-    const mapped = mapJobStatusToFE(latestJobRow.status, exceptionCount);
+    const mapped = mapJobStatusToFE(latestJobRow.status, exceptionCount ?? 0);
     latestJob = {
       jobId: latestJobRow.id,
       status: mapped.status,
