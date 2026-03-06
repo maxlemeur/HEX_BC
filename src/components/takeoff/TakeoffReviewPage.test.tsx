@@ -330,8 +330,9 @@ describe("TakeoffReviewPage", () => {
       expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
+    // Mode switch shows Assiste as selected (default for simplified users)
     expect(
-      screen.getByRole("button", { name: "Passer en vue avancee" })
+      screen.getByRole("radio", { name: /Assiste/ })
     ).toBeDefined();
     expect(screen.queryByPlaceholderText("Rechercher par titre...")).toBeNull();
     expect(mockReplace).toHaveBeenCalledWith("?view=items", { scroll: false });
@@ -680,8 +681,9 @@ describe("TakeoffReviewPage", () => {
       expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
+    // Mode switch shows Assiste as selected (default for simplified users)
     expect(
-      screen.getByRole("button", { name: "Passer en vue avancee" })
+      screen.getByRole("radio", { name: /Assiste/ })
     ).toBeDefined();
     expect(screen.queryByText("Resume des changements")).toBeNull();
     expect(mockReplace).toHaveBeenCalledWith(
@@ -690,7 +692,7 @@ describe("TakeoffReviewPage", () => {
     );
   });
 
-  it("toggles review mode locally without persisting the profile mode", async () => {
+  it("switches review mode via mode switch without persisting the profile mode", async () => {
     mockUiMode("simplified");
     vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
 
@@ -700,11 +702,26 @@ describe("TakeoffReviewPage", () => {
       expect(screen.getByText("Tube PVC 100mm")).toBeDefined();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Passer en vue avancee" }));
+    // Mode switch should show all three modes
+    const assistedRadio = screen.getByRole("radio", { name: /Assiste/ });
+    const productionRadio = screen.getByRole("radio", { name: /Production/ });
+    const validationRadio = screen.getByRole("radio", { name: /Validation/ });
 
+    expect(assistedRadio).toBeDefined();
+    expect(productionRadio).toBeDefined();
+    expect(validationRadio).toBeDefined();
+
+    // Assiste should be selected by default (simplified user)
+    expect(assistedRadio.getAttribute("aria-checked")).toBe("true");
+
+    // Click Production
+    fireEvent.click(productionRadio);
+
+    // Should update URL, not global mode
     expect(setModeMock).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("button", { name: "Passer en vue simplifiee" })
-    ).toBeDefined();
+    expect(mockReplace).toHaveBeenCalledWith(
+      expect.stringContaining("reviewMode=production"),
+      { scroll: false }
+    );
   });
 });

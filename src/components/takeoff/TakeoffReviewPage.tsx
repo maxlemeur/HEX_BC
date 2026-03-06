@@ -18,7 +18,11 @@ import { useToast } from "@/components/ui/Toast";
 import { useUserContext } from "@/components/UserContext";
 import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { EvidencePanel } from "@/components/takeoff/EvidencePanel";
-import { TakeoffReviewSimplified } from "@/components/takeoff/TakeoffReviewSimplified";
+import {
+  TakeoffReviewModeSwitch,
+  type ReviewMode,
+} from "@/components/takeoff/review/TakeoffReviewModeSwitch";
+import { AssistedReviewPanel } from "@/components/takeoff/review/AssistedReviewPanel";
 import { useUiMode } from "@/hooks/useUiMode";
 import {
   hasBlockingAnomaly,
@@ -38,6 +42,21 @@ const LazyTakeoffReviewExpert = dynamic(
     loading: () => (
       <div className="dashboard-card p-8 text-center text-sm text-[var(--slate-500)]">
         Chargement de la vue avancee...
+      </div>
+    ),
+  }
+);
+
+const LazyValidationReviewPanel = dynamic(
+  () =>
+    import("@/components/takeoff/review/ValidationReviewPanel").then((mod) => ({
+      default: mod.ValidationReviewPanel,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="dashboard-card p-8 text-center text-sm text-[var(--slate-500)]">
+        Chargement de la vue validation...
       </div>
     ),
   }
@@ -204,6 +223,41 @@ export default function TakeoffReviewPage({
     [isLowConfidenceThresholdEnabled, lowConfidenceThresholdRaw]
   );
 
+  // ---- Review mode from URL (V3-012: Assiste / Production / Validation)
+  const reviewModeParam = searchParams.get("reviewMode");
+  const fromParam = searchParams.get("from");
+
+  const defaultReviewMode: ReviewMode = useMemo(() => {
+    if (fromParam === "approval") return "validation";
+    return isSimplified ? "assisted" : "production";
+  }, [fromParam, isSimplified]);
+
+  const currentReviewMode: ReviewMode = useMemo(() => {
+    if (
+      reviewModeParam === "assisted" ||
+      reviewModeParam === "production" ||
+      reviewModeParam === "validation"
+    ) {
+      return reviewModeParam;
+    }
+    return defaultReviewMode;
+  }, [reviewModeParam, defaultReviewMode]);
+
+  const isShowingSimplified = currentReviewMode === "assisted";
+
+  const setReviewMode = useCallback(
+    (mode: ReviewMode) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (mode === defaultReviewMode) {
+        params.delete("reviewMode");
+      } else {
+        params.set("reviewMode", mode);
+      }
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [defaultReviewMode, router, searchParams]
+  );
+
   // ---- Tab state from URL
   const viewParam = searchParams.get("view");
   const compareWithParam = searchParams.get("compareWith");
@@ -215,12 +269,6 @@ export default function TakeoffReviewPage({
       : "items";
   const dpgfCompareView: TakeoffDpgfComparisonView =
     dpgfViewParam === "exceptions_only" ? "exceptions_only" : "all";
-  const defaultReviewMode = isSimplified ? "simplified" : "expert";
-  const [reviewModeOverride, setReviewModeOverride] = useState<"simplified" | "expert" | null>(
-    null
-  );
-  const effectiveReviewMode = reviewModeOverride ?? defaultReviewMode;
-  const isShowingSimplified = effectiveReviewMode === "simplified";
   const activeTab: ViewTab = isShowingSimplified ? "items" : requestedTab;
 
   const compareWithJobId = useMemo(() => {
@@ -292,22 +340,10 @@ export default function TakeoffReviewPage({
   );
 
   useEffect(() => {
-    if (isShowingSimplified && requestedTab !== "items") {
+    if (currentReviewMode !== "production" && requestedTab !== "items") {
       setActiveTab("items");
     }
-  }, [isShowingSimplified, requestedTab, setActiveTab]);
-
-  const handleToggleReviewMode = useCallback(() => {
-    setReviewModeOverride((currentOverride) => {
-      const currentMode = currentOverride ?? defaultReviewMode;
-      const nextMode = currentMode === "simplified" ? "expert" : "simplified";
-      return nextMode === defaultReviewMode ? null : nextMode;
-    });
-
-    if (!isShowingSimplified && requestedTab !== "items") {
-      setActiveTab("items");
-    }
-  }, [defaultReviewMode, isShowingSimplified, requestedTab, setActiveTab]);
+  }, [currentReviewMode, requestedTab, setActiveTab]);
 
   // ---- Data state
   const [items, setItems] = useState<ReviewItem[]>([]);
@@ -1093,15 +1129,11 @@ export default function TakeoffReviewPage({
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleToggleReviewMode}
-            aria-label={isShowingSimplified ? "Passer en vue avancee" : "Passer en vue simplifiee"}
-          >
-            {isShowingSimplified ? "Vue avancee" : "Vue simplifiee"}
-          </Button>
+        <div className="flex items-center gap-3">
+          <TakeoffReviewModeSwitch
+            mode={currentReviewMode}
+            onModeChange={setReviewMode}
+          />
           <Link
             href={`/dashboard/estimates/${versionId}/takeoff/${jobId}`}
             className="btn btn-secondary btn-sm"
@@ -1117,11 +1149,17 @@ export default function TakeoffReviewPage({
       )}
 
       {/* ---- Mode-conditional content ---- */}
-      {isShowingSimplified ? (
-        <TakeoffReviewSimplified
+      {currentReviewMode === "assisted" ? (
+        <AssistedReviewPanel
           items={items}
           onExcludeItems={handleExcludeItems}
           onIncludeItems={handleIncludeItems}
+          onApplyClick={handleOpenApplyWizard}
+          isApplyReady={isApplyReady}
+        />
+      ) : currentReviewMode === "validation" ? (
+        <LazyValidationReviewPanel
+          items={items}
           onApplyClick={handleOpenApplyWizard}
           isApplyReady={isApplyReady}
         />
@@ -1157,8 +1195,8 @@ export default function TakeoffReviewPage({
         />
       )}
 
-      {/* ---- Apply readiness bar ---- */}
-      <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-white px-4 py-3">
+      {/* ---- Apply readiness bar (production mode only, others have built-in bars) ---- */}
+      {currentReviewMode === "production" && <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-white px-4 py-3">
         <div className="text-sm">
           {isApplyReady ? (
             <span className="flex items-center gap-2 text-[var(--success)]">
@@ -1203,7 +1241,7 @@ export default function TakeoffReviewPage({
         >
           Appliquer au chiffrage
         </Button>
-      </div>
+      </div>}
 
       {/* ---- Exclusion modal ---- */}
       <ExclusionReasonModal
@@ -1230,7 +1268,7 @@ export default function TakeoffReviewPage({
         isAdmin={isAdmin}
         onVerifyItems={handleWizardVerifyItems}
         onReturnToReview={() => setApplyWizardOpen(false)}
-        presetStrategy={isShowingSimplified ? "append" : undefined}
+        presetStrategy={currentReviewMode !== "production" ? "append" : undefined}
       />
 
       {/* ---- Evidence panel ---- */}
