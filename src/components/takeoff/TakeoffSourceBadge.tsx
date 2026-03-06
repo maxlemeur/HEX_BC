@@ -1,9 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useId, useState, type FocusEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 
 import { usePopover } from "@/hooks/usePopover";
+
+const TakeoffLineEvidencePanel = dynamic(
+  () => import("@/components/takeoff/TakeoffLineEvidencePanel"),
+  {
+    ssr: false,
+    loading: () => null,
+  }
+);
 
 const NOT_AVAILABLE_LABEL = "Non disponible";
 const SUPPORTED_BADGE_PROVIDERS = new Set([
@@ -14,6 +23,8 @@ const SUPPORTED_BADGE_PROVIDERS = new Set([
 
 type TakeoffSourceBadgeProps = {
   versionId: string;
+  estimateItemId?: string | null;
+  lineLabel?: string | null;
   sourceProvider?: string | null;
   sourceJobId?: string | null;
   sourceFileName?: string | null;
@@ -200,6 +211,8 @@ function formatAiConfidence(application: AiStructureApplication) {
 
 export function TakeoffSourceBadge({
   versionId,
+  estimateItemId,
+  lineLabel,
   sourceProvider,
   sourceJobId,
   sourceFileName,
@@ -217,6 +230,7 @@ export function TakeoffSourceBadge({
   } = usePopover();
   const [isHovered, setIsHovered] = useState(false);
   const [isFocusWithin, setIsFocusWithin] = useState(false);
+  const [isEvidencePanelOpen, setIsEvidencePanelOpen] = useState(false);
   const tooltipId = useId();
   const isOpen = isPinnedOpen || isHovered || isFocusWithin;
   const normalizedSourceProvider = toNonEmptyString(sourceProvider)?.toLowerCase();
@@ -281,6 +295,9 @@ export function TakeoffSourceBadge({
   const jobLink = normalizedSourceJobId
     ? `/dashboard/estimates/${versionId}/takeoff/${normalizedSourceJobId}`
     : null;
+  const canOpenEvidence =
+    normalizedSourceJobId !== null &&
+    toNonEmptyString(estimateItemId ?? null) !== null;
 
   const triggerText = isAiStructure ? "IA structure" : `IA${triggerLabelSuffix}`;
 
@@ -399,10 +416,49 @@ export function TakeoffSourceBadge({
                     )}
                   </dd>
                 </div>
+                <div className="takeoff-source-badge__meta-row">
+                  <dt>Preuves</dt>
+                  <dd>
+                    {canOpenEvidence ? (
+                      <button
+                        type="button"
+                        className="takeoff-source-badge__job-link"
+                        onClick={() => {
+                          closePopover();
+                          setIsEvidencePanelOpen(true);
+                        }}
+                        data-testid="takeoff-source-badge-view-evidence-button"
+                      >
+                        Voir les preuves
+                      </button>
+                    ) : (
+                      <span
+                        className="takeoff-source-badge__job-link takeoff-source-badge__job-link--disabled"
+                        aria-disabled="true"
+                      >
+                        Non disponible
+                      </span>
+                    )}
+                  </dd>
+                </div>
               </dl>
             </>
           )}
         </div>
+      ) : null}
+
+      {normalizedSourceJobId && estimateItemId ? (
+        <TakeoffLineEvidencePanel
+          open={isEvidencePanelOpen}
+          onOpenChange={setIsEvidencePanelOpen}
+          jobId={normalizedSourceJobId}
+          versionId={versionId}
+          lineId={estimateItemId}
+          lineLabel={lineLabel?.trim() ? lineLabel : "Ligne du devis"}
+          sourceFileName={sourceFileName}
+          sourcePage={sourcePage}
+          surfaceLabel="Preuves ligne devis"
+        />
       ) : null}
     </div>
   );

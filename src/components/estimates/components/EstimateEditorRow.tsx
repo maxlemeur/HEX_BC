@@ -1502,6 +1502,8 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
               />
               <TakeoffSourceBadge
                 versionId={versionId}
+                estimateItemId={item.id}
+                lineLabel={item.title}
                 sourceProvider={item.source_provider}
                 sourceJobId={item.source_job_id}
                 sourceFileName={item.source_file_name}

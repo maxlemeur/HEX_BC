@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   startTransition,
   useDeferredValue,
@@ -49,6 +50,14 @@ type ManualLinkModalProps = {
   onSave: (takeoffItemIds: string[]) => Promise<void>;
   onSaveHypothesis: (hypothesisText: string) => Promise<void>;
 };
+
+const TakeoffLineEvidencePanel = dynamic(
+  () => import("@/components/takeoff/TakeoffLineEvidencePanel"),
+  {
+    ssr: false,
+    loading: () => null,
+  }
+);
 
 type ManualLinkCandidate = TakeoffDpgfComparisonUnusedTakeoffItem & {
   is_current: boolean;
@@ -344,12 +353,6 @@ function ManualLinkModal({
   const [mode, setMode] = useState<"takeoff_items" | "hypothesis">("takeoff_items");
   const [hypothesisText, setHypothesisText] = useState("");
 
-  useEffect(() => {
-    setSelectedIds(row?.linked_takeoff_items.map((item) => item.item_id) ?? []);
-    setMode("takeoff_items");
-    setHypothesisText("");
-  }, [row]);
-
   const candidates = useMemo(() => {
     return buildManualLinkCandidates({
       row,
@@ -622,6 +625,7 @@ export default function TakeoffDpgfCompareView({
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(data.rows[0]?.line_id ?? null);
   const [manualLinkModalOpen, setManualLinkModalOpen] = useState(false);
+  const [evidencePanelOpen, setEvidencePanelOpen] = useState(false);
   const [manualLinkSaving, setManualLinkSaving] = useState(false);
   const [decisionReason, setDecisionReason] = useState("");
   const [draftDecision, setDraftDecision] = useState<TakeoffDpgfReviewDecision | null>(null);
@@ -1203,6 +1207,25 @@ export default function TakeoffDpgfCompareView({
               </div>
 
               <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--slate-950)]">
+                      Traçabilité persistée
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--slate-600)]">
+                      Provenance détaillée, historique et remplacements de preuves.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setEvidencePanelOpen(true)}
+                    data-testid="takeoff-dpgf-open-evidence-panel-button"
+                  >
+                    Historique et provenance
+                  </Button>
+                </div>
                 <ProofList label={PROOF_KIND_LABELS.fact} proofs={proofGroups.fact} />
                 <ProofList label={PROOF_KIND_LABELS.hypothesis} proofs={proofGroups.hypothesis} />
                 <ProofList label={PROOF_KIND_LABELS.inference} proofs={proofGroups.inference} />
@@ -1291,6 +1314,20 @@ export default function TakeoffDpgfCompareView({
         onSave={handleManualLinkSave}
         onSaveHypothesis={handleHypothesisSave}
       />
+
+      {selectedRow ? (
+        <TakeoffLineEvidencePanel
+          open={evidencePanelOpen}
+          onOpenChange={setEvidencePanelOpen}
+          jobId={data.job_id}
+          versionId={data.version_id}
+          lineId={selectedRow.dpgf.estimate_item_id}
+          lineLabel={selectedRow.line_label}
+          sourceFileName={selectedRow.dpgf.source_file_name}
+          sourcePage={selectedRow.dpgf.source_page}
+          surfaceLabel="Preuves persistantes"
+        />
+      ) : null}
     </div>
   );
 }
