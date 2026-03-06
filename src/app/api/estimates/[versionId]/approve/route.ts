@@ -33,9 +33,42 @@ const approveRejectApprovalSchema = z
     });
   });
 
+const decisionCommentSchema = z
+  .object({
+    scope_type: z.enum(["project", "lot", "line", "approval_rule"]),
+    scope_id: z.string().uuid("scope_id invalide.").nullable().optional(),
+    comment: z.string().trim().min(1, "Le commentaire est obligatoire."),
+  })
+  .superRefine((payload, ctx) => {
+    if (payload.scope_type === "project") {
+      return;
+    }
+
+    if (payload.scope_id) {
+      return;
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "scope_id est requis pour ce type de cible.",
+      path: ["scope_id"],
+    });
+  });
+
+const decideApprovalSchema = z.object({
+  action: z.literal("decide"),
+  decision: z.enum([
+    "approved",
+    "approved_with_reservations",
+    "changes_requested",
+  ]),
+  comments: z.array(decisionCommentSchema).default([]),
+});
+
 const postApproveSchema = z.union([
   requestApprovalSchema,
   approveRejectApprovalSchema,
+  decideApprovalSchema,
 ]);
 
 async function getVersionId(paramsPromise: Promise<{ versionId: string }>) {
@@ -60,6 +93,19 @@ function toSubmitInput(input: {
       versionId: input.versionId,
       action: "request",
       ruleId: input.body.rule_id,
+    };
+  }
+
+  if (input.body.action === "decide") {
+    return {
+      versionId: input.versionId,
+      action: "decide",
+      decision: input.body.decision,
+      comments: input.body.comments.map((comment) => ({
+        scopeType: comment.scope_type,
+        scopeId: comment.scope_id ?? null,
+        comment: comment.comment,
+      })),
     };
   }
 

@@ -4,6 +4,21 @@ import type { Database } from "@/types/database";
 
 let cached: SupabaseClient<Database> | null = null;
 
+export function hasServiceRoleConfig() {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+}
+
+export function createOptionalServiceRoleClient() {
+  if (!hasServiceRoleConfig()) {
+    return null;
+  }
+
+  return createServiceRoleClient();
+}
+
 /**
  * Returns a Supabase client authenticated with the service role key.
  * Bypasses RLS — use only in server-side code for operations

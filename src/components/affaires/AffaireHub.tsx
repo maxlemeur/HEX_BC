@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { EstimateApprovalActions } from "@/components/estimates/EstimateApprovalActions";
 import { EstimateApprovalSummaryCard } from "@/components/estimates/EstimateApprovalSummaryCard";
 import {
   createEstimateVariant,
@@ -889,6 +890,30 @@ export function AffaireHub({
         <BackToListLink />
       </div>
 
+      {/* Read-only review banner for director */}
+      {isReadOnlyReview && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-2.5 text-sm text-[var(--brand-blue)]">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <span className="font-medium">Mode revue</span>
+          <span className="text-[var(--brand-blue)]/70">
+            — Consultation uniquement, les actions d&apos;edition sont reservees aux ingenieurs.
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
@@ -1021,7 +1046,15 @@ export function AffaireHub({
 
             <div className="space-y-4">
               {approvalSummary ? (
-                <EstimateApprovalSummaryCard summary={approvalSummary} />
+                <EstimateApprovalSummaryCard summary={approvalSummary}>
+                  {summary.currentVersion ? (
+                    <EstimateApprovalActions
+                      versionId={summary.currentVersion.id}
+                      projectId={summary.project.id}
+                      summary={approvalSummary}
+                    />
+                  ) : null}
+                </EstimateApprovalSummaryCard>
               ) : null}
               <DpgfSourceCard
                 dpgfSource={dpgfSource}

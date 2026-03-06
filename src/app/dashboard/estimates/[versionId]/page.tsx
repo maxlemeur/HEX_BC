@@ -374,8 +374,8 @@ export default async function EstimateDetailPage({
               <EstimateApprovalSummaryCard summary={approvalSummary}>
                 <EstimateApprovalActions
                   versionId={versionId}
+                  projectId={version.project_id}
                   summary={approvalSummary}
-                  tenantRole={tenantRole}
                 />
               </EstimateApprovalSummaryCard>
             ) : null}

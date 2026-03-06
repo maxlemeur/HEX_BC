@@ -65,9 +65,33 @@ function createVersionAccessBuilder() {
         id: PROJECT_ID,
         tenant_id: TENANT_ID,
         user_id: OWNER_ID,
+        name: "Affaire test",
         client_name: "Client A",
       },
     },
+    error: null,
+  });
+
+  return builder;
+}
+
+function createListBuilder<T>(data: T[]) {
+  const builder = {
+    data,
+    error: null,
+    eq: vi.fn(),
+    in: vi.fn(),
+    is: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+  };
+
+  builder.eq.mockReturnValue(builder);
+  builder.in.mockReturnValue(builder);
+  builder.is.mockReturnValue(builder);
+  builder.order.mockReturnValue(builder);
+  builder.limit.mockResolvedValue({
+    data,
     error: null,
   });
 
@@ -121,6 +145,139 @@ describe("submitEstimateApproval", () => {
     ).rejects.toMatchObject({
       status: 403,
       code: "FORBIDDEN",
+    });
+  });
+
+  it("requires at least one scoped comment for approval with reservations", async () => {
+    const membershipBuilder = createMembershipBuilder("director");
+    const versionBuilder = createVersionAccessBuilder();
+    const reviewCycleBuilder = createListBuilder([
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        created_at: "2026-03-01T10:00:00.000Z",
+        updated_at: "2026-03-01T10:00:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        cycle_number: 1,
+        requested_by: OWNER_ID,
+        requested_at: "2026-03-01T10:00:00.000Z",
+        decided_by: null,
+        decision: null,
+        decided_at: null,
+        carried_over_from_cycle_id: null,
+      },
+    ]);
+    const approvalsBuilder = createListBuilder([
+      {
+        id: "88888888-8888-4888-8888-888888888888",
+        created_at: "2026-03-01T10:05:00.000Z",
+        updated_at: "2026-03-01T10:05:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        rule_id: "99999999-9999-4999-8999-999999999999",
+        requested_by: OWNER_ID,
+        approved_by: null,
+        status: "pending",
+        decided_at: null,
+      },
+    ]);
+    const itemsBuilder = createListBuilder([
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        category_id: null,
+        item_type: "section",
+        title: "Lot CFO",
+        parent_id: null,
+        position: 1,
+      },
+      {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        category_id: null,
+        item_type: "line",
+        title: "Alimentation TGBT",
+        parent_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        position: 1,
+      },
+    ]);
+    const rulesBuilder = createListBuilder([
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        created_at: "2026-03-01T09:00:00.000Z",
+        updated_at: "2026-03-01T09:00:00.000Z",
+        tenant_id: TENANT_ID,
+        rule_type: "require_approval",
+        scope_type: "global",
+        scope_id: null,
+        threshold_value: 100000,
+        action: "require_approval",
+        is_active: true,
+      },
+    ]);
+
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => membershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => versionBuilder),
+        };
+      }
+
+      if (table === "estimate_review_cycles") {
+        return {
+          select: vi.fn(() => reviewCycleBuilder),
+        };
+      }
+
+      if (table === "estimate_approvals") {
+        return {
+          select: vi.fn(() => approvalsBuilder),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => itemsBuilder),
+        };
+      }
+
+      if (table === "estimate_rules") {
+        return {
+          select: vi.fn(() => rulesBuilder),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: {
+            user: {
+              id: USER_ID,
+            },
+          },
+          error: null,
+        }),
+      },
+      from,
+    } as never);
+
+    await expect(
+      submitEstimateApproval({
+        versionId: VERSION_ID,
+        action: "decide",
+        decision: "approved_with_reservations",
+        comments: [],
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
     });
   });
 });

@@ -131,4 +131,62 @@ describe("estimate approve route", () => {
       })
     );
   });
+
+  it("accepts a version-level review decision with scoped comments", async () => {
+    vi.mocked(submitEstimateApproval).mockResolvedValue({
+      approval: {
+        id: "33333333-3333-4333-8333-333333333333",
+        version_id: VERSION_ID,
+        rule_id: "22222222-2222-4222-8222-222222222222",
+        status: "approved",
+      },
+    } as never);
+
+    const request = new Request("http://localhost", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "decide",
+        decision: "approved_with_reservations",
+        comments: [
+          {
+            scope_type: "approval_rule",
+            scope_id: "22222222-2222-4222-8222-222222222222",
+            comment: "Validee sous reserve de confirmer la marge.",
+          },
+        ],
+      }),
+    });
+
+    const response = await POST(request, {
+      params: Promise.resolve({ versionId: VERSION_ID }),
+    });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(vi.mocked(submitEstimateApproval)).toHaveBeenCalledWith({
+      versionId: VERSION_ID,
+      action: "decide",
+      decision: "approved_with_reservations",
+      comments: [
+        {
+          scopeType: "approval_rule",
+          scopeId: "22222222-2222-4222-8222-222222222222",
+          comment: "Validee sous reserve de confirmer la marge.",
+        },
+      ],
+    });
+    expect(payload).toEqual(
+      expect.objectContaining({
+        ok: true,
+        data: expect.objectContaining({
+          approval: expect.objectContaining({
+            status: "approved",
+          }),
+        }),
+      })
+    );
+  });
 });
