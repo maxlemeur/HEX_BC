@@ -736,6 +736,33 @@ begin
   join _estimate_item_map map on map.old_id = src.id
   left join _estimate_item_map parent_map on parent_map.old_id = src.parent_id;
 
+  insert into public.takeoff_version_links (
+    tenant_id,
+    takeoff_job_id,
+    source_version_id,
+    target_version_id,
+    linked_at,
+    linked_by
+  )
+  select distinct on (src.takeoff_job_id)
+    source_version.tenant_id,
+    src.takeoff_job_id,
+    coalesce(existing_link.source_version_id, job.estimate_version_id),
+    new_version_id,
+    now(),
+    null
+  from public.takeoff_dpgf_review_decisions src
+  join public.takeoff_jobs job
+    on job.id = src.takeoff_job_id
+   and job.tenant_id = source_version.tenant_id
+  left join public.takeoff_version_links existing_link
+    on existing_link.tenant_id = source_version.tenant_id
+   and existing_link.target_version_id = source_version_id
+   and existing_link.takeoff_job_id = src.takeoff_job_id
+  where src.version_id = source_version_id
+  order by src.takeoff_job_id
+  on conflict (takeoff_job_id, target_version_id) do nothing;
+
   insert into public.takeoff_dpgf_review_decisions (
     id,
     tenant_id,

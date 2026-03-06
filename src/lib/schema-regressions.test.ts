@@ -145,6 +145,9 @@ describe("schema regressions", () => {
       /create temporary table _estimate_item_map/
     );
     expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
+      /insert into public\.takeoff_version_links[\s\S]*target_version_id[\s\S]*new_version_id[\s\S]*insert into public\.takeoff_dpgf_review_decisions/
+    );
+    expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
       /insert into public\.takeoff_dpgf_review_decisions[\s\S]*carried_over_from_version_id[\s\S]*carried_over_at/
     );
   });
