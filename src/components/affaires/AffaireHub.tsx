@@ -794,6 +794,7 @@ export function AffaireHub({
   const { isExpert } = useUiMode();
   const currentVersionId = summary.currentVersion?.id ?? null;
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
+  const [isEmptyPlansCardDismissed, setIsEmptyPlansCardDismissed] = useState(false);
 
   // --- Hoisted state from former QuickActionsCard ---
   const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(null);
@@ -858,6 +859,10 @@ export function AffaireHub({
         : undefined,
     });
   }, [justCreated, router, summary.project.id, toast, dpgfSource]);
+
+  useEffect(() => {
+    setIsEmptyPlansCardDismissed(false);
+  }, [summary.project.id, plansSummary?.planSetCount]);
 
   const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
   const draftVersionId =
@@ -1030,13 +1035,21 @@ export function AffaireHub({
                       }
                 }
               />
-              {takeoffEnabled ? (
+              {takeoffEnabled &&
+              !(isEmptyPlansCardDismissed && (plansSummary?.planSetCount ?? 0) === 0) ? (
                 <PlansMetresCard
                   plans={plansSummary ?? null}
                   projectId={summary.project.id}
                   errorMessage={sectionErrors?.plansSummary}
                   onLaunchMetre={
                     isReadOnlyReview ? undefined : () => setShowLaunchMetreDialog(true)
+                  }
+                  onDismissEmpty={
+                    isReadOnlyReview
+                      ? undefined
+                      : () => {
+                          setIsEmptyPlansCardDismissed(true);
+                        }
                   }
                 />
               ) : null}

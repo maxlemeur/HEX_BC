@@ -4926,30 +4926,61 @@ export async function fetchTakeoffDpgfSummaryForHub(input: {
   versionId: string;
   projectId: string;
 }): Promise<TakeoffDpgfComparisonSummary> {
-  const [takeoffItems, estimateItems, manualLinks, reviewDecisions] = await Promise.all([
-    listAllTakeoffItemsByJobId({
-      supabase: input.supabase,
-      tenantId: input.tenantId,
-      jobId: input.jobId,
-    }),
-    listTakeoffDpgfEstimateItems({
-      supabase: input.supabase,
-      tenantId: input.tenantId,
-      versionId: input.versionId,
-    }),
-    listTakeoffDpgfManualLinks({
-      supabase: input.supabase,
-      tenantId: input.tenantId,
-      versionId: input.versionId,
-      jobId: input.jobId,
-    }),
-    listTakeoffDpgfReviewDecisions({
-      supabase: input.supabase,
-      tenantId: input.tenantId,
-      versionId: input.versionId,
-      jobId: input.jobId,
-    }),
-  ]);
+  const accessibleJob = await assertTakeoffJobAccessibleForVersion({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+    jobId: input.jobId,
+  });
+
+  const carriedReviewDecisionsPromise = accessibleJob.linked_from_version_id
+    ? listTakeoffDpgfReviewDecisions({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: accessibleJob.linked_from_version_id,
+        jobId: input.jobId,
+      }).then((decisions) =>
+        decisions.map((decision) => ({
+          ...decision,
+          source: "carried_over" as const,
+          carried_over_from_version_id:
+            decision.carried_over_from_version_id ??
+            accessibleJob.linked_from_version_id ??
+            null,
+          carried_over_from_version_number:
+            decision.carried_over_from_version_number ??
+            accessibleJob.linked_from_version_number ??
+            null,
+        }))
+      )
+    : Promise.resolve([]);
+
+  const [takeoffItems, estimateItems, manualLinks, reviewDecisions, carriedReviewDecisions] =
+    await Promise.all([
+      listAllTakeoffItemsByJobId({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        jobId: input.jobId,
+      }),
+      listTakeoffDpgfEstimateItems({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+      }),
+      listTakeoffDpgfManualLinks({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+        jobId: input.jobId,
+      }),
+      listTakeoffDpgfReviewDecisions({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+        jobId: input.jobId,
+      }),
+      carriedReviewDecisionsPromise,
+    ]);
 
   const dominantSourceFileName =
     estimateItems.find((item) => item.source_file_name)?.source_file_name ?? null;
@@ -4975,6 +5006,7 @@ export async function fetchTakeoffDpgfSummaryForHub(input: {
     takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
     manualLinks,
     reviewDecisions,
+    carriedReviewDecisions,
     pageSize: 1,
   });
 

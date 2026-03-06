@@ -1,16 +1,57 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
-import { expect, test } from "@playwright/test";
+import { loadEnvConfig } from "@next/env";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { expect, test, type Page } from "@playwright/test";
+
+loadEnvConfig(path.resolve(__dirname, "../.."));
 
 import {
   buildEstimateName,
   createEstimateViaWizard,
+  duplicateEstimateViaApi,
   loginWithUi,
 } from "./helpers";
 
-const SAMPLE_PDF = path.join(__dirname, "../fixtures/sample-plan.pdf");
+function envOrThrow(name: string): string {
+  const value = process.env[name]?.trim();
+  if (value) return value;
+  throw new Error(`Missing required env var: ${name}`);
+}
 
-async function extractProjectId(page: import("@playwright/test").Page, versionId: string) {
+let supabaseClient: SupabaseClient | null = null;
+
+async function getAuthenticatedSupabaseClient(): Promise<SupabaseClient> {
+  if (supabaseClient) return supabaseClient;
+
+  const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
+  const serviceRoleKey = process.env.E2E_SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  if (serviceRoleKey) {
+    supabaseClient = createClient(url, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    return supabaseClient;
+  }
+
+  const anonKey = envOrThrow("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  const email = envOrThrow("E2E_LOGIN_EMAIL");
+  const password = envOrThrow("E2E_LOGIN_PASSWORD");
+
+  supabaseClient = createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) {
+    throw new Error(`Supabase sign-in failed: ${error.message}`);
+  }
+
+  return supabaseClient;
+}
+
+async function extractProjectId(page: Page, versionId: string) {
   const response = await page.request.get(`/api/estimates/${versionId}`, {
     failOnStatusCode: false,
   });
@@ -31,104 +72,259 @@ async function extractProjectId(page: import("@playwright/test").Page, versionId
   return projectId as string;
 }
 
-test.describe("V3-005 — Card Plans & Metres dans le hub affaire", () => {
+async function getTenantIdForVersion(versionId: string) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const { data, error } = await sb
+    .from("estimate_versions")
+    .select("tenant_id")
+    .eq("id", versionId)
+    .single();
+
+  if (error) {
+    throw new Error(`Cannot resolve tenant for version: ${error.message}`);
+  }
+
+  const tenantId = (data as { tenant_id?: string }).tenant_id;
+  if (!tenantId) {
+    throw new Error("Missing tenant_id for version.");
+  }
+
+  return tenantId;
+}
+
+async function seedPlanSetWithFile(input: {
+  projectId: string;
+  versionId: string;
+  tenantId: string;
+  name: string;
+}) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const planSetId = randomUUID();
+
+  const { error: setError } = await sb.from("plan_sets").insert({
+    id: planSetId,
+    tenant_id: input.tenantId,
+    project_id: input.projectId,
+    estimate_version_id: input.versionId,
+    name: input.name,
+    description: "E2E seeded plan set",
+  });
+
+  if (setError) {
+    throw new Error(`Seed plan set failed: ${setError.message}`);
+  }
+
+  const { error: fileError } = await sb.from("plan_files").insert({
+    id: randomUUID(),
+    tenant_id: input.tenantId,
+    plan_set_id: planSetId,
+    file_path: `e2e/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.pdf`,
+    file_name: "e2e-plan.pdf",
+    file_type: "application/pdf",
+    file_size_bytes: 245760,
+    page_count: 2,
+  });
+
+  if (fileError) {
+    throw new Error(`Seed plan file failed: ${fileError.message}`);
+  }
+}
+
+async function seedCompletedTakeoffJob(input: {
+  versionId: string;
+  tenantId: string;
+  sourceFileName: string;
+}) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const nowIso = new Date().toISOString();
+  const jobId = randomUUID();
+  const resultId = randomUUID();
+
+  const { error: jobError } = await sb.from("takeoff_jobs").insert({
+    id: jobId,
+    tenant_id: input.tenantId,
+    estimate_version_id: input.versionId,
+    level: "A",
+    status: "completed",
+    source_file_name: input.sourceFileName,
+    source_file_type: "application/pdf",
+    source_file_size_bytes: 1024,
+    schema_version: "v1",
+    started_at: nowIso,
+    completed_at: nowIso,
+  });
+
+  if (jobError) {
+    throw new Error(`Seed takeoff job failed: ${jobError.message}`);
+  }
+
+  const { error: resultError } = await sb.from("takeoff_results").insert({
+    id: resultId,
+    tenant_id: input.tenantId,
+    job_id: jobId,
+    extracted_json: {},
+    warnings: [],
+    tables: [],
+  });
+
+  if (resultError) {
+    throw new Error(`Seed takeoff result failed: ${resultError.message}`);
+  }
+
+  const { error: itemError } = await sb.from("takeoff_items").insert({
+    id: randomUUID(),
+    tenant_id: input.tenantId,
+    job_id: jobId,
+    result_id: resultId,
+    designation: "Reserve technique inutile",
+    quantity: 4,
+    unit: "u",
+    confidence: 0.94,
+    evidence: "preuve e2e",
+    source_file_name: input.sourceFileName,
+    source_page: 1,
+    metadata: {},
+    is_excluded: false,
+    is_verified: false,
+  });
+
+  if (itemError) {
+    throw new Error(`Seed takeoff item failed: ${itemError.message}`);
+  }
+
+  return { jobId };
+}
+
+async function seedVersionLink(input: {
+  tenantId: string;
+  jobId: string;
+  sourceVersionId: string;
+  targetVersionId: string;
+}) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const { error } = await sb.from("takeoff_version_links").insert({
+    id: randomUUID(),
+    tenant_id: input.tenantId,
+    takeoff_job_id: input.jobId,
+    source_version_id: input.sourceVersionId,
+    target_version_id: input.targetVersionId,
+  });
+
+  if (error) {
+    throw new Error(`Seed takeoff version link failed: ${error.message}`);
+  }
+}
+
+test.describe("V3-005 — Plans, preuves & exceptions dans le hub affaire", () => {
   test.beforeEach(async ({ page }) => {
     await loginWithUi(page);
   });
 
-  test("hub affaire sans plans — empty state visible", async ({ page }) => {
-    // 1. Create a fresh affaire (no plans uploaded yet)
-    const projectName = buildEstimateName("V3005-NOPLAN");
+  test("hub affaire sans plans — empty state dismissable", async ({ page }) => {
     const { versionId } = await createEstimateViaWizard(page, {
-      projectName,
+      projectName: buildEstimateName("V3005-NOPLAN"),
       title: "V3-005 Hub sans plans",
     });
-
     const projectId = await extractProjectId(page, versionId);
 
-    // 2. Navigate to hub affaire
     await page.goto(`/dashboard/affaires/${projectId}`);
 
-    // 3. Verify the PlansMetresCard renders with empty state
-    //    (only visible if takeoff module is enabled for the tenant)
-    const plansSection = page.locator("section").filter({ hasText: "Plans & Metres" });
+    const plansSection = page
+      .locator("section")
+      .filter({ hasText: "Plans, preuves & exceptions" });
+    await expect(plansSection).toBeVisible();
 
-    // If takeoff is disabled for this tenant, the card won't appear — skip gracefully
-    const cardVisible = await plansSection.isVisible().catch(() => false);
-    if (!cardVisible) {
-      // Feature flag is off — test that the card is NOT rendered (AC: gate)
-      await expect(plansSection).toBeHidden();
-      return;
-    }
+    await expect(
+      plansSection.getByText("Importez vos plans pour lancer l'analyse")
+    ).toBeVisible();
+    await expect(
+      plansSection.getByRole("link", { name: "Ajouter les plans" })
+    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/plans`);
 
-    // 4. Verify empty state content
-    await expect(plansSection.getByText("Ajoutez vos plans")).toBeVisible();
-    await expect(plansSection.getByText("Importer des plans")).toBeVisible();
-
-    // 5. Verify the CTA link points to the plans page
-    const importLink = plansSection.getByRole("link", { name: /Importer des plans/i });
-    await expect(importLink).toHaveAttribute("href", `/dashboard/affaires/${projectId}/plans`);
+    await plansSection.getByRole("button", { name: "Continuer sans plans" }).click();
+    await expect(plansSection).toBeHidden();
   });
 
-  test("hub affaire avec plans — summary card affiche les donnees", async ({ page }) => {
-    // 1. Create an affaire
-    const projectName = buildEstimateName("V3005-PLANS");
+  test("hub affaire avec plans — card title and actions are updated", async ({ page }) => {
     const { versionId } = await createEstimateViaWizard(page, {
-      projectName,
+      projectName: buildEstimateName("V3005-PLANS"),
       title: "V3-005 Hub avec plans",
     });
-
     const projectId = await extractProjectId(page, versionId);
+    const tenantId = await getTenantIdForVersion(versionId);
 
-    // 2. Go to Plan Center and create a plan set with a file
-    await page.goto(`/dashboard/affaires/${projectId}/plans`);
+    await seedPlanSetWithFile({
+      projectId,
+      versionId,
+      tenantId,
+      name: "Lot CVC",
+    });
 
-    // Check that the page loaded (if takeoff is disabled, skip)
-    const pageHeading = page.getByRole("heading", { name: /Plans/i });
-    const plansPageLoaded = await pageHeading.isVisible({ timeout: 5_000 }).catch(() => false);
-    if (!plansPageLoaded) {
-      // Takeoff module not enabled — skip
-      return;
-    }
-
-    // Create a plan set
-    await page.getByRole("button", { name: /Creer.*jeu de plans/i }).first().click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await dialog.getByLabel(/Nom/i).fill("Lot CVC");
-    await dialog.getByRole("button", { name: /Creer|Créer/i }).click();
-    await expect(dialog).toBeHidden({ timeout: 10_000 });
-
-    // Expand the set and upload a PDF
-    await page.getByText("Lot CVC").click();
-    const fileInput = page.locator("input[type='file'][accept*='pdf']").first();
-    await fileInput.setInputFiles(SAMPLE_PDF);
-
-    // Wait for upload to complete
-    await expect(page.getByText("sample-plan.pdf")).toBeVisible({ timeout: 15_000 });
-
-    // 3. Navigate back to the hub affaire
     await page.goto(`/dashboard/affaires/${projectId}`);
 
-    // 4. Verify the PlansMetresCard shows data (not empty state)
-    const plansSection = page.locator("section").filter({ hasText: "Plans & Metres" });
-    await expect(plansSection).toBeVisible({ timeout: 10_000 });
+    const plansSection = page
+      .locator("section")
+      .filter({ hasText: "Plans, preuves & exceptions" });
+    await expect(plansSection).toBeVisible();
 
-    // Should NOT show empty state
-    await expect(plansSection.getByText("Ajoutez vos plans")).toBeHidden();
+    await expect(plansSection.getByText(/1 jeu/i)).toBeVisible();
+    await expect(plansSection.getByText(/1 fichier/i)).toBeVisible();
+    await expect(
+      plansSection.getByRole("link", { name: "Voir les plans" })
+    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/plans`);
+    await expect(
+      plansSection.getByRole("button", { name: "Analyser les plans" })
+    ).toBeVisible();
+  });
 
-    // Should show plan set count badge
-    await expect(plansSection.getByText(/1 jeu/)).toBeVisible();
+  test("hub affaire carry-over — exceptions link targets the current linked version", async ({
+    page,
+  }) => {
+    const { versionId: sourceVersionId } = await createEstimateViaWizard(page, {
+      projectName: buildEstimateName("V3005-CARRY"),
+      title: "V3-005 Hub carry-over",
+    });
+    const projectId = await extractProjectId(page, sourceVersionId);
+    const targetVersionId = await duplicateEstimateViaApi(page, sourceVersionId);
+    const tenantId = await getTenantIdForVersion(sourceVersionId);
 
-    // Should show file count and size
-    await expect(plansSection.getByText(/1 fichier/)).toBeVisible();
+    await seedPlanSetWithFile({
+      projectId,
+      versionId: targetVersionId,
+      tenantId,
+      name: "Plans carry-over",
+    });
 
-    // Should have "Voir les plans" link
-    const voirLesPlansLink = plansSection.getByRole("link", { name: /Voir les plans/i });
-    await expect(voirLesPlansLink).toBeVisible();
-    await expect(voirLesPlansLink).toHaveAttribute("href", `/dashboard/affaires/${projectId}/plans`);
+    const { jobId } = await seedCompletedTakeoffJob({
+      versionId: sourceVersionId,
+      tenantId,
+      sourceFileName: "carry-over.pdf",
+    });
 
-    // Should have "Lancer un metre" button (disabled, pending V3-009)
-    await expect(plansSection.getByRole("button", { name: /Lancer un metre/i })).toBeVisible();
+    await seedVersionLink({
+      tenantId,
+      jobId,
+      sourceVersionId,
+      targetVersionId,
+    });
+
+    await page.goto(`/dashboard/affaires/${projectId}`);
+
+    await expect(
+      page.getByRole("link", { name: /Version 2 .*Courante/i })
+    ).toBeVisible();
+
+    const plansSection = page
+      .locator("section")
+      .filter({ hasText: "Plans, preuves & exceptions" });
+    await expect(plansSection).toBeVisible();
+
+    const exceptionsLink = plansSection.getByRole("link", {
+      name: "Voir les exceptions",
+    });
+    await expect(exceptionsLink).toHaveAttribute(
+      "href",
+      `/dashboard/affaires/${projectId}/takeoff/${jobId}/review?versionId=${targetVersionId}&view=dpgf&dpgfView=exceptions_only`
+    );
   });
 });

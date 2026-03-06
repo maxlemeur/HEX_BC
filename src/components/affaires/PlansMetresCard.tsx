@@ -18,7 +18,7 @@ export type AffaireHubPlansSummaryData = {
     jobId: string;
     status: "running" | "done" | "failed" | "review_required";
     label: string;
-    estimateVersionId: string;
+    reviewVersionId: string;
   } | null;
   coveragePercent: number | null;
   exceptionCount: number | null;
@@ -274,7 +274,7 @@ export function PlansMetresCard({
           (latestJob.status === "done" ||
             latestJob.status === "review_required") && (
             <Link
-              href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.estimateVersionId}&view=dpgf&dpgfView=exceptions_only`}
+              href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`}
               className="btn btn-secondary btn-sm inline-flex"
             >
               Voir les exceptions

@@ -74,17 +74,29 @@ function createFromMock(
   tableScenarios: Record<string, TableQueryScenario[]>
 ) {
   return vi.fn((table: string) => {
-    const queue = tableScenarios[table];
-    if (!queue || queue.length === 0) {
-      throw new Error(`Unexpected from() table call: ${table}`);
-    }
-
-    const scenario = queue.shift()!;
     const defaultResult: QueryResult = {
       data: null,
       error: null,
       count: null,
     };
+    const queue = tableScenarios[table];
+
+    if ((!queue || queue.length === 0) &&
+      (table === "estimate_versions" || table === "takeoff_version_links")) {
+      tableScenarios[table] = [
+        {
+          maybeSingle: defaultResult,
+          limit: defaultResult,
+        },
+      ];
+    }
+
+    const effectiveQueue = tableScenarios[table];
+    if (!effectiveQueue || effectiveQueue.length === 0) {
+      throw new Error(`Unexpected from() table call: ${table}`);
+    }
+
+    const scenario = effectiveQueue.shift()!;
 
     const builder = {
       select: vi.fn(),
@@ -783,7 +795,7 @@ describe("affaires hub server", () => {
         jobId: "job-1",
         status: "review_required",
         label: "Analyse a verifier",
-        estimateVersionId: "ver-1",
+        reviewVersionId: "ver-1",
       },
       coveragePercent: 70,
       exceptionCount: 2,
@@ -1064,7 +1076,7 @@ describe("affaires hub server", () => {
       jobId: "job-2",
       status: "running",
       label: "Analyse en attente",
-      estimateVersionId: "ver-2",
+      reviewVersionId: "ver-2",
     });
     expect(summary.coveragePercent).toBeNull();
     expect(summary.exceptionCount).toBeNull();
@@ -1127,7 +1139,7 @@ describe("affaires hub server", () => {
       jobId: "job-3",
       status: "failed",
       label: "Analyse echouee",
-      estimateVersionId: "ver-3",
+      reviewVersionId: "ver-3",
     });
     expect(summary.failureReasonLabel).toBe("Delai depasse");
   });
@@ -1323,6 +1335,94 @@ describe("affaires hub server", () => {
     expect(summary.exceptionCount).toBe(0);
   });
 
+  it("prefers the current linked version for the review CTA", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Carry Review",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: { data: null, count: 1, error: null },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-carry",
+                status: "completed",
+                level: "A",
+                source_file_name: "carry.pdf",
+                created_at: "2026-03-05T11:00:00+00:00",
+                error_code: null,
+                error_message: null,
+                estimate_version_id: "ver-source",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          { limit: { data: null, count: 1, error: null } },
+          { limit: { data: [{ file_size_bytes: 100 }], error: null } },
+        ],
+        estimate_versions: [
+          {
+            maybeSingle: {
+              data: { id: "ver-target" },
+              error: null,
+            },
+          },
+        ],
+        takeoff_version_links: [
+          {
+            maybeSingle: {
+              data: { target_version_id: "ver-target" },
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(fetchTakeoffDpgfSummaryForHub).mockResolvedValue({
+      reliable_matches: 1,
+      to_confirm: 0,
+      significant_gaps: 0,
+      forced_manual: 0,
+      lines_without_proof: 0,
+      unused_takeoff_items: 0,
+      total_lines: 1,
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(fetchTakeoffDpgfSummaryForHub).toHaveBeenCalledWith({
+      supabase: context.supabase,
+      tenantId: TENANT_ID,
+      jobId: "job-carry",
+      versionId: "ver-target",
+      projectId: PROJECT_ID,
+    });
+    expect(summary.latestJob?.reviewVersionId).toBe("ver-target");
+  });
+
   it("returns null coverage when compare engine fails (degraded state)", async () => {
     const context = createHubContext({
       tableScenarios: {
@@ -1381,8 +1481,8 @@ describe("affaires hub server", () => {
 
     expect(summary.coveragePercent).toBeNull();
     expect(summary.exceptionCount).toBeNull();
-    expect(summary.latestJob?.status).toBe("done");
-    expect(summary.latestJob?.label).toBe("Analyse terminee");
+    expect(summary.latestJob?.status).toBe("review_required");
+    expect(summary.latestJob?.label).toBe("Analyse a verifier");
   });
 
   it("returns NOT_FOUND when project is not accessible", async () => {

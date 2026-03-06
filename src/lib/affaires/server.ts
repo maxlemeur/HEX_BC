@@ -151,7 +151,7 @@ export type AffaireHubPlansSummaryResult = {
     jobId: string;
     status: "running" | "done" | "failed" | "review_required";
     label: string;
-    estimateVersionId: string;
+    reviewVersionId: string;
   } | null;
   coveragePercent: number | null;
   exceptionCount: number | null;
@@ -537,6 +537,58 @@ function mapJobStatusToFE(
   }
 }
 
+async function resolveTakeoffReviewVersionId(input: {
+  context: AffaireContext;
+  projectId: string;
+  sourceVersionId: string;
+  jobId: string;
+}) {
+  const { data: currentVersionData, error: currentVersionError } = await input.context.supabase
+    .from("estimate_versions" as never)
+    .select("id" as never)
+    .eq("tenant_id" as never, input.context.tenantId as never)
+    .eq("project_id" as never, input.projectId as never)
+    .order("version_number" as never, { ascending: false })
+    .order("updated_at" as never, { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (currentVersionError) {
+    throw mapSupabaseError(
+      currentVersionError,
+      "Impossible de resoudre la version courante pour la revue takeoff."
+    );
+  }
+
+  const currentVersionRow = (currentVersionData ?? null) as { id: string } | null;
+  const currentVersionId =
+    currentVersionRow && typeof currentVersionRow.id === "string"
+      ? currentVersionRow.id
+      : null;
+
+  if (!currentVersionId || currentVersionId === input.sourceVersionId) {
+    return input.sourceVersionId;
+  }
+
+  const { data: linkData, error: linkError } = await input.context.supabase
+    .from("takeoff_version_links" as never)
+    .select("target_version_id" as never)
+    .eq("tenant_id" as never, input.context.tenantId as never)
+    .eq("takeoff_job_id" as never, input.jobId as never)
+    .eq("target_version_id" as never, currentVersionId as never)
+    .limit(1)
+    .maybeSingle();
+
+  if (linkError) {
+    throw mapSupabaseError(
+      linkError,
+      "Impossible de resoudre la version de revue takeoff."
+    );
+  }
+
+  return linkData ? currentVersionId : input.sourceVersionId;
+}
+
 async function fetchAffaireHubPlansSummaryWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
@@ -643,6 +695,12 @@ async function fetchAffaireHubPlansSummaryWithContext(
   if (latestJobRow) {
     const isCompletedOrApplied =
       latestJobRow.status === "completed" || latestJobRow.status === "applied";
+    const reviewVersionId = await resolveTakeoffReviewVersionId({
+      context,
+      projectId: project.id,
+      sourceVersionId: latestJobRow.estimate_version_id,
+      jobId: latestJobRow.id,
+    });
 
     if (isCompletedOrApplied) {
       try {
@@ -650,7 +708,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
           supabase: context.supabase,
           tenantId: context.tenantId,
           jobId: latestJobRow.id,
-          versionId: latestJobRow.estimate_version_id,
+          versionId: reviewVersionId,
           projectId: project.id,
         });
 
@@ -678,12 +736,15 @@ async function fetchAffaireHubPlansSummaryWithContext(
         : null;
     }
 
-    const mapped = mapJobStatusToFE(latestJobRow.status, exceptionCount ?? 0);
+    const mapped =
+      isCompletedOrApplied && (coveragePercent === null || exceptionCount === null)
+        ? { status: "review_required" as const, label: "Analyse a verifier" }
+        : mapJobStatusToFE(latestJobRow.status, exceptionCount ?? 0);
     latestJob = {
       jobId: latestJobRow.id,
       status: mapped.status,
       label: mapped.label,
-      estimateVersionId: latestJobRow.estimate_version_id,
+      reviewVersionId,
     };
   }
 
