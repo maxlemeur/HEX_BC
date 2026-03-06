@@ -485,34 +485,6 @@ async function seedCompletedTakeoffJob(input: {
   };
 }
 
-async function seedManualLinks(input: {
-  tenantId: string;
-  versionId: string;
-  jobId: string;
-  linkedBy: string;
-  links: Array<{
-    estimateItemId: string;
-    takeoffItemId: string;
-  }>;
-}) {
-  const sb = await getAuthenticatedSupabaseClient();
-  const { error } = await sb.from("takeoff_dpgf_links").insert(
-    input.links.map((link) => ({
-      id: randomUUID(),
-      tenant_id: input.tenantId,
-      version_id: input.versionId,
-      takeoff_job_id: input.jobId,
-      estimate_item_id: link.estimateItemId,
-      takeoff_item_id: link.takeoffItemId,
-      linked_by: input.linkedBy,
-    })) as never
-  );
-
-  if (error) {
-    throw new Error(`Seed takeoff manual links failed: ${error.message}`);
-  }
-}
-
 async function seedReviewDecision(input: {
   tenantId: string;
   versionId: string;

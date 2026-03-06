@@ -1914,6 +1914,16 @@ function createListEstimateItemsSupabaseMock() {
     error: null,
   });
 
+  const draftApplicationsBuilder = {
+    eq: vi.fn(),
+    in: vi.fn(),
+  };
+  draftApplicationsBuilder.eq.mockReturnValue(draftApplicationsBuilder);
+  draftApplicationsBuilder.in.mockResolvedValue({
+    data: [],
+    error: null,
+  });
+
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -1959,6 +1969,12 @@ function createListEstimateItemsSupabaseMock() {
       if (table === "takeoff_version_links") {
         return {
           select: vi.fn(() => takeoffVersionLinksBuilder),
+        };
+      }
+
+      if (table === "estimate_structure_draft_applications") {
+        return {
+          select: vi.fn(() => draftApplicationsBuilder),
         };
       }
 

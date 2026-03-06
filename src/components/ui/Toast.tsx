@@ -55,8 +55,6 @@ const TOAST_VARIANTS: Record<ToastVariant, string> = {
   info: "border-info/30 bg-info-light text-slate-800",
 };
 
-let hasWarnedAboutMissingToastProvider = false;
-
 const missingToastProviderFallback: ToastContextValue = {
   push: () => MISSING_PROVIDER_TOAST_ID,
   dismiss: () => {},
@@ -270,12 +268,24 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
 
 export function useToast() {
   const context = useContext(ToastContext);
-  if (!context) {
-    if (process.env.NODE_ENV !== "production" && !hasWarnedAboutMissingToastProvider) {
-      hasWarnedAboutMissingToastProvider = true;
+  const hasWarnedAboutMissingToastProviderRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      !context &&
+      process.env.NODE_ENV !== "production" &&
+      !hasWarnedAboutMissingToastProviderRef.current
+    ) {
+      hasWarnedAboutMissingToastProviderRef.current = true;
       console.error("useToast called without ToastProvider. Toasts will be ignored.");
     }
 
+    if (context) {
+      hasWarnedAboutMissingToastProviderRef.current = false;
+    }
+  }, [context]);
+
+  if (!context) {
     return missingToastProviderFallback;
   }
 

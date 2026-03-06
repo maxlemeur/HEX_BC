@@ -10,23 +10,38 @@ import type {
   TakeoffLineEvidenceStatus,
 } from "@/lib/takeoff/types";
 
+type EvidenceSelectResult = {
+  data: unknown[] | null;
+  error: unknown | null;
+};
+
+type EvidenceMutationResult = {
+  error: unknown | null;
+};
+
+type EvidenceSupabaseSelectBuilder = PromiseLike<EvidenceSelectResult> & {
+  eq: (column: string, value: unknown) => EvidenceSupabaseSelectBuilder;
+  in: (column: string, values: unknown[]) => EvidenceSupabaseSelectBuilder;
+  is: (column: string, value: unknown) => EvidenceSupabaseSelectBuilder;
+  order: (
+    column: string,
+    options?: { ascending?: boolean }
+  ) => Promise<EvidenceSelectResult>;
+};
+
+type EvidenceSupabaseUpdateBuilder = {
+  eq: (column: string, value: unknown) => EvidenceSupabaseUpdateBuilder;
+  in: (column: string, values: unknown[]) => Promise<EvidenceMutationResult>;
+};
+
+type EvidenceSupabaseTable = {
+  select: (columns: string) => EvidenceSupabaseSelectBuilder;
+  update?: (payload: Record<string, unknown>) => EvidenceSupabaseUpdateBuilder;
+  insert?: (payload: Record<string, unknown>[]) => Promise<EvidenceMutationResult>;
+};
+
 type EvidenceSupabaseClient = {
-  from: (table: string) => {
-    select: (columns: string) => {
-      eq: (column: string, value: unknown) => any;
-      in: (column: string, values: unknown[]) => any;
-      is: (column: string, value: unknown) => any;
-      order: (column: string, options?: { ascending?: boolean }) => any;
-      then?: (resolve: (value: { data: unknown[] | null; error: unknown | null }) => unknown) => unknown;
-    };
-    update?: (payload: Record<string, unknown>) => {
-      eq: (column: string, value: unknown) => any;
-      in: (column: string, values: unknown[]) => Promise<{ error: unknown | null }>;
-    };
-    insert?: (
-      payload: Record<string, unknown>[]
-    ) => Promise<{ error: unknown | null }>;
-  };
+  from: (table: string) => EvidenceSupabaseTable;
 };
 
 type SupplierPriceEvidenceRow = {

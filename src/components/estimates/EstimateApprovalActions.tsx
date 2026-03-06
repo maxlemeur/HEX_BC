@@ -611,8 +611,8 @@ export function EstimateApprovalActions({
                 Commentaires de validation
               </h3>
               <p className="mt-1 text-xs text-[var(--slate-500)]">
-                Ciblez l'affaire, un lot, une ligne ou une exception sans ouvrir
-                l'éditeur complet.
+                Ciblez l&apos;affaire, un lot, une ligne ou une exception sans
+                ouvrir l&apos;éditeur complet.
               </p>
             </div>
             {activeCycle ? (
@@ -856,7 +856,7 @@ export function EstimateApprovalActions({
 
           {latestReview.comments.length === 0 ? (
             <p className="mt-4 text-sm text-[var(--slate-600)]">
-              Aucun commentaire ciblé n'a été enregistré sur ce cycle.
+              Aucun commentaire ciblé n&apos;a été enregistré sur ce cycle.
             </p>
           ) : (
             <div className="mt-4 space-y-4">
