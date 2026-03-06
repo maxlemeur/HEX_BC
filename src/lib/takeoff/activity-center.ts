@@ -2,6 +2,7 @@ import { getAuthenticatedContext } from "@/lib/estimates/server";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import {
   getBusinessLevelLabel,
   getBusinessStatusLabel,
@@ -19,6 +20,7 @@ import type {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const VERSIONS_BATCH_SIZE = 1000;
+const JOBS_BATCH_SIZE = 1000;
 
 const TAKEOFF_JOB_LIST_PERIOD_DAYS: Record<string, number> = {
   "7d": 7,
@@ -43,6 +45,29 @@ type ListActivityCenterJobsInput = {
 /* ─── Helpers ─── */
 
 type SupabaseClient = Awaited<ReturnType<typeof getAuthenticatedContext>>["supabase"];
+
+type JobRow = {
+  id: string;
+  estimate_version_id: string;
+  source_file_name: string | null;
+  source_file_type: string | null;
+  level: string;
+  status: string;
+  created_at: string;
+  retry_count: number;
+};
+
+type ResolvedJobSource = {
+  planSetId: string;
+  planSetLabel: string;
+  lotLabel: string | null;
+};
+
+type PlanSourceCandidate = ResolvedJobSource & {
+  estimateVersionId: string | null;
+  fileCreatedAt: string;
+  planSetCreatedAt: string;
+};
 
 async function resolveVersionIdsForProject(
   supabase: SupabaseClient,
@@ -87,6 +112,15 @@ function resolvePeriodStart(period: string | null | undefined): string | null {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+function toNormalizedSourceFileKey(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLocaleLowerCase("fr-FR");
+  return normalized.length > 0 ? normalized : null;
+}
+
 type FilterableQuery = {
   eq: (col: string, val: string) => FilterableQuery;
   gte: (col: string, val: string) => FilterableQuery;
@@ -125,6 +159,252 @@ function applyFilters<T extends FilterableQuery>(
   }
 
   return q;
+}
+
+function comparePlanSourceCandidates(
+  left: PlanSourceCandidate,
+  right: PlanSourceCandidate,
+  estimateVersionId: string
+) {
+  const leftRank =
+    left.estimateVersionId === estimateVersionId
+      ? 0
+      : left.estimateVersionId === null
+        ? 1
+        : 2;
+  const rightRank =
+    right.estimateVersionId === estimateVersionId
+      ? 0
+      : right.estimateVersionId === null
+        ? 1
+        : 2;
+
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+
+  const fileDateComparison = right.fileCreatedAt.localeCompare(left.fileCreatedAt);
+  if (fileDateComparison !== 0) {
+    return fileDateComparison;
+  }
+
+  return right.planSetCreatedAt.localeCompare(left.planSetCreatedAt);
+}
+
+async function listMatchingJobs(
+  supabase: SupabaseClient,
+  tenantId: string,
+  filterOpts: {
+    versionIds: string[];
+    level?: string | null;
+    period?: string | null;
+  }
+): Promise<JobRow[]> {
+  const jobs: JobRow[] = [];
+  let offset = 0;
+
+  while (true) {
+    const end = offset + JOBS_BATCH_SIZE - 1;
+    const query = applyFilters(
+      supabase
+        .from("takeoff_jobs" as never)
+        .select(
+          "id, estimate_version_id, source_file_name, source_file_type, level, status, created_at, retry_count" as never
+        )
+        .eq("tenant_id" as never, tenantId as never),
+      filterOpts
+    );
+
+    const { data, error } = await (query as ReturnType<typeof supabase.from>)
+      .order("created_at" as never, { ascending: false })
+      .order("id" as never, { ascending: false })
+      .range(offset as never, end as never);
+
+    if (error) {
+      throw toTakeoffError(
+        mapSupabaseError(error, "Impossible de charger les jobs du centre d'activite."),
+        { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false }
+      );
+    }
+
+    const rows = (data ?? []) as JobRow[];
+    if (rows.length === 0) {
+      break;
+    }
+
+    jobs.push(...rows);
+
+    if (rows.length < JOBS_BATCH_SIZE) {
+      break;
+    }
+
+    offset += rows.length;
+  }
+
+  return jobs;
+}
+
+async function resolvePlanSourceCandidatesForProject(
+  supabase: SupabaseClient,
+  tenantId: string,
+  projectId: string
+): Promise<Map<string, PlanSourceCandidate[]>> {
+  const { data: planSetsData, error: planSetsError } = await supabase
+    .from("plan_sets" as never)
+    .select("id, name, metadata, estimate_version_id, created_at" as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("project_id" as never, projectId as never);
+
+  if (planSetsError) {
+    throw toTakeoffError(
+      mapSupabaseError(planSetsError, "Impossible de charger les jeux de plans."),
+      { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false }
+    );
+  }
+
+  const planSets = (planSetsData ?? []) as Array<{
+    id: string;
+    name: string;
+    metadata: Record<string, unknown> | null;
+    estimate_version_id: string | null;
+    created_at: string;
+  }>;
+
+  if (planSets.length === 0) {
+    return new Map();
+  }
+
+  const planSetById = new Map(planSets.map((planSet) => [planSet.id, planSet]));
+  const { data: planFilesData, error: planFilesError } = await supabase
+    .from("plan_files" as never)
+    .select("plan_set_id, file_name, created_at" as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .in(
+      "plan_set_id" as never,
+      planSets.map((planSet) => planSet.id) as never
+    );
+
+  if (planFilesError) {
+    throw toTakeoffError(
+      mapSupabaseError(planFilesError, "Impossible de charger les fichiers de plans."),
+      { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false }
+    );
+  }
+
+  const candidatesByFileName = new Map<string, PlanSourceCandidate[]>();
+
+  for (const planFile of (planFilesData ?? []) as Array<{
+    plan_set_id: string;
+    file_name: string | null;
+    created_at: string;
+  }>) {
+    const fileKey = toNormalizedSourceFileKey(planFile.file_name);
+    if (!fileKey) {
+      continue;
+    }
+
+    const planSet = planSetById.get(planFile.plan_set_id);
+    if (!planSet) {
+      continue;
+    }
+
+    const candidates = candidatesByFileName.get(fileKey) ?? [];
+    candidates.push({
+      planSetId: planSet.id,
+      planSetLabel: planSet.name,
+      lotLabel: resolveActivityCenterLotLabel({
+        name: planSet.name,
+        metadata: planSet.metadata,
+      }),
+      estimateVersionId: planSet.estimate_version_id,
+      fileCreatedAt: planFile.created_at,
+      planSetCreatedAt: planSet.created_at,
+    });
+    candidatesByFileName.set(fileKey, candidates);
+  }
+
+  return candidatesByFileName;
+}
+
+function resolveJobSource(
+  input: {
+    candidatesByFileName: Map<string, PlanSourceCandidate[]>;
+    sourceFileName: string | null;
+    estimateVersionId: string;
+    lot?: string | null;
+    planSetId?: string | null;
+  }
+): ResolvedJobSource | null {
+  const fileKey = toNormalizedSourceFileKey(input.sourceFileName);
+  if (!fileKey) {
+    return null;
+  }
+
+  const candidates = input.candidatesByFileName.get(fileKey) ?? [];
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const matchingCandidates = candidates.filter((candidate) => {
+    if (input.planSetId && candidate.planSetId !== input.planSetId) {
+      return false;
+    }
+
+    if (input.lot && candidate.lotLabel !== input.lot) {
+      return false;
+    }
+
+    return true;
+  });
+
+  const resolvedCandidates =
+    input.planSetId || input.lot ? matchingCandidates : candidates;
+  if (resolvedCandidates.length === 0) {
+    return null;
+  }
+
+  const [bestCandidate] = [...resolvedCandidates].sort((left, right) =>
+    comparePlanSourceCandidates(left, right, input.estimateVersionId)
+  );
+
+  return bestCandidate
+    ? {
+        planSetId: bestCandidate.planSetId,
+        planSetLabel: bestCandidate.planSetLabel,
+        lotLabel: bestCandidate.lotLabel,
+      }
+    : null;
+}
+
+async function countJobsWithBlockingExceptions(
+  supabase: SupabaseClient,
+  tenantId: string,
+  jobIds: string[]
+): Promise<number> {
+  if (jobIds.length === 0) {
+    return 0;
+  }
+
+  const jobsWithExceptions = new Set<string>();
+
+  for (let start = 0; start < jobIds.length; start += JOBS_BATCH_SIZE) {
+    const batch = jobIds.slice(start, start + JOBS_BATCH_SIZE);
+    const { data, error } = await supabase
+      .from("takeoff_dpgf_review_decisions" as never)
+      .select("takeoff_job_id" as never)
+      .eq("tenant_id" as never, tenantId as never)
+      .in("takeoff_job_id" as never, batch as never);
+
+    if (error) {
+      return 0;
+    }
+
+    for (const row of (data ?? []) as Array<{ takeoff_job_id: string }>) {
+      jobsWithExceptions.add(row.takeoff_job_id);
+    }
+  }
+
+  return jobsWithExceptions.size;
 }
 
 async function countItemsByJobId(
@@ -325,7 +605,6 @@ export async function listActivityCenterJobs(
 
   const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
   const offset = Math.max(input.offset ?? 0, 0);
-  const rangeEnd = offset + limit - 1;
 
   // 1. Resolve version IDs for the project
   const versions = await resolveVersionIdsForProject(
@@ -350,105 +629,67 @@ export async function listActivityCenterJobs(
       ? [input.versionId]
       : versionIds;
 
-  const filterOpts = {
+  const baseFilterOpts = {
     versionIds: effectiveVersionIds,
-    status: input.status,
     level: input.level,
     period: input.period,
   };
 
-  // 3. Query jobs for the current page
-  const jobsQuery = applyFilters(
-    supabase
-      .from("takeoff_jobs" as never)
-      .select(
-        "id, estimate_version_id, source_file_name, source_file_type, level, status, created_at, retry_count" as never,
-        { count: "exact" }
-      )
-      .eq("tenant_id" as never, tenantId as never),
-    filterOpts
+  // 3. Resolve all matching rows first so source filters and counters stay global.
+  const [allRows, planSourceCandidatesByFileName] = await Promise.all([
+    listMatchingJobs(supabase, tenantId, baseFilterOpts),
+    resolvePlanSourceCandidatesForProject(supabase, tenantId, input.project_id),
+  ]);
+
+  const resolvedSourceByJobId = new Map<string, ResolvedJobSource | null>(
+    allRows.map((row) => [
+      row.id,
+      resolveJobSource({
+        candidatesByFileName: planSourceCandidatesByFileName,
+        sourceFileName: row.source_file_name,
+        estimateVersionId: row.estimate_version_id,
+        lot: input.lot,
+        planSetId: input.planSetId,
+      }),
+    ])
   );
 
-  const { data, count, error } = await (jobsQuery as ReturnType<typeof supabase.from>)
-    .order("created_at" as never, { ascending: false })
-    .range(offset as never, rangeEnd as never);
+  const sourceFilteredRows =
+    input.lot || input.planSetId
+      ? allRows.filter((row) => resolvedSourceByJobId.get(row.id) !== null)
+      : allRows;
 
-  if (error) {
-    throw toTakeoffError(
-      mapSupabaseError(error, "Impossible de charger les jobs du centre d'activite."),
-      { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false }
-    );
-  }
+  const technicalCount = sourceFilteredRows.filter(
+    (row) => row.status === "pending" || row.status === "processing"
+  ).length;
+  const usableCount = sourceFilteredRows.filter(
+    (row) => row.status === "completed" || row.status === "applied"
+  ).length;
+  const blockingExceptionsCount = await countJobsWithBlockingExceptions(
+    supabase,
+    tenantId,
+    sourceFilteredRows
+      .filter((row) => row.status === "completed" || row.status === "applied")
+      .map((row) => row.id)
+  );
 
-  type JobRow = {
-    id: string;
-    estimate_version_id: string;
-    source_file_name: string | null;
-    source_file_type: string | null;
-    level: string;
-    status: string;
-    created_at: string;
-    retry_count: number;
-  };
-
-  const rows = (data ?? []) as JobRow[];
-  const total = count ?? 0;
-  const jobIds = rows.map((r) => r.id);
+  const statusFilteredRows = input.status
+    ? sourceFilteredRows.filter((row) => row.status === input.status)
+    : sourceFilteredRows;
+  const pagedRows = statusFilteredRows.slice(offset, offset + limit);
+  const total = statusFilteredRows.length;
+  const jobIds = pagedRows.map((row) => row.id);
 
   // 4. Item counts
   const itemCountMap = await countItemsByJobId(supabase, tenantId, jobIds);
 
-  // 5. Batch-enrich completed/applied jobs (single pass, not N+1)
-  const enrichableJobs = rows.filter(
+  // 5. Batch-enrich completed/applied jobs for the current page only.
+  const enrichableJobs = pagedRows.filter(
     (r) => r.status === "completed" || r.status === "applied"
   );
 
   const { confidence: confidenceMap, exceptions: exceptionMap, coverage: coverageMap, carryOver: carryOverMap } =
     await batchEnrich(supabase, tenantId, enrichableJobs);
-
-  // 6. Build counters across ALL matching jobs (not just current page)
-  const counterFilterOpts = {
-    versionIds: effectiveVersionIds,
-    level: input.level,
-    period: input.period,
-  };
-
-  const [technicalCount, usableCount] = await Promise.all([
-    (async () => {
-      const { count: c, error: e } = await applyFilters(
-        supabase
-          .from("takeoff_jobs" as never)
-          .select("id" as never, { count: "exact", head: true })
-          .eq("tenant_id" as never, tenantId as never),
-        { ...counterFilterOpts, status: null }
-      )
-        .in("status" as never, ["pending", "processing"] as never);
-
-      if (e) return 0;
-      return c ?? 0;
-    })(),
-    (async () => {
-      const { count: c, error: e } = await applyFilters(
-        supabase
-          .from("takeoff_jobs" as never)
-          .select("id" as never, { count: "exact", head: true })
-          .eq("tenant_id" as never, tenantId as never),
-        { ...counterFilterOpts, status: null }
-      )
-        .in("status" as never, ["completed", "applied"] as never);
-
-      if (e) return 0;
-      return c ?? 0;
-    })(),
-  ]);
-
-  // Count blocking exceptions from enrichment data
-  let blockingExceptionsCount = 0;
-  for (const job of enrichableJobs) {
-    if ((exceptionMap.get(job.id) ?? 0) > 0) {
-      blockingExceptionsCount++;
-    }
-  }
 
   const counters: TakeoffActivityCenterCounters = {
     technicalJobs: technicalCount,
@@ -457,19 +698,20 @@ export async function listActivityCenterJobs(
   };
 
   // 7. Map rows to response
-  const jobs: TakeoffActivityCenterJobRow[] = rows.map((row) => {
+  const jobs: TakeoffActivityCenterJobRow[] = pagedRows.map((row) => {
     const versionNumber = versionNumberMap.get(row.estimate_version_id);
     const isEnrichable = row.status === "completed" || row.status === "applied";
     const avgConfidence = isEnrichable
       ? (confidenceMap.get(row.id) ?? null)
       : null;
+    const resolvedSource = resolvedSourceByJobId.get(row.id) ?? null;
 
     return {
       jobId: row.id,
       estimateVersionId: row.estimate_version_id,
       versionLabel: versionNumber != null ? `V${versionNumber}` : row.estimate_version_id,
-      lotLabel: null,
-      planSetLabel: null,
+      lotLabel: resolvedSource?.lotLabel ?? null,
+      planSetLabel: resolvedSource?.planSetLabel ?? null,
       levelLabel: getBusinessLevelLabel(row.level) as TakeoffActivityCenterJobRow["levelLabel"],
       statusLabel: getBusinessStatusLabel(row.status),
       statusRaw: row.status,

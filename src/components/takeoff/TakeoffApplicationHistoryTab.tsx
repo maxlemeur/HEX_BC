@@ -13,12 +13,21 @@ import {
 
 type Props = {
   projectId: string;
+  versionId?: string | null;
 };
 
-export default function TakeoffApplicationHistoryTab({ projectId }: Props) {
+export default function TakeoffApplicationHistoryTab({
+  projectId,
+  versionId,
+}: Props) {
   const { data, isLoading } = useSWR(
-    ["history-applied-jobs", projectId],
-    () => listTakeoffJobs({ project_id: projectId, status: "applied" })
+    ["history-applied-jobs", projectId, versionId ?? "all"],
+    () =>
+      listTakeoffJobs({
+        project_id: projectId,
+        estimate_version_id: versionId ?? undefined,
+        status: "applied",
+      })
   );
 
   if (isLoading) return <JobsTableSkeleton />;

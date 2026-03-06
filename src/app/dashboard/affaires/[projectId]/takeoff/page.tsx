@@ -77,7 +77,11 @@ export default async function AffaireTakeoffPage({ params }: Props) {
       <TakeoffActivityCenter
         projectId={projectId}
         versions={versions}
-        planSets={planSets.map((ps) => ({ id: ps.id, name: ps.name }))}
+        planSets={planSets.map((ps) => ({
+          id: ps.id,
+          name: ps.name,
+          metadata: ps.metadata,
+        }))}
       />
     </>
   );

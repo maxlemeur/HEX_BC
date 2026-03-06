@@ -89,7 +89,7 @@ describe("GET /api/takeoff/activity-center", () => {
     });
 
     const request = buildGetRequest(
-      `http://localhost/api/takeoff/activity-center?project_id=${PROJECT_ID}&versionId=v1&status=completed&level=A&period=7d&limit=50&offset=10`
+      `http://localhost/api/takeoff/activity-center?project_id=${PROJECT_ID}&versionId=v1&lot=CVC&planSetId=set-1&status=completed&level=A&period=7d&limit=50&offset=10`
     );
     await GET(request);
 
@@ -97,6 +97,8 @@ describe("GET /api/takeoff/activity-center", () => {
       expect.objectContaining({
         project_id: PROJECT_ID,
         versionId: "v1",
+        lot: "CVC",
+        planSetId: "set-1",
         status: "completed",
         level: "A",
         period: "7d",

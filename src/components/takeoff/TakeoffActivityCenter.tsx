@@ -9,6 +9,7 @@ import {
   isTakeoffApiError,
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
+import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import {
   BUSINESS_STATUS_LABEL_MAP,
   BUSINESS_LEVEL_FILTER_OPTIONS,
@@ -26,7 +27,7 @@ import TakeoffApplicationHistoryTab from "./TakeoffApplicationHistoryTab";
 type Props = {
   projectId: string;
   versions: Array<{ id: string; version_number: number }>;
-  planSets: Array<{ id: string; name: string }>;
+  planSets: Array<{ id: string; name: string; metadata?: Record<string, unknown> | null }>;
 };
 
 const TABS = [
@@ -74,7 +75,10 @@ export default function TakeoffActivityCenter({
           params.set(key, value);
         }
       }
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      const nextSearch = params.toString();
+      router.push(nextSearch ? `${pathname}?${nextSearch}` : pathname, {
+        scroll: false,
+      });
     },
     [searchParams, router, pathname]
   );
@@ -105,6 +109,7 @@ export default function TakeoffActivityCenter({
           selectedLevel,
           selectedPeriod,
           pageOffset,
+          pageSize,
         ]
       : null,
     () =>
@@ -126,14 +131,21 @@ export default function TakeoffActivityCenter({
     }
   );
 
-  // Derive lot options from data
+  // Derive lot options from project-scoped plan-set metadata so filtering is stable across pages.
   const lotOptions = (() => {
     const lots = new Set<string>();
-    if (data?.jobs) {
-      for (const job of data.jobs) {
-        if (job.lotLabel) lots.add(job.lotLabel);
+
+    for (const planSet of planSets) {
+      const lotLabel = resolveActivityCenterLotLabel(planSet);
+      if (lotLabel) {
+        lots.add(lotLabel);
       }
     }
+
+    if (selectedLot !== "all") {
+      lots.add(selectedLot);
+    }
+
     return [
       { value: "all", label: "Tous les lots" },
       ...[...lots].sort().map((lot) => ({ value: lot, label: lot })),
@@ -401,7 +413,10 @@ export default function TakeoffActivityCenter({
           />
         )}
         {activeTab === "history" && (
-          <TakeoffApplicationHistoryTab projectId={projectId} />
+          <TakeoffApplicationHistoryTab
+            projectId={projectId}
+            versionId={selectedVersion !== "all" ? selectedVersion : null}
+          />
         )}
       </div>
     </div>
