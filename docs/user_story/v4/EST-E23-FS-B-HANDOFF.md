@@ -61,7 +61,7 @@ fetchDpgfTakeoffComparison(input: {
     reviewStatus: "reliable_match" | "to_confirm" | "significant_gap" | "unlinked" | "forced_manual";
     proofs: Array<{
       proofId: string;
-      type: "dpgf" | "takeoff" | "plan_zone" | "formula" | "comment";
+      type: "dpgf" | "takeoff" | "plan_zone" | "formula" | "price_source" | "comment";
       kind: "fact" | "hypothesis" | "inference";
       label: string;
       source: string;
@@ -133,23 +133,66 @@ linkDpgfLineToTakeoffItems(input: {
 }>;
 ```
 
+Note:
+- `rows[].proofs` est hydrate depuis la projection persistante `estimate_line_evidences`, pas depuis un calcul uniquement en memoire.
+- `linesWithoutProof` doit compter les lignes dont les preuves actives sont limitees a `dpgf`.
+
 ### 2) Evidence graph
 
 Server fetcher:
 ```ts
-fetchLineEvidencePanel(lineId: string): Promise<{
+fetchTakeoffLineEvidencePanel(input: {
+  versionId: string;
+  takeoffJobId: string;
   lineId: string;
+}): Promise<{
+  lineId: string;
+  versionId: string;
+  jobId: string;
   evidences: Array<{
     evidenceId: string;
     type: "dpgf" | "takeoff" | "plan_zone" | "formula" | "price_source" | "comment";
+    kind: "fact" | "hypothesis" | "inference";
     label: string;
     source: string;
-    confidence: number | null;
+    sourceFileName: string | null;
+    sourcePage: number | null;
+    confidenceScore: number | null;
+    note: string | null;
     createdAt: string;
     authorName: string | null;
+    status: "active" | "invalidated" | "replaced";
+    supersedesEvidenceId: string | null;
+    replacedByEvidenceId: string | null;
+  }>;
+  history: Array<{
+    evidenceId: string;
+    type: "dpgf" | "takeoff" | "plan_zone" | "formula" | "price_source" | "comment";
+    kind: "fact" | "hypothesis" | "inference";
+    label: string;
+    source: string;
+    sourceFileName: string | null;
+    sourcePage: number | null;
+    confidenceScore: number | null;
+    note: string | null;
+    createdAt: string;
+    authorName: string | null;
+    status: "active" | "invalidated" | "replaced";
+    supersedesEvidenceId: string | null;
+    replacedByEvidenceId: string | null;
   }>;
 }>;
 ```
+
+HTTP route:
+```http
+GET /api/takeoff/jobs/:jobId/lines/:lineId/evidence?version_id=:versionId
+```
+
+Notes:
+- Scope canonique: `line + version + job`, pas `line` seul.
+- Le panneau UX detaille reste delegue; FS-B livre ici le contrat, l'historique et la provenance.
+- L'export PDF / annexe des preuves principales est hors scope `EST-391`.
 
 ### 3) Suggestion de prix
 

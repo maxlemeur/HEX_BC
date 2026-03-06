@@ -18,6 +18,9 @@ describe("schema regressions", () => {
   const takeoffDpgfReviewDecisionsMigrationSql = readSql(
     "supabase/migrations/20260306153000_v3_010_takeoff_review_decisions_and_multi_links.sql"
   );
+  const estimateLineEvidenceMigrationSql = readSql(
+    "supabase/migrations/20260306213000_est391_line_evidence_graph.sql"
+  );
   const structureDraftAtomicApplyMigrationSql = readSql(
     "supabase/migrations/20260306200000_est382_structure_draft_atomic_apply_fix.sql"
   );
@@ -152,6 +155,30 @@ describe("schema regressions", () => {
     );
     expect(takeoffDpgfReviewDecisionsMigrationSql).toMatch(
       /insert into public\.takeoff_dpgf_review_decisions[\s\S]*carried_over_from_version_id[\s\S]*carried_over_at/
+    );
+  });
+
+  it("defines persistent line evidences with partial indexes and strict RLS", () => {
+    expect(estimateLineEvidenceMigrationSql).toMatch(
+      /create table if not exists public\.estimate_line_evidences/
+    );
+    expect(estimateLineEvidenceMigrationSql).toMatch(
+      /evidence_type in \('dpgf', 'takeoff', 'plan_zone', 'formula', 'price_source', 'comment'\)/
+    );
+    expect(estimateLineEvidenceMigrationSql).toMatch(
+      /create unique index if not exists estimate_line_evidences_active_fingerprint_idx[\s\S]*where invalidated_at is null/
+    );
+    expect(estimateLineEvidenceMigrationSql).toMatch(
+      /create index if not exists estimate_line_evidences_project_type_idx[\s\S]*where invalidated_at is null/
+    );
+    expect(estimateLineEvidenceMigrationSql).toMatch(
+      /alter table if exists public\.estimate_line_evidences force row level security;/
+    );
+    expect(estimateLineEvidenceMigrationSql).toMatch(
+      /create policy "Current tenant can select estimate line evidences"/
+    );
+    expect(estimateLineEvidenceMigrationSql).toMatch(
+      /takeoff_version_links[\s\S]*can_access_takeoff_estimate_version/
     );
   });
 

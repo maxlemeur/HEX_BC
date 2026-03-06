@@ -44,6 +44,13 @@ import {
   buildTakeoffDpgfComparison,
 } from "@/lib/takeoff/dpgf-compare";
 import {
+  listSupplierPriceEvidenceRows,
+  listTakeoffLineEvidenceRows,
+  mapActiveLineEvidenceRowsToProofs,
+  mapTakeoffLineEvidencePanel,
+  syncTakeoffLineEvidences,
+} from "@/lib/takeoff/evidence";
+import {
   TAKEOFF_APPLY_SCOPES,
   TAKEOFF_JOB_LIST_PERIODS,
   TAKEOFF_JOB_STATUSES,
@@ -68,6 +75,7 @@ import {
   type TakeoffDpgfComparisonTakeoffLine,
   type TakeoffDpgfManualLinkRecord,
   type TakeoffDpgfReviewDecisionRecord,
+  type TakeoffLineEvidencePanelResponse,
   type TakeoffJobItem,
   type TakeoffJobListResponse,
   type TakeoffJobResult,
@@ -233,6 +241,7 @@ const ESTIMATE_DPGF_COMPARE_SELECT = [
   "title",
   "description",
   "quantity",
+  "selected_supplier_price_id",
   "source_file_name",
   "source_page",
   "source_provider",
@@ -563,6 +572,7 @@ const takeoffDpgfCompareEstimateItemRowSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   quantity: z.number().positive().nullable(),
+  selected_supplier_price_id: z.string().uuid().nullable().optional(),
   source_file_name: z.string().nullable(),
   source_page: z.number().int().nullable(),
   source_provider: z.string().nullable().optional(),
@@ -621,6 +631,12 @@ export const takeoffDpgfComparisonQuerySchema = z
   })
   .strict();
 
+export const takeoffLineEvidencePanelQuerySchema = z
+  .object({
+    version_id: requiredUuidSearchParamSchema,
+  })
+  .strict();
+
 export const saveTakeoffDpgfManualLinkSchema = z
   .object({
     version_id: z.string().uuid("version_id invalide."),
@@ -665,6 +681,9 @@ export type GetTakeoffJobDetailsQuery = z.infer<
 export type CompareTakeoffJobsQuery = z.infer<typeof compareTakeoffJobsQuerySchema>;
 export type TakeoffDpgfComparisonQuery = z.infer<
   typeof takeoffDpgfComparisonQuerySchema
+>;
+export type TakeoffLineEvidencePanelQuery = z.infer<
+  typeof takeoffLineEvidencePanelQuerySchema
 >;
 export type SaveTakeoffReviewDecisionPayload = z.infer<
   typeof saveTakeoffReviewDecisionSchema
@@ -1355,6 +1374,16 @@ export function parseTakeoffDpgfComparisonQuery(
   );
 }
 
+export function parseTakeoffLineEvidencePanelQuery(
+  payload: unknown
+): TakeoffLineEvidencePanelQuery {
+  return parseWithSchema(
+    takeoffLineEvidencePanelQuerySchema,
+    payload,
+    "Parametres du panneau preuves invalides."
+  );
+}
+
 export function parseApplyTakeoffPayload(payload: unknown): TakeoffApplyRequest {
   return parseWithSchema(
     takeoffApplyPayloadSchema,
@@ -1916,6 +1945,98 @@ async function listTakeoffDpgfReviewDecisions(input: {
   });
 }
 
+async function buildSupplierPriceEvidenceByEstimateItemId(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  estimateItems: Array<z.infer<typeof takeoffDpgfCompareEstimateItemRowSchema>>;
+}) {
+  const selectedPriceIds = input.estimateItems
+    .map((item) => item.selected_supplier_price_id ?? null)
+    .filter((priceId): priceId is string => typeof priceId === "string");
+
+  if (selectedPriceIds.length === 0) {
+    return new Map<string, Awaited<ReturnType<typeof listSupplierPriceEvidenceRows>> extends Map<
+      string,
+      infer T
+    >
+      ? T
+      : never>();
+  }
+
+  const supplierPriceById = await listSupplierPriceEvidenceRows({
+    supabase: input.supabase as never,
+    tenantId: input.tenantId,
+    supplierPriceIds: selectedPriceIds,
+  });
+
+  return new Map(
+    input.estimateItems.flatMap((item) => {
+      if (!item.selected_supplier_price_id) {
+        return [];
+      }
+
+      const supplierPrice = supplierPriceById.get(item.selected_supplier_price_id);
+      if (!supplierPrice) {
+        return [];
+      }
+
+      return [[item.id, supplierPrice] as const];
+    })
+  );
+}
+
+async function syncAndHydrateTakeoffLineProofs(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  userId: string | null;
+  projectId: string;
+  versionId: string;
+  jobId: string;
+  rows: TakeoffDpgfComparisonResponse["rows"];
+  supplierPriceByEstimateItemId: Map<string, Awaited<ReturnType<typeof listSupplierPriceEvidenceRows>> extends Map<
+    string,
+    infer T
+  >
+    ? T
+    : never>;
+}) {
+  if (input.rows.length === 0) {
+    return input.rows;
+  }
+
+  await syncTakeoffLineEvidences({
+    supabase: input.supabase as never,
+    tenantId: input.tenantId,
+    userId: input.userId,
+    projectId: input.projectId,
+    versionId: input.versionId,
+    jobId: input.jobId,
+    rows: input.rows,
+    supplierPriceByEstimateItemId: input.supplierPriceByEstimateItemId,
+  });
+
+  const evidenceRows = await listTakeoffLineEvidenceRows({
+    supabase: input.supabase as never,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+    jobId: input.jobId,
+    lineIds: input.rows.map((row) => row.line_id),
+    includeHistory: false,
+  });
+
+  const proofsByLineId = new Map<string, ReturnType<typeof mapActiveLineEvidenceRowsToProofs>>();
+  for (const evidenceRow of evidenceRows) {
+    const current = proofsByLineId.get(evidenceRow.estimate_item_id) ?? [];
+    current.push(...mapActiveLineEvidenceRowsToProofs([evidenceRow]));
+    proofsByLineId.set(evidenceRow.estimate_item_id, current);
+  }
+
+  return input.rows.map((row) => ({
+    ...row,
+    proofs: proofsByLineId.get(row.line_id) ?? row.proofs,
+  }));
+}
+
 async function resolveDpgfUnitByRowIndex(input: {
   supabase: AuthenticatedTakeoffContext["supabase"];
   tenantId: string;
@@ -2474,7 +2595,7 @@ export async function fetchDpgfTakeoffComparison(
   jobId: string,
   input: TakeoffDpgfComparisonQuery
 ): Promise<TakeoffDpgfComparisonResponse> {
-  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
     jobId,
@@ -2561,6 +2682,11 @@ export async function fetchDpgfTakeoffComparison(
     rows: estimateItems,
     unitByRowIndex,
   });
+  const supplierPriceByEstimateItemId = await buildSupplierPriceEvidenceByEstimateItemId({
+    supabase,
+    tenantId,
+    estimateItems,
+  });
   const compareInput = {
     versionId: normalizedVersionId,
     jobId: normalizedJobId,
@@ -2575,7 +2701,183 @@ export async function fetchDpgfTakeoffComparison(
     view: input.view,
   };
 
-  return buildTakeoffDpgfComparison(compareInput);
+  const comparison = buildTakeoffDpgfComparison(compareInput);
+  const hydratedRows = await syncAndHydrateTakeoffLineProofs({
+    supabase,
+    tenantId,
+    userId,
+    projectId,
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
+    rows: comparison.rows,
+    supplierPriceByEstimateItemId,
+  });
+
+  return {
+    ...comparison,
+    rows: hydratedRows,
+  };
+}
+
+async function refreshTakeoffLineEvidenceSnapshot(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  userId: string | null;
+  versionId: string;
+  jobId: string;
+  estimateItemIds: string[];
+}) {
+  const uniqueEstimateItemIds = [...new Set(input.estimateItemIds)];
+  if (uniqueEstimateItemIds.length === 0) {
+    return;
+  }
+
+  const accessibleJob = await assertTakeoffJobAccessibleForVersion({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    versionId: input.versionId,
+    jobId: input.jobId,
+  });
+
+  const carriedReviewDecisionsPromise = accessibleJob.linked_from_version_id
+    ? listTakeoffDpgfReviewDecisions({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: accessibleJob.linked_from_version_id,
+        jobId: input.jobId,
+      }).then((decisions) =>
+        decisions.map((decision) => ({
+          ...decision,
+          source: "carried_over" as const,
+          carried_over_from_version_id:
+            decision.carried_over_from_version_id ?? accessibleJob.linked_from_version_id ?? null,
+          carried_over_from_version_number:
+            decision.carried_over_from_version_number ??
+            accessibleJob.linked_from_version_number ??
+            null,
+        }))
+      )
+    : Promise.resolve([]);
+
+  const [takeoffItems, estimateItems, manualLinks, reviewDecisions, carriedReviewDecisions, projectId] =
+    await Promise.all([
+      listAllTakeoffItemsByJobId({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        jobId: input.jobId,
+      }),
+      listTakeoffDpgfEstimateItems({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+      }),
+      listTakeoffDpgfManualLinks({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+        jobId: input.jobId,
+      }),
+      listTakeoffDpgfReviewDecisions({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+        jobId: input.jobId,
+      }),
+      carriedReviewDecisionsPromise,
+      getEstimateVersionProjectIdOrThrow({
+        supabase: input.supabase,
+        tenantId: input.tenantId,
+        versionId: input.versionId,
+      }),
+    ]);
+
+  const filteredEstimateItems = estimateItems.filter((item) =>
+    uniqueEstimateItemIds.includes(item.id)
+  );
+  if (filteredEstimateItems.length === 0) {
+    return;
+  }
+
+  const dominantSourceFileName =
+    filteredEstimateItems.find((item) => item.source_file_name)?.source_file_name ?? null;
+  const unitByRowIndex = await resolveDpgfUnitByRowIndex({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    projectId,
+    sourceFileName: dominantSourceFileName,
+  });
+  const dpgfLines = normalizeDpgfComparisonEstimateItems({
+    rows: filteredEstimateItems,
+    unitByRowIndex,
+  });
+  const comparison = buildTakeoffDpgfComparison({
+    versionId: input.versionId,
+    jobId: input.jobId,
+    dpgfLines,
+    takeoffLines: normalizeTakeoffComparisonItems(takeoffItems),
+    manualLinks,
+    reviewDecisions,
+    carriedReviewDecisions,
+    pageSize: dpgfLines.length,
+    view: "all",
+  });
+  const supplierPriceByEstimateItemId = await buildSupplierPriceEvidenceByEstimateItemId({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    estimateItems: filteredEstimateItems,
+  });
+
+  await syncTakeoffLineEvidences({
+    supabase: input.supabase as never,
+    tenantId: input.tenantId,
+    userId: input.userId,
+    projectId,
+    versionId: input.versionId,
+    jobId: input.jobId,
+    rows: comparison.rows,
+    supplierPriceByEstimateItemId,
+  });
+}
+
+export async function fetchTakeoffLineEvidencePanel(
+  jobId: string,
+  input: TakeoffLineEvidencePanelQuery & {
+    line_id: string;
+  }
+): Promise<TakeoffLineEvidencePanelResponse> {
+  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const normalizedVersionId = parseWithSchema(
+    z.string().uuid("version_id invalide."),
+    input.version_id,
+    "version_id invalide."
+  );
+  const normalizedLineId = parseWithSchema(
+    z.string().uuid("line_id invalide."),
+    input.line_id,
+    "line_id invalide."
+  );
+
+  await refreshTakeoffLineEvidenceSnapshot({
+    supabase,
+    tenantId,
+    userId,
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
+    estimateItemIds: [normalizedLineId],
+  });
+
+  return mapTakeoffLineEvidencePanel({
+    supabase: supabase as never,
+    tenantId,
+    versionId: normalizedVersionId,
+    jobId: normalizedJobId,
+    lineId: normalizedLineId,
+  });
 }
 
 export async function saveTakeoffDpgfManualLink(
@@ -2789,6 +3091,15 @@ export async function saveTakeoffDpgfManualLink(
       }
     );
   }
+
+  await refreshTakeoffLineEvidenceSnapshot({
+    supabase,
+    tenantId,
+    userId,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+    estimateItemIds: [payload.estimate_item_id],
+  });
 
   return {
     links: normalizeTakeoffDpgfManualLinkRows((data ?? []) as unknown[]),
@@ -3059,12 +3370,22 @@ export async function saveTakeoffReviewDecision(
     tenantId,
     versionIds: carriedOverVersionId ? [carriedOverVersionId] : [],
   });
+  const decision = buildTakeoffDpgfReviewDecisionRecord({
+    row: savedDecisionRow,
+    carriedOverVersionNumberById,
+  });
+
+  await refreshTakeoffLineEvidenceSnapshot({
+    supabase,
+    tenantId,
+    userId,
+    versionId: payload.version_id,
+    jobId: normalizedJobId,
+    estimateItemIds: [payload.estimate_item_id],
+  });
 
   return {
-    decision: buildTakeoffDpgfReviewDecisionRecord({
-      row: savedDecisionRow,
-      carriedOverVersionNumberById,
-    }),
+    decision,
   };
 }
 

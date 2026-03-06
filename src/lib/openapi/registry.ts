@@ -1286,6 +1286,7 @@ const takeoffDpgfComparisonEvidenceTypeSchema = z.enum([
   "takeoff",
   "plan_zone",
   "formula",
+  "price_source",
   "comment",
 ]);
 const takeoffDpgfReviewStatusSchema = z.enum([
@@ -1403,6 +1404,34 @@ const takeoffDpgfComparisonDataSchema = z.object({
     next_cursor: z.string().nullable(),
     total: z.number().int().min(0),
   }),
+});
+const takeoffLineEvidenceStatusSchema = z.enum([
+  "active",
+  "invalidated",
+  "replaced",
+]);
+const takeoffLineEvidenceEntrySchema = z.object({
+  evidence_id: uuidSchema,
+  type: takeoffDpgfComparisonEvidenceTypeSchema,
+  kind: takeoffDpgfComparisonEvidenceKindSchema,
+  label: z.string(),
+  source: z.string(),
+  source_file_name: z.string().nullable(),
+  source_page: z.number().int().nullable(),
+  confidence_score: z.number().min(0).max(1).nullable(),
+  note: z.string().nullable(),
+  created_at: z.string(),
+  author_name: z.string().nullable(),
+  status: takeoffLineEvidenceStatusSchema,
+  supersedes_evidence_id: uuidSchema.nullable(),
+  replaced_by_evidence_id: uuidSchema.nullable(),
+});
+const takeoffLineEvidencePanelDataSchema = z.object({
+  line_id: uuidSchema,
+  version_id: uuidSchema,
+  job_id: uuidSchema,
+  evidences: z.array(takeoffLineEvidenceEntrySchema),
+  history: z.array(takeoffLineEvidenceEntrySchema),
 });
 const takeoffDpgfManualLinkSchema = z.object({
   id: uuidSchema,
@@ -2012,6 +2041,10 @@ const apiTakeoffDpgfComparisonSchemaDefinition = successResponseSchemaDefinition
   "ApiTakeoffDpgfComparisonResponse",
   takeoffDpgfComparisonDataSchema
 );
+const apiTakeoffLineEvidencePanelSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffLineEvidencePanelResponse",
+  takeoffLineEvidencePanelDataSchema
+);
 const apiTakeoffDpgfManualLinkSchemaDefinition = successResponseSchemaDefinition(
   "ApiTakeoffDpgfManualLinkResponse",
   takeoffDpgfManualLinkResponseDataSchema
@@ -2144,6 +2177,12 @@ const takeoffJobIdPathParameter = pathParameter({
   name: "jobId",
   description: "Identifiant UUID du job takeoff.",
   schemaName: "TakeoffJobIdPathParameter",
+  schema: uuidSchema,
+});
+const takeoffLineIdPathParameter = pathParameter({
+  name: "lineId",
+  description: "Identifiant UUID de la ligne DPGF cible.",
+  schemaName: "TakeoffLineIdPathParameter",
   schema: uuidSchema,
 });
 
@@ -2983,6 +3022,26 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Comparaison DPGF vs takeoff retournee.",
         apiTakeoffDpgfComparisonSchemaDefinition
+      ),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "get",
+    path: "/api/takeoff/jobs/{jobId}/lines/{lineId}/evidence",
+    summary: "Charger le panneau preuves d'une ligne DPGF",
+    description:
+      "Retourne les preuves actives et l'historique remplace/invalide d'une ligne DPGF pour une version et un job takeoff donnes.",
+    tags: ["Takeoff"],
+    parameters: [
+      takeoffJobIdPathParameter,
+      takeoffLineIdPathParameter,
+      takeoffDpgfCompareVersionIdQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Panneau preuves de la ligne retourne.",
+        apiTakeoffLineEvidencePanelSchemaDefinition
       ),
       ...takeoffJobsErrorResponses,
     },

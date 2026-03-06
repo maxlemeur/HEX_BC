@@ -21,6 +21,7 @@ import { buildTakeoffDpgfReviewReference } from "@/lib/takeoff/dpgf-compare";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   fetchDpgfTakeoffComparison,
+  fetchTakeoffLineEvidencePanel,
   fetchTakeoffDpgfSummaryForHub,
   parseTakeoffDpgfComparisonQuery,
   saveTakeoffDpgfManualLink,
@@ -96,11 +97,39 @@ type StoredEstimateItem = {
   title: string;
   description: string | null;
   quantity: number | null;
+  selected_supplier_price_id: string | null;
   source_file_name: string | null;
   source_page: number | null;
   source_provider: string | null;
   item_type: "section" | "line";
   updated_at: string;
+};
+
+type StoredEvidence = {
+  id: string;
+  created_at: string;
+  tenant_id: string;
+  project_id: string;
+  version_id: string;
+  takeoff_job_id: string;
+  estimate_item_id: string;
+  fingerprint: string;
+  evidence_type: "dpgf" | "takeoff" | "plan_zone" | "formula" | "price_source" | "comment";
+  evidence_kind: "fact" | "hypothesis" | "inference";
+  label: string;
+  source_label: string;
+  source_file_name: string | null;
+  source_page: number | null;
+  confidence_score: number | null;
+  note: string | null;
+  source_record_table: string | null;
+  source_record_id: string | null;
+  payload: Record<string, unknown>;
+  author_user_id: string | null;
+  invalidated_at: string | null;
+  invalidated_by: string | null;
+  invalidation_reason: string | null;
+  supersedes_evidence_id: string | null;
 };
 
 type StoredLink = {
@@ -177,6 +206,10 @@ function buildThenableSelectBuilder<T>(getRows: () => T[]) {
       void args;
       return builder;
     }),
+    is: vi.fn((...args: unknown[]) => {
+      void args;
+      return builder;
+    }),
     order: vi.fn((...args: unknown[]) => {
       void args;
       return builder;
@@ -219,6 +252,7 @@ function createSupabaseMock() {
     estimateItems: StoredEstimateItem[];
     links: StoredLink[];
     reviewDecisions: StoredDecision[];
+    evidences: StoredEvidence[];
     importId: string;
     manualLinkRpcError: {
       code: string;
@@ -279,6 +313,7 @@ function createSupabaseMock() {
         title: "Faux plafond acoustique",
         description: null,
         quantity: 100,
+        selected_supplier_price_id: null,
         source_file_name: "dpgf.xlsx",
         source_page: 12,
         source_provider: "dpgf",
@@ -288,6 +323,7 @@ function createSupabaseMock() {
     ],
     links: [],
     reviewDecisions: [],
+    evidences: [],
     importId: "99999999-9999-4999-8999-999999999999",
     manualLinkRpcError: null,
   };
@@ -409,6 +445,46 @@ function createSupabaseMock() {
         };
       }
 
+      if (table === "supplier_pricebook") {
+        return {
+          select: vi.fn(() => {
+            const filters: Record<string, string> = {};
+            const inFilters: Record<string, string[]> = {};
+            const rows = [
+              {
+                id: "abababab-abab-4bab-8bab-abababababab",
+                tenant_id: TENANT_ID,
+                supplier_sku: "SKU-PLAFOND",
+                unit: "m2",
+                unit_price_cents: 1899,
+                currency: "EUR",
+                valid_from: "2026-01-01",
+                valid_to: null,
+                notes: "Tarif accords cadre",
+              },
+            ];
+            const getRows = () =>
+              rows.filter((row) => {
+                if (filters.tenant_id && row.tenant_id !== filters.tenant_id) return false;
+                if (inFilters.id && !inFilters.id.includes(row.id)) return false;
+                return true;
+              });
+            const builder = buildThenableSelectBuilder(getRows);
+            builder.eq.mockImplementation((column: unknown, value: unknown) => {
+              filters[String(column)] = String(value);
+              return builder;
+            });
+            builder.in.mockImplementation((column: unknown, values: unknown) => {
+              inFilters[String(column)] = Array.isArray(values)
+                ? values.map((value) => String(value))
+                : [];
+              return builder;
+            });
+            return builder;
+          }),
+        };
+      }
+
       if (table === "takeoff_dpgf_links") {
         return {
           select: vi.fn(() => {
@@ -501,6 +577,167 @@ function createSupabaseMock() {
               }),
             })),
           })),
+        };
+      }
+
+      if (table === "estimate_line_evidences") {
+        return {
+          select: vi.fn(() => {
+            const filters: Record<string, string> = {};
+            const inFilters: Record<string, string[]> = {};
+            const nullFilters = new Map<string, unknown>();
+            const getRows = () =>
+              state.evidences.filter((evidence) => {
+                if (filters.tenant_id && evidence.tenant_id !== filters.tenant_id) return false;
+                if (filters.version_id && evidence.version_id !== filters.version_id) return false;
+                if (filters.takeoff_job_id && evidence.takeoff_job_id !== filters.takeoff_job_id) {
+                  return false;
+                }
+                if (filters.estimate_item_id && evidence.estimate_item_id !== filters.estimate_item_id) {
+                  return false;
+                }
+                if (inFilters.estimate_item_id && !inFilters.estimate_item_id.includes(evidence.estimate_item_id)) {
+                  return false;
+                }
+                if (inFilters.id && !inFilters.id.includes(evidence.id)) return false;
+                if (nullFilters.has("invalidated_at")) {
+                  const expected = nullFilters.get("invalidated_at");
+                  if (expected === null && evidence.invalidated_at !== null) return false;
+                }
+                return true;
+              });
+            const builder = buildThenableSelectBuilder(getRows);
+            builder.eq.mockImplementation((column: unknown, value: unknown) => {
+              filters[String(column)] = String(value);
+              return builder;
+            });
+            builder.in.mockImplementation((column: unknown, values: unknown) => {
+              inFilters[String(column)] = Array.isArray(values)
+                ? values.map((value) => String(value))
+                : [];
+              return builder;
+            });
+            builder.is.mockImplementation((column: unknown, value: unknown) => {
+              nullFilters.set(String(column), value);
+              return builder;
+            });
+            return builder;
+          }),
+          update: vi.fn((payload: Partial<StoredEvidence>) => {
+            const filters: Record<string, string> = {};
+            const inFilters: Record<string, string[]> = {};
+            const builder = {
+              eq: vi.fn((column: string, value: string) => {
+                filters[column] = value;
+                return builder;
+              }),
+              in: vi.fn(async (column: string, values: string[]) => {
+                inFilters[column] = values;
+                state.evidences = state.evidences.map((evidence) => {
+                  if (filters.tenant_id && evidence.tenant_id !== filters.tenant_id) {
+                    return evidence;
+                  }
+                  if (inFilters.id && !inFilters.id.includes(evidence.id)) {
+                    return evidence;
+                  }
+
+                  return {
+                    ...evidence,
+                    ...payload,
+                  };
+                });
+
+                return { error: null };
+              }),
+            };
+
+            return builder;
+          }),
+          insert: vi.fn(async (payload: Partial<StoredEvidence>[]) => {
+            state.evidences.push(
+              ...payload.map((entry, index) => ({
+                id:
+                  typeof entry.id === "string"
+                    ? entry.id
+                    : `f0f0f0f0-f0f0-4f0f-8f0f-f0f0f0f0f0${index}`,
+                created_at: String(entry.created_at),
+                tenant_id: String(entry.tenant_id),
+                project_id: String(entry.project_id),
+                version_id: String(entry.version_id),
+                takeoff_job_id: String(entry.takeoff_job_id),
+                estimate_item_id: String(entry.estimate_item_id),
+                fingerprint: String(entry.fingerprint),
+                evidence_type: entry.evidence_type as StoredEvidence["evidence_type"],
+                evidence_kind: entry.evidence_kind as StoredEvidence["evidence_kind"],
+                label: String(entry.label),
+                source_label: String(entry.source_label),
+                source_file_name:
+                  entry.source_file_name === null || entry.source_file_name === undefined
+                    ? null
+                    : String(entry.source_file_name),
+                source_page:
+                  typeof entry.source_page === "number" ? entry.source_page : null,
+                confidence_score:
+                  typeof entry.confidence_score === "number" ? entry.confidence_score : null,
+                note:
+                  entry.note === null || entry.note === undefined
+                    ? null
+                    : String(entry.note),
+                source_record_table:
+                  entry.source_record_table === null || entry.source_record_table === undefined
+                    ? null
+                    : String(entry.source_record_table),
+                source_record_id:
+                  entry.source_record_id === null || entry.source_record_id === undefined
+                    ? null
+                    : String(entry.source_record_id),
+                payload:
+                  entry.payload && typeof entry.payload === "object" && !Array.isArray(entry.payload)
+                    ? (entry.payload as Record<string, unknown>)
+                    : {},
+                author_user_id:
+                  entry.author_user_id === null || entry.author_user_id === undefined
+                    ? null
+                    : String(entry.author_user_id),
+                invalidated_at: null,
+                invalidated_by: null,
+                invalidation_reason: null,
+                supersedes_evidence_id:
+                  entry.supersedes_evidence_id === null || entry.supersedes_evidence_id === undefined
+                    ? null
+                    : String(entry.supersedes_evidence_id),
+              }))
+            );
+
+            return { error: null };
+          }),
+        };
+      }
+
+      if (table === "profiles") {
+        return {
+          select: vi.fn(() => {
+            const inFilters: Record<string, string[]> = {};
+            const rows = [
+              {
+                id: USER_ID,
+                full_name: "Nadia Review",
+              },
+            ];
+            const getRows = () =>
+              rows.filter((row) => {
+                if (inFilters.id && !inFilters.id.includes(row.id)) return false;
+                return true;
+              });
+            const builder = buildThenableSelectBuilder(getRows);
+            builder.in.mockImplementation((column: unknown, values: unknown) => {
+              inFilters[String(column)] = Array.isArray(values)
+                ? values.map((value) => String(value))
+                : [];
+              return builder;
+            });
+            return builder;
+          }),
         };
       }
 
@@ -731,6 +968,7 @@ describe("takeoff DPGF comparison server helpers", () => {
       }),
     });
     expect(response.rows[0]?.proofs.some((proof) => proof.kind === "fact")).toBe(true);
+    expect(mock.state.evidences.some((evidence) => evidence.evidence_type === "takeoff")).toBe(true);
   });
 
   it("reuses carried decisions by review reference when the job is linked from a source version", async () => {
@@ -880,6 +1118,14 @@ describe("takeoff DPGF comparison server helpers", () => {
       TAKEOFF_ITEM_ID,
       TAKEOFF_ITEM_ID_2,
     ]);
+    expect(
+      mock.state.evidences.some(
+        (evidence) =>
+          evidence.estimate_item_id === ESTIMATE_ITEM_ID &&
+          evidence.evidence_type === "takeoff" &&
+          evidence.invalidated_at === null
+      )
+    ).toBe(true);
   });
 
   it("persists an explicit human review decision while keeping carried-over provenance", async () => {
@@ -927,6 +1173,78 @@ describe("takeoff DPGF comparison server helpers", () => {
       carried_over_from_version_number: 2,
     });
     expect(mock.state.reviewDecisions[0]?.decision).toBe("manual_fix");
+    expect(
+      mock.state.evidences.some(
+        (evidence) =>
+          evidence.evidence_type === "comment" &&
+          evidence.evidence_kind === "hypothesis" &&
+          evidence.invalidated_at === null
+      )
+    ).toBe(true);
+  });
+
+  it("returns active evidences and history in the dedicated panel payload", async () => {
+    const mock = createSupabaseMock();
+    mock.state.links = [
+      {
+        id: "88888888-8888-4888-8888-888888888888",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        takeoff_item_id: TAKEOFF_ITEM_ID,
+        created_at: "2026-03-06T10:10:00.000Z",
+        updated_at: "2026-03-06T10:10:00.000Z",
+        linked_by: USER_ID,
+      },
+    ];
+    mock.state.evidences = [
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        created_at: "2026-03-06T09:55:00.000Z",
+        tenant_id: TENANT_ID,
+        project_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        version_id: VERSION_ID,
+        takeoff_job_id: JOB_ID,
+        estimate_item_id: ESTIMATE_ITEM_ID,
+        fingerprint: "old-comment",
+        evidence_type: "comment",
+        evidence_kind: "hypothesis",
+        label: "Hypothese manuelle",
+        source_label: "Decision de revue humaine",
+        source_file_name: null,
+        source_page: null,
+        confidence_score: null,
+        note: "Ancienne hypothese.",
+        source_record_table: "takeoff_dpgf_review_decisions",
+        source_record_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        payload: {},
+        author_user_id: USER_ID,
+        invalidated_at: "2026-03-06T10:05:00.000Z",
+        invalidated_by: USER_ID,
+        invalidation_reason: "snapshot_replaced",
+        supersedes_evidence_id: null,
+      },
+    ];
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const panel = await fetchTakeoffLineEvidencePanel(JOB_ID, {
+      version_id: VERSION_ID,
+      line_id: ESTIMATE_ITEM_ID,
+    });
+
+    expect(panel.line_id).toBe(ESTIMATE_ITEM_ID);
+    expect(panel.evidences.some((evidence) => evidence.type === "takeoff")).toBe(true);
+    expect(panel.history[0]).toMatchObject({
+      evidence_id: "99999999-9999-4999-8999-999999999999",
+      author_name: "Nadia Review",
+      status: "invalidated",
+    });
   });
 
   it("inherits carry-over provenance from the linked source decision on first save", async () => {

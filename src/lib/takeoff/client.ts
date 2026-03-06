@@ -27,6 +27,7 @@ import type {
   TakeoffJobListResponse as SharedTakeoffJobListResponse,
   TakeoffJobResponse as SharedTakeoffJobResponse,
   TakeoffLevel as SharedTakeoffLevel,
+  TakeoffLineEvidencePanelResponse as SharedTakeoffLineEvidencePanelResponse,
   TakeoffMappingRule as SharedTakeoffMappingRule,
   TakeoffMappingOverride as SharedTakeoffMappingOverride,
   TakeoffMappingRuleDeleteResponse as SharedTakeoffMappingRuleDeleteResponse,
@@ -71,6 +72,7 @@ export type PlanSetDeleteResponse = SharedPlanSetDeleteResponse;
 export type PlanFileCreateResponse = SharedPlanFileCreateResponse;
 export type PlanFileDeleteResponse = SharedPlanFileDeleteResponse;
 export type TakeoffDpgfComparisonResponse = SharedTakeoffDpgfComparisonResponse;
+export type TakeoffLineEvidencePanelResponse = SharedTakeoffLineEvidencePanelResponse;
 export type SaveTakeoffDpgfManualLinkInput = SharedSaveTakeoffDpgfManualLinkInput;
 export type SaveTakeoffDpgfManualLinkResponse = SharedSaveTakeoffDpgfManualLinkResponse;
 export type SaveTakeoffReviewDecisionInput =
@@ -758,6 +760,26 @@ export async function fetchTakeoffDpgfComparison(
     `/api/takeoff/jobs/${encodeURIComponent(jobId)}/dpgf-compare?${searchParams.toString()}`,
     { method: "GET", signal: options?.signal },
     "Impossible de charger la comparaison DPGF."
+  );
+}
+
+export async function fetchTakeoffLineEvidencePanel(
+  jobId: string,
+  lineId: string,
+  query: {
+    version_id: string;
+  },
+  options?: { signal?: AbortSignal }
+): Promise<TakeoffLineEvidencePanelResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("version_id", query.version_id);
+
+  return requestTakeoffJson<TakeoffLineEvidencePanelResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/lines/${encodeURIComponent(
+      lineId
+    )}/evidence?${searchParams.toString()}`,
+    { method: "GET", signal: options?.signal },
+    "Impossible de charger le panneau preuves."
   );
 }
 

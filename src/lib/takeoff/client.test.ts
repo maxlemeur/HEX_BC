@@ -5,6 +5,7 @@ import {
   createTakeoffMappingRule,
   deleteTakeoffMappingRule,
   fetchAllTakeoffDpgfComparison,
+  fetchTakeoffLineEvidencePanel,
   fetchTakeoffJobCompare,
   fetchTakeoffMappingRules,
   isTakeoffApiError,
@@ -183,6 +184,28 @@ const DPGF_COMPARE_PAGE_1 = {
       matched_by: "auto" as const,
     },
   ],
+  manual_link_candidates: [
+    {
+      item_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      designation: "Cloison BA13",
+      quantity: 12,
+      unit: "m2",
+      source_file_name: "plans.pdf",
+      source_page: 3,
+      confidence_score: 0.91,
+      evidence: "Zone cloisons",
+    },
+    {
+      item_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      designation: "Reserve plafond",
+      quantity: 1,
+      unit: "u",
+      source_file_name: "plans.pdf",
+      source_page: 5,
+      confidence_score: 0.74,
+      evidence: "Reserve",
+    },
+  ],
   unused_takeoff_items: [
     {
       item_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
@@ -240,6 +263,31 @@ const DPGF_COMPARE_PAGE_2 = {
     next_cursor: null,
     total: 2,
   },
+};
+
+const LINE_EVIDENCE_RESPONSE = {
+  line_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  version_id: DPGF_COMPARE_PAGE_1.version_id,
+  job_id: JOB_ID,
+  evidences: [
+    {
+      evidence_id: "proof-1",
+      type: "takeoff" as const,
+      kind: "fact" as const,
+      label: "Cloison BA13",
+      source: "plans.pdf p.3",
+      source_file_name: "plans.pdf",
+      source_page: 3,
+      confidence_score: 0.91,
+      note: "Zone cloisons",
+      created_at: "2026-03-06T10:00:00.000Z",
+      author_name: null,
+      status: "active" as const,
+      supersedes_evidence_id: null,
+      replaced_by_evidence_id: null,
+    },
+  ],
+  history: [],
 };
 
 const PREVIEW_RESPONSE = {
@@ -513,6 +561,35 @@ describe("takeoff client mapping rules wrappers", () => {
       ...DPGF_COMPARE_PAGE_2,
       rows: [...DPGF_COMPARE_PAGE_1.rows, ...DPGF_COMPARE_PAGE_2.rows],
     });
+  });
+
+  it("fetches the dedicated evidence panel via GET", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        data: LINE_EVIDENCE_RESPONSE,
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchTakeoffLineEvidencePanel(
+      JOB_ID,
+      LINE_EVIDENCE_RESPONSE.line_id,
+      {
+        version_id: LINE_EVIDENCE_RESPONSE.version_id,
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/takeoff/jobs/${JOB_ID}/lines/${LINE_EVIDENCE_RESPONSE.line_id}/evidence?version_id=${encodeURIComponent(
+        LINE_EVIDENCE_RESPONSE.version_id
+      )}`,
+      expect.objectContaining({
+        method: "GET",
+        credentials: "same-origin",
+      })
+    );
+    expect(result).toEqual(LINE_EVIDENCE_RESPONSE);
   });
 
   it("requests a conversion preview via POST", async () => {

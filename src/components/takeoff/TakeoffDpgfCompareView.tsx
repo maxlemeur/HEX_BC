@@ -111,6 +111,7 @@ const PROOF_TYPE_LABELS: Record<TakeoffDpgfComparisonProof["type"], string> = {
   takeoff: "Métré",
   plan_zone: "Plan",
   formula: "Formule",
+  price_source: "Prix",
   comment: "Note",
 };
 
@@ -119,6 +120,7 @@ const PROOF_TYPE_BORDER: Record<TakeoffDpgfComparisonProof["type"], string> = {
   takeoff: "border-l-sky-400",
   plan_zone: "border-l-violet-400",
   formula: "border-l-amber-400",
+  price_source: "border-l-emerald-500",
   comment: "border-l-emerald-400",
 };
 

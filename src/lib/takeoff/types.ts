@@ -360,6 +360,7 @@ export type TakeoffDpgfComparisonEvidenceType =
   | "takeoff"
   | "plan_zone"
   | "formula"
+  | "price_source"
   | "comment";
 
 export type TakeoffDpgfReviewStatus =
@@ -406,6 +407,33 @@ export type TakeoffDpgfComparisonProof = {
   source: string;
   confidence_score: number | null;
   note: string | null;
+};
+
+export type TakeoffLineEvidenceStatus = "active" | "invalidated" | "replaced";
+
+export type TakeoffLineEvidence = {
+  evidence_id: string;
+  type: TakeoffDpgfComparisonEvidenceType;
+  kind: TakeoffDpgfComparisonEvidenceKind;
+  label: string;
+  source: string;
+  source_file_name: string | null;
+  source_page: number | null;
+  confidence_score: number | null;
+  note: string | null;
+  created_at: string;
+  author_name: string | null;
+  status: TakeoffLineEvidenceStatus;
+  supersedes_evidence_id: string | null;
+  replaced_by_evidence_id: string | null;
+};
+
+export type TakeoffLineEvidencePanelResponse = {
+  line_id: string;
+  version_id: string;
+  job_id: string;
+  evidences: TakeoffLineEvidence[];
+  history: TakeoffLineEvidence[];
 };
 
 export type TakeoffDpgfReviewDecisionRecord = {
@@ -478,6 +506,7 @@ export type TakeoffDpgfComparisonResponse = {
   threshold: number;
   summary: TakeoffDpgfComparisonSummary;
   rows: TakeoffDpgfComparisonRow[];
+  manual_link_candidates: TakeoffDpgfComparisonUnusedTakeoffItem[];
   unused_takeoff_items: TakeoffDpgfComparisonUnusedTakeoffItem[];
   pagination: {
     page_size: number;
