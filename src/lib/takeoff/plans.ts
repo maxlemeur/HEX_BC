@@ -15,7 +15,7 @@ import { getAuthenticatedContext } from "@/lib/estimates/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
-const PLAN_FILES_BUCKET = "plan-files";
+export const PLAN_FILES_BUCKET = "plan-files";
 const PLAN_FILE_ALLOWED_MIME_TYPE = "application/pdf";
 const PLAN_FILE_ALLOWED_EXTENSION = ".pdf";
 const PLAN_FILE_MAX_SIZE_BYTES = 50 * 1024 * 1024;

@@ -55,6 +55,7 @@ import {
   type AffaireIntakeUploadStatus,
   type AffaireIntakeWorkspaceMissingPiece,
 } from "@/lib/affaires/intake";
+import { syncTakeoffPlanSetFromAffaireIntake } from "@/lib/affaires/intake-plan-sync";
 import {
   syncAffaireRegisterFromBrief,
   syncAffaireRegisterMissingPieces,
@@ -1797,6 +1798,23 @@ async function refreshAffaireBriefFromDocuments(input: {
     missingPieces,
     actorUserId: input.actorUserId ?? null,
   });
+
+  try {
+    await syncTakeoffPlanSetFromAffaireIntake({
+      supabase: input.supabase as never,
+      project: {
+        id: input.project.id,
+        tenant_id: input.project.tenant_id,
+      },
+      documents: input.documents,
+    });
+  } catch (error) {
+    console.error("Affaire intake takeoff sync failed", {
+      uploadId: input.uploadId,
+      projectId: input.project.id,
+      error,
+    });
+  }
 
   if (uploadedDocuments.length === 0) {
     return null;
