@@ -4,6 +4,7 @@ import {
   buildTakeoffRiskCandidates,
   buildTakeoffRiskRadarResponse,
   buildTakeoffRowRiskMap,
+  normalizeRiskAlertRow,
 } from "@/lib/takeoff/risk-radar";
 import type { TakeoffDpgfComparisonRow, TakeoffRiskAlert } from "@/lib/takeoff/types";
 
@@ -292,4 +293,30 @@ describe("takeoff risk radar", () => {
     ]);
     expect(response.items[0]?.status).toBe("to_process");
   });
-});
+
+  it("preserves the database takeoff job id on normalized alerts", () => {
+    const alert = normalizeRiskAlertRow({
+      id: "a1",
+      takeoff_job_id: JOB_ID,
+      scope_type: "line",
+      scope_id: LINE_ID,
+      scope_label: "Doublage acoustique",
+      line_id: LINE_ID,
+      lot_id: LOT_ID,
+      cause_code: "missing_proof",
+      severity: "warning",
+      status: "to_process",
+      risk_score: 40,
+      margin_bucket: "thin",
+      reason_labels: [],
+      provenance: [],
+      review_note: null,
+      reviewed_at: null,
+      reviewed_by: null,
+      created_at: "2026-03-06T10:00:00.000Z",
+      updated_at: "2026-03-06T10:00:00.000Z",
+      metadata: {},
+    });
+
+    expect(alert?.takeoff_job_id).toBe(JOB_ID);
+  });

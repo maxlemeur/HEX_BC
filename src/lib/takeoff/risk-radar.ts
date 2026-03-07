@@ -823,6 +823,7 @@ export function normalizeRiskAlertRow(
 
   return {
     alert_id: alertId,
+    takeoff_job_id: typeof row.takeoff_job_id === "string" ? row.takeoff_job_id : null,
     scope_type: scopeType,
     scope_id: typeof row.scope_id === "string" ? row.scope_id : null,
     scope_label: typeof row.scope_label === "string" ? row.scope_label : "Signal de risque",

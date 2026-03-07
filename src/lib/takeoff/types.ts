@@ -501,6 +501,7 @@ export type TakeoffDpgfLineRiskSummary = {
 
 export type TakeoffRiskAlert = {
   alert_id: string;
+  takeoff_job_id?: string | null;
   scope_type: TakeoffRiskScopeType;
   scope_id: string | null;
   scope_label: string;
