@@ -48,7 +48,9 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
   const [note, setNote] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const activeTriggerKeyRef = useRef<string | null>(null);
+  const pendingFocusTriggerKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!editorKey) {
@@ -77,10 +79,20 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
   }
 
   function closeEditor() {
+    pendingFocusTriggerKeyRef.current = activeTriggerKeyRef.current;
+    activeTriggerKeyRef.current = null;
     setEditorKey(null);
     setNextStatus(null);
     setNote("");
-    triggerRef.current?.focus();
+  }
+
+  function registerTriggerRef(triggerKey: string, node: HTMLButtonElement | null) {
+    triggerRefs.current[triggerKey] = node;
+
+    if (node && pendingFocusTriggerKeyRef.current === triggerKey) {
+      node.focus();
+      pendingFocusTriggerKeyRef.current = null;
+    }
   }
 
   function handleReset(alert: DirectionSyntheticAlert) {
@@ -149,6 +161,8 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
         {visibleAlerts.map((alert) => {
           const isEditing = editorKey === alert.alertKey;
           const href = buildAlertHref(alert);
+          const assumedTriggerKey = `${alert.alertKey}:assumed`;
+          const falsePositiveTriggerKey = `${alert.alertKey}:false_positive`;
 
           return (
             <article
@@ -246,9 +260,10 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
+                        ref={(node) => registerTriggerRef(assumedTriggerKey, node)}
                         disabled={isPending}
-                        onClick={(event) => {
-                          triggerRef.current = event.currentTarget;
+                        onClick={() => {
+                          activeTriggerKeyRef.current = assumedTriggerKey;
                           setEditorKey(alert.alertKey);
                           setNextStatus("assumed");
                         }}
@@ -258,9 +273,10 @@ export function RiskAlertBanner({ alerts, compact = false }: Readonly<Props>) {
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"
+                        ref={(node) => registerTriggerRef(falsePositiveTriggerKey, node)}
                         disabled={isPending}
-                        onClick={(event) => {
-                          triggerRef.current = event.currentTarget;
+                        onClick={() => {
+                          activeTriggerKeyRef.current = falsePositiveTriggerKey;
                           setEditorKey(alert.alertKey);
                           setNextStatus("false_positive");
                         }}
