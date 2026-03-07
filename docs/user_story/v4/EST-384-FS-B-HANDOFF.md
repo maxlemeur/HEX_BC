@@ -13,46 +13,20 @@ La surface de review V0 doit etre deleguee a une equipe UX.
 Server Action:
 ```ts
 generateVersionZeroDraft(input: {
-  projectId: string;
-  briefId: string;
+  versionId: string;
+  briefId?: string;
   selectedLots?: string[];
-}): Promise<{
-  draftId: string;
-  versionLabel: string;
-  status: "ia_a_revoir";
-  generatedLotsCount: number;
-  generatedLinesCount: number;
-}>;
+}): Promise<VersionZeroReview>;
 ```
 
 ### 2) Review V0
 
 Server fetcher:
 ```ts
-fetchVersionZeroReview(draftId: string): Promise<{
-  draftId: string;
-  status: "ia_a_revoir" | "ready_for_version";
-  summary: {
-    generatedLotsCount: number;
-    generatedLinesCount: number;
-    missingAreasCount: number;
-    lowConfidenceLinesCount: number;
-  };
-  lots: Array<{
-    lotId: string;
-    lotLabel: string;
-    status: "generated" | "partial" | "missing";
-    lines: Array<{
-      lineTempId: string;
-      label: string;
-      quantity: number | null;
-      confidence: number;
-      provenance: string[];
-      assumptions: string[];
-      reviewStatus: "pending" | "accepted" | "edited" | "rejected";
-    }>;
-  }>;
-}>;
+fetchVersionZeroReview(input: {
+  versionId: string;
+  draftId?: string;
+}): Promise<VersionZeroReview>;
 ```
 
 ### 3) Mutations de review
@@ -60,20 +34,52 @@ fetchVersionZeroReview(draftId: string): Promise<{
 Server Actions:
 ```ts
 reviewVersionZeroLine(input: {
+  versionId: string;
   draftId: string;
-  lineTempId: string;
+  lineDraftId: string;
   reviewStatus: "accepted" | "edited" | "rejected";
   editedValues?: {
-    label?: string;
+    title?: string;
+    description?: string | null;
     quantity?: number | null;
+    unit?: string | null;
   };
-}): Promise<{ ok: true }>;
+}): Promise<VersionZeroReview>;
 
 materializeVersionZeroDraft(input: {
+  versionId: string;
   draftId: string;
+}): Promise<VersionZeroReview>;
+```
+
+### 4) Summary / gate state
+
+Server fetcher:
+```ts
+fetchVersionZeroDraftSummary(input: {
+  versionId: string;
 }): Promise<{
   versionId: string;
-  versionNumber: number;
+  hasConfirmedBrief: boolean;
+  isVersionEmpty: boolean;
+  canGenerate: boolean;
+  availableLots: string[];
+  activeDraft: {
+    id: string;
+    status: "ia_a_revoir" | "ready_for_version";
+    selectedLots: string[];
+    counts: {
+      lots: number;
+      lines: number;
+      pending: number;
+      accepted: number;
+      edited: number;
+      rejected: number;
+      missingLots: number;
+      partialLots: number;
+      lowConfidenceLines: number;
+    };
+  } | null;
 }>;
 ```
 

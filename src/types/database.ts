@@ -993,6 +993,267 @@ export type Database = {
           },
         ];
       };
+      estimate_version_zero_drafts: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          project_id: string;
+          version_id: string;
+          brief_id: string | null;
+          created_by: string;
+          status:
+            | "ia_a_revoir"
+            | "ready_for_version"
+            | "materialized"
+            | "discarded"
+            | "superseded";
+          summary: Json;
+          generation_metadata: Json;
+          selected_lots: Json;
+          materialized_at: string | null;
+          discarded_at: string | null;
+          superseded_by_draft_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id: string;
+          version_id: string;
+          brief_id?: string | null;
+          created_by: string;
+          status?:
+            | "ia_a_revoir"
+            | "ready_for_version"
+            | "materialized"
+            | "discarded"
+            | "superseded";
+          summary?: Json;
+          generation_metadata?: Json;
+          selected_lots?: Json;
+          materialized_at?: string | null;
+          discarded_at?: string | null;
+          superseded_by_draft_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id?: string;
+          version_id?: string;
+          brief_id?: string | null;
+          created_by?: string;
+          status?:
+            | "ia_a_revoir"
+            | "ready_for_version"
+            | "materialized"
+            | "discarded"
+            | "superseded";
+          summary?: Json;
+          generation_metadata?: Json;
+          selected_lots?: Json;
+          materialized_at?: string | null;
+          discarded_at?: string | null;
+          superseded_by_draft_id?: string | null;
+        };
+        Relationships: [];
+      };
+      estimate_version_zero_lots: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          project_id: string;
+          version_id: string;
+          draft_id: string;
+          lot_key: string;
+          lot_order: number;
+          lot_label: string;
+          status: "generated" | "partial" | "missing";
+          confidence: number | null;
+          provenance: Json;
+          risk_signals: Json;
+          metadata: Json;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id: string;
+          version_id: string;
+          draft_id: string;
+          lot_key: string;
+          lot_order: number;
+          lot_label: string;
+          status: "generated" | "partial" | "missing";
+          confidence?: number | null;
+          provenance?: Json;
+          risk_signals?: Json;
+          metadata?: Json;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id?: string;
+          version_id?: string;
+          draft_id?: string;
+          lot_key?: string;
+          lot_order?: number;
+          lot_label?: string;
+          status?: "generated" | "partial" | "missing";
+          confidence?: number | null;
+          provenance?: Json;
+          risk_signals?: Json;
+          metadata?: Json;
+        };
+        Relationships: [];
+      };
+      estimate_version_zero_lines: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          project_id: string;
+          version_id: string;
+          draft_id: string;
+          lot_id: string;
+          line_order: number;
+          review_status: "pending" | "accepted" | "edited" | "rejected";
+          proposed_title: string;
+          proposed_description: string | null;
+          proposed_quantity: number | null;
+          proposed_unit: string | null;
+          edited_title: string | null;
+          edited_description: string | null;
+          edited_quantity: number | null;
+          edited_unit: string | null;
+          confidence: number;
+          provenance: Json;
+          facts: Json;
+          hypotheses: Json;
+          inferences: Json;
+          missing_signals: Json;
+          metadata: Json;
+          materialized_estimate_item_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id: string;
+          version_id: string;
+          draft_id: string;
+          lot_id: string;
+          line_order: number;
+          review_status?: "pending" | "accepted" | "edited" | "rejected";
+          proposed_title: string;
+          proposed_description?: string | null;
+          proposed_quantity?: number | null;
+          proposed_unit?: string | null;
+          edited_title?: string | null;
+          edited_description?: string | null;
+          edited_quantity?: number | null;
+          edited_unit?: string | null;
+          confidence?: number;
+          provenance?: Json;
+          facts?: Json;
+          hypotheses?: Json;
+          inferences?: Json;
+          missing_signals?: Json;
+          metadata?: Json;
+          materialized_estimate_item_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id?: string;
+          version_id?: string;
+          draft_id?: string;
+          lot_id?: string;
+          line_order?: number;
+          review_status?: "pending" | "accepted" | "edited" | "rejected";
+          proposed_title?: string;
+          proposed_description?: string | null;
+          proposed_quantity?: number | null;
+          proposed_unit?: string | null;
+          edited_title?: string | null;
+          edited_description?: string | null;
+          edited_quantity?: number | null;
+          edited_unit?: string | null;
+          confidence?: number;
+          provenance?: Json;
+          facts?: Json;
+          hypotheses?: Json;
+          inferences?: Json;
+          missing_signals?: Json;
+          metadata?: Json;
+          materialized_estimate_item_id?: string | null;
+        };
+        Relationships: [];
+      };
+      estimate_version_zero_applications: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          project_id: string;
+          version_id: string;
+          draft_id: string;
+          lot_id: string | null;
+          line_id: string;
+          estimate_item_id: string;
+          parent_section_item_id: string | null;
+          applied_by: string | null;
+          application_order: number;
+          applied_payload: Json;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id: string;
+          version_id: string;
+          draft_id: string;
+          lot_id?: string | null;
+          line_id: string;
+          estimate_item_id: string;
+          parent_section_item_id?: string | null;
+          applied_by?: string | null;
+          application_order?: number;
+          applied_payload?: Json;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          project_id?: string;
+          version_id?: string;
+          draft_id?: string;
+          lot_id?: string | null;
+          line_id?: string;
+          estimate_item_id?: string;
+          parent_section_item_id?: string | null;
+          applied_by?: string | null;
+          application_order?: number;
+          applied_payload?: Json;
+        };
+        Relationships: [];
+      };
       estimate_documents: {
         Row: {
           id: string;

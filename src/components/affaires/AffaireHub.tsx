@@ -13,6 +13,7 @@ import { RiskAlertBanner } from "@/components/direction/RiskAlertBanner";
 import {
   createEstimateVariant,
   duplicateEstimateVersion,
+  type VersionZeroDraftSummary,
 } from "@/lib/estimates/client";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import { formatEUR } from "@/lib/money";
@@ -49,6 +50,13 @@ import {
 } from "@/components/takeoff/TakeoffLaunchPrompt";
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
 import { UnifiedImportFlow } from "./UnifiedImportFlow";
+import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
+import { CockpitCommandBar } from "@/components/cockpit/CockpitCommandBar";
+import {
+  setCockpitSuggestions,
+  clearCockpitSuggestions,
+} from "@/lib/stores/cockpit-suggestions-store";
+import { recordCockpitCommandAction } from "@/app/dashboard/affaires/_actions/cockpit";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -81,6 +89,8 @@ type AffaireHubProps = {
   registerScopeOptions?: AffaireRegisterScopeOptions;
   registerSummary?: AffaireRegisterSummary | null;
   registerTimeline?: AffaireRegisterTimelineEvent[];
+  versionZeroSummary?: VersionZeroDraftSummary | null;
+  cockpitSuggestions?: CockpitSuggestion[];
 };
 
 /* ------------------------------------------------------------------ */
@@ -152,6 +162,7 @@ function BackToListLink() {
 
 function ActionBar({
   summary,
+  versionZeroSummary,
   takeoffEnabled,
   plansSummary,
   pendingAction,
@@ -160,6 +171,7 @@ function ActionBar({
   onLaunchMetre,
 }: {
   summary: AffaireHubSummaryResult;
+  versionZeroSummary?: VersionZeroDraftSummary | null;
   takeoffEnabled?: boolean;
   plansSummary?: AffaireHubPlansSummaryData | null;
   pendingAction: "duplicate" | "variant" | null;
@@ -191,6 +203,16 @@ function ActionBar({
         </svg>
         Editer V{currentVersion.versionNumber}
       </Link>
+
+      {currentVersion.status === "draft" &&
+      (versionZeroSummary?.activeDraft || versionZeroSummary?.canGenerate) ? (
+        <Link
+          href={`/dashboard/estimates/${currentVersion.id}/edit?openVersionZero=1`}
+          className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
+        >
+          {versionZeroSummary?.activeDraft ? "Revoir V0 IA" : "Generer V0"}
+        </Link>
+      ) : null}
 
       {/* Export */}
       <Link
@@ -826,6 +848,8 @@ export function AffaireHub({
   registerScopeOptions,
   registerSummary,
   registerTimeline,
+  versionZeroSummary,
+  cockpitSuggestions,
 }: AffaireHubProps) {
   const router = useRouter();
   const toast = useToast();
@@ -910,11 +934,20 @@ export function AffaireHub({
 
   const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
 
-  // Bridge: command palette dispatches "open-analyse-plans" custom event
+  // Push cockpit suggestions to store for Ctrl+K bridge
   useEffect(() => {
-    const handler = () => setShowLaunchMetreDialog(true);
-    document.addEventListener("open-analyse-plans", handler);
-    return () => document.removeEventListener("open-analyse-plans", handler);
+    if (cockpitSuggestions?.length) setCockpitSuggestions(cockpitSuggestions);
+    return () => clearCockpitSuggestions();
+  }, [cockpitSuggestions]);
+
+  // Bridge: command palette dispatches "cockpit-open-dialog" custom event
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const dialogId = (e as CustomEvent<string>).detail;
+      if (dialogId === "launch-metre") setShowLaunchMetreDialog(true);
+    };
+    document.addEventListener("cockpit-open-dialog", handler);
+    return () => document.removeEventListener("cockpit-open-dialog", handler);
   }, []);
   const draftVersionId =
     summary.currentVersion?.status === "draft" ? summary.currentVersion.id : null;
@@ -1005,6 +1038,24 @@ export function AffaireHub({
           )}
         </div>
       </div>
+
+      {/* Cockpit command bar */}
+      {cockpitSuggestions && cockpitSuggestions.length > 0 && (
+        <CockpitCommandBar
+          suggestions={cockpitSuggestions}
+          projectId={summary.project.id}
+          onOpenDialog={(dialogId) => {
+            if (dialogId === "launch-metre") setShowLaunchMetreDialog(true);
+          }}
+          onExecute={(s) => {
+            recordCockpitCommandAction({
+              projectId: summary.project.id,
+              actionId: s.actionId,
+              intent: s.intent,
+            });
+          }}
+        />
+      )}
 
       {/* Import result summary banner */}
       {importResult && (
@@ -1100,6 +1151,7 @@ export function AffaireHub({
           ) : summary.versionsCount > 0 && !isReadOnlyReview ? (
             <ActionBar
               summary={summary}
+              versionZeroSummary={versionZeroSummary}
               takeoffEnabled={takeoffEnabled}
               plansSummary={plansSummary}
               pendingAction={pendingAction}

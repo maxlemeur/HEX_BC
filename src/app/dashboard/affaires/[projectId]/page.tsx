@@ -33,7 +33,9 @@ import {
   getEstimateApprovalSummary,
   listEstimateApprovalDecisionJournal,
 } from "@/lib/estimates/rules-engine";
+import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -124,6 +126,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     directionSignalsResult,
     registerPageResult,
     registerScopeOptionsResult,
+    versionZeroSummaryResult,
   ] = await Promise.allSettled([
     currentVersionId ? getEstimateApprovalSummary(currentVersionId) : Promise.resolve(null),
     currentVersionId
@@ -149,6 +152,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       projectId,
       versionId: currentVersionId,
     }),
+    currentVersionId && summary.currentVersion?.status === "draft"
+      ? fetchVersionZeroDraftSummary({ versionId: currentVersionId })
+      : Promise.resolve(null),
   ]);
   const approvalSummary =
     approvalSummaryResult.status === "fulfilled" ? approvalSummaryResult.value : null;
@@ -178,6 +184,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     registerScopeOptionsResult.status === "fulfilled"
       ? registerScopeOptionsResult.value
       : { lots: [], lines: [] };
+  const versionZeroSummary =
+    versionZeroSummaryResult.status === "fulfilled"
+      ? versionZeroSummaryResult.value
+      : null;
   const registerSummary = registerPage?.summary ?? null;
   const registerTimeline = registerPage?.timeline ?? [];
 
@@ -229,6 +239,15 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     }
   }
 
+  const cockpitSuggestions = computeCockpitSuggestions({
+    projectId,
+    takeoffEnabled,
+    isReadOnlyReview,
+    plansSummary,
+    registerSummary,
+    approvalSummary,
+  });
+
   return (
     <AffaireHub
       summary={summary}
@@ -248,6 +267,8 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       registerScopeOptions={registerScopeOptions}
       registerSummary={registerSummary}
       registerTimeline={registerTimeline}
+      versionZeroSummary={versionZeroSummary}
+      cockpitSuggestions={cockpitSuggestions}
     />
   );
 }

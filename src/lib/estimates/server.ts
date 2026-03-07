@@ -54,6 +54,10 @@ import {
 } from "./schemas";
 import { enrichEstimateItemsWithGeneratedOuvrageProvenance } from "./generated-ouvrages";
 import { enrichEstimateItemsWithAiStructureProvenance } from "./structure-drafts";
+import {
+  enrichEstimateItemsWithVersionZeroProvenance,
+  fetchVersionZeroDraftSummary,
+} from "./version-zero-drafts";
 import type {
   BulkUpdateEstimateItemsInput,
   BulkUpdateEstimateVersionPatchInput,
@@ -2166,8 +2170,13 @@ async function enrichEstimateItemsWithSourceMetadata(input: {
     tenantId: input.tenantId,
     items: withAiStructure,
   });
+  const withVersionZero = await enrichEstimateItemsWithVersionZeroProvenance({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    items: withGeneratedOuvrage,
+  });
 
-  return withGeneratedOuvrage as EstimateItemWithProvenanceRow[];
+  return withVersionZero as EstimateItemWithProvenanceRow[];
 }
 
 function escapeIlikeToken(value: string) {
@@ -5682,6 +5691,7 @@ export async function getEstimateVersionDetails(versionId: string) {
     laborRolesResult,
     rulesResult,
     marginTiersResult,
+    versionZeroSummary,
   ] =
     await Promise.all([
       supabase
@@ -5695,6 +5705,7 @@ export async function getEstimateVersionDetails(versionId: string) {
       laborRolesQuery,
       rulesQuery,
       marginTiersQuery,
+      fetchVersionZeroDraftSummary({ versionId }).catch(() => null),
     ]);
 
   if (itemsResult.error) {
@@ -5754,6 +5765,7 @@ export async function getEstimateVersionDetails(versionId: string) {
     labor_roles: (laborRolesResult.data ?? []) as LaborRoleRow[],
     suggestion_rules: (rulesResult.data ?? []) as SuggestionRuleRow[],
     margin_tiers: (marginTiersResult.data ?? []) as MarginTierRow[],
+    version_zero_summary: versionZeroSummary,
   };
 }
 

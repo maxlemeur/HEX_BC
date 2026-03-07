@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { memo, useMemo } from "react";
 
 import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
@@ -19,17 +20,33 @@ import { useEstimateEditorState } from "@/hooks/useEstimateEditorState";
 type EstimateEditorPageProps = {
   versionId: string;
   focusItemId?: string | null;
+  autoOpenVersionZero?: boolean;
 };
 
 const MemoizedEstimateEditorAlerts = memo(EstimateEditorAlerts);
 const MemoizedEstimateEditorDrawer = memo(EstimateEditorDrawer);
 const MemoizedEstimateEditorTable = memo(EstimateEditorTable);
+const VersionZeroDraftDialog = dynamic(
+  () =>
+    import("@/components/estimates/VersionZeroDraftDialog").then((module) => ({
+      default: module.VersionZeroDraftDialog,
+    })),
+  {
+    ssr: false,
+    loading: () => null,
+  }
+);
 
 export function EstimateEditorPage({
   versionId,
   focusItemId = null,
+  autoOpenVersionZero = false,
 }: EstimateEditorPageProps) {
-  const model = useEstimateEditorState({ versionId, focusItemId });
+  const model = useEstimateEditorState({
+    versionId,
+    focusItemId,
+    autoOpenVersionZero,
+  });
   const readyMeta = model.meta.kind === "ready" ? model.meta : null;
   const alertsRegion = useMemo(
     () =>
@@ -150,6 +167,11 @@ export function EstimateEditorPage({
           <GeneratedOuvrageDialog
             {...readyMeta.generatedOuvrageDialogProps}
           />
+        </div>
+      ) : null}
+      {readyMeta.versionZeroDraftDialogProps ? (
+        <div data-testid="estimate-editor-version-zero-dialog-region">
+          <VersionZeroDraftDialog {...readyMeta.versionZeroDraftDialogProps} />
         </div>
       ) : null}
       <div data-testid="estimate-editor-send-gating-dialog-region">

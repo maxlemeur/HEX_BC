@@ -8,6 +8,7 @@ import {
   fetchAffaireRegisterGateSummary,
 } from "@/lib/affaires/register-server";
 import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
+import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 import {
   normalizeEstimateApprovalDecision,
   resolveApprovalDecisionOutcome,
@@ -1653,11 +1654,14 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
     alerts: EstimateApprovalSubmissionSignal[];
   };
 }) {
-  const registerSummary = await fetchAffaireRegisterGateSummary({
-    supabase: input.supabase as never,
-    projectId: input.projectId,
-    versionId: input.versionId,
-  });
+  const [registerSummary, versionZeroSummary] = await Promise.all([
+    fetchAffaireRegisterGateSummary({
+      supabase: input.supabase as never,
+      projectId: input.projectId,
+      versionId: input.versionId,
+    }),
+    fetchVersionZeroDraftSummary({ versionId: input.versionId }).catch(() => null),
+  ]);
 
   const blockers = [...input.submissionReadiness.blockers];
   const alerts = [...input.submissionReadiness.alerts];
@@ -1721,6 +1725,21 @@ async function enrichSubmissionReadinessWithAffaireRegister(input: {
           status: "clarify_with_client",
           focusEntryId: registerSummary.clarifyWithClientEntries[0]?.id ?? null,
         }),
+      })
+    );
+  }
+
+  if (versionZeroSummary?.activeDraft) {
+    blockers.push(
+      toSubmissionReadinessSignal({
+        id: "version-zero:review_pending",
+        label: "V0 IA",
+        message:
+          versionZeroSummary.activeDraft.counts.pending > 0
+            ? `La V0 IA comporte encore ${versionZeroSummary.activeDraft.counts.pending} ligne(s) en attente de validation humaine.`
+            : "Une V0 IA active doit etre materialisee ou abandonnee avant soumission.",
+        actionLabel: "Ouvrir la V0",
+        actionHref: `/dashboard/estimates/${input.versionId}/edit?openVersionZero=1`,
       })
     );
   }

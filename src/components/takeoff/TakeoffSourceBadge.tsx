@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useId, useState, type FocusEvent, type KeyboardEvent } from "react";
+import { useId, useState, type FocusEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 
 import { EstimateExplanationPanel } from "@/components/estimates/EstimateExplanationPanel";
@@ -21,6 +21,7 @@ const SUPPORTED_BADGE_PROVIDERS = new Set([
   "takeoff_gemini",
   "ai_structure",
   "generated_ouvrage",
+  "version_zero_draft",
 ]);
 
 type TakeoffSourceBadgeProps = {
@@ -76,6 +77,27 @@ type GeneratedOuvrageSnapshot = {
     dsCents: number | null;
     sourceLabel: string | null;
   }>;
+};
+
+type VersionZeroApplication = {
+  draftId: string;
+  lotLabel: string | null;
+  reviewStatus: string | null;
+  confidence: number | null;
+  generatedAt: string | null;
+  materializedAt: string | null;
+  effective: {
+    title: string | null;
+    description: string | null;
+    quantity: number | null;
+    unit: string | null;
+  };
+  provenance: string[];
+  facts: string[];
+  hypotheses: string[];
+  inferences: string[];
+  missingSignals: string[];
+  riskSignals: string[];
 };
 
 function toNonEmptyString(value: string | null | undefined) {
@@ -374,6 +396,76 @@ function parseGeneratedOuvrageSnapshot(value: unknown): GeneratedOuvrageSnapshot
   };
 }
 
+function parseVersionZeroApplications(value: unknown): VersionZeroApplication[] {
+  if (!isRecord(value) || !Array.isArray(value.applications)) {
+    return [];
+  }
+
+  const toStringList = (candidate: unknown) =>
+    Array.isArray(candidate)
+      ? candidate
+          .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+          .filter((entry) => entry.length > 0)
+      : [];
+
+  return value.applications
+    .map((application) => {
+      if (!isRecord(application)) return null;
+      const draftId = toNonEmptyString(
+        typeof application.draft_id === "string" ? application.draft_id : null
+      );
+      if (!draftId) return null;
+      const effective = isRecord(application.effective) ? application.effective : {};
+      return {
+        draftId,
+        lotLabel: toNonEmptyString(
+          typeof application.lot_label === "string" ? application.lot_label : null
+        ),
+        reviewStatus: toNonEmptyString(
+          typeof application.review_status === "string"
+            ? application.review_status
+            : null
+        ),
+        confidence:
+          typeof application.confidence === "number"
+            ? application.confidence
+            : null,
+        generatedAt: toNonEmptyString(
+          typeof application.generated_at === "string"
+            ? application.generated_at
+            : null
+        ),
+        materializedAt: toNonEmptyString(
+          typeof application.materialized_at === "string"
+            ? application.materialized_at
+            : null
+        ),
+        effective: {
+          title: toNonEmptyString(
+            typeof effective.title === "string" ? effective.title : null
+          ),
+          description: toNonEmptyString(
+            typeof effective.description === "string"
+              ? effective.description
+              : null
+          ),
+          quantity:
+            typeof effective.quantity === "number" ? effective.quantity : null,
+          unit: toNonEmptyString(
+            typeof effective.unit === "string" ? effective.unit : null
+          ),
+        },
+        provenance: toStringList(application.provenance),
+        facts: toStringList(application.facts),
+        hypotheses: toStringList(application.hypotheses),
+        inferences: toStringList(application.inferences),
+        missingSignals: toStringList(application.missing_signals),
+        riskSignals: toStringList(application.risk_signals),
+      } satisfies VersionZeroApplication;
+    })
+    .filter((application): application is VersionZeroApplication => application !== null);
+}
+
 export function TakeoffSourceBadge({
   versionId,
   estimateItemId,
@@ -408,14 +500,6 @@ export function TakeoffSourceBadge({
     setIsFocusWithin(false);
   };
 
-  useEffect(() => {
-    if (!isExplanationPanelOpen) {
-      return;
-    }
-
-    closePopover();
-  }, [closePopover, isExplanationPanelOpen]);
-
   const handleBlurCapture = (event: FocusEvent<HTMLDivElement>) => {
     const nextFocusedNode = event.relatedTarget as Node | null;
     if (nextFocusedNode && event.currentTarget.contains(nextFocusedNode)) {
@@ -441,8 +525,10 @@ export function TakeoffSourceBadge({
 
   const isAiStructure = normalizedSourceProvider === "ai_structure";
   const isGeneratedOuvrage = normalizedSourceProvider === "generated_ouvrage";
+  const isVersionZeroDraft = normalizedSourceProvider === "version_zero_draft";
   const aiApplications = parseAiStructureApplications(sourceMetadata);
   const generatedOuvrageSnapshot = parseGeneratedOuvrageSnapshot(sourceMetadata);
+  const versionZeroApplications = parseVersionZeroApplications(sourceMetadata);
 
   if (
     !normalizedSourceProvider ||
@@ -456,6 +542,10 @@ export function TakeoffSourceBadge({
   }
 
   if (isGeneratedOuvrage && !generatedOuvrageSnapshot) {
+    return null;
+  }
+
+  if (isVersionZeroDraft && versionZeroApplications.length === 0) {
     return null;
   }
 
@@ -477,9 +567,11 @@ export function TakeoffSourceBadge({
     ? `/dashboard/estimates/${versionId}/takeoff/${normalizedSourceJobId}`
     : null;
   const canOpenEvidence =
+    !isVersionZeroDraft &&
     normalizedSourceJobId !== null &&
     toNonEmptyString(estimateItemId ?? null) !== null;
   const openExplanationPanel = () => {
+    closePopover();
     setIsExplanationPanelOpen(true);
   };
 
@@ -487,6 +579,8 @@ export function TakeoffSourceBadge({
     ? "IA structure"
     : isGeneratedOuvrage
       ? "IA ouvrage"
+      : isVersionZeroDraft
+        ? "IA V0"
       : `IA${triggerLabelSuffix}`;
 
   return (
@@ -512,7 +606,7 @@ export function TakeoffSourceBadge({
         <span className="sr-only">Provenance IA disponible pour cette ligne</span>
       </button>
 
-      {!isAiStructure && estimateItemId ? (
+      {!isAiStructure && !isVersionZeroDraft && estimateItemId ? (
         <button
           type="button"
           className="takeoff-source-badge__job-link takeoff-source-badge__inline-action"
@@ -654,6 +748,67 @@ export function TakeoffSourceBadge({
                 ))}
               </div>
             </>
+          ) : isVersionZeroDraft ? (
+            <>
+              <p className="takeoff-source-badge__title">V0 IA materialisee</p>
+              <div className="space-y-3 text-sm text-[var(--slate-700)]">
+                {versionZeroApplications.slice(0, 3).map((application) => (
+                  <div
+                    key={application.draftId}
+                    className="rounded-lg border border-[var(--slate-200)] bg-white p-3"
+                  >
+                    <p className="font-medium text-[var(--slate-900)]">
+                      {application.effective.title ?? lineLabel ?? "Ligne V0"}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      Lot: {application.lotLabel ?? NOT_AVAILABLE_LABEL} · Revue:{" "}
+                      {application.reviewStatus ?? NOT_AVAILABLE_LABEL}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      Confiance:{" "}
+                      {application.confidence !== null
+                        ? `${Math.round(application.confidence * 100)}%`
+                        : NOT_AVAILABLE_LABEL}
+                    </p>
+                    {application.effective.description ? (
+                      <p className="mt-2 text-xs text-[var(--slate-600)]">
+                        Description: {application.effective.description}
+                      </p>
+                    ) : null}
+                    {application.provenance.length > 0 ? (
+                      <p className="mt-2 text-xs text-[var(--slate-600)]">
+                        Provenance: {application.provenance.join(" · ")}
+                      </p>
+                    ) : null}
+                    {application.facts.length > 0 ? (
+                      <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        Faits: {application.facts.join(" · ")}
+                      </p>
+                    ) : null}
+                    {application.hypotheses.length > 0 ? (
+                      <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        Hypotheses: {application.hypotheses.join(" · ")}
+                      </p>
+                    ) : null}
+                    {application.inferences.length > 0 ? (
+                      <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        Inferences: {application.inferences.join(" · ")}
+                      </p>
+                    ) : null}
+                    {application.missingSignals.length > 0 ? (
+                      <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        Manquants: {application.missingSignals.join(" · ")}
+                      </p>
+                    ) : null}
+                    {application.riskSignals.length > 0 ? (
+                      <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        Risques: {application.riskSignals.join(" · ")}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
             <>
               <p className="takeoff-source-badge__title">Provenance IA</p>
@@ -740,7 +895,7 @@ export function TakeoffSourceBadge({
         />
       ) : null}
 
-      {estimateItemId ? (
+      {estimateItemId && !isVersionZeroDraft ? (
         <EstimateExplanationPanel
           open={isExplanationPanelOpen}
           onOpenChange={setIsExplanationPanelOpen}

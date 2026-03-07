@@ -199,6 +199,9 @@ type EstimateEditorToolbarProps = {
   onExportBdc: () => void;
   onImportDpgfSource: () => void;
   showImportDpgfSource: boolean;
+  onOpenVersionZeroDialog?: () => void;
+  versionZeroActionLabel?: string;
+  isVersionZeroActionDisabled?: boolean;
   isExportDisabled: boolean;
   isExporting: boolean;
   exportLoadingLabel: string;
@@ -229,6 +232,9 @@ export function EstimateEditorToolbar({
   onExportBdc,
   onImportDpgfSource,
   showImportDpgfSource,
+  onOpenVersionZeroDialog,
+  versionZeroActionLabel = "Generer V0",
+  isVersionZeroActionDisabled = false,
   isExportDisabled,
   isExporting,
   exportLoadingLabel,
@@ -295,6 +301,17 @@ export function EstimateEditorToolbar({
             {isImportingDpgfSource
               ? "Importer le DPGF source..."
               : "Importer le DPGF source"}
+          </button>
+        ) : null}
+        {onOpenVersionZeroDialog ? (
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={onOpenVersionZeroDialog}
+            disabled={isVersionZeroActionDisabled}
+            data-testid="estimate-page-toolbar-version-zero-button"
+          >
+            {versionZeroActionLabel}
           </button>
         ) : null}
         {canSend ? (

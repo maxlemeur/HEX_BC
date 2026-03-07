@@ -17,6 +17,7 @@ import type { Database } from "@/types/database";
 
 import { mapSupabaseError } from "./errors";
 import { evaluateRules, type EstimateRuleViolation } from "./rules-engine";
+import { fetchVersionZeroDraftSummary } from "./version-zero-drafts";
 
 type Supabase = SupabaseClient<Database>;
 type EstimateProjectRow = Database["public"]["Tables"]["estimate_projects"]["Row"];
@@ -38,6 +39,7 @@ export const ESTIMATE_GATING_FLAG_KEYS = [
   "critical_open_questions",
   "client_clarification_required",
   "open_questions_pending",
+  "version_zero_review_pending",
 ] as const;
 
 export type EstimateGatingFlagKey = (typeof ESTIMATE_GATING_FLAG_KEYS)[number];
@@ -89,6 +91,11 @@ export const ESTIMATE_GATING_FLAG_META: Record<
     description:
       "Des hypotheses ou pieces manquantes non critiques restent ouvertes dans le registre affaire.",
   },
+  version_zero_review_pending: {
+    label: "V0 IA a revoir",
+    description:
+      "Une V0 assistee est encore active sur cette version. La revue humaine explicite doit etre finalisee avant envoi.",
+  },
 };
 
 const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
@@ -110,6 +117,7 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   critical_open_questions: "blocking",
   client_clarification_required: "blocking",
   open_questions_pending: "warning",
+  version_zero_review_pending: "blocking",
 };
 
 export type EstimateGatingFlag = {
@@ -279,6 +287,7 @@ export async function evaluateEstimateSendGating(
     marginTiersResult,
     documentsResult,
     registerSummary,
+    versionZeroSummary,
     stalePriceDays,
     blockingOverride,
     warningOverride,
@@ -306,6 +315,7 @@ export async function evaluateEstimateSendGating(
       projectId: project.id,
       versionId: version.id,
     }),
+    fetchVersionZeroDraftSummary({ versionId: version.id }).catch(() => null),
     getStalePriceDaysForTenant(tenantId, { supabase }),
     getFeatureFlagValueForTenant(tenantId, GATING_BLOCKING_FLAGS_KEY, {
       supabase,
@@ -416,6 +426,10 @@ export async function evaluateEstimateSendGating(
     itemIdsByFlag.no_pdf_generated.add(version.id);
   }
 
+  if (versionZeroSummary?.activeDraft) {
+    itemIdsByFlag.version_zero_review_pending.add(version.id);
+  }
+
   const rulesEvaluation = await evaluateRules({
     supabase,
     tenantId,
@@ -466,6 +480,11 @@ export async function evaluateEstimateSendGating(
     if (key === "total_exceeds_budget") {
       details.total_ht_cents = version.total_ht_cents;
       details.budget_ceiling_ht_cents = budgetCeilingHtCents;
+    }
+    if (key === "version_zero_review_pending" && versionZeroSummary?.activeDraft) {
+      details.draft_id = versionZeroSummary.activeDraft.id;
+      details.pending_count = versionZeroSummary.activeDraft.counts.pending;
+      details.selected_lots = versionZeroSummary.activeDraft.selectedLots;
     }
 
     const flag: EstimateGatingFlag = {

@@ -16,6 +16,7 @@ import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
 import { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
 import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
+import { VersionZeroDraftDialog } from "@/components/estimates/VersionZeroDraftDialog";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
@@ -136,6 +137,7 @@ import {
   type ImportEstimateSectionsPayload,
   type EstimateVersionEvent,
   type EstimateSendGatingResponse,
+  type VersionZeroDraftSummary,
   updateEstimateStatus,
   updateEstimateSuggestionRule,
 } from "@/lib/estimates/client";
@@ -1309,6 +1311,7 @@ export type EstimateEditorStateModel = {
     isImportFromEstimateDialogOpen: boolean;
     isEstimateStructureDraftDialogOpen: boolean;
     isGeneratedOuvrageDialogOpen: boolean;
+    isVersionZeroDialogOpen: boolean;
     isSendGatingDialogOpen: boolean;
   };
   actions: {
@@ -1344,6 +1347,9 @@ export type EstimateEditorStateModel = {
         generatedOuvrageDialogProps:
           | ComponentProps<typeof GeneratedOuvrageDialog>
           | null;
+        versionZeroDraftDialogProps:
+          | ComponentProps<typeof VersionZeroDraftDialog>
+          | null;
         sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog>;
       };
 };
@@ -1351,9 +1357,11 @@ export type EstimateEditorStateModel = {
 export function useEstimateEditorState({
   versionId,
   focusItemId = null,
+  autoOpenVersionZero = false,
 }: {
   versionId: string;
   focusItemId?: string | null;
+  autoOpenVersionZero?: boolean;
 }): EstimateEditorStateModel {
   const router = useRouter();
   const resolvedVersionId = versionId;
@@ -1451,6 +1459,9 @@ export function useEstimateEditorState({
   ] = useState(false);
   const [isGeneratedOuvrageDialogOpen, setIsGeneratedOuvrageDialogOpen] =
     useState(false);
+  const [isVersionZeroDialogOpen, setIsVersionZeroDialogOpen] = useState(false);
+  const [versionZeroSummary, setVersionZeroSummary] =
+    useState<VersionZeroDraftSummary | null>(null);
   const [importSummaryMessage, setImportSummaryMessage] =
     useState<string | null>(null);
   const [highlightedItemIds, setHighlightedItemIds] = useState<Set<string>>(new Set());
@@ -1663,6 +1674,7 @@ export function useEstimateEditorState({
         };
 
         setVersion(versionRow);
+        setVersionZeroSummary(data.versionZeroSummary ?? null);
         setItems(applyPendingBufferedUpdatesToItems(normalizedItems));
         setCategories(data.categories ?? []);
         setSupplyTypes(data.supplyTypes ?? []);
@@ -1672,6 +1684,12 @@ export function useEstimateEditorState({
         setSettings(initialSettings);
         setSavedSettings(initialSettings);
         setConflictState(null);
+        if (
+          autoOpenVersionZero &&
+          (data.versionZeroSummary?.activeDraft || data.versionZeroSummary?.canGenerate)
+        ) {
+          setIsVersionZeroDialogOpen(true);
+        }
 
         if (versionRow.status === "draft") {
           const originalById = new Map(
@@ -1772,6 +1790,7 @@ export function useEstimateEditorState({
       active = false;
     };
   }, [
+    autoOpenVersionZero,
     applyPendingBufferedUpdatesToItems,
     isLaborSplitEnabled,
     registerVersionConflict,
@@ -5161,6 +5180,31 @@ export function useEstimateEditorState({
     readOnlyActionErrorMessage,
   ]);
 
+  const handleOpenVersionZeroDialog = useCallback(() => {
+    if (isReadOnly) {
+      setActionError(readOnlyActionErrorMessage);
+      return;
+    }
+    if (isConflictLocked) {
+      setActionError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+    if (!versionRef.current?.id) {
+      setActionError("Version introuvable.");
+      return;
+    }
+    setActionError(null);
+    setImportSummaryMessage(null);
+    setIsVersionZeroDialogOpen(true);
+  }, [
+    conflictState?.message,
+    isConflictLocked,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+  ]);
+
   const handleConfirmEstimateStructureDraftDialog = useCallback(
     async (draftId: string, input: ApplyEstimateStructureDraftPayload) => {
       if (isReadOnly) {
@@ -7160,6 +7204,22 @@ export function useEstimateEditorState({
     },
     [reloadItems]
   );
+  const closeVersionZeroDialog = useCallback(
+    (result?: { materialized?: boolean }) => {
+      setIsVersionZeroDialogOpen(false);
+      void fetchEstimateEditorData(resolvedVersionId)
+        .then((data) => {
+          setVersionZeroSummary(data.versionZeroSummary ?? null);
+        })
+        .catch((error) => {
+          console.error("Impossible de rafraichir le resume V0.", error);
+        });
+      if (result?.materialized) {
+        void reloadItems();
+      }
+    },
+    [reloadItems, resolvedVersionId]
+  );
   const closeSendGatingDialog = useCallback(() => {
     if (isUpdatingStatus) return;
     setIsSendGatingDialogOpen(false);
@@ -7195,6 +7255,12 @@ export function useEstimateEditorState({
         onExportBdc: () => void handleExportBdc(),
         onImportDpgfSource: () => void handleImportDpgfSource(),
         showImportDpgfSource: hasLinkedDpgfSource || isLoadingLinkedDpgfSource,
+        onOpenVersionZeroDialog: handleOpenVersionZeroDialog,
+        versionZeroActionLabel: versionZeroSummary?.activeDraft
+          ? "Revoir V0 IA"
+          : "Generer V0",
+        isVersionZeroActionDisabled:
+          !versionZeroSummary?.activeDraft && !versionZeroSummary?.canGenerate,
         isExportDisabled,
         isExporting,
         exportLoadingLabel,
@@ -7467,6 +7533,21 @@ export function useEstimateEditorState({
     ]
   );
 
+  const versionZeroDraftDialogProps = useMemo<
+    ComponentProps<typeof VersionZeroDraftDialog> | null
+  >(
+    () =>
+      isVersionZeroDialogOpen && version
+        ? {
+            isOpen: true,
+            versionId: version.id,
+            summary: versionZeroSummary,
+            onClose: closeVersionZeroDialog,
+          }
+        : null,
+    [closeVersionZeroDialog, isVersionZeroDialogOpen, version, versionZeroSummary]
+  );
+
   const sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog> = {
     isOpen: isSendGatingDialogOpen,
     isSubmitting: isUpdatingStatus,
@@ -7492,6 +7573,7 @@ export function useEstimateEditorState({
     isImportFromEstimateDialogOpen,
     isEstimateStructureDraftDialogOpen,
     isGeneratedOuvrageDialogOpen,
+    isVersionZeroDialogOpen,
     isSendGatingDialogOpen,
   };
 
@@ -7546,6 +7628,7 @@ export function useEstimateEditorState({
       importFromEstimateDialogProps,
       estimateStructureDraftDialogProps,
       generatedOuvrageDialogProps,
+      versionZeroDraftDialogProps,
       sendGatingDialogProps,
     },
   };

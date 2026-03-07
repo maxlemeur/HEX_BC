@@ -361,6 +361,117 @@ export type EstimateVersionWithProject = EstimateVersionRow & {
     | null;
 };
 
+export type VersionZeroLineReviewStatus =
+  | "pending"
+  | "accepted"
+  | "edited"
+  | "rejected";
+
+export type VersionZeroDraftStatus =
+  | "ia_a_revoir"
+  | "ready_for_version"
+  | "materialized"
+  | "discarded"
+  | "superseded";
+
+export type VersionZeroDraftSummary = {
+  versionId: string;
+  projectId: string;
+  hasConfirmedBrief: boolean;
+  confirmedBriefId: string | null;
+  isVersionEmpty: boolean;
+  canGenerate: boolean;
+  availableLots: string[];
+  activeDraft: {
+    id: string;
+    status: VersionZeroDraftStatus;
+    createdAt: string;
+    materializedAt: string | null;
+    selectedLots: string[];
+    counts: {
+      lots: number;
+      lines: number;
+      pending: number;
+      accepted: number;
+      edited: number;
+      rejected: number;
+      missingLots: number;
+      partialLots: number;
+      lowConfidenceLines: number;
+    };
+    summaryText: string | null;
+    state: "active" | "terminal";
+  } | null;
+};
+
+export type VersionZeroReviewLine = {
+  id: string;
+  lotId: string;
+  order: number;
+  reviewStatus: VersionZeroLineReviewStatus;
+  confidence: number;
+  confidenceLabel: "elevee" | "moyenne" | "faible";
+  proposed: {
+    title: string;
+    description: string | null;
+    quantity: number | null;
+    unit: string | null;
+  };
+  edited: {
+    title: string | null;
+    description: string | null;
+    quantity: number | null;
+    unit: string | null;
+  };
+  effective: {
+    title: string;
+    description: string | null;
+    quantity: number | null;
+    unit: string | null;
+  };
+  provenance: string[];
+  facts: string[];
+  hypotheses: string[];
+  inferences: string[];
+  missingSignals: string[];
+  riskSignals: string[];
+  materializedEstimateItemId: string | null;
+};
+
+export type VersionZeroReviewLot = {
+  id: string;
+  key: string;
+  label: string;
+  order: number;
+  status: "generated" | "partial" | "missing";
+  confidence: number | null;
+  provenance: string[];
+  facts: string[];
+  hypotheses: string[];
+  inferences: string[];
+  missingSignals: string[];
+  riskSignals: string[];
+  lines: VersionZeroReviewLine[];
+};
+
+export type VersionZeroReview = {
+  draft: {
+    id: string;
+    versionId: string;
+    projectId: string;
+    briefId: string | null;
+    status: VersionZeroDraftStatus;
+    createdAt: string;
+    updatedAt: string;
+    materializedAt: string | null;
+    selectedLots: string[];
+    summaryText: string | null;
+    generationMetadata: Record<string, unknown>;
+    counts: VersionZeroDraftSummary["activeDraft"]["counts"];
+  };
+  lots: VersionZeroReviewLot[];
+};
+
 export type EstimateEditorData = {
   version: EstimateVersionWithProject;
   items: EstimateItem[];
@@ -369,6 +480,7 @@ export type EstimateEditorData = {
   laborRoles: LaborRole[];
   marginTiers: MarginTier[];
   suggestionRules: SuggestionRule[];
+  versionZeroSummary: VersionZeroDraftSummary | null;
 };
 
 export type CreateEstimateCreationMode = "blank" | "linkedDpgfSource";
@@ -2182,6 +2294,9 @@ function parseEstimateEditorData(payload: unknown): EstimateEditorData {
     "suggestion_rules",
     "rules",
   ]);
+  const versionZeroSummary =
+    (isRecord(root.version_zero_summary) ? root.version_zero_summary : null) ??
+    (isRecord(root.versionZeroSummary) ? root.versionZeroSummary : null);
 
   return {
     version,
@@ -2191,7 +2306,26 @@ function parseEstimateEditorData(payload: unknown): EstimateEditorData {
     laborRoles: laborRoles as LaborRole[],
     marginTiers: marginTiers as MarginTier[],
     suggestionRules: suggestionRules as SuggestionRule[],
+    versionZeroSummary: (versionZeroSummary as VersionZeroDraftSummary | null) ?? null,
   };
+}
+
+function parseVersionZeroDraftSummary(payload: unknown): VersionZeroDraftSummary {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) {
+    throw new Error("Impossible de charger le resume V0.");
+  }
+
+  return root as VersionZeroDraftSummary;
+}
+
+function parseVersionZeroReview(payload: unknown): VersionZeroReview {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) {
+    throw new Error("Impossible de charger la revue V0.");
+  }
+
+  return root as VersionZeroReview;
 }
 
 function parseEstimateItems(payload: unknown): EstimateItem[] {
@@ -2925,6 +3059,107 @@ export async function applyEstimateStructureDraft(
   }
 
   return parsed;
+}
+
+export async function fetchVersionZeroDraftSummary(
+  versionId: string
+): Promise<VersionZeroDraftSummary> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/version-zero-drafts`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger le resume de la V0."
+  );
+
+  return parseVersionZeroDraftSummary(payload);
+}
+
+export async function generateVersionZeroDraft(
+  versionId: string,
+  input: {
+    briefId?: string | null;
+    selectedLots?: string[];
+  } = {}
+): Promise<VersionZeroReview> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/version-zero-drafts`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        briefId: input.briefId ?? null,
+        selectedLots: input.selectedLots ?? [],
+      }),
+    },
+    "Impossible de generer la V0."
+  );
+
+  return parseVersionZeroReview(payload);
+}
+
+export async function fetchVersionZeroReview(
+  versionId: string,
+  draftId: string
+): Promise<VersionZeroReview> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/version-zero-drafts/${draftId}`,
+    {
+      method: "GET",
+    },
+    "Impossible de charger la revue V0."
+  );
+
+  return parseVersionZeroReview(payload);
+}
+
+export async function reviewVersionZeroLine(
+  versionId: string,
+  draftId: string,
+  lineDraftId: string,
+  input: {
+    reviewStatus: Exclude<VersionZeroLineReviewStatus, "pending">;
+    editedValues?: {
+      title?: string | null;
+      description?: string | null;
+      quantity?: number | null;
+      unit?: string | null;
+    };
+  }
+): Promise<VersionZeroReview> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/version-zero-drafts/${draftId}/lines/${lineDraftId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        reviewStatus: input.reviewStatus,
+        editedValues: input.editedValues ?? null,
+      }),
+    },
+    "Impossible de mettre a jour la ligne V0."
+  );
+
+  return parseVersionZeroReview(payload);
+}
+
+export async function materializeVersionZeroDraft(
+  versionId: string,
+  draftId: string
+): Promise<VersionZeroReview> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/version-zero-drafts/${draftId}/materialize`,
+    {
+      method: "POST",
+    },
+    "Impossible de materialiser la V0."
+  );
+
+  return parseVersionZeroReview(payload);
 }
 
 export async function importLinkedDpgfSource(

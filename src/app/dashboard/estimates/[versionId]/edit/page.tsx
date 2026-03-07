@@ -12,12 +12,26 @@ export default async function EditEstimateRoutePage({
   const { versionId } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : {};
   const focusItemIdValue = resolvedSearchParams.focusItemId;
+  const openVersionZeroValue = resolvedSearchParams.openVersionZero;
   const focusItemId =
     typeof focusItemIdValue === "string"
       ? focusItemIdValue
       : Array.isArray(focusItemIdValue)
         ? (focusItemIdValue[0] ?? null)
         : null;
+  const autoOpenVersionZero =
+    typeof openVersionZeroValue === "string"
+      ? openVersionZeroValue === "1" || openVersionZeroValue === "true"
+      : Array.isArray(openVersionZeroValue)
+        ? (openVersionZeroValue[0] ?? "") === "1" ||
+          (openVersionZeroValue[0] ?? "") === "true"
+        : false;
 
-  return <EstimateEditorPage versionId={versionId} focusItemId={focusItemId} />;
+  return (
+    <EstimateEditorPage
+      versionId={versionId}
+      focusItemId={focusItemId}
+      autoOpenVersionZero={autoOpenVersionZero}
+    />
+  );
 }
