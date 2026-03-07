@@ -208,6 +208,7 @@ function buildThenableSelectBuilder<T>(getRows: () => T[]) {
 function createSupabaseMock() {
   const state: {
     estimateItems: EstimateItemRow[];
+    estimateItemSelects: string[];
     suggestions: SuggestionRow[];
     suggestionSources: SuggestionSourceRow[];
   } = {
@@ -249,6 +250,7 @@ function createSupabaseMock() {
         updated_at: "2026-02-10T10:00:00.000Z",
       },
     ],
+    estimateItemSelects: [],
     suggestions: [],
     suggestionSources: [],
   };
@@ -260,13 +262,14 @@ function createSupabaseMock() {
     from: vi.fn((table: string) => {
       if (table === "estimate_items") {
         return {
-          select: vi.fn(() =>
-            buildThenableSelectBuilder(() =>
+          select: vi.fn((columns?: string) => {
+            state.estimateItemSelects.push(columns ?? "");
+            return buildThenableSelectBuilder(() =>
               state.estimateItems.slice().sort((left, right) => {
                 return right.updated_at.localeCompare(left.updated_at);
               })
-            )
-          ),
+            );
+          }),
         };
       }
 
@@ -548,6 +551,9 @@ describe("takeoff price suggestion server helpers", () => {
     expect(first.suggestion.sources.length).toBeGreaterThan(0);
     expect(second.suggestion.suggestion_id).toBe(first.suggestion.suggestion_id);
     expect(mock.state.suggestions).toHaveLength(1);
+    expect(
+      mock.state.estimateItemSelects.some((columns) => /(^|,\s*)unit(\s*,|$)/.test(columns))
+    ).toBe(false);
   });
 
   it("returns the active snapshot with persisted sources", async () => {

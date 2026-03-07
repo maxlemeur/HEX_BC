@@ -251,6 +251,7 @@ function createSupabaseMock() {
     job: StoredJob;
     takeoffItems: StoredTakeoffItem[];
     estimateItems: StoredEstimateItem[];
+    estimateItemSelects: string[];
     links: StoredLink[];
     reviewDecisions: StoredDecision[];
     evidences: StoredEvidence[];
@@ -322,6 +323,7 @@ function createSupabaseMock() {
         updated_at: "2026-03-06T09:00:00.000Z",
       },
     ],
+    estimateItemSelects: [],
     links: [],
     reviewDecisions: [],
     evidences: [],
@@ -426,7 +428,8 @@ function createSupabaseMock() {
 
       if (table === "estimate_items") {
         return {
-          select: vi.fn(() => {
+          select: vi.fn((columns?: string) => {
+            state.estimateItemSelects.push(columns ?? "");
             const filters: Record<string, string> = {};
             const getRows = () =>
               state.estimateItems.filter((item) => {
@@ -970,6 +973,9 @@ describe("takeoff DPGF comparison server helpers", () => {
     });
     expect(response.rows[0]?.proofs.some((proof) => proof.kind === "fact")).toBe(true);
     expect(mock.state.evidences.some((evidence) => evidence.evidence_type === "takeoff")).toBe(true);
+    expect(
+      mock.state.estimateItemSelects.some((columns) => /(^|,\s*)unit(\s*,|$)/.test(columns))
+    ).toBe(false);
   });
 
   it("reuses carried decisions by review reference when the job is linked from a source version", async () => {
