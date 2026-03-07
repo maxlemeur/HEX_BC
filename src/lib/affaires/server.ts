@@ -605,7 +605,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
   const [planSetsResult, latestJobResult, currentVersionResult] = await Promise.all([
     context.supabase
       .from("plan_sets" as never)
-      .select("id, metadata" as never, { count: "exact" })
+      .select("id, metadata, estimate_version_id, created_at" as never, { count: "exact" })
       .eq("tenant_id" as never, context.tenantId as never)
       .eq("project_id" as never, project.id as never),
     context.supabase
@@ -646,21 +646,45 @@ async function fetchAffaireHubPlansSummaryWithContext(
     );
   }
 
+  const currentVersionId =
+    currentVersionResult.data &&
+    typeof (currentVersionResult.data as { id?: unknown }).id === "string"
+      ? ((currentVersionResult.data as { id: string }).id)
+      : null;
+
   const planSetRows = (planSetsResult.data ?? []) as Array<{
     id: string;
     metadata: unknown;
+    estimate_version_id: string | null;
+    created_at: string | null;
   }>;
   const planSetCount = planSetsResult.count ?? planSetRows.length;
+  const sortedPlanSetRows = [...planSetRows].sort((a, b) => {
+    const aCreatedAt = a.created_at ?? "";
+    const bCreatedAt = b.created_at ?? "";
 
-  // Find best plan set for auto-propose (import marker or single set)
+    if (aCreatedAt !== bCreatedAt) {
+      return bCreatedAt.localeCompare(aCreatedAt);
+    }
+
+    return a.id.localeCompare(b.id);
+  });
+
+  const currentDraftPlanSetRows =
+    currentVersionId !== null
+      ? sortedPlanSetRows.filter((ps) => ps.estimate_version_id === currentVersionId)
+      : [];
+
+  const autoProposePlanSetRows =
+    currentDraftPlanSetRows.length > 0 ? currentDraftPlanSetRows : sortedPlanSetRows;
+
+  // Find best plan set for auto-propose (import marker or latest draft row)
   let defaultPlanSetId: string | null = null;
-  if (planSetRows.length === 1) {
-    defaultPlanSetId = planSetRows[0].id;
-  } else if (planSetRows.length > 1) {
-    const markedSet = planSetRows.find((ps) =>
+  if (autoProposePlanSetRows.length > 0) {
+    const markedSet = autoProposePlanSetRows.find((ps) =>
       hasDefaultImportPlanSetMarker(ps.metadata),
     );
-    defaultPlanSetId = markedSet?.id ?? planSetRows[0].id;
+    defaultPlanSetId = markedSet?.id ?? autoProposePlanSetRows[0].id;
   }
 
   let planFileCount = 0;
@@ -729,12 +753,6 @@ async function fetchAffaireHubPlansSummaryWithContext(
   let coveragePercent: number | null = null;
   let exceptionCount: number | null = null;
   let failureReasonLabel: string | null = null;
-  const currentVersionId =
-    currentVersionResult.data &&
-    typeof (currentVersionResult.data as { id?: unknown }).id === "string"
-      ? ((currentVersionResult.data as { id: string }).id)
-      : null;
-
   if (latestJobRow) {
     const isCompletedOrApplied =
       latestJobRow.status === "completed" || latestJobRow.status === "applied";
