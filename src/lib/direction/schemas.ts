@@ -12,6 +12,7 @@ export type DirectionDashboardQuery = {
   lot: string | null;
   horizon: DirectionDashboardHorizon;
   onlyExceptions: boolean;
+  page: number;
 };
 
 function normalizeStringParam(
@@ -32,6 +33,21 @@ function isHorizon(value: string | null): value is DirectionDashboardHorizon {
   );
 }
 
+function normalizePageParam(
+  value: string | string[] | undefined
+): number {
+  if (typeof value !== "string") {
+    return 1;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 1;
+  }
+
+  return parsed;
+}
+
 export function parseDirectionDashboardQuery(
   params: Record<string, string | string[] | undefined>
 ): DirectionDashboardQuery {
@@ -45,5 +61,6 @@ export function parseDirectionDashboardQuery(
     lot,
     horizon: isHorizon(rawHorizon) ? rawHorizon : "all",
     onlyExceptions: rawExceptions === "true",
+    page: normalizePageParam(params.page),
   };
 }

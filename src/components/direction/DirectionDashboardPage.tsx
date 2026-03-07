@@ -32,6 +32,19 @@ const HORIZON_OPTIONS: Array<{
   { value: "this_month", label: "Ce mois" },
 ];
 
+function normalizePageParam(value: string | null, fallback: number) {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
 export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) {
   const router = useRouter();
   const pathname = usePathname();
@@ -47,6 +60,10 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
         initialQuery.horizon,
       onlyExceptions:
         searchParams.get("onlyExceptions") === "true" || initialQuery.onlyExceptions,
+      page: normalizePageParam(
+        searchParams.get("page"),
+        initialQuery.page
+      ),
     }),
     [initialQuery, searchParams]
   );
@@ -141,7 +158,10 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                 value={currentQuery.ownerUserId ?? ""}
                 onChange={(event) =>
                   startTransition(() => {
-                    updateParams({ owner: event.target.value || null });
+                    updateParams({
+                      owner: event.target.value || null,
+                      page: null,
+                    });
                   })
                 }
               >
@@ -163,7 +183,10 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                 value={currentQuery.lot ?? ""}
                 onChange={(event) =>
                   startTransition(() => {
-                    updateParams({ lot: event.target.value || null });
+                    updateParams({
+                      lot: event.target.value || null,
+                      page: null,
+                    });
                   })
                 }
               >
@@ -197,6 +220,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                         startTransition(() => {
                           updateParams({
                             horizon: option.value === "all" ? null : option.value,
+                            page: null,
                           });
                         })
                       }
@@ -218,6 +242,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
                 startTransition(() => {
                   updateParams({
                     onlyExceptions: currentQuery.onlyExceptions ? null : "true",
+                    page: null,
                   });
                 })
               }
@@ -227,7 +252,9 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
         </div>
 
         <p className="mt-3 text-xs text-[var(--slate-400)]" aria-live="polite">
-          {isPending ? "Mise a jour des filtres..." : `${data.cards.length} dossier(s) affiches.`}
+          {isPending
+            ? "Mise a jour des filtres..."
+            : `${data.cards.length} dossier(s) sur ${data.pagination.totalCards} affiches.`}
         </p>
       </section>
 
@@ -239,6 +266,46 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
       />
 
       <RiskPortfolioDashboard cards={data.cards} />
+
+      {data.pagination.totalPages > 1 ? (
+        <section className="dashboard-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-[var(--slate-600)]">
+            Page {data.pagination.page} sur {data.pagination.totalPages}
+          </p>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={isPending || !data.pagination.hasPreviousPage}
+              onClick={() =>
+                startTransition(() => {
+                  const previousPage = Math.max(1, data.pagination.page - 1);
+                  updateParams({
+                    page: previousPage > 1 ? String(previousPage) : null,
+                  });
+                })
+              }
+            >
+              Precedent
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={isPending || !data.pagination.hasNextPage}
+              onClick={() =>
+                startTransition(() => {
+                  updateParams({
+                    page: String(data.pagination.page + 1),
+                  });
+                })
+              }
+            >
+              Suivant
+            </button>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
