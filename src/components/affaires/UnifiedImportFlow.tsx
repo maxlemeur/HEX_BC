@@ -79,13 +79,15 @@ const LazyPlansStep = dynamic(
 
 type Step = "upload" | "mapping" | "preview" | "confirmation" | "plans";
 
-const STEPPER_STEPS = ["upload", "mapping", "preview", "confirmation"] as const;
+const STEPPER_STEPS_BASE = ["upload", "mapping", "preview", "confirmation"] as const;
+const STEPPER_STEPS_WITH_PLANS = ["upload", "mapping", "preview", "confirmation", "plans"] as const;
 
-const STEP_LABELS: Record<(typeof STEPPER_STEPS)[number], string> = {
+const STEP_LABELS: Record<Step, string> = {
   upload: "Upload",
   mapping: "Mapping",
   preview: "Apercu",
   confirmation: "Confirmation",
+  plans: "Plans",
 };
 
 const ACCEPTED_FILE_TYPES =
@@ -209,13 +211,13 @@ type PreviewData = {
 /*  Sub-component: Progress Header                                     */
 /* ------------------------------------------------------------------ */
 
-function ProgressHeader({ currentStep }: { currentStep: Step }) {
-  const stepperIndex = STEPPER_STEPS.indexOf(currentStep as (typeof STEPPER_STEPS)[number]);
-  const currentIndex = stepperIndex >= 0 ? stepperIndex : STEPPER_STEPS.length;
+function ProgressHeader({ currentStep, steps }: { currentStep: Step; steps: readonly Step[] }) {
+  const stepperIndex = steps.indexOf(currentStep);
+  const currentIndex = stepperIndex >= 0 ? stepperIndex : steps.length;
 
   return (
     <nav className="flex items-center gap-1" aria-label="Progression import">
-      {STEPPER_STEPS.map((step, index) => {
+      {steps.map((step, index) => {
         const isDone = index < currentIndex;
         const isCurrent = index === currentIndex;
 
@@ -254,6 +256,11 @@ function ProgressHeader({ currentStep }: { currentStep: Step }) {
                 <span>{index + 1}</span>
               )}
               <span className="hidden sm:inline">{STEP_LABELS[step]}</span>
+              {step === "plans" && (
+                <span className="ml-1 hidden text-[10px] font-normal opacity-70 sm:inline">
+                  optionnel
+                </span>
+              )}
             </div>
           </div>
         );
@@ -1176,11 +1183,16 @@ export function UnifiedImportFlow({
   const hasStartedImport = importId !== null;
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
+  const stepperSteps = useMemo(
+    () => (takeoffEnabled ? STEPPER_STEPS_WITH_PLANS : STEPPER_STEPS_BASE),
+    [takeoffEnabled],
+  );
+
   const handleBack = useCallback(() => {
     // Plans step: no going back (confirmation already committed)
     if (step === "plans") return;
 
-    const currentIndex = STEPPER_STEPS.indexOf(step as (typeof STEPPER_STEPS)[number]);
+    const currentIndex = (stepperSteps as readonly Step[]).indexOf(step);
     if (currentIndex <= 0) {
       // UX-5: if import already started, confirm before canceling
       if (hasStartedImport) {
@@ -1190,8 +1202,8 @@ export function UnifiedImportFlow({
       onCancel?.();
       return;
     }
-    startTransition(() => setStep(STEPPER_STEPS[currentIndex - 1]));
-  }, [step, onCancel, hasStartedImport]);
+    startTransition(() => setStep(stepperSteps[currentIndex - 1]));
+  }, [step, onCancel, hasStartedImport, stepperSteps]);
 
   const backButton = (
     <button
@@ -1252,7 +1264,7 @@ export function UnifiedImportFlow({
 
       {/* Progress header */}
       <div className="flex items-center justify-between gap-3">
-        <ProgressHeader currentStep={step} />
+        <ProgressHeader currentStep={step} steps={stepperSteps} />
         {step !== "plans" && backButton}
       </div>
 

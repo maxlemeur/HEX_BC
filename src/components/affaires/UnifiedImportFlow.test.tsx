@@ -85,10 +85,10 @@ vi.mock("@/components/affaires/PlansStep", () => ({
     <div>
       <p>Plans step</p>
       <button type="button" onClick={onSkip}>
-        Passer cette etape
+        Continuer sans plans
       </button>
       <button type="button" onClick={onContinue}>
-        Terminer l&apos;import
+        Terminer et acceder au dossier
       </button>
     </div>
   ),
@@ -299,7 +299,7 @@ describe("UnifiedImportFlow", () => {
 
     expect(mockPush).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: /Terminer l.import/i }));
+    await user.click(screen.getByRole("button", { name: /Terminer et acceder au dossier/i }));
 
     expect(onComplete).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -350,7 +350,7 @@ describe("UnifiedImportFlow", () => {
       expect(screen.getByText("Plans step")).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: /Passer cette etape/i }));
+    await user.click(screen.getByRole("button", { name: /Continuer sans plans/i }));
 
     expect(mockPush).toHaveBeenCalledWith(
       "/dashboard/estimates/44444444-4444-4444-8444-444444444444/edit"
@@ -405,5 +405,35 @@ describe("UnifiedImportFlow", () => {
     expect(mockRefresh).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Plans step")).not.toBeInTheDocument();
     expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("shows the Plans pill with 'optionnel' badge when takeoffEnabled is true", async () => {
+    render(
+      <UnifiedImportFlow
+        projectId="22222222-2222-4222-8222-222222222222"
+        takeoffEnabled
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Plans")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("optionnel")).toBeInTheDocument();
+  });
+
+  it("does NOT show the Plans pill when takeoffEnabled is false", async () => {
+    render(
+      <UnifiedImportFlow
+        projectId="22222222-2222-4222-8222-222222222222"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Upload")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Plans")).not.toBeInTheDocument();
+    expect(screen.queryByText("optionnel")).not.toBeInTheDocument();
   });
 });

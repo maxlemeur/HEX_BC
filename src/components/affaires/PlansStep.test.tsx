@@ -105,6 +105,38 @@ describe("PlansStep", () => {
     );
   });
 
+  it("reuses an intake-synced default import plan set", async () => {
+    fetchPlanSetsForProjectMock.mockResolvedValue([
+      {
+        ...EXISTING_PLAN_SET,
+        id: "plan-set-intake",
+        estimate_version_id: null,
+        metadata: {
+          source: "affaire-intake",
+          default_import_plan_set: true,
+        },
+      },
+    ]);
+
+    render(
+      <PlansStep
+        projectId={PROJECT_ID}
+        versionId={VERSION_ID}
+        onSkip={vi.fn()}
+        onContinue={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Plans import")).toBeInTheDocument();
+    });
+
+    expect(createPlanSetMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId("plan-upload-zone")).toHaveTextContent(
+      "plan-set-intake"
+    );
+  });
+
   it("creates the default import plan set when none exists yet", async () => {
     fetchPlanSetsForProjectMock.mockResolvedValue([]);
     createPlanSetMock.mockResolvedValue(CREATED_PLAN_SET);
@@ -266,6 +298,121 @@ describe("PlansStep", () => {
         },
       });
     });
+  });
+
+  it("renders the three benefits explanation cards", async () => {
+    fetchPlanSetsForProjectMock.mockResolvedValue([EXISTING_PLAN_SET]);
+
+    render(
+      <PlansStep
+        projectId={PROJECT_ID}
+        versionId={VERSION_ID}
+        onSkip={vi.fn()}
+        onContinue={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Plans import")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Extraction de metres")).toBeInTheDocument();
+    expect(screen.getByText("Preuves")).toBeInTheDocument();
+    expect(screen.getByText("Detection des ecarts")).toBeInTheDocument();
+  });
+
+  it("shows post-upload summary with plan set and next action after uploads complete", async () => {
+    fetchPlanSetsForProjectMock.mockResolvedValue([EXISTING_PLAN_SET]);
+    fetchPlanFilesMock.mockResolvedValue([
+      {
+        id: "file-1",
+        created_at: "2026-03-06T09:00:00.000Z",
+        updated_at: "2026-03-06T09:00:00.000Z",
+        tenant_id: "tenant-1",
+        plan_set_id: EXISTING_PLAN_SET.id,
+        file_path: "plans/a.pdf",
+        file_name: "a.pdf",
+        file_type: "application/pdf",
+        file_size_bytes: 1000,
+        page_count: null,
+        file_hash: null,
+        metadata: {},
+        created_by: null,
+      },
+      {
+        id: "file-2",
+        created_at: "2026-03-06T09:10:00.000Z",
+        updated_at: "2026-03-06T09:10:00.000Z",
+        tenant_id: "tenant-1",
+        plan_set_id: EXISTING_PLAN_SET.id,
+        file_path: "plans/b.pdf",
+        file_name: "b.pdf",
+        file_type: "application/pdf",
+        file_size_bytes: 1500,
+        page_count: null,
+        file_hash: null,
+        metadata: {},
+        created_by: null,
+      },
+      {
+        id: "file-3",
+        created_at: "2026-03-06T09:20:00.000Z",
+        updated_at: "2026-03-06T09:20:00.000Z",
+        tenant_id: "tenant-1",
+        plan_set_id: EXISTING_PLAN_SET.id,
+        file_path: "plans/c.pdf",
+        file_name: "c.pdf",
+        file_type: "application/pdf",
+        file_size_bytes: 1700,
+        page_count: null,
+        file_hash: null,
+        metadata: {},
+        created_by: null,
+      },
+    ]);
+
+    render(
+      <PlansStep
+        projectId={PROJECT_ID}
+        versionId={VERSION_ID}
+        onSkip={vi.fn()}
+        onContinue={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Plans import")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Terminer upload" }));
+
+    await waitFor(() => {
+      expect(fetchPlanFilesMock).toHaveBeenCalledWith(EXISTING_PLAN_SET.id);
+    });
+
+    expect(screen.getByText(/2 fichiers uploades/i)).toBeInTheDocument();
+    expect(screen.getByText(/Prochaine etape suggeree/i)).toBeInTheDocument();
+    expect(screen.getByText(/Lancez une analyse de metres/i)).toBeInTheDocument();
+  });
+
+  it("displays updated button labels", async () => {
+    fetchPlanSetsForProjectMock.mockResolvedValue([EXISTING_PLAN_SET]);
+
+    render(
+      <PlansStep
+        projectId={PROJECT_ID}
+        versionId={VERSION_ID}
+        onSkip={vi.fn()}
+        onContinue={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Plans import")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: /Continuer sans/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Terminer et acceder/i })).toBeInTheDocument();
   });
 
   it("retries preparing the plan set after an initial loading error", async () => {

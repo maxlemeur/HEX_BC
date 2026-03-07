@@ -12,6 +12,11 @@ import {
   fetchPlanSetsForProject,
   type PlanSetListItem,
 } from "@/lib/takeoff/client";
+import {
+  DEFAULT_IMPORT_PLAN_SET_NAME,
+  IMPORT_FLOW_PLAN_SET_METADATA,
+  hasDefaultImportPlanSetMarker,
+} from "@/lib/takeoff/default-import-plan-set";
 
 type PlansStepProps = {
   projectId: string;
@@ -21,12 +26,6 @@ type PlansStepProps = {
   /** When true, show a success banner above the plans step. */
   showSuccessBanner?: boolean;
 };
-
-const DEFAULT_IMPORT_PLAN_SET_NAME = "Plans import";
-const IMPORT_FLOW_PLAN_SET_METADATA = {
-  source: "import-flow",
-  default_import_plan_set: true,
-} as const;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`;
@@ -42,17 +41,8 @@ function isDefaultImportPlanSet(planSet: PlanSetListItem) {
   return planSet.name.trim().toLowerCase() === DEFAULT_IMPORT_PLAN_SET_NAME.toLowerCase();
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function hasImportFlowPlanSetMarker(planSet: PlanSetListItem) {
-  const metadata = planSet.metadata;
-  return (
-    isRecord(metadata) &&
-    metadata.source === IMPORT_FLOW_PLAN_SET_METADATA.source &&
-    metadata.default_import_plan_set === IMPORT_FLOW_PLAN_SET_METADATA.default_import_plan_set
-  );
+  return hasDefaultImportPlanSetMarker(planSet.metadata);
 }
 
 function selectDefaultImportPlanSet(
@@ -212,7 +202,7 @@ export function PlansStep({
   }, [isUploadActive, onSkip]);
 
   return (
-    <section aria-label="Etape optionnelle : ajout de plans PDF">
+    <section aria-label="Ajouter les plans (optionnel)">
       {showSuccessBanner && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3" role="status">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-green-600">
@@ -241,18 +231,63 @@ export function PlansStep({
             </svg>
           </div>
           <div>
-            <h2
-              ref={headingRef}
-              tabIndex={-1}
-              className="text-sm font-semibold text-[var(--slate-800)] outline-none"
-            >
-              Plans (optionnel)
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2
+                ref={headingRef}
+                tabIndex={-1}
+                className="text-sm font-semibold text-[var(--slate-800)] outline-none"
+              >
+                Ajouter les plans
+              </h2>
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                Recommande
+              </span>
+            </div>
             <p className="mt-0.5 text-xs text-[var(--slate-500)]">
-              Ajoutez vos plans PDF directement dans le flux d&apos;import. Vous pourrez
-              aussi les ajouter plus tard depuis la section Plans de votre affaire.
+              Ajoutez vos plans PDF maintenant ou plus tard depuis la section Plans de votre affaire.
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Benefits explanation */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3">
+          <div className="flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+              <line x1="12" y1="22.08" x2="12" y2="12" />
+            </svg>
+            <span className="text-xs font-semibold text-[var(--slate-800)]">Extraction de metres</span>
+          </div>
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            Les quantites sont extraites des plans pour alimenter le chiffrage.
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3">
+          <div className="flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            <span className="text-xs font-semibold text-[var(--slate-800)]">Preuves</span>
+          </div>
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            Chaque ligne du chiffrage est rattachee a sa source dans les plans.
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--slate-200)] bg-white px-4 py-3">
+          <div className="flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-blue)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <span className="text-xs font-semibold text-[var(--slate-800)]">Detection des ecarts</span>
+          </div>
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            Les ecarts entre le DPGF et les plans sont identifies automatiquement.
+          </p>
         </div>
       </div>
 
@@ -302,13 +337,14 @@ export function PlansStep({
             />
           </div>
 
-          {(uploadedCount > 0 || uploadedSizeBytes > 0) && (
+          {isUploadActive && (
+            <p className="mt-3 text-xs text-[var(--slate-500)]">
+              Upload en cours... terminez l&apos;envoi avant de quitter cette etape.
+            </p>
+          )}
+
+          {(uploadedCount > 0 || uploadedSizeBytes > 0) && isUploadActive && (
             <p className="mt-3 flex items-center gap-1.5 text-xs text-[var(--slate-500)]">
-              {!isUploadActive && (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-green-600" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              )}
               <span>
                 {uploadedCount} {uploadedCount > 1 ? "fichiers uploades" : "fichier uploade"} —{" "}
                 {formatBytes(uploadedSizeBytes)}
@@ -316,10 +352,37 @@ export function PlansStep({
             </p>
           )}
 
-          {isUploadActive && (
-            <p className="mt-3 text-xs text-[var(--slate-500)]">
-              Upload en cours... terminez l&apos;envoi avant de quitter cette etape.
-            </p>
+          {!isUploadActive && uploadedCount > 0 && (
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-green-600" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span className="text-xs font-medium text-green-800">
+                  {uploadedCount} {uploadedCount > 1 ? "fichiers uploades" : "fichier uploade"} — {formatBytes(uploadedSizeBytes)}
+                </span>
+              </div>
+
+              {planSet && (
+                <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
+                  <p className="text-xs font-medium text-[var(--slate-700)]">
+                    Jeu de plans : <span className="font-semibold">{planSet.name}</span>
+                    <span className="ml-2 text-[var(--slate-500)]">
+                      ({planSet.file_count + uploadedCount} {(planSet.file_count + uploadedCount) > 1 ? "fichiers" : "fichier"})
+                    </span>
+                  </p>
+                </div>
+              )}
+
+              <div className="rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3">
+                <p className="text-xs font-medium text-[var(--slate-700)]">
+                  Prochaine etape suggeree
+                </p>
+                <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+                  Lancez une analyse de metres depuis le hub de votre affaire.
+                </p>
+              </div>
+            </div>
           )}
 
           {uploadSummaryWarning && (
@@ -334,9 +397,9 @@ export function PlansStep({
           className="btn btn-secondary"
           onClick={handleSkip}
           disabled={isUploadActive}
-          aria-label="Passer l'etape d'ajout de plans"
+          aria-label="Continuer sans ajouter de plans"
         >
-          Passer cette etape
+          Continuer sans plans
         </button>
         <button
           type="button"
@@ -344,7 +407,7 @@ export function PlansStep({
           onClick={handleFinish}
           disabled={isPreparing || isUploadActive}
         >
-          Terminer l&apos;import
+          Terminer et acceder au dossier
         </button>
       </div>
     </section>
