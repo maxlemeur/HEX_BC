@@ -18,20 +18,38 @@ generateOuvragesFromText(input: {
   sourceKind: "free_text" | "cctp_excerpt" | "internal_note";
   sourceText: string;
   preferredLotId?: string | null;
+  sourceDocumentId?: string | null;
+  sourceFileName?: string | null;
+  sourcePageFrom?: number | null;
+  sourcePageTo?: number | null;
+  selectionLabel?: string | null;
 }): Promise<{
   draftId: string;
+  versionId: string;
+  projectId: string;
+  preferredLotId: string | null;
+  status: "pending" | "partially_applied" | "applied" | "discarded";
   candidates: Array<{
     candidateId: string;
+    suggestedLotId: string | null;
     lotLabel: string | null;
     designation: string;
     unit: string | null;
     quantity: number | null;
     confidence: number;
     status: "certain" | "plausible" | "question";
+    resolutionStatus: "pending" | "inserted" | "rejected";
+    reasoning: string | null;
     sources: Array<{
+      sourceFragmentId: string;
+      sourceDocumentId: string | null;
       type: "text" | "cctp" | "history" | "library";
       label: string;
       excerpt: string | null;
+      sourceFileName: string | null;
+      sourcePageFrom: number | null;
+      sourcePageTo: number | null;
+      selectionLabel: string | null;
     }>;
   }>;
 }>;
@@ -41,6 +59,40 @@ generateOuvragesFromText(input: {
 
 Server Actions:
 ```ts
+fetchGeneratedOuvrageDraft(input: {
+  versionId: string;
+  draftId: string;
+}): Promise<{
+  draftId: string;
+  versionId: string;
+  projectId: string;
+  preferredLotId: string | null;
+  status: "pending" | "partially_applied" | "applied" | "discarded";
+  candidates: Array<{
+    candidateId: string;
+    suggestedLotId: string | null;
+    lotLabel: string | null;
+    designation: string;
+    unit: string | null;
+    quantity: number | null;
+    confidence: number;
+    status: "certain" | "plausible" | "question";
+    resolutionStatus: "pending" | "inserted" | "rejected";
+    reasoning: string | null;
+    sources: Array<{
+      sourceFragmentId: string;
+      sourceDocumentId: string | null;
+      type: "text" | "cctp" | "history" | "library";
+      label: string;
+      excerpt: string | null;
+      sourceFileName: string | null;
+      sourcePageFrom: number | null;
+      sourcePageTo: number | null;
+      selectionLabel: string | null;
+    }>;
+  }>;
+}>;
+
 insertGeneratedOuvrages(input: {
   versionId: string;
   draftId: string;
@@ -51,14 +103,29 @@ insertGeneratedOuvrages(input: {
     quantity: number | null;
     lotId: string | null;
   }>;
-}): Promise<{ ok: true; insertedCount: number }>;
+}): Promise<{
+  ok: true;
+  insertedCount: number;
+  draftStatus: "pending" | "partially_applied" | "applied" | "discarded";
+}>;
 
 rejectGeneratedOuvrageDraft(input: {
   draftId: string;
   candidateId: string;
   reason?: string;
-}): Promise<{ ok: true }>;
+}): Promise<{
+  ok: true;
+  draftStatus: "pending" | "partially_applied" | "applied" | "discarded";
+}>;
 ```
+
+## Decisions de contrat alignees sur l'implementation
+
+- La revue reste server-side et persiste un draft explicite avant toute insertion.
+- Chaque source expose un `sourceFragmentId` stable pour garder la provenance apres edition.
+- Les propositions `question` restent dans le draft EST-381 et ne creent rien automatiquement ailleurs.
+- `lotId = null` a l'insertion signifie insertion a la racine du devis, sans creation implicite de lot.
+- L'unite proposee est conservee dans le draft, l'application et la provenance enrichie meme si le modele `estimate_items` ne porte pas encore une colonne `unit`.
 
 ## UX frontend scope (delegue a equipe UX)
 

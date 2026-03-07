@@ -52,6 +52,7 @@ import {
   normalizeEstimateItemAid,
   parseEstimateItemAidRegexPattern,
 } from "./schemas";
+import { enrichEstimateItemsWithGeneratedOuvrageProvenance } from "./generated-ouvrages";
 import { enrichEstimateItemsWithAiStructureProvenance } from "./structure-drafts";
 import type {
   BulkUpdateEstimateItemsInput,
@@ -2160,8 +2161,13 @@ async function enrichEstimateItemsWithSourceMetadata(input: {
     tenantId: input.tenantId,
     items: withTakeoff,
   });
+  const withGeneratedOuvrage = await enrichEstimateItemsWithGeneratedOuvrageProvenance({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    items: withAiStructure,
+  });
 
-  return withAiStructure as EstimateItemWithProvenanceRow[];
+  return withGeneratedOuvrage as EstimateItemWithProvenanceRow[];
 }
 
 function escapeIlikeToken(value: string) {
