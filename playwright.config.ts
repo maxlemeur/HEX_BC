@@ -3,6 +3,13 @@ import { defineConfig, devices } from "@playwright/test";
 const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 
 function resolveWebServer() {
+  if (
+    process.env.PLAYWRIGHT_DISABLE_WEBSERVER === "1" ||
+    process.env.PLAYWRIGHT_DISABLE_WEBSERVER === "true"
+  ) {
+    return undefined;
+  }
+
   let parsedBaseUrl: URL;
   try {
     parsedBaseUrl = new URL(baseURL);

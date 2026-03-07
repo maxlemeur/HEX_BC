@@ -2,6 +2,32 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { buildEstimateName } from "./helpers";
 
+async function retry<T>(
+  fn: () => Promise<T>,
+  options?: {
+    attempts?: number;
+    delayMs?: number;
+  }
+) {
+  const attempts = options?.attempts ?? 3;
+  const delayMs = options?.delayMs ?? 1_500;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Retry failed.");
+}
+
 async function createEstimateViaApi(
   page: Page,
   options: {
@@ -11,43 +37,66 @@ async function createEstimateViaApi(
     validiteJours?: number;
   }
 ) {
-  const response = await page.request.post("/api/estimates", {
-    failOnStatusCode: false,
-    timeout: 60_000,
-    data: {
-      project: {
-        name: options.projectName,
+  return retry(async () => {
+    const response = await page.request.post("/api/estimates", {
+      failOnStatusCode: false,
+      timeout: 60_000,
+      data: {
+        project: {
+          name: options.projectName,
+        },
+        version: {
+          title: options.title,
+          date_devis: options.dateDevis ?? "2026-03-07",
+          validite_jours: options.validiteJours ?? 30,
+        },
       },
-      version: {
-        title: options.title,
-        date_devis: options.dateDevis ?? "2026-03-07",
-        validite_jours: options.validiteJours ?? 30,
-      },
-    },
+    });
+    const body = await response.text();
+
+    expect(
+      response.status(),
+      `Failed to create estimate. status=${response.status()} body=${body}`
+    ).toBe(201);
+
+    const payload = JSON.parse(body) as {
+      data?: { version?: { id?: string }; version_id?: string; versionId?: string };
+      version_id?: string;
+      versionId?: string;
+    };
+
+    const versionId =
+      payload.data?.version?.id ??
+      payload.data?.version_id ??
+      payload.data?.versionId ??
+      payload.version_id ??
+      payload.versionId ??
+      null;
+
+    expect(versionId, "version id should be present in create estimate response").toBeTruthy();
+    return { versionId: versionId as string };
   });
-  const body = await response.text();
+}
 
-  expect(
-    response.status(),
-    `Failed to create estimate. status=${response.status()} body=${body}`
-  ).toBe(201);
+async function openEstimateEditor(page: Page, versionId: string) {
+  await retry(async () => {
+    try {
+      await page.goto(`/dashboard/estimates/${versionId}/edit`, {
+        waitUntil: "domcontentloaded",
+        timeout: 60_000,
+      });
+    } catch (error) {
+      const openButton = page.getByTestId("estimate-editor-open-generated-ouvrage-button");
+      const isVisible = await openButton.isVisible({ timeout: 5_000 }).catch(() => false);
+      if (!isVisible) {
+        throw error;
+      }
+    }
 
-  const payload = JSON.parse(body) as {
-    data?: { version?: { id?: string }; version_id?: string; versionId?: string };
-    version_id?: string;
-    versionId?: string;
-  };
-
-  const versionId =
-    payload.data?.version?.id ??
-    payload.data?.version_id ??
-    payload.data?.versionId ??
-    payload.version_id ??
-    payload.versionId ??
-    null;
-
-  expect(versionId, "version id should be present in create estimate response").toBeTruthy();
-  return { versionId: versionId as string };
+    await expect(
+      page.getByTestId("estimate-editor-open-generated-ouvrage-button")
+    ).toBeVisible({ timeout: 30_000 });
+  });
 }
 
 async function openGeneratedOuvrageDialog(page: Page) {
@@ -130,10 +179,7 @@ test.describe("EST-381 - generated ouvrages review", () => {
       title: "EST-381 Reject All",
     });
 
-    await page.goto(`/dashboard/estimates/${versionId}/edit`, {
-      waitUntil: "domcontentloaded",
-      timeout: 60_000,
-    });
+    await openEstimateEditor(page, versionId);
 
     const dialog = await generateDraftFromText(
       page,
@@ -176,10 +222,7 @@ test.describe("EST-381 - generated ouvrages review", () => {
       title: "EST-381 Insert Fallback",
     });
 
-    await page.goto(`/dashboard/estimates/${versionId}/edit`, {
-      waitUntil: "domcontentloaded",
-      timeout: 60_000,
-    });
+    await openEstimateEditor(page, versionId);
 
     const dialog = await generateDraftFromText(
       page,
