@@ -19,6 +19,7 @@ const SEVERITY_LABEL: Record<string, string> = {
 
 type IntakeMissingPiecesProps = {
   pieces: AffaireIntakeWorkspaceMissingPiece[];
+  onAddFile?: () => void;
 };
 
 const SEVERITY_ORDER: Record<string, number> = {
@@ -27,7 +28,7 @@ const SEVERITY_ORDER: Record<string, number> = {
   info: 2,
 };
 
-export function IntakeMissingPieces({ pieces }: IntakeMissingPiecesProps) {
+export function IntakeMissingPieces({ pieces, onAddFile }: IntakeMissingPiecesProps) {
   if (pieces.length === 0) return null;
 
   const sorted = [...pieces].sort(
@@ -89,6 +90,20 @@ export function IntakeMissingPieces({ pieces }: IntakeMissingPiecesProps) {
           </li>
         ))}
       </ul>
+
+      {onAddFile && (
+        <button
+          type="button"
+          onClick={onAddFile}
+          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[var(--brand-blue)] hover:underline"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="12" x2="12" y1="5" y2="19" />
+            <line x1="5" x2="19" y1="12" y2="12" />
+          </svg>
+          Ajouter les pieces manquantes
+        </button>
+      )}
     </div>
   );
 }

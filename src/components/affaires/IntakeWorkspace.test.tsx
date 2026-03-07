@@ -134,7 +134,7 @@ describe("IntakeWorkspace", () => {
 
     const progressBar = screen.getByRole("progressbar");
     expect(progressBar).toBeInTheDocument();
-    expect(screen.getByText("1 classe, 1 a confirmer, 1 en cours")).toBeInTheDocument();
+    expect(screen.getByText("1 valide, 1 a confirmer, 1 en cours")).toBeInTheDocument();
   });
 
   it("shows section headers for grouped documents", () => {
@@ -169,7 +169,7 @@ describe("IntakeWorkspace", () => {
     );
 
     expect(screen.getByRole("region", { name: /Documents a confirmer/i })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /Documents classes/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /Documents valides/i })).toBeInTheDocument();
   });
 
   it("displays detected variants in document card", () => {
@@ -183,8 +183,8 @@ describe("IntakeWorkspace", () => {
             {
               documentId: "doc-1",
               fileName: "plans.pdf",
-              detectedCategory: "plans",
-              confidence: 0.95,
+              detectedCategory: "annexes",
+              confidence: 0.42,
               extractedMetadata: {
                 projectName: null,
                 clientName: null,
@@ -229,6 +229,7 @@ describe("IntakeWorkspace", () => {
     );
 
     expect(screen.getByText(/Triage termine/)).toBeInTheDocument();
+    expect(screen.getByText(/valides/)).toBeInTheDocument();
   });
 
   it("shows in-progress CTA when documents need review", () => {
