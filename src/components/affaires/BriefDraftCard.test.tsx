@@ -130,6 +130,35 @@ describe("BriefDraftCard", () => {
     expect(sourceAnnotations.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("displays source annotations for paragraph blocks", () => {
+    render(
+      <BriefDraftCard
+        projectId={PROJECT_ID}
+        briefDraft={makeBriefDraft({
+          sources: [
+            {
+              blockKey: "summary",
+              entryIndex: 0,
+              sourceDocumentId: "11111111-1111-4111-8111-111111111111",
+              sourceFileName: "Synthese-source.pdf",
+              rationale: null,
+            },
+            {
+              blockKey: "project_object",
+              entryIndex: 0,
+              sourceDocumentId: "22222222-2222-4222-8222-222222222222",
+              sourceFileName: "Objet-source.pdf",
+              rationale: null,
+            },
+          ],
+        })}
+      />
+    );
+    const section = getSection();
+    expect(within(section).getByText("Synthese-source.pdf")).toBeInTheDocument();
+    expect(within(section).getByText("Objet-source.pdf")).toBeInTheDocument();
+  });
+
   it("enters and cancels edit mode", async () => {
     const user = userEvent.setup();
     render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft()} />);
@@ -173,6 +202,25 @@ describe("BriefDraftCard", () => {
     expect(mockRefresh).toHaveBeenCalled();
   });
 
+  it("skips no-op saves for confirmed briefs", async () => {
+    const user = userEvent.setup();
+    render(
+      <BriefDraftCard
+        projectId={PROJECT_ID}
+        briefDraft={makeBriefDraft({ status: "confirme" })}
+      />
+    );
+    const section = getSection();
+
+    await user.click(within(section).getByText("Modifier"));
+    await user.click(within(section).getByText("Enregistrer"));
+
+    expect(mockUpdateAffaireBrief).not.toHaveBeenCalled();
+    expect(mockToast.success).not.toHaveBeenCalled();
+    expect(mockRefresh).not.toHaveBeenCalled();
+    expect(screen.queryByDisplayValue("Resume du projet")).not.toBeInTheDocument();
+  });
+
   it("shows inline error on save failure and stays in edit mode", async () => {
     mockUpdateAffaireBrief.mockRejectedValueOnce(new Error("Erreur serveur"));
     const user = userEvent.setup();
@@ -180,19 +228,25 @@ describe("BriefDraftCard", () => {
     const section = getSection();
 
     await user.click(within(section).getByText("Modifier"));
+    const summaryInput = screen.getByDisplayValue("Resume du projet");
+    await user.clear(summaryInput);
+    await user.type(summaryInput, "Resume en erreur");
     await user.click(within(section).getByText("Enregistrer"));
 
     expect(await screen.findByText("Erreur serveur")).toBeInTheDocument();
     // Still in edit mode
-    expect(screen.getByDisplayValue("Resume du projet")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Resume en erreur")).toBeInTheDocument();
   });
 
-  it("confirms brief and shows toast", async () => {
+  it("confirms brief via confirmation dialog and shows toast", async () => {
     const user = userEvent.setup();
     render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft()} />);
     const section = getSection();
 
     await user.click(within(section).getByText("Confirmer le brief"));
+    // Confirmation dialog should appear
+    expect(within(section).getByText("Confirmer ce brief ?")).toBeInTheDocument();
+    await user.click(within(section).getByText("Oui, confirmer"));
 
     expect(mockConfirmAffaireBrief).toHaveBeenCalledWith({ projectId: PROJECT_ID });
     expect(mockToast.success).toHaveBeenCalledWith({ title: "Brief confirme." });
@@ -206,11 +260,25 @@ describe("BriefDraftCard", () => {
     const section = getSection();
 
     await user.click(within(section).getByText("Confirmer le brief"));
+    await user.click(within(section).getByText("Oui, confirmer"));
 
     expect(mockToast.error).toHaveBeenCalledWith({
       title: "Erreur",
       description: "Pas autorise",
     });
+  });
+
+  it("can cancel the confirmation dialog", async () => {
+    const user = userEvent.setup();
+    render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft()} />);
+    const section = getSection();
+
+    await user.click(within(section).getByText("Confirmer le brief"));
+    expect(within(section).getByText("Confirmer ce brief ?")).toBeInTheDocument();
+
+    await user.click(within(section).getByText("Annuler"));
+    expect(within(section).queryByText("Confirmer ce brief ?")).not.toBeInTheDocument();
+    expect(mockConfirmAffaireBrief).not.toHaveBeenCalled();
   });
 
   it("hides edit/confirm buttons when isReadOnly", () => {
@@ -268,6 +336,31 @@ describe("BriefDraftCard", () => {
     // aria-live region exists
     const liveRegion = section.querySelector("[aria-live='polite']");
     expect(liveRegion).toBeInTheDocument();
+  });
+
+  it("shows executive summary banner with counts", () => {
+    render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft()} />);
+    const section = getSection();
+    expect(within(section).getByText("2 pieces")).toBeInTheDocument();
+    expect(within(section).getByText("1 hypotheses")).toBeInTheDocument();
+    expect(within(section).getByText("1 vigilance")).toBeInTheDocument();
+    expect(within(section).getByText("1 manquant(s)")).toBeInTheDocument();
+  });
+
+  it("shows 'Dossier complet' when no missing elements", () => {
+    render(
+      <BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft({ missingElements: [] })} />
+    );
+    const section = getSection();
+    expect(within(section).getByText("Dossier complet")).toBeInTheDocument();
+  });
+
+  it("shows placeholder for empty list blocks", () => {
+    render(
+      <BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft({ lots: [] })} />
+    );
+    const section = getSection();
+    expect(within(section).getByText("Aucun element detecte")).toBeInTheDocument();
   });
 
   it("does not show confirm button when status is confirme", () => {
