@@ -137,6 +137,48 @@ describe("PlansStep", () => {
     );
   });
 
+  it("prefers a version-scoped marked import set over a newer project-scoped one", async () => {
+    fetchPlanSetsForProjectMock.mockResolvedValue([
+      {
+        ...EXISTING_PLAN_SET,
+        id: "plan-set-version-scoped",
+        updated_at: "2026-03-06T10:00:00.000Z",
+        metadata: {
+          source: "import-flow",
+          default_import_plan_set: true,
+        },
+      },
+      {
+        ...EXISTING_PLAN_SET,
+        id: "plan-set-project-scoped",
+        estimate_version_id: null,
+        updated_at: "2026-03-06T11:00:00.000Z",
+        metadata: {
+          source: "affaire-intake",
+          default_import_plan_set: true,
+        },
+      },
+    ]);
+
+    render(
+      <PlansStep
+        projectId={PROJECT_ID}
+        versionId={VERSION_ID}
+        onSkip={vi.fn()}
+        onContinue={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Plans import")).toBeInTheDocument();
+    });
+
+    expect(createPlanSetMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId("plan-upload-zone")).toHaveTextContent(
+      "plan-set-version-scoped"
+    );
+  });
+
   it("creates the default import plan set when none exists yet", async () => {
     fetchPlanSetsForProjectMock.mockResolvedValue([]);
     createPlanSetMock.mockResolvedValue(CREATED_PLAN_SET);

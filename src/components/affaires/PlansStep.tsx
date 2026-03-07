@@ -53,9 +53,13 @@ function selectDefaultImportPlanSet(
   const canonicalPlanSet =
     sortedPlanSets.find(
       (planSet) =>
-        hasImportFlowPlanSetMarker(planSet) &&
-        (planSet.estimate_version_id === versionId || planSet.estimate_version_id === null)
-    ) ?? null;
+        hasImportFlowPlanSetMarker(planSet) && planSet.estimate_version_id === versionId
+    ) ??
+    sortedPlanSets.find(
+      (planSet) =>
+        hasImportFlowPlanSetMarker(planSet) && planSet.estimate_version_id === null
+    ) ??
+    null;
 
   if (canonicalPlanSet) {
     return canonicalPlanSet;
