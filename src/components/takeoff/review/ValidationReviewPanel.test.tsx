@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import { ValidationReviewPanel } from "@/components/takeoff/review/ValidationReviewPanel";
@@ -34,8 +34,6 @@ describe("ValidationReviewPanel", () => {
     render(
       <ValidationReviewPanel
         items={[makeItem({ is_excluded: true, exclusion_reason: "manual" })]}
-        onApplyClick={vi.fn()}
-        isApplyReady={false}
       />
     );
 

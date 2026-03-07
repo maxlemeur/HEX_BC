@@ -70,32 +70,56 @@ function buildRegisterHref(projectId: string, flag: EstimateSendGatingFlag) {
   }
 }
 
-function renderFlagDetails(flag: EstimateSendGatingFlag) {
-  const detailsLines: string[] = [];
+function parseRegisterEntries(flag: EstimateSendGatingFlag) {
   const details = flag.details ?? {};
-  const stalePriceDays = details.stale_price_days;
-  const marginMode = details.margin_mode;
-  const marginTiersCount = details.margin_tiers_count;
-  const totalHtCents = details.total_ht_cents;
-  const budgetCeilingHtCents = details.budget_ceiling_ht_cents;
-  const registerEntries = Array.isArray(details.register_entries)
+
+  return Array.isArray(details.register_entries)
     ? details.register_entries
-        .map((entry) => {
+        .map((entry, index) => {
           if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
             return null;
           }
+
           const record = entry as Record<string, unknown>;
           const scopeLabel = typeof record.scopeLabel === "string" ? record.scopeLabel.trim() : "";
           const text = typeof record.text === "string" ? record.text.trim() : "";
+          const href = typeof record.href === "string" ? record.href.trim() : "";
 
           if (!text) {
             return null;
           }
 
-          return scopeLabel ? `${scopeLabel}: ${text}` : text;
+          return {
+            key: `${flag.key}-register-entry-${index}`,
+            label: scopeLabel ? `${scopeLabel}: ${text}` : text,
+            href: href || null,
+          };
         })
-        .filter((entry): entry is string => entry !== null)
+        .filter(
+          (
+            entry
+          ): entry is {
+            key: string;
+            label: string;
+            href: string | null;
+          } => entry !== null
+        )
     : [];
+}
+
+function renderFlagDetails(flag: EstimateSendGatingFlag) {
+  const details = flag.details ?? {};
+  const detailsLines: Array<{
+    key: string;
+    text: string;
+    href?: string | null;
+  }> = [];
+  const stalePriceDays = details.stale_price_days;
+  const marginMode = details.margin_mode;
+  const marginTiersCount = details.margin_tiers_count;
+  const totalHtCents = details.total_ht_cents;
+  const budgetCeilingHtCents = details.budget_ceiling_ht_cents;
+  const registerEntries = parseRegisterEntries(flag);
   const ruleViolations = Array.isArray(details.violations)
     ? details.violations
         .map((entry) => {
@@ -113,43 +137,73 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
     : [];
 
   if (typeof stalePriceDays === "number") {
-    detailsLines.push(`Seuil d'obsolescence: ${stalePriceDays} jour(s).`);
+    detailsLines.push({
+      key: "stale-price-days",
+      text: `Seuil d'obsolescence: ${stalePriceDays} jour(s).`,
+    });
   }
   if (typeof marginMode === "string") {
-    detailsLines.push(`Mode de marge: ${marginMode}.`);
+    detailsLines.push({
+      key: "margin-mode",
+      text: `Mode de marge: ${marginMode}.`,
+    });
   }
   if (typeof marginTiersCount === "number") {
-    detailsLines.push(`Tranches configurees: ${marginTiersCount}.`);
+    detailsLines.push({
+      key: "margin-tiers-count",
+      text: `Tranches configurees: ${marginTiersCount}.`,
+    });
   }
   if (typeof totalHtCents === "number") {
-    detailsLines.push(`Total HT courant: ${formatEUR(totalHtCents)}.`);
+    detailsLines.push({
+      key: "total-ht",
+      text: `Total HT courant: ${formatEUR(totalHtCents)}.`,
+    });
   }
   if (typeof budgetCeilingHtCents === "number") {
-    detailsLines.push(`Plafond budget HT: ${formatEUR(budgetCeilingHtCents)}.`);
+    detailsLines.push({
+      key: "budget-ceiling-ht",
+      text: `Plafond budget HT: ${formatEUR(budgetCeilingHtCents)}.`,
+    });
   }
   if (ruleViolations.length > 0) {
-    ruleViolations.slice(0, 3).forEach((message) => {
-      detailsLines.push(`Regle: ${message}`);
+    ruleViolations.slice(0, 3).forEach((message, index) => {
+      detailsLines.push({
+        key: `rule-violation-${index}`,
+        text: `Regle: ${message}`,
+      });
     });
     if (ruleViolations.length > 3) {
-      detailsLines.push(`...${ruleViolations.length - 3} regle(s) supplementaire(s).`);
+      detailsLines.push({
+        key: "rule-violation-overflow",
+        text: `...${ruleViolations.length - 3} regle(s) supplementaire(s).`,
+      });
     }
   }
   if (registerEntries.length > 0) {
-    registerEntries.slice(0, 3).forEach((message) => {
-      detailsLines.push(`Registre: ${message}`);
+    registerEntries.slice(0, 3).forEach((entry) => {
+      detailsLines.push({
+        key: entry.key,
+        text: `Registre: ${entry.label}`,
+        href: entry.href,
+      });
     });
     if (registerEntries.length > 3) {
-      detailsLines.push(`...${registerEntries.length - 3} entree(s) registre supplementaire(s).`);
+      detailsLines.push({
+        key: "register-entry-overflow",
+        text: `...${registerEntries.length - 3} entree(s) registre supplementaire(s).`,
+      });
     }
   }
   if (flag.itemIds.length > 0) {
     const preview = flag.itemIds.slice(0, 5).join(", ");
-    detailsLines.push(
-      flag.itemIds.length > 5
-        ? `Lignes impactees (extrait): ${preview}...`
-        : `Lignes impactees: ${preview}`
-    );
+    detailsLines.push({
+      key: "item-ids",
+      text:
+        flag.itemIds.length > 5
+          ? `Lignes impactees (extrait): ${preview}...`
+          : `Lignes impactees: ${preview}`,
+    });
   }
 
   if (detailsLines.length === 0) return null;
@@ -157,7 +211,18 @@ function renderFlagDetails(flag: EstimateSendGatingFlag) {
   return (
     <ul className="mt-1 list-disc pl-4 text-xs text-[var(--slate-600)]">
       {detailsLines.map((line) => (
-        <li key={line}>{line}</li>
+        <li key={line.key}>
+          {line.href ? (
+            <Link
+              href={line.href}
+              className="text-[var(--brand-blue)] underline underline-offset-2"
+            >
+              {line.text}
+            </Link>
+          ) : (
+            line.text
+          )}
+        </li>
       ))}
     </ul>
   );
@@ -177,6 +242,9 @@ function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null)
       {flags.map((flag) => (
         (() => {
           const registerAction = formatRegisterAction(flag);
+          const hasFocusedRegisterLinks = parseRegisterEntries(flag).some(
+            (entry) => entry.href
+          );
           const registerHref = projectId ? buildRegisterHref(projectId, flag) : null;
 
           return (
@@ -201,7 +269,7 @@ function renderFlags(flags: EstimateSendGatingFlag[], projectId?: string | null)
                   <p className="text-xs font-medium text-[var(--brand-blue)]">
                     {registerAction}
                   </p>
-                  {registerHref ? (
+                  {registerHref && !hasFocusedRegisterLinks ? (
                     <Link
                       href={registerHref}
                       className="mt-2 inline-flex text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"

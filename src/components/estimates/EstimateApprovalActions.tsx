@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/Toast";
 import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import type {
   EstimateApprovalDecisionCommentInput,
+  EstimateApprovalSubmissionSignal,
   EstimateApprovalSummary,
   EstimateReviewCommentScope,
   EstimateReviewDecision,
@@ -176,22 +177,35 @@ function buildRegisterHref(projectId: string, signalId: string) {
 
 function resolveSubmissionSignalAction(input: {
   projectId: string;
-  signalId: string;
+  signal: EstimateApprovalSubmissionSignal;
 }) {
-  switch (input.signalId) {
+  if (input.signal.actionHref) {
+    return {
+      href: input.signal.actionHref,
+      label: input.signal.actionLabel?.trim() || "Ouvrir le registre",
+    };
+  }
+
+  switch (input.signal.id) {
     case "register:critical_open_questions":
       return {
-        href: buildRegisterHref(input.projectId, input.signalId) ?? `/dashboard/affaires/${input.projectId}`,
+        href:
+          buildRegisterHref(input.projectId, input.signal.id) ??
+          `/dashboard/affaires/${input.projectId}`,
         label: "Ouvrir les points critiques",
       };
     case "register:open_questions_pending":
       return {
-        href: buildRegisterHref(input.projectId, input.signalId) ?? `/dashboard/affaires/${input.projectId}`,
+        href:
+          buildRegisterHref(input.projectId, input.signal.id) ??
+          `/dashboard/affaires/${input.projectId}`,
         label: "Ouvrir les points ouverts",
       };
     case "register:client_clarification_required":
       return {
-        href: buildRegisterHref(input.projectId, input.signalId) ?? `/dashboard/affaires/${input.projectId}`,
+        href:
+          buildRegisterHref(input.projectId, input.signal.id) ??
+          `/dashboard/affaires/${input.projectId}`,
         label: "Ouvrir les clarifications client",
       };
     default:
@@ -505,7 +519,7 @@ export function EstimateApprovalActions({
                       {summary.submissionReadiness.blockers.map((entry) => {
                         const action = resolveSubmissionSignalAction({
                           projectId,
-                          signalId: entry.id,
+                          signal: entry,
                         });
 
                         return (
@@ -557,7 +571,7 @@ export function EstimateApprovalActions({
                       {summary.submissionReadiness.alerts.map((entry) => {
                         const action = resolveSubmissionSignalAction({
                           projectId,
-                          signalId: entry.id,
+                          signal: entry,
                         });
 
                         return (

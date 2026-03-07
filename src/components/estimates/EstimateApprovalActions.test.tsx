@@ -210,6 +210,9 @@ describe("EstimateApprovalActions", () => {
                 id: "register:critical_open_questions",
                 label: "Registre affaire",
                 message: "Questions critiques ouvertes.",
+                actionLabel: "Ouvrir le registre",
+                actionHref:
+                  "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f",
               },
             ],
             alerts: [
@@ -217,6 +220,9 @@ describe("EstimateApprovalActions", () => {
                 id: "register:client_clarification_required",
                 label: "Registre affaire",
                 message: "Clarifications client en attente.",
+                actionLabel: "Ouvrir le registre",
+                actionHref:
+                  "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6",
               },
             ],
           },
@@ -243,17 +249,14 @@ describe("EstimateApprovalActions", () => {
         "Visibles pour la validation interne. Certaines alertes devront etre traitees avant l'envoi client."
       )
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Ouvrir les points critiques" })
-    ).toHaveAttribute(
+    const registerLinks = screen.getAllByRole("link", { name: "Ouvrir le registre" });
+    expect(registerLinks[0]).toHaveAttribute(
       "href",
-      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical"
+      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f"
     );
-    expect(
-      screen.getByRole("link", { name: "Ouvrir les clarifications client" })
-    ).toHaveAttribute(
+    expect(registerLinks[1]).toHaveAttribute(
       "href",
-      "/dashboard/affaires/project-1?registerStatus=clarify_with_client"
+      "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6"
     );
   });
 });

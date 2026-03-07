@@ -1119,34 +1119,81 @@ export async function fetchAffaireRegisterPage(
     .select(ENTRY_SELECT as never)
     .eq("project_id", project.id as never)
     .eq("is_active", true as never);
+  let focusedQuery: any = input.focusEntryId
+    ? context.supabase
+        .from("affaire_register_entries" as never)
+        .select(ENTRY_SELECT as never)
+        .eq("project_id", project.id as never)
+        .eq("is_active", true as never)
+        .eq("id", input.focusEntryId as never)
+    : null;
 
   query = applyVersionScopeFilter(query as never, input.versionId ?? null) as never;
   query = applyCursorFilter(query as never, input.cursor ?? null) as never;
+  if (focusedQuery) {
+    focusedQuery = applyVersionScopeFilter(
+      focusedQuery as never,
+      input.versionId ?? null
+    ) as never;
+  }
 
   if (input.status) {
     query = query.eq("status", input.status as never);
+    if (focusedQuery) {
+      focusedQuery = focusedQuery.eq("status", input.status as never);
+    }
   }
   if (input.severity) {
     query = query.eq("severity", input.severity as never);
+    if (focusedQuery) {
+      focusedQuery = focusedQuery.eq("severity", input.severity as never);
+    }
   }
   if (input.kind) {
     query = query.eq("kind", input.kind as never);
+    if (focusedQuery) {
+      focusedQuery = focusedQuery.eq("kind", input.kind as never);
+    }
   }
 
-  const { data, error } = await query
-    .order("updated_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(pageSize + 1);
+  const [
+    { data, error },
+    focusedResult,
+  ] = await Promise.all([
+    query
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(pageSize + 1),
+    focusedQuery
+      ? focusedQuery
+          .order("updated_at", { ascending: false })
+          .order("id", { ascending: false })
+          .limit(1)
+      : Promise.resolve({ data: null, error: null }),
+  ]);
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger le registre affaire.");
+  }
+  if (focusedResult.error) {
+    throw mapSupabaseError(
+      focusedResult.error as any,
+      "Impossible de charger le point cible du registre affaire."
+    );
   }
 
   const rows = ((data ?? []) as unknown[])
     .map((row) => normalizeAffaireRegisterEntryRow(row))
     .filter((row): row is AffaireRegisterEntryWithProfilesRow => row !== null);
-  const pageRows = rows.slice(0, pageSize);
-  const lastRow = pageRows[pageRows.length - 1] ?? null;
+  const focusedRow =
+    ((focusedResult.data ?? []) as unknown[])
+      .map((row) => normalizeAffaireRegisterEntryRow(row))
+      .find((row): row is AffaireRegisterEntryWithProfilesRow => row !== null) ?? null;
+  const shouldInjectFocusedRow =
+    focusedRow !== null && !rows.some((row) => row.id === focusedRow.id);
+  const pagedRows = rows.slice(0, shouldInjectFocusedRow ? pageSize - 1 : pageSize);
+  const pageRows = shouldInjectFocusedRow ? [focusedRow, ...pagedRows] : pagedRows;
+  const lastRow = pagedRows[pagedRows.length - 1] ?? null;
   const [summary, timeline] = await Promise.all([
     fetchAffaireRegisterSummary({
       projectId: project.id,
@@ -1172,7 +1219,7 @@ export async function fetchAffaireRegisterPage(
       history: timelineByEntryId.get(row.id) ?? [],
     })),
     nextCursor:
-      rows.length > pageSize && lastRow
+      rows.length > pagedRows.length && lastRow
         ? encodeAffaireRegisterCursor({
             id: lastRow.id,
             updatedAt: lastRow.updated_at,

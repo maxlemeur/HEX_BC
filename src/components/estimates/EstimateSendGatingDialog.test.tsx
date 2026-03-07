@@ -34,6 +34,7 @@ describe("EstimateSendGatingDialog", () => {
                 {
                   scopeLabel: "Lot CFO",
                   text: "Verifier la variante",
+                  href: "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f",
                 },
               ],
             },
@@ -70,12 +71,17 @@ describe("EstimateSendGatingDialog", () => {
         "Ces signaux n'interdisent pas toujours l'envoi, mais ils doivent etre assumes explicitement."
       )
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Registre: Lot CFO: Verifier la variante" })).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical&registerFocus=9c5d3dc3-5ef4-4d61-88e6-0911c8d6ed6f"
+    );
     const registerLinks = screen.getAllByRole("link", {
       name: "Ouvrir le registre affaire",
     });
+    expect(registerLinks).toHaveLength(1);
     expect(registerLinks[0]).toHaveAttribute(
       "href",
-      "/dashboard/affaires/project-1?registerStatus=open&registerSeverity=critical"
+      "/dashboard/affaires/project-1?registerStatus=open"
     );
   });
 });
