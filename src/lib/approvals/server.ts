@@ -1,4 +1,6 @@
 import { getAuthenticatedContext } from "@/lib/estimates/server";
+import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
+import { fetchDirectionProjectSignals } from "@/lib/direction/server";
 import type { TakeoffRiskCauseCode } from "@/lib/takeoff/types";
 import type { ApprovalQueueQuery } from "./schemas";
 
@@ -58,6 +60,7 @@ export type ApprovalQueueItem = {
   visualState: VisualState;
   reviewerState: ReviewerState | null;
   latestJobId: string | null;
+  syntheticAlerts: DirectionSyntheticAlert[];
 };
 
 // ---------------------------------------------------------------------------
@@ -156,7 +159,7 @@ export async function fetchApprovalQueue(
 
   const rows = (data ?? []) as RpcRow[];
 
-  let items: ApprovalQueueItem[] = rows.map((row) => {
+  const items: ApprovalQueueItem[] = rows.map((row) => {
     const exceptionGroups = mapCauseCodeCounts(row.cause_code_counts ?? {});
     const reviewerState = row.reviewer_state as ReviewerState | null;
 
@@ -179,14 +182,29 @@ export async function fetchApprovalQueue(
       visualState: deriveVisualState(row.comment_count ?? 0, reviewerState),
       reviewerState,
       latestJobId: row.latest_job_id,
+      syntheticAlerts: [],
     };
   });
 
-  if (query.onlyExceptions) {
-    items = items.filter((item) => item.exceptionCount > 0);
-  }
+  const itemsWithSignals = await Promise.all(
+    items.map(async (item) => {
+      try {
+        const signals = await fetchDirectionProjectSignals(item.projectId, item.versionId);
+        return {
+          ...item,
+          syntheticAlerts: signals.alerts,
+        };
+      } catch {
+        return item;
+      }
+    })
+  );
 
-  return items;
+  return query.onlyExceptions
+    ? itemsWithSignals.filter(
+        (item) => item.exceptionCount > 0 || item.syntheticAlerts.length > 0
+      )
+    : itemsWithSignals;
 }
 
 // ---------------------------------------------------------------------------

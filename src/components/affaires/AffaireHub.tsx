@@ -9,10 +9,12 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { EstimateApprovalActions } from "@/components/estimates/EstimateApprovalActions";
 import { EstimateApprovalDecisionJournalCard } from "@/components/estimates/EstimateApprovalDecisionJournalCard";
 import { EstimateApprovalSummaryCard } from "@/components/estimates/EstimateApprovalSummaryCard";
+import { RiskAlertBanner } from "@/components/direction/RiskAlertBanner";
 import {
   createEstimateVariant,
   duplicateEstimateVersion,
 } from "@/lib/estimates/client";
+import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import { formatEUR } from "@/lib/money";
 import { useUiMode } from "@/hooks/useUiMode";
 import type {
@@ -58,6 +60,10 @@ type AffaireHubProps = {
   marginAnalysis?: AffaireHubMarginAnalysisResult | null;
   approvalSummary?: EstimateApprovalSummary | null;
   approvalJournal?: EstimateApprovalDecisionJournal | null;
+  directionSignals?: {
+    latestJobId: string | null;
+    alerts: DirectionSyntheticAlert[];
+  };
   isReadOnlyReview?: boolean;
   plansSummary?: AffaireHubPlansSummaryData | null;
   takeoffEnabled?: boolean;
@@ -808,6 +814,7 @@ export function AffaireHub({
   marginAnalysis,
   approvalSummary,
   approvalJournal,
+  directionSignals,
   isReadOnlyReview = false,
   plansSummary,
   takeoffEnabled = false,
@@ -1114,6 +1121,12 @@ export function AffaireHub({
           )}
 
           <AffaireProgressStrip summary={summary} dpgfSource={dpgfSource} />
+
+          {directionSignals && directionSignals.alerts.length > 0 ? (
+            <div className="mt-4">
+              <RiskAlertBanner alerts={directionSignals.alerts} compact />
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="space-y-4 lg:col-span-2">

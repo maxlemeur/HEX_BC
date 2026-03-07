@@ -58,9 +58,9 @@ const VISUAL_STATE_BORDER: Record<string, string> = {
 
 function buildCardHref(item: ApprovalQueueItem): string {
   if (item.latestJobId) {
-    return `/dashboard/affaires/${item.projectId}/takeoff/${item.latestJobId}/review?versionId=${item.versionId}&tab=exceptions`;
+    return `/dashboard/affaires/${item.projectId}/takeoff/${item.latestJobId}/review?versionId=${item.versionId}&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
   }
-  return `/dashboard/affaires/${item.projectId}?tab=exceptions`;
+  return `/dashboard/affaires/${item.projectId}`;
 }
 
 export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
@@ -123,6 +123,48 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
               {group.label} ({group.count})
             </span>
           ))}
+        </div>
+      )}
+
+      {item.syntheticAlerts.length > 0 && (
+        <div className="mt-3 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant={
+                item.syntheticAlerts[0]?.level === "critical"
+                  ? "error"
+                  : item.syntheticAlerts[0]?.level === "warning"
+                    ? "warning"
+                    : "info"
+              }
+              size="sm"
+            >
+              Alerte synthese
+            </Badge>
+            <Badge
+              variant={
+                item.syntheticAlerts[0]?.status === "to_process"
+                  ? "warning"
+                  : item.syntheticAlerts[0]?.status === "assumed"
+                    ? "success"
+                    : "neutral"
+              }
+              size="sm"
+            >
+              {item.syntheticAlerts[0]?.status === "to_process"
+                ? "A traiter"
+                : item.syntheticAlerts[0]?.status === "assumed"
+                  ? "Assumee"
+                  : "Fausse alerte"}
+            </Badge>
+          </div>
+          <p className="mt-2 text-xs font-semibold text-[var(--slate-800)]">
+            {item.syntheticAlerts[0]?.label}
+          </p>
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            {item.syntheticAlerts[0]?.reasons[0] ??
+              "Ouvrez la revue pour arbitrer les signaux restants."}
+          </p>
         </div>
       )}
 

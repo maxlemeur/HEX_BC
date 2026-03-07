@@ -74,10 +74,11 @@ describe("buildNavGroups", () => {
       ).toEqual(["affaires", "commandes", "validation"]);
     });
 
-    it("includes approvals href in validation group", () => {
+    it("includes approvals and direction hrefs in validation group", () => {
       const groups = buildNavGroups({ ...base, role: "director" });
       const validation = groups.find((g) => g.key === "validation");
       expect(validation?.items.some((i) => i.href === "/dashboard/approvals")).toBe(true);
+      expect(validation?.items.some((i) => i.href === "/dashboard/direction")).toBe(true);
     });
   });
 

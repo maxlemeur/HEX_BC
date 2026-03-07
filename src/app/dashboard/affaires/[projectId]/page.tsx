@@ -4,6 +4,7 @@ import { AffaireHub } from "@/components/affaires/AffaireHub";
 import { getUserContext } from "@/lib/auth/server";
 import { fetchAffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
+import { fetchDirectionProjectSignals } from "@/lib/direction/server";
 import {
   parseAffaireRegisterCursorSearchParam,
   parseAffaireRegisterFocusSearchParam,
@@ -120,6 +121,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const [
     approvalSummaryResult,
     approvalJournalResult,
+    directionSignalsResult,
     registerPageResult,
     registerScopeOptionsResult,
   ] = await Promise.allSettled([
@@ -131,6 +133,9 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
           decision: approvalJournalDecision,
         })
       : Promise.resolve(null),
+    currentVersionId
+      ? fetchDirectionProjectSignals(projectId, currentVersionId)
+      : Promise.resolve({ latestJobId: null, alerts: [] }),
     fetchAffaireRegisterPage({
       projectId,
       versionId: currentVersionId,
@@ -149,6 +154,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     approvalSummaryResult.status === "fulfilled" ? approvalSummaryResult.value : null;
   const approvalJournal =
     approvalJournalResult.status === "fulfilled" ? approvalJournalResult.value : null;
+  const directionSignals =
+    directionSignalsResult.status === "fulfilled"
+      ? directionSignalsResult.value
+      : { latestJobId: null, alerts: [] };
   const viewerRole = profile?.tenant_role ?? null;
   const isReadOnlyReview = viewerRole === "director";
 
@@ -228,6 +237,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       marginAnalysis={marginAnalysis}
       approvalSummary={approvalSummary}
       approvalJournal={approvalJournal}
+      directionSignals={directionSignals}
       isReadOnlyReview={isReadOnlyReview}
       plansSummary={plansSummary}
       takeoffEnabled={takeoffEnabled}

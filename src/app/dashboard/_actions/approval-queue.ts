@@ -11,5 +11,6 @@ export async function markApprovalQueueItemStateAction(input: {
 }): Promise<{ ok: true }> {
   await markApprovalQueueItemState(input.cycleId, input.state);
   revalidatePath("/dashboard/approvals");
+  revalidatePath("/dashboard/direction");
   return { ok: true };
 }
