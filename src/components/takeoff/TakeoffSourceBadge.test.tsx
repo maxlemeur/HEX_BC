@@ -30,6 +30,7 @@ function renderBadge(options: RenderBadgeOptions = {}) {
   return render(
     <TakeoffSourceBadge
       versionId={versionId}
+      estimateItemId="cccccccc-cccc-4ccc-8ccc-cccccccccccc"
       sourceProvider={
         options.sourceProvider === undefined
           ? "takeoff_gemini"
@@ -125,6 +126,9 @@ describe("TakeoffSourceBadge", () => {
     expect(tooltip).toHaveTextContent("B");
     expect(tooltip).toHaveTextContent("V1");
     expect(within(tooltip).queryByRole("link")).toBeInTheDocument();
+    expect(
+      within(tooltip).getByRole("button", { name: "Expliquer ce prix" })
+    ).toBeInTheDocument();
     expect(trigger).toHaveTextContent("(from V1)");
   });
 

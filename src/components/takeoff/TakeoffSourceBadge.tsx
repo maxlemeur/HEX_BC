@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useId, useState, type FocusEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 
+import { EstimateExplanationTrigger } from "@/components/estimates/EstimateExplanationTrigger";
 import { usePopover } from "@/hooks/usePopover";
 
 const TakeoffLineEvidencePanel = dynamic(
@@ -431,6 +432,31 @@ export function TakeoffSourceBadge({
                       >
                         Voir les preuves
                       </button>
+                    ) : (
+                      <span
+                        className="takeoff-source-badge__job-link takeoff-source-badge__job-link--disabled"
+                        aria-disabled="true"
+                      >
+                        Non disponible
+                      </span>
+                    )}
+                  </dd>
+                </div>
+                <div className="takeoff-source-badge__meta-row">
+                  <dt>Explication</dt>
+                  <dd>
+                    {estimateItemId ? (
+                      <EstimateExplanationTrigger
+                        kind="price"
+                        versionId={versionId}
+                        lineId={estimateItemId}
+                        lineLabel={lineLabel}
+                        triggerLabel="Expliquer ce prix"
+                        surfaceLabel="Explication prix ligne devis"
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto min-h-0 px-0 py-0 text-xs font-medium underline-offset-2 hover:underline"
+                      />
                     ) : (
                       <span
                         className="takeoff-source-badge__job-link takeoff-source-badge__job-link--disabled"

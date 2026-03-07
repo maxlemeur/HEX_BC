@@ -1,3 +1,4 @@
+import { EstimateExplanationTrigger } from "@/components/estimates/EstimateExplanationTrigger";
 import { formatEUR } from "@/lib/money";
 import type {
   EstimateVersionChangelog,
@@ -6,6 +7,8 @@ import type {
 } from "@/lib/estimates/changelog";
 
 type EstimateChangelogViewProps = {
+  versionId: string;
+  compareVersionId: string;
   changelog: EstimateVersionChangelog;
   previousVersionLabel: string;
   currentVersionLabel: string;
@@ -71,6 +74,8 @@ function entityTypeLabel(entityType: EstimateVersionChangelogChange["entityType"
 }
 
 export function EstimateChangelogView({
+  versionId,
+  compareVersionId,
   changelog,
   previousVersionLabel,
   currentVersionLabel,
@@ -108,16 +113,27 @@ export function EstimateChangelogView({
               Groupement par section, avec deltas HT/TTC et champs avant/apres.
             </p>
           </div>
-          {exportPdfHref ? (
-            <a
-              className="btn btn-secondary btn-sm"
-              href={exportPdfHref}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              Exporter changelog PDF
-            </a>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <EstimateExplanationTrigger
+              kind="delta"
+              versionId={versionId}
+              compareVersionId={compareVersionId}
+              currentVersionLabel={currentVersionLabel}
+              compareVersionLabel={previousVersionLabel}
+              triggerLabel="Expliquer le delta"
+              surfaceLabel="Explication delta entre versions"
+            />
+            {exportPdfHref ? (
+              <a
+                className="btn btn-secondary btn-sm"
+                href={exportPdfHref}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                Exporter changelog PDF
+              </a>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">

@@ -34,6 +34,11 @@ import {
   updateLaborRoleSchema,
   updateSuggestionRuleSchema,
 } from "@/lib/estimates/schemas";
+import {
+  estimateDeltaExplanationQuerySchema,
+  estimateExplanationDetailQueryParamSchema,
+  estimateExplanationResponseSchema,
+} from "@/lib/estimates/explanation-schemas";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 export type OpenApiHttpMethod = "get" | "post" | "patch" | "delete";
@@ -965,6 +970,8 @@ const estimateChangelogDataSchema = z.object({
   changelog: estimateChangelogSchema,
 });
 
+const estimateExplanationDataSchema = estimateExplanationResponseSchema;
+
 const estimateDraftLockDataSchema = z.object({
   lock: estimateDraftLockSchema,
 });
@@ -1591,10 +1598,6 @@ const takeoffLineEvidencePanelDataSchema = z.object({
   evidences: z.array(takeoffLineEvidenceEntrySchema),
   history: z.array(takeoffLineEvidenceEntrySchema),
 });
-const takeoffPriceSuggestionQuerySchema = z.object({
-  version_id: uuidSchema,
-  estimate_item_id: uuidSchema,
-});
 const takeoffPriceSuggestionRequestSchema = z.object({
   version_id: uuidSchema,
   estimate_item_id: uuidSchema,
@@ -2170,6 +2173,10 @@ const apiEstimateChangelogSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateChangelogResponse",
   estimateChangelogDataSchema
 );
+const apiEstimateExplanationSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimateExplanationResponse",
+  estimateExplanationDataSchema
+);
 const apiEstimateDraftLockSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateDraftLockResponse",
   estimateDraftLockDataSchema
@@ -2363,6 +2370,12 @@ const ruleIdPathParameter = pathParameter({
   name: "ruleId",
   description: "Identifiant UUID de la regle de suggestion.",
   schemaName: "RuleIdPathParameter",
+  schema: uuidSchema,
+});
+const estimateLineIdPathParameter = pathParameter({
+  name: "lineId",
+  description: "Identifiant UUID de la ligne du devis.",
+  schemaName: "EstimateLineIdPathParameter",
   schema: uuidSchema,
 });
 const takeoffRuleIdPathParameter = pathParameter({
@@ -2672,6 +2685,20 @@ const changelogFormatQueryParameter = queryParameter({
   schemaName: "ChangelogFormatQueryParameter",
   schema: changelogFormatQuerySchema,
   required: false,
+});
+const estimateExplanationDetailQueryParameter = queryParameter({
+  name: "detail",
+  description: "Quand 1, retourne aussi le detail narratif complet.",
+  schemaName: "EstimateExplanationDetailQueryParameter",
+  schema: estimateExplanationDetailQueryParamSchema,
+  required: false,
+});
+const estimateExplanationCompareVersionQueryParameter = queryParameter({
+  name: "compare_version_id",
+  description: "UUID de la version de comparaison pour expliquer le delta.",
+  schemaName: "EstimateExplanationCompareVersionQueryParameter",
+  schema: estimateDeltaExplanationQuerySchema.shape.compare_version_id,
+  required: true,
 });
 
 const lockForceQueryParameter = queryParameter({
@@ -4232,6 +4259,44 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
           },
         ],
       },
+    },
+  },
+  {
+    method: "get",
+    path: "/api/estimates/{versionId}/lines/{lineId}/explanation",
+    summary: "Expliquer le prix d'une ligne",
+    description:
+      "Retourne un snapshot explicable en lecture seule pour une ligne du devis, avec faits, hypotheses, inferences, provenance et confiance.",
+    tags: ["Estimate Diagnostics"],
+    parameters: [
+      versionIdPathParameter,
+      estimateLineIdPathParameter,
+      estimateExplanationDetailQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Explication de prix calculee avec succes.",
+        apiEstimateExplanationSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/estimates/{versionId}/delta-explanation",
+    summary: "Expliquer le delta entre deux versions",
+    description:
+      "Retourne un snapshot explicable en lecture seule pour le delta entre la version courante et une version de comparaison.",
+    tags: ["Estimate Diagnostics"],
+    parameters: [
+      versionIdPathParameter,
+      estimateExplanationCompareVersionQueryParameter,
+      estimateExplanationDetailQueryParameter,
+    ],
+    responses: {
+      "200": jsonResponse(
+        "Explication de delta calculee avec succes.",
+        apiEstimateExplanationSchemaDefinition
+      ),
     },
   },
   {

@@ -528,6 +528,8 @@ export default async function EstimateDiffPage({
         <EstimateDiffView
           diff={diff}
           mode={mode}
+          versionId={currentDetails.version.id}
+          compareVersionId={previousDetails?.version.id ?? compareId ?? ""}
           previousVersionLabel={previousVersionLabel}
           currentVersionLabel={currentVersionLabel}
         />
@@ -535,6 +537,8 @@ export default async function EstimateDiffPage({
 
       {hasCompareOptions && activeTab === "changelog" && changelog ? (
         <EstimateChangelogView
+          versionId={currentDetails.version.id}
+          compareVersionId={previousDetails?.version.id ?? compareId ?? ""}
           changelog={changelog}
           previousVersionLabel={previousVersionLabel}
           currentVersionLabel={currentVersionLabel}

@@ -27,6 +27,9 @@ describe("schema regressions", () => {
   const takeoffPriceSuggestionsMigrationSql = readSql(
     "supabase/migrations/20260306235900_est392_takeoff_price_suggestions.sql"
   );
+  const estimateExplanationsMigrationSql = readSql(
+    "supabase/migrations/20260307143000_est394_estimate_explanations.sql"
+  );
   const structureDraftAtomicApplyMigrationSql = readSql(
     "supabase/migrations/20260306200000_est382_structure_draft_atomic_apply_fix.sql"
   );
@@ -242,6 +245,42 @@ describe("schema regressions", () => {
     );
     expect(takeoffPriceSuggestionsMigrationSql).toMatch(
       /takeoff_version_links[\s\S]*can_access_takeoff_estimate_version/
+    );
+  });
+
+  it("defines persistent estimate explanations with active identity snapshots and strict RLS", () => {
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /create table if not exists public\.estimate_explanations/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /explanation_kind in \('price', 'delta'\)/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /create unique index if not exists estimate_explanations_active_identity_idx[\s\S]*where superseded_at is null/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /create unique index if not exists estimate_explanations_active_fingerprint_idx[\s\S]*where superseded_at is null/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /create table if not exists public\.estimate_explanation_sources/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /create index if not exists estimate_explanation_sources_explanation_rank_idx/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /alter table if exists public\.estimate_explanations force row level security;/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /alter table if exists public\.estimate_explanation_sources force row level security;/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /create policy "Current tenant can select estimate explanations"/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /create policy "Current tenant can select estimate explanation sources"/
+    );
+    expect(estimateExplanationsMigrationSql).toMatch(
+      /can_access_takeoff_estimate_version\(version_id, tenant_id\)/
     );
   });
 

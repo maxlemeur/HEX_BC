@@ -1,3 +1,4 @@
+import { EstimateExplanationTrigger } from "@/components/estimates/EstimateExplanationTrigger";
 import { formatEUR } from "@/lib/money";
 import type {
   EstimateDiffEntry,
@@ -9,6 +10,8 @@ import type {
 type EstimateDiffViewProps = {
   diff: EstimateDiffResult;
   mode: EstimateDiffMode;
+  versionId: string;
+  compareVersionId: string;
   previousVersionLabel: string;
   currentVersionLabel: string;
 };
@@ -252,6 +255,8 @@ function SideBySideEntry({
 export function EstimateDiffView({
   diff,
   mode,
+  versionId,
+  compareVersionId,
   previousVersionLabel,
   currentVersionLabel,
 }: Readonly<EstimateDiffViewProps>) {
@@ -266,7 +271,18 @@ export function EstimateDiffView({
   return (
     <div className="space-y-4">
       <section className="dashboard-card p-4">
-        <h2 className="text-sm font-semibold text-foreground">Resume des changements</h2>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h2 className="text-sm font-semibold text-foreground">Resume des changements</h2>
+          <EstimateExplanationTrigger
+            kind="delta"
+            versionId={versionId}
+            compareVersionId={compareVersionId}
+            currentVersionLabel={currentVersionLabel}
+            compareVersionLabel={previousVersionLabel}
+            triggerLabel="Expliquer le delta"
+            surfaceLabel="Explication delta entre versions"
+          />
+        </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <div className="rounded-lg border border-border bg-surface px-3 py-2">
             <p className="text-xs text-muted-foreground">Ajouts</p>
