@@ -60,7 +60,13 @@ export type EstimateReviewCommentScope =
   | "project"
   | "lot"
   | "line"
+  | "exception"
+  | "hypothesis"
   | "approval_rule";
+export type EstimateReviewCorrectionStatus =
+  | "pending"
+  | "corrected"
+  | "to_discuss";
 export type EstimateVersionApprovalStatus =
   Database["public"]["Enums"]["estimate_version_approval_status"];
 
@@ -182,6 +188,73 @@ type EstimateReviewCommentInsert = {
   created_by: string;
 };
 
+type EstimateReviewCorrectionItemRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  tenant_id: string;
+  version_id: string;
+  cycle_id: string;
+  source_comment_id: string;
+  scope_type: EstimateReviewCommentScope;
+  scope_id: string | null;
+  scope_label: string;
+  comment: string;
+  status: EstimateReviewCorrectionStatus;
+  last_treated_at: string | null;
+  last_treated_by: string | null;
+  last_treatment_note: string | null;
+};
+
+type EstimateReviewCorrectionEventRow = {
+  id: string;
+  created_at: string;
+  tenant_id: string;
+  version_id: string;
+  cycle_id: string;
+  item_id: string;
+  actor_user_id: string;
+  previous_status: EstimateReviewCorrectionStatus;
+  next_status: EstimateReviewCorrectionStatus;
+  note: string | null;
+};
+
+type EstimateRiskAlertTargetRow = {
+  id: string;
+  takeoff_job_id: string;
+  line_id: string | null;
+  lot_id: string | null;
+  scope_type: "project" | "lot" | "line";
+  scope_id: string | null;
+  scope_label: string;
+  severity: string;
+  status: string;
+  is_active: boolean;
+};
+
+type AffaireRegisterHypothesisTargetRow = {
+  id: string;
+  project_id: string;
+  version_id: string | null;
+  kind: "assumption" | "missing_piece";
+  text: string;
+  scope_type: "project" | "lot" | "line" | "exception";
+  scope_id: string | null;
+  scope_label: string;
+  severity: string;
+  status: string;
+  is_active: boolean;
+};
+
+type EstimateAuditLogRow = {
+  created_at: string;
+  table_name: string;
+  record_id: string;
+  action: "INSERT" | "UPDATE" | "DELETE";
+  before_data: Json | null;
+  after_data: Json | null;
+};
+
 type DecideEstimateReviewCycleResult = {
   cycle_id: string;
   cycle_number: number;
@@ -259,10 +332,18 @@ type VersionAccessRow = Pick<
   | "status"
   | "version_number"
   | "project_id"
+  | "title"
+  | "date_devis"
+  | "validite_jours"
   | "total_ht_cents"
   | "margin_bp"
+  | "global_coefficient"
   | "margin_multiplier"
+  | "margin_mode"
   | "discount_bp"
+  | "tax_rate_bp"
+  | "rounding_mode"
+  | "rounding_step_cents"
   | "approval_status"
   | "approval_summary"
   | "approval_evaluated_at"
@@ -281,6 +362,14 @@ type EstimateReviewCycleWithProfilesRow = EstimateReviewCycleRow & {
 
 type EstimateReviewCommentWithProfilesRow = EstimateReviewCommentRow & {
   created_by_profile: EmbeddedProfileName | EmbeddedProfileName[] | null;
+};
+
+type EstimateReviewCorrectionItemWithProfilesRow = EstimateReviewCorrectionItemRow & {
+  last_treated_by_profile: EmbeddedProfileName | EmbeddedProfileName[] | null;
+};
+
+type EstimateReviewCorrectionEventWithProfilesRow = EstimateReviewCorrectionEventRow & {
+  actor_profile: EmbeddedProfileName | EmbeddedProfileName[] | null;
 };
 
 type EstimateVersionEventAuthor = Pick<
@@ -486,6 +575,69 @@ export type EstimateApprovalCommentTarget = {
   label: string;
 };
 
+export type EstimateApprovalCorrectionEvent = {
+  id: string;
+  previousStatus: EstimateReviewCorrectionStatus;
+  nextStatus: EstimateReviewCorrectionStatus;
+  note: string | null;
+  createdAt: string;
+  actorUserId: string;
+  actorName: string | null;
+};
+
+export type EstimateApprovalCorrectionItem = {
+  id: string;
+  sourceCommentId: string;
+  scopeType: EstimateReviewCommentScope;
+  scopeId: string | null;
+  scopeLabel: string;
+  comment: string;
+  status: EstimateReviewCorrectionStatus;
+  href: string | null;
+  lastTreatedAt: string | null;
+  lastTreatedBy: string | null;
+  lastTreatedByName: string | null;
+  lastTreatmentNote: string | null;
+  history: EstimateApprovalCorrectionEvent[];
+};
+
+export type EstimateApprovalCorrectionChecklist = {
+  sourceCycleId: string;
+  sourceCycleNumber: number;
+  decisionAt: string;
+  totalCount: number;
+  pendingCount: number;
+  correctedCount: number;
+  toDiscussCount: number;
+  allTreated: boolean;
+  canResubmit: boolean;
+  items: EstimateApprovalCorrectionItem[];
+};
+
+export type EstimateApprovalChangeField = {
+  field: string;
+  label: string;
+  before: string;
+  after: string;
+};
+
+export type EstimateApprovalChangesSinceLastCycle = {
+  sourceCycleId: string;
+  sourceCycleNumber: number;
+  decidedAt: string;
+  treatedItemsCount: number;
+  toDiscussCount: number;
+  totalHtDeltaCents: number | null;
+  addedLotsCount: number;
+  updatedLotsCount: number;
+  removedLotsCount: number;
+  addedLinesCount: number;
+  updatedLinesCount: number;
+  removedLinesCount: number;
+  touchedLabels: string[];
+  settingsChanges: EstimateApprovalChangeField[];
+};
+
 export type EstimateApprovalReviewComment = {
   id: string;
   scopeType: EstimateReviewCommentScope;
@@ -560,6 +712,7 @@ export type EstimateApprovalSummary = EstimateApprovalSummaryCore & {
     pendingApprovalCount: number;
     submissionMessage: string | null;
     assignedReviewer: EstimateApprovalReviewer | null;
+    carriedOverFromCycleId: string | null;
   } | null;
   reviewHistory: EstimateApprovalReviewCycle[];
   availableReviewers: EstimateApprovalReviewer[];
@@ -567,10 +720,14 @@ export type EstimateApprovalSummary = EstimateApprovalSummaryCore & {
     blockers: EstimateApprovalSubmissionSignal[];
     alerts: EstimateApprovalSubmissionSignal[];
   };
+  correctionChecklist: EstimateApprovalCorrectionChecklist | null;
+  changesSinceLastCycle: EstimateApprovalChangesSinceLastCycle | null;
   commentTargets: {
     project: EstimateApprovalCommentTarget;
     lots: EstimateApprovalCommentTarget[];
     lines: EstimateApprovalCommentTarget[];
+    exceptions: EstimateApprovalCommentTarget[];
+    hypotheses: EstimateApprovalCommentTarget[];
     approvalRules: EstimateApprovalCommentTarget[];
   };
 };
@@ -642,6 +799,79 @@ function formatPercentBp(value: number) {
 
 function formatEuroCents(value: number) {
   return CURRENCY_FORMATTER.format(value / 100);
+}
+
+const APPROVAL_CHANGE_FIELD_LABELS: Record<string, string> = {
+  margin_bp: "Marge",
+  discount_bp: "Remise",
+  validite_jours: "Validite",
+  rounding_mode: "Mode d'arrondi",
+  rounding_step_cents: "Pas d'arrondi",
+  tax_rate_bp: "TVA",
+  global_coefficient: "Coefficient global",
+  margin_mode: "Mode de marge",
+  margin_multiplier: "Coefficient de marge",
+  title: "Titre du devis",
+  date_devis: "Date du devis",
+};
+
+function buildEstimateEditorHref(input: {
+  versionId: string;
+  itemId: string;
+}) {
+  const params = new URLSearchParams({
+    focusItemId: input.itemId,
+  });
+  return `/dashboard/estimates/${input.versionId}/edit?${params.toString()}`;
+}
+
+function buildTakeoffExceptionHref(input: {
+  projectId: string;
+  versionId: string;
+  alert: EstimateRiskAlertTargetRow;
+}) {
+  const params = new URLSearchParams({
+    versionId: input.versionId,
+  });
+  if (input.alert.line_id) {
+    params.set("line", input.alert.line_id);
+  }
+  return `/dashboard/affaires/${input.projectId}/takeoff/${input.alert.takeoff_job_id}/review?${params.toString()}`;
+}
+
+function formatChangeFieldValue(input: {
+  field: string;
+  value: unknown;
+}) {
+  if (input.value === null || input.value === undefined) {
+    return "-";
+  }
+
+  if (
+    input.field === "margin_bp" ||
+    input.field === "discount_bp" ||
+    input.field === "tax_rate_bp"
+  ) {
+    return typeof input.value === "number" && Number.isFinite(input.value)
+      ? formatPercentBp(input.value)
+      : String(input.value);
+  }
+
+  if (
+    input.field === "rounding_step_cents" ||
+    input.field === "total_ht_cents" ||
+    input.field === "discount_cents"
+  ) {
+    return typeof input.value === "number" && Number.isFinite(input.value)
+      ? formatEuroCents(input.value)
+      : String(input.value);
+  }
+
+  if (typeof input.value === "boolean") {
+    return input.value ? "Oui" : "Non";
+  }
+
+  return String(input.value);
 }
 
 function resolveVersionMarginBp(version: RulesEngineVersion) {
@@ -1727,6 +1957,43 @@ function normalizeReviewComment(
   };
 }
 
+function normalizeReviewCorrectionEvent(
+  row: EstimateReviewCorrectionEventWithProfilesRow
+): EstimateApprovalCorrectionEvent {
+  return {
+    id: row.id,
+    previousStatus: row.previous_status,
+    nextStatus: row.next_status,
+    note: row.note,
+    createdAt: row.created_at,
+    actorUserId: row.actor_user_id,
+    actorName: resolveEmbeddedOne(row.actor_profile)?.full_name ?? null,
+  };
+}
+
+function normalizeReviewCorrectionItem(input: {
+  row: EstimateReviewCorrectionItemWithProfilesRow;
+  href: string | null;
+  history: EstimateApprovalCorrectionEvent[];
+}): EstimateApprovalCorrectionItem {
+  return {
+    id: input.row.id,
+    sourceCommentId: input.row.source_comment_id,
+    scopeType: input.row.scope_type,
+    scopeId: input.row.scope_id,
+    scopeLabel: input.row.scope_label,
+    comment: input.row.comment,
+    status: input.row.status,
+    href: input.href,
+    lastTreatedAt: input.row.last_treated_at,
+    lastTreatedBy: input.row.last_treated_by,
+    lastTreatedByName:
+      resolveEmbeddedOne(input.row.last_treated_by_profile)?.full_name ?? null,
+    lastTreatmentNote: input.row.last_treatment_note,
+    history: input.history,
+  };
+}
+
 function normalizeAvailableReviewer(input: {
   membership: TenantMembershipAccessRow;
   profile: EmbeddedReviewerProfile | null;
@@ -1917,6 +2184,8 @@ function normalizeDecisionEventScope(
     scopeType !== "project" &&
     scopeType !== "lot" &&
     scopeType !== "line" &&
+    scopeType !== "exception" &&
+    scopeType !== "hypothesis" &&
     scopeType !== "approval_rule"
   ) {
     return null;
@@ -2113,6 +2382,8 @@ function normalizeEstimateApprovalDecisionEvent(
 function buildEstimateReviewCommentTargets(input: {
   project: EmbeddedApprovalProjectAccess;
   items: RulesEngineItemAccess[];
+  exceptions: EstimateRiskAlertTargetRow[];
+  hypotheses: AffaireRegisterHypothesisTargetRow[];
   reasons: ApprovalSummaryReason[];
 }): EstimateApprovalSummary["commentTargets"] {
   const titledItems = input.items.filter(
@@ -2162,6 +2433,22 @@ function buildEstimateReviewCommentTargets(input: {
         scopeType: "line" as const,
         scopeId: item.id,
         label: withLabel(item),
+      })),
+    exceptions: input.exceptions
+      .filter((entry) => entry.is_active)
+      .sort((left, right) => left.scope_label.localeCompare(right.scope_label))
+      .map((entry) => ({
+        scopeType: "exception" as const,
+        scopeId: entry.id,
+        label: entry.scope_label,
+      })),
+    hypotheses: input.hypotheses
+      .filter((entry) => entry.is_active && entry.kind === "assumption")
+      .sort((left, right) => left.scope_label.localeCompare(right.scope_label))
+      .map((entry) => ({
+        scopeType: "hypothesis" as const,
+        scopeId: entry.id,
+        label: entry.text,
       })),
     approvalRules: input.reasons.map((reason) => ({
       scopeType: "approval_rule" as const,
@@ -2251,6 +2538,289 @@ async function listEstimateReviewComments(input: {
   }
 
   return ((data ?? []) as unknown) as EstimateReviewCommentWithProfilesRow[];
+}
+
+async function listEstimateReviewCorrectionItems(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  cycleIds: string[];
+}) {
+  if (input.cycleIds.length === 0) {
+    return [] as EstimateReviewCorrectionItemWithProfilesRow[];
+  }
+
+  const { data, error } = await input.context.supabase
+    .from("estimate_review_correction_items" as never)
+    .select(
+      [
+        "id",
+        "created_at",
+        "updated_at",
+        "tenant_id",
+        "version_id",
+        "cycle_id",
+        "source_comment_id",
+        "scope_type",
+        "scope_id",
+        "scope_label",
+        "comment",
+        "status",
+        "last_treated_at",
+        "last_treated_by",
+        "last_treatment_note",
+        "last_treated_by_profile:last_treated_by(full_name)",
+      ].join(", ") as never
+    )
+    .eq("tenant_id" as never, input.context.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .in("cycle_id" as never, input.cycleIds as never)
+    .order("created_at" as never, { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger la checklist de correction."
+    );
+  }
+
+  return ((data ?? []) as unknown) as EstimateReviewCorrectionItemWithProfilesRow[];
+}
+
+async function listEstimateReviewCorrectionEvents(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  cycleIds: string[];
+}) {
+  if (input.cycleIds.length === 0) {
+    return [] as EstimateReviewCorrectionEventWithProfilesRow[];
+  }
+
+  const { data, error } = await input.context.supabase
+    .from("estimate_review_correction_events" as never)
+    .select(
+      [
+        "id",
+        "created_at",
+        "tenant_id",
+        "version_id",
+        "cycle_id",
+        "item_id",
+        "actor_user_id",
+        "previous_status",
+        "next_status",
+        "note",
+        "actor_profile:actor_user_id(full_name)",
+      ].join(", ") as never
+    )
+    .eq("tenant_id" as never, input.context.tenantId as never)
+    .eq("version_id" as never, input.versionId as never)
+    .in("cycle_id" as never, input.cycleIds as never)
+    .order("created_at" as never, { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger l'historique des corrections."
+    );
+  }
+
+  return ((data ?? []) as unknown) as EstimateReviewCorrectionEventWithProfilesRow[];
+}
+
+function toJsonRecord(value: Json | null): Record<string, unknown> | null {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function toStringValue(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function toNumberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function buildCorrectionItemHref(input: {
+  projectId: string;
+  versionId: string;
+  item: EstimateReviewCorrectionItemRow;
+  exceptionById: Map<string, EstimateRiskAlertTargetRow>;
+}) {
+  if (input.item.scope_type === "lot" || input.item.scope_type === "line") {
+    return input.item.scope_id
+      ? buildEstimateEditorHref({
+          versionId: input.versionId,
+          itemId: input.item.scope_id,
+        })
+      : null;
+  }
+
+  if (input.item.scope_type === "hypothesis") {
+    return input.item.scope_id
+      ? buildAffaireRegisterHubHref({
+          projectId: input.projectId,
+          status: "open",
+          kind: "assumption",
+          focusEntryId: input.item.scope_id,
+        })
+      : null;
+  }
+
+  if (input.item.scope_type === "exception") {
+    if (!input.item.scope_id) {
+      return null;
+    }
+    const alert = input.exceptionById.get(input.item.scope_id);
+    return alert
+      ? buildTakeoffExceptionHref({
+          projectId: input.projectId,
+          versionId: input.versionId,
+          alert,
+        })
+      : `/dashboard/affaires/${input.projectId}/takeoff`;
+  }
+
+  return null;
+}
+
+function collectTouchedLabels(
+  rows: EstimateAuditLogRow[],
+  limit = 6
+) {
+  const labels: string[] = [];
+
+  rows.forEach((row) => {
+    const afterData = toJsonRecord(row.after_data);
+    const beforeData = toJsonRecord(row.before_data);
+    const label =
+      toStringValue(afterData?.title) ??
+      toStringValue(beforeData?.title) ??
+      toStringValue(afterData?.scope_label) ??
+      toStringValue(beforeData?.scope_label);
+
+    if (!label || labels.includes(label)) {
+      return;
+    }
+
+    labels.push(label);
+  });
+
+  return labels.slice(0, limit);
+}
+
+async function buildChangesSinceLastCycle(input: {
+  context: AuthenticatedContext;
+  version: VersionAccessRow;
+  sourceCycle: EstimateApprovalReviewCycle;
+  correctionItems: EstimateApprovalCorrectionItem[];
+}) {
+  const auditClient = createOptionalServiceRoleClient();
+  if (!auditClient) {
+    return null;
+  }
+
+  const { data, error } = await auditClient
+    .from("audit_logs")
+    .select("created_at, table_name, record_id, action, before_data, after_data")
+    .eq("estimate_version_id", input.version.id)
+    .gte("created_at", input.sourceCycle.decidedAt)
+    .in("table_name", ["estimate_versions", "estimate_items"])
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de charger le diff depuis le dernier cycle."
+    );
+  }
+
+  const rows = (data ?? []) as EstimateAuditLogRow[];
+  const versionRows = rows.filter((row) => row.table_name === "estimate_versions");
+  const itemRows = rows.filter((row) => row.table_name === "estimate_items");
+  const lineRows = itemRows.filter((row) => {
+    const afterData = toJsonRecord(row.after_data);
+    const beforeData = toJsonRecord(row.before_data);
+    return (
+      toStringValue(afterData?.item_type) === "line" ||
+      toStringValue(beforeData?.item_type) === "line"
+    );
+  });
+  const lotRows = itemRows.filter((row) => {
+    const afterData = toJsonRecord(row.after_data);
+    const beforeData = toJsonRecord(row.before_data);
+    return (
+      toStringValue(afterData?.item_type) === "section" ||
+      toStringValue(beforeData?.item_type) === "section"
+    );
+  });
+  const addedLotsCount = lotRows.filter((row) => row.action === "INSERT").length;
+  const removedLotsCount = lotRows.filter((row) => row.action === "DELETE").length;
+  const updatedLotsCount = lotRows.filter((row) => row.action === "UPDATE").length;
+  const addedLinesCount = lineRows.filter((row) => row.action === "INSERT").length;
+  const removedLinesCount = lineRows.filter((row) => row.action === "DELETE").length;
+  const updatedLinesCount = lineRows.filter((row) => row.action === "UPDATE").length;
+  const earliestVersionBaseline = versionRows
+    .map((row) => toJsonRecord(row.before_data))
+    .find((entry) => entry !== null);
+  const baselineTotalHt =
+    toNumberValue(earliestVersionBaseline?.total_ht_cents) ??
+    input.version.total_ht_cents ??
+    null;
+
+  const changeFields = [
+    "margin_bp",
+    "discount_bp",
+    "validite_jours",
+    "rounding_mode",
+    "rounding_step_cents",
+    "tax_rate_bp",
+    "global_coefficient",
+    "margin_mode",
+    "margin_multiplier",
+    "title",
+    "date_devis",
+  ];
+  const settingsChanges = changeFields
+    .map((field) => {
+      const baseline =
+        earliestVersionBaseline?.[field] ??
+        toJsonRecord(versionRows[0]?.before_data ?? null)?.[field] ??
+        null;
+      const current = (input.version as Record<string, unknown>)[field] ?? null;
+      if (baseline === current) {
+        return null;
+      }
+
+      return {
+        field,
+        label: APPROVAL_CHANGE_FIELD_LABELS[field] ?? field,
+        before: formatChangeFieldValue({ field, value: baseline }),
+        after: formatChangeFieldValue({ field, value: current }),
+      } satisfies EstimateApprovalChangeField;
+    })
+    .filter((entry): entry is EstimateApprovalChangeField => entry !== null);
+
+  return {
+    sourceCycleId: input.sourceCycle.id,
+    sourceCycleNumber: input.sourceCycle.cycleNumber,
+    decidedAt: input.sourceCycle.decidedAt,
+    treatedItemsCount: input.correctionItems.filter((item) => item.status !== "pending").length,
+    toDiscussCount: input.correctionItems.filter((item) => item.status === "to_discuss").length,
+    totalHtDeltaCents:
+      baselineTotalHt === null || input.version.total_ht_cents === null
+        ? null
+        : input.version.total_ht_cents - baselineTotalHt,
+    addedLotsCount,
+    updatedLotsCount,
+    removedLotsCount,
+    addedLinesCount,
+    updatedLinesCount,
+    removedLinesCount,
+    touchedLabels: collectTouchedLabels(itemRows),
+    settingsChanges,
+  } satisfies EstimateApprovalChangesSinceLastCycle;
 }
 
 function escapeCsvCell(value: string) {
@@ -2417,19 +2987,38 @@ async function enrichEstimateApprovalSummary(input: {
     alerts: EstimateApprovalSubmissionSignal[];
   };
 }): Promise<EstimateApprovalSummary> {
-  const cycleRows = await listEstimateReviewCycles({
-    context: input.context,
-    versionId: input.version.id,
-  });
+  const [cycleRows, targetContext] = await Promise.all([
+    listEstimateReviewCycles({
+      context: input.context,
+      versionId: input.version.id,
+    }),
+    loadApprovalCommentTargetContext({
+      context: input.context,
+      versionId: input.version.id,
+      projectId: input.project.id,
+    }),
+  ]);
   const cycleIds = cycleRows.map((cycle) => cycle.id);
-  const resolvedCommentRows =
+  const [resolvedCommentRows, correctionItemRows, correctionEventRows] =
     cycleIds.length === 0
-      ? []
-      : await listEstimateReviewComments({
-          context: input.context,
-          versionId: input.version.id,
-          cycleIds,
-        });
+      ? [[], [], []]
+      : await Promise.all([
+          listEstimateReviewComments({
+            context: input.context,
+            versionId: input.version.id,
+            cycleIds,
+          }),
+          listEstimateReviewCorrectionItems({
+            context: input.context,
+            versionId: input.version.id,
+            cycleIds,
+          }),
+          listEstimateReviewCorrectionEvents({
+            context: input.context,
+            versionId: input.version.id,
+            cycleIds,
+          }),
+        ]);
   const commentsByCycleId = new Map<string, EstimateApprovalReviewComment[]>();
 
   resolvedCommentRows.forEach((row) => {
@@ -2440,6 +3029,40 @@ async function enrichEstimateApprovalSummary(input: {
       return;
     }
     commentsByCycleId.set(row.cycle_id, [comment]);
+  });
+
+  const correctionEventsByItemId = new Map<string, EstimateApprovalCorrectionEvent[]>();
+  correctionEventRows.forEach((row) => {
+    const event = normalizeReviewCorrectionEvent(row);
+    const list = correctionEventsByItemId.get(row.item_id);
+    if (list) {
+      list.push(event);
+      return;
+    }
+    correctionEventsByItemId.set(row.item_id, [event]);
+  });
+
+  const exceptionById = new Map(
+    targetContext.exceptions.map((entry) => [entry.id, entry] as const)
+  );
+  const correctionItemsByCycleId = new Map<string, EstimateApprovalCorrectionItem[]>();
+  correctionItemRows.forEach((row) => {
+    const item = normalizeReviewCorrectionItem({
+      row,
+      href: buildCorrectionItemHref({
+        projectId: input.project.id,
+        versionId: input.version.id,
+        item: row,
+        exceptionById,
+      }),
+      history: correctionEventsByItemId.get(row.id) ?? [],
+    });
+    const list = correctionItemsByCycleId.get(row.cycle_id);
+    if (list) {
+      list.push(item);
+      return;
+    }
+    correctionItemsByCycleId.set(row.cycle_id, [item]);
   });
 
   const activeCycleRow = cycleRows.find((cycle) => cycle.decision === null) ?? null;
@@ -2458,9 +3081,6 @@ async function enrichEstimateApprovalSummary(input: {
     }));
   const latestCompletedCycle = reviewHistory[0] ?? null;
   const pendingApprovalCount = activeCyclePendingApprovals.length;
-  const requestableReasonCount = input.summary.reasons.filter(
-    (reason) => reason.approvalStatus === "missing" || reason.approvalStatus === "rejected"
-  ).length;
   const availableReviewers = await listAvailableEstimateApprovalReviewers({
     context: input.context,
   });
@@ -2479,10 +3099,46 @@ async function enrichEstimateApprovalSummary(input: {
         "Aucun role admin ou director n'est disponible pour prendre la revue.",
     });
   }
+  const correctionSourceCycleId =
+    activeCycleRow?.carried_over_from_cycle_id ??
+    (latestCompletedCycle?.decision === "changes_requested"
+      ? latestCompletedCycle.id
+      : null);
+  const correctionSourceCycle =
+    correctionSourceCycleId !== null
+      ? reviewHistory.find((cycle) => cycle.id === correctionSourceCycleId) ?? null
+      : null;
+  const correctionItems = correctionSourceCycle
+    ? correctionItemsByCycleId.get(correctionSourceCycle.id) ?? []
+    : [];
+  const correctionPendingCount = correctionItems.filter(
+    (item) => item.status === "pending"
+  ).length;
+  const correctionCorrectedCount = correctionItems.filter(
+    (item) => item.status === "corrected"
+  ).length;
+  const correctionToDiscussCount = correctionItems.filter(
+    (item) => item.status === "to_discuss"
+  ).length;
+  const allCorrectionsTreated = correctionPendingCount === 0;
+  const currentRequestableRuleIds = input.summary.reasons
+    .filter((reason) => reason.approvalStatus === "missing" || reason.approvalStatus === "rejected")
+    .map((reason) => reason.ruleId);
+  const carriedOverRuleIds =
+    correctionSourceCycle !== null
+      ? await listRuleIdsForReviewCycle({
+          context: input.context,
+          versionId: input.version.id,
+          requestedAt: correctionSourceCycle.requestedAt,
+          decidedAt: correctionSourceCycle.decidedAt,
+        })
+      : [];
+  const requestableRuleIds = [...new Set([...currentRequestableRuleIds, ...carriedOverRuleIds])];
   const canRequest =
     canPrepareRequest &&
     activeCycleRow === null &&
-    requestableReasonCount > 0 &&
+    requestableRuleIds.length > 0 &&
+    (!correctionSourceCycle || allCorrectionsTreated) &&
     submissionBlockers.length === 0;
   const canDecide =
     isTenantApprover(input.context.tenantRole) &&
@@ -2500,6 +3156,7 @@ async function enrichEstimateApprovalSummary(input: {
           pendingApprovalCount,
           submissionMessage: activeCycleRow.submission_message,
           assignedReviewer: normalizeAssignedReviewer(activeCycleRow),
+          carriedOverFromCycleId: activeCycleRow.carried_over_from_cycle_id,
         }
       : null;
 
@@ -2528,6 +3185,36 @@ async function enrichEstimateApprovalSummary(input: {
     };
   }
 
+  const correctionChecklist =
+    correctionSourceCycle !== null
+      ? {
+          sourceCycleId: correctionSourceCycle.id,
+          sourceCycleNumber: correctionSourceCycle.cycleNumber,
+          decisionAt: correctionSourceCycle.decidedAt,
+          totalCount: correctionItems.length,
+          pendingCount: correctionPendingCount,
+          correctedCount: correctionCorrectedCount,
+          toDiscussCount: correctionToDiscussCount,
+          allTreated: allCorrectionsTreated,
+          canResubmit:
+            activeCycleRow === null &&
+            allCorrectionsTreated &&
+            submissionBlockers.length === 0 &&
+            availableReviewers.length > 0 &&
+            requestableRuleIds.length > 0,
+          items: correctionItems,
+        }
+      : null;
+  const changesSinceLastCycle =
+    correctionSourceCycle !== null
+      ? await buildChangesSinceLastCycle({
+          context: input.context,
+          version: input.version,
+          sourceCycle: correctionSourceCycle,
+          correctionItems,
+        })
+      : null;
+
   return {
     ...input.summary,
     latestDecision,
@@ -2543,9 +3230,13 @@ async function enrichEstimateApprovalSummary(input: {
       blockers: submissionBlockers,
       alerts: input.submissionReadiness.alerts,
     },
+    correctionChecklist,
+    changesSinceLastCycle,
     commentTargets: buildEstimateReviewCommentTargets({
       project: input.project,
       items: input.items,
+      exceptions: targetContext.exceptions,
+      hypotheses: targetContext.hypotheses,
       reasons: input.summary.reasons,
     }),
   };
@@ -2644,6 +3335,53 @@ async function loadApprovalSummaryItems(input: {
   }
 
   return (data ?? []) as RulesEngineItemAccess[];
+}
+
+async function loadApprovalCommentTargetContext(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  projectId: string;
+}) {
+  const [exceptionResult, hypothesisResult] = await Promise.all([
+    input.context.supabase
+      .from("estimate_risk_alerts" as never)
+      .select(
+        "id, takeoff_job_id, line_id, lot_id, scope_type, scope_id, scope_label, severity, status, is_active" as never
+      )
+      .eq("tenant_id" as never, input.context.tenantId as never)
+      .eq("version_id" as never, input.versionId as never)
+      .eq("is_active" as never, true as never)
+      .order("scope_label" as never, { ascending: true }),
+    input.context.supabase
+      .from("affaire_register_entries" as never)
+      .select(
+        "id, project_id, version_id, kind, text, scope_type, scope_id, scope_label, severity, status, is_active" as never
+      )
+      .eq("tenant_id" as never, input.context.tenantId as never)
+      .eq("project_id" as never, input.projectId as never)
+      .eq("kind" as never, "assumption" as never)
+      .eq("is_active" as never, true as never)
+      .order("updated_at" as never, { ascending: false }),
+  ]);
+
+  if (exceptionResult.error) {
+    throw mapSupabaseError(
+      exceptionResult.error,
+      "Impossible de charger les exceptions pour l'approbation."
+    );
+  }
+
+  if (hypothesisResult.error) {
+    throw mapSupabaseError(
+      hypothesisResult.error,
+      "Impossible de charger les hypotheses pour l'approbation."
+    );
+  }
+
+  return {
+    exceptions: (exceptionResult.data ?? []) as EstimateRiskAlertTargetRow[],
+    hypotheses: (hypothesisResult.data ?? []) as AffaireRegisterHypothesisTargetRow[],
+  };
 }
 
 async function syncEstimateApprovalSummary(input: {
@@ -2805,6 +3543,72 @@ export async function getEstimateApprovalSummary(
   });
 }
 
+export async function updateEstimateReviewCorrectionItemStatus(input: {
+  versionId: string;
+  itemId: string;
+  status: Exclude<EstimateReviewCorrectionStatus, "pending">;
+  note?: string | null;
+}) {
+  const context = await getAuthenticatedContext();
+  const access = await getVersionAccessOrThrow(context, input.versionId);
+
+  if (access.project.user_id !== context.userId) {
+    throw forbidden("Action reservee au proprietaire du chiffrage.");
+  }
+
+  const { data, error } = await context.supabase.rpc(
+    "record_estimate_review_correction_action" as never,
+    {
+      p_item_id: input.itemId,
+      p_status: input.status,
+      p_note: input.note?.trim() || null,
+    } as never
+  );
+
+  if (error) {
+    if (error.message.includes("ESTIMATE_REVIEW_CORRECTION_OWNER_REQUIRED")) {
+      throw forbidden("Action reservee au proprietaire du chiffrage.");
+    }
+
+    if (error.message.includes("ESTIMATE_REVIEW_CORRECTION_STATUS_UNCHANGED")) {
+      throw badRequest("Le statut de correction est deja applique.");
+    }
+
+    if (error.message.includes("ESTIMATE_REVIEW_CORRECTION_ITEM_NOT_FOUND")) {
+      throw notFound("Element de correction introuvable.");
+    }
+
+    throw mapSupabaseError(
+      error,
+      "Impossible d'enregistrer le traitement de correction."
+    );
+  }
+
+  const row = Array.isArray(data)
+    ? (data[0] as
+        | {
+            item_id?: string;
+            cycle_id?: string;
+            version_id?: string;
+            status?: EstimateReviewCorrectionStatus;
+            treated_at?: string;
+          }
+        | undefined)
+    : undefined;
+
+  if (!row?.item_id) {
+    throw badRequest("Impossible d'enregistrer le traitement de correction.");
+  }
+
+  return {
+    itemId: row.item_id,
+    cycleId: row.cycle_id ?? null,
+    versionId: row.version_id ?? input.versionId,
+    status: row.status ?? input.status,
+    treatedAt: row.treated_at ?? new Date().toISOString(),
+  };
+}
+
 async function getAuthenticatedContext(): Promise<AuthenticatedContext> {
   const rawSupabase = await createSupabaseServerClient();
   const supabase = rawSupabase as unknown as Supabase;
@@ -2850,7 +3654,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, status, version_number, project_id, total_ht_cents, margin_bp, margin_multiplier, discount_bp, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, name, client_name)"
+      "id, tenant_id, status, version_number, project_id, title, date_devis, validite_jours, total_ht_cents, margin_bp, global_coefficient, margin_multiplier, margin_mode, discount_bp, tax_rate_bp, rounding_mode, rounding_step_cents, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, name, client_name)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -2918,6 +3722,8 @@ function buildReviewCommentTargetLookup(
   pushTarget(targets.project);
   targets.lots.forEach(pushTarget);
   targets.lines.forEach(pushTarget);
+  targets.exceptions.forEach(pushTarget);
+  targets.hypotheses.forEach(pushTarget);
   targets.approvalRules.forEach(pushTarget);
 
   return lookup;
@@ -2947,7 +3753,9 @@ function normalizeDecisionComments(input: {
     }
 
     if (scopeType !== "project" && !scopeId) {
-      throw badRequest("Chaque commentaire cible doit pointer vers un lot, une ligne ou une exception.");
+      throw badRequest(
+        "Chaque commentaire cible doit pointer vers un lot, une ligne, une exception ou une hypothese."
+      );
     }
 
     const target = lookup.get(`${scopeType}:${scopeId ?? "project"}`);
@@ -3113,8 +3921,9 @@ async function listApprovalsForReviewCycle(input: {
   context: AuthenticatedContext;
   versionId: string;
   requestedAt: string;
+  decidedAt?: string | null;
 }) {
-  const { data, error } = await input.context.supabase
+  let query = input.context.supabase
     .from("estimate_approvals")
     .select(
       "id, created_at, updated_at, tenant_id, version_id, rule_id, requested_by, approved_by, status, decided_at"
@@ -3124,11 +3933,27 @@ async function listApprovalsForReviewCycle(input: {
     .gte("created_at", input.requestedAt)
     .order("created_at", { ascending: false });
 
+  if (input.decidedAt) {
+    query = query.lte("created_at", input.decidedAt);
+  }
+
+  const { data, error } = await query;
+
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les approbations du cycle de revue.");
   }
 
   return (data ?? []) as EstimateApprovalRow[];
+}
+
+async function listRuleIdsForReviewCycle(input: {
+  context: AuthenticatedContext;
+  versionId: string;
+  requestedAt: string;
+  decidedAt?: string | null;
+}) {
+  const approvals = await listApprovalsForReviewCycle(input);
+  return [...new Set(approvals.map((approval) => approval.rule_id))];
 }
 
 async function closeReviewCycle(input: {
@@ -3261,6 +4086,30 @@ async function findRuleForTenant(input: {
   }
 
   return data as EstimateRuleRow;
+}
+
+async function findRulesForTenant(input: {
+  context: AuthenticatedContext;
+  ruleIds: string[];
+}) {
+  if (input.ruleIds.length === 0) {
+    return [] as EstimateRuleRow[];
+  }
+
+  const { data, error } = await input.context.supabase
+    .from("estimate_rules")
+    .select(
+      "id, created_at, updated_at, tenant_id, rule_type, scope_type, scope_id, threshold_value, action, is_active"
+    )
+    .eq("tenant_id", input.context.tenantId)
+    .in("id", input.ruleIds)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les regles ciblees.");
+  }
+
+  return (data ?? []) as EstimateRuleRow[];
 }
 
 async function findLatestApprovalForRule(input: {
@@ -3448,15 +4297,83 @@ export async function submitEstimateApproval(
         .map((ruleId) => normalizeOptionalUuid(ruleId))
         .filter((ruleId): ruleId is string => ruleId !== null)
     );
-    const requestableReasons = summary.reasons.filter(
+    const currentRequestableReasons = summary.reasons.filter(
       (reason) =>
         (reason.approvalStatus === "missing" || reason.approvalStatus === "rejected") &&
         (requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(reason.ruleId))
     );
+    const latestCycle = await findLatestReviewCycle({
+      context,
+      versionId: input.versionId,
+    });
+    const rejectedSourceCycle =
+      latestCycle?.decision === "changes_requested" && latestCycle.decided_at
+        ? latestCycle
+        : null;
+    let carriedOverRuleIds: string[] = [];
 
-    if (requestableReasons.length === 0) {
+    if (rejectedSourceCycle) {
+      const correctionRows = await listEstimateReviewCorrectionItems({
+        context,
+        versionId: input.versionId,
+        cycleIds: [rejectedSourceCycle.id],
+      });
+      const hasPendingCorrections = correctionRows.some(
+        (row) => row.status === "pending"
+      );
+      if (hasPendingCorrections) {
+        throw badRequest("Tous les items de correction doivent etre traites avant la resoumission.");
+      }
+
+      carriedOverRuleIds = await listRuleIdsForReviewCycle({
+        context,
+        versionId: input.versionId,
+        requestedAt: rejectedSourceCycle.requested_at,
+        decidedAt: rejectedSourceCycle.decided_at,
+      });
+    }
+
+    const requestedRuleIds = [
+      ...new Set([
+        ...currentRequestableReasons.map((reason) => reason.ruleId),
+        ...carriedOverRuleIds,
+      ]),
+    ].filter((ruleId) => requestedRuleIdSet.size === 0 || requestedRuleIdSet.has(ruleId));
+
+    if (requestedRuleIds.length === 0) {
       throw badRequest("Aucune regle de validation ne peut etre soumise.");
     }
+
+    const requestableReasonByRuleId = new Map(
+      currentRequestableReasons.map((reason) => [reason.ruleId, reason] as const)
+    );
+    const missingRuleIds = requestedRuleIds.filter(
+      (ruleId) => !requestableReasonByRuleId.has(ruleId)
+    );
+    const carriedOverRules = await findRulesForTenant({
+      context,
+      ruleIds: missingRuleIds,
+    });
+    const carriedOverRuleById = new Map(
+      carriedOverRules.map((rule) => [rule.id, rule] as const)
+    );
+    const requestedRulePayload = requestedRuleIds.map((ruleId) => {
+      const activeReason = requestableReasonByRuleId.get(ruleId);
+      if (activeReason) {
+        return {
+          ruleId,
+          label: activeReason.label,
+        };
+      }
+
+      const carriedOverRule = carriedOverRuleById.get(ruleId);
+      return {
+        ruleId,
+        label: carriedOverRule
+          ? resolveApprovalSummaryLabel(carriedOverRule.rule_type)
+          : "Regle de validation",
+      };
+    });
 
     const cycle = await ensureOpenReviewCycle({
       context,
@@ -3466,7 +4383,7 @@ export async function submitEstimateApproval(
     });
 
     let latestApproval: EstimateApprovalRow | null = null;
-    for (const reason of requestableReasons) {
+    for (const reason of requestedRulePayload) {
       latestApproval = await ensurePendingApprovalForRule({
         context,
         versionId: input.versionId,
@@ -3493,13 +4410,16 @@ export async function submitEstimateApproval(
       metadata: {
         cycleId: cycle.id,
         cycleNumber: cycle.cycle_number,
-        requestedRuleIds: requestableReasons.map((reason) => reason.ruleId),
-        requestedRuleLabels: requestableReasons.map((reason) => reason.label),
-        requestedApprovalCount: requestableReasons.length,
+        requestedRuleIds: requestedRulePayload.map((reason) => reason.ruleId),
+        requestedRuleLabels: requestedRulePayload.map((reason) => reason.label),
+        requestedApprovalCount: requestedRulePayload.length,
         assignedReviewerUserId: assignedReviewer.userId,
         assignedReviewerName: assignedReviewer.fullName,
         assignedReviewerEmail: assignedReviewer.workEmail,
         submissionMessage: input.submissionMessage?.trim() || null,
+        resubmissionOfCycleId: rejectedSourceCycle?.id ?? null,
+        resubmissionOfCycleNumber: rejectedSourceCycle?.cycle_number ?? null,
+        correctionChecklistCompleted: rejectedSourceCycle ? true : null,
         notificationChannels: {
           inApp: true,
           email: Boolean(assignedReviewer.workEmail),
@@ -3526,7 +4446,7 @@ export async function submitEstimateApproval(
             "Affaire",
           versionNumber: access.version.version_number,
           submissionMessage: input.submissionMessage?.trim() || null,
-          ruleLabels: requestableReasons.map((reason) => reason.label),
+          ruleLabels: requestedRulePayload.map((reason) => reason.label),
         });
       } catch (error) {
         console.error("Failed to send approval review request notification:", error);
@@ -3542,8 +4462,8 @@ export async function submitEstimateApproval(
         submissionMessage: cycle.submission_message,
         assignedReviewer,
       },
-      requestedApprovalCount: requestableReasons.length,
-      requestedRuleIds: requestableReasons.map((reason) => reason.ruleId),
+      requestedApprovalCount: requestedRulePayload.length,
+      requestedRuleIds: requestedRulePayload.map((reason) => reason.ruleId),
     };
   }
 
@@ -3637,9 +4557,16 @@ export async function submitEstimateApproval(
       },
       items,
     });
+    const targetContext = await loadApprovalCommentTargetContext({
+      context,
+      versionId: input.versionId,
+      projectId: access.project.id,
+    });
     const commentTargets = buildEstimateReviewCommentTargets({
       project: access.project,
       items,
+      exceptions: targetContext.exceptions,
+      hypotheses: targetContext.hypotheses,
       reasons: summary.reasons,
     });
     const normalizedComments = normalizeDecisionComments({

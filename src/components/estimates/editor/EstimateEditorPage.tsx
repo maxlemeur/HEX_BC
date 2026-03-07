@@ -5,6 +5,7 @@ import { memo, useMemo } from "react";
 import { AffaireBreadcrumb } from "@/components/AffaireBreadcrumb";
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateEditorSkeleton } from "@/components/estimates/EstimateEditorSkeleton";
+import { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
 import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
 import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable";
 import { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
@@ -17,14 +18,18 @@ import { useEstimateEditorState } from "@/hooks/useEstimateEditorState";
 
 type EstimateEditorPageProps = {
   versionId: string;
+  focusItemId?: string | null;
 };
 
 const MemoizedEstimateEditorAlerts = memo(EstimateEditorAlerts);
 const MemoizedEstimateEditorDrawer = memo(EstimateEditorDrawer);
 const MemoizedEstimateEditorTable = memo(EstimateEditorTable);
 
-export function EstimateEditorPage({ versionId }: EstimateEditorPageProps) {
-  const model = useEstimateEditorState({ versionId });
+export function EstimateEditorPage({
+  versionId,
+  focusItemId = null,
+}: EstimateEditorPageProps) {
+  const model = useEstimateEditorState({ versionId, focusItemId });
   const readyMeta = model.meta.kind === "ready" ? model.meta : null;
   const alertsRegion = useMemo(
     () =>
@@ -137,6 +142,13 @@ export function EstimateEditorPage({ versionId }: EstimateEditorPageProps) {
         <div data-testid="estimate-editor-structure-draft-dialog-region">
           <EstimateStructureDraftDialog
             {...readyMeta.estimateStructureDraftDialogProps}
+          />
+        </div>
+      ) : null}
+      {readyMeta.generatedOuvrageDialogProps ? (
+        <div data-testid="estimate-editor-generated-ouvrage-dialog-region">
+          <GeneratedOuvrageDialog
+            {...readyMeta.generatedOuvrageDialogProps}
           />
         </div>
       ) : null}

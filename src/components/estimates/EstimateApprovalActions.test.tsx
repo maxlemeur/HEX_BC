@@ -10,6 +10,7 @@ const mockToast = {
   info: vi.fn(),
 };
 const mockSubmitEstimateForReviewAction = vi.fn();
+const mockUpdateEstimateReviewCorrectionItemStatusAction = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -25,6 +26,8 @@ vi.mock("@/app/dashboard/_actions/estimate-approval", () => ({
   submitEstimateForReviewAction: (...args: unknown[]) =>
     mockSubmitEstimateForReviewAction(...args),
   decideEstimateApprovalAction: vi.fn(),
+  updateEstimateReviewCorrectionItemStatusAction: (...args: unknown[]) =>
+    mockUpdateEstimateReviewCorrectionItemStatusAction(...args),
 }));
 
 import { EstimateApprovalActions } from "@/components/estimates/EstimateApprovalActions";
@@ -79,6 +82,8 @@ function buildSummary(
         },
       ],
     },
+    correctionChecklist: null,
+    changesSinceLastCycle: null,
     commentTargets: {
       project: {
         scopeType: "project",
@@ -87,6 +92,8 @@ function buildSummary(
       },
       lots: [],
       lines: [],
+      exceptions: [],
+      hypotheses: [],
       approvalRules: [
         {
           scopeType: "approval_rule",
@@ -200,6 +207,83 @@ describe("EstimateApprovalActions", () => {
     });
     expect(mockRefresh).toHaveBeenCalled();
     expect(mockToast.success).toHaveBeenCalled();
+  });
+
+  it("renders the correction checklist and keeps resubmission locked until all items are treated", async () => {
+    const user = userEvent.setup();
+    mockUpdateEstimateReviewCorrectionItemStatusAction.mockResolvedValue({
+      itemId: "corr-1",
+      status: "corrected",
+      treatedAt: "2026-03-06T10:00:00.000Z",
+    });
+
+    render(
+      <EstimateApprovalActions
+        versionId="version-1"
+        projectId="project-1"
+        summary={buildSummary({
+          reasons: [],
+          permissions: {
+            canPrepareRequest: true,
+            canRequest: false,
+            canDecide: false,
+          },
+          correctionChecklist: {
+            sourceCycleId: "cycle-1",
+            sourceCycleNumber: 1,
+            decisionAt: "2026-03-06T09:00:00.000Z",
+            totalCount: 1,
+            pendingCount: 1,
+            correctedCount: 0,
+            toDiscussCount: 0,
+            allTreated: false,
+            canResubmit: false,
+            items: [
+              {
+                id: "corr-1",
+                sourceCommentId: "comment-1",
+                scopeType: "line",
+                scopeId: "line-1",
+                scopeLabel: "1.1 - Alimentation TGBT",
+                comment: "Mettre a jour l'hypothese de quantite.",
+                status: "pending",
+                href: "/dashboard/estimates/version-1/edit?focusItemId=line-1",
+                lastTreatedAt: null,
+                lastTreatedBy: null,
+                lastTreatedByName: null,
+                lastTreatmentNote: null,
+                history: [],
+              },
+            ],
+          },
+        })}
+        submissionOverview={buildSubmissionOverview()}
+      />
+    );
+
+    expect(screen.getByText("Checklist de correction")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ouvrir la cible" })).toHaveAttribute(
+      "href",
+      "/dashboard/estimates/version-1/edit?focusItemId=line-1"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Marquer corrige" }));
+
+    await waitFor(() => {
+      expect(mockUpdateEstimateReviewCorrectionItemStatusAction).toHaveBeenCalledWith({
+        versionId: "version-1",
+        projectId: "project-1",
+        itemId: "corr-1",
+        status: "corrected",
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: "Resoumettre" }));
+
+    expect(screen.getByRole("button", { name: "Confirmer la resoumission" })).toBeDisabled();
+    expect(
+      screen.getByText("Traitez tous les items de correction avant de resoumettre.")
+    ).toBeInTheDocument();
   });
 
   it("renders register-oriented labels and deep links for register blockers and alerts", async () => {

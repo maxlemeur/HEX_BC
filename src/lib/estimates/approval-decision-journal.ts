@@ -2,6 +2,8 @@ export type EstimateApprovalDecisionScopeType =
   | "project"
   | "lot"
   | "line"
+  | "exception"
+  | "hypothesis"
   | "approval_rule";
 
 export type EstimateApprovalDecisionBusinessState =

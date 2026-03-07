@@ -49,6 +49,8 @@ const SCOPE_LABELS = {
   project: "Affaire",
   lot: "Lot",
   line: "Ligne",
+  exception: "Exception",
+  hypothesis: "Hypothese",
   approval_rule: "Exception",
 } as const;
 

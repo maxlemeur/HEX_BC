@@ -17,7 +17,7 @@ const requestApprovalSchema = z.object({
 
 const submitForReviewSchema = z.object({
   action: z.literal("submit_for_review"),
-  rule_ids: z.array(z.string().uuid("rule_ids invalide.")).min(1, "Au moins une regle est requise."),
+  rule_ids: z.array(z.string().uuid("rule_ids invalide.")).default([]),
   submission_message: z.string().trim().max(2000, "Le message est trop long.").optional(),
   assigned_reviewer_user_id: z.string().uuid("assigned_reviewer_user_id invalide.").nullable().optional(),
 });
@@ -42,7 +42,14 @@ const approveRejectApprovalSchema = z
 
 const decisionCommentSchema = z
   .object({
-    scope_type: z.enum(["project", "lot", "line", "approval_rule"]),
+    scope_type: z.enum([
+      "project",
+      "lot",
+      "line",
+      "exception",
+      "hypothesis",
+      "approval_rule",
+    ]),
     scope_id: z.string().uuid("scope_id invalide.").nullable().optional(),
     comment: z.string().trim().min(1, "Le commentaire est obligatoire."),
   })

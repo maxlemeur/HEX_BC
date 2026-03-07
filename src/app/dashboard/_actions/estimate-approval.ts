@@ -5,12 +5,15 @@ import {
   type EstimateApprovalDecisionCommentInput,
   type SubmitEstimateReviewRequestResult,
   type EstimateReviewDecision,
+  type EstimateReviewCorrectionStatus,
+  updateEstimateReviewCorrectionItemStatus,
 } from "@/lib/estimates/rules-engine";
 import { revalidatePath } from "next/cache";
 
 function revalidateApprovalPaths(versionId: string, projectId: string) {
   revalidatePath(`/dashboard/estimates/${versionId}`);
   revalidatePath(`/dashboard/affaires/${projectId}`);
+  revalidatePath("/dashboard/approvals");
 }
 
 export async function requestEstimateApprovalAction(input: {
@@ -71,6 +74,24 @@ export async function decideEstimateApprovalAction(input: {
     action: "decide",
     decision: input.decision,
     comments: input.comments,
+  });
+
+  revalidateApprovalPaths(input.versionId, input.projectId);
+  return result;
+}
+
+export async function updateEstimateReviewCorrectionItemStatusAction(input: {
+  versionId: string;
+  projectId: string;
+  itemId: string;
+  status: Exclude<EstimateReviewCorrectionStatus, "pending">;
+  note?: string | null;
+}) {
+  const result = await updateEstimateReviewCorrectionItemStatus({
+    versionId: input.versionId,
+    itemId: input.itemId,
+    status: input.status,
+    note: input.note ?? null,
   });
 
   revalidateApprovalPaths(input.versionId, input.projectId);

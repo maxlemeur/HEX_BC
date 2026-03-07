@@ -7,14 +7,17 @@ import { useEffect, useState, useTransition } from "react";
 import {
   decideEstimateApprovalAction,
   submitEstimateForReviewAction,
+  updateEstimateReviewCorrectionItemStatusAction,
 } from "@/app/dashboard/_actions/estimate-approval";
 import { useToast } from "@/components/ui/Toast";
 import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import type {
+  EstimateApprovalChangesSinceLastCycle,
   EstimateApprovalDecisionCommentInput,
   EstimateApprovalSubmissionSignal,
   EstimateApprovalSummary,
   EstimateReviewCommentScope,
+  EstimateReviewCorrectionStatus,
   EstimateReviewDecision,
 } from "@/lib/estimates/rules-engine";
 
@@ -47,7 +50,30 @@ const SCOPE_LABELS: Record<EstimateReviewCommentScope, string> = {
   project: "Affaire",
   lot: "Lot",
   line: "Ligne",
+  exception: "Exception",
+  hypothesis: "Hypothese",
   approval_rule: "Exception",
+};
+
+const CORRECTION_STATUS_META: Record<
+  EstimateReviewCorrectionStatus,
+  {
+    label: string;
+    className: string;
+  }
+> = {
+  pending: {
+    label: "A traiter",
+    className: "bg-[var(--warning-light)] text-[var(--warning)]",
+  },
+  corrected: {
+    label: "Corrige",
+    className: "bg-[var(--success)]/10 text-[var(--success)]",
+  },
+  to_discuss: {
+    label: "A discuter",
+    className: "bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]",
+  },
 };
 
 const DECISION_META: Record<
@@ -108,6 +134,14 @@ function getTargetOptions(
     return summary.commentTargets.lines;
   }
 
+  if (scopeType === "exception") {
+    return summary.commentTargets.exceptions;
+  }
+
+  if (scopeType === "hypothesis") {
+    return summary.commentTargets.hypotheses;
+  }
+
   return summary.commentTargets.approvalRules;
 }
 
@@ -137,6 +171,85 @@ function formatCount(value: number | null) {
   }
 
   return new Intl.NumberFormat("fr-FR").format(value);
+}
+
+function formatCurrencyDelta(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "Indisponible";
+  }
+
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 0,
+    signDisplay: "always",
+  }).format(value / 100);
+}
+
+function renderChangesSummary(
+  changes: EstimateApprovalChangesSinceLastCycle | null
+) {
+  if (!changes) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-[var(--slate-800)]">
+            Ce qui a change depuis le cycle {changes.sourceCycleNumber}
+          </p>
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            Diff synthétique depuis le {formatDateTime(changes.decidedAt)}.
+          </p>
+        </div>
+        <span className="rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-[11px] font-medium text-[var(--slate-600)]">
+          Delta HT {formatCurrencyDelta(changes.totalHtDeltaCents)}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <article className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3">
+          <p className="text-xs uppercase tracking-wider text-[var(--slate-500)]">Lots</p>
+          <p className="mt-1 text-sm text-[var(--slate-700)]">
+            +{changes.addedLotsCount} / ~{changes.updatedLotsCount} / -{changes.removedLotsCount}
+          </p>
+        </article>
+        <article className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3">
+          <p className="text-xs uppercase tracking-wider text-[var(--slate-500)]">Lignes</p>
+          <p className="mt-1 text-sm text-[var(--slate-700)]">
+            +{changes.addedLinesCount} / ~{changes.updatedLinesCount} / -{changes.removedLinesCount}
+          </p>
+        </article>
+        <article className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3">
+          <p className="text-xs uppercase tracking-wider text-[var(--slate-500)]">Checklist</p>
+          <p className="mt-1 text-sm text-[var(--slate-700)]">
+            {changes.treatedItemsCount} traite(s), {changes.toDiscussCount} a discuter
+          </p>
+        </article>
+        <article className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3">
+          <p className="text-xs uppercase tracking-wider text-[var(--slate-500)]">Scopes touches</p>
+          <p className="mt-1 text-sm text-[var(--slate-700)]">
+            {changes.touchedLabels.length > 0 ? changes.touchedLabels.join(", ") : "Aucun libelle remonté"}
+          </p>
+        </article>
+      </div>
+      {changes.settingsChanges.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {changes.settingsChanges.map((change) => (
+            <div
+              key={change.field}
+              className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-3 text-sm text-[var(--slate-700)]"
+            >
+              <span className="font-medium text-[var(--slate-800)]">{change.label}</span>
+              {" : "}
+              {change.before} {"->"} {change.after}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 function setSubmitPanelUrlState(nextOpen: boolean) {
@@ -265,6 +378,8 @@ export function EstimateApprovalActions({
     (reason) => reason.approvalStatus === "missing" || reason.approvalStatus === "rejected"
   );
   const activeCycle = summary.activeCycle;
+  const correctionChecklist = summary.correctionChecklist;
+  const isResubmission = correctionChecklist !== null;
   const latestReview = summary.reviewHistory[0] ?? null;
   const olderReviews = summary.reviewHistory.slice(1);
   const scopeOptions = getTargetOptions(summary, draftScopeType);
@@ -272,6 +387,8 @@ export function EstimateApprovalActions({
     draftScopeType === "project"
       ? summary.commentTargets.project
       : scopeOptions.find((option) => option.scopeId === draftScopeId) ?? null;
+  const canInteractWithChecklist =
+    summary.permissions.canPrepareRequest && correctionChecklist !== null && activeCycle === null;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -322,8 +439,43 @@ export function EstimateApprovalActions({
     resetDraftForm();
   }
 
+  function runCorrectionItemUpdate(
+    itemId: string,
+    status: Exclude<EstimateReviewCorrectionStatus, "pending">
+  ) {
+    startTransition(() => {
+      void (async () => {
+        try {
+          await updateEstimateReviewCorrectionItemStatusAction({
+            versionId,
+            projectId,
+            itemId,
+            status,
+          });
+
+          toast.success({
+            title:
+              status === "corrected"
+                ? "Item marque comme corrige"
+                : "Item marque a discuter",
+            description: "La checklist de correction a ete mise a jour.",
+          });
+          router.refresh();
+        } catch (error) {
+          toast.error({
+            title: "Mise a jour impossible",
+            description:
+              error instanceof Error
+                ? error.message
+                : "Impossible de mettre a jour cet item.",
+          });
+        }
+      })();
+    });
+  }
+
   function runSubmitAction() {
-    if (requestableReasons.length === 0) {
+    if (!isResubmission && requestableReasons.length === 0) {
       return;
     }
 
@@ -418,6 +570,7 @@ export function EstimateApprovalActions({
   const showPanel =
     summary.permissions.canPrepareRequest ||
     summary.permissions.canDecide ||
+    summary.correctionChecklist !== null ||
     summary.reviewHistory.length > 0 ||
     summary.activeCycle !== null;
 
@@ -468,6 +621,104 @@ export function EstimateApprovalActions({
               </p>
             </div>
           ) : null}
+          {renderChangesSummary(summary.changesSinceLastCycle)}
+        </section>
+      ) : null}
+
+      {correctionChecklist ? (
+        <section className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+                Checklist de correction
+              </h3>
+              <p className="mt-1 text-xs text-[var(--slate-500)]">
+                Cycle {correctionChecklist.sourceCycleNumber} renvoyé le{" "}
+                {formatDateTime(correctionChecklist.decisionAt)}.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-[var(--slate-600)]">
+                {correctionChecklist.totalCount} item
+                {correctionChecklist.totalCount > 1 ? "s" : ""}
+              </span>
+              <span className="rounded-full bg-[var(--warning-light)] px-2 py-0.5 text-[var(--warning)]">
+                {correctionChecklist.pendingCount} a traiter
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {correctionChecklist.items.map((item) => {
+              const statusMeta = CORRECTION_STATUS_META[item.status];
+              return (
+                <article
+                  key={item.id}
+                  className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                        {SCOPE_LABELS[item.scopeType]}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
+                        {item.scopeLabel}
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusMeta.className}`}
+                    >
+                      {statusMeta.label}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-[var(--slate-700)]">{item.comment}</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {item.href ? (
+                      <Link
+                        href={item.href}
+                        className="text-xs font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                      >
+                        Ouvrir la cible
+                      </Link>
+                    ) : null}
+                    {item.lastTreatedAt ? (
+                      <span className="text-xs text-[var(--slate-500)]">
+                        Dernier traitement le {formatDateTime(item.lastTreatedAt)}
+                        {item.lastTreatedByName ? ` par ${item.lastTreatedByName}` : ""}
+                      </span>
+                    ) : null}
+                    {item.lastTreatmentNote ? (
+                      <span className="text-xs text-[var(--slate-500)]">
+                        Note: {item.lastTreatmentNote}
+                      </span>
+                    ) : null}
+                  </div>
+                  {canInteractWithChecklist ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-sm border-[var(--success)] bg-[var(--success)]/10 text-[var(--success)] hover:bg-[var(--success)]/20"
+                        disabled={isPending || item.status === "corrected"}
+                        onClick={() => runCorrectionItemUpdate(item.id, "corrected")}
+                      >
+                        Marquer corrige
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm border-[var(--brand-blue)] bg-[var(--brand-blue)]/10 text-[var(--brand-blue)] hover:bg-[var(--brand-blue)]/20"
+                        disabled={isPending || item.status === "to_discuss"}
+                        onClick={() => runCorrectionItemUpdate(item.id, "to_discuss")}
+                      >
+                        Marquer a discuter
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+
+          {!activeCycle ? renderChangesSummary(summary.changesSinceLastCycle) : null}
         </section>
       ) : null}
 
@@ -497,7 +748,11 @@ export function EstimateApprovalActions({
                 });
               }}
             >
-              {showSubmitPanel ? "Fermer" : "Soumettre a validation"}
+              {showSubmitPanel
+                ? "Fermer"
+                : isResubmission
+                  ? "Resoumettre"
+                  : "Soumettre a validation"}
             </button>
           </div>
 
@@ -795,17 +1050,28 @@ export function EstimateApprovalActions({
                   className="btn btn-primary btn-sm"
                   disabled={
                     isPending ||
-                    requestableReasons.length === 0 ||
-                    summary.submissionReadiness.blockers.length > 0 ||
-                    summary.availableReviewers.length === 0
+                    (isResubmission
+                      ? !Boolean(correctionChecklist?.canResubmit)
+                      : requestableReasons.length === 0 ||
+                        summary.submissionReadiness.blockers.length > 0 ||
+                        summary.availableReviewers.length === 0)
                   }
                   onClick={runSubmitAction}
                 >
-                  {isPending ? "En cours…" : "Confirmer la soumission"}
+                  {isPending
+                    ? "En cours..."
+                    : isResubmission
+                      ? "Confirmer la resoumission"
+                      : "Confirmer la soumission"}
                 </button>
-                {requestableReasons.length === 0 ? (
+                {!isResubmission && requestableReasons.length === 0 ? (
                   <p className="text-xs text-[var(--slate-500)]">
                     Aucune regle de validation n&apos;est actuellement declenchee sur cette version.
+                  </p>
+                ) : null}
+                {isResubmission && correctionChecklist && !correctionChecklist.allTreated ? (
+                  <p className="text-xs text-[var(--danger)]">
+                    Traitez tous les items de correction avant de resoumettre.
                   </p>
                 ) : null}
                 {summary.submissionReadiness.blockers.length > 0 ? (
@@ -832,8 +1098,8 @@ export function EstimateApprovalActions({
                 Commentaires de validation
               </h3>
               <p className="mt-1 text-xs text-[var(--slate-500)]">
-                Ciblez l&apos;affaire, un lot, une ligne ou une exception sans
-                ouvrir l&apos;éditeur complet.
+                Ciblez l&apos;affaire, un lot, une ligne, une exception ou une
+                hypothese sans ouvrir l&apos;éditeur complet.
               </p>
             </div>
             {activeCycle ? (
@@ -861,7 +1127,8 @@ export function EstimateApprovalActions({
                 <option value="project">Affaire</option>
                 <option value="lot">Lot</option>
                 <option value="line">Ligne</option>
-                <option value="approval_rule">Exception</option>
+                <option value="exception">Exception</option>
+                <option value="hypothesis">Hypothese</option>
               </select>
             </label>
 
@@ -1081,7 +1348,7 @@ export function EstimateApprovalActions({
             </p>
           ) : (
             <div className="mt-4 space-y-4">
-              {(["approval_rule", "lot", "line", "project"] as const)
+              {(["exception", "hypothesis", "lot", "line", "project", "approval_rule"] as const)
                 .map((scopeType) => ({
                   scopeType,
                   comments: latestReview.comments.filter(

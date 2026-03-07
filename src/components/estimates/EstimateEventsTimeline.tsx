@@ -16,6 +16,7 @@ const EVENT_LABELS: Record<string, string> = {
   archived: "Archive",
   rejected: "Rejete",
   seal_verified: "Sceau verifie",
+  approval_submitted: "Soumission d'approbation",
   approval_rules_evaluated: "Regles d'approbation evaluees",
   approval_status_changed: "Statut d'approbation modifie",
   approval_decided: "Decision d'approbation",

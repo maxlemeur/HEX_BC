@@ -14,6 +14,7 @@ import {
 
 import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
+import { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
 import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
@@ -1307,6 +1308,7 @@ export type EstimateEditorStateModel = {
     isBulkSuggestDialogOpen: boolean;
     isImportFromEstimateDialogOpen: boolean;
     isEstimateStructureDraftDialogOpen: boolean;
+    isGeneratedOuvrageDialogOpen: boolean;
     isSendGatingDialogOpen: boolean;
   };
   actions: {
@@ -1339,14 +1341,19 @@ export type EstimateEditorStateModel = {
         estimateStructureDraftDialogProps:
           | ComponentProps<typeof EstimateStructureDraftDialog>
           | null;
+        generatedOuvrageDialogProps:
+          | ComponentProps<typeof GeneratedOuvrageDialog>
+          | null;
         sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog>;
       };
 };
 
 export function useEstimateEditorState({
   versionId,
+  focusItemId = null,
 }: {
   versionId: string;
+  focusItemId?: string | null;
 }): EstimateEditorStateModel {
   const router = useRouter();
   const resolvedVersionId = versionId;
@@ -1442,6 +1449,8 @@ export function useEstimateEditorState({
     isEstimateStructureDraftDialogOpen,
     setIsEstimateStructureDraftDialogOpen,
   ] = useState(false);
+  const [isGeneratedOuvrageDialogOpen, setIsGeneratedOuvrageDialogOpen] =
+    useState(false);
   const [importSummaryMessage, setImportSummaryMessage] =
     useState<string | null>(null);
   const [highlightedItemIds, setHighlightedItemIds] = useState<Set<string>>(new Set());
@@ -1484,6 +1493,20 @@ export function useEstimateEditorState({
       ),
     []
   );
+
+  useEffect(() => {
+    if (!focusItemId) {
+      return;
+    }
+
+    setChecklistScrollTargetItemId(focusItemId);
+    setHighlightedItemIds(new Set([focusItemId]));
+    const timeoutId = window.setTimeout(() => {
+      setHighlightedItemIds(new Set());
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [focusItemId]);
 
   useEffect(() => {
     isUndoRedoBusyRef.current = isUndoRedoBusy;
@@ -5113,6 +5136,31 @@ export function useEstimateEditorState({
     readOnlyActionErrorMessage,
   ]);
 
+  const handleOpenGeneratedOuvrageDialog = useCallback(() => {
+    if (isReadOnly) {
+      setActionError(readOnlyActionErrorMessage);
+      return;
+    }
+    if (isConflictLocked) {
+      setActionError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+    if (!versionRef.current?.id) {
+      setActionError("Version introuvable.");
+      return;
+    }
+    setActionError(null);
+    setImportSummaryMessage(null);
+    setIsGeneratedOuvrageDialogOpen(true);
+  }, [
+    conflictState?.message,
+    isConflictLocked,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+  ]);
+
   const handleConfirmEstimateStructureDraftDialog = useCallback(
     async (draftId: string, input: ApplyEstimateStructureDraftPayload) => {
       if (isReadOnly) {
@@ -6978,6 +7026,7 @@ export function useEstimateEditorState({
       onDuplicateSectionToVersion: handleDuplicateSectionToVersion,
       onOpenImportFromEstimateDialog: handleOpenImportFromEstimateDialog,
       onOpenEstimateStructureDraftDialog: handleOpenEstimateStructureDraftDialog,
+      onOpenGeneratedOuvrageDialog: handleOpenGeneratedOuvrageDialog,
       onDeleteItem: handleDeleteItem,
       onPatchItem: handlePatchItem,
       onTrackSuggestionCorrections: handleTrackSuggestionCorrections,
@@ -7028,6 +7077,7 @@ export function useEstimateEditorState({
       handleDuplicateSectionToVersion,
       handleOpenImportFromEstimateDialog,
       handleOpenEstimateStructureDraftDialog,
+      handleOpenGeneratedOuvrageDialog,
       handleApplyBulkMajoration,
       handleBulkDeleteLines,
       handleBulkMoveLines,
@@ -7100,6 +7150,15 @@ export function useEstimateEditorState({
       }
     },
     []
+  );
+  const closeGeneratedOuvrageDialog = useCallback(
+    (result?: { insertedCount?: number }) => {
+      setIsGeneratedOuvrageDialogOpen(false);
+      if (result?.insertedCount && result.insertedCount > 0) {
+        void reloadItems();
+      }
+    },
+    [reloadItems]
   );
   const closeSendGatingDialog = useCallback(() => {
     if (isUpdatingStatus) return;
@@ -7368,6 +7427,46 @@ export function useEstimateEditorState({
     ]
   );
 
+  const generatedOuvrageDialogProps = useMemo(
+    () => {
+      if (!isGeneratedOuvrageDialogOpen || !version) {
+        return null;
+      }
+
+      const sectionItems = items.filter((item) => item.item_type === "section");
+      const sectionById = new Map(sectionItems.map((item) => [item.id, item] as const));
+      const computePath = (itemId: string) => {
+        const parts: string[] = [];
+        let cursor = sectionById.get(itemId);
+        while (cursor) {
+          parts.unshift(cursor.title ?? "Section");
+          cursor = cursor.parent_id ? sectionById.get(cursor.parent_id) : undefined;
+        }
+        return parts.join(" > ");
+      };
+
+      return {
+        isOpen: true,
+        targetVersionId: version.id,
+        projectId: version.project_id ?? "",
+        existingSections: sectionItems.map((item) => ({
+          id: item.id,
+          path: computePath(item.id),
+          hierarchyLevel: 1,
+          parentId: item.parent_id,
+          title: item.title ?? "Section",
+        })),
+        onClose: closeGeneratedOuvrageDialog,
+      };
+    },
+    [
+      closeGeneratedOuvrageDialog,
+      isGeneratedOuvrageDialogOpen,
+      items,
+      version,
+    ]
+  );
+
   const sendGatingDialogProps: ComponentProps<typeof EstimateSendGatingDialog> = {
     isOpen: isSendGatingDialogOpen,
     isSubmitting: isUpdatingStatus,
@@ -7392,6 +7491,7 @@ export function useEstimateEditorState({
     isBulkSuggestDialogOpen,
     isImportFromEstimateDialogOpen,
     isEstimateStructureDraftDialogOpen,
+    isGeneratedOuvrageDialogOpen,
     isSendGatingDialogOpen,
   };
 
@@ -7445,6 +7545,7 @@ export function useEstimateEditorState({
       bulkSuggestDialogProps,
       importFromEstimateDialogProps,
       estimateStructureDraftDialogProps,
+      generatedOuvrageDialogProps,
       sendGatingDialogProps,
     },
   };

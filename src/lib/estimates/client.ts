@@ -2261,6 +2261,8 @@ function normalizeApprovalDecisionScope(
     scopeType !== "project" &&
     scopeType !== "lot" &&
     scopeType !== "line" &&
+    scopeType !== "exception" &&
+    scopeType !== "hypothesis" &&
     scopeType !== "approval_rule"
   ) {
     return null;

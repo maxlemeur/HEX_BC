@@ -158,6 +158,7 @@ function createListBuilder<T>(dataOrFactory: T[] | (() => T[])) {
     in: vi.fn(),
     is: vi.fn(),
     gte: vi.fn(),
+    lte: vi.fn(),
     order: vi.fn(),
     limit: vi.fn(),
     then: vi.fn(),
@@ -167,6 +168,7 @@ function createListBuilder<T>(dataOrFactory: T[] | (() => T[])) {
   builder.in.mockReturnValue(builder);
   builder.is.mockReturnValue(builder);
   builder.gte.mockReturnValue(builder);
+  builder.lte.mockReturnValue(builder);
   builder.order.mockReturnValue(builder);
   builder.limit.mockReturnValue(builder);
   builder.then.mockImplementation((onFulfilled) =>
@@ -237,7 +239,22 @@ function mockAuthenticatedSupabase(input: {
         };
       }
 
-      return input.from(table);
+      try {
+        return input.from(table);
+      } catch (error) {
+        if (
+          table === "estimate_risk_alerts" ||
+          table === "affaire_register_entries" ||
+          table === "estimate_review_correction_items" ||
+          table === "estimate_review_correction_events"
+        ) {
+          return {
+            select: vi.fn(() => createListBuilder([])),
+          };
+        }
+
+        throw error;
+      }
     }) as typeof input.from,
     rpc: input.rpc ?? vi.fn(),
   } as never);
@@ -454,7 +471,7 @@ describe("submitEstimateApproval", () => {
 
       if (table === "estimate_review_cycles") {
         return {
-          select: vi.fn(() => reviewCycleSelectBuilders.shift()),
+          select: vi.fn(() => reviewCycleSelectBuilders.shift() ?? createListBuilder([])),
           insert: vi.fn(() => reviewCycleInsertBuilder),
         };
       }
@@ -806,7 +823,7 @@ describe("submitEstimateApproval", () => {
 
       if (table === "estimate_review_cycles") {
         return {
-          select: vi.fn(() => reviewCycleSelectBuilders.shift()),
+          select: vi.fn(() => reviewCycleSelectBuilders.shift() ?? createListBuilder([])),
           insert: vi.fn(() => reviewCycleInsertBuilder),
         };
       }
@@ -1248,6 +1265,218 @@ describe("submitEstimateApproval", () => {
     );
   });
 
+  it("enables resubmission from a treated correction checklist even when no rule stays active", async () => {
+    const ruleId = "99999999-9999-4999-8999-999999999999";
+    const cycleId = "77777777-7777-4777-8777-777777777777";
+    const commentId = "88888888-8888-4888-8888-888888888888";
+    const checklistItemId = "99999999-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const hypothesisId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const membershipBuilder = createMembershipBuilder("admin");
+    const versionBuilder = createVersionAccessBuilder(
+      {
+        total_ht_cents: 150000,
+      },
+      {
+        user_id: USER_ID,
+      }
+    );
+    const reviewCyclesBuilder = createListBuilder([
+      {
+        id: cycleId,
+        created_at: "2026-03-01T10:00:00.000Z",
+        updated_at: "2026-03-01T10:00:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        cycle_number: 1,
+        requested_by: USER_ID,
+        requested_at: "2026-03-01T10:00:00.000Z",
+        submission_message: "Verifier les hypotheses CFO.",
+        assigned_reviewer_id: REVIEWER_ID,
+        decided_by: REVIEWER_ID,
+        decision: "changes_requested",
+        decided_at: "2026-03-01T10:15:00.000Z",
+        carried_over_from_cycle_id: null,
+        requested_by_profile: {
+          full_name: "Nadia Martin",
+        },
+        decided_by_profile: {
+          full_name: "Camille Reviewer",
+        },
+        assigned_reviewer_profile: {
+          id: REVIEWER_ID,
+          full_name: "Camille Reviewer",
+          work_email: "reviewer@example.com",
+        },
+      },
+    ]);
+    const reviewCommentsBuilder = createListBuilder([
+      {
+        id: commentId,
+        created_at: "2026-03-01T10:15:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        cycle_id: cycleId,
+        scope_type: "hypothesis",
+        scope_id: hypothesisId,
+        scope_label: "Hypothese CFO",
+        comment: "Documenter l'hypothese avant resoumission.",
+        created_by: REVIEWER_ID,
+        created_by_profile: {
+          full_name: "Camille Reviewer",
+        },
+      },
+    ]);
+    const correctionItemsBuilder = createListBuilder([
+      {
+        id: checklistItemId,
+        created_at: "2026-03-01T10:15:00.000Z",
+        updated_at: "2026-03-01T11:00:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        cycle_id: cycleId,
+        source_comment_id: commentId,
+        scope_type: "hypothesis",
+        scope_id: hypothesisId,
+        scope_label: "Hypothese CFO",
+        comment: "Documenter l'hypothese avant resoumission.",
+        status: "corrected",
+        last_treated_at: "2026-03-01T11:00:00.000Z",
+        last_treated_by: USER_ID,
+        last_treatment_note: null,
+        last_treated_by_profile: {
+          full_name: "Nadia Martin",
+        },
+      },
+    ]);
+    const correctionEventsBuilder = createListBuilder([
+      {
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        created_at: "2026-03-01T11:00:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        cycle_id: cycleId,
+        item_id: checklistItemId,
+        actor_user_id: USER_ID,
+        previous_status: "pending",
+        next_status: "corrected",
+        note: null,
+        actor_profile: {
+          full_name: "Nadia Martin",
+        },
+      },
+    ]);
+    const approvalsBuilder = createListBuilder([
+      {
+        id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        created_at: "2026-03-01T10:05:00.000Z",
+        updated_at: "2026-03-01T10:15:00.000Z",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        rule_id: ruleId,
+        requested_by: USER_ID,
+        approved_by: REVIEWER_ID,
+        status: "rejected",
+        decided_at: "2026-03-01T10:15:00.000Z",
+      },
+    ]);
+    const hypothesisTargetsBuilder = createListBuilder([
+      {
+        id: hypothesisId,
+        project_id: PROJECT_ID,
+        version_id: null,
+        kind: "assumption",
+        text: "Hypothese CFO",
+        scope_type: "project",
+        scope_id: null,
+        scope_label: "Affaire test",
+        severity: "warning",
+        status: "open",
+        is_active: true,
+      },
+    ]);
+
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => membershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => versionBuilder),
+        };
+      }
+
+      if (table === "estimate_review_cycles") {
+        return {
+          select: vi.fn(() => reviewCyclesBuilder),
+        };
+      }
+
+      if (table === "estimate_review_comments") {
+        return {
+          select: vi.fn(() => reviewCommentsBuilder),
+        };
+      }
+
+      if (table === "estimate_review_correction_items") {
+        return {
+          select: vi.fn(() => correctionItemsBuilder),
+        };
+      }
+
+      if (table === "estimate_review_correction_events") {
+        return {
+          select: vi.fn(() => correctionEventsBuilder),
+        };
+      }
+
+      if (table === "estimate_approvals") {
+        return {
+          select: vi.fn(() => approvalsBuilder),
+        };
+      }
+
+      if (table === "estimate_rules") {
+        return {
+          select: vi.fn(() => createListBuilder([])),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => createListBuilder([])),
+        };
+      }
+
+      if (table === "affaire_register_entries") {
+        return {
+          select: vi.fn(() => hypothesisTargetsBuilder),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    mockAuthenticatedSupabase({ from });
+
+    const summary = await getEstimateApprovalSummary(VERSION_ID);
+
+    expect(summary.reasons).toEqual([]);
+    expect(summary.correctionChecklist).toMatchObject({
+      sourceCycleId: cycleId,
+      totalCount: 1,
+      pendingCount: 0,
+      correctedCount: 1,
+      canResubmit: true,
+    });
+    expect(summary.correctionChecklist?.items[0]?.href).toBe(
+      `/dashboard/affaires/${PROJECT_ID}?registerStatus=open&registerKind=assumption&registerFocus=${hypothesisId}`
+    );
+    expect(summary.permissions.canRequest).toBe(true);
+  });
+
   it("decides version-level reviews through the atomic RPC", async () => {
     const cycleId = "77777777-7777-4777-8777-777777777777";
     const approvalId = "88888888-8888-4888-8888-888888888888";
@@ -1637,7 +1866,7 @@ describe("submitEstimateApproval", () => {
 
       if (table === "estimate_review_cycles") {
         return {
-          select: vi.fn(() => reviewCycleSelectBuilders.shift()),
+          select: vi.fn(() => reviewCycleSelectBuilders.shift() ?? createListBuilder([])),
           update: reviewCycleUpdate,
         };
       }
