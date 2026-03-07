@@ -253,6 +253,7 @@ export function PriceSuggestionPanel({
   const [state, setState] = useState<PanelState>({ kind: "loading" });
   const [selectedAction, setSelectedAction] = useState<TakeoffPriceSuggestionAction | null>(null);
   const [reviewNote, setReviewNote] = useState("");
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Fetch suggestion on open
   useEffect(() => {
@@ -303,6 +304,7 @@ export function PriceSuggestionPanel({
       setState({ kind: "loading" });
       setSelectedAction(null);
       setReviewNote("");
+      setSubmitError(null);
       await load();
     })();
 
@@ -372,9 +374,11 @@ export function PriceSuggestionPanel({
       setState({ kind: "ready", suggestion: response.suggestion });
       setSelectedAction(null);
       setReviewNote("");
+      setSubmitError(null);
     } catch (error) {
       if (isNoSourceAvailableError(error)) {
         setState({ kind: "empty" });
+        setSubmitError(null);
         return;
       }
       setState({
@@ -399,6 +403,7 @@ export function PriceSuggestionPanel({
     if (!suggestion) return;
 
     setState({ kind: "submitting", suggestion, action: selectedAction });
+    setSubmitError(null);
 
     try {
       const response = await reviewTakeoffPriceSuggestion(
@@ -412,12 +417,15 @@ export function PriceSuggestionPanel({
       );
 
       setState({ kind: "reviewed", suggestion: response.suggestion });
+      setSubmitError(null);
       onReviewComplete();
     } catch (error) {
       setState({ kind: "ready", suggestion });
-      // The error is shown via the toast in the parent or via state - re-set to ready
-      // so user can retry
-      throw error;
+      setSubmitError(
+        isTakeoffApiError(error)
+          ? error.message
+          : "Impossible d'enregistrer la revue de suggestion de prix."
+      );
     }
   }, [selectedAction, reviewNote, state, jobId, versionId, onReviewComplete]);
 
@@ -759,6 +767,12 @@ export function PriceSuggestionPanel({
                       ) : null}
                     </div>
                   </div>
+
+                  {submitError ? (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {submitError}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </>

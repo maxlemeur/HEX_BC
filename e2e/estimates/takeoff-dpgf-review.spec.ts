@@ -22,6 +22,7 @@ type SeededEstimateLine = {
   sourcePage: number;
   sourceFileName: string;
   description?: string | null;
+  unitPriceHtCents?: number | null;
 };
 
 type SeededTakeoffItem = {
@@ -385,16 +386,25 @@ async function seedEstimateLines(input: {
       title: line.title,
       description: line.description ?? null,
       quantity: line.quantity,
-      unit_price_ht_cents: 0,
+      unit_price_ht_cents: line.unitPriceHtCents ?? 0,
       tax_rate_bp: 2000,
       k_fo: 1,
       h_mo: 0,
       h_mo_majoration: 1,
       k_mo: 1,
-      pu_ht_cents: 0,
-      line_total_ht_cents: 0,
-      line_tax_cents: 0,
-      line_total_ttc_cents: 0,
+      pu_ht_cents: line.unitPriceHtCents ?? 0,
+      line_total_ht_cents:
+        line.unitPriceHtCents !== null && line.unitPriceHtCents !== undefined
+          ? Math.round(line.unitPriceHtCents * line.quantity)
+          : 0,
+      line_tax_cents:
+        line.unitPriceHtCents !== null && line.unitPriceHtCents !== undefined
+          ? Math.round(line.unitPriceHtCents * line.quantity * 0.2)
+          : 0,
+      line_total_ttc_cents:
+        line.unitPriceHtCents !== null && line.unitPriceHtCents !== undefined
+          ? Math.round(line.unitPriceHtCents * line.quantity * 1.2)
+          : 0,
       source_provider: "dpgf",
       source_file_name: line.sourceFileName,
       source_page: line.sourcePage,
@@ -542,6 +552,71 @@ async function seedVersionLink(input: {
   if (error) {
     throw new Error(`Seed takeoff version link failed: ${error.message}`);
   }
+}
+
+async function readEstimateItemUnitPrice(input: {
+  tenantId: string;
+  versionId: string;
+  estimateItemId: string;
+}) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const { data, error } = await sb
+    .from("estimate_items")
+    .select("unit_price_ht_cents")
+    .eq("tenant_id", input.tenantId)
+    .eq("version_id", input.versionId)
+    .eq("id", input.estimateItemId)
+    .single();
+
+  if (error) {
+    throw new Error(`Cannot read estimate item unit price: ${error.message}`);
+  }
+
+  return (data as { unit_price_ht_cents?: number | null }).unit_price_ht_cents ?? null;
+}
+
+async function readLatestAppliedPriceSuggestion(input: {
+  tenantId: string;
+  versionId: string;
+  jobId: string;
+  estimateItemId: string;
+}) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const { data, error } = await sb
+    .from("takeoff_price_suggestions")
+    .select("status, selected_action, selected_price_cents, review_note, target_cents")
+    .eq("tenant_id", input.tenantId)
+    .eq("version_id", input.versionId)
+    .eq("takeoff_job_id", input.jobId)
+    .eq("estimate_item_id", input.estimateItemId)
+    .eq("status", "applied")
+    .order("reviewed_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) {
+    throw new Error(`Cannot read applied price suggestion: ${error.message}`);
+  }
+
+  return data as {
+    status: string;
+    selected_action: string | null;
+    selected_price_cents: number | null;
+    review_note: string | null;
+    target_cents: number;
+  };
+}
+
+async function acquireDraftLockViaApi(page: Page, versionId: string) {
+  const response = await page.request.post(`/api/estimates/${versionId}/lock`, {
+    failOnStatusCode: false,
+  });
+  const body = await response.text();
+
+  expect(
+    response.status(),
+    `Failed to acquire draft lock for price suggestion review. status=${response.status()} body=${body}`
+  ).toBe(201);
 }
 
 function normalizeTakeoffCompareText(value: string) {
@@ -866,5 +941,178 @@ test.describe("V3-010 — DPGF review page", () => {
     await expect(page.getByText("Décision enregistrée")).toBeVisible();
     await expect(page.locator("blockquote").filter({ hasText: freshReason })).toBeVisible();
     await expect(page.getByText(/Reprise v\d+/)).toBeVisible();
+  });
+
+  test("calculates a seeded price suggestion and requires explicit human validation before apply", async ({
+    page,
+  }) => {
+    const dpgfFileName = `dpgf-est392-${Date.now()}.xlsx`;
+    const takeoffFileName = `plans-est392-${Date.now()}.pdf`;
+    const { versionId: sourceVersionId } = await createEstimateViaApi(page, {
+      projectName: buildEstimateName("EST392-PRICE"),
+      title: "EST-392 source history",
+    });
+    const projectId = await extractProjectId(page, sourceVersionId);
+    const tenantId = await getTenantIdForVersion(sourceVersionId);
+    const userId = await getAuthenticatedUserId(page);
+    const targetVersionId = await duplicateEstimateViaApi(page, sourceVersionId);
+
+    const targetLine: SeededEstimateLine = {
+      id: randomUUID(),
+      title: "Faux plafond acoustique",
+      quantity: 100,
+      position: 1,
+      sourcePage: 21,
+      sourceFileName: dpgfFileName,
+      unitPriceHtCents: 0,
+    };
+
+    await seedDpgfImport({
+      tenantId,
+      projectId,
+      userId,
+      filename: dpgfFileName,
+      rows: [{ rowIndex: targetLine.sourcePage, unit: "m2" }],
+    });
+
+    await seedEstimateLines({
+      tenantId,
+      versionId: sourceVersionId,
+      lines: [
+        {
+          id: randomUUID(),
+          title: "Faux plafond acoustique",
+          quantity: 90,
+          position: 1,
+          sourcePage: 11,
+          sourceFileName: dpgfFileName,
+          unitPriceHtCents: 2800,
+        },
+        {
+          id: randomUUID(),
+          title: "Faux plafond acoustique bureaux",
+          quantity: 95,
+          position: 2,
+          sourcePage: 12,
+          sourceFileName: dpgfFileName,
+          unitPriceHtCents: 2950,
+        },
+        {
+          id: randomUUID(),
+          title: "Faux plafond acoustique couloir",
+          quantity: 105,
+          position: 3,
+          sourcePage: 13,
+          sourceFileName: dpgfFileName,
+          unitPriceHtCents: 3100,
+        },
+      ],
+    });
+
+    await seedEstimateLines({
+      tenantId,
+      versionId: targetVersionId,
+      lines: [targetLine],
+    });
+
+    const seededJob = await seedCompletedTakeoffJob({
+      tenantId,
+      versionId: sourceVersionId,
+      sourceFileName: takeoffFileName,
+      items: [
+        {
+          designation: "Faux plafond acoustique",
+          quantity: 72,
+          unit: "m2",
+          confidence: 0.93,
+          evidence: "Zone plafonds open space",
+          sourcePage: 7,
+          sourceFileName: takeoffFileName,
+        },
+      ],
+    });
+
+    await seedVersionLink({
+      tenantId,
+      jobId: seededJob.jobId,
+      sourceVersionId,
+      targetVersionId,
+    });
+
+    await page.goto(
+      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${targetVersionId}&view=dpgf&dpgfView=exceptions_only`
+    );
+    await waitForDpgfComparison(page);
+
+    const lineRow = page.getByRole("button", { name: /Faux plafond acoustique/i });
+    await expect(lineRow).toBeVisible();
+    await lineRow.click();
+
+    await page.getByTestId("takeoff-dpgf-open-price-suggestion-button").click();
+
+    const panel = page.getByRole("dialog", { name: /Suggestion de prix/i });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("Aucune suggestion calculable pour cette ligne.")).toHaveCount(0);
+    await expect(panel.getByText("Fourchette de prix")).toBeVisible();
+    await expect(panel.getByText(/^Confiance$/)).toBeVisible();
+    await expect(panel.getByText(/^Sources \(\d+\)$/)).toBeVisible();
+    expect(await panel.getByText(/Historique projet v\d+/).count()).toBeGreaterThanOrEqual(3);
+
+    const submitButton = panel.getByRole("button", { name: "Selectionner une action" });
+    await expect(submitButton).toBeDisabled();
+
+    await panel.getByRole("button", { name: "Prix cible" }).click();
+    await expect(
+      panel.getByText("Une note est requise avant validation.")
+    ).toBeVisible();
+
+    const reviewNote =
+      "Validation humaine: application du prix cible retenu apres comparaison des trois historiques du meme projet.";
+    await panel.getByLabel("Note de revue (obligatoire)").fill(reviewNote);
+    await acquireDraftLockViaApi(page, targetVersionId);
+    const reviewResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        response.url().includes(
+          `/api/takeoff/jobs/${seededJob.jobId}/price-suggestions/`
+        ),
+      { timeout: 30_000 }
+    );
+    await panel.getByRole("button", { name: "Appliquer prix cible" }).click({
+      force: true,
+    });
+    const reviewResponse = await reviewResponsePromise;
+    const reviewBody = await reviewResponse.text();
+    expect(
+      reviewResponse.status(),
+      `Price suggestion review should succeed. status=${reviewResponse.status()} body=${reviewBody}`
+    ).toBe(200);
+
+    await expect(panel).toHaveCount(0);
+
+    await page.getByTestId("takeoff-dpgf-open-price-suggestion-button").click();
+    const reviewedPanel = page.getByRole("dialog", { name: /Suggestion de prix/i });
+    await expect(reviewedPanel).toBeVisible();
+    await expect(
+      reviewedPanel.getByRole("button", { name: "Selectionner une action" })
+    ).toBeDisabled();
+
+    const activeSuggestion = await readLatestAppliedPriceSuggestion({
+      tenantId,
+      versionId: targetVersionId,
+      jobId: seededJob.jobId,
+      estimateItemId: targetLine.id,
+    });
+    expect(activeSuggestion.status).toBe("applied");
+    expect(activeSuggestion.selected_action).toBe("apply_target");
+    expect(activeSuggestion.review_note).toBe(reviewNote);
+    expect(activeSuggestion.selected_price_cents).toBe(activeSuggestion.target_cents);
+
+    const appliedUnitPrice = await readEstimateItemUnitPrice({
+      tenantId,
+      versionId: targetVersionId,
+      estimateItemId: targetLine.id,
+    });
+    expect(appliedUnitPrice).toBe(activeSuggestion.target_cents);
   });
 });
