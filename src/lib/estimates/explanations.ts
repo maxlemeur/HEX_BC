@@ -21,6 +21,7 @@ import {
 } from "@/lib/estimates/explanation-schemas";
 import {
   badRequest,
+  conflict,
   internalError,
   mapSupabaseError,
   notFound,
@@ -580,6 +581,40 @@ async function listEstimateExplanationSourceRows(input: {
   return (data ?? []).map((row) => sourceRowSchema.parse(row));
 }
 
+async function insertEstimateExplanationSourceRows(input: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  explanationId: string;
+  provenance: NormalizedExplanationPayload["provenance"];
+}) {
+  if (input.provenance.length === 0) {
+    return;
+  }
+
+  const sourceInsertPayload = input.provenance.map((source, index) => ({
+    id: randomUUID(),
+    explanation_id: input.explanationId,
+    source_kind: source.source_kind,
+    label: source.label,
+    source_ref: source.source_ref,
+    confidence_score: source.confidence_score,
+    rank: index,
+    source_record_table: source.source_record_table,
+    source_record_id: source.source_record_id,
+    metadata_json: source.metadata_json,
+  }));
+
+  const { error } = await input.supabase
+    .from("estimate_explanation_sources" as never)
+    .insert(sourceInsertPayload as never);
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de persister la provenance de l'explication."
+    );
+  }
+}
+
 async function getActiveEstimateExplanationRow(input: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   versionId: string;
@@ -610,6 +645,72 @@ async function getActiveEstimateExplanationRow(input: {
   }
 
   return data ? rowSchema.parse(data) : null;
+}
+
+function isDuplicateKeyError(error: unknown): error is { code?: string; message?: string } {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code =
+    "code" in error && typeof error.code === "string" ? error.code : null;
+  const message =
+    "message" in error && typeof error.message === "string"
+      ? error.message.toLowerCase()
+      : "";
+
+  return code === "23505" || message.includes("duplicate key");
+}
+
+async function resolveConcurrentExplanationInsert(input: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  versionId: string;
+  lineId: string | null;
+  compareVersionId: string | null;
+  kind: EstimateExplanationKind;
+  fingerprint: string;
+  expectedSourceCount: number;
+}) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const activeRow = await getActiveEstimateExplanationRow({
+      supabase: input.supabase,
+      versionId: input.versionId,
+      lineId: input.lineId,
+      compareVersionId: input.compareVersionId,
+      kind: input.kind,
+    });
+
+    if (!activeRow) {
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        continue;
+      }
+
+      throw conflict(
+        "Une explication concurrente a ete creee, mais la nouvelle version reste introuvable."
+      );
+    }
+
+    if (activeRow.snapshot_fingerprint !== input.fingerprint) {
+      throw conflict("Une explication plus recente existe deja pour cette ligne.");
+    }
+
+    const sourceRows = await listEstimateExplanationSourceRows({
+      supabase: input.supabase,
+      explanationId: activeRow.id,
+    });
+
+    if (sourceRows.length > 0 || input.expectedSourceCount === 0 || attempt === 3) {
+      return {
+        row: activeRow,
+        sourceRows,
+      };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+  }
+
+  throw conflict("Une explication concurrente plus recente existe deja.");
 }
 
 function mapExplanationSnapshot(input: {
@@ -859,6 +960,18 @@ async function persistExplanationSnapshot(input: {
   const insertError = insertResult.error as unknown;
 
   if (insertError) {
+    if (isDuplicateKeyError(insertError)) {
+      return resolveConcurrentExplanationInsert({
+        supabase: input.supabase,
+        versionId: input.payload.version_id,
+        lineId: input.payload.line_id,
+        compareVersionId: input.payload.compare_version_id,
+        kind: input.payload.kind,
+        fingerprint: input.fingerprint,
+        expectedSourceCount: input.payload.provenance.length,
+      });
+    }
+
     throw mapSupabaseError(
       insertError as never,
       "Impossible de persister l'explication."
@@ -887,31 +1000,11 @@ async function persistExplanationSnapshot(input: {
     }
   }
 
-  if (input.payload.provenance.length > 0) {
-    const sourceInsertPayload = input.payload.provenance.map((source, index) => ({
-      id: randomUUID(),
-      explanation_id: insertedRow.id,
-      source_kind: source.source_kind,
-      label: source.label,
-      source_ref: source.source_ref,
-      confidence_score: source.confidence_score,
-      rank: index,
-      source_record_table: source.source_record_table,
-      source_record_id: source.source_record_id,
-      metadata_json: source.metadata_json,
-    }));
-
-    const { error: sourceError } = await input.supabase
-      .from("estimate_explanation_sources" as never)
-      .insert(sourceInsertPayload as never);
-
-    if (sourceError) {
-      throw mapSupabaseError(
-        sourceError,
-        "Impossible de persister la provenance de l'explication."
-      );
-    }
-  }
+  await insertEstimateExplanationSourceRows({
+    supabase: input.supabase,
+    explanationId: insertedRow.id,
+    provenance: input.payload.provenance,
+  });
 
   const sourceRows = await listEstimateExplanationSourceRows({
     supabase: input.supabase,
@@ -1446,10 +1539,22 @@ async function resolveExplanationSnapshot(input: {
     existingActiveRow &&
     existingActiveRow.snapshot_fingerprint === fingerprint
   ) {
-    const sourceRows = await listEstimateExplanationSourceRows({
+    let sourceRows = await listEstimateExplanationSourceRows({
       supabase,
       explanationId: existingActiveRow.id,
     });
+
+    if (sourceRows.length === 0 && normalizedPayload.provenance.length > 0) {
+      await insertEstimateExplanationSourceRows({
+        supabase,
+        explanationId: existingActiveRow.id,
+        provenance: normalizedPayload.provenance,
+      });
+      sourceRows = await listEstimateExplanationSourceRows({
+        supabase,
+        explanationId: existingActiveRow.id,
+      });
+    }
 
     return mapExplanationSnapshot({
       row: existingActiveRow,

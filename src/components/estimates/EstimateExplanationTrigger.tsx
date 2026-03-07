@@ -30,6 +30,7 @@ type EstimateExplanationTriggerProps = {
   variant?: "secondary" | "ghost";
   size?: "sm" | "md";
   className?: string;
+  cacheToken?: string | null;
 };
 
 export function EstimateExplanationTrigger({
@@ -45,6 +46,7 @@ export function EstimateExplanationTrigger({
   variant = "secondary",
   size = "sm",
   className,
+  cacheToken,
 }: EstimateExplanationTriggerProps) {
   const [open, setOpen] = useState(false);
 
@@ -70,6 +72,7 @@ export function EstimateExplanationTrigger({
         currentVersionLabel={currentVersionLabel}
         compareVersionLabel={compareVersionLabel}
         surfaceLabel={surfaceLabel}
+        cacheToken={cacheToken}
       />
     </>
   );

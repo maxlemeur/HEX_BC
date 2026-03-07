@@ -1,10 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useId, useState, type FocusEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useState, type FocusEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 
-import { EstimateExplanationTrigger } from "@/components/estimates/EstimateExplanationTrigger";
+import { EstimateExplanationPanel } from "@/components/estimates/EstimateExplanationPanel";
 import { usePopover } from "@/hooks/usePopover";
 
 const TakeoffLineEvidencePanel = dynamic(
@@ -34,6 +34,7 @@ type TakeoffSourceBadgeProps = {
   extractedAt?: string | null;
   sourceVersionNumber?: number | null;
   sourceMetadata?: unknown;
+  cacheToken?: string | null;
 };
 
 type AiStructureApplication = {
@@ -222,6 +223,7 @@ export function TakeoffSourceBadge({
   extractedAt,
   sourceVersionNumber,
   sourceMetadata,
+  cacheToken,
 }: TakeoffSourceBadgeProps) {
   const {
     isOpen: isPinnedOpen,
@@ -232,22 +234,24 @@ export function TakeoffSourceBadge({
   const [isHovered, setIsHovered] = useState(false);
   const [isFocusWithin, setIsFocusWithin] = useState(false);
   const [isEvidencePanelOpen, setIsEvidencePanelOpen] = useState(false);
+  const [isExplanationPanelOpen, setIsExplanationPanelOpen] = useState(false);
   const tooltipId = useId();
   const isOpen = isPinnedOpen || isHovered || isFocusWithin;
   const normalizedSourceProvider = toNonEmptyString(sourceProvider)?.toLowerCase();
-
-  if (
-    !normalizedSourceProvider ||
-    !SUPPORTED_BADGE_PROVIDERS.has(normalizedSourceProvider)
-  ) {
-    return null;
-  }
 
   const closePopover = () => {
     close();
     setIsHovered(false);
     setIsFocusWithin(false);
   };
+
+  useEffect(() => {
+    if (!isExplanationPanelOpen) {
+      return;
+    }
+
+    closePopover();
+  }, [closePopover, isExplanationPanelOpen]);
 
   const handleBlurCapture = (event: FocusEvent<HTMLDivElement>) => {
     const nextFocusedNode = event.relatedTarget as Node | null;
@@ -275,6 +279,13 @@ export function TakeoffSourceBadge({
   const isAiStructure = normalizedSourceProvider === "ai_structure";
   const aiApplications = parseAiStructureApplications(sourceMetadata);
 
+  if (
+    !normalizedSourceProvider ||
+    !SUPPORTED_BADGE_PROVIDERS.has(normalizedSourceProvider)
+  ) {
+    return null;
+  }
+
   if (isAiStructure && aiApplications.length === 0) {
     return null;
   }
@@ -299,6 +310,9 @@ export function TakeoffSourceBadge({
   const canOpenEvidence =
     normalizedSourceJobId !== null &&
     toNonEmptyString(estimateItemId ?? null) !== null;
+  const openExplanationPanel = () => {
+    setIsExplanationPanelOpen(true);
+  };
 
   const triggerText = isAiStructure ? "IA structure" : `IA${triggerLabelSuffix}`;
 
@@ -306,6 +320,7 @@ export function TakeoffSourceBadge({
     <div
       ref={setContainerRef}
       className="takeoff-source-badge"
+      role="presentation"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onFocusCapture={() => setIsFocusWithin(true)}
@@ -323,6 +338,20 @@ export function TakeoffSourceBadge({
         <span aria-hidden="true">{triggerText}</span>
         <span className="sr-only">Provenance IA disponible pour cette ligne</span>
       </button>
+
+      {!isAiStructure && estimateItemId ? (
+        <button
+          type="button"
+          className="takeoff-source-badge__job-link takeoff-source-badge__inline-action"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            openExplanationPanel();
+          }}
+          onClick={openExplanationPanel}
+        >
+          Expliquer ce prix
+        </button>
+      ) : null}
 
       {isOpen ? (
         <div
@@ -442,31 +471,6 @@ export function TakeoffSourceBadge({
                     )}
                   </dd>
                 </div>
-                <div className="takeoff-source-badge__meta-row">
-                  <dt>Explication</dt>
-                  <dd>
-                    {estimateItemId ? (
-                      <EstimateExplanationTrigger
-                        kind="price"
-                        versionId={versionId}
-                        lineId={estimateItemId}
-                        lineLabel={lineLabel}
-                        triggerLabel="Expliquer ce prix"
-                        surfaceLabel="Explication prix ligne devis"
-                        variant="ghost"
-                        size="sm"
-                        className="h-auto min-h-0 px-0 py-0 text-xs font-medium underline-offset-2 hover:underline"
-                      />
-                    ) : (
-                      <span
-                        className="takeoff-source-badge__job-link takeoff-source-badge__job-link--disabled"
-                        aria-disabled="true"
-                      >
-                        Non disponible
-                      </span>
-                    )}
-                  </dd>
-                </div>
               </dl>
             </>
           )}
@@ -484,6 +488,19 @@ export function TakeoffSourceBadge({
           sourceFileName={sourceFileName}
           sourcePage={sourcePage}
           surfaceLabel="Preuves ligne devis"
+        />
+      ) : null}
+
+      {estimateItemId ? (
+        <EstimateExplanationPanel
+          open={isExplanationPanelOpen}
+          onOpenChange={setIsExplanationPanelOpen}
+          kind="price"
+          versionId={versionId}
+          lineId={estimateItemId}
+          lineLabel={lineLabel}
+          surfaceLabel="Explication prix ligne devis"
+          cacheToken={cacheToken}
         />
       ) : null}
     </div>

@@ -6,7 +6,47 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { estimateExplanationPanelMock } = vi.hoisted(() => ({
+  estimateExplanationPanelMock: vi.fn(
+    ({ open }: { open: boolean }) =>
+      open ? <div data-testid="estimate-explanation-panel" /> : null
+  ),
+}));
+
+vi.mock("@/lib/estimates/explanations-client", () => ({
+  fetchEstimateLineExplanation: vi.fn().mockResolvedValue({
+    explanation_id: "11111111-1111-4111-8111-111111111111",
+    kind: "price",
+    version_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    line_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    compare_version_id: null,
+    summary_short: "Resume court.",
+    summary_detail: null,
+    confidence_label: "high",
+    confidence_score: 0.92,
+    used_fallback: false,
+    provider: "gemini",
+    model: "gemini-3-pro-preview",
+    generated_at: "2026-03-07T10:00:00.000Z",
+    facts: [],
+    hypotheses: [],
+    inferences: [],
+    provenance: [],
+    risk_signals: [],
+    impact_summary: {
+      current_amount_ht_cents: 12000,
+      current_amount_ttc_cents: 14400,
+      top_drivers: [],
+    },
+  }),
+  fetchEstimateDeltaExplanation: vi.fn(),
+}));
+
+vi.mock("@/components/estimates/EstimateExplanationPanel", () => ({
+  EstimateExplanationPanel: estimateExplanationPanelMock,
+}));
 
 import { TakeoffSourceBadge } from "@/components/takeoff/TakeoffSourceBadge";
 
@@ -95,6 +135,10 @@ async function openPopoverOnClick() {
 }
 
 describe("TakeoffSourceBadge", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   afterEach(() => {
     cleanup();
   });
@@ -127,7 +171,7 @@ describe("TakeoffSourceBadge", () => {
     expect(tooltip).toHaveTextContent("V1");
     expect(within(tooltip).queryByRole("link")).toBeInTheDocument();
     expect(
-      within(tooltip).getByRole("button", { name: "Expliquer ce prix" })
+      screen.getByRole("button", { name: "Expliquer ce prix" })
     ).toBeInTheDocument();
     expect(trigger).toHaveTextContent("(from V1)");
   });
@@ -159,5 +203,20 @@ describe("TakeoffSourceBadge", () => {
     await waitFor(() => {
       expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     });
+  });
+
+  it("keeps the explanation panel mounted after launching it from the popover", async () => {
+    renderBadge();
+
+    const { user } = await openPopoverOnHoverOrClick();
+    await user.click(screen.getByRole("button", { name: "Expliquer ce prix" }));
+
+    await waitFor(() => {
+      expect(estimateExplanationPanelMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ open: true }),
+        undefined
+      );
+    });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 });

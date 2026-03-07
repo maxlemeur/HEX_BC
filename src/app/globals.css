@@ -2684,6 +2684,17 @@ body {
   cursor: not-allowed;
 }
 
+.takeoff-source-badge__inline-action {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-left: 6px;
+  font-size: 11px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
 .estimate-designation-meta {
   display: flex;
   align-items: center;

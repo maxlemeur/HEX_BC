@@ -28,6 +28,7 @@ type EstimateExplanationPanelProps = {
   currentVersionLabel?: string | null;
   compareVersionLabel?: string | null;
   surfaceLabel: string;
+  cacheToken?: string | null;
 };
 
 type PanelState =
@@ -150,6 +151,7 @@ export function EstimateExplanationPanel({
   currentVersionLabel,
   compareVersionLabel,
   surfaceLabel,
+  cacheToken,
 }: EstimateExplanationPanelProps) {
   const [state, setState] = useState<PanelState>({ kind: "loading" });
   const [detailState, setDetailState] = useState<{
@@ -159,17 +161,22 @@ export function EstimateExplanationPanel({
   const cacheRef = useRef<Record<string, EstimateExplanationSnapshot>>({});
   const requestKey =
     kind === "price"
-      ? `${kind}:${versionId}:${lineId ?? "missing"}`
-      : `${kind}:${versionId}:${compareVersionId ?? "missing"}`;
+      ? `${kind}:${versionId}:${lineId ?? "missing"}:${cacheToken ?? "default"}`
+      : `${kind}:${versionId}:${compareVersionId ?? "missing"}:${cacheToken ?? "default"}`;
 
   const loadExplanation = useCallback(
-    async (detail: boolean) => {
+    async (detail: boolean, options?: { force?: boolean }) => {
       if (!open) {
         return;
       }
 
       const cacheKey = `${requestKey}:${detail ? "detail" : "summary"}`;
-      const cached = cacheRef.current[cacheKey];
+      if (options?.force) {
+        delete cacheRef.current[`${requestKey}:summary`];
+        delete cacheRef.current[`${requestKey}:detail`];
+      }
+
+      const cached = options?.force ? null : cacheRef.current[cacheKey];
       if (cached) {
         if (detail) {
           startTransition(() => {
@@ -185,6 +192,7 @@ export function EstimateExplanationPanel({
       if (detail) {
         setDetailState({ status: "loading" });
       } else {
+        setDetailState({ status: "idle" });
         setState({ kind: "loading" });
       }
 
@@ -220,6 +228,10 @@ export function EstimateExplanationPanel({
     },
     [compareVersionId, kind, lineId, open, requestKey, versionId]
   );
+
+  useEffect(() => {
+    setDetailState({ status: "idle" });
+  }, [requestKey]);
 
   useEffect(() => {
     if (!open) {
@@ -262,7 +274,7 @@ export function EstimateExplanationPanel({
                 type="button"
                 size="sm"
                 variant="secondary"
-                onClick={() => void loadExplanation(false)}
+                onClick={() => void loadExplanation(false, { force: true })}
               >
                 Actualiser
               </Button>

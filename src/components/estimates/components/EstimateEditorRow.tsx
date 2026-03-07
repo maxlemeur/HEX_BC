@@ -1513,6 +1513,7 @@ export const EstimateEditorRow = memo(function EstimateEditorRow({
                 extractedAt={sourceExtractedAt}
                 sourceVersionNumber={item.source_version_number}
                 sourceMetadata={sourceMetadata}
+                cacheToken={item.updated_at}
               />
               {qualityFlags.length > 0 || dismissedOutlierBadges.length > 0 ? (
                 <div className="estimate-quality-dots">

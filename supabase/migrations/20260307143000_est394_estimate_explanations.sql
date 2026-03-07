@@ -424,6 +424,11 @@ create policy "Current tenant can update estimate explanations"
   )
   with check (
     tenant_id = (select public.current_tenant_id())
+    and (select public.can_access_takeoff_estimate_version(version_id, tenant_id))
+    and (
+      compare_version_id is null
+      or (select public.can_access_takeoff_estimate_version(compare_version_id, tenant_id))
+    )
   );
 
 create policy "Current tenant can select estimate explanation sources"
@@ -485,5 +490,10 @@ create policy "Current tenant can update estimate explanation sources"
       from public.estimate_explanations ee
       where ee.id = estimate_explanation_sources.explanation_id
         and ee.tenant_id = (select public.current_tenant_id())
+        and (select public.can_access_takeoff_estimate_version(ee.version_id, ee.tenant_id))
+        and (
+          ee.compare_version_id is null
+          or (select public.can_access_takeoff_estimate_version(ee.compare_version_id, ee.tenant_id))
+        )
     )
   );

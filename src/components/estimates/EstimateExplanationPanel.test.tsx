@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/estimates/explanations-client", () => ({
   fetchEstimateLineExplanation: vi.fn(),
@@ -49,6 +49,10 @@ describe("EstimateExplanationPanel", () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    cleanup();
+  });
+
   it("loads summary on open and detail only on explicit request", async () => {
     vi.mocked(fetchEstimateLineExplanation)
       .mockResolvedValueOnce(summaryFixture)
@@ -86,5 +90,82 @@ describe("EstimateExplanationPanel", () => {
     });
     expect(await screen.findByText("Detail narratif complet.")).toBeInTheDocument();
     expect(vi.mocked(fetchEstimateDeltaExplanation)).not.toHaveBeenCalled();
+  });
+
+  it("bypasses the in-memory cache when refreshing explicitly", async () => {
+    vi.mocked(fetchEstimateLineExplanation)
+      .mockResolvedValueOnce(summaryFixture)
+      .mockResolvedValueOnce({
+        ...summaryFixture,
+        explanation_id: "99999999-9999-4999-8999-999999999999",
+        summary_short: "Resume actualise.",
+      });
+
+    render(
+      <EstimateExplanationPanel
+        open
+        onOpenChange={() => undefined}
+        kind="price"
+        versionId={summaryFixture.version_id}
+        lineId={summaryFixture.line_id}
+        lineLabel="Mur beton"
+        surfaceLabel="Explication prix ligne devis"
+      />
+    );
+
+    expect(await screen.findByText("Resume court.")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Actualiser" }));
+
+    expect(await screen.findByText("Resume actualise.")).toBeInTheDocument();
+    expect(vi.mocked(fetchEstimateLineExplanation)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetchEstimateLineExplanation)).toHaveBeenLastCalledWith(
+      summaryFixture.version_id,
+      summaryFixture.line_id,
+      { detail: false }
+    );
+  });
+
+  it("invalidates cached explanations when the cache token changes", async () => {
+    vi.mocked(fetchEstimateLineExplanation)
+      .mockResolvedValueOnce(summaryFixture)
+      .mockResolvedValueOnce({
+        ...summaryFixture,
+        explanation_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        summary_short: "Resume apres edition.",
+      });
+
+    const { rerender } = render(
+      <EstimateExplanationPanel
+        open
+        onOpenChange={() => undefined}
+        kind="price"
+        versionId={summaryFixture.version_id}
+        lineId={summaryFixture.line_id}
+        lineLabel="Mur beton"
+        surfaceLabel="Explication prix ligne devis"
+        cacheToken="2026-03-07T10:00:00.000Z"
+      />
+    );
+
+    expect(await screen.findByText("Resume court.")).toBeInTheDocument();
+    expect(vi.mocked(fetchEstimateLineExplanation)).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <EstimateExplanationPanel
+        open
+        onOpenChange={() => undefined}
+        kind="price"
+        versionId={summaryFixture.version_id}
+        lineId={summaryFixture.line_id}
+        lineLabel="Mur beton"
+        surfaceLabel="Explication prix ligne devis"
+        cacheToken="2026-03-07T10:05:00.000Z"
+      />
+    );
+
+    expect(await screen.findByText("Resume apres edition.")).toBeInTheDocument();
+    expect(vi.mocked(fetchEstimateLineExplanation)).toHaveBeenCalledTimes(2);
   });
 });
