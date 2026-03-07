@@ -7,6 +7,7 @@ import {
   buildAffaireRegisterSubmissionSignalMessage,
   fetchAffaireRegisterGateSummary,
 } from "@/lib/affaires/register-server";
+import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
 import {
   normalizeEstimateApprovalDecision,
   resolveApprovalDecisionOutcome,
@@ -256,6 +257,7 @@ type VersionAccessRow = Pick<
   | "id"
   | "tenant_id"
   | "status"
+  | "version_number"
   | "project_id"
   | "total_ht_cents"
   | "margin_bp"
@@ -2566,6 +2568,7 @@ function toApprovalSummaryAuditMetadata(input: {
 async function logEstimateVersionEvent(input: {
   versionId: string;
   eventType:
+    | "approval_submitted"
     | "approval_rules_evaluated"
     | "approval_status_changed"
     | "approval_decided";
@@ -2598,6 +2601,29 @@ async function logEstimateVersionEvent(input: {
       "Impossible d'enregistrer l'evenement d'approbation."
     );
   }
+}
+
+async function loadProfileIdentity(input: {
+  context: AuthenticatedContext;
+  userId: string;
+}) {
+  const { data, error } = await input.context.supabase
+    .from("profiles")
+    .select("id, full_name, work_email")
+    .in("id", [input.userId]);
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger le profil utilisateur.");
+  }
+
+  const profile = ((data ?? []) as EmbeddedReviewerProfile[]).find(
+    (candidate) => candidate.id === input.userId
+  );
+  if (!profile) {
+    throw notFound("Profil utilisateur introuvable.");
+  }
+
+  return profile;
 }
 
 async function loadApprovalSummaryItems(input: {
@@ -2824,7 +2850,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await context.supabase
     .from("estimate_versions")
     .select(
-      "id, tenant_id, status, project_id, total_ht_cents, margin_bp, margin_multiplier, discount_bp, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, name, client_name)"
+      "id, tenant_id, status, version_number, project_id, total_ht_cents, margin_bp, margin_multiplier, discount_bp, approval_status, approval_summary, approval_evaluated_at, estimate_projects!inner(id, tenant_id, user_id, name, client_name)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -3458,6 +3484,54 @@ export async function submitEstimateApproval(
       project: access.project,
       trigger: "approval_request",
     });
+
+    await logEstimateVersionEvent({
+      versionId: input.versionId,
+      eventType: "approval_submitted",
+      actorUserId: context.userId,
+      occurredAt: cycle.requested_at,
+      metadata: {
+        cycleId: cycle.id,
+        cycleNumber: cycle.cycle_number,
+        requestedRuleIds: requestableReasons.map((reason) => reason.ruleId),
+        requestedRuleLabels: requestableReasons.map((reason) => reason.label),
+        requestedApprovalCount: requestableReasons.length,
+        assignedReviewerUserId: assignedReviewer.userId,
+        assignedReviewerName: assignedReviewer.fullName,
+        assignedReviewerEmail: assignedReviewer.workEmail,
+        submissionMessage: input.submissionMessage?.trim() || null,
+        notificationChannels: {
+          inApp: true,
+          email: Boolean(assignedReviewer.workEmail),
+        },
+      } satisfies Json,
+    });
+
+    if (assignedReviewer.workEmail) {
+      try {
+        const requesterProfile = await loadProfileIdentity({
+          context,
+          userId: context.userId,
+        });
+        await sendApprovalReviewRequestNotification({
+          recipientEmail: assignedReviewer.workEmail,
+          reviewerName: assignedReviewer.fullName,
+          requesterName:
+            requesterProfile.full_name?.trim() ||
+            requesterProfile.work_email?.trim() ||
+            `Utilisateur ${context.userId.slice(0, 8)}`,
+          projectName:
+            access.project.name?.trim() ||
+            access.project.client_name?.trim() ||
+            "Affaire",
+          versionNumber: access.version.version_number,
+          submissionMessage: input.submissionMessage?.trim() || null,
+          ruleLabels: requestableReasons.map((reason) => reason.label),
+        });
+      } catch (error) {
+        console.error("Failed to send approval review request notification:", error);
+      }
+    }
 
     return {
       approval: latestApproval,

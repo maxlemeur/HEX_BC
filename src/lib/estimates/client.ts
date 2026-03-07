@@ -47,6 +47,7 @@ export type EstimateVersionEventType =
   | "archived"
   | "rejected"
   | "seal_verified"
+  | "approval_submitted"
   | "approval_rules_evaluated"
   | "approval_status_changed"
   | "approval_decided";

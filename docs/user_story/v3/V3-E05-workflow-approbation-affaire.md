@@ -2,7 +2,7 @@
 
 Track: Approbation / Direction  
 Priorité: P0  
-Statut: Proposé
+Statut: Implémenté
 
 ## Objectif
 
@@ -28,18 +28,18 @@ Créer un parcours complet de soumission, revue par exception, retour correction
 
 ### Critères d'acceptation
 
-- [ ] Un CTA `Soumettre à validation` existe depuis le hub et la vue version
-- [ ] Avant soumission, un panneau de synthèse affiche :
+- [x] Un CTA `Soumettre à validation` existe depuis le hub et la vue version
+- [x] Avant soumission, un panneau de synthèse affiche :
   - couverture
   - exceptions
   - hypothèses ouvertes
   - marge
   - règles déclenchées
-- [ ] Les blocages durs empêchent la soumission
-- [ ] Les alertes non bloquantes restent visibles mais ne bloquent pas
-- [ ] L'utilisateur peut ajouter un message de contexte à la validatrice
-- [ ] Une fois soumis, le statut passe à `En revue`
-- [ ] Une notification in-app et email interne peut être envoyée au validateur assigné
+- [x] Les blocages durs empêchent la soumission
+- [x] Les alertes non bloquantes restent visibles mais ne bloquent pas
+- [x] L'utilisateur peut ajouter un message de contexte à la validatrice
+- [x] Une fois soumis, le statut passe à `En revue`
+- [x] Une notification in-app et email interne peut être envoyée au validateur assigné
 
 ### Pourquoi cette story
 

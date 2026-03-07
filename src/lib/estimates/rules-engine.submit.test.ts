@@ -14,11 +14,16 @@ vi.mock("@/lib/affaires/register-server", () => ({
   fetchAffaireRegisterGateSummary: vi.fn(),
 }));
 
+vi.mock("@/lib/email/send-approval-review-request", () => ({
+  sendApprovalReviewRequestNotification: vi.fn(),
+}));
+
 import {
   getEstimateApprovalSummary,
   submitEstimateApproval,
 } from "@/lib/estimates/rules-engine";
 import { fetchAffaireRegisterGateSummary } from "@/lib/affaires/register-server";
+import { sendApprovalReviewRequestNotification } from "@/lib/email/send-approval-review-request";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -241,6 +246,9 @@ function mockAuthenticatedSupabase(input: {
 describe("submitEstimateApproval", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(createOptionalServiceRoleClient).mockReset();
+    vi.mocked(fetchAffaireRegisterGateSummary).mockReset();
+    vi.mocked(sendApprovalReviewRequestNotification).mockReset();
     vi.mocked(createOptionalServiceRoleClient).mockReturnValue(null as never);
     vi.mocked(fetchAffaireRegisterGateSummary).mockResolvedValue({
       openQuestionsCount: 0,
@@ -249,6 +257,10 @@ describe("submitEstimateApproval", () => {
       clarifyWithClientEntries: [],
       openAssumptionEntries: [],
       openMissingPieceEntries: [],
+    });
+    vi.mocked(sendApprovalReviewRequestNotification).mockResolvedValue({
+      message_id: "email-review-1",
+      subject: "Validation requise - Affaire test V1",
     });
   });
 
@@ -634,6 +646,225 @@ describe("submitEstimateApproval", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "BAD_REQUEST",
+    });
+  });
+
+  it("logs an approval_submitted event and sends the internal review email", async () => {
+    const membershipBuilder = createTenantMembershipBuilder([
+      {
+        tenant_id: TENANT_ID,
+        user_id: USER_ID,
+        role: "admin",
+        is_default: true,
+        created_at: "2026-03-01T10:00:00.000Z",
+      },
+      {
+        tenant_id: TENANT_ID,
+        user_id: REVIEWER_ID,
+        role: "director",
+        is_default: false,
+        created_at: "2026-03-01T11:00:00.000Z",
+      },
+    ]);
+    const versionBuilder = createVersionAccessBuilder({
+      version_number: 1,
+    });
+    const itemsBuilder = createListBuilder([]);
+    const rulesBuilder = createListBuilder([
+      {
+        id: "99999999-9999-4999-8999-999999999999",
+        created_at: "2026-03-01T09:00:00.000Z",
+        updated_at: "2026-03-01T09:00:00.000Z",
+        tenant_id: TENANT_ID,
+        rule_type: "require_approval",
+        scope_type: "global",
+        scope_id: null,
+        threshold_value: 100000,
+        action: "require_approval",
+        is_active: true,
+      },
+    ]);
+    const reviewCycleSelectBuilders = [
+      createListBuilder([]),
+      createListBuilder([]),
+      createListBuilder([
+        {
+          id: "77777777-7777-4777-8777-777777777777",
+          created_at: "2026-03-06T09:10:00.000Z",
+          updated_at: "2026-03-06T09:10:00.000Z",
+          tenant_id: TENANT_ID,
+          version_id: VERSION_ID,
+          cycle_number: 1,
+          requested_by: USER_ID,
+          requested_at: "2026-03-06T09:10:00.000Z",
+          submission_message: "Verifier la couverture CFO.",
+          assigned_reviewer_id: REVIEWER_ID,
+          decided_by: null,
+          decision: null,
+          decided_at: null,
+          carried_over_from_cycle_id: null,
+          requested_by_profile: {
+            full_name: "Nadia Martin",
+          },
+          decided_by_profile: null,
+          assigned_reviewer_profile: {
+            id: REVIEWER_ID,
+            full_name: "Camille Reviewer",
+            work_email: "reviewer@example.com",
+          },
+        },
+      ]),
+    ];
+    const reviewCycleInsertBuilder = createSingleInsertBuilder({
+      id: "77777777-7777-4777-8777-777777777777",
+      created_at: "2026-03-06T09:10:00.000Z",
+      updated_at: "2026-03-06T09:10:00.000Z",
+      tenant_id: TENANT_ID,
+      version_id: VERSION_ID,
+      cycle_number: 1,
+      requested_by: USER_ID,
+      requested_at: "2026-03-06T09:10:00.000Z",
+      submission_message: "Verifier la couverture CFO.",
+      assigned_reviewer_id: REVIEWER_ID,
+      decided_by: null,
+      decision: null,
+      decided_at: null,
+      carried_over_from_cycle_id: null,
+    });
+    const approvalInsertBuilder = createSingleInsertBuilder({
+      id: "88888888-8888-4888-8888-888888888888",
+      created_at: "2026-03-06T09:11:00.000Z",
+      updated_at: "2026-03-06T09:11:00.000Z",
+      tenant_id: TENANT_ID,
+      version_id: VERSION_ID,
+      rule_id: "99999999-9999-4999-8999-999999999999",
+      requested_by: USER_ID,
+      approved_by: null,
+      status: "pending",
+      decided_at: null,
+    });
+    const reviewCommentsBuilder = createListBuilder([]);
+    const versionUpdateBuilder = createSingleUpdateBuilder({
+      id: VERSION_ID,
+      tenant_id: TENANT_ID,
+      status: "draft",
+      version_number: 1,
+      project_id: PROJECT_ID,
+      total_ht_cents: 250000,
+      margin_bp: 1200,
+      margin_multiplier: 1,
+      discount_bp: 0,
+      approval_status: "required",
+      approval_summary: {},
+      approval_evaluated_at: "2026-03-06T09:10:00.000Z",
+    });
+    const eventRpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: null,
+    });
+
+    vi.mocked(createOptionalServiceRoleClient)
+      .mockReturnValueOnce(null as never)
+      .mockReturnValueOnce(null as never)
+      .mockReturnValueOnce(null as never)
+      .mockReturnValueOnce({
+        rpc: eventRpc,
+      } as never);
+
+    const from = vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => membershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: vi.fn(() => versionBuilder),
+          update: vi.fn(() => versionUpdateBuilder),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => itemsBuilder),
+        };
+      }
+
+      if (table === "estimate_rules") {
+        return {
+          select: vi.fn(() => rulesBuilder),
+        };
+      }
+
+      if (table === "estimate_approvals") {
+        return {
+          select: vi.fn(() => createListBuilder([])),
+          insert: vi.fn(() => approvalInsertBuilder),
+        };
+      }
+
+      if (table === "estimate_review_cycles") {
+        return {
+          select: vi.fn(() => reviewCycleSelectBuilders.shift()),
+          insert: vi.fn(() => reviewCycleInsertBuilder),
+        };
+      }
+
+      if (table === "estimate_review_comments") {
+        return {
+          select: vi.fn(() => reviewCommentsBuilder),
+        };
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    });
+
+    mockAuthenticatedSupabase({
+      from,
+      profilesBuilder: createProfilesBuilder([
+        {
+          id: USER_ID,
+          full_name: "Nadia Martin",
+          work_email: "nadia@example.com",
+        },
+        {
+          id: REVIEWER_ID,
+          full_name: "Camille Reviewer",
+          work_email: "reviewer@example.com",
+        },
+      ]),
+      rpc: vi.fn(),
+    });
+
+    await submitEstimateApproval({
+      versionId: VERSION_ID,
+      action: "submit_for_review",
+      ruleIds: ["99999999-9999-4999-8999-999999999999"],
+      submissionMessage: "Verifier la couverture CFO.",
+      assignedReviewerUserId: REVIEWER_ID,
+    });
+
+    expect(eventRpc).toHaveBeenCalledWith("log_estimate_version_event", {
+      p_estimate_version_id: VERSION_ID,
+      p_event_type: "approval_submitted",
+      p_created_by: USER_ID,
+      p_occurred_at: "2026-03-06T09:10:00.000Z",
+      p_metadata: expect.objectContaining({
+        cycleId: "77777777-7777-4777-8777-777777777777",
+        cycleNumber: 1,
+        assignedReviewerUserId: REVIEWER_ID,
+        requestedApprovalCount: 1,
+      }),
+    });
+    expect(sendApprovalReviewRequestNotification).toHaveBeenCalledWith({
+      recipientEmail: "reviewer@example.com",
+      reviewerName: "Camille Reviewer",
+      requesterName: "Nadia Martin",
+      projectName: "Affaire test",
+      versionNumber: 1,
+      submissionMessage: "Verifier la couverture CFO.",
+      ruleLabels: ["Seuil montant HT"],
     });
   });
 
