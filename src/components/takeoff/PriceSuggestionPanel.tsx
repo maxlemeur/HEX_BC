@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { formatEUR } from "@/lib/money";
 import {
+  fetchTakeoffPriceSuggestion,
   requestTakeoffPriceSuggestion,
   reviewTakeoffPriceSuggestion,
   isTakeoffApiError,
@@ -250,6 +251,7 @@ export function PriceSuggestionPanel({
   onReviewComplete,
 }: PriceSuggestionPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const reviewCompletedRef = useRef(false);
   const [state, setState] = useState<PanelState>({ kind: "loading" });
   const [selectedAction, setSelectedAction] = useState<TakeoffPriceSuggestionAction | null>(null);
   const [reviewNote, setReviewNote] = useState("");
@@ -263,10 +265,26 @@ export function PriceSuggestionPanel({
 
     async function load() {
       try {
-        const response = await requestTakeoffPriceSuggestion(jobId, {
-          version_id: versionId,
-          estimate_item_id: estimateItemId,
-        });
+        let response;
+        try {
+          response = await fetchTakeoffPriceSuggestion(jobId, {
+            version_id: versionId,
+            estimate_item_id: estimateItemId,
+          });
+        } catch (error) {
+          if (
+            !isTakeoffApiError(error) ||
+            error.status !== 404 ||
+            error.code !== "NOT_FOUND"
+          ) {
+            throw error;
+          }
+
+          response = await requestTakeoffPriceSuggestion(jobId, {
+            version_id: versionId,
+            estimate_item_id: estimateItemId,
+          });
+        }
 
         if (canceled) return;
 
@@ -301,6 +319,7 @@ export function PriceSuggestionPanel({
     // Reset state before fetching — scheduled via startTransition-style
     // batching inside the async IIFE to avoid the react-hooks/set-state-in-effect rule.
     void (async () => {
+      reviewCompletedRef.current = false;
       setState({ kind: "loading" });
       setSelectedAction(null);
       setReviewNote("");
@@ -340,11 +359,23 @@ export function PriceSuggestionPanel({
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        if (reviewCompletedRef.current) {
+          reviewCompletedRef.current = false;
+          onReviewComplete();
+        }
         onOpenChange(false);
       }
     },
-    [onOpenChange]
+    [onOpenChange, onReviewComplete]
   );
+
+  const handleClose = useCallback(() => {
+    if (reviewCompletedRef.current) {
+      reviewCompletedRef.current = false;
+      onReviewComplete();
+    }
+    onOpenChange(false);
+  }, [onOpenChange, onReviewComplete]);
 
   // Recalculate
   const handleRecalculate = useCallback(async () => {
@@ -418,7 +449,7 @@ export function PriceSuggestionPanel({
 
       setState({ kind: "reviewed", suggestion: response.suggestion });
       setSubmitError(null);
-      onReviewComplete();
+      reviewCompletedRef.current = true;
     } catch (error) {
       setState({ kind: "ready", suggestion });
       setSubmitError(
@@ -427,7 +458,7 @@ export function PriceSuggestionPanel({
           : "Impossible d'enregistrer la revue de suggestion de prix."
       );
     }
-  }, [selectedAction, reviewNote, state, jobId, versionId, onReviewComplete]);
+  }, [selectedAction, reviewNote, state, jobId, versionId]);
 
   if (!open) return null;
 
@@ -452,7 +483,7 @@ export function PriceSuggestionPanel({
       {/* Overlay */}
       <div
         className="fixed inset-0 z-40 bg-black/20"
-        onClick={() => onOpenChange(false)}
+        onClick={handleClose}
         aria-hidden="true"
       />
 
@@ -467,7 +498,7 @@ export function PriceSuggestionPanel({
         className="animate-slide-in-right fixed inset-0 z-50 flex min-w-0 flex-col bg-white shadow-xl outline-none sm:inset-y-0 sm:left-auto sm:w-full sm:max-w-lg sm:border-l sm:border-[var(--border)]"
       >
         {/* ---- Header ---- */}
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold text-[var(--slate-800)]">
               Suggestion de prix
@@ -479,9 +510,9 @@ export function PriceSuggestionPanel({
           <button
             type="button"
             className="rounded p-1 text-[var(--slate-500)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-700)]"
-            onClick={() => onOpenChange(false)}
-            title="Fermer (Echap)"
-            aria-label="Fermer"
+            onClick={handleClose}
+            title="Fermer le panneau (Echap)"
+            aria-label="Fermer le panneau"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -780,13 +811,22 @@ export function PriceSuggestionPanel({
         </div>
 
         {/* ---- Footer ---- */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3">
           <span className="text-[10px] text-[var(--slate-400)]">
             Echap fermer
           </span>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {suggestion && !isReviewed ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleClose}
+              disabled={isSubmitting}
+            >
+              Fermer
+            </Button>
+
+            {suggestion ? (
               <Button
                 variant="ghost"
                 size="sm"

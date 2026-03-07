@@ -1088,14 +1088,23 @@ test.describe("V3-010 — DPGF review page", () => {
       `Price suggestion review should succeed. status=${reviewResponse.status()} body=${reviewBody}`
     ).toBe(200);
 
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("Decision enregistree : Appliquer prix cible")).toBeVisible();
+    await expect(panel.getByText(`Note : ${reviewNote}`)).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Recalculer" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Fermer", exact: true })).toBeVisible();
+
+    await panel.getByRole("button", { name: "Fermer", exact: true }).click();
     await expect(panel).toHaveCount(0);
 
     await page.getByTestId("takeoff-dpgf-open-price-suggestion-button").click();
     const reviewedPanel = page.getByRole("dialog", { name: /Suggestion de prix/i });
     await expect(reviewedPanel).toBeVisible();
     await expect(
-      reviewedPanel.getByRole("button", { name: "Selectionner une action" })
-    ).toBeDisabled();
+      reviewedPanel.getByText("Decision enregistree : Appliquer prix cible")
+    ).toBeVisible();
+    await expect(reviewedPanel.getByText(`Note : ${reviewNote}`)).toBeVisible();
+    await expect(reviewedPanel.getByRole("button", { name: "Recalculer" })).toBeVisible();
 
     const activeSuggestion = await readLatestAppliedPriceSuggestion({
       tenantId,
