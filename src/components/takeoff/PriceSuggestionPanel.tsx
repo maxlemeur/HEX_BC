@@ -117,6 +117,15 @@ function getConfidenceBarColor(label: TakeoffPriceSuggestionConfidenceLabel): st
   }
 }
 
+function isNoSourceAvailableError(error: unknown): boolean {
+  return (
+    isTakeoffApiError(error) &&
+    error.status === 409 &&
+    error.code === "CONFLICT" &&
+    error.message === "Aucune source exploitable pour proposer un prix sur cette ligne."
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -277,6 +286,10 @@ export function PriceSuggestionPanel({
         setState({ kind: "ready", suggestion: s });
       } catch (error) {
         if (canceled) return;
+        if (isNoSourceAvailableError(error)) {
+          setState({ kind: "empty" });
+          return;
+        }
         setState({
           kind: "error",
           message: isTakeoffApiError(error) ? error.message : "Impossible de charger la suggestion.",
@@ -303,6 +316,21 @@ export function PriceSuggestionPanel({
     if (open) {
       panelRef.current?.focus();
     }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return;
+
+    const previousBodyOverflowX = document.body.style.overflowX;
+    const previousDocumentOverflowX = document.documentElement.style.overflowX;
+
+    document.body.style.overflowX = "hidden";
+    document.documentElement.style.overflowX = "hidden";
+
+    return () => {
+      document.body.style.overflowX = previousBodyOverflowX;
+      document.documentElement.style.overflowX = previousDocumentOverflowX;
+    };
   }, [open]);
 
   // Keyboard
@@ -345,6 +373,10 @@ export function PriceSuggestionPanel({
       setSelectedAction(null);
       setReviewNote("");
     } catch (error) {
+      if (isNoSourceAvailableError(error)) {
+        setState({ kind: "empty" });
+        return;
+      }
       setState({
         kind: "error",
         message: isTakeoffApiError(error) ? error.message : "Impossible de recalculer.",
@@ -424,7 +456,7 @@ export function PriceSuggestionPanel({
         aria-label={`Suggestion de prix : ${lineLabel}`}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-[var(--border)] bg-white shadow-xl outline-none"
+        className="animate-slide-in-right fixed inset-0 z-50 flex min-w-0 flex-col bg-white shadow-xl outline-none sm:inset-y-0 sm:left-auto sm:w-full sm:max-w-lg sm:border-l sm:border-[var(--border)]"
       >
         {/* ---- Header ---- */}
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
@@ -450,7 +482,7 @@ export function PriceSuggestionPanel({
         </div>
 
         {/* ---- Scrollable body ---- */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+        <div className="min-w-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
           {/* Loading */}
           {state.kind === "loading" ? (
             <div className="flex flex-col items-center justify-center gap-3 py-12">
@@ -483,11 +515,12 @@ export function PriceSuggestionPanel({
           {/* Empty */}
           {state.kind === "empty" ? (
             <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--slate-50)] p-6 text-center">
-              <p className="text-sm text-[var(--slate-600)]">
-                Aucune source exploitable pour cette ligne.
+              <p className="text-sm font-medium text-[var(--slate-800)]">
+                Aucune suggestion calculable pour cette ligne.
               </p>
               <p className="mt-1 text-xs text-[var(--slate-500)]">
-                Le systeme n&apos;a trouve ni historique, ni bordereau, ni ouvrage similaire.
+                Ni historique, ni bordereau fournisseur, ni ouvrage proche exploitable pour
+                l&apos;instant.
               </p>
             </div>
           ) : null}
@@ -733,12 +766,12 @@ export function PriceSuggestionPanel({
         </div>
 
         {/* ---- Footer ---- */}
-        <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] px-4 py-3">
           <span className="text-[10px] text-[var(--slate-400)]">
             Echap fermer
           </span>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {suggestion && !isReviewed ? (
               <Button
                 variant="ghost"
