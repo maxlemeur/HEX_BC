@@ -38,10 +38,11 @@ describe("buildNavGroups", () => {
   });
 
   describe("admin + simplified", () => {
-    it("returns 4 groups including administration", () => {
+    it("returns 5 groups including validation and administration", () => {
       expect(groupKeys({ ...base, role: "admin" })).toEqual([
         "affaires",
         "commandes",
+        "validation",
         "outils",
         "administration",
       ]);
@@ -49,10 +50,34 @@ describe("buildNavGroups", () => {
   });
 
   describe("admin + expert", () => {
-    it("returns 4 groups including administration", () => {
+    it("returns 5 groups including validation and administration", () => {
       expect(
         groupKeys({ ...base, role: "admin", uiMode: "expert" })
-      ).toEqual(["affaires", "commandes", "outils", "administration"]);
+      ).toEqual(["affaires", "commandes", "validation", "outils", "administration"]);
+    });
+  });
+
+  describe("director + simplified", () => {
+    it("returns 3 groups: affaires, commandes, validation", () => {
+      expect(groupKeys({ ...base, role: "director" })).toEqual([
+        "affaires",
+        "commandes",
+        "validation",
+      ]);
+    });
+  });
+
+  describe("director + expert", () => {
+    it("returns 3 groups: affaires, commandes, validation", () => {
+      expect(
+        groupKeys({ ...base, role: "director", uiMode: "expert" })
+      ).toEqual(["affaires", "commandes", "validation"]);
+    });
+
+    it("includes approvals href in validation group", () => {
+      const groups = buildNavGroups({ ...base, role: "director" });
+      const validation = groups.find((g) => g.key === "validation");
+      expect(validation?.items.some((i) => i.href === "/dashboard/approvals")).toBe(true);
     });
   });
 

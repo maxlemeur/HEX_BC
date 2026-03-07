@@ -1,0 +1,153 @@
+"use client";
+
+import Link from "next/link";
+
+import { formatEUR } from "@/lib/money";
+import type { ApprovalQueueItem, ExceptionGroupKey, ReviewerState } from "@/lib/approvals/server";
+
+import { Badge } from "@/components/ui/Badge";
+import { ApprovalQueueStateActions } from "./ApprovalQueueStateActions";
+
+// ---------------------------------------------------------------------------
+// Exception pill colors
+// ---------------------------------------------------------------------------
+
+const EXCEPTION_GROUP_COLORS: Record<ExceptionGroupKey, string> = {
+  price: "bg-amber-100 text-amber-800",
+  quantities: "bg-red-100 text-red-800",
+  missing_proofs: "bg-blue-100 text-blue-800",
+  vat_conformity: "bg-purple-100 text-purple-800",
+  missing_documents: "bg-slate-100 text-slate-700",
+};
+
+// ---------------------------------------------------------------------------
+// Reviewer state badges
+// ---------------------------------------------------------------------------
+
+const REVIEWER_STATE_BADGE: Record<ReviewerState, { label: string; variant: "neutral" | "warning" | "error" | "success" }> = {
+  seen: { label: "Vu", variant: "neutral" },
+  review_laurent: { label: "A revoir", variant: "warning" },
+  blocking: { label: "Bloquant", variant: "error" },
+  acceptable: { label: "Acceptable", variant: "success" },
+};
+
+// ---------------------------------------------------------------------------
+// Risk score badge
+// ---------------------------------------------------------------------------
+
+function riskScoreSeverity(score: number): { variant: "error" | "warning" | "info"; label: string } {
+  if (score >= 70) return { variant: "error", label: "Critique" };
+  if (score >= 40) return { variant: "warning", label: "Attention" };
+  return { variant: "info", label: "Info" };
+}
+
+// ---------------------------------------------------------------------------
+// Visual state border
+// ---------------------------------------------------------------------------
+
+const VISUAL_STATE_BORDER: Record<string, string> = {
+  new: "border-l-[var(--brand-blue)] border-l-4",
+  commented: "border-l-[var(--success)] border-l-4",
+  seen: "",
+  resolved: "",
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+function buildCardHref(item: ApprovalQueueItem): string {
+  if (item.latestJobId) {
+    return `/dashboard/affaires/${item.projectId}/takeoff/${item.latestJobId}/review?versionId=${item.versionId}&tab=exceptions`;
+  }
+  return `/dashboard/affaires/${item.projectId}?tab=exceptions`;
+}
+
+export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
+  const href = buildCardHref(item);
+  const riskInfo = riskScoreSeverity(item.riskScore);
+  const borderClass = VISUAL_STATE_BORDER[item.visualState] ?? "";
+  const marginPercent = item.marginBp !== null ? (item.marginBp / 100).toFixed(1) : null;
+
+  return (
+    <Link
+      href={href}
+      className={`dashboard-card block p-5 transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)] ${borderClass}`}
+    >
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <h3
+          className={`truncate text-sm ${item.visualState === "new" ? "font-bold" : "font-semibold"} text-[var(--slate-800)]`}
+          title={item.projectName}
+        >
+          {item.projectName}
+        </h3>
+        {item.riskScore > 0 && (
+          <Badge
+            variant={riskInfo.variant}
+            size="sm"
+            title={`Score de risque : ${item.riskScore}/100 (${riskInfo.label})`}
+          >
+            {item.riskScore}
+          </Badge>
+        )}
+      </div>
+
+      {/* Subtitle */}
+      <p className="mt-1 truncate text-xs text-[var(--slate-500)]">
+        {item.clientName && <span>{item.clientName} &middot; </span>}
+        {item.versionLabel}
+      </p>
+
+      {/* Metrics */}
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--slate-600)]">
+        <span title="Montant HT">{formatEUR(item.amountHtCents)}</span>
+        {marginPercent !== null && (
+          <span title="Marge">Marge {marginPercent}%</span>
+        )}
+        {item.exceptionCount > 0 && (
+          <span title="Nombre d'exceptions" className="font-medium text-[var(--danger)]">
+            {item.exceptionCount} exception{item.exceptionCount > 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      {/* Exception pills */}
+      {item.exceptionGroups.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {item.exceptionGroups.map((group) => (
+            <span
+              key={group.key}
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${EXCEPTION_GROUP_COLORS[group.key]}`}
+            >
+              {group.label} ({group.count})
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="mt-3 flex items-center justify-between border-t border-[var(--slate-100)] pt-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-[var(--slate-400)]">{item.requestAgeLabel}</span>
+          {item.reviewerState && (
+            <Badge variant={REVIEWER_STATE_BADGE[item.reviewerState].variant} size="sm">
+              {REVIEWER_STATE_BADGE[item.reviewerState].label}
+            </Badge>
+          )}
+        </div>
+        <ApprovalQueueStateActions
+          cycleId={item.cycleId}
+          currentState={item.reviewerState}
+        />
+      </div>
+
+      {/* Submission message excerpt */}
+      {item.submissionMessage && (
+        <p className="mt-2 line-clamp-2 text-[11px] italic text-[var(--slate-400)]">
+          {item.submissionMessage}
+        </p>
+      )}
+    </Link>
+  );
+}

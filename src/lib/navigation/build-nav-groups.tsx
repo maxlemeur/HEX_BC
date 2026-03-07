@@ -167,6 +167,28 @@ const ANALYTICS_ITEM: NavItem = {
   ),
 };
 
+const APPROVALS_ITEM: NavItem = {
+  href: "/dashboard/approvals",
+  label: "Approbations",
+  navId: "approvals",
+  icon: (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9 11l3 3L22 4" />
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+    </svg>
+  ),
+};
+
 const ADMIN_ITEM: NavItem = {
   href: "/dashboard/admin",
   label: "Administration",
@@ -211,6 +233,11 @@ export function buildNavGroups(input: BuildNavGroupsInput): NavGroup[] {
 
   // --- Commandes (all roles) ---
   groups.push({ key: "commandes", label: "Commandes", items: [ORDERS_ITEM] });
+
+  // --- Validation (admin + director only) ---
+  if (role === "admin" || role === "director") {
+    groups.push({ key: "validation", label: "Validation", items: [APPROVALS_ITEM] });
+  }
 
   // --- Outils (admin always, engineer only in expert mode) ---
   if (role === "admin" || (role === "engineer" && uiMode === "expert")) {
