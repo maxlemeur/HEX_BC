@@ -158,6 +158,11 @@ type GeneratedOuvrageSubdetailCostType =
   | "subcontract";
 type GeneratedOuvrageEvidenceKind = "fact" | "hypothesis" | "inference";
 type GeneratedOuvrageRiskSignalSeverity = "info" | "warning" | "critical";
+type GeneratedOuvrageReviewedCandidateSnapshot = {
+  designation: string;
+  unit: string | null;
+  quantity: number | null;
+};
 
 type GeneratedOuvrageSubdetailDraftRow = {
   id: string;
@@ -441,11 +446,18 @@ const generatedOuvrageSubdetailComponentInputSchema = z.object({
   sources: z.array(generatedOuvrageSubdetailSourceInputSchema).max(6).default([]),
 });
 
+const generatedOuvrageReviewedCandidateSchema = z.object({
+  designation: z.string().trim().min(1).max(500),
+  unit: z.string().trim().max(64).nullable().optional(),
+  quantity: z.number().finite("Quantite invalide.").min(0).nullable().optional(),
+});
+
 const generatedOuvrageSubdetailUpdateInputSchema = z.object({
   versionId: z.string().uuid("versionId invalide."),
   draftId: z.string().uuid("draftId invalide."),
   candidateId: z.string().uuid("candidateId invalide."),
   markReviewed: z.boolean().default(true),
+  reviewedCandidate: generatedOuvrageReviewedCandidateSchema.optional(),
   components: z
     .array(generatedOuvrageSubdetailComponentInputSchema)
     .min(1, "Au moins un composant est requis.")
@@ -643,6 +655,50 @@ function normalizeText(value: string, maxLength?: number) {
     return trimmed.slice(0, maxLength).trim();
   }
   return trimmed;
+}
+
+function normalizeReviewedCandidateSnapshot(input: {
+  designation: string;
+  unit: unknown;
+  quantity: unknown;
+}): GeneratedOuvrageReviewedCandidateSnapshot {
+  return {
+    designation: normalizeText(input.designation, 500),
+    unit: toNullableText(input.unit),
+    quantity:
+      typeof input.quantity === "number" && Number.isFinite(input.quantity)
+        ? roundQuantity(input.quantity)
+        : null,
+  };
+}
+
+function readReviewedCandidateSnapshot(value: unknown) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as JsonRecord;
+  const designation = toNullableText(record.designation);
+  if (!designation) {
+    return null;
+  }
+
+  return normalizeReviewedCandidateSnapshot({
+    designation,
+    unit: record.unit,
+    quantity: record.quantity,
+  });
+}
+
+function reviewedCandidateMatches(input: {
+  acceptedCandidate: GeneratedOuvrageReviewedCandidateSnapshot;
+  reviewedCandidate: GeneratedOuvrageReviewedCandidateSnapshot;
+}) {
+  return (
+    input.acceptedCandidate.designation === input.reviewedCandidate.designation &&
+    input.acceptedCandidate.unit === input.reviewedCandidate.unit &&
+    input.acceptedCandidate.quantity === input.reviewedCandidate.quantity
+  );
 }
 
 function normalizeMultilineText(value: string, maxLength?: number) {
@@ -3038,6 +3094,11 @@ export async function fetchGeneratedOuvrageSubdetailDraft(
     generationMetadata: {
       ...generated.generationMetadata,
       margin_multiplier: version.margin_multiplier ?? null,
+      reviewed_candidate: normalizeReviewedCandidateSnapshot({
+        designation: candidate.designation,
+        unit: candidate.unit,
+        quantity: candidate.quantity,
+      }),
     },
     components: generated.components.map((component) => ({
       componentId: component.componentId,
@@ -3182,11 +3243,25 @@ export async function updateGeneratedOuvrageSubdetailDraft(
           ...(existing.draft.generation_metadata as JsonRecord),
           margin_multiplier: version.margin_multiplier ?? null,
           last_reviewed_at: new Date().toISOString(),
+          reviewed_candidate: normalizeReviewedCandidateSnapshot({
+            designation:
+              parsed.reviewedCandidate?.designation ?? candidate.designation,
+            unit: parsed.reviewedCandidate?.unit ?? candidate.unit,
+            quantity:
+              parsed.reviewedCandidate?.quantity ?? candidate.quantity,
+          }),
         }
       : {
           generator: "review_update",
           margin_multiplier: version.margin_multiplier ?? null,
           last_reviewed_at: new Date().toISOString(),
+          reviewed_candidate: normalizeReviewedCandidateSnapshot({
+            designation:
+              parsed.reviewedCandidate?.designation ?? candidate.designation,
+            unit: parsed.reviewedCandidate?.unit ?? candidate.unit,
+            quantity:
+              parsed.reviewedCandidate?.quantity ?? candidate.quantity,
+          }),
         };
 
   await persistGeneratedOuvrageSubdetail({
@@ -3356,6 +3431,40 @@ export async function insertGeneratedOuvrages(
             subdetailStatus: subdetail.draft.status,
           },
           "EST383_SUBDETAIL_NOT_REVIEWED"
+        );
+      }
+
+      const reviewedMetadata =
+        subdetail.draft.generation_metadata && typeof subdetail.draft.generation_metadata === "object"
+          ? (subdetail.draft.generation_metadata as JsonRecord)
+          : {};
+      const reviewedCandidate =
+        readReviewedCandidateSnapshot(reviewedMetadata.reviewed_candidate) ??
+        normalizeReviewedCandidateSnapshot({
+          designation: preparedCandidate.candidate.designation,
+          unit: preparedCandidate.candidate.unit,
+          quantity: preparedCandidate.candidate.quantity,
+        });
+      const acceptedReviewSnapshot = normalizeReviewedCandidateSnapshot({
+        designation: preparedCandidate.designation,
+        unit: preparedCandidate.acceptedCandidate.unit,
+        quantity: preparedCandidate.quantity,
+      });
+
+      if (
+        !reviewedCandidateMatches({
+          acceptedCandidate: acceptedReviewSnapshot,
+          reviewedCandidate,
+        })
+      ) {
+        throw conflict(
+          "Le sous-detail valide ne correspond plus aux valeurs actuelles du candidat. Merci de revalider le sous-detail.",
+          {
+            candidateId: preparedCandidate.candidate.id,
+            reviewedCandidate,
+            acceptedCandidate: acceptedReviewSnapshot,
+          },
+          "EST383_SUBDETAIL_STALE"
         );
       }
 
@@ -3536,7 +3645,10 @@ export async function insertGeneratedOuvrages(
         parent_id: resolvedTargetSection.parentId,
         title: designation,
         quantity,
-        unit_price_ht_cents: subdetailResult.summary.dsCents,
+        unit_price_ht_cents:
+          quantity > 0
+            ? Math.round(subdetailResult.summary.dsCents / quantity)
+            : subdetailResult.summary.dsCents,
         source_provider: "generated_ouvrage",
         source_file_name: primaryFragment?.sourceFileName ?? null,
         source_page: primaryFragment?.sourcePageFrom ?? null,

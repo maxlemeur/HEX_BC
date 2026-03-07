@@ -58,6 +58,7 @@ type RenderBadgeOptions = {
   sourceLevel?: string | null;
   extractedAt?: string | null;
   sourceVersionNumber?: number | null;
+  sourceMetadata?: unknown;
 };
 
 function renderBadge(options: RenderBadgeOptions = {}) {
@@ -94,6 +95,7 @@ function renderBadge(options: RenderBadgeOptions = {}) {
           ? 1
           : options.sourceVersionNumber
       }
+      sourceMetadata={options.sourceMetadata}
     />
   );
 }
@@ -218,5 +220,30 @@ describe("TakeoffSourceBadge", () => {
       );
     });
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("renders generated ouvrage risk labels from object metadata", async () => {
+    renderBadge({
+      sourceProvider: "generated_ouvrage",
+      sourceMetadata: {
+        draft_id: "draft-1",
+        candidate_id: "candidate-1",
+        summary: {
+          ds_cents: 4500,
+          risk_signals: [
+            { label: "Quantite a confirmer", severity: "warning", basis: "hypothesis" },
+            { label: "Prix library seulement", severity: "critical", basis: "inference" },
+          ],
+        },
+        components: [],
+      },
+    });
+
+    await openPopoverOnHoverOrClick();
+
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent(
+      "Risques: Quantite a confirmer · Prix library seulement"
+    );
   });
 });

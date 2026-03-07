@@ -266,6 +266,20 @@ function parseGeneratedOuvrageSnapshot(value: unknown): GeneratedOuvrageSnapshot
           .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
           .filter((entry) => entry.length > 0)
       : [];
+  const readRiskSignalList = (candidate: unknown) =>
+    Array.isArray(candidate)
+      ? candidate
+          .map((entry) => {
+            if (typeof entry === "string") {
+              return entry.trim();
+            }
+            if (isRecord(entry) && typeof entry.label === "string") {
+              return entry.label.trim();
+            }
+            return "";
+          })
+          .filter((entry) => entry.length > 0)
+      : [];
 
   return {
     draftId: toNonEmptyString(
@@ -300,16 +314,10 @@ function parseGeneratedOuvrageSnapshot(value: unknown): GeneratedOuvrageSnapshot
           ? summaryRecord.assembly_reference_code
           : null
       ),
-      riskSignals: readStringList(
+      riskSignals: readRiskSignalList(
         Array.isArray(value.risk_signals)
           ? value.risk_signals
-          : Array.isArray(summaryRecord.risk_signals)
-            ? (summaryRecord.risk_signals as unknown[]).map((entry) =>
-                isRecord(entry) && typeof entry.label === "string"
-                  ? entry.label
-                  : null
-              )
-            : []
+          : summaryRecord.risk_signals
       ),
       facts: readStringList(value.facts ?? summaryRecord.facts),
       hypotheses: readStringList(value.hypotheses ?? summaryRecord.hypotheses),

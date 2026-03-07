@@ -223,7 +223,12 @@ function createCandidateRow(
 }
 
 function createSubdetailDraftRow(
-  status: "pending_review" | "reviewed" | "applied" = "reviewed"
+  status: "pending_review" | "reviewed" | "applied" = "reviewed",
+  reviewedCandidate?: {
+    designation?: string;
+    unit?: string | null;
+    quantity?: number | null;
+  }
 ) {
   return {
     id: SUBDETAIL_ID,
@@ -248,6 +253,11 @@ function createSubdetailDraftRow(
     },
     generation_metadata: {
       margin_multiplier: 1.3,
+      reviewed_candidate: {
+        designation: reviewedCandidate?.designation ?? "Pose de faux plafond",
+        unit: reviewedCandidate?.unit ?? "m2",
+        quantity: reviewedCandidate?.quantity ?? 120,
+      },
     },
     applied_at: status === "applied" ? "2026-03-07T09:05:00.000Z" : null,
   };
@@ -682,7 +692,7 @@ describe("insertGeneratedOuvrages", () => {
         parent_id: FALLBACK_SECTION_ID,
         title: "Pose de faux plafond",
         quantity: 120,
-        unit_price_ht_cents: 4500,
+        unit_price_ht_cents: 38,
         source_provider: "generated_ouvrage",
       })
     );
@@ -1030,6 +1040,79 @@ describe("insertGeneratedOuvrages", () => {
       })
     ).rejects.toMatchObject({
       code: "EST381_CANDIDATE_QUANTITY_REQUIRED",
+    });
+
+    expect(vi.mocked(createEstimateItem)).not.toHaveBeenCalled();
+  });
+
+  it("rejects insertion when the reviewed subdetail no longer matches accepted values", async () => {
+    const supabase = createSupabaseStub({
+      estimate_versions: {
+        select: [createQueryBuilder({ data: createVersionAccessRow(), error: null })],
+      },
+      draft_locks: {
+        select: [
+          createQueryBuilder({
+            data: {
+              id: "lock-1",
+              version_id: VERSION_ID,
+              user_id: USER_ID,
+              locked_at: "2026-03-07T09:00:00.000Z",
+              expires_at: "2099-03-07T09:30:00.000Z",
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_drafts: {
+        select: [createQueryBuilder({ data: createDraftRow(), error: null })],
+      },
+      estimate_generated_ouvrage_source_fragments: {
+        select: [createQueryBuilder({ data: [createFragmentRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidates: {
+        select: [createQueryBuilder({ data: [createCandidateRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidate_sources: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_generated_ouvrage_applications: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_drafts: {
+        select: [
+          createQueryBuilder({
+            data: createSubdetailDraftRow("reviewed", { quantity: 120 }),
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_subdetail_items: {
+        select: [createQueryBuilder({ data: createSubdetailItemRows(), error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_item_sources: {
+        select: [createQueryBuilder({ data: createSubdetailItemSourceRows(), error: null })],
+      },
+    });
+
+    createAuthenticatedContext(supabase);
+
+    await expect(
+      insertGeneratedOuvrages({
+        versionId: VERSION_ID,
+        draftId: DRAFT_ID,
+        acceptedCandidates: [
+          {
+            candidateId: CANDIDATE_ID,
+            designation: "Pose de faux plafond",
+            unit: "m2",
+            quantity: 80,
+            lotId: null,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      code: "EST383_SUBDETAIL_STALE",
     });
 
     expect(vi.mocked(createEstimateItem)).not.toHaveBeenCalled();
