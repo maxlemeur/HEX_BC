@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type { AffaireIntakeWorkspace as WorkspaceData } from "@/lib/affaires/intake-server";
+import { Badge } from "@/components/ui/Badge";
 import { IntakeDropzone } from "./IntakeDropzone";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import { IntakeMissingPieces } from "./IntakeMissingPieces";
@@ -114,13 +115,39 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
     return () => clearInterval(interval);
   }, [pendingUploadId, router, workspace?.uploadId]);
 
-  const documents = workspace?.documents ?? [];
-  const filteredDocuments = isFilterActive
-    ? documents.filter(isDocumentNeedsReview)
-    : documents;
+  const documents = useMemo(() => workspace?.documents ?? [], [workspace?.documents]);
   const needsReviewCount = documents.filter(isDocumentNeedsReview).length;
   const processingCount = documents.filter(isDocumentProcessing).length;
   const hasDocuments = documents.length > 0;
+
+  // Grouped document lists
+  const processingDocs = useMemo(() => documents.filter(isDocumentProcessing), [documents]);
+  const reviewDocs = useMemo(() => documents.filter(isDocumentNeedsReview), [documents]);
+  const classifiedDocs = useMemo(
+    () => documents.filter((d) => !isDocumentProcessing(d) && !isDocumentNeedsReview(d)),
+    [documents]
+  );
+  const classifiedCount = classifiedDocs.length;
+
+  // For filter mode, only show reviewDocs (same behaviour as before)
+  const filteredDocuments = isFilterActive ? reviewDocs : documents;
+
+  // Missing pieces: check if any critical
+  const hasCriticalMissing = workspace?.missingPieces.some((p) => p.severity === "critical") ?? false;
+
+  // Progress bar segments
+  const { classifiedPct, reviewPct, processingPct } = useMemo(() => {
+    const total = documents.length;
+    if (total === 0) return { classifiedPct: 0, reviewPct: 0, processingPct: 0 };
+    return {
+      classifiedPct: (classifiedCount / total) * 100,
+      reviewPct: (needsReviewCount / total) * 100,
+      processingPct: (processingCount / total) * 100,
+    };
+  }, [documents.length, classifiedCount, needsReviewCount, processingCount]);
+
+  // Triage complete?
+  const triageComplete = hasDocuments && processingCount === 0 && needsReviewCount === 0 && !hasCriticalMissing;
 
   const toggleFilter = useCallback(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -139,18 +166,25 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
     window.history.replaceState(window.history.state, "", nextUrl);
   }, [activeFilter, pathname, searchParams]);
 
+  // Legend text for progress bar
+  const progressLegend = useMemo(() => {
+    const parts: string[] = [];
+    if (classifiedCount > 0) parts.push(`${classifiedCount} classe${classifiedCount > 1 ? "s" : ""}`);
+    if (needsReviewCount > 0) parts.push(`${needsReviewCount} a confirmer`);
+    if (processingCount > 0) parts.push(`${processingCount} en cours`);
+    return parts.join(", ");
+  }, [classifiedCount, needsReviewCount, processingCount]);
+
   return (
     <section className="dashboard-card p-5 animate-fade-in" aria-label="Intake dossier affaire">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-            Dossier d&apos;affaire
+            Triage du dossier
           </h2>
           {hasDocuments && (
             <p className="mt-0.5 text-xs text-[var(--slate-500)]">
               {documents.length} document{documents.length > 1 ? "s" : ""}
-              {processingCount > 0 && ` — ${processingCount} en cours d'analyse`}
-              {needsReviewCount > 0 && ` — ${needsReviewCount} a revoir`}
             </p>
           )}
         </div>
@@ -192,6 +226,40 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
         </div>
       </div>
 
+      {/* Progress bar */}
+      {hasDocuments && (
+        <div className="mb-4">
+          <div
+            className="flex h-2.5 w-full overflow-hidden rounded-full bg-[var(--slate-100)]"
+            role="progressbar"
+            aria-valuenow={classifiedCount}
+            aria-valuemin={0}
+            aria-valuemax={documents.length}
+            aria-label={`Triage : ${progressLegend}`}
+          >
+            {classifiedPct > 0 && (
+              <div
+                className="h-full bg-[var(--success)] transition-all duration-500"
+                style={{ width: `${classifiedPct}%` }}
+              />
+            )}
+            {reviewPct > 0 && (
+              <div
+                className="h-full bg-[var(--warning)] transition-all duration-500"
+                style={{ width: `${reviewPct}%` }}
+              />
+            )}
+            {processingPct > 0 && (
+              <div
+                className="h-full bg-[var(--brand-blue)] transition-all duration-500"
+                style={{ width: `${processingPct}%` }}
+              />
+            )}
+          </div>
+          <p className="mt-1.5 text-xs text-[var(--slate-500)]">{progressLegend}</p>
+        </div>
+      )}
+
       {/* Dropzone */}
       {(showDropzone || !hasDocuments) && (
         <div className={hasDocuments ? "mb-4" : ""}>
@@ -203,16 +271,6 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
         </div>
       )}
 
-      {/* Processing banner */}
-      {processingCount > 0 && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-3 py-2 text-sm text-[var(--brand-blue)]">
-          <svg className="h-4 w-4 animate-spin shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-          </svg>
-          Classification IA en cours pour {processingCount} document{processingCount > 1 ? "s" : ""}...
-        </div>
-      )}
-
       {/* Missing pieces */}
       {workspace && workspace.missingPieces.length > 0 && (
         <div className="mb-4">
@@ -220,8 +278,85 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
         </div>
       )}
 
-      {/* Document list */}
-      {filteredDocuments.length > 0 && (
+      {/* Grouped document sections */}
+      {!isFilterActive && hasDocuments && (
+        <>
+          {/* En cours d'analyse */}
+          {processingDocs.length > 0 && (
+            <section aria-label="Documents en cours d'analyse" className="mt-4">
+              <div className="flex items-center gap-2 rounded-lg bg-[var(--slate-50)] px-3 py-2 mb-2">
+                <svg className="h-4 w-4 animate-spin shrink-0 text-[var(--brand-blue)]" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                </svg>
+                <h3 className="text-xs font-semibold text-[var(--slate-700)]">En cours d&apos;analyse</h3>
+                <Badge variant="info" size="sm">{processingDocs.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {processingDocs.map((doc) => (
+                  <IntakeDocumentCard
+                    key={doc.documentId}
+                    document={doc}
+                    projectId={projectId}
+                    onReclassified={handleReclassified}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* A confirmer */}
+          {reviewDocs.length > 0 && (
+            <section aria-label="Documents a confirmer" className="mt-4">
+              <div className="flex items-center gap-2 rounded-lg bg-[var(--slate-50)] px-3 py-2 mb-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--warning)]" aria-hidden="true">
+                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+                  <line x1="12" x2="12" y1="9" y2="13" />
+                  <line x1="12" x2="12.01" y1="17" y2="17" />
+                </svg>
+                <h3 className="text-xs font-semibold text-[var(--slate-700)]">A confirmer</h3>
+                <Badge variant="warning" size="sm">{reviewDocs.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {reviewDocs.map((doc) => (
+                  <IntakeDocumentCard
+                    key={doc.documentId}
+                    document={doc}
+                    projectId={projectId}
+                    onReclassified={handleReclassified}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Classes */}
+          {classifiedDocs.length > 0 && (
+            <section aria-label="Documents classes" className="mt-4">
+              <div className="flex items-center gap-2 rounded-lg bg-[var(--slate-50)] px-3 py-2 mb-2">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--success)]" aria-hidden="true">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+                <h3 className="text-xs font-semibold text-[var(--slate-700)]">Classes</h3>
+                <Badge variant="success" size="sm">{classifiedDocs.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {classifiedDocs.map((doc) => (
+                  <IntakeDocumentCard
+                    key={doc.documentId}
+                    document={doc}
+                    projectId={projectId}
+                    onReclassified={handleReclassified}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      {/* Filtered mode: show only review docs (same as before) */}
+      {isFilterActive && filteredDocuments.length > 0 && (
         <div className="space-y-2">
           {filteredDocuments.map((doc) => (
             <IntakeDocumentCard
@@ -247,6 +382,38 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
           >
             Voir tous les documents
           </button>
+        </div>
+      )}
+
+      {/* CTA: Triage status */}
+      {hasDocuments && triageComplete && (
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-[var(--success)]/20 bg-[var(--success)]/5 px-3 py-2 text-sm text-[var(--success)]">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+          Triage termine — Tous les documents sont classes.
+        </div>
+      )}
+      {hasDocuments && !triageComplete && (needsReviewCount > 0 || processingCount > 0) && (
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2 text-sm text-[var(--slate-600)]">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" x2="12" y1="8" y2="12" />
+            <line x1="12" x2="12.01" y1="16" y2="16" />
+          </svg>
+          <span>
+            Triage en cours — {needsReviewCount + processingCount} document{(needsReviewCount + processingCount) > 1 ? "s" : ""} restent a confirmer.
+            {!isFilterActive && needsReviewCount > 0 && (
+              <button
+                type="button"
+                onClick={toggleFilter}
+                className="ml-1 font-medium text-[var(--brand-blue)] hover:underline"
+              >
+                Filtrer
+              </button>
+            )}
+          </span>
         </div>
       )}
 

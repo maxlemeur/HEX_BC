@@ -47,8 +47,8 @@ function getConfidenceDisplay(confidence: number): { label: string; variant: Bad
   if (confidence >= 0.95) return { label: "Certain", variant: "success" };
   if (confidence >= 0.80) return { label: "Confiant", variant: "success" };
   if (confidence >= 0.65) return { label: "Probable", variant: "info" };
-  if (confidence >= 0.40) return { label: "Incertain", variant: "warning" };
-  return { label: "Tres incertain", variant: "error" };
+  if (confidence >= 0.40) return { label: "A verifier", variant: "warning" };
+  return { label: "A confirmer", variant: "error" };
 }
 
 function getCategoryBadgeVariant(category: AffaireIntakeDocumentKind): BadgeVariant {
@@ -103,7 +103,7 @@ export function IntakeDocumentCard({
   }, [selectedCategory, doc.detectedCategory, doc.documentId, projectId, onReclassified]);
 
   const meta = doc.extractedMetadata;
-  const hasMetadata = meta.projectName || meta.clientName || meta.deadlineAt || meta.detectedLots.length > 0;
+  const hasMetadata = meta.projectName || meta.clientName || meta.deadlineAt || meta.detectedLots.length > 0 || meta.detectedVariants.length > 0;
 
   return (
     <div
@@ -151,7 +151,7 @@ export function IntakeDocumentCard({
             onClick={() => { setSelectedCategory(doc.detectedCategory); setIsEditing(true); }}
             className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-[var(--brand-blue)] transition-colors hover:bg-[var(--brand-blue)]/5"
           >
-            Corriger
+            Reclasser
           </button>
         )}
       </div>
@@ -208,6 +208,12 @@ export function IntakeDocumentCard({
             <span className="text-xs text-[var(--slate-500)]">
               <span className="font-medium text-[var(--slate-600)]">Lots:</span>{" "}
               {meta.detectedLots.join(", ")}
+            </span>
+          )}
+          {meta.detectedVariants.length > 0 && (
+            <span className="text-xs text-[var(--slate-500)]">
+              <span className="font-medium text-[var(--slate-600)]">Variantes:</span>{" "}
+              {meta.detectedVariants.join(", ")}
             </span>
           )}
         </div>

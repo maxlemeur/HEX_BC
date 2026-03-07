@@ -21,10 +21,23 @@ type IntakeMissingPiecesProps = {
   pieces: AffaireIntakeWorkspaceMissingPiece[];
 };
 
+const SEVERITY_ORDER: Record<string, number> = {
+  critical: 0,
+  warning: 1,
+  info: 2,
+};
+
 export function IntakeMissingPieces({ pieces }: IntakeMissingPiecesProps) {
   if (pieces.length === 0) return null;
 
-  const hasCritical = pieces.some((p) => p.severity === "critical");
+  const sorted = [...pieces].sort(
+    (a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9)
+  );
+  const hasCritical = sorted.some((p) => p.severity === "critical");
+  const hasNonCritical = sorted.some((p) => p.severity !== "critical");
+  const criticalBoundary = hasCritical && hasNonCritical
+    ? sorted.findIndex((p) => p.severity !== "critical")
+    : -1;
 
   return (
     <div
@@ -34,7 +47,7 @@ export function IntakeMissingPieces({ pieces }: IntakeMissingPiecesProps) {
           : "border-[var(--warning)]/20 bg-[var(--warning)]/5"
       }`}
       role="region"
-      aria-label="Pieces manquantes"
+      aria-label="Pieces manquantes au dossier"
     >
       <div className="mb-2 flex items-center gap-2">
         <svg
@@ -54,20 +67,25 @@ export function IntakeMissingPieces({ pieces }: IntakeMissingPiecesProps) {
           <line x1="12" x2="12.01" y1="17" y2="17" />
         </svg>
         <h3 className="text-sm font-semibold text-[var(--slate-800)]">
-          Pieces manquantes
+          Pieces manquantes au dossier
         </h3>
       </div>
 
       <ul className="space-y-1.5">
-        {pieces.map((piece) => (
-          <li key={piece.code} className="flex items-center gap-2">
-            <Badge
-              variant={SEVERITY_VARIANT[piece.severity] ?? "info"}
-              size="sm"
-            >
-              {SEVERITY_LABEL[piece.severity] ?? piece.severity}
-            </Badge>
-            <span className="text-sm text-[var(--slate-700)]">{piece.label}</span>
+        {sorted.map((piece, i) => (
+          <li key={piece.code}>
+            {i === criticalBoundary && (
+              <div className="mb-1.5 border-t border-[var(--slate-200)]" />
+            )}
+            <div className="flex items-center gap-2">
+              <Badge
+                variant={SEVERITY_VARIANT[piece.severity] ?? "info"}
+                size="sm"
+              >
+                {SEVERITY_LABEL[piece.severity] ?? piece.severity}
+              </Badge>
+              <span className="text-sm text-[var(--slate-700)]">{piece.label}</span>
+            </div>
           </li>
         ))}
       </ul>

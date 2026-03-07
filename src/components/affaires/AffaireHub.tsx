@@ -37,6 +37,7 @@ import type {
 } from "@/lib/affaires/register";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { AffaireRegisterCard } from "./AffaireRegisterCard";
+import { BriefDraftCard } from "./BriefDraftCard";
 import { IntakeWorkspace } from "./IntakeWorkspace";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
@@ -1059,6 +1060,15 @@ export function AffaireHub({
           <IntakeWorkspace
             projectId={summary.project.id}
             workspace={intakeWorkspace}
+          />
+        </div>
+      )}
+      {intakeWorkspace !== undefined && (
+        <div className="mb-4">
+          <BriefDraftCard
+            projectId={summary.project.id}
+            briefDraft={intakeWorkspace?.briefDraft ?? null}
+            isReadOnly={isReadOnlyReview}
           />
         </div>
       )}
