@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 import {
   decideEstimateApprovalAction,
@@ -27,8 +27,13 @@ export type EstimateApprovalSubmissionOverview = {
   coveragePercent: number | null;
   exceptionCount: number | null;
   openQuestionsCount: number | null;
+  openAssumptionCount: number | null;
+  openMissingPieceCount: number | null;
+  clarifyWithClientCount: number | null;
   marginPercent: number | null;
 };
+
+const SUBMIT_PANEL_QUERY_PARAM = "approvalSubmit";
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
   day: "2-digit",
@@ -132,6 +137,21 @@ function formatCount(value: number | null) {
   }
 
   return new Intl.NumberFormat("fr-FR").format(value);
+}
+
+function setSubmitPanelUrlState(nextOpen: boolean) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  if (nextOpen) {
+    nextUrl.searchParams.set(SUBMIT_PANEL_QUERY_PARAM, "open");
+  } else {
+    nextUrl.searchParams.delete(SUBMIT_PANEL_QUERY_PARAM);
+  }
+
+  window.history.replaceState(window.history.state, "", nextUrl);
 }
 
 function buildRegisterHref(projectId: string, signalId: string) {
@@ -239,6 +259,7 @@ export function EstimateApprovalActions({
   const [assignedReviewerUserId, setAssignedReviewerUserId] = useState<string | null>(
     summary.availableReviewers[0]?.userId ?? null
   );
+  const submitPanelId = `estimate-approval-submit-panel-${versionId}`;
 
   const requestableReasons = summary.reasons.filter(
     (reason) => reason.approvalStatus === "missing" || reason.approvalStatus === "rejected"
@@ -251,6 +272,21 @@ export function EstimateApprovalActions({
     draftScopeType === "project"
       ? summary.commentTargets.project
       : scopeOptions.find((option) => option.scopeId === draftScopeId) ?? null;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const syncFromUrl = () => {
+      const url = new URL(window.location.href);
+      setShowSubmitPanel(url.searchParams.get(SUBMIT_PANEL_QUERY_PARAM) === "open");
+    };
+
+    syncFromUrl();
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, []);
 
   function resetDraftForm() {
     setDraftScopeType("project");
@@ -450,9 +486,15 @@ export function EstimateApprovalActions({
               type="button"
               className="btn btn-secondary btn-sm"
               disabled={isPending || summary.activeCycle !== null}
+              aria-expanded={showSubmitPanel}
+              aria-controls={submitPanelId}
               onClick={() => {
                 setFormError(null);
-                setShowSubmitPanel((current) => !current);
+                setShowSubmitPanel((current) => {
+                  const nextOpen = !current;
+                  setSubmitPanelUrlState(nextOpen);
+                  return nextOpen;
+                });
               }}
             >
               {showSubmitPanel ? "Fermer" : "Soumettre a validation"}
@@ -460,8 +502,11 @@ export function EstimateApprovalActions({
           </div>
 
           {showSubmitPanel ? (
-            <div className="mt-4 space-y-4 border-t border-[var(--slate-200)] pt-4">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div
+              id={submitPanelId}
+              className="mt-4 space-y-4 border-t border-[var(--slate-200)] pt-4"
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
                 <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
                     Couverture
@@ -469,6 +514,18 @@ export function EstimateApprovalActions({
                   <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
                     {formatPercent(submissionOverview.coveragePercent)}
                   </p>
+                  {submissionOverview.coveragePercent === null ? (
+                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      Analyse metres indisponible.{" "}
+                      <Link
+                        href={`/dashboard/affaires/${projectId}/takeoff`}
+                        className="font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                      >
+                        Ouvrir Plans & metres
+                      </Link>
+                      .
+                    </p>
+                  ) : null}
                 </article>
                 <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
@@ -477,16 +534,46 @@ export function EstimateApprovalActions({
                   <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
                     {formatCount(submissionOverview.exceptionCount)}
                   </p>
+                  {submissionOverview.exceptionCount === null ? (
+                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      Revue des ecarts indisponible.{" "}
+                      <Link
+                        href={`/dashboard/affaires/${projectId}/takeoff`}
+                        className="font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                      >
+                        Ouvrir Plans & metres
+                      </Link>
+                      .
+                    </p>
+                  ) : null}
                 </article>
                 <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
-                    Points ouverts du registre
+                    Hypotheses ouvertes
                   </p>
                   <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
-                    {formatCount(submissionOverview.openQuestionsCount)}
+                    {formatCount(submissionOverview.openAssumptionCount)}
                   </p>
                   <p className="mt-1 text-xs text-[var(--slate-500)]">
-                    Hypotheses, pieces manquantes et clarifications client encore actives.
+                    {submissionOverview.openMissingPieceCount === null ||
+                    submissionOverview.clarifyWithClientCount === null ? (
+                      <>
+                        Registre affaire indisponible.{" "}
+                        <Link
+                          href={`/dashboard/affaires/${projectId}?registerStatus=open`}
+                          className="font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                        >
+                          Ouvrir le registre
+                        </Link>
+                        .
+                      </>
+                    ) : (
+                      <>
+                        Pieces manquantes:{" "}
+                        {formatCount(submissionOverview.openMissingPieceCount)}. Clarifications
+                        client: {formatCount(submissionOverview.clarifyWithClientCount)}.
+                      </>
+                    )}
                   </p>
                 </article>
                 <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
@@ -496,10 +583,22 @@ export function EstimateApprovalActions({
                   <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
                     {formatPercent(submissionOverview.marginPercent)}
                   </p>
+                  {submissionOverview.marginPercent === null ? (
+                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      Marge indisponible.{" "}
+                      <Link
+                        href={`/dashboard/estimates/${versionId}/edit`}
+                        className="font-medium text-[var(--brand-blue)] underline underline-offset-2"
+                      >
+                        Ouvrir le devis
+                      </Link>
+                      .
+                    </p>
+                  ) : null}
                 </article>
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-2">
+              <div className="grid gap-4">
                 <section className="rounded-xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -643,7 +742,7 @@ export function EstimateApprovalActions({
                 )}
               </section>
 
-              <div className="grid gap-3 md:grid-cols-[240px_minmax(0,1fr)]">
+              <div className="grid gap-3">
                 {summary.availableReviewers.length > 0 ? (
                   <label className="flex flex-col gap-1 text-sm text-[var(--slate-700)]">
                     <span className="text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
@@ -651,6 +750,8 @@ export function EstimateApprovalActions({
                     </span>
                     <select
                       className="input"
+                      name="assignedReviewerUserId"
+                      autoComplete="off"
                       value={assignedReviewerUserId ?? ""}
                       onChange={(event) =>
                         setAssignedReviewerUserId(event.target.value || null)
@@ -676,14 +777,19 @@ export function EstimateApprovalActions({
                   </span>
                   <textarea
                     className="input min-h-[112px] resize-y py-3"
+                    name="submissionMessage"
+                    autoComplete="off"
                     value={submissionMessage}
                     onChange={(event) => setSubmissionMessage(event.target.value)}
-                    placeholder="Precisez les points a surveiller, les arbitrages deja faits et ce qui reste a confirmer."
+                    placeholder="Ex. Prioriser les exceptions CFO, les arbitrages deja faits et ce qui reste a confirmer…"
                   />
                 </label>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 border-t border-[var(--slate-200)] pt-4">
+              <div
+                className="flex flex-wrap items-center gap-2 border-t border-[var(--slate-200)] pt-4"
+                aria-live="polite"
+              >
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
@@ -695,7 +801,7 @@ export function EstimateApprovalActions({
                   }
                   onClick={runSubmitAction}
                 >
-                  {isPending ? "En cours..." : "Confirmer la soumission"}
+                  {isPending ? "En cours…" : "Confirmer la soumission"}
                 </button>
                 {requestableReasons.length === 0 ? (
                   <p className="text-xs text-[var(--slate-500)]">

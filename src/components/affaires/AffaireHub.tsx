@@ -1109,6 +1109,9 @@ export function AffaireHub({
                         coveragePercent: plansSummary?.coveragePercent ?? null,
                         exceptionCount: plansSummary?.exceptionCount ?? null,
                         openQuestionsCount: plansSummary?.openQuestionsCount ?? null,
+                        openAssumptionCount: registerSummary?.openAssumptionCount ?? null,
+                        openMissingPieceCount: registerSummary?.openMissingPieceCount ?? null,
+                        clarifyWithClientCount: registerSummary?.clarifyWithClientCount ?? null,
                         marginPercent: summary.currentVersion.marginPercent ?? null,
                       }}
                     />

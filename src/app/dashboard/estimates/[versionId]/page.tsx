@@ -13,6 +13,7 @@ import { EstimateStatusActions } from "@/components/estimates/EstimateStatusActi
 import { VariantComparisonTable } from "@/components/estimates/VariantComparisonTable";
 import { SaveAsTemplateButton } from "@/components/estimates/SaveAsTemplateButton";
 import { fetchAffaireHubPlansSummary } from "@/lib/affaires/server";
+import { fetchAffaireRegisterSummary } from "@/lib/affaires/register-server";
 import {
   SealIntegrityBadge,
   type SealIntegrityState,
@@ -190,7 +191,13 @@ export default async function EstimateDetailPage({
       { supabase }
     ),
   ]);
-  const plansSummary = await fetchAffaireHubPlansSummary(version.project_id).catch(() => null);
+  const [plansSummary, registerSummary] = await Promise.all([
+    fetchAffaireHubPlansSummary(version.project_id).catch(() => null),
+    fetchAffaireRegisterSummary({
+      projectId: version.project_id,
+      versionId,
+    }).catch(() => null),
+  ]);
   const laborRoleIds = Array.from(
     new Set(
       items
@@ -404,6 +411,9 @@ export default async function EstimateDetailPage({
                     coveragePercent: plansSummary?.coveragePercent ?? null,
                     exceptionCount: plansSummary?.exceptionCount ?? null,
                     openQuestionsCount: plansSummary?.openQuestionsCount ?? null,
+                    openAssumptionCount: registerSummary?.openAssumptionCount ?? null,
+                    openMissingPieceCount: registerSummary?.openMissingPieceCount ?? null,
+                    clarifyWithClientCount: registerSummary?.clarifyWithClientCount ?? null,
                     marginPercent:
                       Number.isFinite(appliedMarginMultiplier) && appliedMarginMultiplier > 0
                         ? (appliedMarginMultiplier - 1) * 100

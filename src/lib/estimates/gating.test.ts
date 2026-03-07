@@ -149,6 +149,8 @@ describe("estimate send gating", () => {
       criticalOpenEntries: [],
       nonCriticalOpenEntries: [],
       clarifyWithClientEntries: [],
+      openAssumptionEntries: [],
+      openMissingPieceEntries: [],
     });
     vi.mocked(evaluateRules).mockResolvedValue({
       violations: [],
@@ -414,6 +416,26 @@ describe("estimate send gating", () => {
           status: "clarify_with_client",
           text: "Valider la variante avec le client",
           scopeLabel: "Lot CFO",
+        },
+      ],
+      openAssumptionEntries: [
+        {
+          id: "reg-2",
+          kind: "assumption",
+          severity: "warning",
+          status: "open",
+          text: "Le phasage reste a confirmer",
+          scopeLabel: "Affaire test",
+        },
+      ],
+      openMissingPieceEntries: [
+        {
+          id: "reg-1",
+          kind: "missing_piece",
+          severity: "critical",
+          status: "open",
+          text: "CCTP complet manquant",
+          scopeLabel: "Affaire test",
         },
       ],
     });

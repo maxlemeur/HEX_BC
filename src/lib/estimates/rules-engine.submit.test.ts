@@ -247,6 +247,8 @@ describe("submitEstimateApproval", () => {
       criticalOpenEntries: [],
       nonCriticalOpenEntries: [],
       clarifyWithClientEntries: [],
+      openAssumptionEntries: [],
+      openMissingPieceEntries: [],
     });
   });
 
@@ -921,6 +923,26 @@ describe("submitEstimateApproval", () => {
           severity: "warning",
           status: "clarify_with_client",
           text: "Valider la variante avec le client",
+          scopeLabel: "Affaire test",
+        },
+      ],
+      openAssumptionEntries: [
+        {
+          id: "reg-2",
+          kind: "assumption",
+          severity: "warning",
+          status: "open",
+          text: "Le phasage reste a confirmer",
+          scopeLabel: "Affaire test",
+        },
+      ],
+      openMissingPieceEntries: [
+        {
+          id: "reg-1",
+          kind: "missing_piece",
+          severity: "critical",
+          status: "open",
+          text: "CCTP complet manquant",
           scopeLabel: "Affaire test",
         },
       ],

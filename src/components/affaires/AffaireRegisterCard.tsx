@@ -83,12 +83,20 @@ function buildDerivedSummary(items: AffaireRegisterEntry[]): AffaireRegisterSumm
   const clarifyWithClientCount = items.filter(
     (entry) => entry.status === "clarify_with_client"
   ).length;
+  const openAssumptionCount = items.filter(
+    (entry) => entry.status === "open" && entry.kind === "assumption"
+  ).length;
+  const openMissingPieceCount = items.filter(
+    (entry) => entry.status === "open" && entry.kind === "missing_piece"
+  ).length;
 
   return {
     openQuestionsCount,
     criticalOpenCount,
     nonCriticalOpenCount: Math.max(openQuestionsCount - criticalOpenCount, 0),
     clarifyWithClientCount,
+    openAssumptionCount,
+    openMissingPieceCount,
   };
 }
 

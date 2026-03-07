@@ -462,6 +462,8 @@ describe("affaires hub server", () => {
       criticalOpenEntries: [],
       nonCriticalOpenEntries: [],
       clarifyWithClientEntries: [],
+      openAssumptionEntries: [],
+      openMissingPieceEntries: [],
     });
   });
 
@@ -925,6 +927,8 @@ describe("affaires hub server", () => {
       criticalOpenEntries: [],
       nonCriticalOpenEntries: [],
       clarifyWithClientEntries: [],
+      openAssumptionEntries: [],
+      openMissingPieceEntries: [],
     });
 
     const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);

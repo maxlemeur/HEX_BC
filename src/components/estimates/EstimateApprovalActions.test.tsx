@@ -99,9 +99,25 @@ function buildSummary(
   };
 }
 
+function buildSubmissionOverview(
+  overrides: Partial<Parameters<typeof EstimateApprovalActions>[0]["submissionOverview"]> = {}
+) {
+  return {
+    coveragePercent: 82,
+    exceptionCount: 3,
+    openQuestionsCount: 1,
+    openAssumptionCount: 1,
+    openMissingPieceCount: 0,
+    clarifyWithClientCount: 1,
+    marginPercent: 11.2,
+    ...overrides,
+  };
+}
+
 describe("EstimateApprovalActions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, "", "/dashboard/affaires/project-1");
   });
 
   afterEach(() => {
@@ -127,12 +143,7 @@ describe("EstimateApprovalActions", () => {
             alerts: [],
           },
         })}
-        submissionOverview={{
-          coveragePercent: 82,
-          exceptionCount: 3,
-          openQuestionsCount: 1,
-          marginPercent: 11.2,
-        }}
+        submissionOverview={buildSubmissionOverview()}
       />
     );
 
@@ -167,12 +178,7 @@ describe("EstimateApprovalActions", () => {
         versionId="version-1"
         projectId="project-1"
         summary={buildSummary()}
-        submissionOverview={{
-          coveragePercent: 82,
-          exceptionCount: 3,
-          openQuestionsCount: 1,
-          marginPercent: 11.2,
-        }}
+        submissionOverview={buildSubmissionOverview()}
       />
     );
 
@@ -227,22 +233,25 @@ describe("EstimateApprovalActions", () => {
             ],
           },
         })}
-        submissionOverview={{
-          coveragePercent: 82,
-          exceptionCount: 3,
+        submissionOverview={buildSubmissionOverview({
           openQuestionsCount: 2,
-          marginPercent: 11.2,
-        }}
+          openAssumptionCount: 1,
+          openMissingPieceCount: 1,
+          clarifyWithClientCount: 1,
+        })}
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Soumettre a validation" }));
+    const toggleButton = screen.getByRole("button", { name: "Soumettre a validation" });
+    expect(toggleButton).toHaveAttribute("aria-expanded", "false");
 
-    expect(screen.getByText("Points ouverts du registre")).toBeInTheDocument();
+    await user.click(toggleButton);
+
+    expect(toggleButton).toHaveAttribute("aria-expanded", "true");
+    expect(window.location.search).toContain("approvalSubmit=open");
+    expect(screen.getByText("Hypotheses ouvertes")).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "Hypotheses, pieces manquantes et clarifications client encore actives."
-      )
+      screen.getByText("Pieces manquantes: 1. Clarifications client: 1.")
     ).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -257,6 +266,39 @@ describe("EstimateApprovalActions", () => {
     expect(registerLinks[1]).toHaveAttribute(
       "href",
       "/dashboard/affaires/project-1?registerStatus=clarify_with_client&registerFocus=5bc9244d-cf64-4d86-bf86-f5d9d2f203d6"
+    );
+  });
+
+  it("renders actionable fallbacks when submission metrics are unavailable", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <EstimateApprovalActions
+        versionId="version-1"
+        projectId="project-1"
+        summary={buildSummary()}
+        submissionOverview={buildSubmissionOverview({
+          coveragePercent: null,
+          exceptionCount: null,
+          openAssumptionCount: null,
+          openMissingPieceCount: null,
+          clarifyWithClientCount: null,
+          marginPercent: null,
+        })}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Soumettre a validation" }));
+
+    const takeoffLinks = screen.getAllByRole("link", { name: "Ouvrir Plans & metres" });
+    expect(takeoffLinks).toHaveLength(2);
+    expect(takeoffLinks[0]).toHaveAttribute("href", "/dashboard/affaires/project-1/takeoff");
+    expect(
+      screen.getByRole("link", { name: "Ouvrir le registre" })
+    ).toHaveAttribute("href", "/dashboard/affaires/project-1?registerStatus=open");
+    expect(screen.getByRole("link", { name: "Ouvrir le devis" })).toHaveAttribute(
+      "href",
+      "/dashboard/estimates/version-1/edit"
     );
   });
 });

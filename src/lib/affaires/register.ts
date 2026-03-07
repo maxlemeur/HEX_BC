@@ -192,6 +192,8 @@ export type AffaireRegisterSummary = {
   criticalOpenCount: number;
   nonCriticalOpenCount: number;
   clarifyWithClientCount: number;
+  openAssumptionCount: number;
+  openMissingPieceCount: number;
 };
 
 export function parseAffaireRegisterStatusSearchParam(

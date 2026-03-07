@@ -124,6 +124,8 @@ export type AffaireRegisterGateSummary = {
   criticalOpenEntries: AffaireRegisterGateEntry[];
   nonCriticalOpenEntries: AffaireRegisterGateEntry[];
   clarifyWithClientEntries: AffaireRegisterGateEntry[];
+  openAssumptionEntries: AffaireRegisterGateEntry[];
+  openMissingPieceEntries: AffaireRegisterGateEntry[];
 };
 
 type ListAffaireRegisterPageInput = {
@@ -1038,6 +1040,12 @@ export async function fetchAffaireRegisterGateSummary(input: {
   const clarifyWithClientEntries = normalized.filter(
     (entry) => entry.status === "clarify_with_client"
   );
+  const openAssumptionEntries = normalized.filter(
+    (entry) => entry.status === "open" && entry.kind === "assumption"
+  );
+  const openMissingPieceEntries = normalized.filter(
+    (entry) => entry.status === "open" && entry.kind === "missing_piece"
+  );
 
   return {
     openQuestionsCount:
@@ -1047,6 +1055,8 @@ export async function fetchAffaireRegisterGateSummary(input: {
     criticalOpenEntries,
     nonCriticalOpenEntries,
     clarifyWithClientEntries,
+    openAssumptionEntries,
+    openMissingPieceEntries,
   } satisfies AffaireRegisterGateSummary;
 }
 
@@ -1069,6 +1079,8 @@ export async function fetchAffaireRegisterSummary(input: {
     criticalOpenCount: gateSummary.criticalOpenEntries.length,
     nonCriticalOpenCount: gateSummary.nonCriticalOpenEntries.length,
     clarifyWithClientCount: gateSummary.clarifyWithClientEntries.length,
+    openAssumptionCount: gateSummary.openAssumptionEntries.length,
+    openMissingPieceCount: gateSummary.openMissingPieceEntries.length,
   };
 }
 

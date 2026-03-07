@@ -92,6 +92,8 @@ function buildRegisterSummary(
     criticalOpenCount: 0,
     nonCriticalOpenCount: 1,
     clarifyWithClientCount: 1,
+    openAssumptionCount: 1,
+    openMissingPieceCount: 0,
     ...overrides,
   };
 }
