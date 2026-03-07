@@ -58,6 +58,10 @@ type SupabaseMockOptions = {
   planSets?: PlanSetStoredRow[];
   planFiles?: PlanFileStoredRow[];
   hasMembership?: boolean;
+  planSetDeleteError?: {
+    code: string;
+    message: string;
+  } | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -203,6 +207,7 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
 
   function createPlanSetsDeleteBuilder() {
     const filters: { tenant_id?: string; id?: string } = {};
+    const deleteError = options.planSetDeleteError ?? null;
 
     function deleteSet() {
       const [row] = filterPlanSets(filters);
@@ -227,10 +232,16 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       }),
       select: vi.fn(() => builder),
       maybeSingle: vi.fn(async () => {
+        if (deleteError) {
+          return { data: null, error: deleteError };
+        }
         const deleted = deleteSet();
         return { data: deleted, error: null };
       }),
       single: vi.fn(async () => {
+        if (deleteError) {
+          return { data: null, error: deleteError };
+        }
         const deleted = deleteSet();
         if (!deleted) {
           return { data: null, error: { code: "PGRST116", message: "Not found" } };
@@ -243,6 +254,12 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         ) => unknown,
         onRejected?: (reason: unknown) => unknown
       ) => {
+        if (deleteError) {
+          return Promise.resolve({
+            data: [],
+            error: deleteError,
+          }).then(onFulfilled, onRejected);
+        }
         const deleted = deleteSet();
         return Promise.resolve({
           data: deleted ? [deleted] : [],
@@ -493,6 +510,34 @@ describe("/api/takeoff/plan-sets/[setId]", () => {
       )
     ).toHaveLength(0);
     expect(supabase.__state.storageRemovals.length).toBeGreaterThan(0);
+  });
+
+  it("DELETE returns 400 when the plan set is still referenced by takeoff jobs", async () => {
+    const supabase = createSupabaseMock({
+      planSetDeleteError: {
+        code: "23503",
+        message: "update or delete on table \"plan_sets\" violates foreign key constraint",
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await DELETE(
+      new Request(`http://localhost/api/takeoff/plan-sets/${SET_ID}`, {
+        method: "DELETE",
+      }),
+      makeParams()
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string; message?: string };
+    };
+
+    expect(response.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe("BAD_REQUEST");
+    expect(body.error?.message).toBe("Impossible de supprimer le jeu de plans.");
+    expect(supabase.__state.planSetsById.has(SET_ID)).toBe(true);
+    expect(supabase.__state.storageRemovals).toHaveLength(0);
   });
 
   it("PATCH updates plan set name and description", async () => {

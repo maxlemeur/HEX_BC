@@ -804,6 +804,7 @@ describe("affaires hub server", () => {
       planSetCount: 2,
       planFileCount: 2,
       totalSizeBytes: 4600,
+      defaultPlanSetId: null,
       latestJob: {
         jobId: "job-1",
         status: "review_required",
@@ -815,6 +816,102 @@ describe("affaires hub server", () => {
       openQuestionsCount: 0,
       failureReasonLabel: null,
     });
+  });
+
+  it("prefers the current draft default-import plan set for auto-propose", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Plans Brouillon",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: {
+              data: [
+                {
+                  id: "set-historical-default",
+                  metadata: {
+                    source: "affaire-intake",
+                    default_import_plan_set: true,
+                  },
+                  estimate_version_id: "ver-old",
+                  created_at: "2026-03-02T09:00:00+00:00",
+                },
+                {
+                  id: "set-current-latest",
+                  metadata: {},
+                  estimate_version_id: "ver-current",
+                  created_at: "2026-03-06T09:00:00+00:00",
+                },
+                {
+                  id: "set-current-default",
+                  metadata: {
+                    source: "affaire-intake",
+                    default_import_plan_set: true,
+                  },
+                  estimate_version_id: "ver-current",
+                  created_at: "2026-03-05T09:00:00+00:00",
+                },
+              ],
+              count: 3,
+              error: null,
+            },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            maybeSingle: {
+              data: {
+                id: "ver-current",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          {
+            limit: {
+              data: null,
+              count: 1,
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [{ file_size_bytes: 1200 }],
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.defaultPlanSetId).toBe("set-current-default");
   });
 
   it("returns empty plans summary when no plan set or job exists", async () => {
@@ -864,6 +961,7 @@ describe("affaires hub server", () => {
       planSetCount: 0,
       planFileCount: 0,
       totalSizeBytes: 0,
+      defaultPlanSetId: null,
       latestJob: null,
       coveragePercent: null,
       exceptionCount: null,
@@ -1009,6 +1107,7 @@ describe("affaires hub server", () => {
       planSetCount: 1,
       planFileCount: 3,
       totalSizeBytes: 600,
+      defaultPlanSetId: null,
       latestJob: null,
       coveragePercent: null,
       exceptionCount: null,
@@ -1094,6 +1193,7 @@ describe("affaires hub server", () => {
       planSetCount: 1201,
       planFileCount: 1001,
       totalSizeBytes: 15030,
+      defaultPlanSetId: null,
       latestJob: null,
       coveragePercent: null,
       exceptionCount: null,
