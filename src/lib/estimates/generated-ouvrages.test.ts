@@ -84,6 +84,11 @@ function createQueryBuilder<T>(result: { data: T; error: unknown }) {
 
 function createSupabaseStub(config: Record<string, Partial<Record<string, unknown[]>>>) {
   const counters = new Map<string, number>();
+  const history: Array<{
+    table: string;
+    operation: string;
+    builder: ReturnType<typeof createQueryBuilder<unknown>>;
+  }> = [];
 
   function next(table: string, operation: string) {
     const key = `${table}:${operation}`;
@@ -93,10 +98,16 @@ function createSupabaseStub(config: Record<string, Partial<Record<string, unknow
     if (!entry) {
       throw new Error(`Unexpected ${operation} call on ${table} at index ${index}`);
     }
+    history.push({
+      table,
+      operation,
+      builder: entry as ReturnType<typeof createQueryBuilder<unknown>>,
+    });
     return entry;
   }
 
   return {
+    __history: history,
     from: vi.fn((table: string) => ({
       select: vi.fn(() => next(table, "select")),
       insert: vi.fn(() => next(table, "insert")),
@@ -244,8 +255,8 @@ describe("generateOuvragesFromText", () => {
       },
       estimate_generated_ouvrage_drafts: {
         update: [
-          createQueryBuilder({ data: [], error: null }),
           createQueryBuilder({ data: { ...createDraftRow(), summary: {}, generation_metadata: {} }, error: null }),
+          createQueryBuilder({ data: [], error: null }),
         ],
         insert: [createQueryBuilder({ data: createDraftRow(), error: null })],
       },
@@ -286,6 +297,83 @@ describe("generateOuvragesFromText", () => {
       label: "Texte libre saisi",
     });
     expect(vi.mocked(callGeminiStructured)).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the previous pending draft until the new draft is fully materialized", async () => {
+    const supabase = createSupabaseStub({
+      estimate_versions: {
+        select: [
+          createQueryBuilder({ data: createVersionAccessRow(), error: null }),
+          createQueryBuilder({ data: [], error: null }),
+        ],
+      },
+      draft_locks: {
+        select: [
+          createQueryBuilder({
+            data: {
+              id: "lock-1",
+              version_id: VERSION_ID,
+              user_id: USER_ID,
+              locked_at: "2026-03-07T09:00:00.000Z",
+              expires_at: "2099-03-07T09:30:00.000Z",
+            },
+            error: null,
+          }),
+        ],
+      },
+      affaire_briefs: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_templates: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_assemblies: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_generated_ouvrage_drafts: {
+        insert: [createQueryBuilder({ data: createDraftRow(), error: null })],
+        update: [
+          createQueryBuilder({
+            data: { id: DRAFT_ID },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_source_fragments: {
+        insert: [
+          createQueryBuilder({
+            data: null,
+            error: { message: "insert fragments failed", code: "23514" },
+          }),
+        ],
+        update: [createQueryBuilder({ data: [], error: null })],
+      },
+    });
+
+    createAuthenticatedContext(supabase);
+
+    await expect(
+      generateOuvragesFromText({
+        projectId: PROJECT_ID,
+        versionId: VERSION_ID,
+        sourceKind: "free_text",
+        sourceText: "Pose de faux plafond 120 m2.",
+      })
+    ).rejects.toMatchObject({
+      message: "Impossible de persister les fragments sources des ouvrages.",
+    });
+
+    const draftUpdateHistory = supabase.__history.filter(
+      (entry) =>
+        entry.table === "estimate_generated_ouvrage_drafts" && entry.operation === "update"
+    );
+
+    expect(draftUpdateHistory).toHaveLength(1);
+    expect(draftUpdateHistory[0]?.builder.eq).toHaveBeenCalledWith("id", DRAFT_ID);
+    expect(draftUpdateHistory[0]?.builder.eq).not.toHaveBeenCalledWith(
+      "target_version_id",
+      VERSION_ID
+    );
   });
 });
 
@@ -412,6 +500,161 @@ describe("insertGeneratedOuvrages", () => {
       versionId: VERSION_ID,
     });
   });
+
+  it("rolls back inserted estimate items when application persistence fails", async () => {
+    const supabase = createSupabaseStub({
+      estimate_versions: {
+        select: [createQueryBuilder({ data: createVersionAccessRow(), error: null })],
+      },
+      draft_locks: {
+        select: [
+          createQueryBuilder({
+            data: {
+              id: "lock-1",
+              version_id: VERSION_ID,
+              user_id: USER_ID,
+              locked_at: "2026-03-07T09:00:00.000Z",
+              expires_at: "2099-03-07T09:30:00.000Z",
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_drafts: {
+        select: [createQueryBuilder({ data: createDraftRow(), error: null })],
+      },
+      estimate_generated_ouvrage_source_fragments: {
+        select: [createQueryBuilder({ data: [createFragmentRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidates: {
+        select: [createQueryBuilder({ data: [createCandidateRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidate_sources: {
+        select: [
+          createQueryBuilder({
+            data: [
+              {
+                id: "link-1",
+                created_at: "2026-03-07T09:02:00.000Z",
+                tenant_id: TENANT_ID,
+                draft_id: DRAFT_ID,
+                candidate_id: CANDIDATE_ID,
+                source_fragment_id: FRAGMENT_ID,
+                source_rank: 0,
+                rationale: null,
+                metadata: {},
+              },
+            ],
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_applications: {
+        select: [createQueryBuilder({ data: [], error: null })],
+        insert: [
+          createQueryBuilder({
+            data: null,
+            error: { message: "application insert failed", code: "23514" },
+          }),
+        ],
+      },
+      estimate_items: {
+        delete: [createQueryBuilder({ data: [], error: null })],
+      },
+    });
+
+    createAuthenticatedContext(supabase);
+    vi.mocked(createEstimateItem).mockResolvedValue({
+      item: {
+        id: ITEM_ID,
+      },
+    } as never);
+
+    await expect(
+      insertGeneratedOuvrages({
+        versionId: VERSION_ID,
+        draftId: DRAFT_ID,
+        acceptedCandidates: [
+          {
+            candidateId: CANDIDATE_ID,
+            designation: "Pose de faux plafond",
+            unit: "m2",
+            quantity: 120,
+            lotId: null,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      message: "Impossible de tracer l'application du candidat d'ouvrage.",
+    });
+
+    const deleteHistory = supabase.__history.filter(
+      (entry) => entry.table === "estimate_items" && entry.operation === "delete"
+    );
+
+    expect(deleteHistory).toHaveLength(1);
+    expect(deleteHistory[0]?.builder.eq).toHaveBeenCalledWith("version_id", VERSION_ID);
+    expect(deleteHistory[0]?.builder.in).toHaveBeenCalledWith("id", [ITEM_ID]);
+  });
+
+  it("rejects candidate insertion when the quantity is still unknown", async () => {
+    const supabase = createSupabaseStub({
+      estimate_versions: {
+        select: [createQueryBuilder({ data: createVersionAccessRow(), error: null })],
+      },
+      draft_locks: {
+        select: [
+          createQueryBuilder({
+            data: {
+              id: "lock-1",
+              version_id: VERSION_ID,
+              user_id: USER_ID,
+              locked_at: "2026-03-07T09:00:00.000Z",
+              expires_at: "2099-03-07T09:30:00.000Z",
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_drafts: {
+        select: [createQueryBuilder({ data: createDraftRow(), error: null })],
+      },
+      estimate_generated_ouvrage_source_fragments: {
+        select: [createQueryBuilder({ data: [createFragmentRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidates: {
+        select: [createQueryBuilder({ data: [createCandidateRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidate_sources: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_generated_ouvrage_applications: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
+    });
+
+    createAuthenticatedContext(supabase);
+
+    await expect(
+      insertGeneratedOuvrages({
+        versionId: VERSION_ID,
+        draftId: DRAFT_ID,
+        acceptedCandidates: [
+          {
+            candidateId: CANDIDATE_ID,
+            designation: "Pose de faux plafond",
+            unit: "m2",
+            quantity: null,
+            lotId: null,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      code: "EST381_CANDIDATE_QUANTITY_REQUIRED",
+    });
+
+    expect(vi.mocked(createEstimateItem)).not.toHaveBeenCalled();
+  });
 });
 
 describe("rejectGeneratedOuvrageDraft", () => {
@@ -481,6 +724,65 @@ describe("rejectGeneratedOuvrageDraft", () => {
       projectId: PROJECT_ID,
       versionId: VERSION_ID,
     });
+  });
+
+  it("does not resurrect a draft that was already discarded", async () => {
+    const discardedDraft = createDraftRow("discarded");
+    const supabase = createSupabaseStub({
+      estimate_generated_ouvrage_drafts: {
+        select: [
+          createQueryBuilder({ data: discardedDraft, error: null }),
+          createQueryBuilder({ data: discardedDraft, error: null }),
+        ],
+      },
+      estimate_versions: {
+        select: [createQueryBuilder({ data: createVersionAccessRow(), error: null })],
+      },
+      draft_locks: {
+        select: [
+          createQueryBuilder({
+            data: {
+              id: "lock-1",
+              version_id: VERSION_ID,
+              user_id: USER_ID,
+              locked_at: "2026-03-07T09:00:00.000Z",
+              expires_at: "2099-03-07T09:30:00.000Z",
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_source_fragments: {
+        select: [createQueryBuilder({ data: [createFragmentRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidates: {
+        select: [createQueryBuilder({ data: [createCandidateRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidate_sources: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_generated_ouvrage_applications: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
+    });
+
+    createAuthenticatedContext(supabase);
+
+    await expect(
+      rejectGeneratedOuvrageDraft({
+        draftId: DRAFT_ID,
+        candidateId: CANDIDATE_ID,
+        reason: "A clarifier avec le client.",
+      })
+    ).rejects.toMatchObject({
+      code: "EST381_DRAFT_DISCARDED",
+    });
+
+    const candidateUpdateHistory = supabase.__history.filter(
+      (entry) =>
+        entry.table === "estimate_generated_ouvrage_candidates" && entry.operation === "update"
+    );
+    expect(candidateUpdateHistory).toHaveLength(0);
   });
 });
 

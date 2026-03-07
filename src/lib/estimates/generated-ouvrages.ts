@@ -9,6 +9,7 @@ import {
 import {
   badRequest,
   conflict,
+  internalError,
   mapSupabaseError,
   notFound,
 } from "@/lib/estimates/errors";
@@ -848,8 +849,9 @@ async function discardPendingGeneratedOuvrageDrafts(input: {
   tenantId: string;
   versionId: string;
   userId: string;
+  excludeDraftId?: string;
 }) {
-  const { data, error } = await input.supabase
+  let query = input.supabase
     .from("estimate_generated_ouvrage_drafts" as never)
     .update({
       status: "discarded",
@@ -857,8 +859,13 @@ async function discardPendingGeneratedOuvrageDrafts(input: {
     .eq("tenant_id", input.tenantId)
     .eq("target_version_id", input.versionId)
     .eq("created_by", input.userId)
-    .eq("status", "pending")
-    .select("id" as never);
+    .eq("status", "pending");
+
+  if (input.excludeDraftId) {
+    query = query.neq("id", input.excludeDraftId);
+  }
+
+  const { data, error } = await query.select("id" as never);
 
   if (error) {
     throw mapSupabaseError(error, "Impossible d'archiver les brouillons precedents.");
@@ -883,6 +890,41 @@ async function discardPendingGeneratedOuvrageDrafts(input: {
 
   if (fragmentError) {
     throw mapSupabaseError(fragmentError, "Impossible d'archiver les fragments precedents.");
+  }
+}
+
+async function discardGeneratedOuvrageDraftOnFailure(input: {
+  supabase: Supabase;
+  draftId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("estimate_generated_ouvrage_drafts" as never)
+    .update({
+      status: "discarded",
+    } as never)
+    .eq("id", input.draftId)
+    .select("id" as never)
+    .single();
+
+  if (error || !data) {
+    throw mapSupabaseError(
+      error,
+      "Impossible d'archiver le brouillon d'ouvrages incomplet."
+    );
+  }
+
+  const { error: fragmentError } = await input.supabase
+    .from("estimate_generated_ouvrage_source_fragments" as never)
+    .update({
+      status: "discarded",
+    } as never)
+    .eq("draft_id", input.draftId);
+
+  if (fragmentError) {
+    throw mapSupabaseError(
+      fragmentError,
+      "Impossible d'archiver les fragments du brouillon d'ouvrages incomplet."
+    );
   }
 }
 
@@ -1421,6 +1463,49 @@ function pickPrimaryFragment(
   return fragmentSources[0] ?? null;
 }
 
+async function rollbackInsertedGeneratedOuvrages(input: {
+  supabase: Supabase;
+  versionId: string;
+  createdEstimateItemIds: string[];
+  candidateReverts: Array<{
+    candidateId: string;
+    resolutionStatus: GeneratedOuvrageCandidateResolutionStatus;
+    metadata: Json;
+  }>;
+}) {
+  if (input.createdEstimateItemIds.length > 0) {
+    const { error: deleteItemsError } = await input.supabase
+      .from("estimate_items" as never)
+      .delete()
+      .eq("version_id", input.versionId)
+      .in("id", input.createdEstimateItemIds);
+
+    if (deleteItemsError) {
+      throw mapSupabaseError(
+        deleteItemsError,
+        "Impossible de restaurer les lignes d'estimation apres un echec d'insertion."
+      );
+    }
+  }
+
+  for (const revert of input.candidateReverts) {
+    const { error: revertCandidateError } = await input.supabase
+      .from("estimate_generated_ouvrage_candidates" as never)
+      .update({
+        resolution_status: revert.resolutionStatus,
+        metadata: revert.metadata,
+      } as never)
+      .eq("id", revert.candidateId);
+
+    if (revertCandidateError) {
+      throw mapSupabaseError(
+        revertCandidateError,
+        "Impossible de restaurer le statut d'un candidat d'ouvrage apres un echec d'insertion."
+      );
+    }
+  }
+}
+
 export async function generateOuvragesFromText(
   input: GenerateGeneratedOuvrageInput
 ): Promise<GeneratedOuvrageDraftResult> {
@@ -1464,13 +1549,6 @@ export async function generateOuvragesFromText(
       })
     : null;
 
-  await discardPendingGeneratedOuvrageDrafts({
-    supabase,
-    tenantId,
-    versionId: parsed.versionId,
-    userId,
-  });
-
   const { data: draftData, error: draftError } = await supabase
     .from("estimate_generated_ouvrage_drafts" as never)
     .insert({
@@ -1492,142 +1570,196 @@ export async function generateOuvragesFromText(
   }
 
   const draft = draftData as GeneratedOuvrageDraftRow;
-  const fragmentSeeds = await buildSourceFragmentSeeds({
-    supabase,
-    tenantId,
-    project,
-    versionId: parsed.versionId,
-    sourceKind: parsed.sourceKind,
-    sourceText: parsed.sourceText,
-    sourceDocumentId: parsed.sourceDocumentId ?? null,
-    sourceFileName: parsed.sourceFileName ?? null,
-    sourcePageFrom: parsed.sourcePageFrom ?? null,
-    sourcePageTo: parsed.sourcePageTo ?? null,
-    selectionLabel: parsed.selectionLabel ?? null,
-  });
+  let fragments: GeneratedOuvrageSourceFragmentRow[] = [];
+  let candidates: GeneratedOuvrageCandidateRow[] = [];
+  let sourceLinkRows: Array<{
+    tenant_id: string;
+    draft_id: string;
+    candidate_id: string;
+    source_fragment_id: string;
+    source_rank: number;
+    rationale: string | null;
+    metadata: JsonRecord;
+  }> = [];
+  let generation: Awaited<ReturnType<typeof generatePromptCandidates>> | null = null;
+  let updatedDraft: GeneratedOuvrageDraftRow | null = null;
 
-  const fragmentInsertRows = fragmentSeeds.map((seed, index) => ({
-    tenant_id: tenantId,
-    project_id: parsed.projectId,
-    draft_id: draft.id,
-    fragment_order: index,
-    source_kind: seed.sourceKind,
-    status: "active",
-    label: normalizeText(seed.label, 180),
-    excerpt: seed.excerpt,
-    normalized_excerpt: seed.excerpt.toLowerCase(),
-    source_document_id: seed.sourceDocumentId ?? null,
-    source_file_name: toNullableText(seed.sourceFileName),
-    source_page_from: seed.sourcePageFrom ?? null,
-    source_page_to: seed.sourcePageTo ?? null,
-    selection_label: toNullableText(seed.selectionLabel),
-    cctp_section_ref: toNullableText(seed.cctpSectionRef),
-    metadata: seed.metadata ?? {},
-  }));
+  try {
+    const fragmentSeeds = await buildSourceFragmentSeeds({
+      supabase,
+      tenantId,
+      project,
+      versionId: parsed.versionId,
+      sourceKind: parsed.sourceKind,
+      sourceText: parsed.sourceText,
+      sourceDocumentId: parsed.sourceDocumentId ?? null,
+      sourceFileName: parsed.sourceFileName ?? null,
+      sourcePageFrom: parsed.sourcePageFrom ?? null,
+      sourcePageTo: parsed.sourcePageTo ?? null,
+      selectionLabel: parsed.selectionLabel ?? null,
+    });
 
-  const { data: fragmentData, error: fragmentError } = await supabase
-    .from("estimate_generated_ouvrage_source_fragments" as never)
-    .insert(fragmentInsertRows as never)
-    .select("*" as never)
-    .order("fragment_order", { ascending: true });
-
-  if (fragmentError || !fragmentData) {
-    throw mapSupabaseError(
-      fragmentError,
-      "Impossible de persister les fragments sources des ouvrages."
-    );
-  }
-
-  const fragments = fragmentData as GeneratedOuvrageSourceFragmentRow[];
-  const generation = await generatePromptCandidates({
-    project,
-    sourceKind: parsed.sourceKind,
-    preferredLotLabel,
-    fragments,
-  });
-
-  const sanitizedCandidates = sanitizePromptCandidates({
-    promptCandidates: generation.exchange.candidates,
-    fragments,
-    preferredLotId: parsed.preferredLotId ?? null,
-    preferredLotLabel,
-  });
-
-  const candidateInsertRows = sanitizedCandidates.map((candidate) => ({
-    tenant_id: tenantId,
-    project_id: parsed.projectId,
-    target_version_id: parsed.versionId,
-    draft_id: draft.id,
-    candidate_order: candidate.candidateOrder,
-    suggested_lot_id: candidate.suggestedLotId,
-    lot_label: candidate.lotLabel,
-    designation: candidate.designation,
-    normalized_designation: candidate.normalizedDesignation,
-    unit: candidate.unit,
-    quantity: candidate.quantity,
-    confidence: candidate.confidence,
-    ai_status: candidate.aiStatus,
-    resolution_status: "pending",
-    reasoning: candidate.reasoning,
-    metadata: {},
-  }));
-
-  const { data: candidateData, error: candidateError } = await supabase
-    .from("estimate_generated_ouvrage_candidates" as never)
-    .insert(candidateInsertRows as never)
-    .select("*" as never)
-    .order("candidate_order", { ascending: true });
-
-  if (candidateError || !candidateData) {
-    throw mapSupabaseError(candidateError, "Impossible de persister les candidats d'ouvrages.");
-  }
-
-  const candidates = candidateData as GeneratedOuvrageCandidateRow[];
-  const sourceLinkRows = candidates.flatMap((candidate, index) => {
-    const sourceFragmentIds = sanitizedCandidates[index]?.sourceFragmentIds ?? [];
-    return sourceFragmentIds.map((sourceFragmentId, sourceRank) => ({
+    const fragmentInsertRows = fragmentSeeds.map((seed, index) => ({
       tenant_id: tenantId,
+      project_id: parsed.projectId,
       draft_id: draft.id,
-      candidate_id: candidate.id,
-      source_fragment_id: sourceFragmentId,
-      source_rank: sourceRank,
-      rationale: sanitizedCandidates[index]?.reasoning ?? null,
-      metadata: {},
+      fragment_order: index,
+      source_kind: seed.sourceKind,
+      status: "active",
+      label: normalizeText(seed.label, 180),
+      excerpt: seed.excerpt,
+      normalized_excerpt: seed.excerpt.toLowerCase(),
+      source_document_id: seed.sourceDocumentId ?? null,
+      source_file_name: toNullableText(seed.sourceFileName),
+      source_page_from: seed.sourcePageFrom ?? null,
+      source_page_to: seed.sourcePageTo ?? null,
+      selection_label: toNullableText(seed.selectionLabel),
+      cctp_section_ref: toNullableText(seed.cctpSectionRef),
+      metadata: seed.metadata ?? {},
     }));
-  });
 
-  if (sourceLinkRows.length > 0) {
-    const { error: sourceLinkError } = await supabase
-      .from("estimate_generated_ouvrage_candidate_sources" as never)
-      .insert(sourceLinkRows as never);
+    const { data: fragmentData, error: fragmentError } = await supabase
+      .from("estimate_generated_ouvrage_source_fragments" as never)
+      .insert(fragmentInsertRows as never)
+      .select("*" as never)
+      .order("fragment_order", { ascending: true });
 
-    if (sourceLinkError) {
+    if (fragmentError || !fragmentData) {
       throw mapSupabaseError(
-        sourceLinkError,
-        "Impossible de persister la provenance des candidats."
+        fragmentError,
+        "Impossible de persister les fragments sources des ouvrages."
       );
     }
+
+    fragments = fragmentData as GeneratedOuvrageSourceFragmentRow[];
+    generation = await generatePromptCandidates({
+      project,
+      sourceKind: parsed.sourceKind,
+      preferredLotLabel,
+      fragments,
+    });
+
+    const sanitizedCandidates = sanitizePromptCandidates({
+      promptCandidates: generation.exchange.candidates,
+      fragments,
+      preferredLotId: parsed.preferredLotId ?? null,
+      preferredLotLabel,
+    });
+
+    const candidateInsertRows = sanitizedCandidates.map((candidate) => ({
+      tenant_id: tenantId,
+      project_id: parsed.projectId,
+      target_version_id: parsed.versionId,
+      draft_id: draft.id,
+      candidate_order: candidate.candidateOrder,
+      suggested_lot_id: candidate.suggestedLotId,
+      lot_label: candidate.lotLabel,
+      designation: candidate.designation,
+      normalized_designation: candidate.normalizedDesignation,
+      unit: candidate.unit,
+      quantity: candidate.quantity,
+      confidence: candidate.confidence,
+      ai_status: candidate.aiStatus,
+      resolution_status: "pending",
+      reasoning: candidate.reasoning,
+      metadata: {},
+    }));
+
+    const { data: candidateData, error: candidateError } = await supabase
+      .from("estimate_generated_ouvrage_candidates" as never)
+      .insert(candidateInsertRows as never)
+      .select("*" as never)
+      .order("candidate_order", { ascending: true });
+
+    if (candidateError || !candidateData) {
+      throw mapSupabaseError(
+        candidateError,
+        "Impossible de persister les candidats d'ouvrages."
+      );
+    }
+
+    candidates = candidateData as GeneratedOuvrageCandidateRow[];
+    sourceLinkRows = candidates.flatMap((candidate, index) => {
+      const sourceFragmentIds = sanitizedCandidates[index]?.sourceFragmentIds ?? [];
+      return sourceFragmentIds.map((sourceFragmentId, sourceRank) => ({
+        tenant_id: tenantId,
+        draft_id: draft.id,
+        candidate_id: candidate.id,
+        source_fragment_id: sourceFragmentId,
+        source_rank: sourceRank,
+        rationale: sanitizedCandidates[index]?.reasoning ?? null,
+        metadata: {},
+      }));
+    });
+
+    if (sourceLinkRows.length > 0) {
+      const { error: sourceLinkError } = await supabase
+        .from("estimate_generated_ouvrage_candidate_sources" as never)
+        .insert(sourceLinkRows as never);
+
+      if (sourceLinkError) {
+        throw mapSupabaseError(
+          sourceLinkError,
+          "Impossible de persister la provenance des candidats."
+        );
+      }
+    }
+
+    updatedDraft = await updateDraftProjection({
+      supabase,
+      draft,
+      candidates,
+      applications: [],
+      generationMetadata: {
+        model: generation.metadata.model ?? null,
+        prompt_version: generation.metadata.prompt_version,
+        used_fallback: Boolean(generation.metadata.used_fallback),
+        token_count: generation.metadata.token_count ?? null,
+        cost_cents: generation.metadata.cost_cents ?? null,
+        duration_ms: generation.metadata.duration_ms ?? null,
+        summary: generation.metadata.summary ?? null,
+        source_fragment_count: fragments.length,
+        candidate_count: candidates.length,
+        preferred_lot_label: preferredLotLabel,
+        source_document_id: parsed.sourceDocumentId ?? null,
+      },
+    });
+  } catch (error) {
+    try {
+      await discardGeneratedOuvrageDraftOnFailure({
+        supabase,
+        draftId: draft.id,
+      });
+    } catch (cleanupError) {
+      throw internalError(
+        "La generation du brouillon a echoue et son archivage automatique a aussi echoue.",
+        {
+          draftId: draft.id,
+          cause: error,
+          cleanupError,
+        },
+        "EST381_DRAFT_GENERATION_CLEANUP_FAILED"
+      );
+    }
+
+    throw error;
   }
 
-  const updatedDraft = await updateDraftProjection({
+  await discardPendingGeneratedOuvrageDrafts({
     supabase,
-    draft,
-    candidates,
-    applications: [],
-    generationMetadata: {
-      model: generation.metadata.model ?? null,
-      prompt_version: generation.metadata.prompt_version,
-      used_fallback: Boolean(generation.metadata.used_fallback),
-      token_count: generation.metadata.token_count ?? null,
-      cost_cents: generation.metadata.cost_cents ?? null,
-      duration_ms: generation.metadata.duration_ms ?? null,
-      summary: generation.metadata.summary ?? null,
-      source_fragment_count: fragments.length,
-      candidate_count: candidates.length,
-      preferred_lot_label: preferredLotLabel,
-      source_document_id: parsed.sourceDocumentId ?? null,
-    },
+    tenantId,
+    versionId: parsed.versionId,
+    userId,
+    excludeDraftId: draft.id,
   });
+
+  if (!updatedDraft || !generation) {
+    throw internalError(
+      "Le brouillon d'ouvrages genere est incomplet apres materialisation.",
+      { draftId: draft.id },
+      "EST381_DRAFT_GENERATION_INCOMPLETE"
+    );
+  }
 
   await logEstimateVersionEventIfPossible({
     versionId: parsed.versionId,
@@ -1639,7 +1771,7 @@ export async function generateOuvragesFromText(
       candidate_count: candidates.length,
       question_count: candidates.filter((candidate) => candidate.ai_status === "question")
         .length,
-      used_fallback: Boolean(generation.metadata.used_fallback),
+      used_fallback: Boolean(generation?.metadata.used_fallback),
     },
   });
 
@@ -1721,15 +1853,21 @@ export async function insertGeneratedOuvrages(
     candidateSourcesByCandidateId.set(candidate.candidateId, candidate.sources);
   }
 
-  let insertedCount = 0;
-  const refreshedApplications = [...loaded.applications];
-  const refreshedCandidates = [...loaded.candidates];
-
-  for (const acceptedCandidate of parsed.acceptedCandidates) {
+  const seenAcceptedCandidateIds = new Set<string>();
+  const preparedAcceptedCandidates = parsed.acceptedCandidates.map((acceptedCandidate) => {
     const candidate = candidateById.get(acceptedCandidate.candidateId);
     if (!candidate) {
       throw notFound("Candidat d'ouvrage introuvable.");
     }
+
+    if (seenAcceptedCandidateIds.has(candidate.id)) {
+      throw conflict(
+        "Ce candidat d'ouvrage est present plusieurs fois dans le lot d'insertion.",
+        { candidateId: candidate.id },
+        "EST381_DUPLICATE_ACCEPTED_CANDIDATE"
+      );
+    }
+    seenAcceptedCandidateIds.add(candidate.id);
 
     if (candidate.resolution_status !== "pending") {
       throw conflict(
@@ -1747,25 +1885,21 @@ export async function insertGeneratedOuvrages(
       );
     }
 
+    if (typeof acceptedCandidate.quantity !== "number") {
+      throw badRequest(
+        "La quantite doit etre renseignee avant l'insertion du candidat.",
+        { candidateId: candidate.id },
+        "EST381_CANDIDATE_QUANTITY_REQUIRED"
+      );
+    }
+
     const fragmentSources = candidateSourcesByCandidateId.get(candidate.id) ?? [];
     const primaryFragment = pickPrimaryFragment(fragmentSources);
-
-    const createResult = await createEstimateItem(parsed.versionId, {
-      item_type: "line",
-      parent_id: acceptedCandidate.lotId ?? null,
-      title: normalizeText(acceptedCandidate.designation, 500),
-      quantity: acceptedCandidate.quantity ?? 1,
-      unit_price_ht_cents: 0,
-      source_provider: "generated_ouvrage",
-      source_job_id: loaded.draft.id,
-      source_file_name: primaryFragment?.sourceFileName ?? null,
-      source_page: primaryFragment?.sourcePageFrom ?? null,
-    });
-
+    const designation = normalizeText(acceptedCandidate.designation, 500);
     const appliedPayload = {
-      designation: normalizeText(acceptedCandidate.designation, 500),
+      designation,
       unit: toNullableText(acceptedCandidate.unit),
-      quantity: acceptedCandidate.quantity ?? null,
+      quantity: acceptedCandidate.quantity,
       lot_id: acceptedCandidate.lotId ?? null,
       suggested_lot_id: candidate.suggested_lot_id,
       ai_status: candidate.ai_status,
@@ -1773,72 +1907,153 @@ export async function insertGeneratedOuvrages(
       source_fragment_ids: fragmentSources.map((source) => source.sourceFragmentId),
     } satisfies JsonRecord;
 
-    const { data: applicationData, error: applicationError } = await supabase
-      .from("estimate_generated_ouvrage_applications" as never)
-      .insert({
-        tenant_id: tenantId,
-        draft_id: loaded.draft.id,
-        candidate_id: candidate.id,
-        target_version_id: parsed.versionId,
-        estimate_item_id: createResult.item.id,
-        applied_by: userId,
-        applied_payload: appliedPayload,
-      } as never)
-      .select("*" as never)
-      .single();
-
-    if (applicationError || !applicationData) {
-      throw mapSupabaseError(
-        applicationError,
-        "Impossible de tracer l'application du candidat d'ouvrage."
-      );
-    }
-
-    const nextCandidateMetadata = {
-      ...(candidate.metadata && typeof candidate.metadata === "object"
-        ? (candidate.metadata as JsonRecord)
-        : {}),
-      applied_at: new Date().toISOString(),
-      applied_by: userId,
+    return {
+      acceptedCandidate,
+      appliedPayload,
+      candidate,
+      designation,
+      primaryFragment,
+      quantity: acceptedCandidate.quantity,
     };
+  });
 
-    const { data: updatedCandidateData, error: updatedCandidateError } = await supabase
-      .from("estimate_generated_ouvrage_candidates" as never)
-      .update({
-        resolution_status: "inserted",
-        metadata: nextCandidateMetadata,
-      } as never)
-      .eq("id", candidate.id)
-      .select("*" as never)
-      .single();
+  let insertedCount = 0;
+  const refreshedApplications = [...loaded.applications];
+  const refreshedCandidates = [...loaded.candidates];
+  const createdEstimateItemIds: string[] = [];
+  const candidateReverts: Array<{
+    candidateId: string;
+    resolutionStatus: GeneratedOuvrageCandidateResolutionStatus;
+    metadata: Json;
+  }> = [];
+  let updatedDraft: GeneratedOuvrageDraftRow | null = null;
 
-    if (updatedCandidateError || !updatedCandidateData) {
-      throw mapSupabaseError(
-        updatedCandidateError,
-        "Impossible de mettre a jour le statut du candidat d'ouvrage."
+  try {
+    for (const preparedCandidate of preparedAcceptedCandidates) {
+      const {
+        acceptedCandidate,
+        appliedPayload,
+        candidate,
+        designation,
+        primaryFragment,
+        quantity,
+      } = preparedCandidate;
+
+      const createResult = await createEstimateItem(parsed.versionId, {
+        item_type: "line",
+        parent_id: acceptedCandidate.lotId ?? null,
+        title: designation,
+        quantity,
+        unit_price_ht_cents: 0,
+        source_provider: "generated_ouvrage",
+        source_job_id: loaded.draft.id,
+        source_file_name: primaryFragment?.sourceFileName ?? null,
+        source_page: primaryFragment?.sourcePageFrom ?? null,
+      });
+
+      createdEstimateItemIds.push(createResult.item.id);
+
+      const { data: applicationData, error: applicationError } = await supabase
+        .from("estimate_generated_ouvrage_applications" as never)
+        .insert({
+          tenant_id: tenantId,
+          draft_id: loaded.draft.id,
+          candidate_id: candidate.id,
+          target_version_id: parsed.versionId,
+          estimate_item_id: createResult.item.id,
+          applied_by: userId,
+          applied_payload: appliedPayload,
+        } as never)
+        .select("*" as never)
+        .single();
+
+      if (applicationError || !applicationData) {
+        throw mapSupabaseError(
+          applicationError,
+          "Impossible de tracer l'application du candidat d'ouvrage."
+        );
+      }
+
+      const nextCandidateMetadata = {
+        ...(candidate.metadata && typeof candidate.metadata === "object"
+          ? (candidate.metadata as JsonRecord)
+          : {}),
+        applied_at: new Date().toISOString(),
+        applied_by: userId,
+      };
+
+      const { data: updatedCandidateData, error: updatedCandidateError } = await supabase
+        .from("estimate_generated_ouvrage_candidates" as never)
+        .update({
+          resolution_status: "inserted",
+          metadata: nextCandidateMetadata,
+        } as never)
+        .eq("id", candidate.id)
+        .select("*" as never)
+        .single();
+
+      if (updatedCandidateError || !updatedCandidateData) {
+        throw mapSupabaseError(
+          updatedCandidateError,
+          "Impossible de mettre a jour le statut du candidat d'ouvrage."
+        );
+      }
+
+      candidateReverts.push({
+        candidateId: candidate.id,
+        resolutionStatus: candidate.resolution_status,
+        metadata: candidate.metadata,
+      });
+      existingApplicationsByCandidateId.set(
+        candidate.id,
+        applicationData as GeneratedOuvrageApplicationRow
+      );
+      refreshedApplications.push(applicationData as GeneratedOuvrageApplicationRow);
+
+      const candidateIndex = refreshedCandidates.findIndex((entry) => entry.id === candidate.id);
+      if (candidateIndex >= 0) {
+        refreshedCandidates[candidateIndex] = updatedCandidateData as GeneratedOuvrageCandidateRow;
+      }
+
+      insertedCount += 1;
+    }
+
+    updatedDraft = await updateDraftProjection({
+      supabase,
+      draft: loaded.draft,
+      candidates: refreshedCandidates,
+      applications: refreshedApplications,
+    });
+  } catch (error) {
+    try {
+      await rollbackInsertedGeneratedOuvrages({
+        supabase,
+        versionId: parsed.versionId,
+        createdEstimateItemIds,
+        candidateReverts,
+      });
+    } catch (rollbackError) {
+      throw internalError(
+        "L'insertion des ouvrages a echoue et la restauration automatique est incomplete.",
+        {
+          draftId: loaded.draft.id,
+          cause: error,
+          rollbackError,
+        },
+        "EST381_INSERT_ROLLBACK_FAILED"
       );
     }
 
-    existingApplicationsByCandidateId.set(
-      candidate.id,
-      applicationData as GeneratedOuvrageApplicationRow
-    );
-    refreshedApplications.push(applicationData as GeneratedOuvrageApplicationRow);
-
-    const candidateIndex = refreshedCandidates.findIndex((entry) => entry.id === candidate.id);
-    if (candidateIndex >= 0) {
-      refreshedCandidates[candidateIndex] = updatedCandidateData as GeneratedOuvrageCandidateRow;
-    }
-
-    insertedCount += 1;
+    throw error;
   }
 
-  const updatedDraft = await updateDraftProjection({
-    supabase,
-    draft: loaded.draft,
-    candidates: refreshedCandidates,
-    applications: refreshedApplications,
-  });
+  if (!updatedDraft) {
+    throw internalError(
+      "Le brouillon d'ouvrages n'a pas pu etre actualise apres insertion.",
+      { draftId: loaded.draft.id },
+      "EST381_INSERT_DRAFT_UPDATE_MISSING"
+    );
+  }
 
   if (insertedCount > 0) {
     await logEstimateVersionEventIfPossible({
@@ -1856,7 +2071,7 @@ export async function insertGeneratedOuvrages(
   return {
     ok: true,
     insertedCount,
-    draftStatus: updatedDraft.status,
+    draftStatus: updatedDraft?.status ?? loaded.draft.status,
     projectId: loaded.draft.project_id,
     versionId: parsed.versionId,
   };
@@ -1901,6 +2116,10 @@ export async function rejectGeneratedOuvrageDraft(
     versionId: draft.target_version_id,
     draftId: draft.id,
   });
+
+  if (loaded.draft.status === "discarded") {
+    throw conflict("Ce brouillon a deja ete rejete.", undefined, "EST381_DRAFT_DISCARDED");
+  }
 
   const candidate = loaded.candidates.find((entry) => entry.id === parsed.candidateId);
   if (!candidate) {
