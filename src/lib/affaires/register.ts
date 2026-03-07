@@ -1,5 +1,3 @@
-import { Buffer } from "node:buffer";
-
 import { z } from "zod";
 
 export const affaireRegisterEntryKindSchema = z.enum([
@@ -122,6 +120,9 @@ const affaireRegisterCursorSchema = z.object({
   id: z.string().uuid(),
 });
 
+const UTF8_ENCODER = new TextEncoder();
+const UTF8_DECODER = new TextDecoder();
+
 export type AffaireRegisterCursor = z.infer<typeof affaireRegisterCursorSchema>;
 
 export type AffaireRegisterEntry = {
@@ -196,6 +197,39 @@ export type AffaireRegisterSummary = {
   openMissingPieceCount: number;
 };
 
+function encodeBase64(binary: string) {
+  return btoa(binary);
+}
+
+function decodeBase64(value: string) {
+  return atob(value);
+}
+
+function bytesToBinary(bytes: Uint8Array) {
+  let binary = "";
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return binary;
+}
+
+function binaryToBytes(binary: string) {
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function encodeBase64Url(value: string) {
+  const base64 = encodeBase64(bytesToBinary(UTF8_ENCODER.encode(value)));
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+}
+
+function decodeBase64Url(value: string) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  return UTF8_DECODER.decode(binaryToBytes(decodeBase64(`${normalized}${padding}`)));
+}
+
 export function parseAffaireRegisterStatusSearchParam(
   value: string | string[] | undefined
 ) {
@@ -229,7 +263,7 @@ export function parseAffaireRegisterCursorSearchParam(
   }
 
   try {
-    const decoded = Buffer.from(normalized, "base64url").toString("utf8");
+    const decoded = decodeBase64Url(normalized);
     const parsed = affaireRegisterCursorSchema.safeParse(JSON.parse(decoded));
     return parsed.success ? parsed.data : null;
   } catch {
@@ -246,7 +280,7 @@ export function parseAffaireRegisterFocusSearchParam(
 }
 
 export function encodeAffaireRegisterCursor(cursor: AffaireRegisterCursor) {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+  return encodeBase64Url(JSON.stringify(cursor));
 }
 
 export function normalizeAffaireRegisterText(
