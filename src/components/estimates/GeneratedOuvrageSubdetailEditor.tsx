@@ -78,10 +78,24 @@ function parseLines(value: string) {
     .slice(0, 8);
 }
 
+function serializeComponents(
+  components: GeneratedOuvrageSubdetailEditorComponent[]
+) {
+  return JSON.stringify(components);
+}
+
 function riskBadgeVariant(signal: GeneratedOuvrageRiskSignal["severity"]) {
   if (signal === "critical") return "error" as const;
   if (signal === "warning") return "warning" as const;
   return "neutral" as const;
+}
+
+function computeComponentDsCents(component: GeneratedOuvrageSubdetailEditorComponent) {
+  return Math.round(
+    component.quantity *
+      component.unitCostHtCents *
+      (1 + component.lossCoeffBp / 10_000)
+  );
 }
 
 export function GeneratedOuvrageSubdetailEditor({
@@ -93,20 +107,26 @@ export function GeneratedOuvrageSubdetailEditor({
   const [components, setComponents] = useState<GeneratedOuvrageSubdetailEditorComponent[]>(
     () => toEditableComponents(subdetail)
   );
+  const [expandedComponentIndex, setExpandedComponentIndex] = useState(0);
 
   useEffect(() => {
     setComponents(toEditableComponents(subdetail));
+    setExpandedComponentIndex(0);
   }, [subdetail]);
 
-  const dsCents = components.reduce((total, component) => {
-    const lossMultiplier = 1 + component.lossCoeffBp / 10_000;
-    return total + Math.round(component.quantity * component.unitCostHtCents * lossMultiplier);
-  }, 0);
+  const dsCents = components.reduce(
+    (total, component) => total + computeComponentDsCents(component),
+    0
+  );
   const marginMultiplier =
     subdetail.summary.dsCents > 0
       ? subdetail.summary.indicativeTargetPriceCents / subdetail.summary.dsCents
       : 1;
   const indicativeTargetPriceCents = Math.round(dsCents * marginMultiplier);
+  const reviewStateIsCurrent =
+    subdetail.status === "reviewed" &&
+    serializeComponents(components) ===
+      serializeComponents(toEditableComponents(subdetail));
 
   function updateComponent(
     index: number,
@@ -121,10 +141,16 @@ export function GeneratedOuvrageSubdetailEditor({
 
   function addComponent() {
     setComponents((prev) => [...prev, emptyComponent()]);
+    setExpandedComponentIndex(components.length);
   }
 
   function removeComponent(index: number) {
     setComponents((prev) => prev.filter((_, componentIndex) => componentIndex !== index));
+    setExpandedComponentIndex((current) => {
+      if (current === index) return Math.max(index - 1, 0);
+      if (current > index) return current - 1;
+      return current;
+    });
   }
 
   function duplicateComponent(index: number) {
@@ -137,6 +163,7 @@ export function GeneratedOuvrageSubdetailEditor({
         ...prev.slice(index + 1),
       ];
     });
+    setExpandedComponentIndex(index + 1);
   }
 
   function splitComponent(index: number) {
@@ -161,6 +188,7 @@ export function GeneratedOuvrageSubdetailEditor({
         ...prev.slice(index + 1),
       ];
     });
+    setExpandedComponentIndex(index + 1);
   }
 
   function mergeWithPrevious(index: number) {
@@ -202,6 +230,7 @@ export function GeneratedOuvrageSubdetailEditor({
         ...prev.slice(index + 1),
       ];
     });
+    setExpandedComponentIndex(index - 1);
   }
 
   async function handleSave() {
@@ -230,6 +259,11 @@ export function GeneratedOuvrageSubdetailEditor({
             Validation humaine requise avant insertion. Les couts restent indicatifs
             tant que les hypotheses ne sont pas confirmées.
           </p>
+          {reviewStateIsCurrent ? (
+            <p className="mt-2 text-xs font-medium text-emerald-700">
+              Revue enregistree. Aucun changement local depuis la validation.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="neutral" size="sm">
@@ -262,223 +296,272 @@ export function GeneratedOuvrageSubdetailEditor({
       ) : null}
 
       <div className="mt-4 space-y-4">
-        {components.map((component, index) => (
-          <article
-            key={`${component.componentId ?? "new"}-${index}`}
-            className="rounded-xl border border-slate-200 bg-white p-4"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="neutral" size="sm">
-                  {component.costType}
-                </Badge>
-                <Badge variant="info" size="sm">
-                  {Math.round(component.confidence * 100)}% confiance
-                </Badge>
-                <Badge variant={component.status === "manual" ? "warning" : "neutral"} size="sm">
-                  {component.status === "manual" ? "Saisi manuellement" : "Suggere"}
-                </Badge>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" className="btn btn-ghost btn-xs" onClick={() => duplicateComponent(index)}>
-                  Dupliquer
-                </button>
-                <button type="button" className="btn btn-ghost btn-xs" onClick={() => splitComponent(index)}>
-                  Scinder
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-xs"
-                  onClick={() => mergeWithPrevious(index)}
-                  disabled={index === 0}
-                >
-                  Fusionner
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-xs text-error"
-                  onClick={() => removeComponent(index)}
-                  disabled={components.length === 1}
-                >
-                  Supprimer
-                </button>
-              </div>
-            </div>
+        {components.map((component, index) => {
+          const componentDsCents = computeComponentDsCents(component);
+          const isExpanded = expandedComponentIndex === index;
 
-            <div className="mt-3 grid gap-3 md:grid-cols-6">
-              <div className="md:col-span-2">
-                <label className="label text-xs font-medium">Designation</label>
-                <input
-                  className="input input-bordered input-sm w-full"
-                  value={component.designation}
-                  onChange={(event) =>
-                    updateComponent(index, { designation: event.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <label className="label text-xs font-medium">Type</label>
-                <select
-                  className="select select-bordered select-sm w-full"
-                  value={component.costType}
-                  onChange={(event) =>
-                    updateComponent(index, {
-                      costType: event.target.value as GeneratedOuvrageSubdetailEditorComponent["costType"],
-                    })
-                  }
-                >
-                  <option value="material">Materiau</option>
-                  <option value="labor">Main d'oeuvre</option>
-                  <option value="equipment">Materiel</option>
-                  <option value="subcontract">Sous-traitance</option>
-                </select>
-              </div>
-              <div>
-                <label className="label text-xs font-medium">Unite</label>
-                <input
-                  className="input input-bordered input-sm w-full"
-                  value={component.unit ?? ""}
-                  onChange={(event) => updateComponent(index, { unit: event.target.value })}
-                />
-              </div>
-              <div>
-                <label className="label text-xs font-medium">Quantite</label>
-                <input
-                  className="input input-bordered input-sm w-full"
-                  value={String(component.quantity)}
-                  inputMode="decimal"
-                  onChange={(event) =>
-                    updateComponent(index, {
-                      quantity: Number.parseFloat(event.target.value.replace(",", ".")) || 0,
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label className="label text-xs font-medium">Cout unitaire HT</label>
-                <input
-                  className="input input-bordered input-sm w-full"
-                  value={String(component.unitCostHtCents)}
-                  inputMode="numeric"
-                  onChange={(event) =>
-                    updateComponent(index, {
-                      unitCostHtCents: Number.parseInt(event.target.value || "0", 10) || 0,
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="mt-3 grid gap-3 md:grid-cols-5">
-              <div>
-                <label className="label text-xs font-medium">Pertes (bp)</label>
-                <input
-                  className="input input-bordered input-sm w-full"
-                  value={String(component.lossCoeffBp)}
-                  inputMode="numeric"
-                  onChange={(event) =>
-                    updateComponent(index, {
-                      lossCoeffBp: Number.parseInt(event.target.value || "0", 10) || 0,
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label className="label text-xs font-medium">Rendement</label>
-                <input
-                  className="input input-bordered input-sm w-full"
-                  value={component.yieldValue ?? ""}
-                  inputMode="decimal"
-                  onChange={(event) =>
-                    updateComponent(index, {
-                      yieldValue: event.target.value.trim()
-                        ? Number.parseFloat(event.target.value.replace(",", "."))
-                        : null,
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label className="label text-xs font-medium">Unite rendement</label>
-                <input
-                  className="input input-bordered input-sm w-full"
-                  value={component.yieldUnit ?? ""}
-                  onChange={(event) =>
-                    updateComponent(index, { yieldUnit: event.target.value })
-                  }
-                />
-              </div>
-              <div>
-                <label className="label text-xs font-medium">Confiance</label>
-                <input
-                  className="input input-bordered input-sm w-full"
-                  value={String(Number(component.confidence.toFixed(2)))}
-                  inputMode="decimal"
-                  onChange={(event) =>
-                    updateComponent(index, {
-                      confidence: Math.max(
-                        0,
-                        Math.min(
-                          1,
-                          Number.parseFloat(event.target.value.replace(",", ".")) || 0
-                        )
-                      ),
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label className="label text-xs font-medium">DS composant</label>
-                <div className="input input-bordered input-sm flex items-center bg-slate-50 text-slate-700">
-                  {formatCurrency(
-                    Math.round(
-                      component.quantity *
-                        component.unitCostHtCents *
-                        (1 + component.lossCoeffBp / 10_000)
-                    ),
-                    "EUR"
-                  )}
+          return (
+            <article
+              key={`${component.componentId ?? "new"}-${index}`}
+              className="rounded-xl border border-slate-200 bg-white p-4"
+            >
+              <button
+                type="button"
+                className="flex w-full flex-col gap-3 text-left sm:flex-row sm:items-start sm:justify-between"
+                onClick={() =>
+                  setExpandedComponentIndex((current) =>
+                    current === index ? -1 : index
+                  )
+                }
+                aria-expanded={isExpanded}
+              >
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="neutral" size="sm">
+                      {component.costType}
+                    </Badge>
+                    <Badge variant="info" size="sm">
+                      {Math.round(component.confidence * 100)}% confiance
+                    </Badge>
+                    <Badge
+                      variant={component.status === "manual" ? "warning" : "neutral"}
+                      size="sm"
+                    >
+                      {component.status === "manual" ? "Saisi manuellement" : "Suggere"}
+                    </Badge>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {component.designation || "Composant sans designation"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {component.quantity} {component.unit ?? "u"} · DS{" "}
+                      {formatCurrency(componentDsCents, "EUR")}
+                      {" · "}
+                      {component.facts.length} fait(s), {component.hypotheses.length} hypothese(s),
+                      {" "}
+                      {component.inferences.length} inference(s), {component.sources.length} source(s)
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </div>
+                <span className="text-xs font-medium text-slate-500">
+                  {isExpanded ? "Replier" : "Developper"}
+                </span>
+              </button>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <StatementField
-                label="Faits"
-                value={component.facts.join("\n")}
-                onChange={(value) => updateComponent(index, { facts: parseLines(value) })}
-              />
-              <StatementField
-                label="Hypotheses"
-                value={component.hypotheses.join("\n")}
-                onChange={(value) =>
-                  updateComponent(index, { hypotheses: parseLines(value) })
-                }
-              />
-              <StatementField
-                label="Inferences"
-                value={component.inferences.join("\n")}
-                onChange={(value) =>
-                  updateComponent(index, { inferences: parseLines(value) })
-                }
-              />
-            </div>
+              {isExpanded ? (
+                <>
+                  <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs"
+                      onClick={() => duplicateComponent(index)}
+                    >
+                      Dupliquer
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs"
+                      onClick={() => splitComponent(index)}
+                    >
+                      Scinder
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs"
+                      onClick={() => mergeWithPrevious(index)}
+                      disabled={index === 0}
+                    >
+                      Fusionner
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-xs text-error"
+                      onClick={() => removeComponent(index)}
+                      disabled={components.length === 1}
+                    >
+                      Supprimer
+                    </button>
+                  </div>
 
-            {component.sources.length > 0 ? (
-              <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
-                <p className="text-xs font-medium text-slate-600">Provenance composee</p>
-                <ul className="mt-2 space-y-1 text-xs text-slate-500">
-                  {component.sources.map((source) => (
-                    <li key={`${source.sourceFragmentId}-${source.evidenceKind}`}>
-                      {source.evidenceKind} · {source.sourceFragmentId}
-                      {source.note ? ` · ${source.note}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </article>
-        ))}
+                  <div className="mt-3 grid gap-3 md:grid-cols-6">
+                    <div className="md:col-span-2">
+                      <label className="label text-xs font-medium">Designation</label>
+                      <input
+                        className="input input-bordered input-sm w-full"
+                        value={component.designation}
+                        onChange={(event) =>
+                          updateComponent(index, { designation: event.target.value })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs font-medium">Type</label>
+                      <select
+                        className="select select-bordered select-sm w-full"
+                        value={component.costType}
+                        onChange={(event) =>
+                          updateComponent(index, {
+                            costType:
+                              event.target.value as GeneratedOuvrageSubdetailEditorComponent["costType"],
+                          })
+                        }
+                      >
+                        <option value="material">Materiau</option>
+                        <option value="labor">Main d'oeuvre</option>
+                        <option value="equipment">Materiel</option>
+                        <option value="subcontract">Sous-traitance</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label text-xs font-medium">Unite</label>
+                      <input
+                        className="input input-bordered input-sm w-full"
+                        value={component.unit ?? ""}
+                        onChange={(event) =>
+                          updateComponent(index, { unit: event.target.value })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs font-medium">Quantite</label>
+                      <input
+                        className="input input-bordered input-sm w-full"
+                        value={String(component.quantity)}
+                        inputMode="decimal"
+                        onChange={(event) =>
+                          updateComponent(index, {
+                            quantity:
+                              Number.parseFloat(event.target.value.replace(",", ".")) || 0,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs font-medium">Cout unitaire HT</label>
+                      <input
+                        className="input input-bordered input-sm w-full"
+                        value={String(component.unitCostHtCents)}
+                        inputMode="numeric"
+                        onChange={(event) =>
+                          updateComponent(index, {
+                            unitCostHtCents:
+                              Number.parseInt(event.target.value || "0", 10) || 0,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-5">
+                    <div>
+                      <label className="label text-xs font-medium">Pertes (bp)</label>
+                      <input
+                        className="input input-bordered input-sm w-full"
+                        value={String(component.lossCoeffBp)}
+                        inputMode="numeric"
+                        onChange={(event) =>
+                          updateComponent(index, {
+                            lossCoeffBp:
+                              Number.parseInt(event.target.value || "0", 10) || 0,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs font-medium">Rendement</label>
+                      <input
+                        className="input input-bordered input-sm w-full"
+                        value={component.yieldValue ?? ""}
+                        inputMode="decimal"
+                        onChange={(event) =>
+                          updateComponent(index, {
+                            yieldValue: event.target.value.trim()
+                              ? Number.parseFloat(event.target.value.replace(",", "."))
+                              : null,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs font-medium">Unite rendement</label>
+                      <input
+                        className="input input-bordered input-sm w-full"
+                        value={component.yieldUnit ?? ""}
+                        onChange={(event) =>
+                          updateComponent(index, { yieldUnit: event.target.value })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs font-medium">Confiance</label>
+                      <input
+                        className="input input-bordered input-sm w-full"
+                        value={String(Number(component.confidence.toFixed(2)))}
+                        inputMode="decimal"
+                        onChange={(event) =>
+                          updateComponent(index, {
+                            confidence: Math.max(
+                              0,
+                              Math.min(
+                                1,
+                                Number.parseFloat(event.target.value.replace(",", ".")) || 0
+                              )
+                            ),
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label text-xs font-medium">DS composant</label>
+                      <div className="input input-bordered input-sm flex items-center bg-slate-50 text-slate-700">
+                        {formatCurrency(componentDsCents, "EUR")}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <StatementField
+                      label="Faits"
+                      value={component.facts.join("\n")}
+                      onChange={(value) =>
+                        updateComponent(index, { facts: parseLines(value) })
+                      }
+                    />
+                    <StatementField
+                      label="Hypotheses"
+                      value={component.hypotheses.join("\n")}
+                      onChange={(value) =>
+                        updateComponent(index, { hypotheses: parseLines(value) })
+                      }
+                    />
+                    <StatementField
+                      label="Inferences"
+                      value={component.inferences.join("\n")}
+                      onChange={(value) =>
+                        updateComponent(index, { inferences: parseLines(value) })
+                      }
+                    />
+                  </div>
+
+                  {component.sources.length > 0 ? (
+                    <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                      <p className="text-xs font-medium text-slate-600">Provenance composee</p>
+                      <ul className="mt-2 space-y-1 text-xs text-slate-500">
+                        {component.sources.map((source) => (
+                          <li key={`${source.sourceFragmentId}-${source.evidenceKind}`}>
+                            {source.evidenceKind} · {source.sourceFragmentId}
+                            {source.note ? ` · ${source.note}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+            </article>
+          );
+        })}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -489,9 +572,19 @@ export function GeneratedOuvrageSubdetailEditor({
           type="button"
           className="btn btn-primary btn-sm"
           onClick={handleSave}
-          disabled={isSaving || components.every((component) => !component.designation.trim())}
+          disabled={
+            isSaving ||
+            components.every((component) => !component.designation.trim()) ||
+            reviewStateIsCurrent
+          }
         >
-          {isSaving ? "Validation..." : "Valider le sous-detail"}
+          {isSaving
+            ? "Validation..."
+            : reviewStateIsCurrent
+              ? "Sous-detail deja valide"
+              : subdetail.status === "reviewed"
+                ? "Revalider le sous-detail"
+                : "Valider le sous-detail"}
         </button>
       </div>
     </section>

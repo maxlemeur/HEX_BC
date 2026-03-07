@@ -10,7 +10,10 @@ import {
   GENERATED_OUVRAGE_FALLBACK_SECTION_LABEL,
   type GeneratedOuvrageSubdetailEditorComponent,
   type GeneratedOuvrageSubdetailUiState,
+  describeGeneratedOuvrageMissingFields,
   formatGeneratedOuvrageLotLabel,
+  getGeneratedOuvrageParentReadiness,
+  isGeneratedOuvrageReadyForInsert,
   type CandidateEdits,
   type ExistingSection,
   type UiGeneratedOuvrageCandidate,
@@ -77,6 +80,12 @@ export function GeneratedOuvrageCandidateCard({
   const isResolved = candidate.resolutionStatus !== "pending";
   const isInserted = candidate.resolutionStatus === "inserted";
   const aiStatusConfig = AI_STATUS_CONFIG[candidate.status];
+  const parentReadiness = getGeneratedOuvrageParentReadiness(candidate);
+  const insertReady = isGeneratedOuvrageReadyForInsert(candidate);
+  const selectionDisabled = !parentReadiness.isReady;
+  const missingFieldsLabel = describeGeneratedOuvrageMissingFields(
+    parentReadiness.missingFields
+  );
 
   if (isResolved) {
     return (
@@ -132,6 +141,7 @@ export function GeneratedOuvrageCandidateCard({
           checked={candidate.selected}
           onChange={() => onToggleSelect(candidate.candidateId)}
           aria-label={`Selectionner ${candidate.designation}`}
+          disabled={selectionDisabled}
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -140,6 +150,16 @@ export function GeneratedOuvrageCandidateCard({
             </span>
             <Badge variant={aiStatusConfig.variant} size="sm">
               {aiStatusConfig.label}
+            </Badge>
+            <Badge
+              variant={insertReady ? "success" : parentReadiness.isReady ? "warning" : "error"}
+              size="sm"
+            >
+              {insertReady
+                ? "Pret a inserer"
+                : parentReadiness.isReady
+                  ? "Sous-detail a valider"
+                  : "Parent incomplet"}
             </Badge>
           </div>
 
@@ -176,6 +196,18 @@ export function GeneratedOuvrageCandidateCard({
             </p>
           )}
 
+          {!parentReadiness.isReady ? (
+            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Completer {missingFieldsLabel} avant selection ou insertion.
+            </div>
+          ) : null}
+
+          {parentReadiness.isReady && !candidate.subdetailReviewed ? (
+            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              Le parent est complet. Validez maintenant le sous-detail pour activer l'insertion.
+            </div>
+          ) : null}
+
           {candidate.sources.length > 0 && (
             <div className="mt-2">
               <button
@@ -191,11 +223,12 @@ export function GeneratedOuvrageCandidateCard({
             </div>
           )}
 
-          <div className="flex gap-2 mt-3">
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               className="btn btn-ghost btn-xs"
               onClick={() => onToggleSelect(candidate.candidateId)}
+              disabled={selectionDisabled}
             >
               {candidate.selected ? "Deselectionner" : "Selectionner"}
             </button>
@@ -209,7 +242,11 @@ export function GeneratedOuvrageCandidateCard({
                 }
               }}
             >
-              {subdetailOpen ? "Masquer le sous-detail" : "Sous-detail"}
+              {subdetailOpen
+                ? "Masquer le sous-detail"
+                : candidate.subdetailReviewed
+                  ? "Revoir le sous-detail"
+                  : "Sous-detail"}
             </button>
             <button
               type="button"

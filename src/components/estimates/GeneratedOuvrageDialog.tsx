@@ -20,7 +20,9 @@ import {
   type GeneratedOuvrageSubdetailEditorComponent,
   type GeneratedOuvrageSubdetailUiState,
   type UiGeneratedOuvrageCandidate,
+  getGeneratedOuvrageParentReadiness,
   initUiCandidates,
+  isGeneratedOuvrageReadyForInsert,
 } from "./generated-ouvrage-types";
 import { GeneratedOuvrageSourceForm } from "./GeneratedOuvrageSourceForm";
 import { GeneratedOuvrageDraftReview } from "./GeneratedOuvrageDraftReview";
@@ -45,6 +47,17 @@ const DEFAULT_SUMMARY = {
   insertedCount: 0,
   rejectedCount: 0,
 };
+
+function didReviewInputsChange(
+  candidate: UiGeneratedOuvrageCandidate,
+  edits: CandidateEdits
+) {
+  return (
+    candidate.editedDesignation !== edits.designation ||
+    (candidate.editedUnit ?? null) !== (edits.unit ?? null) ||
+    candidate.editedQuantity !== edits.quantity
+  );
+}
 
 export function GeneratedOuvrageDialog({
   isOpen,
@@ -71,10 +84,17 @@ export function GeneratedOuvrageDialog({
     Record<string, GeneratedOuvrageSubdetailUiState>
   >({});
   const totalInsertedRef = useRef(0);
+  const isOpenRef = useRef(isOpen);
+  const generateRequestRef = useRef(0);
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
 
   // Reset state on close
   useEffect(() => {
     if (!isOpen) {
+      generateRequestRef.current += 1;
       setStep("input");
       setErrorMessage(null);
       setCandidates([]);
@@ -135,6 +155,8 @@ export function GeneratedOuvrageDialog({
       sourceText: string;
       preferredLotId: string | null;
     }) => {
+      const requestId = generateRequestRef.current + 1;
+      generateRequestRef.current = requestId;
       setStep("generating");
       setErrorMessage(null);
       try {
@@ -145,11 +167,17 @@ export function GeneratedOuvrageDialog({
           sourceText: input.sourceText,
           preferredLotId: input.preferredLotId,
         });
+        if (!isOpenRef.current || generateRequestRef.current !== requestId) {
+          return;
+        }
         startTransition(() => {
           applyDraftResult(result);
           setStep("review");
         });
       } catch (err) {
+        if (!isOpenRef.current || generateRequestRef.current !== requestId) {
+          return;
+        }
         setErrorMessage(
           err instanceof Error ? err.message : "Erreur lors de la generation."
         );
@@ -196,6 +224,16 @@ export function GeneratedOuvrageDialog({
     if (blocked.length > 0) {
       setStatusMessage(
         "Chaque ouvrage selectionne doit avoir un sous-detail explicitement valide avant insertion."
+      );
+      return;
+    }
+
+    const incompleteParents = selected.filter(
+      (candidate) => !getGeneratedOuvrageParentReadiness(candidate).isReady
+    );
+    if (incompleteParents.length > 0) {
+      setStatusMessage(
+        "Chaque ouvrage selectionne doit avoir une designation, une unite et une quantite avant insertion."
       );
       return;
     }
@@ -258,9 +296,17 @@ export function GeneratedOuvrageDialog({
 
   const handleToggleSelect = useCallback((candidateId: string) => {
     setCandidates((prev) =>
-      prev.map((c) =>
-        c.candidateId === candidateId ? { ...c, selected: !c.selected } : c
-      )
+      prev.map((c) => {
+        if (c.candidateId !== candidateId) {
+          return c;
+        }
+
+        if (!getGeneratedOuvrageParentReadiness(c).isReady) {
+          return c;
+        }
+
+        return { ...c, selected: !c.selected };
+      })
     );
   }, []);
 
@@ -274,20 +320,71 @@ export function GeneratedOuvrageDialog({
 
   const handleSaveEdit = useCallback(
     (candidateId: string, edits: CandidateEdits) => {
+      let reviewInvalidated = false;
+
       setCandidates((prev) =>
-        prev.map((c) =>
-          c.candidateId === candidateId
-            ? {
-                ...c,
-                isEditing: false,
-                editedDesignation: edits.designation,
-                editedUnit: edits.unit,
-                editedQuantity: edits.quantity,
-                editedLotId: edits.lotId,
-              }
-            : c
-        )
+        prev.map((c) => {
+          if (c.candidateId !== candidateId) {
+            return c;
+          }
+
+          const shouldInvalidateReview =
+            didReviewInputsChange(c, edits) &&
+            (c.subdetailReviewed || c.subdetailStatus === "reviewed");
+          reviewInvalidated ||= shouldInvalidateReview;
+
+          const nextCandidate = {
+            ...c,
+            isEditing: false,
+            editedDesignation: edits.designation,
+            editedUnit: edits.unit,
+            editedQuantity: edits.quantity,
+            editedLotId: edits.lotId,
+            subdetailStatus: shouldInvalidateReview ? "pending_review" : c.subdetailStatus,
+            subdetailReviewed: shouldInvalidateReview ? false : c.subdetailReviewed,
+          };
+          const parentReady = getGeneratedOuvrageParentReadiness(nextCandidate).isReady;
+
+          return {
+            ...nextCandidate,
+            selected: parentReady ? c.selected : false,
+          };
+        })
       );
+
+      const parentIncomplete = !getGeneratedOuvrageParentReadiness({
+        editedDesignation: edits.designation,
+        editedUnit: edits.unit,
+        editedQuantity: edits.quantity,
+      }).isReady;
+
+      if (reviewInvalidated) {
+        setSubdetailByCandidateId((prev) => {
+          const current = prev[candidateId];
+          if (!current?.data) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            [candidateId]: {
+              ...current,
+              data: {
+                ...current.data,
+                status: "pending_review",
+              },
+              errorMessage: null,
+            },
+          };
+        });
+        setStatusMessage(
+          "Les modifications du parent imposent une nouvelle validation du sous-detail."
+        );
+      } else if (parentIncomplete) {
+        setStatusMessage(
+          "Le parent doit conserver designation, unite et quantite avant de pouvoir etre selectionne."
+        );
+      }
     },
     []
   );
@@ -376,6 +473,8 @@ export function GeneratedOuvrageDialog({
       components: GeneratedOuvrageSubdetailEditorComponent[]
     ) => {
       if (!draftId) return;
+      const candidate = candidates.find((entry) => entry.candidateId === candidateId);
+      if (!candidate) return;
 
       setSubdetailByCandidateId((prev) => ({
         ...prev,
@@ -392,6 +491,11 @@ export function GeneratedOuvrageDialog({
           draftId,
           candidateId,
           markReviewed: true,
+          reviewedCandidate: {
+            designation: candidate.editedDesignation,
+            unit: candidate.editedUnit,
+            quantity: candidate.editedQuantity,
+          },
           components,
         });
         startTransition(() => {
@@ -431,7 +535,7 @@ export function GeneratedOuvrageDialog({
         }));
       }
     },
-    [draftId, targetVersionId]
+    [draftId, targetVersionId, candidates]
   );
 
   const handleClose = useCallback(() => {
@@ -450,6 +554,23 @@ export function GeneratedOuvrageDialog({
   const selectedReviewedCount = candidates.filter(
     (c) => c.selected && c.resolutionStatus === "pending" && c.subdetailReviewed
   ).length;
+  const selectedParentReadyCount = candidates.filter(
+    (c) =>
+      c.selected &&
+      c.resolutionStatus === "pending" &&
+      getGeneratedOuvrageParentReadiness(c).isReady
+  ).length;
+  const selectedInsertReadyCount = candidates.filter(
+    (c) =>
+      c.selected &&
+      c.resolutionStatus === "pending" &&
+      isGeneratedOuvrageReadyForInsert(c)
+  ).length;
+  const selectedMissingParentCount = selectedCount - selectedParentReadyCount;
+  const selectedMissingReviewCount =
+    selectedParentReadyCount - selectedInsertReadyCount;
+  const canInsertSelected =
+    selectedCount > 0 && selectedInsertReadyCount === selectedCount;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[5vh]">
@@ -539,6 +660,9 @@ export function GeneratedOuvrageDialog({
               <GeneratedOuvrageFooterBar
                 selectedCount={selectedCount}
                 selectedReviewedCount={selectedReviewedCount}
+                selectedMissingParentCount={selectedMissingParentCount}
+                selectedMissingReviewCount={selectedMissingReviewCount}
+                canInsertSelected={canInsertSelected}
                 draftStatus={draftStatus}
                 isInserting={step === "inserting"}
                 onNewGeneration={handleNewGeneration}

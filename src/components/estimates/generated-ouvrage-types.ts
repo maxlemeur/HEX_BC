@@ -26,6 +26,11 @@ export type UiGeneratedOuvrageCandidate = GeneratedOuvrageCandidate & {
   subdetailReviewed: boolean;
 };
 
+export type GeneratedOuvrageParentReadiness = {
+  isReady: boolean;
+  missingFields: Array<"designation" | "unit" | "quantity">;
+};
+
 export type GeneratedOuvrageSubdetailEditorComponent = {
   componentId: string | null;
   status: GeneratedOuvrageSubdetailComponent["status"];
@@ -115,4 +120,58 @@ export function initUiCandidates(
       subdetailReviewed: false,
     };
   });
+}
+
+export function getGeneratedOuvrageParentReadiness(
+  candidate: Pick<
+    UiGeneratedOuvrageCandidate,
+    "editedDesignation" | "editedUnit" | "editedQuantity"
+  >
+): GeneratedOuvrageParentReadiness {
+  const missingFields: GeneratedOuvrageParentReadiness["missingFields"] = [];
+
+  if (!candidate.editedDesignation.trim()) {
+    missingFields.push("designation");
+  }
+
+  if (!candidate.editedUnit?.trim()) {
+    missingFields.push("unit");
+  }
+
+  if (
+    candidate.editedQuantity == null ||
+    !Number.isFinite(candidate.editedQuantity) ||
+    candidate.editedQuantity <= 0
+  ) {
+    missingFields.push("quantity");
+  }
+
+  return {
+    isReady: missingFields.length === 0,
+    missingFields,
+  };
+}
+
+export function describeGeneratedOuvrageMissingFields(
+  missingFields: GeneratedOuvrageParentReadiness["missingFields"]
+) {
+  return missingFields
+    .map((field) => {
+      if (field === "designation") return "designation";
+      if (field === "unit") return "unite";
+      return "quantite";
+    })
+    .join(", ");
+}
+
+export function isGeneratedOuvrageReadyForInsert(
+  candidate: Pick<
+    UiGeneratedOuvrageCandidate,
+    "editedDesignation" | "editedUnit" | "editedQuantity" | "subdetailReviewed"
+  >
+) {
+  return (
+    getGeneratedOuvrageParentReadiness(candidate).isReady &&
+    candidate.subdetailReviewed
+  );
 }
