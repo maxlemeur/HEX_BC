@@ -17,6 +17,20 @@ vi.mock("@/lib/takeoff/client", () => ({
   fetchPlanSetsForProject: fetchPlanSetsForProjectMock,
 }));
 
+const useTakeoffAutoProposeDismissedMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/hooks/useTakeoffAutoProposeDismissed", () => ({
+  useTakeoffAutoProposeDismissed: useTakeoffAutoProposeDismissedMock,
+}));
+
+vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
+  launchTakeoffFromPlanSet: vi.fn(),
+}));
+
+vi.mock("@/components/ui/Toast", () => ({
+  useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+}));
+
 vi.mock("@/components/takeoff/PlanFileUploadZone", () => ({
   PlanFileUploadZone: ({
     setId,
@@ -76,6 +90,10 @@ describe("PlansStep", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchPlanFilesMock.mockResolvedValue([]);
+    useTakeoffAutoProposeDismissedMock.mockReturnValue({
+      dismissed: false,
+      dismissPermanently: vi.fn(),
+    });
   });
 
   afterEach(() => {
@@ -433,6 +451,86 @@ describe("PlansStep", () => {
     });
 
     expect(screen.getByText(/2 fichiers uploades/i)).toBeInTheDocument();
+    expect(screen.getByText(/Lancer une premiere analyse/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lancer maintenant" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Plus tard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ne plus proposer/i })).toBeInTheDocument();
+  });
+
+  it("shows static fallback text when permanently dismissed", async () => {
+    useTakeoffAutoProposeDismissedMock.mockReturnValue({
+      dismissed: true,
+      dismissPermanently: vi.fn(),
+    });
+
+    fetchPlanSetsForProjectMock.mockResolvedValue([EXISTING_PLAN_SET]);
+    fetchPlanFilesMock.mockResolvedValue([
+      {
+        id: "file-1",
+        created_at: "2026-03-06T09:00:00.000Z",
+        updated_at: "2026-03-06T09:00:00.000Z",
+        tenant_id: "tenant-1",
+        plan_set_id: EXISTING_PLAN_SET.id,
+        file_path: "plans/a.pdf",
+        file_name: "a.pdf",
+        file_type: "application/pdf",
+        file_size_bytes: 1000,
+        page_count: null,
+        file_hash: null,
+        metadata: {},
+        created_by: null,
+      },
+      {
+        id: "file-2",
+        created_at: "2026-03-06T09:10:00.000Z",
+        updated_at: "2026-03-06T09:10:00.000Z",
+        tenant_id: "tenant-1",
+        plan_set_id: EXISTING_PLAN_SET.id,
+        file_path: "plans/b.pdf",
+        file_name: "b.pdf",
+        file_type: "application/pdf",
+        file_size_bytes: 1500,
+        page_count: null,
+        file_hash: null,
+        metadata: {},
+        created_by: null,
+      },
+      {
+        id: "file-3",
+        created_at: "2026-03-06T09:20:00.000Z",
+        updated_at: "2026-03-06T09:20:00.000Z",
+        tenant_id: "tenant-1",
+        plan_set_id: EXISTING_PLAN_SET.id,
+        file_path: "plans/c.pdf",
+        file_name: "c.pdf",
+        file_type: "application/pdf",
+        file_size_bytes: 1700,
+        page_count: null,
+        file_hash: null,
+        metadata: {},
+        created_by: null,
+      },
+    ]);
+
+    render(
+      <PlansStep
+        projectId={PROJECT_ID}
+        versionId={VERSION_ID}
+        onSkip={vi.fn()}
+        onContinue={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Plans import")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Terminer upload" }));
+
+    await waitFor(() => {
+      expect(fetchPlanFilesMock).toHaveBeenCalledWith(EXISTING_PLAN_SET.id);
+    });
+
     expect(screen.getByText(/Prochaine etape suggeree/i)).toBeInTheDocument();
     expect(screen.getByText(/Lancez une analyse de metres/i)).toBeInTheDocument();
   });

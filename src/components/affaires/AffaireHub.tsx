@@ -40,6 +40,11 @@ import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { PlansMetresCard } from "./PlansMetresCard";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
+import {
+  TakeoffLaunchPrompt,
+  shouldShowTakeoffPrompt,
+} from "@/components/takeoff/TakeoffLaunchPrompt";
+import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
 import { UnifiedImportFlow } from "./UnifiedImportFlow";
 
 /* ------------------------------------------------------------------ */
@@ -820,6 +825,11 @@ export function AffaireHub({
   const currentVersionId = summary.currentVersion?.id ?? null;
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
   const [isEmptyPlansCardDismissed, setIsEmptyPlansCardDismissed] = useState(false);
+  const [promptTemporarilyDismissed, setPromptTemporarilyDismissed] = useState(false);
+  const {
+    dismissed: promptPermanentlyDismissed,
+    dismissPermanently: dismissPromptPermanently,
+  } = useTakeoffAutoProposeDismissed(summary.project.id);
 
   // --- Hoisted state from former QuickActionsCard ---
   const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(null);
@@ -887,6 +897,7 @@ export function AffaireHub({
 
   useEffect(() => {
     setIsEmptyPlansCardDismissed(false);
+    setPromptTemporarilyDismissed(false);
   }, [summary.project.id, plansSummary?.planSetCount]);
 
   const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
@@ -900,6 +911,17 @@ export function AffaireHub({
   const draftVersionId =
     summary.currentVersion?.status === "draft" ? summary.currentVersion.id : null;
   const hasAnyVersion = summary.versionsCount > 0;
+
+  const showTakeoffPrompt =
+    !isReadOnlyReview &&
+    shouldShowTakeoffPrompt({
+      takeoffEnabled,
+      planSetCount: plansSummary?.planSetCount ?? 0,
+      latestJob: plansSummary?.latestJob ?? null,
+      draftVersionId,
+      permanentlyDismissed: promptPermanentlyDismissed,
+      temporarilyDismissed: promptTemporarilyDismissed,
+    });
 
   const [showImportFlow, setShowImportFlow] = useState(false);
   const [importResult, setImportResult] =
@@ -1073,6 +1095,21 @@ export function AffaireHub({
           {actionError && (
             <div className="alert alert-error mb-4 px-3 py-2 text-xs">
               {actionError}
+            </div>
+          )}
+
+          {showTakeoffPrompt && draftVersionId && plansSummary?.defaultPlanSetId && (
+            <div className="mb-4 animate-fade-in">
+              <TakeoffLaunchPrompt
+                projectId={summary.project.id}
+                versionId={draftVersionId}
+                versionLabel={`V${summary.currentVersion!.versionNumber} (brouillon)`}
+                planSetId={plansSummary.defaultPlanSetId}
+                planFileCount={plansSummary.planFileCount}
+                onLaunched={() => router.refresh()}
+                onDismissTemporary={() => setPromptTemporarilyDismissed(true)}
+                onDismissPermanent={dismissPromptPermanently}
+              />
             </div>
           )}
 

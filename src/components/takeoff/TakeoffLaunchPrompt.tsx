@@ -1,0 +1,268 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useState } from "react";
+
+import { useToast } from "@/components/ui/Toast";
+import { launchTakeoffFromPlanSet } from "@/app/dashboard/affaires/_actions/takeoff";
+
+/* ------------------------------------------------------------------ */
+/*  Visibility logic (pure, testable)                                  */
+/* ------------------------------------------------------------------ */
+
+export function shouldShowTakeoffPrompt(input: {
+  takeoffEnabled: boolean;
+  planSetCount: number;
+  latestJob: { status: string } | null;
+  draftVersionId: string | null;
+  permanentlyDismissed: boolean;
+  temporarilyDismissed: boolean;
+}): boolean {
+  if (!input.takeoffEnabled) return false;
+  if (input.planSetCount === 0) return false;
+  if (!input.draftVersionId) return false;
+  if (input.latestJob !== null) return false;
+  if (input.permanentlyDismissed) return false;
+  if (input.temporarilyDismissed) return false;
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+type TakeoffLaunchPromptProps = {
+  projectId: string;
+  versionId: string;
+  versionLabel?: string;
+  planSetId: string;
+  planFileCount: number;
+  onLaunched?: (jobId: string) => void;
+  onDismissTemporary?: () => void;
+  onDismissPermanent?: () => void;
+  compact?: boolean;
+};
+
+type PromptState = "idle" | "launching" | "success" | "error";
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                          */
+/* ------------------------------------------------------------------ */
+
+export function TakeoffLaunchPrompt({
+  projectId,
+  versionId,
+  versionLabel,
+  planSetId,
+  planFileCount,
+  onLaunched,
+  onDismissTemporary,
+  onDismissPermanent,
+  compact,
+}: TakeoffLaunchPromptProps) {
+  const toast = useToast();
+  const [state, setState] = useState<PromptState>("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [createdJobId, setCreatedJobId] = useState<string | null>(null);
+  const resolvedVersionLabel =
+    typeof versionLabel === "string" && versionLabel.trim().length > 0
+      ? versionLabel.trim()
+      : "Brouillon en cours";
+
+  const handleLaunch = useCallback(async () => {
+    setState("launching");
+    setErrorMessage(null);
+
+    try {
+      const result = await launchTakeoffFromPlanSet({
+        projectId,
+        planSetId,
+        versionId,
+      });
+
+      setCreatedJobId(result.jobId);
+      setState("success");
+      toast.success({
+        title: "Analyse lancee",
+        description: `${resolvedVersionLabel} — ${planFileCount} plan${planFileCount > 1 ? "s" : ""} pris en compte.`,
+      });
+      onLaunched?.(result.jobId);
+    } catch (err) {
+      setState("error");
+      setErrorMessage(
+        err instanceof Error ? err.message : "Impossible de lancer l'analyse.",
+      );
+    }
+  }, [projectId, planFileCount, planSetId, resolvedVersionLabel, versionId, toast, onLaunched]);
+
+  const handleRetry = useCallback(() => {
+    void handleLaunch();
+  }, [handleLaunch]);
+
+  return (
+    <div
+      role="region"
+      aria-label="Proposition d'analyse automatique"
+      className={`rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 ${compact ? "px-4 py-3" : "px-5 py-4"}`}
+    >
+      {/* Status area */}
+      <div aria-live="polite">
+        {state === "launching" && (
+          <div className="flex items-center gap-2">
+            <svg
+              className="h-4 w-4 animate-spin text-[var(--brand-blue)]"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+              />
+            </svg>
+            <span className="text-xs font-medium text-[var(--brand-blue)]">
+              Lancement de l&apos;analyse...
+            </span>
+          </div>
+        )}
+
+        {state === "success" && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="shrink-0 text-[var(--success)]"
+                aria-hidden="true"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span className="text-xs font-medium text-[var(--success)]">
+                Analyse lancee
+              </span>
+            </div>
+            {createdJobId && (
+              <Link
+                href={`/dashboard/affaires/${projectId}/takeoff`}
+                className="inline-flex rounded-sm text-xs text-[var(--brand-blue)] underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
+              >
+                Suivre l&apos;avancement
+              </Link>
+            )}
+          </div>
+        )}
+
+        {state === "error" && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 rounded border border-[var(--error)]/20 bg-[var(--error)]/5 px-3 py-2">
+              <span className="text-xs text-[var(--error)]">
+                {errorMessage ?? "Une erreur est survenue."}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary text-xs"
+              onClick={handleRetry}
+            >
+              Reessayer
+            </button>
+          </div>
+        )}
+      </div>
+
+      {state === "idle" && (
+        <>
+          {/* Header */}
+          <div className="flex items-center gap-2">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="shrink-0 text-[var(--brand-blue)]"
+              aria-hidden="true"
+            >
+              <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+            <span className="text-sm font-semibold text-[var(--slate-800)]">
+              Lancer une premiere analyse
+            </span>
+          </div>
+
+          {/* Explanation */}
+          <div className="mt-2 space-y-1">
+            <p className="text-xs text-[var(--slate-600)]">
+              Niveau recommande :{" "}
+              <span className="inline-flex items-center rounded-full bg-[var(--brand-blue)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--brand-blue)]">
+                Rapide
+              </span>
+            </p>
+            <p className="text-xs text-[var(--slate-600)]">
+              Version cible :{" "}
+              <span className="inline-flex items-center rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-[10px] font-medium text-[var(--slate-700)]">
+                {resolvedVersionLabel}
+              </span>
+            </p>
+            <p className="text-xs text-[var(--slate-500)]">
+              Benefice attendu : Les quantites seront extraites de vos{" "}
+              {planFileCount} plan{planFileCount > 1 ? "s" : ""} pour alimenter
+              le chiffrage.
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn btn-primary text-xs"
+              onClick={() => void handleLaunch()}
+            >
+              Lancer maintenant
+            </button>
+            {onDismissTemporary && (
+              <button
+                type="button"
+                className="btn btn-secondary text-xs"
+                onClick={onDismissTemporary}
+              >
+                Plus tard
+              </button>
+            )}
+            {onDismissPermanent && (
+              <button
+                type="button"
+                className="rounded-sm text-xs text-[var(--slate-400)] underline underline-offset-2 hover:text-[var(--slate-600)] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
+                onClick={onDismissPermanent}
+              >
+                Ne plus proposer sur cette affaire
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

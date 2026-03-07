@@ -17,6 +17,8 @@ import {
   IMPORT_FLOW_PLAN_SET_METADATA,
   hasDefaultImportPlanSetMarker,
 } from "@/lib/takeoff/default-import-plan-set";
+import { TakeoffLaunchPrompt } from "@/components/takeoff/TakeoffLaunchPrompt";
+import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
 
 type PlansStepProps = {
   projectId: string;
@@ -107,6 +109,10 @@ export function PlansStep({
   const [uploadedCount, setUploadedCount] = useState(0);
   const [uploadedSizeBytes, setUploadedSizeBytes] = useState(0);
   const [uploadSummaryWarning, setUploadSummaryWarning] = useState<string | null>(null);
+  const {
+    dismissed: permanentlyDismissed,
+    dismissPermanently,
+  } = useTakeoffAutoProposeDismissed(projectId);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const initialCountsRef = useRef<{ fileCount: number; totalSizeBytes: number } | null>(
     null
@@ -378,14 +384,33 @@ export function PlansStep({
                 </div>
               )}
 
-              <div className="rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3">
-                <p className="text-xs font-medium text-[var(--slate-700)]">
-                  Prochaine etape suggeree
-                </p>
-                <p className="mt-0.5 text-xs text-[var(--slate-500)]">
-                  Lancez une analyse de metres depuis le hub de votre affaire.
-                </p>
-              </div>
+              {!permanentlyDismissed && planSet ? (
+                <TakeoffLaunchPrompt
+                  projectId={projectId}
+                  versionId={versionId}
+                  versionLabel="Brouillon en cours"
+                  planSetId={planSet.id}
+                  planFileCount={uploadedCount + (initialCountsRef.current?.fileCount ?? 0)}
+                  compact
+                  onDismissTemporary={handleFinish}
+                  onDismissPermanent={() => {
+                    dismissPermanently();
+                    handleFinish();
+                  }}
+                  onLaunched={() => {
+                    /* stay on step, user sees inline success */
+                  }}
+                />
+              ) : (
+                <div className="rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3">
+                  <p className="text-xs font-medium text-[var(--slate-700)]">
+                    Prochaine etape suggeree
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+                    Lancez une analyse de metres depuis le hub de votre affaire.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

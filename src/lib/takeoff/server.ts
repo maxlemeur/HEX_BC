@@ -146,6 +146,7 @@ const TAKEOFF_ALLOWED_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
 const TAKEOFF_LEVEL: TakeoffLevel = "A";
+const TAKEOFF_PLAN_SET_LEVEL: TakeoffLevel = "B";
 const TAKEOFF_MAPPING_RULES_SELECT = [
   "id",
   "tenant_id",
@@ -1164,6 +1165,76 @@ function sanitizeFilename(filename: string) {
     .replace(/^[-.]+|[-.]+$/g, "");
 
   return normalized.length > 0 ? normalized : "upload";
+}
+
+async function resolvePlanSetSourceFile(input: {
+  supabase: AuthenticatedTakeoffContext["supabase"];
+  tenantId: string;
+  planSetId: string;
+  jobId: string;
+}) {
+  const { data, error } = await input.supabase
+    .from("plan_files" as never)
+    .select("file_path, file_name, file_type, file_size_bytes" as never)
+    .eq("tenant_id" as never, input.tenantId as never)
+    .eq("plan_set_id" as never, input.planSetId as never)
+    .order("created_at" as never, { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(error, "Impossible de charger les fichiers du jeu de plans.");
+  }
+
+  const planFiles = (data ?? []) as Array<{
+    file_path?: string | null;
+    file_name?: string | null;
+    file_type?: string | null;
+    file_size_bytes?: number | null;
+  }>;
+
+  if (planFiles.length === 0) {
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.BAD_REQUEST,
+      message: "Le jeu de plans ne contient aucun fichier.",
+      retryable: false,
+      jobId: input.jobId,
+      level: TAKEOFF_PLAN_SET_LEVEL,
+    });
+  }
+
+  const firstPlanFile = planFiles[0];
+  const sourceFilePath =
+    typeof firstPlanFile?.file_path === "string" && firstPlanFile.file_path.trim().length > 0
+      ? firstPlanFile.file_path.trim()
+      : null;
+  const sourceFileName =
+    typeof firstPlanFile?.file_name === "string" && firstPlanFile.file_name.trim().length > 0
+      ? firstPlanFile.file_name.trim()
+      : `plan-set-${input.planSetId}.pdf`;
+  const sourceFileType =
+    typeof firstPlanFile?.file_type === "string" && firstPlanFile.file_type.trim().length > 0
+      ? firstPlanFile.file_type.trim()
+      : "application/pdf";
+  const sourceFileSizeBytes =
+    typeof firstPlanFile?.file_size_bytes === "number" ? firstPlanFile.file_size_bytes : null;
+
+  if (!sourceFilePath) {
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Le jeu de plans ne reference aucun fichier stocke.",
+      retryable: false,
+      jobId: input.jobId,
+      level: TAKEOFF_PLAN_SET_LEVEL,
+    });
+  }
+
+  return {
+    sourceFileName,
+    sourceFilePath,
+    sourceFileType,
+    sourceFileSizeBytes,
+  };
 }
 
 function normalizeIdempotencyKey(value: string | null | undefined) {
@@ -7526,6 +7597,112 @@ export async function createTakeoffJobFromFormData(
       level,
     });
   }
+}
+
+export async function createTakeoffJobFromPlanSet(input: {
+  projectId: string;
+  planSetId: string;
+  estimateVersionId: string;
+}): Promise<TakeoffJobCreateResponse> {
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedContext();
+
+  await assertTakeoffEnabled(tenantId, { supabase });
+  await assertEstimateVersionAccessibleAsDraft({
+    supabase,
+    tenantId,
+    userId,
+    tenantRole,
+    estimateVersionId: input.estimateVersionId,
+  });
+
+  // Verify plan set belongs to the project and tenant
+  const { data: planSetRow, error: planSetError } = await supabase
+    .from("plan_sets" as never)
+    .select("id" as never)
+    .eq("id" as never, input.planSetId as never)
+    .eq("project_id" as never, input.projectId as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .single();
+
+  if (planSetError || !planSetRow) {
+    throw new TakeoffError({
+      status: 404,
+      code: TakeoffErrorCode.NOT_FOUND,
+      message: "Jeu de plans introuvable.",
+      retryable: false,
+    });
+  }
+
+  const jobId = randomUUID();
+  const sourceFile = await resolvePlanSetSourceFile({
+    supabase,
+    tenantId,
+    planSetId: input.planSetId,
+    jobId,
+  });
+
+  const { data: insertedJob, error: insertError } = await supabase
+    .from("takeoff_jobs" as never)
+    .insert({
+      id: jobId,
+      tenant_id: tenantId,
+      estimate_version_id: input.estimateVersionId,
+      plan_set_id: input.planSetId,
+      level: TAKEOFF_PLAN_SET_LEVEL,
+      status: "pending",
+      source_file_name: sourceFile.sourceFileName,
+      source_file_path: sourceFile.sourceFilePath,
+      source_file_type: sourceFile.sourceFileType,
+      source_file_size_bytes: sourceFile.sourceFileSizeBytes,
+      prompt_version: getTakeoffPromptVersion(TAKEOFF_PLAN_SET_LEVEL),
+      created_by: userId,
+    } as never)
+    .select(
+      "id, status, level, source_file_name, source_file_path, estimate_version_id, created_at" as never,
+    )
+    .single();
+
+  if (insertError || !insertedJob) {
+    throw toTakeoffError(
+      insertError
+        ? mapSupabaseError(insertError, "Impossible de creer le job takeoff.")
+        : new Error("Impossible de creer le job takeoff."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId,
+      },
+    );
+  }
+
+  const createdJob = insertedJob as TakeoffJobRow;
+
+  try {
+      const createdAuditMetadata =
+        takeoffAuditMetadataBuilders["takeoff.job.created"]({
+        level: TAKEOFF_PLAN_SET_LEVEL,
+        estimate_version_id: createdJob.estimate_version_id,
+        source_file_name: createdJob.source_file_name,
+        plan_set_id: input.planSetId,
+      });
+
+    await logTakeoffAuditEvent({
+      supabase,
+      tenantId,
+      userId,
+      jobId: createdJob.id,
+      estimateVersionId: createdJob.estimate_version_id,
+      action: "takeoff.job.created",
+      metadata: createdAuditMetadata,
+      mode: "fail-hard",
+    });
+  } catch (error) {
+    await removeCreatedJobIfPresent({ supabase, tenantId, jobId: createdJob.id });
+    throw error;
+  }
+
+  return normalizeTakeoffJobRow(createdJob);
 }
 
 const TAKEOFF_ITEM_BATCH_MAX = 100;

@@ -23,6 +23,7 @@ import {
   type AffaireStatus,
   type NormalizedAffaireListQuery,
 } from "./schemas";
+import { hasDefaultImportPlanSetMarker } from "@/lib/takeoff/default-import-plan-set";
 import { fetchAffaireRegisterGateSummary } from "./register-server";
 
 type AffaireContext = Awaited<ReturnType<typeof getAuthenticatedContext>>;
@@ -148,6 +149,7 @@ export type AffaireHubPlansSummaryResult = {
   planSetCount: number;
   planFileCount: number;
   totalSizeBytes: number;
+  defaultPlanSetId: string | null;
   latestJob: {
     jobId: string;
     status: "running" | "done" | "failed" | "review_required";
@@ -600,13 +602,12 @@ async function fetchAffaireHubPlansSummaryWithContext(
   context: AffaireContext,
   project: AffaireHubProjectRow
 ): Promise<AffaireHubPlansSummaryResult> {
-  const [planSetsCountResult, latestJobResult, currentVersionResult] = await Promise.all([
+  const [planSetsResult, latestJobResult, currentVersionResult] = await Promise.all([
     context.supabase
       .from("plan_sets" as never)
-      .select("id" as never, { count: "exact", head: true })
+      .select("id, metadata" as never, { count: "exact" })
       .eq("tenant_id" as never, context.tenantId as never)
-      .eq("project_id" as never, project.id as never)
-      .limit(1),
+      .eq("project_id" as never, project.id as never),
     context.supabase
       .from("takeoff_jobs" as never)
       .select(
@@ -628,9 +629,9 @@ async function fetchAffaireHubPlansSummaryWithContext(
       .maybeSingle(),
   ]);
 
-  if (planSetsCountResult.error) {
+  if (planSetsResult.error) {
     throw mapSupabaseError(
-      planSetsCountResult.error,
+      planSetsResult.error,
       "Impossible de compter les jeux de plans."
     );
   }
@@ -645,7 +646,22 @@ async function fetchAffaireHubPlansSummaryWithContext(
     );
   }
 
-  const planSetCount = planSetsCountResult.count ?? 0;
+  const planSetRows = (planSetsResult.data ?? []) as Array<{
+    id: string;
+    metadata: unknown;
+  }>;
+  const planSetCount = planSetsResult.count ?? planSetRows.length;
+
+  // Find best plan set for auto-propose (import marker or single set)
+  let defaultPlanSetId: string | null = null;
+  if (planSetRows.length === 1) {
+    defaultPlanSetId = planSetRows[0].id;
+  } else if (planSetRows.length > 1) {
+    const markedSet = planSetRows.find((ps) =>
+      hasDefaultImportPlanSetMarker(ps.metadata),
+    );
+    defaultPlanSetId = markedSet?.id ?? planSetRows[0].id;
+  }
 
   let planFileCount = 0;
   let totalSizeBytes = 0;
@@ -786,6 +802,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
     planSetCount,
     planFileCount,
     totalSizeBytes,
+    defaultPlanSetId,
     latestJob,
     coveragePercent,
     exceptionCount,

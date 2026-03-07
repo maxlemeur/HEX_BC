@@ -14,6 +14,7 @@ export type AffaireHubPlansSummaryData = {
   planSetCount: number;
   planFileCount: number;
   totalSizeBytes: number;
+  defaultPlanSetId: string | null;
   latestJob: {
     jobId: string;
     status: "running" | "done" | "failed" | "review_required";
