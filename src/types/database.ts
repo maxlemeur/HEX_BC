@@ -2521,6 +2521,24 @@ export type Database = {
           application_count: number;
         }[];
       };
+      materialize_estimate_version_zero_draft: {
+        Args: {
+          p_draft_id: string;
+          p_version_id: string;
+          p_materialized_by: string;
+          p_section_items?: Json;
+          p_line_items?: Json;
+          p_application_rows?: Json;
+          p_line_links?: Json;
+          p_materialized_at?: string;
+        };
+        Returns: {
+          created_section_count: number;
+          created_line_count: number;
+          application_count: number;
+          linked_line_count: number;
+        }[];
+      };
       bulk_create_supplier_prices: {
         Args: {
           price_rows: Json;

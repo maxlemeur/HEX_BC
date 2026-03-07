@@ -11,6 +11,7 @@ import {
   type VersionZeroReview,
   type VersionZeroReviewLine,
 } from "@/lib/estimates/client";
+import { parseVersionZeroQuantityInput } from "@/lib/estimates/version-zero-utils";
 
 type ReviewFilter =
   | "all"
@@ -175,10 +176,23 @@ export function VersionZeroDraftDialog({
   ) {
     if (!review) return;
 
+    const edits = editingByLineId[line.id];
+    let editedQuantity: number | null | undefined;
+    if (reviewStatus === "edited") {
+      const parsedQuantity = parseVersionZeroQuantityInput(
+        edits?.quantity ??
+          (line.effective.quantity === null ? "" : String(line.effective.quantity))
+      );
+      if (parsedQuantity.error) {
+        setErrorMessage(parsedQuantity.error);
+        return;
+      }
+      editedQuantity = parsedQuantity.quantity;
+    }
+
     setIsBusy(true);
     setErrorMessage(null);
     try {
-      const edits = editingByLineId[line.id];
       const nextReview = await reviewVersionZeroLine(
         versionId,
         review.draft.id,
@@ -189,10 +203,7 @@ export function VersionZeroDraftDialog({
               editedValues: {
                 title: edits?.title ?? line.effective.title,
                 description: edits?.description ?? line.effective.description,
-                quantity:
-                  edits?.quantity && edits.quantity.trim().length > 0
-                    ? Number.parseFloat(edits.quantity)
-                    : null,
+                quantity: editedQuantity,
                 unit: edits?.unit ?? line.effective.unit,
               },
             }

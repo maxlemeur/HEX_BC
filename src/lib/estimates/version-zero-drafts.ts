@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -6,10 +8,16 @@ import {
   badRequest,
   conflict,
   forbidden,
+  internalError,
   mapSupabaseError,
   notFound,
   unauthorized,
 } from "@/lib/estimates/errors";
+import {
+  assignVersionZeroLotKeys,
+  matchVersionZeroLotsByLabel,
+  normalizeVersionZeroLotKey,
+} from "@/lib/estimates/version-zero-utils";
 import { generateEstimateStructureDraft } from "@/lib/estimates/structure-drafts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
@@ -34,6 +42,8 @@ type EstimateVersionZeroLineRow =
   Database["public"]["Tables"]["estimate_version_zero_lines"]["Row"];
 type EstimateVersionZeroApplicationInsert =
   Database["public"]["Tables"]["estimate_version_zero_applications"]["Insert"];
+type MaterializeVersionZeroDraftRpcResult =
+  Database["public"]["Functions"]["materialize_estimate_version_zero_draft"]["Returns"][number];
 
 type AuthenticatedContext = {
   supabase: Supabase;
@@ -363,16 +373,6 @@ function uniqueStrings(values: Array<string | null | undefined>) {
   return result;
 }
 
-function normalizeLotKey(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}+/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "lot";
-}
-
 function clampConfidence(value: number | null | undefined) {
   if (!Number.isFinite(value ?? Number.NaN)) return 0.45;
   return Math.max(0, Math.min(1, Number(value)));
@@ -621,10 +621,10 @@ async function loadBriefSourceLinks(input: {
 }
 
 function filterRelevantEntries(entries: string[], lotLabel: string, fallbackLimit = 2) {
-  const normalizedLot = normalizeLotKey(lotLabel);
+  const normalizedLot = normalizeVersionZeroLotKey(lotLabel);
   const relevant = entries.filter((entry) =>
-    normalizeLotKey(entry).includes(normalizedLot) ||
-    normalizedLot.includes(normalizeLotKey(entry))
+    normalizeVersionZeroLotKey(entry).includes(normalizedLot) ||
+    normalizedLot.includes(normalizeVersionZeroLotKey(entry))
   );
   return relevant.length > 0 ? relevant : entries.slice(0, fallbackLimit);
 }
@@ -713,7 +713,7 @@ function buildFallbackLots(input: {
     const hasMissingCoverage = relevantMissing.length > 0 || relevantScope.length === 0;
 
     return {
-      key: normalizeLotKey(lotLabel),
+      key: normalizeVersionZeroLotKey(lotLabel),
       label: lotLabel,
       order: index,
       status: lines.length === 0 ? "missing" : hasMissingCoverage ? "partial" : "generated",
@@ -782,77 +782,76 @@ function mergeGeneratedLots(input: {
     return input.fallbackLots;
   }
 
-  const aiLotsByKey = new Map<string, VersionZeroGeminiLot>();
-  input.aiLots.forEach((lot) => {
-    aiLotsByKey.set(normalizeLotKey(lot.lot_label), lot);
-  });
+  return matchVersionZeroLotsByLabel(input.fallbackLots, input.aiLots).map(
+    ({ fallbackLot, generatedLot: aiLot }) => {
+      if (!aiLot) {
+        return fallbackLot;
+      }
 
-  return input.fallbackLots.map((fallbackLot) => {
-    const aiLot = aiLotsByKey.get(fallbackLot.key);
-    if (!aiLot) {
-      return fallbackLot;
+      const lines =
+        aiLot.lines.length > 0
+          ? aiLot.lines.map((line) => ({
+              proposedTitle: line.title,
+              proposedDescription: line.description,
+              proposedQuantity: line.quantity,
+              proposedUnit: line.unit,
+              confidence: clampConfidence(line.confidence),
+              provenance: uniqueStrings([...line.provenance, ...fallbackLot.provenance]).slice(
+                0,
+                8
+              ),
+              facts: uniqueStrings([...line.facts, ...fallbackLot.facts]).slice(0, 8),
+              hypotheses: uniqueStrings([
+                ...line.hypotheses,
+                ...fallbackLot.hypotheses,
+              ]).slice(0, 8),
+              inferences: uniqueStrings([
+                ...line.inferences,
+                ...fallbackLot.inferences,
+              ]).slice(0, 8),
+              missingSignals: uniqueStrings([
+                ...line.missing_signals,
+                ...fallbackLot.missingSignals,
+              ]).slice(0, 8),
+              riskSignals: uniqueStrings([
+                ...line.risk_signals,
+                ...fallbackLot.riskSignals,
+              ]).slice(0, 8),
+            }))
+          : fallbackLot.lines;
+
+      return {
+        ...fallbackLot,
+        status:
+          aiLot.status ??
+          (lines.length === 0
+            ? "missing"
+            : fallbackLot.missingSignals.length > 0
+              ? "partial"
+              : "generated"),
+        confidence: clampConfidence(aiLot.confidence),
+        provenance: uniqueStrings([...aiLot.provenance, ...fallbackLot.provenance]).slice(0, 8),
+        facts: uniqueStrings([...aiLot.facts, ...fallbackLot.facts]).slice(0, 8),
+        hypotheses: uniqueStrings([
+          ...aiLot.hypotheses,
+          ...fallbackLot.hypotheses,
+        ]).slice(0, 8),
+        inferences: uniqueStrings([
+          ...aiLot.inferences,
+          ...fallbackLot.inferences,
+        ]).slice(0, 8),
+        missingSignals: uniqueStrings([
+          ...aiLot.missing_signals,
+          ...fallbackLot.missingSignals,
+        ]).slice(0, 8),
+        riskSignals: uniqueStrings([
+          ...aiLot.risk_signals,
+          ...fallbackLot.riskSignals,
+        ]).slice(0, 8),
+        lines,
+      } satisfies InternalVersionZeroLot;
     }
-
-    const lines =
-      aiLot.lines.length > 0
-        ? aiLot.lines.map((line) => ({
-            proposedTitle: line.title,
-            proposedDescription: line.description,
-            proposedQuantity: line.quantity,
-            proposedUnit: line.unit,
-            confidence: clampConfidence(line.confidence),
-            provenance: uniqueStrings([...line.provenance, ...fallbackLot.provenance]).slice(0, 8),
-            facts: uniqueStrings([...line.facts, ...fallbackLot.facts]).slice(0, 8),
-            hypotheses: uniqueStrings([
-              ...line.hypotheses,
-              ...fallbackLot.hypotheses,
-            ]).slice(0, 8),
-            inferences: uniqueStrings([
-              ...line.inferences,
-              ...fallbackLot.inferences,
-            ]).slice(0, 8),
-            missingSignals: uniqueStrings([
-              ...line.missing_signals,
-              ...fallbackLot.missingSignals,
-            ]).slice(0, 8),
-            riskSignals: uniqueStrings([
-              ...line.risk_signals,
-              ...fallbackLot.riskSignals,
-            ]).slice(0, 8),
-          }))
-        : fallbackLot.lines;
-
-    return {
-      ...fallbackLot,
-      status:
-        aiLot.status ??
-        (lines.length === 0
-          ? "missing"
-          : fallbackLot.missingSignals.length > 0
-            ? "partial"
-            : "generated"),
-      confidence: clampConfidence(aiLot.confidence),
-      provenance: uniqueStrings([...aiLot.provenance, ...fallbackLot.provenance]).slice(0, 8),
-      facts: uniqueStrings([...aiLot.facts, ...fallbackLot.facts]).slice(0, 8),
-      hypotheses: uniqueStrings([
-        ...aiLot.hypotheses,
-        ...fallbackLot.hypotheses,
-      ]).slice(0, 8),
-      inferences: uniqueStrings([
-        ...aiLot.inferences,
-        ...fallbackLot.inferences,
-      ]).slice(0, 8),
-      missingSignals: uniqueStrings([
-        ...aiLot.missing_signals,
-        ...fallbackLot.missingSignals,
-      ]).slice(0, 8),
-      riskSignals: uniqueStrings([
-        ...aiLot.risk_signals,
-        ...fallbackLot.riskSignals,
-      ]).slice(0, 8),
-      lines,
-    } satisfies InternalVersionZeroLot;
-  });
+  );
 }
 
 function computeDraftCounts(input: { lots: VersionZeroReviewLot[] }) {
@@ -1422,10 +1421,12 @@ export async function generateVersionZeroDraft(input: {
     };
   });
 
-  const lots = mergeGeneratedLots({
-    fallbackLots,
-    aiLots: aiResult && "data" in aiResult && aiResult.data ? aiResult.data.lots : null,
-  });
+  const lots = assignVersionZeroLotKeys(
+    mergeGeneratedLots({
+      fallbackLots,
+      aiLots: aiResult && "data" in aiResult && aiResult.data ? aiResult.data.lots : null,
+    })
+  );
 
   const generation: InternalVersionZeroGeneration = {
     lots,
@@ -1622,118 +1623,60 @@ export async function reviewVersionZeroLine(input: {
   });
 }
 
-async function insertEstimateSection(input: {
-  supabase: Supabase;
-  tenantId: string;
-  versionId: string;
-  position: number;
-  title: string;
+function throwVersionZeroMaterializationRpcErrorIfNeeded(error: {
+  code?: string | null;
+  message?: string | null;
+  details?: string | null;
+  hint?: string | null;
 }) {
-  const response = await input.supabase
-    .from("estimate_items")
-    .insert({
-      tenant_id: input.tenantId,
-      version_id: input.versionId,
-      parent_id: null,
-      item_type: "section",
-      position: input.position,
-      title: input.title,
-      source_provider: "version_zero_draft",
-    } as never)
-    .select("*")
-    .single();
+  const normalized = [
+    error.code ?? "",
+    error.message ?? "",
+    error.details ?? "",
+    error.hint ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
 
-  if (response.error || !response.data) {
-    throw mapSupabaseError(response.error, "Impossible de creer la section issue de la V0.");
+  if (normalized.includes("est384_draft_not_found")) {
+    throw notFound("Snapshot V0 introuvable.", undefined, "EST384_DRAFT_NOT_FOUND");
   }
 
-  return response.data as EstimateItemRow;
+  if (normalized.includes("est384_draft_not_reviewable")) {
+    throw conflict(
+      "Ce snapshot V0 ne peut plus etre materialise.",
+      undefined,
+      "EST384_DRAFT_NOT_REVIEWABLE"
+    );
+  }
+
+  if (normalized.includes("est384_pending_lines")) {
+    throw conflict(
+      "Toutes les lignes V0 doivent etre revues avant materialisation.",
+      undefined,
+      "EST384_PENDING_LINES"
+    );
+  }
+
+  if (normalized.includes("est384_version_not_empty")) {
+    throw conflict(
+      "La V0 ne peut etre generee ou appliquee que sur une version brouillon vide.",
+      undefined,
+      "EST384_VERSION_NOT_EMPTY"
+    );
+  }
 }
 
-async function insertEstimateLine(input: {
-  supabase: Supabase;
-  tenantId: string;
-  versionId: string;
-  parentId: string;
-  position: number;
-  version: VersionAccessRow;
-  line: VersionZeroReviewLine;
-  lot: VersionZeroReviewLot;
-  draft: EstimateVersionZeroDraftRow;
+function isVersionZeroMaterializationRpcMissing(error: {
+  code?: string | null;
+  message?: string | null;
+  details?: string | null;
 }) {
-  const lineValues = computeEstimateLineValues(
-    {
-      quantity: input.line.effective.quantity,
-      unit_price_ht_cents: 0,
-      tax_rate_bp: input.version.tax_rate_bp,
-      k_fo: 1,
-      h_mo: 0,
-      h_mo_majoration: 1,
-      k_mo: 1,
-      pu_ht_cents: 0,
-    },
-    {
-      marginMultiplier: input.version.margin_multiplier,
-      taxRateBp: input.version.tax_rate_bp ?? 2000,
-    }
+  const normalized = [error.message ?? "", error.details ?? ""].join(" ").toLowerCase();
+  return (
+    error.code === "PGRST202" ||
+    normalized.includes("materialize_estimate_version_zero_draft")
   );
-
-  const sourceMetadata: JsonRecord = {
-    applications: [
-      {
-        draft_id: input.draft.id,
-        lot_id: input.lot.id,
-        line_id: input.line.id,
-        lot_label: input.lot.label,
-        review_status: input.line.reviewStatus,
-        confidence: input.line.confidence,
-        generated_at: input.draft.created_at,
-        materialized_at: new Date().toISOString(),
-        proposed: input.line.proposed,
-        edited: input.line.edited,
-        effective: input.line.effective,
-        provenance: input.line.provenance,
-        facts: input.line.facts,
-        hypotheses: input.line.hypotheses,
-        inferences: input.line.inferences,
-        missing_signals: input.line.missingSignals,
-        risk_signals: input.line.riskSignals,
-      },
-    ],
-  };
-
-  const response = await input.supabase
-    .from("estimate_items")
-    .insert({
-      tenant_id: input.tenantId,
-      version_id: input.versionId,
-      parent_id: input.parentId,
-      item_type: "line",
-      position: input.position,
-      title: input.line.effective.title,
-      description: input.line.effective.description,
-      quantity: input.line.effective.quantity,
-      unit_price_ht_cents: 0,
-      tax_rate_bp: input.version.tax_rate_bp,
-      k_fo: 1,
-      h_mo: 0,
-      h_mo_majoration: 1,
-      k_mo: 1,
-      pu_ht_cents: lineValues.puHtCents,
-      line_total_ht_cents: lineValues.saleLineCents,
-      line_tax_cents: lineValues.taxLineCents,
-      line_total_ttc_cents: lineValues.ttcLineCents,
-      source_provider: "version_zero_draft",
-      source_metadata: sourceMetadata as Json,
-    } as never)
-    .select("*")
-    .single();
-
-  if (response.error || !response.data) {
-    throw mapSupabaseError(response.error, "Impossible de creer la ligne issue de la V0.");
-  }
-
-  return response.data as EstimateItemRow;
 }
 
 export async function materializeVersionZeroDraft(input: {
@@ -1785,31 +1728,112 @@ export async function materializeVersionZeroDraft(input: {
     }))
     .filter((entry) => entry.lines.length > 0);
 
+  const materializedAt = new Date().toISOString();
+  const sectionItems: Array<{
+    id: string;
+    position: number;
+    title: string;
+    source_provider: "version_zero_draft";
+  }> = [];
+  const lineItems: Array<{
+    id: string;
+    parent_id: string;
+    position: number;
+    title: string;
+    description: string | null;
+    quantity: number | null;
+    unit_price_ht_cents: number;
+    tax_rate_bp: number | null;
+    k_fo: number;
+    h_mo: number;
+    h_mo_majoration: number;
+    k_mo: number;
+    pu_ht_cents: number;
+    line_total_ht_cents: number;
+    line_tax_cents: number;
+    line_total_ttc_cents: number;
+    source_provider: "version_zero_draft";
+    source_metadata: Json;
+  }> = [];
+  const lineLinks: Array<{
+    line_id: string;
+    materialized_estimate_item_id: string;
+  }> = [];
   let applicationOrder = 0;
   const applicationRows: EstimateVersionZeroApplicationInsert[] = [];
 
   for (let lotIndex = 0; lotIndex < applicableLots.length; lotIndex += 1) {
     const { lot, lines } = applicableLots[lotIndex];
-    const section = await insertEstimateSection({
-      supabase,
-      tenantId,
-      versionId: input.versionId,
+    const sectionId = randomUUID();
+    sectionItems.push({
+      id: sectionId,
       position: lotIndex + 1,
       title: lot.label,
+      source_provider: "version_zero_draft",
     });
 
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       const line = lines[lineIndex];
-      const estimateItem = await insertEstimateLine({
-        supabase,
-        tenantId,
-        versionId: input.versionId,
-        parentId: section.id,
+      const estimateItemId = randomUUID();
+      const lineValues = computeEstimateLineValues(
+        {
+          quantity: line.effective.quantity,
+          unit_price_ht_cents: 0,
+          tax_rate_bp: version.tax_rate_bp,
+          k_fo: 1,
+          h_mo: 0,
+          h_mo_majoration: 1,
+          k_mo: 1,
+          pu_ht_cents: 0,
+        },
+        {
+          marginMultiplier: version.margin_multiplier,
+          taxRateBp: version.tax_rate_bp ?? 2000,
+        }
+      );
+      const sourceMetadata: JsonRecord = {
+        applications: [
+          {
+            draft_id: draft.id,
+            lot_id: lot.id,
+            line_id: line.id,
+            lot_label: lot.label,
+            review_status: line.reviewStatus,
+            confidence: line.confidence,
+            generated_at: draft.created_at,
+            materialized_at: materializedAt,
+            proposed: line.proposed,
+            edited: line.edited,
+            effective: line.effective,
+            provenance: line.provenance,
+            facts: line.facts,
+            hypotheses: line.hypotheses,
+            inferences: line.inferences,
+            missing_signals: line.missingSignals,
+            risk_signals: line.riskSignals,
+          },
+        ],
+      };
+
+      lineItems.push({
+        id: estimateItemId,
+        parent_id: sectionId,
         position: lineIndex + 1,
-        version,
-        line,
-        lot,
-        draft,
+        title: line.effective.title,
+        description: line.effective.description,
+        quantity: line.effective.quantity,
+        unit_price_ht_cents: 0,
+        tax_rate_bp: version.tax_rate_bp,
+        k_fo: 1,
+        h_mo: 0,
+        h_mo_majoration: 1,
+        k_mo: 1,
+        pu_ht_cents: lineValues.puHtCents,
+        line_total_ht_cents: lineValues.saleLineCents,
+        line_tax_cents: lineValues.taxLineCents,
+        line_total_ttc_cents: lineValues.ttcLineCents,
+        source_provider: "version_zero_draft",
+        source_metadata: sourceMetadata as Json,
       });
 
       applicationRows.push({
@@ -1819,8 +1843,8 @@ export async function materializeVersionZeroDraft(input: {
         draft_id: draft.id,
         lot_id: lot.id,
         line_id: line.id,
-        estimate_item_id: estimateItem.id,
-        parent_section_item_id: section.id,
+        estimate_item_id: estimateItemId,
+        parent_section_item_id: sectionId,
         applied_by: userId,
         application_order: applicationOrder,
         applied_payload: {
@@ -1831,49 +1855,45 @@ export async function materializeVersionZeroDraft(input: {
         },
       });
       applicationOrder += 1;
-
-      const { error: lineUpdateError } = await supabase
-        .from("estimate_version_zero_lines")
-        .update({
-          materialized_estimate_item_id: estimateItem.id,
-        })
-        .eq("tenant_id", tenantId)
-        .eq("id", line.id);
-
-      if (lineUpdateError) {
-        throw mapSupabaseError(
-          lineUpdateError,
-          "Impossible de lier la ligne materialisee a la V0."
-        );
-      }
+      lineLinks.push({
+        line_id: line.id,
+        materialized_estimate_item_id: estimateItemId,
+      });
     }
   }
 
-  if (applicationRows.length > 0) {
-    const { error: applicationError } = await supabase
-      .from("estimate_version_zero_applications")
-      .insert(applicationRows);
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    "materialize_estimate_version_zero_draft",
+    {
+      p_draft_id: draft.id,
+      p_version_id: input.versionId,
+      p_materialized_by: userId,
+      p_section_items: sectionItems,
+      p_line_items: lineItems,
+      p_application_rows: applicationRows,
+      p_line_links: lineLinks,
+      p_materialized_at: materializedAt,
+    }
+  );
 
-    if (applicationError) {
-      throw mapSupabaseError(
-        applicationError,
-        "Impossible de journaliser l'application de la V0."
+  if (rpcError) {
+    throwVersionZeroMaterializationRpcErrorIfNeeded(rpcError);
+    if (isVersionZeroMaterializationRpcMissing(rpcError)) {
+      throw internalError(
+        "La materialisation atomique de la V0 n'est pas disponible.",
+        rpcError,
+        "EST384_MATERIALIZE_RPC_MISSING"
       );
     }
+    throw mapSupabaseError(rpcError, "Impossible de materialiser la V0.");
   }
 
-  const materializedAt = new Date().toISOString();
-  const { error: draftError } = await supabase
-    .from("estimate_version_zero_drafts")
-    .update({
-      status: "materialized",
-      materialized_at: materializedAt,
-    })
-    .eq("tenant_id", tenantId)
-    .eq("id", draft.id);
+  const rpcResult = Array.isArray(rpcData)
+    ? ((rpcData[0] as MaterializeVersionZeroDraftRpcResult | undefined) ?? null)
+    : null;
 
-  if (draftError) {
-    throw mapSupabaseError(draftError, "Impossible de finaliser la V0 materialisee.");
+  if (!rpcResult) {
+    throw badRequest("Impossible de materialiser la V0.");
   }
 
   return fetchVersionZeroReview({
