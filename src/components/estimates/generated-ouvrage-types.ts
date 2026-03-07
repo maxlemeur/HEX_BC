@@ -1,6 +1,9 @@
 import type {
   GeneratedOuvrageCandidate,
   GeneratedOuvrageCandidateSource,
+  GeneratedOuvrageRiskSignal,
+  GeneratedOuvrageSubdetailComponent,
+  GeneratedOuvrageSubdetailResult,
 } from "@/lib/estimates/generated-ouvrages";
 
 export type { GeneratedOuvrageCandidateSource };
@@ -19,6 +22,38 @@ export type UiGeneratedOuvrageCandidate = GeneratedOuvrageCandidate & {
   editedUnit: string | null;
   editedQuantity: number | null;
   editedLotId: string | null;
+  subdetailStatus: GeneratedOuvrageSubdetailResult["status"] | null;
+  subdetailReviewed: boolean;
+};
+
+export type GeneratedOuvrageSubdetailEditorComponent = {
+  componentId: string | null;
+  status: GeneratedOuvrageSubdetailComponent["status"];
+  costType: GeneratedOuvrageSubdetailComponent["costType"];
+  designation: string;
+  unit: string | null;
+  quantity: number;
+  unitCostHtCents: number;
+  lossCoeffBp: number;
+  yieldValue: number | null;
+  yieldUnit: string | null;
+  confidence: number;
+  sourceLabel: string | null;
+  facts: string[];
+  hypotheses: string[];
+  inferences: string[];
+  riskSignals: GeneratedOuvrageRiskSignal[];
+  sources: Array<{
+    sourceFragmentId: string;
+    evidenceKind: "fact" | "hypothesis" | "inference";
+    note: string | null;
+  }>;
+};
+
+export type GeneratedOuvrageSubdetailUiState = {
+  status: "idle" | "loading" | "saving" | "error";
+  data: GeneratedOuvrageSubdetailResult | null;
+  errorMessage: string | null;
 };
 
 export type ExistingSection = {
@@ -64,6 +99,8 @@ export function initUiCandidates(
         editedUnit: existing.editedUnit,
         editedQuantity: existing.editedQuantity,
         editedLotId: existing.editedLotId,
+        subdetailStatus: existing.subdetailStatus,
+        subdetailReviewed: existing.subdetailReviewed,
       };
     }
     return {
@@ -74,6 +111,8 @@ export function initUiCandidates(
       editedUnit: c.unit,
       editedQuantity: c.quantity,
       editedLotId: c.suggestedLotId,
+      subdetailStatus: null,
+      subdetailReviewed: false,
     };
   });
 }

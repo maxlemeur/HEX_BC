@@ -543,6 +543,41 @@ function extractSourceMetadataStatements(input: {
       });
     });
   });
+
+  const generatedComponents = Array.isArray(sourceMetadata.components)
+    ? sourceMetadata.components
+    : [];
+  generatedComponents.forEach((component) => {
+    if (!isRecord(component)) {
+      return;
+    }
+
+    const label =
+      toNonEmptyString(
+        typeof component.designation === "string" ? component.designation : null
+      ) ?? "Composant ouvrage compose";
+    const sourceLabel =
+      toNonEmptyString(
+        typeof component.sourceLabel === "string"
+          ? component.sourceLabel
+          : typeof component.source_label === "string"
+            ? component.source_label
+            : null
+      ) ?? "Snapshot ouvrage compose";
+
+    pushSource(input.provenance, {
+      source_kind: "source_metadata",
+      label,
+      source_ref: sourceLabel,
+      confidence_score:
+        typeof component.confidence === "number" ? component.confidence : null,
+      source_record_table: null,
+      source_record_id: null,
+      metadata_json: {
+        provider: "generated_ouvrage",
+      },
+    });
+  });
 }
 
 async function getAuthenticatedExplanationContext() {

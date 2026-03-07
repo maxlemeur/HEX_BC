@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -47,6 +48,7 @@ type VersionAccessRow = {
   project_id: string;
   status: EstimateStatus;
   updated_at: string;
+  margin_multiplier: number | null;
   estimate_projects: EmbeddedProjectAccess | EmbeddedProjectAccess[] | null;
 };
 
@@ -143,6 +145,96 @@ type GeneratedOuvrageApplicationRow = {
   applied_payload: Json;
 };
 
+type GeneratedOuvrageSubdetailDraftStatus =
+  | "pending_review"
+  | "reviewed"
+  | "applied"
+  | "discarded";
+type GeneratedOuvrageSubdetailItemStatus = "suggested" | "manual" | "rejected";
+type GeneratedOuvrageSubdetailCostType =
+  | "material"
+  | "labor"
+  | "equipment"
+  | "subcontract";
+type GeneratedOuvrageEvidenceKind = "fact" | "hypothesis" | "inference";
+type GeneratedOuvrageRiskSignalSeverity = "info" | "warning" | "critical";
+
+type GeneratedOuvrageSubdetailDraftRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  tenant_id: string;
+  project_id: string;
+  target_version_id: string;
+  draft_id: string;
+  parent_work_id: string;
+  created_by: string;
+  status: GeneratedOuvrageSubdetailDraftStatus;
+  summary: Json;
+  generation_metadata: Json;
+  applied_at: string | null;
+};
+
+type GeneratedOuvrageSubdetailItemRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  tenant_id: string;
+  project_id: string;
+  draft_id: string;
+  subdetail_id: string;
+  parent_work_id: string;
+  source_fragment_id: string | null;
+  component_order: number;
+  status: GeneratedOuvrageSubdetailItemStatus;
+  cost_type: GeneratedOuvrageSubdetailCostType;
+  designation: string;
+  unit: string | null;
+  quantity: number;
+  unit_cost_ht_cents: number;
+  loss_coeff_bp: number;
+  yield_value: number | null;
+  yield_unit: string | null;
+  confidence: number;
+  source_label: string | null;
+  facts: Json;
+  hypotheses: Json;
+  inferences: Json;
+  metadata: Json;
+};
+
+type GeneratedOuvrageSubdetailItemSourceRow = {
+  id: string;
+  created_at: string;
+  tenant_id: string;
+  draft_id: string;
+  subdetail_id: string;
+  parent_work_id: string;
+  component_id: string;
+  source_fragment_id: string;
+  source_rank: number;
+  evidence_kind: GeneratedOuvrageEvidenceKind;
+  note: string | null;
+  metadata: Json;
+};
+
+type GeneratedOuvrageWorkSnapshotRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  tenant_id: string;
+  project_id: string;
+  target_version_id: string;
+  draft_id: string;
+  parent_work_id: string;
+  assembly_id: string | null;
+  estimate_item_id: string;
+  applied_by: string | null;
+  summary: Json;
+  components: Json;
+  metadata: Json;
+};
+
 type AffaireBriefRow = {
   id: string;
   project_id: string;
@@ -228,6 +320,33 @@ export const generatedOuvrageCandidateResolutionStatusSchema = z.enum([
   "inserted",
   "rejected",
 ]);
+export const generatedOuvrageSubdetailDraftStatusSchema = z.enum([
+  "pending_review",
+  "reviewed",
+  "applied",
+  "discarded",
+]);
+export const generatedOuvrageSubdetailItemStatusSchema = z.enum([
+  "suggested",
+  "manual",
+  "rejected",
+]);
+export const generatedOuvrageSubdetailCostTypeSchema = z.enum([
+  "material",
+  "labor",
+  "equipment",
+  "subcontract",
+]);
+export const generatedOuvrageEvidenceKindSchema = z.enum([
+  "fact",
+  "hypothesis",
+  "inference",
+]);
+export const generatedOuvrageRiskSignalSeveritySchema = z.enum([
+  "info",
+  "warning",
+  "critical",
+]);
 
 const generatedOuvrageGenerateInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
@@ -261,6 +380,12 @@ const generatedOuvrageFetchInputSchema = z.object({
   draftId: z.string().uuid("draftId invalide."),
 });
 
+const generatedOuvrageSubdetailFetchInputSchema = z.object({
+  versionId: z.string().uuid("versionId invalide."),
+  draftId: z.string().uuid("draftId invalide."),
+  candidateId: z.string().uuid("candidateId invalide."),
+});
+
 const generatedOuvrageInsertCandidateSchema = z.object({
   candidateId: z.string().uuid("candidateId invalide."),
   designation: z.string().trim().min(1, "La designation est requise.").max(500),
@@ -282,6 +407,49 @@ const generatedOuvrageRejectInputSchema = z.object({
   draftId: z.string().uuid("draftId invalide."),
   candidateId: z.string().uuid("candidateId invalide."),
   reason: z.string().trim().max(MAX_REASON_LENGTH).nullable().optional(),
+});
+
+const generatedOuvrageSubdetailRiskSignalSchema = z.object({
+  label: z.string().trim().min(1).max(220),
+  severity: generatedOuvrageRiskSignalSeveritySchema,
+  basis: generatedOuvrageEvidenceKindSchema,
+});
+
+const generatedOuvrageSubdetailSourceInputSchema = z.object({
+  sourceFragmentId: z.string().uuid("sourceFragmentId invalide."),
+  evidenceKind: generatedOuvrageEvidenceKindSchema,
+  note: z.string().trim().max(320).nullable().optional(),
+});
+
+const generatedOuvrageSubdetailComponentInputSchema = z.object({
+  componentId: z.string().uuid("componentId invalide.").nullable().optional(),
+  status: generatedOuvrageSubdetailItemStatusSchema.default("suggested"),
+  costType: generatedOuvrageSubdetailCostTypeSchema,
+  designation: z.string().trim().min(1).max(500),
+  unit: z.string().trim().max(64).nullable().optional(),
+  quantity: z.number().finite("Quantite invalide.").min(0),
+  unitCostHtCents: z.number().int("Cout unitaire invalide.").min(0),
+  lossCoeffBp: z.number().int("Perte invalide.").min(0).max(100000).default(0),
+  yieldValue: z.number().finite("Rendement invalide.").positive().nullable().optional(),
+  yieldUnit: z.string().trim().max(64).nullable().optional(),
+  confidence: z.number().finite("Confiance invalide.").min(0).max(1),
+  sourceLabel: z.string().trim().max(220).nullable().optional(),
+  facts: z.array(z.string().trim().min(1).max(320)).max(8).default([]),
+  hypotheses: z.array(z.string().trim().min(1).max(320)).max(8).default([]),
+  inferences: z.array(z.string().trim().min(1).max(320)).max(8).default([]),
+  riskSignals: z.array(generatedOuvrageSubdetailRiskSignalSchema).max(8).default([]),
+  sources: z.array(generatedOuvrageSubdetailSourceInputSchema).max(6).default([]),
+});
+
+const generatedOuvrageSubdetailUpdateInputSchema = z.object({
+  versionId: z.string().uuid("versionId invalide."),
+  draftId: z.string().uuid("draftId invalide."),
+  candidateId: z.string().uuid("candidateId invalide."),
+  markReviewed: z.boolean().default(true),
+  components: z
+    .array(generatedOuvrageSubdetailComponentInputSchema)
+    .min(1, "Au moins un composant est requis.")
+    .max(24, "Maximum 24 composants."),
 });
 
 const geminiGeneratedOuvrageCandidateSchema = z.object({
@@ -318,8 +486,14 @@ type GeneratedOuvrageCandidateResolutionStatus = z.infer<
 >;
 type GenerateGeneratedOuvrageInput = z.infer<typeof generatedOuvrageGenerateInputSchema>;
 type FetchGeneratedOuvrageDraftInput = z.infer<typeof generatedOuvrageFetchInputSchema>;
+type FetchGeneratedOuvrageSubdetailInput = z.infer<
+  typeof generatedOuvrageSubdetailFetchInputSchema
+>;
 type InsertGeneratedOuvragesInput = z.infer<typeof generatedOuvrageInsertInputSchema>;
 type RejectGeneratedOuvrageDraftInput = z.infer<typeof generatedOuvrageRejectInputSchema>;
+type UpdateGeneratedOuvrageSubdetailInput = z.infer<
+  typeof generatedOuvrageSubdetailUpdateInputSchema
+>;
 type GeminiGeneratedOuvrageExchange = z.infer<
   typeof geminiGeneratedOuvrageExchangeSchema
 >;
@@ -335,6 +509,10 @@ type GeneratedOuvrageDraftSummary = {
   insertedCount: number;
   rejectedCount: number;
 };
+
+export type GeneratedOuvrageRiskSignal = z.infer<
+  typeof generatedOuvrageSubdetailRiskSignalSchema
+>;
 
 type SourceFragmentSeed = {
   sourceKind: GeneratedOuvrageFragmentKind;
@@ -385,6 +563,57 @@ export type GeneratedOuvrageDraftResult = {
   summary: GeneratedOuvrageDraftSummary;
   generatedAt: string;
   candidates: GeneratedOuvrageCandidate[];
+};
+
+export type GeneratedOuvrageSubdetailSource = GeneratedOuvrageCandidateSource & {
+  evidenceKind: GeneratedOuvrageEvidenceKind;
+  note: string | null;
+};
+
+export type GeneratedOuvrageSubdetailComponent = {
+  componentId: string;
+  status: GeneratedOuvrageSubdetailItemStatus;
+  costType: GeneratedOuvrageSubdetailCostType;
+  designation: string;
+  unit: string | null;
+  quantity: number;
+  unitCostHtCents: number;
+  lossCoeffBp: number;
+  yieldValue: number | null;
+  yieldUnit: string | null;
+  confidence: number;
+  sourceLabel: string | null;
+  dsCents: number;
+  facts: string[];
+  hypotheses: string[];
+  inferences: string[];
+  riskSignals: GeneratedOuvrageRiskSignal[];
+  sources: GeneratedOuvrageSubdetailSource[];
+};
+
+export type GeneratedOuvrageSubdetailSummary = {
+  componentCount: number;
+  dsCents: number;
+  indicativeTargetPriceCents: number;
+  confidence: number;
+  pricingSource: string | null;
+  riskSignals: GeneratedOuvrageRiskSignal[];
+  facts: string[];
+  hypotheses: string[];
+  inferences: string[];
+};
+
+export type GeneratedOuvrageSubdetailResult = {
+  draftId: string;
+  candidateId: string;
+  versionId: string;
+  projectId: string;
+  status: GeneratedOuvrageSubdetailDraftStatus;
+  humanValidationRequired: true;
+  generatedAt: string;
+  updatedAt: string;
+  summary: GeneratedOuvrageSubdetailSummary;
+  components: GeneratedOuvrageSubdetailComponent[];
 };
 
 export type InsertGeneratedOuvragesResult = {
@@ -497,7 +726,7 @@ async function getVersionAccessOrThrow(
   const { data, error } = await supabase
     .from("estimate_versions")
     .select(
-      "id, project_id, status, updated_at, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
+      "id, project_id, status, updated_at, margin_multiplier, estimate_projects!inner(id, tenant_id, user_id, name, reference, client_name, notes, is_archived)"
     )
     .eq("id", versionId)
     .eq("tenant_id", context.tenantId)
@@ -1320,6 +1549,616 @@ async function logEstimateVersionEventIfPossible(input: {
   }
 }
 
+function roundQuantity(value: number | null | undefined) {
+  if (!Number.isFinite(value ?? Number.NaN)) {
+    return 0;
+  }
+
+  return Number(Number(value).toFixed(3));
+}
+
+function readJsonStringArray(value: Json | unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => toNullableText(entry))
+    .filter((entry): entry is string => Boolean(entry))
+    .slice(0, 8);
+}
+
+function normalizeRiskSignals(value: unknown): GeneratedOuvrageRiskSignal[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        return null;
+      }
+
+      const label = toNullableText(
+        typeof entry.label === "string" ? entry.label : null
+      );
+      const severity =
+        typeof entry.severity === "string" &&
+        ["info", "warning", "critical"].includes(entry.severity)
+          ? (entry.severity as GeneratedOuvrageRiskSignalSeverity)
+          : null;
+      const basis =
+        typeof entry.basis === "string" &&
+        ["fact", "hypothesis", "inference"].includes(entry.basis)
+          ? (entry.basis as GeneratedOuvrageEvidenceKind)
+          : null;
+
+      if (!label || !severity || !basis) {
+        return null;
+      }
+
+      return { label, severity, basis } satisfies GeneratedOuvrageRiskSignal;
+    })
+    .filter((entry): entry is GeneratedOuvrageRiskSignal => entry !== null)
+    .slice(0, 8);
+}
+
+function formatConfidenceLabel(value: number) {
+  const percent = Math.round(clampConfidence(value) * 100);
+  if (percent >= 80) return "elevee";
+  if (percent >= 55) return "moyenne";
+  return "faible";
+}
+
+function computeComponentDsCents(input: {
+  quantity: number;
+  unitCostHtCents: number;
+  lossCoeffBp: number;
+}) {
+  const effectiveQuantity = Math.max(input.quantity, 0);
+  const effectiveUnitCost = Math.max(input.unitCostHtCents, 0);
+  const lossMultiplier = 1 + Math.max(input.lossCoeffBp, 0) / 10_000;
+  return Math.round(effectiveQuantity * effectiveUnitCost * lossMultiplier);
+}
+
+function mapSubdetailSource(
+  fragment: GeneratedOuvrageSourceFragmentRow,
+  evidenceKind: GeneratedOuvrageEvidenceKind,
+  note: string | null
+): GeneratedOuvrageSubdetailSource {
+  return {
+    sourceFragmentId: fragment.id,
+    sourceDocumentId: fragment.source_document_id,
+    type: mapFragmentKindToCandidateSourceType(fragment.source_kind),
+    label: fragment.label,
+    excerpt: fragment.excerpt,
+    sourceFileName: fragment.source_file_name,
+    sourcePageFrom: fragment.source_page_from,
+    sourcePageTo: fragment.source_page_to,
+    selectionLabel: fragment.selection_label,
+    evidenceKind,
+    note,
+  };
+}
+
+function mapCandidateSourceToSubdetailSource(
+  source: GeneratedOuvrageCandidateSource,
+  evidenceKind: GeneratedOuvrageEvidenceKind,
+  note: string | null
+): GeneratedOuvrageSubdetailSource {
+  return {
+    ...source,
+    evidenceKind,
+    note,
+  };
+}
+
+function keywordCostProfile(designation: string) {
+  const normalized = normalizeDesignation(designation);
+
+  const profiles = [
+    {
+      pattern: /(beton|dalle|gros oeuvre|maconnerie|cloison|mur)/,
+      material: 4200,
+      labor: 1600,
+      equipment: 450,
+      lossCoeffBp: 600,
+      yieldValue: 1.25,
+      yieldUnit: "h/" + "u",
+    },
+    {
+      pattern: /(faux plafond|plafond|isolation|placo|plaque)/,
+      material: 2600,
+      labor: 1350,
+      equipment: 180,
+      lossCoeffBp: 800,
+      yieldValue: 0.45,
+      yieldUnit: "h/m2",
+    },
+    {
+      pattern: /(peinture|enduit|facade|revetement|sol)/,
+      material: 1800,
+      labor: 1100,
+      equipment: 120,
+      lossCoeffBp: 500,
+      yieldValue: 0.22,
+      yieldUnit: "h/m2",
+    },
+    {
+      pattern: /(reseau|cable|canalisation|electrique|plomberie|ventilation)/,
+      material: 3100,
+      labor: 1700,
+      equipment: 220,
+      lossCoeffBp: 400,
+      yieldValue: 0.8,
+      yieldUnit: "h/ml",
+    },
+  ] as const;
+
+  return (
+    profiles.find((profile) => profile.pattern.test(normalized)) ?? {
+      material: 2400,
+      labor: 1400,
+      equipment: 150,
+      lossCoeffBp: 500,
+      yieldValue: 0.5,
+      yieldUnit: "h/u",
+    }
+  );
+}
+
+function buildGeneratedOuvrageRiskSignals(input: {
+  candidate: GeneratedOuvrageCandidateRow;
+  sources: GeneratedOuvrageCandidateSource[];
+  profileSourceKinds: GeneratedOuvrageSourceFragmentRow["source_kind"][];
+  quantity: number | null;
+}) {
+  const signals: GeneratedOuvrageRiskSignal[] = [];
+
+  if (input.candidate.ai_status === "question") {
+    signals.push({
+      label: "L'ouvrage parent reste a clarifier avant chiffrage final.",
+      severity: "critical",
+      basis: "hypothesis",
+    });
+  } else if (input.candidate.ai_status === "plausible") {
+    signals.push({
+      label: "Le sous-detail repose sur une interpretation plausible a confirmer.",
+      severity: "warning",
+      basis: "hypothesis",
+    });
+  }
+
+  if (input.quantity === null) {
+    signals.push({
+      label: "Quantite parent absente: le cout reste indicatif.",
+      severity: "warning",
+      basis: "hypothesis",
+    });
+  }
+
+  if (!input.profileSourceKinds.includes("history")) {
+    signals.push({
+      label: "Aucun historique proche n'a ete rattache au sous-detail.",
+      severity: "info",
+      basis: "inference",
+    });
+  }
+
+  if (!input.profileSourceKinds.includes("library")) {
+    signals.push({
+      label: "Aucune bibliotheque interne exploitable n'a ete confirmee.",
+      severity: "info",
+      basis: "hypothesis",
+    });
+  }
+
+  if (input.sources.length === 0) {
+    signals.push({
+      label: "Provenance faible: aucune source exploitable sur le candidat.",
+      severity: "critical",
+      basis: "fact",
+    });
+  }
+
+  return signals.slice(0, 8);
+}
+
+function dedupeRiskSignals(signals: GeneratedOuvrageRiskSignal[]) {
+  const deduped = new Map<string, GeneratedOuvrageRiskSignal>();
+  for (const signal of signals) {
+    deduped.set(`${signal.severity}:${signal.basis}:${signal.label}`, signal);
+  }
+  return Array.from(deduped.values());
+}
+
+function buildGeneratedOuvrageSubdetailSummary(input: {
+  components: GeneratedOuvrageSubdetailComponent[];
+  marginMultiplier: number | null;
+}): GeneratedOuvrageSubdetailSummary {
+  const dsCents = input.components.reduce(
+    (total, component) => total + component.dsCents,
+    0
+  );
+  const confidence =
+    input.components.length === 0
+      ? 0.5
+      : input.components.reduce((total, component) => total + component.confidence, 0) /
+        input.components.length;
+  const marginMultiplier =
+    typeof input.marginMultiplier === "number" && Number.isFinite(input.marginMultiplier)
+      ? Math.max(input.marginMultiplier, 1)
+      : 1;
+  const facts = Array.from(
+    new Set(input.components.flatMap((component) => component.facts))
+  ).slice(0, 8);
+  const hypotheses = Array.from(
+    new Set(input.components.flatMap((component) => component.hypotheses))
+  ).slice(0, 8);
+  const inferences = Array.from(
+    new Set(input.components.flatMap((component) => component.inferences))
+  ).slice(0, 8);
+  const riskSignals = dedupeRiskSignals(
+    input.components.flatMap((component) => component.riskSignals)
+  ).slice(0, 8);
+
+  return {
+    componentCount: input.components.length,
+    dsCents,
+    indicativeTargetPriceCents: Math.round(dsCents * marginMultiplier),
+    confidence: clampConfidence(confidence),
+    pricingSource: "heuristic_review_draft",
+    riskSignals,
+    facts,
+    hypotheses,
+    inferences,
+  };
+}
+
+function inferLaborQuantity(input: {
+  unit: string | null;
+  parentQuantity: number | null;
+  yieldValue: number | null;
+}) {
+  const unit = toNullableText(input.unit)?.toLowerCase();
+  if (input.yieldValue && input.parentQuantity !== null) {
+    return roundQuantity(input.parentQuantity * input.yieldValue);
+  }
+
+  if (unit === "m2" || unit === "m3" || unit === "ml" || unit === "m") {
+    return 1;
+  }
+
+  return input.parentQuantity !== null ? roundQuantity(Math.max(input.parentQuantity * 0.25, 1)) : 1;
+}
+
+function generateInitialSubdetailComponents(input: {
+  candidate: GeneratedOuvrageCandidateRow;
+  candidateSources: GeneratedOuvrageCandidateSource[];
+  draftFragments: GeneratedOuvrageSourceFragmentRow[];
+  marginMultiplier: number | null;
+}): {
+  components: GeneratedOuvrageSubdetailComponent[];
+  generationMetadata: JsonRecord;
+} {
+  const profile = keywordCostProfile(input.candidate.designation);
+  const quantity = input.candidate.quantity ?? 1;
+  const effectiveUnit = toNullableText(input.candidate.unit) ?? "u";
+  const fragmentById = new Map(
+    input.draftFragments.map((fragment) => [fragment.id, fragment] as const)
+  );
+  const extraReferenceFragments = input.draftFragments.filter(
+    (fragment) =>
+      fragment.source_kind === "history" || fragment.source_kind === "library"
+  );
+  const candidateSourceFragments = input.candidateSources
+    .map((source) => fragmentById.get(source.sourceFragmentId))
+    .filter((fragment): fragment is GeneratedOuvrageSourceFragmentRow => Boolean(fragment));
+  const profileSourceKinds = Array.from(
+    new Set(
+      [...candidateSourceFragments, ...extraReferenceFragments].map(
+        (fragment) => fragment.source_kind
+      )
+    )
+  );
+  const sharedRiskSignals = buildGeneratedOuvrageRiskSignals({
+    candidate: input.candidate,
+    sources: input.candidateSources,
+    profileSourceKinds,
+    quantity: input.candidate.quantity,
+  });
+
+  const materialSources = [
+    ...input.candidateSources.map((source) =>
+      mapCandidateSourceToSubdetailSource(
+        source,
+        "fact",
+        "Source primaire du besoin parent"
+      )
+    ),
+    ...extraReferenceFragments.slice(0, 1).map((fragment) =>
+      mapSubdetailSource(
+        fragment,
+        fragment.source_kind === "history" ? "inference" : "hypothesis",
+        fragment.source_kind === "history"
+          ? "Historique interne de reference"
+          : "Bibliotheque interne de reference"
+      )
+    ),
+  ].slice(0, 6);
+
+  const laborYieldValue = profile.yieldUnit.startsWith("h/") ? profile.yieldValue : 0.5;
+  const laborQuantity = inferLaborQuantity({
+    unit: effectiveUnit,
+    parentQuantity: input.candidate.quantity,
+    yieldValue: laborYieldValue,
+  });
+
+  const components: GeneratedOuvrageSubdetailComponent[] = [
+    {
+      componentId: randomUUID(),
+      status: "suggested",
+      costType: "material",
+      designation: input.candidate.designation,
+      unit: effectiveUnit,
+      quantity: roundQuantity(quantity),
+      unitCostHtCents: profile.material,
+      lossCoeffBp: profile.lossCoeffBp,
+      yieldValue: null,
+      yieldUnit: null,
+      confidence: clampConfidence(input.candidate.confidence),
+      sourceLabel: materialSources[0]?.label ?? "Source parent",
+      dsCents: computeComponentDsCents({
+        quantity: roundQuantity(quantity),
+        unitCostHtCents: profile.material,
+        lossCoeffBp: profile.lossCoeffBp,
+      }),
+      facts: [
+        `Ouvrage parent: ${input.candidate.designation}`,
+        input.candidate.quantity !== null
+          ? `Quantite parent: ${input.candidate.quantity} ${effectiveUnit}`
+          : `Unite parent: ${effectiveUnit}`,
+      ],
+      hypotheses: [
+        "Cout materiau indicatif estime par heuristique metier a confirmer.",
+      ],
+      inferences: [
+        `Confiance parent ${formatConfidenceLabel(input.candidate.confidence)} (${Math.round(
+          input.candidate.confidence * 100
+        )}%).`,
+      ],
+      riskSignals: sharedRiskSignals,
+      sources: materialSources,
+    },
+    {
+      componentId: randomUUID(),
+      status: "suggested",
+      costType: "labor",
+      designation: `Main d'oeuvre - ${input.candidate.designation}`,
+      unit: "h",
+      quantity: laborQuantity,
+      unitCostHtCents: profile.labor,
+      lossCoeffBp: 0,
+      yieldValue: profile.yieldValue,
+      yieldUnit: profile.yieldUnit,
+      confidence: clampConfidence(input.candidate.confidence - 0.05),
+      sourceLabel: candidateSourceFragments[0]?.label ?? "Inference metier",
+      dsCents: computeComponentDsCents({
+        quantity: laborQuantity,
+        unitCostHtCents: profile.labor,
+        lossCoeffBp: 0,
+      }),
+      facts: input.candidate.quantity !== null
+        ? [`Quantite parent exploitee pour la MO: ${input.candidate.quantity} ${effectiveUnit}`]
+        : [],
+      hypotheses: [
+        "Rendement MO estime a partir du type d'ouvrage et doit etre valide.",
+      ],
+      inferences: [
+        `Presence de "${input.candidate.designation}" interpretee comme besoin de pose / execution.`,
+      ],
+      riskSignals: sharedRiskSignals,
+      sources: [
+        ...input.candidateSources.slice(0, 1).map((source) =>
+          mapCandidateSourceToSubdetailSource(
+            source,
+            "inference",
+            "Rendement deduit du texte parent"
+          )
+        ),
+        ...extraReferenceFragments.slice(0, 1).map((fragment) =>
+          mapSubdetailSource(
+            fragment,
+            "hypothesis",
+            "Reference interne utilisee pour le rendement"
+          )
+        ),
+      ],
+    },
+  ];
+
+  if (profile.equipment > 0) {
+    components.push({
+      componentId: randomUUID(),
+      status: "suggested",
+      costType: "equipment",
+      designation: `Materiel de pose - ${input.candidate.designation}`,
+      unit: effectiveUnit === "u" ? "u" : effectiveUnit,
+      quantity: roundQuantity(Math.max(quantity * 0.05, 1)),
+      unitCostHtCents: profile.equipment,
+      lossCoeffBp: 0,
+      yieldValue: null,
+      yieldUnit: null,
+      confidence: clampConfidence(input.candidate.confidence - 0.12),
+      sourceLabel: extraReferenceFragments[0]?.label ?? "Hypothese de pose",
+      dsCents: computeComponentDsCents({
+        quantity: roundQuantity(Math.max(quantity * 0.05, 1)),
+        unitCostHtCents: profile.equipment,
+        lossCoeffBp: 0,
+      }),
+      facts: [],
+      hypotheses: [
+        "Materiel de pose ajoute a titre indicatif pour couvrir les moyens d'execution.",
+      ],
+      inferences: [
+        "Equipement deduit du type d'ouvrage, sans pricebook confirme.",
+      ],
+      riskSignals: sharedRiskSignals,
+      sources: extraReferenceFragments.slice(0, 1).map((fragment) =>
+        mapSubdetailSource(
+          fragment,
+          "hypothesis",
+          "Reference interne indicative"
+        )
+      ),
+    });
+  }
+
+  return {
+    components,
+    generationMetadata: {
+      generator: "heuristic_est383_v1",
+      based_on_candidate_confidence: input.candidate.confidence,
+      source_fragment_kinds: profileSourceKinds,
+      component_count: components.length,
+      margin_multiplier: input.marginMultiplier ?? null,
+    },
+  };
+}
+
+function mapSubdetailRowsToResult(input: {
+  draft: GeneratedOuvrageSubdetailDraftRow;
+  items: GeneratedOuvrageSubdetailItemRow[];
+  itemSources: GeneratedOuvrageSubdetailItemSourceRow[];
+  fragments: GeneratedOuvrageSourceFragmentRow[];
+}): GeneratedOuvrageSubdetailResult {
+  const fragmentById = new Map(
+    input.fragments.map((fragment) => [fragment.id, fragment] as const)
+  );
+  const sourcesByComponentId = new Map<string, GeneratedOuvrageSubdetailItemSourceRow[]>();
+
+  for (const row of input.itemSources) {
+    const current = sourcesByComponentId.get(row.component_id);
+    if (current) {
+      current.push(row);
+    } else {
+      sourcesByComponentId.set(row.component_id, [row]);
+    }
+  }
+
+  const components = input.items
+    .sort((left, right) => left.component_order - right.component_order)
+    .map((item) => {
+      const quantity = roundQuantity(item.quantity);
+      const unitCostHtCents = Math.max(item.unit_cost_ht_cents, 0);
+      return {
+        componentId: item.id,
+        status: item.status,
+        costType: item.cost_type,
+        designation: item.designation,
+        unit: item.unit,
+        quantity,
+        unitCostHtCents,
+        lossCoeffBp: item.loss_coeff_bp,
+        yieldValue: item.yield_value,
+        yieldUnit: item.yield_unit,
+        confidence: clampConfidence(item.confidence),
+        sourceLabel: item.source_label,
+        dsCents: computeComponentDsCents({
+          quantity,
+          unitCostHtCents,
+          lossCoeffBp: item.loss_coeff_bp,
+        }),
+        facts: readJsonStringArray(item.facts),
+        hypotheses: readJsonStringArray(item.hypotheses),
+        inferences: readJsonStringArray(item.inferences),
+        riskSignals: normalizeRiskSignals(
+          typeof item.metadata === "object" && item.metadata !== null
+            ? (item.metadata as JsonRecord).risk_signals
+            : null
+        ),
+        sources: (sourcesByComponentId.get(item.id) ?? [])
+          .sort((left, right) => left.source_rank - right.source_rank)
+          .map((row) => {
+            const fragment = fragmentById.get(row.source_fragment_id);
+            if (!fragment) {
+              return null;
+            }
+
+            return mapSubdetailSource(
+              fragment,
+              row.evidence_kind,
+              row.note
+            );
+          })
+          .filter(
+            (source): source is GeneratedOuvrageSubdetailSource => Boolean(source)
+          ),
+      } satisfies GeneratedOuvrageSubdetailComponent;
+    });
+
+  const summaryRecord =
+    typeof input.draft.summary === "object" && input.draft.summary !== null
+      ? (input.draft.summary as JsonRecord)
+      : {};
+  const computedSummary = buildGeneratedOuvrageSubdetailSummary({
+    components,
+    marginMultiplier:
+      typeof summaryRecord.margin_multiplier === "number"
+        ? summaryRecord.margin_multiplier
+        : null,
+  });
+
+  return {
+    draftId: input.draft.draft_id,
+    candidateId: input.draft.parent_work_id,
+    versionId: input.draft.target_version_id,
+    projectId: input.draft.project_id,
+    status: input.draft.status,
+    humanValidationRequired: true,
+    generatedAt: input.draft.created_at,
+    updatedAt: input.draft.updated_at,
+    summary: {
+      ...computedSummary,
+      dsCents:
+        typeof summaryRecord.ds_cents === "number"
+          ? summaryRecord.ds_cents
+          : computedSummary.dsCents,
+      indicativeTargetPriceCents:
+        typeof summaryRecord.indicative_target_price_cents === "number"
+          ? summaryRecord.indicative_target_price_cents
+          : computedSummary.indicativeTargetPriceCents,
+      confidence:
+        typeof summaryRecord.confidence === "number"
+          ? clampConfidence(summaryRecord.confidence)
+          : computedSummary.confidence,
+      pricingSource:
+        toNullableText(
+          typeof summaryRecord.pricing_source === "string"
+            ? summaryRecord.pricing_source
+            : null
+        ) ?? computedSummary.pricingSource,
+      riskSignals:
+        normalizeRiskSignals(summaryRecord.risk_signals).length > 0
+          ? normalizeRiskSignals(summaryRecord.risk_signals)
+          : computedSummary.riskSignals,
+      facts:
+        readJsonStringArray(summaryRecord.facts).length > 0
+          ? readJsonStringArray(summaryRecord.facts)
+          : computedSummary.facts,
+      hypotheses:
+        readJsonStringArray(summaryRecord.hypotheses).length > 0
+          ? readJsonStringArray(summaryRecord.hypotheses)
+          : computedSummary.hypotheses,
+      inferences:
+        readJsonStringArray(summaryRecord.inferences).length > 0
+          ? readJsonStringArray(summaryRecord.inferences)
+          : computedSummary.inferences,
+    },
+    components,
+  };
+}
+
 async function loadGeneratedOuvrageDraftOrThrow(input: {
   supabase: Supabase;
   tenantId: string;
@@ -1414,6 +2253,67 @@ async function loadGeneratedOuvrageDraftOrThrow(input: {
   };
 }
 
+async function loadGeneratedOuvrageSubdetail(input: {
+  supabase: Supabase;
+  tenantId: string;
+  draftId: string;
+  candidateId: string;
+}) {
+  const [draftResult, itemResult, itemSourceResult] = await Promise.all([
+    input.supabase
+      .from("estimate_generated_ouvrage_subdetail_drafts" as never)
+      .select("*" as never)
+      .eq("tenant_id", input.tenantId)
+      .eq("draft_id", input.draftId)
+      .eq("parent_work_id", input.candidateId)
+      .maybeSingle(),
+    input.supabase
+      .from("estimate_generated_ouvrage_subdetail_items" as never)
+      .select("*" as never)
+      .eq("tenant_id", input.tenantId)
+      .eq("draft_id", input.draftId)
+      .eq("parent_work_id", input.candidateId)
+      .order("component_order", { ascending: true }),
+    input.supabase
+      .from("estimate_generated_ouvrage_subdetail_item_sources" as never)
+      .select("*" as never)
+      .eq("tenant_id", input.tenantId)
+      .eq("draft_id", input.draftId)
+      .eq("parent_work_id", input.candidateId)
+      .order("source_rank", { ascending: true }),
+  ]);
+
+  if (draftResult.error) {
+    throw mapSupabaseError(
+      draftResult.error as never,
+      "Impossible de charger le sous-detail persiste."
+    );
+  }
+
+  if (itemResult.error) {
+    throw mapSupabaseError(
+      itemResult.error as never,
+      "Impossible de charger les composants du sous-detail."
+    );
+  }
+
+  if (itemSourceResult.error) {
+    throw mapSupabaseError(
+      itemSourceResult.error as never,
+      "Impossible de charger la provenance du sous-detail."
+    );
+  }
+
+  return {
+    draft:
+      (draftResult.data as GeneratedOuvrageSubdetailDraftRow | null | undefined) ??
+      null,
+    items: (itemResult.data ?? []) as GeneratedOuvrageSubdetailItemRow[],
+    itemSources:
+      (itemSourceResult.data ?? []) as GeneratedOuvrageSubdetailItemSourceRow[],
+  };
+}
+
 function normalizeDraftResult(loaded: DraftLoaded): GeneratedOuvrageDraftResult {
   const fragmentById = new Map(
     loaded.fragments.map((fragment) => [fragment.id, fragment] as const)
@@ -1476,6 +2376,161 @@ function pickPrimaryFragment(
   fragmentSources: GeneratedOuvrageCandidateSource[]
 ): GeneratedOuvrageCandidateSource | null {
   return fragmentSources[0] ?? null;
+}
+
+async function persistGeneratedOuvrageSubdetail(input: {
+  supabase: Supabase;
+  tenantId: string;
+  projectId: string;
+  versionId: string;
+  draftId: string;
+  candidateId: string;
+  userId: string;
+  existing: GeneratedOuvrageSubdetailDraftRow | null;
+  status: GeneratedOuvrageSubdetailDraftStatus;
+  summary: GeneratedOuvrageSubdetailSummary;
+  generationMetadata: JsonRecord;
+  components: UpdateGeneratedOuvrageSubdetailInput["components"];
+}) {
+  const summaryPayload = {
+    component_count: input.summary.componentCount,
+    ds_cents: input.summary.dsCents,
+    indicative_target_price_cents: input.summary.indicativeTargetPriceCents,
+    confidence: input.summary.confidence,
+    pricing_source: input.summary.pricingSource,
+    risk_signals: input.summary.riskSignals,
+    facts: input.summary.facts,
+    hypotheses: input.summary.hypotheses,
+    inferences: input.summary.inferences,
+    margin_multiplier: input.generationMetadata.margin_multiplier ?? null,
+  } satisfies JsonRecord;
+
+  const persistedDraftResponse = (input.existing === null
+    ? await input.supabase
+        .from("estimate_generated_ouvrage_subdetail_drafts" as never)
+        .insert({
+          tenant_id: input.tenantId,
+          project_id: input.projectId,
+          target_version_id: input.versionId,
+          draft_id: input.draftId,
+          parent_work_id: input.candidateId,
+          created_by: input.userId,
+          status: input.status,
+          summary: summaryPayload,
+          generation_metadata: input.generationMetadata,
+        } as never)
+        .select("*" as never)
+        .single()
+    : await input.supabase
+        .from("estimate_generated_ouvrage_subdetail_drafts" as never)
+        .update({
+          status: input.status,
+          summary: summaryPayload,
+          generation_metadata: input.generationMetadata,
+          applied_at: input.status === "applied" ? new Date().toISOString() : null,
+        } as never)
+        .eq("id", input.existing.id)
+        .select("*" as never)
+        .single()) as {
+    data: unknown;
+    error: { message?: string; code?: string } | null;
+  };
+
+  if (persistedDraftResponse.error || !persistedDraftResponse.data) {
+    throw mapSupabaseError(
+      persistedDraftResponse.error as never,
+      "Impossible de persister le brouillon de sous-detail."
+    );
+  }
+
+  const subdetailDraft = persistedDraftResponse.data as GeneratedOuvrageSubdetailDraftRow;
+
+  const { error: deleteItemsError } = await input.supabase
+    .from("estimate_generated_ouvrage_subdetail_items" as never)
+    .delete()
+    .eq("subdetail_id", subdetailDraft.id);
+
+  if (deleteItemsError) {
+    throw mapSupabaseError(
+      deleteItemsError,
+      "Impossible de remplacer les composants du sous-detail."
+    );
+  }
+
+  const componentRows = input.components.map((component, index) => ({
+    tenant_id: input.tenantId,
+    project_id: input.projectId,
+    draft_id: input.draftId,
+    subdetail_id: subdetailDraft.id,
+    parent_work_id: input.candidateId,
+    source_fragment_id: component.sources[0]?.sourceFragmentId ?? null,
+    component_order: index,
+    status: component.status,
+    cost_type: component.costType,
+    designation: normalizeText(component.designation, 500),
+    unit: toNullableText(component.unit),
+    quantity: roundQuantity(component.quantity),
+    unit_cost_ht_cents: component.unitCostHtCents,
+    loss_coeff_bp: component.lossCoeffBp,
+    yield_value: component.yieldValue ?? null,
+    yield_unit: toNullableText(component.yieldUnit),
+    confidence: clampConfidence(component.confidence),
+    source_label: toNullableText(component.sourceLabel),
+    facts: component.facts,
+    hypotheses: component.hypotheses,
+    inferences: component.inferences,
+    metadata: {
+      risk_signals: component.riskSignals,
+    },
+  }));
+
+  const { data: insertedItems, error: insertItemsError } = await input.supabase
+    .from("estimate_generated_ouvrage_subdetail_items" as never)
+    .insert(componentRows as never)
+    .select("*" as never)
+    .order("component_order", { ascending: true });
+
+  if (insertItemsError || !insertedItems) {
+    throw mapSupabaseError(
+      insertItemsError,
+      "Impossible de persister les composants du sous-detail."
+    );
+  }
+
+  const subdetailItems = insertedItems as GeneratedOuvrageSubdetailItemRow[];
+  const sourceRows = subdetailItems.flatMap((item, index) => {
+    const component = input.components[index];
+    return component.sources.map((source, sourceRank) => ({
+      tenant_id: input.tenantId,
+      draft_id: input.draftId,
+      subdetail_id: subdetailDraft.id,
+      parent_work_id: input.candidateId,
+      component_id: item.id,
+      source_fragment_id: source.sourceFragmentId,
+      source_rank: sourceRank,
+      evidence_kind: source.evidenceKind,
+      note: toNullableText(source.note),
+      metadata: {},
+    }));
+  });
+
+  if (sourceRows.length > 0) {
+    const { error: insertSourcesError } = await input.supabase
+      .from("estimate_generated_ouvrage_subdetail_item_sources" as never)
+      .insert(sourceRows as never);
+
+    if (insertSourcesError) {
+      throw mapSupabaseError(
+        insertSourcesError,
+        "Impossible de persister les preuves du sous-detail."
+      );
+    }
+  }
+
+  return {
+    draft: subdetailDraft,
+    items: subdetailItems,
+  };
 }
 
 async function resolveGeneratedOuvrageTargetSection(input: {
@@ -1545,6 +2600,7 @@ async function rollbackInsertedGeneratedOuvrages(input: {
   supabase: Supabase;
   versionId: string;
   createdEstimateItemIds: string[];
+  createdAssemblyIds: string[];
   candidateReverts: Array<{
     candidateId: string;
     resolutionStatus: GeneratedOuvrageCandidateResolutionStatus;
@@ -1562,6 +2618,20 @@ async function rollbackInsertedGeneratedOuvrages(input: {
       throw mapSupabaseError(
         deleteItemsError,
         "Impossible de restaurer les lignes d'estimation apres un echec d'insertion."
+      );
+    }
+  }
+
+  if (input.createdAssemblyIds.length > 0) {
+    const { error: deleteAssembliesError } = await input.supabase
+      .from("estimate_assemblies" as never)
+      .delete()
+      .in("id", input.createdAssemblyIds);
+
+    if (deleteAssembliesError) {
+      throw mapSupabaseError(
+        deleteAssembliesError,
+        "Impossible de restaurer les ouvrages composes apres un echec d'insertion."
       );
     }
   }
@@ -1891,6 +2961,272 @@ export async function fetchGeneratedOuvrageDraft(
   return normalizeDraftResult(loaded);
 }
 
+export async function fetchGeneratedOuvrageSubdetailDraft(
+  input: FetchGeneratedOuvrageSubdetailInput
+): Promise<GeneratedOuvrageSubdetailResult> {
+  const parsed = generatedOuvrageSubdetailFetchInputSchema.parse(input);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+  const { version, project } = await getVersionAccessOrThrow(
+    supabase,
+    parsed.versionId,
+    context
+  );
+
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId: parsed.versionId,
+    userId,
+  });
+
+  const loaded = await loadGeneratedOuvrageDraftOrThrow({
+    supabase,
+    tenantId,
+    versionId: parsed.versionId,
+    draftId: parsed.draftId,
+  });
+  const candidate = loaded.candidates.find((entry) => entry.id === parsed.candidateId);
+
+  if (!candidate) {
+    throw notFound("Ouvrage parent introuvable.");
+  }
+
+  const existing = await loadGeneratedOuvrageSubdetail({
+    supabase,
+    tenantId,
+    draftId: parsed.draftId,
+    candidateId: parsed.candidateId,
+  });
+
+  const fragments = loaded.fragments;
+  if (existing.draft && existing.items.length > 0) {
+    return mapSubdetailRowsToResult({
+      draft: existing.draft,
+      items: existing.items,
+      itemSources: existing.itemSources,
+      fragments,
+    });
+  }
+
+  const normalizedDraft = normalizeDraftResult(loaded);
+  const candidateSources =
+    normalizedDraft.candidates.find((entry) => entry.candidateId === parsed.candidateId)
+      ?.sources ?? [];
+  const generated = generateInitialSubdetailComponents({
+    candidate,
+    candidateSources,
+    draftFragments: fragments,
+    marginMultiplier: version.margin_multiplier,
+  });
+  const summary = buildGeneratedOuvrageSubdetailSummary({
+    components: generated.components,
+    marginMultiplier: version.margin_multiplier,
+  });
+  const persisted = await persistGeneratedOuvrageSubdetail({
+    supabase,
+    tenantId,
+    projectId: project.id,
+    versionId: parsed.versionId,
+    draftId: parsed.draftId,
+    candidateId: parsed.candidateId,
+    userId,
+    existing: existing.draft,
+    status: "pending_review",
+    summary,
+    generationMetadata: {
+      ...generated.generationMetadata,
+      margin_multiplier: version.margin_multiplier ?? null,
+    },
+    components: generated.components.map((component) => ({
+      componentId: component.componentId,
+      status: component.status,
+      costType: component.costType,
+      designation: component.designation,
+      unit: component.unit,
+      quantity: component.quantity,
+      unitCostHtCents: component.unitCostHtCents,
+      lossCoeffBp: component.lossCoeffBp,
+      yieldValue: component.yieldValue,
+      yieldUnit: component.yieldUnit,
+      confidence: component.confidence,
+      sourceLabel: component.sourceLabel,
+      facts: component.facts,
+      hypotheses: component.hypotheses,
+      inferences: component.inferences,
+      riskSignals: component.riskSignals,
+      sources: component.sources.map((source) => ({
+        sourceFragmentId: source.sourceFragmentId,
+        evidenceKind: source.evidenceKind,
+        note: source.note,
+      })),
+    })),
+  });
+
+  const reloaded = await loadGeneratedOuvrageSubdetail({
+    supabase,
+    tenantId,
+    draftId: parsed.draftId,
+    candidateId: parsed.candidateId,
+  });
+
+  return mapSubdetailRowsToResult({
+    draft: reloaded.draft ?? persisted.draft,
+    items: reloaded.items.length > 0 ? reloaded.items : persisted.items,
+    itemSources: reloaded.itemSources,
+    fragments,
+  });
+}
+
+export async function updateGeneratedOuvrageSubdetailDraft(
+  input: UpdateGeneratedOuvrageSubdetailInput
+): Promise<GeneratedOuvrageSubdetailResult> {
+  const parsed = generatedOuvrageSubdetailUpdateInputSchema.parse(input);
+  const context = await getAuthenticatedContext();
+  const { supabase, tenantId, userId } = context;
+  const { version, project } = await getVersionAccessOrThrow(
+    supabase,
+    parsed.versionId,
+    context
+  );
+
+  assertDraftStatus(version.status);
+  await assertDraftLockOwnedByCurrentUser({
+    supabase,
+    tenantId,
+    versionId: parsed.versionId,
+    userId,
+  });
+
+  const loaded = await loadGeneratedOuvrageDraftOrThrow({
+    supabase,
+    tenantId,
+    versionId: parsed.versionId,
+    draftId: parsed.draftId,
+  });
+  const candidate = loaded.candidates.find((entry) => entry.id === parsed.candidateId);
+
+  if (!candidate) {
+    throw notFound("Ouvrage parent introuvable.");
+  }
+
+  if (candidate.resolution_status !== "pending") {
+    throw conflict(
+      "Le sous-detail n'est editable que tant que l'ouvrage parent est en attente.",
+      { candidateId: candidate.id, status: candidate.resolution_status },
+      "EST383_CANDIDATE_NOT_PENDING"
+    );
+  }
+
+  const existing = await loadGeneratedOuvrageSubdetail({
+    supabase,
+    tenantId,
+    draftId: parsed.draftId,
+    candidateId: parsed.candidateId,
+  });
+  const normalizedComponents = parsed.components.map((component) => ({
+    ...component,
+    designation: normalizeText(component.designation, 500),
+    unit: toNullableText(component.unit),
+    yieldUnit: toNullableText(component.yieldUnit),
+    sourceLabel: toNullableText(component.sourceLabel),
+    facts: component.facts.map((entry) => normalizeText(entry, 320)),
+    hypotheses: component.hypotheses.map((entry) => normalizeText(entry, 320)),
+    inferences: component.inferences.map((entry) => normalizeText(entry, 320)),
+  }));
+
+  const summary = buildGeneratedOuvrageSubdetailSummary({
+    components: normalizedComponents.map((component, index) => ({
+      componentId: component.componentId ?? `component-${index}`,
+      status: component.status,
+      costType: component.costType,
+      designation: component.designation,
+      unit: component.unit ?? null,
+      quantity: component.quantity,
+      unitCostHtCents: component.unitCostHtCents,
+      lossCoeffBp: component.lossCoeffBp,
+      yieldValue: component.yieldValue ?? null,
+      yieldUnit: component.yieldUnit ?? null,
+      confidence: component.confidence,
+      sourceLabel: component.sourceLabel ?? null,
+      dsCents: computeComponentDsCents({
+        quantity: component.quantity,
+        unitCostHtCents: component.unitCostHtCents,
+        lossCoeffBp: component.lossCoeffBp,
+      }),
+      facts: component.facts,
+      hypotheses: component.hypotheses,
+      inferences: component.inferences,
+      riskSignals: component.riskSignals,
+      sources: component.sources.map((source) => ({
+        sourceFragmentId: source.sourceFragmentId,
+        sourceDocumentId: null,
+        type: "text",
+        label: source.sourceFragmentId,
+        excerpt: null,
+        sourceFileName: null,
+        sourcePageFrom: null,
+        sourcePageTo: null,
+        selectionLabel: null,
+        evidenceKind: source.evidenceKind,
+        note: source.note ?? null,
+      })),
+    })),
+    marginMultiplier: version.margin_multiplier,
+  });
+
+  const generationMetadata =
+    existing.draft?.generation_metadata && typeof existing.draft.generation_metadata === "object"
+      ? {
+          ...(existing.draft.generation_metadata as JsonRecord),
+          margin_multiplier: version.margin_multiplier ?? null,
+          last_reviewed_at: new Date().toISOString(),
+        }
+      : {
+          generator: "review_update",
+          margin_multiplier: version.margin_multiplier ?? null,
+          last_reviewed_at: new Date().toISOString(),
+        };
+
+  await persistGeneratedOuvrageSubdetail({
+    supabase,
+    tenantId,
+    projectId: project.id,
+    versionId: parsed.versionId,
+    draftId: parsed.draftId,
+    candidateId: parsed.candidateId,
+    userId,
+    existing: existing.draft,
+    status: parsed.markReviewed ? "reviewed" : "pending_review",
+    summary,
+    generationMetadata,
+    components: normalizedComponents,
+  });
+
+  const reloaded = await loadGeneratedOuvrageSubdetail({
+    supabase,
+    tenantId,
+    draftId: parsed.draftId,
+    candidateId: parsed.candidateId,
+  });
+
+  if (!reloaded.draft) {
+    throw internalError(
+      "Le sous-detail n'a pas pu etre recharge apres sauvegarde.",
+      { draftId: parsed.draftId, candidateId: parsed.candidateId },
+      "EST383_SUBDETAIL_RELOAD_MISSING"
+    );
+  }
+
+  return mapSubdetailRowsToResult({
+    draft: reloaded.draft,
+    items: reloaded.items,
+    itemSources: reloaded.itemSources,
+    fragments: loaded.fragments,
+  });
+}
+
 export async function insertGeneratedOuvrages(
   input: InsertGeneratedOuvragesInput
 ): Promise<InsertGeneratedOuvragesResult> {
@@ -1995,26 +3331,66 @@ export async function insertGeneratedOuvrages(
     };
   });
 
+  const preparedAcceptedSubdetails = await Promise.all(
+    preparedAcceptedCandidates.map(async (preparedCandidate) => {
+      const subdetail = await loadGeneratedOuvrageSubdetail({
+        supabase,
+        tenantId,
+        draftId: parsed.draftId,
+        candidateId: preparedCandidate.candidate.id,
+      });
+
+      if (!subdetail.draft || subdetail.items.length === 0) {
+        throw conflict(
+          "Le sous-detail doit etre genere puis revu avant insertion.",
+          { candidateId: preparedCandidate.candidate.id },
+          "EST383_SUBDETAIL_REQUIRED"
+        );
+      }
+
+      if (subdetail.draft.status !== "reviewed") {
+        throw conflict(
+          "Le sous-detail doit etre explicitement valide avant insertion.",
+          {
+            candidateId: preparedCandidate.candidate.id,
+            subdetailStatus: subdetail.draft.status,
+          },
+          "EST383_SUBDETAIL_NOT_REVIEWED"
+        );
+      }
+
+      return {
+        ...preparedCandidate,
+        subdetailDraft: subdetail.draft,
+        subdetailItems: subdetail.items,
+        subdetailItemSources: subdetail.itemSources,
+      };
+    })
+  );
+
   let insertedCount = 0;
   const refreshedApplications = [...loaded.applications];
   const refreshedCandidates = [...loaded.candidates];
   const createdEstimateItemIds: string[] = [];
+  const createdAssemblyIds: string[] = [];
   const candidateReverts: Array<{
     candidateId: string;
     resolutionStatus: GeneratedOuvrageCandidateResolutionStatus;
     metadata: Json;
   }> = [];
+  const appliedSubdetailIds: string[] = [];
   let updatedDraft: GeneratedOuvrageDraftRow | null = null;
   let fallbackTargetSection:
     | {
         parentId: string;
+        placementMode: "fallback_unclassified";
         lotLabel: string | null;
         createdFallbackSection: boolean;
       }
     | null = null;
 
   try {
-    for (const preparedCandidate of preparedAcceptedCandidates) {
+    for (const preparedCandidate of preparedAcceptedSubdetails) {
       const {
         acceptedCandidate,
         appliedPayload,
@@ -2022,10 +3398,18 @@ export async function insertGeneratedOuvrages(
         designation,
         primaryFragment,
         quantity,
+        subdetailDraft,
+        subdetailItems,
+        subdetailItemSources,
       } = preparedCandidate;
 
-      const resolvedTargetSection =
-        acceptedCandidate.lotId !== null
+      const resolvedTargetSection: {
+        parentId: string;
+        placementMode: "explicit" | "fallback_unclassified";
+        lotLabel: string | null;
+        createdFallbackSection: boolean;
+      } =
+        acceptedCandidate.lotId
           ? {
               parentId: acceptedCandidate.lotId,
               placementMode: "explicit" as const,
@@ -2041,9 +3425,10 @@ export async function insertGeneratedOuvrages(
               requestedLotId: null,
             }));
 
-      if (acceptedCandidate.lotId === null) {
+      if (!acceptedCandidate.lotId) {
         fallbackTargetSection = {
           parentId: resolvedTargetSection.parentId,
+          placementMode: "fallback_unclassified",
           lotLabel: resolvedTargetSection.lotLabel,
           createdFallbackSection: resolvedTargetSection.createdFallbackSection,
         };
@@ -2059,12 +3444,99 @@ export async function insertGeneratedOuvrages(
         fallback_section_created: resolvedTargetSection.createdFallbackSection,
       } satisfies JsonRecord;
 
+      const subdetailResult = mapSubdetailRowsToResult({
+        draft: subdetailDraft,
+        items: subdetailItems,
+        itemSources: subdetailItemSources,
+        fragments: loaded.fragments,
+      });
+
+      const assemblyName = `${designation} · ${candidate.id.slice(0, 8)}`;
+      const assemblySourceMetadata = {
+        kind: "generated_ouvrage",
+        draft_id: loaded.draft.id,
+        candidate_id: candidate.id,
+        source_fragment_ids: appliedPayload.source_fragment_ids,
+        summary: subdetailResult.summary,
+      } satisfies JsonRecord;
+
+      const { data: assemblyData, error: assemblyError } = await supabase
+        .from("estimate_assemblies" as never)
+        .insert({
+          tenant_id: tenantId,
+          created_by: userId,
+          name: assemblyName,
+          description: `Ouvrage compose genere depuis ${designation}`,
+          reference_code: `EST383-${candidate.id.slice(0, 8).toUpperCase()}`,
+          unit: toNullableText(acceptedCandidate.unit) ?? candidate.unit ?? null,
+          pricing_source: "generated_ouvrage_review",
+          ds_cents: subdetailResult.summary.dsCents,
+          indicative_target_price_cents:
+            subdetailResult.summary.indicativeTargetPriceCents,
+          avg_output_rate: null,
+          avg_time_hours: null,
+          source_metadata: assemblySourceMetadata,
+        } as never)
+        .select("*" as never)
+        .single();
+
+      if (assemblyError || !assemblyData) {
+        throw mapSupabaseError(
+          assemblyError,
+          "Impossible de creer l'ouvrage compose canonique."
+        );
+      }
+
+      const assembly = assemblyData as {
+        id: string;
+        name: string;
+        reference_code: string | null;
+      };
+      createdAssemblyIds.push(assembly.id);
+
+      const assemblyItemRows = subdetailResult.components.map((component, index) => ({
+        tenant_id: tenantId,
+        assembly_id: assembly.id,
+        title: component.designation,
+        unit: component.unit,
+        k_fo: component.costType === "labor" ? 0 : 1,
+        k_mo: component.costType === "labor" ? 1 : 0,
+        labor_role_id: null,
+        default_quantity: component.quantity,
+        position: index + 1,
+        cost_type: component.costType,
+        unit_cost_ht_cents: component.unitCostHtCents,
+        loss_coeff_bp: component.lossCoeffBp,
+        yield_value: component.yieldValue,
+        yield_unit: component.yieldUnit,
+        source_metadata: {
+          source_label: component.sourceLabel,
+          confidence: component.confidence,
+          facts: component.facts,
+          hypotheses: component.hypotheses,
+          inferences: component.inferences,
+          risk_signals: component.riskSignals,
+          sources: component.sources,
+        },
+      }));
+
+      const { error: assemblyItemsError } = await supabase
+        .from("estimate_assembly_items" as never)
+        .insert(assemblyItemRows as never);
+
+      if (assemblyItemsError) {
+        throw mapSupabaseError(
+          assemblyItemsError,
+          "Impossible de persister les composants de l'ouvrage compose."
+        );
+      }
+
       const createResult = await createEstimateItem(parsed.versionId, {
         item_type: "line",
         parent_id: resolvedTargetSection.parentId,
         title: designation,
         quantity,
-        unit_price_ht_cents: 0,
+        unit_price_ht_cents: subdetailResult.summary.dsCents,
         source_provider: "generated_ouvrage",
         source_file_name: primaryFragment?.sourceFileName ?? null,
         source_page: primaryFragment?.sourcePageFrom ?? null,
@@ -2093,12 +3565,48 @@ export async function insertGeneratedOuvrages(
         );
       }
 
+      const { error: snapshotError } = await supabase
+        .from("estimate_generated_ouvrage_work_snapshots" as never)
+        .insert({
+          tenant_id: tenantId,
+          project_id: loaded.draft.project_id,
+          target_version_id: parsed.versionId,
+          draft_id: loaded.draft.id,
+          parent_work_id: candidate.id,
+          assembly_id: assembly.id,
+          estimate_item_id: createResult.item.id,
+          applied_by: userId,
+          summary: {
+            ...subdetailResult.summary,
+            assembly_name: assembly.name,
+            assembly_reference_code: assembly.reference_code,
+          },
+          components: subdetailResult.components,
+          metadata: {
+            applied_values: nextAppliedPayload,
+            ai_status: candidate.ai_status,
+            confidence: clampConfidence(candidate.confidence),
+          },
+        } as never);
+
+      if (snapshotError) {
+        throw mapSupabaseError(
+          snapshotError,
+          "Impossible de figer le snapshot du sous-detail applique."
+        );
+      }
+
       const nextCandidateMetadata = {
         ...(candidate.metadata && typeof candidate.metadata === "object"
           ? (candidate.metadata as JsonRecord)
           : {}),
         applied_at: new Date().toISOString(),
         applied_by: userId,
+        assembly_id: assembly.id,
+        subdetail_id: subdetailDraft.id,
+        ds_cents: subdetailResult.summary.dsCents,
+        indicative_target_price_cents:
+          subdetailResult.summary.indicativeTargetPriceCents,
       };
 
       const { data: updatedCandidateData, error: updatedCandidateError } = await supabase
@@ -2128,6 +3636,7 @@ export async function insertGeneratedOuvrages(
         applicationData as GeneratedOuvrageApplicationRow
       );
       refreshedApplications.push(applicationData as GeneratedOuvrageApplicationRow);
+      appliedSubdetailIds.push(subdetailDraft.id);
 
       const candidateIndex = refreshedCandidates.findIndex((entry) => entry.id === candidate.id);
       if (candidateIndex >= 0) {
@@ -2143,12 +3652,30 @@ export async function insertGeneratedOuvrages(
       candidates: refreshedCandidates,
       applications: refreshedApplications,
     });
+
+    if (appliedSubdetailIds.length > 0) {
+      const { error: appliedSubdetailsError } = await supabase
+        .from("estimate_generated_ouvrage_subdetail_drafts" as never)
+        .update({
+          status: "applied",
+          applied_at: new Date().toISOString(),
+        } as never)
+        .in("id", Array.from(new Set(appliedSubdetailIds)));
+
+      if (appliedSubdetailsError) {
+        throw mapSupabaseError(
+          appliedSubdetailsError,
+          "Impossible de finaliser le statut applique du sous-detail."
+        );
+      }
+    }
   } catch (error) {
     try {
       await rollbackInsertedGeneratedOuvrages({
         supabase,
         versionId: parsed.versionId,
         createdEstimateItemIds,
+        createdAssemblyIds,
         candidateReverts,
       });
     } catch (rollbackError) {
@@ -2351,7 +3878,13 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
   const candidateIds = Array.from(new Set(applications.map((row) => row.candidate_id)));
   const draftIds = Array.from(new Set(applications.map((row) => row.draft_id)));
 
-  const [candidateResult, draftResult, candidateSourceResult, fragmentResult] = await Promise.all([
+  const [
+    candidateResult,
+    draftResult,
+    candidateSourceResult,
+    fragmentResult,
+    snapshotResult,
+  ] = await Promise.all([
     input.supabase
       .from("estimate_generated_ouvrage_candidates" as never)
       .select("*" as never)
@@ -2372,13 +3905,19 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
       .select("*" as never)
       .eq("tenant_id", input.tenantId)
       .in("draft_id", draftIds),
+    input.supabase
+      .from("estimate_generated_ouvrage_work_snapshots" as never)
+      .select("*" as never)
+      .eq("tenant_id", input.tenantId)
+      .in("estimate_item_id", itemIds),
   ]);
 
   if (
     candidateResult.error ||
     draftResult.error ||
     candidateSourceResult.error ||
-    fragmentResult.error
+    fragmentResult.error ||
+    snapshotResult.error
   ) {
     return input.items;
   }
@@ -2416,6 +3955,12 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
   const applicationByItemId = new Map(
     applications.map((row) => [row.estimate_item_id, row] as const)
   );
+  const snapshotByItemId = new Map(
+    ((snapshotResult.data ?? []) as GeneratedOuvrageWorkSnapshotRow[]).map((row) => [
+      row.estimate_item_id,
+      row,
+    ] as const)
+  );
 
   return input.items.map((item) => {
     const application = applicationByItemId.get(item.id);
@@ -2452,6 +3997,54 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
       application.applied_payload && typeof application.applied_payload === "object"
         ? (application.applied_payload as JsonRecord)
         : {};
+    const snapshot = snapshotByItemId.get(item.id);
+    const snapshotSummary =
+      snapshot?.summary && typeof snapshot.summary === "object"
+        ? (snapshot.summary as JsonRecord)
+        : {};
+    const snapshotComponents = Array.isArray(snapshot?.components)
+      ? (snapshot?.components as unknown[])
+      : [];
+    const facts = Array.from(
+      new Set([
+        ...readJsonStringArray(snapshotSummary.facts),
+        ...snapshotComponents.flatMap((component) =>
+          typeof component === "object" &&
+          component !== null &&
+          Array.isArray((component as Record<string, unknown>).facts)
+            ? readJsonStringArray((component as Record<string, unknown>).facts as Json)
+            : []
+        ),
+      ])
+    ).slice(0, 8);
+    const hypotheses = Array.from(
+      new Set([
+        ...readJsonStringArray(snapshotSummary.hypotheses),
+        ...snapshotComponents.flatMap((component) =>
+          typeof component === "object" &&
+          component !== null &&
+          Array.isArray((component as Record<string, unknown>).hypotheses)
+            ? readJsonStringArray(
+                (component as Record<string, unknown>).hypotheses as Json
+              )
+            : []
+        ),
+      ])
+    ).slice(0, 8);
+    const inferences = Array.from(
+      new Set([
+        ...readJsonStringArray(snapshotSummary.inferences),
+        ...snapshotComponents.flatMap((component) =>
+          typeof component === "object" &&
+          component !== null &&
+          Array.isArray((component as Record<string, unknown>).inferences)
+            ? readJsonStringArray(
+                (component as Record<string, unknown>).inferences as Json
+              )
+            : []
+        ),
+      ])
+    ).slice(0, 8);
 
     return {
       ...item,
@@ -2468,6 +4061,8 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
         draft_id: application.draft_id,
         candidate_id: application.candidate_id,
         application_id: application.id,
+        snapshot_id: snapshot?.id ?? null,
+        assembly_id: snapshot?.assembly_id ?? null,
         ai_status: candidate?.ai_status ?? null,
         resolution_status: candidate?.resolution_status ?? null,
         confidence: candidate ? clampConfidence(candidate.confidence) : null,
@@ -2482,6 +4077,12 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
         },
         prompt_version: toNullableText(generationMetadata.prompt_version),
         used_fallback: Boolean(generationMetadata.used_fallback),
+        subdetail_summary: snapshotSummary,
+        components: snapshotComponents,
+        facts,
+        hypotheses,
+        inferences,
+        risk_signals: normalizeRiskSignals(snapshotSummary.risk_signals),
         sources,
       },
     };

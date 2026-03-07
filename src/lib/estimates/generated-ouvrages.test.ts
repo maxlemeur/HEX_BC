@@ -38,6 +38,9 @@ const FRAGMENT_ID = "77777777-7777-4777-8777-777777777777";
 const APPLICATION_ID = "88888888-8888-4888-8888-888888888888";
 const ITEM_ID = "99999999-9999-4999-8999-999999999999";
 const FALLBACK_SECTION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SUBDETAIL_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const ASSEMBLY_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const SNAPSHOT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 function createQueryBuilder<T>(result: { data: T; error: unknown }) {
   const builder = {
@@ -137,6 +140,7 @@ function createVersionAccessRow() {
     project_id: PROJECT_ID,
     status: "draft",
     updated_at: "2026-03-07T09:00:00.000Z",
+    margin_multiplier: 1.3,
     estimate_projects: {
       id: PROJECT_ID,
       tenant_id: TENANT_ID,
@@ -214,6 +218,145 @@ function createCandidateRow(
     ai_status: "plausible",
     resolution_status: resolutionStatus,
     reasoning: "Fallback heuristique base sur le texte source.",
+    metadata: {},
+  };
+}
+
+function createSubdetailDraftRow(
+  status: "pending_review" | "reviewed" | "applied" = "reviewed"
+) {
+  return {
+    id: SUBDETAIL_ID,
+    created_at: "2026-03-07T09:03:00.000Z",
+    updated_at: "2026-03-07T09:04:00.000Z",
+    tenant_id: TENANT_ID,
+    project_id: PROJECT_ID,
+    target_version_id: VERSION_ID,
+    draft_id: DRAFT_ID,
+    parent_work_id: CANDIDATE_ID,
+    created_by: USER_ID,
+    status,
+    summary: {
+      ds_cents: 4500,
+      indicative_target_price_cents: 5850,
+      confidence: 0.72,
+      pricing_source: "heuristic_review_draft",
+      facts: ["Ouvrage parent: Pose de faux plafond"],
+      hypotheses: ["Cout materiau indicatif estime par heuristique metier a confirmer."],
+      inferences: ["Presence de pose -> besoin de main d'oeuvre."],
+      risk_signals: [],
+    },
+    generation_metadata: {
+      margin_multiplier: 1.3,
+    },
+    applied_at: status === "applied" ? "2026-03-07T09:05:00.000Z" : null,
+  };
+}
+
+function createSubdetailItemRows() {
+  return [
+    {
+      id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      created_at: "2026-03-07T09:03:00.000Z",
+      updated_at: "2026-03-07T09:03:00.000Z",
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      draft_id: DRAFT_ID,
+      subdetail_id: SUBDETAIL_ID,
+      parent_work_id: CANDIDATE_ID,
+      source_fragment_id: FRAGMENT_ID,
+      component_order: 0,
+      status: "suggested",
+      cost_type: "material",
+      designation: "Pose de faux plafond",
+      unit: "m2",
+      quantity: 1,
+      unit_cost_ht_cents: 3000,
+      loss_coeff_bp: 500,
+      yield_value: null,
+      yield_unit: null,
+      confidence: 0.7,
+      source_label: "Texte libre saisi",
+      facts: ["Ouvrage parent: Pose de faux plafond"],
+      hypotheses: [],
+      inferences: [],
+      metadata: { risk_signals: [] },
+    },
+    {
+      id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      created_at: "2026-03-07T09:03:00.000Z",
+      updated_at: "2026-03-07T09:03:00.000Z",
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      draft_id: DRAFT_ID,
+      subdetail_id: SUBDETAIL_ID,
+      parent_work_id: CANDIDATE_ID,
+      source_fragment_id: FRAGMENT_ID,
+      component_order: 1,
+      status: "suggested",
+      cost_type: "labor",
+      designation: "Main d'oeuvre - Pose de faux plafond",
+      unit: "h",
+      quantity: 1,
+      unit_cost_ht_cents: 1500,
+      loss_coeff_bp: 0,
+      yield_value: 0.45,
+      yield_unit: "h/m2",
+      confidence: 0.65,
+      source_label: "Texte libre saisi",
+      facts: [],
+      hypotheses: ["Rendement MO estime a partir du type d'ouvrage et doit etre valide."],
+      inferences: ["Presence de pose -> besoin de main d'oeuvre."],
+      metadata: { risk_signals: [] },
+    },
+  ];
+}
+
+function createSubdetailItemSourceRows() {
+  return [
+    {
+      id: "12121212-1212-4212-8212-121212121212",
+      created_at: "2026-03-07T09:03:30.000Z",
+      tenant_id: TENANT_ID,
+      draft_id: DRAFT_ID,
+      subdetail_id: SUBDETAIL_ID,
+      parent_work_id: CANDIDATE_ID,
+      component_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      source_fragment_id: FRAGMENT_ID,
+      source_rank: 0,
+      evidence_kind: "fact",
+      note: "Source primaire du besoin parent",
+      metadata: {},
+    },
+  ];
+}
+
+function createSnapshotRow() {
+  return {
+    id: SNAPSHOT_ID,
+    created_at: "2026-03-07T09:05:00.000Z",
+    updated_at: "2026-03-07T09:05:00.000Z",
+    tenant_id: TENANT_ID,
+    project_id: PROJECT_ID,
+    target_version_id: VERSION_ID,
+    draft_id: DRAFT_ID,
+    parent_work_id: CANDIDATE_ID,
+    assembly_id: ASSEMBLY_ID,
+    estimate_item_id: ITEM_ID,
+    applied_by: USER_ID,
+    summary: createSubdetailDraftRow().summary,
+    components: [
+      {
+        designation: "Pose de faux plafond",
+        costType: "material",
+        quantity: 1,
+        unit: "m2",
+        unitCostHtCents: 3000,
+        dsCents: 3150,
+        sourceLabel: "Texte libre saisi",
+        facts: ["Ouvrage parent: Pose de faux plafond"],
+      },
+    ],
     metadata: {},
   };
 }
@@ -462,6 +605,34 @@ describe("insertGeneratedOuvrages", () => {
           }),
         ],
       },
+      estimate_generated_ouvrage_subdetail_drafts: {
+        select: [createQueryBuilder({ data: createSubdetailDraftRow(), error: null })],
+        update: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_items: {
+        select: [createQueryBuilder({ data: createSubdetailItemRows(), error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_item_sources: {
+        select: [createQueryBuilder({ data: createSubdetailItemSourceRows(), error: null })],
+      },
+      estimate_generated_ouvrage_work_snapshots: {
+        insert: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_assemblies: {
+        insert: [
+          createQueryBuilder({
+            data: {
+              id: ASSEMBLY_ID,
+              name: "Pose de faux plafond · 66666666",
+              reference_code: "EST383-66666666",
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_assembly_items: {
+        insert: [createQueryBuilder({ data: [], error: null })],
+      },
       estimate_items: {
         select: [createQueryBuilder({ data: [], error: null })],
       },
@@ -511,6 +682,7 @@ describe("insertGeneratedOuvrages", () => {
         parent_id: FALLBACK_SECTION_ID,
         title: "Pose de faux plafond",
         quantity: 120,
+        unit_price_ht_cents: 4500,
         source_provider: "generated_ouvrage",
       })
     );
@@ -602,6 +774,34 @@ describe("insertGeneratedOuvrages", () => {
             error: null,
           }),
         ],
+      },
+      estimate_generated_ouvrage_subdetail_drafts: {
+        select: [createQueryBuilder({ data: createSubdetailDraftRow(), error: null })],
+        update: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_items: {
+        select: [createQueryBuilder({ data: createSubdetailItemRows(), error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_item_sources: {
+        select: [createQueryBuilder({ data: createSubdetailItemSourceRows(), error: null })],
+      },
+      estimate_generated_ouvrage_work_snapshots: {
+        insert: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_assemblies: {
+        insert: [
+          createQueryBuilder({
+            data: {
+              id: ASSEMBLY_ID,
+              name: "Pose de faux plafond · 66666666",
+              reference_code: "EST383-66666666",
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_assembly_items: {
+        insert: [createQueryBuilder({ data: [], error: null })],
       },
       estimate_items: {
         select: [
@@ -701,6 +901,31 @@ describe("insertGeneratedOuvrages", () => {
           }),
         ],
       },
+      estimate_generated_ouvrage_subdetail_drafts: {
+        select: [createQueryBuilder({ data: createSubdetailDraftRow(), error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_items: {
+        select: [createQueryBuilder({ data: createSubdetailItemRows(), error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_item_sources: {
+        select: [createQueryBuilder({ data: createSubdetailItemSourceRows(), error: null })],
+      },
+      estimate_assemblies: {
+        insert: [
+          createQueryBuilder({
+            data: {
+              id: ASSEMBLY_ID,
+              name: "Pose de faux plafond · 66666666",
+              reference_code: "EST383-66666666",
+            },
+            error: null,
+          }),
+        ],
+        delete: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_assembly_items: {
+        insert: [createQueryBuilder({ data: [], error: null })],
+      },
       estimate_items: {
         select: [createQueryBuilder({ data: [], error: null })],
         delete: [createQueryBuilder({ data: [], error: null })],
@@ -744,6 +969,11 @@ describe("insertGeneratedOuvrages", () => {
     expect(deleteHistory).toHaveLength(1);
     expect(deleteHistory[0]?.builder.eq).toHaveBeenCalledWith("version_id", VERSION_ID);
     expect(deleteHistory[0]?.builder.in).toHaveBeenCalledWith("id", [ITEM_ID]);
+
+    const deleteAssembliesHistory = supabase.__history.filter(
+      (entry) => entry.table === "estimate_assemblies" && entry.operation === "delete"
+    );
+    expect(deleteAssembliesHistory).toHaveLength(1);
   });
 
   it("rejects candidate insertion when the quantity is still unknown", async () => {
@@ -1006,6 +1236,9 @@ describe("enrichEstimateItemsWithGeneratedOuvrageProvenance", () => {
       estimate_generated_ouvrage_source_fragments: {
         select: [createQueryBuilder({ data: [createFragmentRow()], error: null })],
       },
+      estimate_generated_ouvrage_work_snapshots: {
+        select: [createQueryBuilder({ data: [createSnapshotRow()], error: null })],
+      },
     });
 
     const result = await enrichEstimateItemsWithGeneratedOuvrageProvenance({
@@ -1069,6 +1302,9 @@ describe("enrichEstimateItemsWithGeneratedOuvrageProvenance", () => {
           type: "text",
         },
       ],
+      snapshot_id: SNAPSHOT_ID,
+      assembly_id: ASSEMBLY_ID,
+      facts: ["Ouvrage parent: Pose de faux plafond"],
     });
   });
 });

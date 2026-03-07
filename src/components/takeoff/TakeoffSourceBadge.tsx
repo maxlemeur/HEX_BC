@@ -20,6 +20,7 @@ const SUPPORTED_BADGE_PROVIDERS = new Set([
   "takeoff",
   "takeoff_gemini",
   "ai_structure",
+  "generated_ouvrage",
 ]);
 
 type TakeoffSourceBadgeProps = {
@@ -49,6 +50,32 @@ type AiStructureApplication = {
   facts: string[];
   hypotheses: string[];
   inferences: string[];
+};
+
+type GeneratedOuvrageSnapshot = {
+  draftId: string | null;
+  candidateId: string | null;
+  assemblyId: string | null;
+  summary: {
+    dsCents: number | null;
+    indicativeTargetPriceCents: number | null;
+    confidence: number | null;
+    assemblyName: string | null;
+    assemblyReferenceCode: string | null;
+    riskSignals: string[];
+    facts: string[];
+    hypotheses: string[];
+    inferences: string[];
+  };
+  components: Array<{
+    designation: string;
+    costType: string | null;
+    quantity: number | null;
+    unit: string | null;
+    unitCostHtCents: number | null;
+    dsCents: number | null;
+    sourceLabel: string | null;
+  }>;
 };
 
 function toNonEmptyString(value: string | null | undefined) {
@@ -211,6 +238,134 @@ function formatAiConfidence(application: AiStructureApplication) {
   return score !== null ? `${label} (${score}%)` : label;
 }
 
+function formatMoneyFromCents(value: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return NOT_AVAILABLE_LABEL;
+  }
+
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value / 100);
+}
+
+function parseGeneratedOuvrageSnapshot(value: unknown): GeneratedOuvrageSnapshot | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const summaryRecord = isRecord(value.subdetail_summary)
+    ? value.subdetail_summary
+    : isRecord(value.summary)
+      ? value.summary
+      : {};
+  const components = Array.isArray(value.components) ? value.components : [];
+  const readStringList = (candidate: unknown) =>
+    Array.isArray(candidate)
+      ? candidate
+          .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+          .filter((entry) => entry.length > 0)
+      : [];
+
+  return {
+    draftId: toNonEmptyString(
+      typeof value.draft_id === "string" ? value.draft_id : null
+    ),
+    candidateId: toNonEmptyString(
+      typeof value.candidate_id === "string" ? value.candidate_id : null
+    ),
+    assemblyId: toNonEmptyString(
+      typeof value.assembly_id === "string" ? value.assembly_id : null
+    ),
+    summary: {
+      dsCents:
+        typeof summaryRecord.ds_cents === "number" ? summaryRecord.ds_cents : null,
+      indicativeTargetPriceCents:
+        typeof summaryRecord.indicative_target_price_cents === "number"
+          ? summaryRecord.indicative_target_price_cents
+          : null,
+      confidence:
+        typeof summaryRecord.confidence === "number"
+          ? summaryRecord.confidence
+          : typeof value.confidence === "number"
+            ? value.confidence
+            : null,
+      assemblyName: toNonEmptyString(
+        typeof summaryRecord.assembly_name === "string"
+          ? summaryRecord.assembly_name
+          : null
+      ),
+      assemblyReferenceCode: toNonEmptyString(
+        typeof summaryRecord.assembly_reference_code === "string"
+          ? summaryRecord.assembly_reference_code
+          : null
+      ),
+      riskSignals: readStringList(
+        Array.isArray(value.risk_signals)
+          ? value.risk_signals
+          : Array.isArray(summaryRecord.risk_signals)
+            ? (summaryRecord.risk_signals as unknown[]).map((entry) =>
+                isRecord(entry) && typeof entry.label === "string"
+                  ? entry.label
+                  : null
+              )
+            : []
+      ),
+      facts: readStringList(value.facts ?? summaryRecord.facts),
+      hypotheses: readStringList(value.hypotheses ?? summaryRecord.hypotheses),
+      inferences: readStringList(value.inferences ?? summaryRecord.inferences),
+    },
+    components: components
+      .map((component) => {
+        if (!isRecord(component)) return null;
+        const designation = toNonEmptyString(
+          typeof component.designation === "string" ? component.designation : null
+        );
+        if (!designation) return null;
+        return {
+          designation,
+          costType: toNonEmptyString(
+            typeof component.costType === "string"
+              ? component.costType
+              : typeof component.cost_type === "string"
+                ? component.cost_type
+                : null
+          ),
+          quantity:
+            typeof component.quantity === "number" ? component.quantity : null,
+          unit: toNonEmptyString(
+            typeof component.unit === "string" ? component.unit : null
+          ),
+          unitCostHtCents:
+            typeof component.unitCostHtCents === "number"
+              ? component.unitCostHtCents
+              : typeof component.unit_cost_ht_cents === "number"
+                ? component.unit_cost_ht_cents
+                : null,
+          dsCents:
+            typeof component.dsCents === "number"
+              ? component.dsCents
+              : typeof component.ds_cents === "number"
+                ? component.ds_cents
+                : null,
+          sourceLabel: toNonEmptyString(
+            typeof component.sourceLabel === "string"
+              ? component.sourceLabel
+              : typeof component.source_label === "string"
+                ? component.source_label
+                : null
+          ),
+        };
+      })
+      .filter(
+        (
+          component
+        ): component is GeneratedOuvrageSnapshot["components"][number] =>
+          component !== null
+      ),
+  };
+}
+
 export function TakeoffSourceBadge({
   versionId,
   estimateItemId,
@@ -277,7 +432,9 @@ export function TakeoffSourceBadge({
   };
 
   const isAiStructure = normalizedSourceProvider === "ai_structure";
+  const isGeneratedOuvrage = normalizedSourceProvider === "generated_ouvrage";
   const aiApplications = parseAiStructureApplications(sourceMetadata);
+  const generatedOuvrageSnapshot = parseGeneratedOuvrageSnapshot(sourceMetadata);
 
   if (
     !normalizedSourceProvider ||
@@ -287,6 +444,10 @@ export function TakeoffSourceBadge({
   }
 
   if (isAiStructure && aiApplications.length === 0) {
+    return null;
+  }
+
+  if (isGeneratedOuvrage && !generatedOuvrageSnapshot) {
     return null;
   }
 
@@ -314,7 +475,11 @@ export function TakeoffSourceBadge({
     setIsExplanationPanelOpen(true);
   };
 
-  const triggerText = isAiStructure ? "IA structure" : `IA${triggerLabelSuffix}`;
+  const triggerText = isAiStructure
+    ? "IA structure"
+    : isGeneratedOuvrage
+      ? "IA ouvrage"
+      : `IA${triggerLabelSuffix}`;
 
   return (
     <div
@@ -399,6 +564,82 @@ export function TakeoffSourceBadge({
                     {application.inferences.length > 0 ? (
                       <p className="mt-1 text-xs text-[var(--slate-600)]">
                         Inferences: {application.inferences.join(" · ")}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : isGeneratedOuvrage && generatedOuvrageSnapshot ? (
+            <>
+              <p className="takeoff-source-badge__title">Ouvrage compose IA</p>
+              <div className="space-y-3 text-sm text-[var(--slate-700)]">
+                <div className="rounded-lg border border-[var(--slate-200)] bg-white p-3">
+                  <p className="font-medium text-[var(--slate-900)]">
+                    {generatedOuvrageSnapshot.summary.assemblyName ?? "Snapshot applique"}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    Reference:{" "}
+                    {generatedOuvrageSnapshot.summary.assemblyReferenceCode ??
+                      NOT_AVAILABLE_LABEL}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    DS: {formatMoneyFromCents(generatedOuvrageSnapshot.summary.dsCents)} · Prix
+                    cible:{" "}
+                    {formatMoneyFromCents(
+                      generatedOuvrageSnapshot.summary.indicativeTargetPriceCents
+                    )}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    Confiance:{" "}
+                    {generatedOuvrageSnapshot.summary.confidence !== null
+                      ? `${Math.round(generatedOuvrageSnapshot.summary.confidence * 100)}%`
+                      : NOT_AVAILABLE_LABEL}
+                  </p>
+                  {generatedOuvrageSnapshot.summary.riskSignals.length > 0 ? (
+                    <p className="mt-2 text-xs text-[var(--slate-600)]">
+                      Risques: {generatedOuvrageSnapshot.summary.riskSignals.join(" · ")}
+                    </p>
+                  ) : null}
+                  {generatedOuvrageSnapshot.summary.facts.length > 0 ? (
+                    <p className="mt-2 text-xs text-[var(--slate-600)]">
+                      Faits: {generatedOuvrageSnapshot.summary.facts.join(" · ")}
+                    </p>
+                  ) : null}
+                  {generatedOuvrageSnapshot.summary.hypotheses.length > 0 ? (
+                    <p className="mt-1 text-xs text-[var(--slate-600)]">
+                      Hypotheses:{" "}
+                      {generatedOuvrageSnapshot.summary.hypotheses.join(" · ")}
+                    </p>
+                  ) : null}
+                  {generatedOuvrageSnapshot.summary.inferences.length > 0 ? (
+                    <p className="mt-1 text-xs text-[var(--slate-600)]">
+                      Inferences:{" "}
+                      {generatedOuvrageSnapshot.summary.inferences.join(" · ")}
+                    </p>
+                  ) : null}
+                </div>
+
+                {generatedOuvrageSnapshot.components.slice(0, 4).map((component) => (
+                  <div
+                    key={`${component.designation}-${component.costType}`}
+                    className="rounded-lg border border-[var(--slate-200)] bg-white p-3"
+                  >
+                    <p className="font-medium text-[var(--slate-900)]">
+                      {component.designation}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      {component.costType ?? "composant"} ·{" "}
+                      {component.quantity ?? NOT_AVAILABLE_LABEL}{" "}
+                      {component.unit ?? ""}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      PU HT: {formatMoneyFromCents(component.unitCostHtCents)} · DS:{" "}
+                      {formatMoneyFromCents(component.dsCents)}
+                    </p>
+                    {component.sourceLabel ? (
+                      <p className="mt-1 text-xs text-[var(--slate-600)]">
+                        Provenance: {component.sourceLabel}
                       </p>
                     ) : null}
                   </div>

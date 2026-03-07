@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -7,11 +8,26 @@ import { cn } from "@/lib/utils";
 
 import {
   GENERATED_OUVRAGE_FALLBACK_SECTION_LABEL,
+  type GeneratedOuvrageSubdetailEditorComponent,
+  type GeneratedOuvrageSubdetailUiState,
   formatGeneratedOuvrageLotLabel,
   type CandidateEdits,
   type ExistingSection,
   type UiGeneratedOuvrageCandidate,
 } from "./generated-ouvrage-types";
+
+const GeneratedOuvrageSubdetailEditor = dynamic(
+  () =>
+    import("./GeneratedOuvrageSubdetailEditor").then((module) => module.GeneratedOuvrageSubdetailEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+        Chargement du sous-detail...
+      </div>
+    ),
+  }
+);
 
 type GeneratedOuvrageCandidateCardProps = {
   candidate: UiGeneratedOuvrageCandidate;
@@ -21,6 +37,12 @@ type GeneratedOuvrageCandidateCardProps = {
   onSaveEdit: (candidateId: string, edits: CandidateEdits) => void;
   onCancelEdit: (candidateId: string) => void;
   onReject: (candidateId: string) => void;
+  onOpenSubdetail: (candidateId: string) => void;
+  onSaveSubdetail: (
+    candidateId: string,
+    components: GeneratedOuvrageSubdetailEditorComponent[]
+  ) => Promise<void> | void;
+  subdetailState: GeneratedOuvrageSubdetailUiState | null;
   isRejecting: boolean;
 };
 
@@ -45,9 +67,13 @@ export function GeneratedOuvrageCandidateCard({
   onSaveEdit,
   onCancelEdit,
   onReject,
+  onOpenSubdetail,
+  onSaveSubdetail,
+  subdetailState,
   isRejecting,
 }: GeneratedOuvrageCandidateCardProps) {
   const [provenanceOpen, setProvenanceOpen] = useState(false);
+  const [subdetailOpen, setSubdetailOpen] = useState(false);
   const isResolved = candidate.resolutionStatus !== "pending";
   const isInserted = candidate.resolutionStatus === "inserted";
   const aiStatusConfig = AI_STATUS_CONFIG[candidate.status];
@@ -134,6 +160,14 @@ export function GeneratedOuvrageCandidateCard({
             <span>
               Confiance : {Math.round(candidate.confidence * 100)}%
             </span>
+            <span>
+              Sous-detail :{" "}
+              {candidate.subdetailReviewed
+                ? "Revu"
+                : candidate.subdetailStatus === "pending_review"
+                  ? "A revoir"
+                  : "Non charge"}
+            </span>
           </div>
 
           {candidate.reasoning && (
@@ -168,6 +202,18 @@ export function GeneratedOuvrageCandidateCard({
             <button
               type="button"
               className="btn btn-ghost btn-xs"
+              onClick={() => {
+                setSubdetailOpen((open) => !open);
+                if (!subdetailState?.data && subdetailState?.status !== "loading") {
+                  onOpenSubdetail(candidate.candidateId);
+                }
+              }}
+            >
+              {subdetailOpen ? "Masquer le sous-detail" : "Sous-detail"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-xs"
               onClick={() => onStartEdit(candidate.candidateId)}
             >
               Modifier
@@ -181,6 +227,31 @@ export function GeneratedOuvrageCandidateCard({
               Rejeter
             </button>
           </div>
+
+          {subdetailOpen ? (
+            <div aria-live="polite">
+              {subdetailState?.status === "loading" ? (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                  Generation du sous-detail compose en cours...
+                </div>
+              ) : null}
+              {subdetailState?.status === "error" ? (
+                <div className="mt-4 rounded-xl border border-error/30 bg-error/5 p-4 text-sm text-error">
+                  {subdetailState.errorMessage}
+                </div>
+              ) : null}
+              {subdetailState?.data ? (
+                <GeneratedOuvrageSubdetailEditor
+                  candidateLabel={candidate.editedDesignation}
+                  subdetail={subdetailState.data}
+                  isSaving={subdetailState.status === "saving"}
+                  onSave={(components) =>
+                    onSaveSubdetail(candidate.candidateId, components)
+                  }
+                />
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

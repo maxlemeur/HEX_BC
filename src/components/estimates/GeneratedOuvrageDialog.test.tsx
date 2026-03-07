@@ -5,24 +5,31 @@ import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import type {
   GeneratedOuvrageCandidate,
   GeneratedOuvrageDraftResult,
+  GeneratedOuvrageSubdetailResult,
   InsertGeneratedOuvragesResult,
   RejectGeneratedOuvrageDraftResult,
 } from "@/lib/estimates/generated-ouvrages";
 
 const mockGenerateOuvragesFromText = vi.fn();
 const mockFetchGeneratedOuvrageDraft = vi.fn();
+const mockFetchGeneratedOuvrageSubdetailDraft = vi.fn();
 const mockInsertGeneratedOuvrages = vi.fn();
 const mockRejectGeneratedOuvrageDraft = vi.fn();
+const mockUpdateGeneratedOuvrageSubdetailDraft = vi.fn();
 
 vi.mock("@/app/dashboard/affaires/_actions/generated-ouvrages", () => ({
   generateOuvragesFromText: (...args: unknown[]) =>
     mockGenerateOuvragesFromText(...args),
   fetchGeneratedOuvrageDraft: (...args: unknown[]) =>
     mockFetchGeneratedOuvrageDraft(...args),
+  fetchGeneratedOuvrageSubdetailDraft: (...args: unknown[]) =>
+    mockFetchGeneratedOuvrageSubdetailDraft(...args),
   insertGeneratedOuvrages: (...args: unknown[]) =>
     mockInsertGeneratedOuvrages(...args),
   rejectGeneratedOuvrageDraft: (...args: unknown[]) =>
     mockRejectGeneratedOuvrageDraft(...args),
+  updateGeneratedOuvrageSubdetailDraft: (...args: unknown[]) =>
+    mockUpdateGeneratedOuvrageSubdetailDraft(...args),
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
@@ -127,6 +134,86 @@ function makeDraftResult(
   };
 }
 
+function makeSubdetailResult(candidate: GeneratedOuvrageCandidate): GeneratedOuvrageSubdetailResult {
+  return {
+    draftId: "draft-1",
+    candidateId: candidate.candidateId,
+    versionId: "v1",
+    projectId: "p1",
+    status: "reviewed",
+    humanValidationRequired: true,
+    generatedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    summary: {
+      componentCount: 2,
+      dsCents: 4500,
+      indicativeTargetPriceCents: 5850,
+      confidence: 0.72,
+      pricingSource: "heuristic_review_draft",
+      riskSignals: [],
+      facts: ["Ouvrage parent: Mur en beton"],
+      hypotheses: [],
+      inferences: [],
+    },
+    components: [
+      {
+        componentId: "comp-1",
+        status: "suggested",
+        costType: "material",
+        designation: candidate.designation,
+        unit: candidate.unit,
+        quantity: 1,
+        unitCostHtCents: 3000,
+        lossCoeffBp: 500,
+        yieldValue: null,
+        yieldUnit: null,
+        confidence: 0.7,
+        sourceLabel: "Source 1",
+        dsCents: 3150,
+        facts: ["Ouvrage parent: Mur en beton"],
+        hypotheses: [],
+        inferences: [],
+        riskSignals: [],
+        sources: [
+          {
+            sourceFragmentId: "sf1",
+            sourceDocumentId: null,
+            type: "text",
+            label: "Source 1",
+            excerpt: "Mur en beton arme...",
+            sourceFileName: null,
+            sourcePageFrom: null,
+            sourcePageTo: null,
+            selectionLabel: null,
+            evidenceKind: "fact",
+            note: "Source primaire du besoin parent",
+          },
+        ],
+      },
+      {
+        componentId: "comp-2",
+        status: "suggested",
+        costType: "labor",
+        designation: `Main d'oeuvre - ${candidate.designation}`,
+        unit: "h",
+        quantity: 1,
+        unitCostHtCents: 1350,
+        lossCoeffBp: 0,
+        yieldValue: 0.45,
+        yieldUnit: "h/m2",
+        confidence: 0.66,
+        sourceLabel: "Source 1",
+        dsCents: 1350,
+        facts: [],
+        hypotheses: ["Rendement MO estime a partir du type d'ouvrage et doit etre valide."],
+        inferences: ["Presence de pose -> besoin de main d'oeuvre."],
+        riskSignals: [],
+        sources: [],
+      },
+    ],
+  };
+}
+
 const defaultProps: GeneratedOuvrageDialogProps = {
   isOpen: true,
   targetVersionId: "v1",
@@ -150,6 +237,33 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+async function reviewSubdetailForCandidate(user: ReturnType<typeof userEvent.setup>, candidateId = "c1") {
+  const candidate = makeDraftResult().candidates.find((entry) => entry.candidateId === candidateId);
+  if (!candidate) {
+    throw new Error("Candidate introuvable.");
+  }
+
+  mockFetchGeneratedOuvrageSubdetailDraft.mockResolvedValueOnce(
+    makeSubdetailResult(candidate)
+  );
+  mockUpdateGeneratedOuvrageSubdetailDraft.mockResolvedValueOnce(
+    makeSubdetailResult(candidate)
+  );
+
+  const card = screen.getByTestId(`candidate-card-${candidateId}`);
+  await user.click(within(card).getByText("Sous-detail"));
+  await waitFor(() => {
+    expect(mockFetchGeneratedOuvrageSubdetailDraft).toHaveBeenCalled();
+  });
+  await waitFor(() => {
+    expect(screen.getByText("Valider le sous-detail")).toBeInTheDocument();
+  });
+  await user.click(screen.getByText("Valider le sous-detail"));
+  await waitFor(() => {
+    expect(mockUpdateGeneratedOuvrageSubdetailDraft).toHaveBeenCalled();
+  });
+}
 
 describe("GeneratedOuvrageDialog", () => {
   it("shows input form initially", () => {
@@ -302,6 +416,8 @@ describe("GeneratedOuvrageDialog", () => {
     ).getByRole("checkbox");
     await user.click(checkbox);
 
+    await reviewSubdetailForCandidate(user, "c1");
+
     // Insert
     await user.click(screen.getByTestId("generated-ouvrage-insert-button"));
 
@@ -432,8 +548,12 @@ describe("GeneratedOuvrageDialog", () => {
     await user.click(within(card).getByText("Rejeter"));
 
     await waitFor(() => {
+      expect(mockFetchGeneratedOuvrageDraft).toHaveBeenCalled();
+    });
+
+    await waitFor(() => {
       expect(
-        screen.getByText("Toutes les propositions ont ete ecartees")
+        screen.getByText(/Toutes les propositions ont ete ecartees/i)
       ).toBeInTheDocument();
     });
   });
@@ -484,6 +604,8 @@ describe("GeneratedOuvrageDialog", () => {
       screen.getByTestId("candidate-card-c1")
     ).getByRole("checkbox");
     await user.click(checkbox);
+
+    await reviewSubdetailForCandidate(user, "c1");
 
     await user.click(screen.getByTestId("generated-ouvrage-insert-button"));
 
