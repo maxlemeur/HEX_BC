@@ -32,15 +32,15 @@ export function Input({
   return (
     <div className="space-y-1.5">
       {label ? (
-        <label className="block text-xs font-semibold text-slate-700" htmlFor={inputId}>
+        <label className="block font-body text-sm font-medium text-slate-700" htmlFor={inputId}>
           {label}
         </label>
       ) : null}
 
       <div
         className={cn(
-          "group flex h-11 items-center rounded-button border bg-surface transition",
-          "border-slate-200 hover:border-slate-300 focus-within:border-ring",
+          "group flex h-[var(--density-input-h)] items-center rounded-button border bg-surface transition",
+          "border-slate-200 hover:border-slate-300 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/12",
           error ? "border-danger" : null
         )}
       >
@@ -52,7 +52,7 @@ export function Input({
           id={inputId}
           ref={ref}
           className={cn(
-            "h-full w-full border-0 bg-transparent px-3 py-0 text-sm text-foreground",
+            "font-body h-full w-full border-0 bg-transparent px-3 py-0 text-base text-foreground transition-colors",
             "placeholder:text-muted-foreground",
             "focus-visible:outline-none focus-visible:ring-0",
             prefix ? "pl-2" : null,
@@ -70,13 +70,13 @@ export function Input({
       </div>
 
       {error ? (
-        <p id={errorId ?? undefined} role="alert" className="text-xs text-danger">
+        <p id={errorId ?? undefined} role="alert" className="typo-caption text-danger">
           {error}
         </p>
       ) : null}
 
       {!error && helperText ? (
-        <p id={helperId ?? undefined} className="text-xs text-slate-500">
+        <p id={helperId ?? undefined} className="typo-caption text-slate-500">
           {helperText}
         </p>
       ) : null}

@@ -41,15 +41,15 @@ export function Select({
   return (
     <div className="space-y-1.5">
       {label ? (
-        <label className="block text-xs font-semibold text-slate-700" htmlFor={selectId}>
+        <label className="block font-body text-sm font-medium text-slate-700" htmlFor={selectId}>
           {label}
         </label>
       ) : null}
 
       <div
         className={cn(
-          "relative flex h-11 items-center rounded-button border bg-surface transition",
-          "border-slate-200 hover:border-slate-300 focus-within:border-ring",
+          "relative flex h-[var(--density-input-h)] items-center rounded-button border bg-surface transition",
+          "border-slate-200 hover:border-slate-300 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/12",
           error ? "border-danger" : null
         )}
       >
@@ -57,7 +57,7 @@ export function Select({
           id={selectId}
           ref={ref}
           className={cn(
-            "h-full w-full appearance-none rounded-button bg-transparent px-3 pr-10 text-sm",
+            "font-body h-full w-full appearance-none rounded-button bg-transparent px-3 pr-10 text-base text-foreground",
             "focus-visible:outline-none",
             className
           )}
@@ -82,13 +82,13 @@ export function Select({
       </div>
 
       {error ? (
-        <p id={errorId ?? undefined} role="alert" className="text-xs text-danger">
+        <p id={errorId ?? undefined} role="alert" className="typo-caption text-danger">
           {error}
         </p>
       ) : null}
 
       {!error && helperText ? (
-        <p id={helperId ?? undefined} className="text-xs text-slate-500">
+        <p id={helperId ?? undefined} className="typo-caption text-slate-500">
           {helperText}
         </p>
       ) : null}

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useId, useMemo, useRef } from "react";
+import { AnimatePresence, motion } from "motion/react";
 
 import { cn } from "@/lib/utils";
 
@@ -98,72 +99,82 @@ function Content({
 }: Readonly<ModalContentProps>) {
   const { open, onOpenChange, titleId, contentRef } = useModalContext();
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4">
-      <button
-        aria-hidden="true"
-        data-ui-modal-overlay="true"
-        type="button"
-        tabIndex={-1}
-        className="absolute inset-0 cursor-default border-0 bg-transparent p-0 focus-visible:outline-none"
-        onMouseDown={() => {
-          if (closeOnOverlayClick) {
-            onOpenChange(false);
-          }
-        }}
-      />
-
-      <div
-        {...props}
-        ref={contentRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        className={cn(
-          "relative z-10 w-full max-w-[calc(100vw-2rem)] sm:max-w-2xl rounded-2xl border border-slate-200 bg-surface p-6 shadow-2xl",
-          className
-        )}
-        onMouseDown={(event) => {
-          event.stopPropagation();
-          props.onMouseDown?.(event);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            if (closeOnEscapeKey) {
-              onOpenChange(false);
-            }
-          }
-
-          if (event.key === "Tab") {
-            if (typeof document === "undefined") return;
-            const container = contentRef.current;
-            if (!container) return;
-            const focusable = findFocusableNodes(container);
-            if (focusable.length === 0) return;
-
-            const currentIndex = focusable.findIndex((element) => element === document.activeElement);
-
-            if (event.shiftKey) {
-              if (currentIndex <= 0) {
-                event.preventDefault();
-                focusable[focusable.length - 1]?.focus();
+    <AnimatePresence>
+      {open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(2_6_23_/_0.45)] p-4">
+          <button
+            aria-hidden="true"
+            data-ui-modal-overlay="true"
+            type="button"
+            tabIndex={-1}
+            className="absolute inset-0 cursor-default border-0 bg-transparent p-0 focus-visible:outline-none"
+            onMouseDown={() => {
+              if (closeOnOverlayClick) {
+                onOpenChange(false);
               }
-            } else if (currentIndex === focusable.length - 1) {
-              event.preventDefault();
-              focusable[0]?.focus();
-            }
-          }
+            }}
+          />
 
-          props.onKeyDown?.(event);
-        }}
-      >
-        {children}
-      </div>
-    </div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="relative z-10 w-full max-w-[calc(100vw-2rem)] sm:max-w-2xl"
+          >
+            <div
+              {...props}
+              ref={contentRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={titleId}
+              tabIndex={-1}
+              className={cn(
+                "rounded-[18px] border border-slate-200 bg-surface p-6 shadow-modal",
+                className
+              )}
+              onMouseDown={(event) => {
+                event.stopPropagation();
+                props.onMouseDown?.(event);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  if (closeOnEscapeKey) {
+                    onOpenChange(false);
+                  }
+                }
+
+                if (event.key === "Tab") {
+                  if (typeof document === "undefined") return;
+                  const container = contentRef.current;
+                  if (!container) return;
+                  const focusable = findFocusableNodes(container);
+                  if (focusable.length === 0) return;
+
+                  const currentIndex = focusable.findIndex((element) => element === document.activeElement);
+
+                  if (event.shiftKey) {
+                    if (currentIndex <= 0) {
+                      event.preventDefault();
+                      focusable[focusable.length - 1]?.focus();
+                    }
+                  } else if (currentIndex === focusable.length - 1) {
+                    event.preventDefault();
+                    focusable[0]?.focus();
+                  }
+                }
+
+                props.onKeyDown?.(event);
+              }}
+            >
+              {children}
+            </div>
+          </motion.div>
+        </div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 
@@ -176,7 +187,7 @@ function Title({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>
   return (
     <h2
       id={titleId}
-      className={cn("text-lg font-semibold text-slate-800", className)}
+      className={cn("typo-h3 text-slate-800", className)}
       {...props}
     />
   );
@@ -200,7 +211,7 @@ function Close({ className, children = "Fermer", ...props }: Readonly<ModalClose
     <button
       type="button"
       className={cn(
-        "inline-flex h-9 items-center justify-center rounded-button-sm px-3 text-xs font-semibold",
+        "font-body inline-flex h-8 items-center justify-center rounded-button-sm px-3 text-sm font-medium",
         "text-slate-600 transition hover:bg-slate-100 hover:text-slate-900",
         className
       )}

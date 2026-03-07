@@ -21,8 +21,8 @@ describe("ui/Button", () => {
     });
 
     const button = renderer!.root.findByType("button");
-    expect(button.props.className).toContain("border-danger/30");
-    expect(button.props.className).toContain("h-[52px]");
+    expect(button.props.className).toContain("bg-error-light");
+    expect(button.props.className).toContain("h-11");
   });
 
   it("disables and marks busy when loading", async () => {
