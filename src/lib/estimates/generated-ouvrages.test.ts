@@ -37,10 +37,12 @@ const CANDIDATE_ID = "66666666-6666-4666-8666-666666666666";
 const FRAGMENT_ID = "77777777-7777-4777-8777-777777777777";
 const APPLICATION_ID = "88888888-8888-4888-8888-888888888888";
 const ITEM_ID = "99999999-9999-4999-8999-999999999999";
+const FALLBACK_SECTION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 function createQueryBuilder<T>(result: { data: T; error: unknown }) {
   const builder = {
     eq: vi.fn(),
+    is: vi.fn(),
     neq: vi.fn(),
     gt: vi.fn(),
     in: vi.fn(),
@@ -53,6 +55,7 @@ function createQueryBuilder<T>(result: { data: T; error: unknown }) {
 
   const self = builder as {
     eq: ReturnType<typeof vi.fn>;
+    is: ReturnType<typeof vi.fn>;
     neq: ReturnType<typeof vi.fn>;
     gt: ReturnType<typeof vi.fn>;
     in: ReturnType<typeof vi.fn>;
@@ -65,6 +68,7 @@ function createQueryBuilder<T>(result: { data: T; error: unknown }) {
   };
 
   self.eq.mockReturnValue(self);
+  self.is.mockReturnValue(self);
   self.neq.mockReturnValue(self);
   self.gt.mockReturnValue(self);
   self.in.mockReturnValue(self);
@@ -458,10 +462,18 @@ describe("insertGeneratedOuvrages", () => {
           }),
         ],
       },
+      estimate_items: {
+        select: [createQueryBuilder({ data: [], error: null })],
+      },
     });
 
     createAuthenticatedContext(supabase);
-    vi.mocked(createEstimateItem).mockResolvedValue({
+    vi.mocked(createEstimateItem).mockResolvedValueOnce({
+      item: {
+        id: FALLBACK_SECTION_ID,
+      },
+    } as never);
+    vi.mocked(createEstimateItem).mockResolvedValueOnce({
       item: {
         id: ITEM_ID,
       },
@@ -481,15 +493,25 @@ describe("insertGeneratedOuvrages", () => {
       ],
     });
 
-    expect(vi.mocked(createEstimateItem)).toHaveBeenCalledWith(
+    expect(vi.mocked(createEstimateItem)).toHaveBeenNthCalledWith(
+      1,
+      VERSION_ID,
+      expect.objectContaining({
+        item_type: "section",
+        parent_id: null,
+        title: "A classer",
+        source_provider: "generated_ouvrage",
+      })
+    );
+    expect(vi.mocked(createEstimateItem)).toHaveBeenNthCalledWith(
+      2,
       VERSION_ID,
       expect.objectContaining({
         item_type: "line",
-        parent_id: null,
+        parent_id: FALLBACK_SECTION_ID,
         title: "Pose de faux plafond",
         quantity: 120,
         source_provider: "generated_ouvrage",
-        source_job_id: DRAFT_ID,
       })
     );
     expect(result).toMatchObject({
@@ -499,6 +521,127 @@ describe("insertGeneratedOuvrages", () => {
       projectId: PROJECT_ID,
       versionId: VERSION_ID,
     });
+  });
+
+  it("reuses the explicit 'A classer' section when it already exists", async () => {
+    const supabase = createSupabaseStub({
+      estimate_versions: {
+        select: [createQueryBuilder({ data: createVersionAccessRow(), error: null })],
+      },
+      draft_locks: {
+        select: [
+          createQueryBuilder({
+            data: {
+              id: "lock-1",
+              version_id: VERSION_ID,
+              user_id: USER_ID,
+              locked_at: "2026-03-07T09:00:00.000Z",
+              expires_at: "2099-03-07T09:30:00.000Z",
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_drafts: {
+        select: [createQueryBuilder({ data: createDraftRow(), error: null })],
+        update: [
+          createQueryBuilder({
+            data: { ...createDraftRow("applied"), summary: {}, generation_metadata: {} },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_source_fragments: {
+        select: [createQueryBuilder({ data: [createFragmentRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidates: {
+        select: [createQueryBuilder({ data: [createCandidateRow()], error: null })],
+        update: [
+          createQueryBuilder({
+            data: createCandidateRow("inserted"),
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_candidate_sources: {
+        select: [
+          createQueryBuilder({
+            data: [
+              {
+                id: "link-1",
+                created_at: "2026-03-07T09:02:00.000Z",
+                tenant_id: TENANT_ID,
+                draft_id: DRAFT_ID,
+                candidate_id: CANDIDATE_ID,
+                source_fragment_id: FRAGMENT_ID,
+                source_rank: 0,
+                rationale: null,
+                metadata: {},
+              },
+            ],
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_applications: {
+        select: [createQueryBuilder({ data: [], error: null })],
+        insert: [
+          createQueryBuilder({
+            data: {
+              id: APPLICATION_ID,
+              created_at: "2026-03-07T09:05:00.000Z",
+              updated_at: "2026-03-07T09:05:00.000Z",
+              tenant_id: TENANT_ID,
+              draft_id: DRAFT_ID,
+              candidate_id: CANDIDATE_ID,
+              target_version_id: VERSION_ID,
+              estimate_item_id: ITEM_ID,
+              applied_by: USER_ID,
+              applied_payload: {},
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_items: {
+        select: [
+          createQueryBuilder({
+            data: [{ id: FALLBACK_SECTION_ID, title: "A classer" }],
+            error: null,
+          }),
+        ],
+      },
+    });
+
+    createAuthenticatedContext(supabase);
+    vi.mocked(createEstimateItem).mockResolvedValueOnce({
+      item: {
+        id: ITEM_ID,
+      },
+    } as never);
+
+    await insertGeneratedOuvrages({
+      versionId: VERSION_ID,
+      draftId: DRAFT_ID,
+      acceptedCandidates: [
+        {
+          candidateId: CANDIDATE_ID,
+          designation: "Pose de faux plafond",
+          unit: "m2",
+          quantity: 120,
+          lotId: null,
+        },
+      ],
+    });
+
+    expect(vi.mocked(createEstimateItem)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(createEstimateItem)).toHaveBeenCalledWith(
+      VERSION_ID,
+      expect.objectContaining({
+        item_type: "line",
+        parent_id: FALLBACK_SECTION_ID,
+      })
+    );
   });
 
   it("rolls back inserted estimate items when application persistence fails", async () => {
@@ -559,11 +702,17 @@ describe("insertGeneratedOuvrages", () => {
         ],
       },
       estimate_items: {
+        select: [createQueryBuilder({ data: [], error: null })],
         delete: [createQueryBuilder({ data: [], error: null })],
       },
     });
 
     createAuthenticatedContext(supabase);
+    vi.mocked(createEstimateItem).mockResolvedValueOnce({
+      item: {
+        id: FALLBACK_SECTION_ID,
+      },
+    } as never);
     vi.mocked(createEstimateItem).mockResolvedValue({
       item: {
         id: ITEM_ID,

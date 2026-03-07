@@ -190,6 +190,7 @@ type DraftLoaded = {
 const GENERATED_OUVRAGE_MODEL = "gemini-3-pro-preview";
 const GENERATED_OUVRAGE_PROMPT_VERSION = "est381-generated-ouvrages-v1";
 const GENERATED_OUVRAGE_PROMPT_THINKING_LEVEL = "medium" as const;
+const GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE = "A classer";
 const MAX_SOURCE_TEXT_LENGTH = 12_000;
 const MAX_REASON_LENGTH = 320;
 const MAX_SELECTION_LABEL_LENGTH = 180;
@@ -429,6 +430,20 @@ function normalizeMultilineText(value: string, maxLength?: number) {
 
 function normalizeDesignation(value: string) {
   return normalizeText(value).toLowerCase();
+}
+
+function normalizeSectionTitle(value: string | null | undefined) {
+  const normalized = toNullableText(value);
+  if (!normalized) {
+    return "section";
+  }
+
+  return normalized
+    .normalize("NFD")
+    .replace(/\p{Diacritic}+/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function clampConfidence(value: number | null | undefined) {
@@ -1463,6 +1478,69 @@ function pickPrimaryFragment(
   return fragmentSources[0] ?? null;
 }
 
+async function resolveGeneratedOuvrageTargetSection(input: {
+  supabase: Supabase;
+  tenantId: string;
+  versionId: string;
+  draftId: string;
+  requestedLotId: string | null;
+}) {
+  if (input.requestedLotId) {
+    return {
+      parentId: input.requestedLotId,
+      placementMode: "explicit" as const,
+      lotLabel: null,
+      createdFallbackSection: false,
+    };
+  }
+
+  const { data, error } = await input.supabase
+    .from("estimate_items")
+    .select("id, title")
+    .eq("tenant_id", input.tenantId)
+    .eq("version_id", input.versionId)
+    .eq("item_type", "section")
+    .is("parent_id", null)
+    .order("position", { ascending: true });
+
+  if (error) {
+    throw mapSupabaseError(
+      error,
+      "Impossible de rechercher la section de classement des ouvrages generes."
+    );
+  }
+
+  const fallbackSection =
+    ((data ?? []) as Array<Pick<EstimateItemRow, "id" | "title">>).find(
+      (item) =>
+        normalizeSectionTitle(item.title) ===
+        normalizeSectionTitle(GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE)
+    ) ?? null;
+
+  if (fallbackSection) {
+    return {
+      parentId: fallbackSection.id,
+      placementMode: "fallback_unclassified" as const,
+      lotLabel: fallbackSection.title ?? GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE,
+      createdFallbackSection: false,
+    };
+  }
+
+  const createdSection = await createEstimateItem(input.versionId, {
+    item_type: "section",
+    parent_id: null,
+    title: GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE,
+    source_provider: "generated_ouvrage",
+  });
+
+  return {
+    parentId: createdSection.item.id,
+    placementMode: "fallback_unclassified" as const,
+    lotLabel: GENERATED_OUVRAGE_FALLBACK_SECTION_TITLE,
+    createdFallbackSection: true,
+  };
+}
+
 async function rollbackInsertedGeneratedOuvrages(input: {
   supabase: Supabase;
   versionId: string;
@@ -1927,6 +2005,13 @@ export async function insertGeneratedOuvrages(
     metadata: Json;
   }> = [];
   let updatedDraft: GeneratedOuvrageDraftRow | null = null;
+  let fallbackTargetSection:
+    | {
+        parentId: string;
+        lotLabel: string | null;
+        createdFallbackSection: boolean;
+      }
+    | null = null;
 
   try {
     for (const preparedCandidate of preparedAcceptedCandidates) {
@@ -1939,14 +2024,48 @@ export async function insertGeneratedOuvrages(
         quantity,
       } = preparedCandidate;
 
+      const resolvedTargetSection =
+        acceptedCandidate.lotId !== null
+          ? {
+              parentId: acceptedCandidate.lotId,
+              placementMode: "explicit" as const,
+              lotLabel: candidate.lot_label ?? null,
+              createdFallbackSection: false,
+            }
+          : fallbackTargetSection ??
+            (await resolveGeneratedOuvrageTargetSection({
+              supabase,
+              tenantId,
+              versionId: parsed.versionId,
+              draftId: loaded.draft.id,
+              requestedLotId: null,
+            }));
+
+      if (acceptedCandidate.lotId === null) {
+        fallbackTargetSection = {
+          parentId: resolvedTargetSection.parentId,
+          lotLabel: resolvedTargetSection.lotLabel,
+          createdFallbackSection: resolvedTargetSection.createdFallbackSection,
+        };
+      }
+
+      const nextAppliedPayload = {
+        ...appliedPayload,
+        lot_id: resolvedTargetSection.parentId,
+        requested_lot_id: acceptedCandidate.lotId ?? null,
+        resolved_lot_id: resolvedTargetSection.parentId,
+        resolved_lot_label: resolvedTargetSection.lotLabel,
+        placement_mode: resolvedTargetSection.placementMode,
+        fallback_section_created: resolvedTargetSection.createdFallbackSection,
+      } satisfies JsonRecord;
+
       const createResult = await createEstimateItem(parsed.versionId, {
         item_type: "line",
-        parent_id: acceptedCandidate.lotId ?? null,
+        parent_id: resolvedTargetSection.parentId,
         title: designation,
         quantity,
         unit_price_ht_cents: 0,
         source_provider: "generated_ouvrage",
-        source_job_id: loaded.draft.id,
         source_file_name: primaryFragment?.sourceFileName ?? null,
         source_page: primaryFragment?.sourcePageFrom ?? null,
       });
@@ -1962,7 +2081,7 @@ export async function insertGeneratedOuvrages(
           target_version_id: parsed.versionId,
           estimate_item_id: createResult.item.id,
           applied_by: userId,
-          applied_payload: appliedPayload,
+          applied_payload: nextAppliedPayload,
         } as never)
         .select("*" as never)
         .single();
@@ -2356,7 +2475,10 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
           designation: appliedPayload.designation ?? candidate?.designation ?? item.title,
           unit: appliedPayload.unit ?? candidate?.unit ?? null,
           quantity: appliedPayload.quantity ?? candidate?.quantity ?? null,
-          lot_id: appliedPayload.lot_id ?? null,
+          lot_id: appliedPayload.resolved_lot_id ?? appliedPayload.lot_id ?? null,
+          requested_lot_id: appliedPayload.requested_lot_id ?? null,
+          lot_label: appliedPayload.resolved_lot_label ?? null,
+          placement_mode: appliedPayload.placement_mode ?? null,
         },
         prompt_version: toNullableText(generationMetadata.prompt_version),
         used_fallback: Boolean(generationMetadata.used_fallback),

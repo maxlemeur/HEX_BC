@@ -6,6 +6,9 @@ FS-A porte le service de generation et les mutations d'insertion pour `EST-381`.
 
 Le front de review des ouvrages generes doit etre delegue a une equipe UX.
 
+Document frontend operationnel:
+- [EST-381-UX-FRONTEND-HANDOFF.md](./EST-381-UX-FRONTEND-HANDOFF.md)
+
 ## Backend contract cible
 
 ### 1) Generation d'ouvrages
@@ -124,7 +127,7 @@ rejectGeneratedOuvrageDraft(input: {
 - La revue reste server-side et persiste un draft explicite avant toute insertion.
 - Chaque source expose un `sourceFragmentId` stable pour garder la provenance apres edition.
 - Les propositions `question` restent dans le draft EST-381 et ne creent rien automatiquement ailleurs.
-- `lotId = null` a l'insertion signifie insertion a la racine du devis, sans creation implicite de lot.
+- `lotId = null` a l'insertion signifie insertion dans une section racine explicite `A classer`, creee ou reutilisee au besoin avec tracabilite.
 - L'unite proposee est conservee dans le draft, l'application et la provenance enrichie meme si le modele `estimate_items` ne porte pas encore une colonne `unit`.
 
 ## UX frontend scope (delegue a equipe UX)
