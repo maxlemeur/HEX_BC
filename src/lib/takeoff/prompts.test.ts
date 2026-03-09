@@ -7,6 +7,7 @@ import {
   getTakeoffPrompt,
   getTakeoffPromptRuntimeConfig,
   getTakeoffPromptVersion,
+  TAKEOFF_LEVEL_ESCALATION_PRIMARY_MODEL_MATRIX,
   TAKEOFF_LEVEL_MODEL_MATRIX,
   TAKEOFF_PROMPT_VERSION_BY_LEVEL,
 } from "@/lib/takeoff/prompts";
@@ -198,17 +199,17 @@ describe("takeoff prompts", () => {
 
   it("uses centralized matrix level -> model -> thinkingLevel", () => {
     expect(TAKEOFF_LEVEL_MODEL_MATRIX).toEqual({
-      A: { model: "gemini-3.1-flash-lite-preview", thinkingLevel: "low" },
-      B: { model: "gemini-3-flash-preview", thinkingLevel: "medium" },
+      A: { model: "gemini-3-flash-preview", thinkingLevel: "low" },
+      B: { model: "gemini-3.1-pro-preview", thinkingLevel: "medium" },
       C: { model: "gemini-3.1-pro-preview", thinkingLevel: "high" },
     });
 
     expect(getTakeoffModelConfig("A")).toEqual({
-      model: "gemini-3.1-flash-lite-preview",
+      model: "gemini-3-flash-preview",
       thinkingLevel: "low",
     });
     expect(getTakeoffModelConfig("B")).toEqual({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-pro-preview",
       thinkingLevel: "medium",
     });
     expect(getTakeoffModelConfig("C")).toEqual({
@@ -217,18 +218,39 @@ describe("takeoff prompts", () => {
     });
   });
 
+  it("exposes the opt-in lower-cost primary matrix used with escalation", () => {
+    expect(TAKEOFF_LEVEL_ESCALATION_PRIMARY_MODEL_MATRIX).toEqual({
+      A: { model: "gemini-3.1-flash-lite-preview", thinkingLevel: "low" },
+      B: { model: "gemini-3-flash-preview", thinkingLevel: "medium" },
+      C: { model: "gemini-3.1-pro-preview", thinkingLevel: "high" },
+    });
+
+    expect(
+      getTakeoffModelConfig("A", { preferEscalationPrimary: true })
+    ).toEqual({
+      model: "gemini-3.1-flash-lite-preview",
+      thinkingLevel: "low",
+    });
+    expect(
+      getTakeoffModelConfig("B", { preferEscalationPrimary: true })
+    ).toEqual({
+      model: "gemini-3-flash-preview",
+      thinkingLevel: "medium",
+    });
+  });
+
   it("returns full level config for runtime usage", () => {
     expect(getTakeoffLevelConfig("A")).toEqual({
       level: "A",
       promptVersion: "takeoff-a-v1",
-      model: "gemini-3.1-flash-lite-preview",
+      model: "gemini-3-flash-preview",
       thinkingLevel: "low",
     });
 
     expect(getTakeoffLevelConfig("B")).toEqual({
       level: "B",
       promptVersion: "takeoff-b-v1",
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-pro-preview",
       thinkingLevel: "medium",
     });
 
@@ -267,5 +289,21 @@ describe("takeoff prompts", () => {
     expect(runtimeConfig.thinkingLevel).toBe("high");
     expect(runtimeConfig.prompt).toContain("- source: runtime-file.xlsx");
     expect(runtimeConfig.prompt).toContain("Niveau C: confidence global est requis pour le niveau C.");
+  });
+
+  it("can resolve an opt-in escalation primary level config", () => {
+    expect(getTakeoffLevelConfig("A", { preferEscalationPrimary: true })).toEqual({
+      level: "A",
+      promptVersion: "takeoff-a-v1",
+      model: "gemini-3.1-flash-lite-preview",
+      thinkingLevel: "low",
+    });
+
+    expect(getTakeoffLevelConfig("B", { preferEscalationPrimary: true })).toEqual({
+      level: "B",
+      promptVersion: "takeoff-b-v1",
+      model: "gemini-3-flash-preview",
+      thinkingLevel: "medium",
+    });
   });
 });

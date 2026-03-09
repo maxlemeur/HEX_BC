@@ -31,6 +31,7 @@ import {
   TAKEOFF_GEMINI_BATCH_MODE_FLAG_KEY,
   TAKEOFF_MODULE_ENABLED_FLAG_KEY,
 } from "@/lib/takeoff/constants";
+import type { TakeoffLevel } from "@/lib/takeoff/types";
 import type { Database } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;
@@ -295,8 +296,15 @@ export async function getTakeoffEscalationConfigForTenant(
 
 export async function getTakeoffGeminiDeliveryConfigForTenant(
   tenantId: string,
+  level: TakeoffLevel,
   input?: { supabase?: Supabase }
 ): Promise<TakeoffGeminiDeliveryConfig> {
+  if (level !== "A") {
+    return {
+      useBatchApi: false,
+    };
+  }
+
   const batchModeRaw = await getFeatureFlagValueForTenant(
     tenantId,
     TAKEOFF_GEMINI_BATCH_MODE_FLAG_KEY,

@@ -3542,7 +3542,7 @@ async function processTakeoffLevel(
   const callGemini = options.callGemini ?? callGeminiStructured;
   const submitGeminiBatch = options.submitGeminiBatch ?? submitGeminiBatchStructured;
   const now = options.now ?? (() => new Date());
-  const levelConfig = getTakeoffLevelConfig(level);
+  let levelConfig = getTakeoffLevelConfig(level);
   const escalationConfig = getTakeoffEscalationModelConfig(level);
   const processingStartedAt = now();
   let attemptedModel = levelConfig.model;
@@ -3578,10 +3578,17 @@ async function processTakeoffLevel(
 
     const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
       job.tenant_id,
+      level,
       {
         supabase: context.supabase,
       }
     );
+    const escalationPolicy = await getTakeoffEscalationConfigForTenant(job.tenant_id, {
+      supabase: context.supabase,
+    });
+    levelConfig = getTakeoffLevelConfig(level, {
+      preferEscalationPrimary: escalationPolicy.enabled && escalationConfig !== null,
+    });
     const requestedProcessingStrategy =
       job.processing_strategy ??
       resolveTakeoffProcessingStrategy(geminiDeliveryConfig.useBatchApi);
@@ -3619,9 +3626,6 @@ async function processTakeoffLevel(
       levelCSourceFileName = sourceFile.fileName;
     }
     const schemaVersion = normalizeNullableText(job.schema_version) ?? "v1";
-    const escalationPolicy = await getTakeoffEscalationConfigForTenant(job.tenant_id, {
-      supabase: context.supabase,
-    });
     const deliveryMode: GeminiDeliveryMode = processingStrategy;
     const onBatchLifecycleEvent =
       deliveryMode === "batch"

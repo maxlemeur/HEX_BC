@@ -7955,6 +7955,7 @@ export async function createTakeoffJobFromFormData(
     });
     const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
       tenantId,
+      level,
       { supabase }
     );
     const processingStrategy = resolveTakeoffProcessingStrategy(
@@ -8177,6 +8178,7 @@ export async function createTakeoffJobFromPlanSet(input: {
   });
   const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
     tenantId,
+    level,
     { supabase }
   );
   const processingStrategy = resolveTakeoffProcessingStrategy(

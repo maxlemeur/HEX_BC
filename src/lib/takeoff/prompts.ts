@@ -25,6 +25,21 @@ export type TakeoffEscalationModelConfig = TakeoffModelConfig & {
 
 export const TAKEOFF_LEVEL_MODEL_MATRIX = {
   A: {
+    model: "gemini-3-flash-preview",
+    thinkingLevel: "low",
+  },
+  B: {
+    model: "gemini-3.1-pro-preview",
+    thinkingLevel: "medium",
+  },
+  C: {
+    model: "gemini-3.1-pro-preview",
+    thinkingLevel: "high",
+  },
+} as const satisfies Record<TakeoffPromptLevel, TakeoffModelConfig>;
+
+export const TAKEOFF_LEVEL_ESCALATION_PRIMARY_MODEL_MATRIX = {
+  A: {
     model: "gemini-3.1-flash-lite-preview",
     thinkingLevel: "low",
   },
@@ -179,15 +194,25 @@ export function getTakeoffPromptVersion(
 }
 
 export function getTakeoffModelConfig(
-  level: TakeoffPromptLevel
+  level: TakeoffPromptLevel,
+  input?: {
+    preferEscalationPrimary?: boolean;
+  }
 ): TakeoffModelConfig {
-  return TAKEOFF_LEVEL_MODEL_MATRIX[level] as TakeoffModelConfig;
+  const matrix = input?.preferEscalationPrimary
+    ? TAKEOFF_LEVEL_ESCALATION_PRIMARY_MODEL_MATRIX
+    : TAKEOFF_LEVEL_MODEL_MATRIX;
+
+  return matrix[level] as TakeoffModelConfig;
 }
 
 export function getTakeoffLevelConfig(
-  level: TakeoffPromptLevel
+  level: TakeoffPromptLevel,
+  input?: {
+    preferEscalationPrimary?: boolean;
+  }
 ): TakeoffLevelConfig {
-  const modelConfig = getTakeoffModelConfig(level);
+  const modelConfig = getTakeoffModelConfig(level, input);
 
   return {
     level,

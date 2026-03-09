@@ -1611,7 +1611,7 @@ describe("processLevelA", () => {
     });
     const submitGeminiBatch = vi.fn().mockResolvedValue({
       durationMs: 125,
-      model: "gemini-3.1-flash-lite-preview",
+      model: "gemini-3-flash-preview",
       promptVersion: "takeoff-a-v1",
       providerBatchId: "batches/test-submit",
       providerBatchStateRaw: "JOB_STATE_SUBMITTED",
@@ -1636,7 +1636,7 @@ describe("processLevelA", () => {
       expect.objectContaining({
         context: expect.objectContaining({
           level: "A",
-          model: "gemini-3.1-flash-lite-preview",
+          model: "gemini-3-flash-preview",
         }),
       })
     );
@@ -1667,7 +1667,7 @@ describe("processLevelA", () => {
 
       return {
         durationMs: 50,
-        model: "gemini-3.1-flash-lite-preview",
+        model: "gemini-3-flash-preview",
         promptVersion: "takeoff-a-v1",
         providerBatchId: "batches/test-schedule-failure",
         providerBatchStateRaw: "JOB_STATE_SUBMITTED",
@@ -1721,7 +1721,7 @@ describe("processLevelA", () => {
       });
       return {
         durationMs: 50,
-        model: "gemini-3.1-flash-lite-preview",
+        model: "gemini-3-flash-preview",
         promptVersion: "takeoff-a-v1",
         providerBatchId: "batches/test-1",
         providerBatchStateRaw: "JOB_STATE_SUBMITTED",
@@ -1755,7 +1755,7 @@ describe("processLevelA", () => {
         return {
           status: "pending" as const,
           durationMs: 30,
-          model: "gemini-3.1-flash-lite-preview",
+          model: "gemini-3-flash-preview",
           promptVersion: "takeoff-a-v1",
           providerBatchId: "batches/test-1",
           providerBatchStateRaw: "JOB_STATE_RUNNING",
@@ -1791,7 +1791,7 @@ describe("processLevelA", () => {
               },
             ]),
             {
-              model: "gemini-3.1-flash-lite-preview",
+              model: "gemini-3-flash-preview",
               promptVersion: "takeoff-a-v1",
               providerBatchId: "batches/test-1",
               providerBatchStateRaw: "JOB_STATE_SUCCEEDED",
@@ -1835,7 +1835,7 @@ describe("processLevelA", () => {
 
       return {
         durationMs: 50,
-        model: "gemini-3.1-flash-lite-preview",
+        model: "gemini-3-flash-preview",
         promptVersion: "takeoff-a-v1",
         providerBatchId: "batches/test-atomic-failure",
         providerBatchStateRaw: "JOB_STATE_SUBMITTED",
@@ -2183,7 +2183,7 @@ describe("processLevelB", () => {
         tokenCount: 5_200,
         costCents: 154,
         durationMs: 3_800,
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.1-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -2212,7 +2212,7 @@ describe("processLevelB", () => {
         files: [expect.objectContaining({ mimeType: "application/pdf" })],
         context: expect.objectContaining({
           level: "B",
-          model: "gemini-3-flash-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-b-v1",
         }),
       })
@@ -2234,13 +2234,13 @@ describe("processLevelB", () => {
       source_file_name: "niveau-b.pdf",
       processing_mode: "pdf_vision",
       tables_count: 1,
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-pro-preview",
       prompt_version: "takeoff-b-v1",
       routing: expect.objectContaining({
         strategy: "primary_then_escalation",
-        primary_model: "gemini-3-flash-preview",
+        primary_model: "gemini-3.1-pro-preview",
         escalated: false,
-        final_model: "gemini-3-flash-preview",
+        final_model: "gemini-3.1-pro-preview",
       }),
     });
     expect(mock.state.takeoffResults[0]?.tables).toEqual(
@@ -2289,7 +2289,7 @@ describe("processLevelB", () => {
     );
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(exchange, {
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.1-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -2385,7 +2385,7 @@ describe("processLevelB", () => {
 
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(exchange, {
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.1-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -2537,7 +2537,7 @@ describe("processLevelB", () => {
 
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(exchange, {
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.1-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -2658,7 +2658,7 @@ describe("processLevelB", () => {
           tokenCount: 400,
           costCents: 20,
           durationMs: 900,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -2667,7 +2667,7 @@ describe("processLevelB", () => {
           tokenCount: 450,
           costCents: 23,
           durationMs: 1_000,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -2676,7 +2676,7 @@ describe("processLevelB", () => {
           tokenCount: 500,
           costCents: 26,
           durationMs: 1_100,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -2774,7 +2774,7 @@ describe("processLevelB", () => {
           tokenCount: 300,
           costCents: 15,
           durationMs: 700,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -2783,7 +2783,7 @@ describe("processLevelB", () => {
           tokenCount: 420,
           costCents: 20,
           durationMs: 850,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -2891,7 +2891,7 @@ describe("processLevelB", () => {
           tokenCount: 500,
           costCents: 25,
           durationMs: 900,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -2900,7 +2900,7 @@ describe("processLevelB", () => {
           tokenCount: 520,
           costCents: 26,
           durationMs: 950,
-          model: "gemini-3-flash-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -2961,7 +2961,7 @@ describe("processLevelB", () => {
 
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(invalidPayload, {
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.1-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -3040,7 +3040,7 @@ describe("processLevelB", () => {
 
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(emptyExchange, {
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.1-pro-preview",
         promptVersion: "takeoff-b-v1",
       })
     );

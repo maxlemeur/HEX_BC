@@ -301,13 +301,26 @@ describe("takeoff feature flags", () => {
     process.env[BATCH_MODE_ENV_KEY] = "true";
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
 
-    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID)).resolves.toEqual({
+    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID, "A")).resolves.toEqual({
       useBatchApi: true,
     });
 
     vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("false");
-    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID)).resolves.toEqual({
+    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID, "A")).resolves.toEqual({
       useBatchApi: false,
     });
+  });
+
+  it("forces non-A levels to sync delivery regardless of env or tenant flags", async () => {
+    process.env[BATCH_MODE_ENV_KEY] = "true";
+    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("true");
+
+    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID, "B")).resolves.toEqual({
+      useBatchApi: false,
+    });
+    await expect(getTakeoffGeminiDeliveryConfigForTenant(TENANT_ID, "C")).resolves.toEqual({
+      useBatchApi: false,
+    });
+    expect(vi.mocked(getFeatureFlagValueForTenant)).not.toHaveBeenCalled();
   });
 });
