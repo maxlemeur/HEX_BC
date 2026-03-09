@@ -174,10 +174,13 @@ function isBatchReconcileCandidate(job: WorkerJobRow) {
     job.status === "processing" &&
     job.processing_strategy === "batch" &&
     typeof job.provider_batch_id === "string" &&
-    job.provider_batch_id.length > 0 &&
-    !["succeeded", "failed", "cancelled", "expired"].includes(
-      job.provider_batch_state ?? ""
-    )
+    job.provider_batch_id.length > 0
+  );
+}
+
+function hasTerminalProviderBatchState(job: WorkerJobRow) {
+  return ["succeeded", "failed", "cancelled", "expired"].includes(
+    job.provider_batch_state ?? ""
   );
 }
 
@@ -553,7 +556,10 @@ export async function processTakeoffJobAttempt(
       });
     }
 
-    if ((lease.attemptCount ?? 0) > TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS) {
+    if (
+      (lease.attemptCount ?? 0) > TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS &&
+      !hasTerminalProviderBatchState(job)
+    ) {
       await repository.markBatchReconcileTimeoutAsFailed({
         jobId: job.id,
         tenantId: job.tenant_id,

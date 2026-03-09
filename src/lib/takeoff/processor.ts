@@ -51,8 +51,6 @@ import {
   TakeoffWarningSchema,
 } from "@/lib/takeoff/schemas";
 import {
-  getTakeoffBatchReconcileBackoffSeconds,
-  isTerminalTakeoffProviderBatchState,
   normalizeGeminiProviderBatchState,
   normalizeTakeoffProcessingStrategy,
   persistTakeoffProviderBatchSnapshot,
@@ -1198,6 +1196,22 @@ async function scheduleBatchReconcile(input: {
   }
 
   return parseTakeoffJobRow(data);
+}
+
+function canRecoverAcceptedBatchSubmission(input: {
+  error: TakeoffError;
+  job: TakeoffJobProcessingRow;
+  submission: {
+    providerBatchId: string;
+    providerBatchStateRaw: string;
+  };
+}) {
+  return (
+    input.error.code !== TakeoffErrorCode.CONFLICT &&
+    input.job.status === "processing" &&
+    input.job.processing_strategy === "batch" &&
+    input.job.provider_batch_id === input.submission.providerBatchId
+  );
 }
 
 async function downloadTakeoffSourceFile(input: {
@@ -3752,13 +3766,37 @@ async function processTakeoffLevel(
           model: levelConfig.model,
         },
       });
+      try {
+        job = await scheduleBatchReconcile({
+          supabase: context.supabase,
+          job,
+          tenantId: context.tenantId,
+          dueAtIso: now().toISOString(),
+        });
+      } catch (error) {
+        const scheduleError = toTakeoffError(error, {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          fallbackMessage:
+            "Impossible de planifier la reconciliation provider du job takeoff.",
+          jobId: job.id,
+          level,
+        });
 
-      job = await scheduleBatchReconcile({
-        supabase: context.supabase,
-        job,
-        tenantId: context.tenantId,
-        dueAtIso: now().toISOString(),
-      });
+        if (!canRecoverAcceptedBatchSubmission({ error: scheduleError, job, submission })) {
+          throw scheduleError;
+        }
+
+        console.warn(
+          "Takeoff batch accepted by provider but reconcile scheduling failed; keeping job in processing for recovery.",
+          {
+            job_id: job.id,
+            tenant_id: job.tenant_id,
+            provider_batch_id: submission.providerBatchId,
+            provider_batch_state: job.provider_batch_state,
+            error_code: scheduleError.code,
+          }
+        );
+      }
 
       return {
         jobId: job.id,

@@ -176,6 +176,7 @@ type SupabaseMockOptions = {
   failRunMetricsDeleteWhenNonEmpty?: boolean;
   failTakeoffItemsInsertOnce?: boolean;
   failProviderBatchSnapshotRpc?: boolean;
+  failScheduleBatchReconcileUpdate?: boolean;
 };
 
 type SupabaseMockState = {
@@ -452,6 +453,8 @@ function createTakeoffProcessorSupabaseMock(
     options.failRunMetricsDeleteWhenNonEmpty ?? false;
   let takeoffItemsInsertFailuresRemaining = options.failTakeoffItemsInsertOnce ? 1 : 0;
   const failProviderBatchSnapshotRpc = options.failProviderBatchSnapshotRpc ?? false;
+  const failScheduleBatchReconcileUpdate =
+    options.failScheduleBatchReconcileUpdate ?? false;
   let cancellationApplied = false;
 
   let resultIdSequence = 0;
@@ -516,6 +519,26 @@ function createTakeoffProcessorSupabaseMock(
         const simulatedError = {
           code: "PGRST301",
           message: "Simulated completion update failure",
+        };
+
+        if (withRow) {
+          return {
+            data: null,
+            error: simulatedError,
+          } as QueryResponse<TakeoffJobRow | null>;
+        }
+
+        return { data: null, error: simulatedError } as QueryResponse<null>;
+      }
+
+      if (
+        failScheduleBatchReconcileUpdate &&
+        payload.status === undefined &&
+        payload.provider_reconcile_due_at !== undefined
+      ) {
+        const simulatedError = {
+          code: "PGRST301",
+          message: "Simulated reconcile scheduling failure",
         };
 
         if (withRow) {
@@ -1620,6 +1643,62 @@ describe("processLevelA", () => {
     expect(mock.state.job.processing_strategy).toBe("batch");
     expect(mock.state.job.status).toBe("processing");
     expect(mock.state.job.provider_reconcile_due_at).toBe(FIXED_NOW.toISOString());
+  });
+
+  it("keeps accepted batches in processing when reconcile scheduling persistence fails", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        processing_strategy: "batch",
+      },
+      featureFlags: {
+        TAKEOFF_GEMINI_BATCH_MODE: "true",
+      },
+      failScheduleBatchReconcileUpdate: true,
+    });
+    const submitGeminiBatch = vi.fn().mockImplementation(async (options) => {
+      await options.onBatchLifecycleEvent?.({
+        provider: "gemini",
+        providerBatchId: "batches/test-schedule-failure",
+        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
+        observedAt: "2026-02-25T10:00:01.000Z",
+        isTerminal: false,
+        message: "submitted",
+      });
+
+      return {
+        durationMs: 50,
+        model: "gemini-3.1-flash-lite-preview",
+        promptVersion: "takeoff-a-v1",
+        providerBatchId: "batches/test-schedule-failure",
+        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
+      };
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const result = await processLevelA(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        submitGeminiBatch,
+      });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          status: "submitted_to_provider",
+          providerBatchId: "batches/test-schedule-failure",
+        })
+      );
+      expect(mock.state.job.status).toBe("processing");
+      expect(mock.state.job.provider_batch_id).toBe("batches/test-schedule-failure");
+      expect(mock.state.job.provider_batch_state).toBe("submitted");
+      expect(mock.state.job.provider_reconcile_due_at).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("persists batch provider snapshot and transitions during submission and reconcile", async () => {

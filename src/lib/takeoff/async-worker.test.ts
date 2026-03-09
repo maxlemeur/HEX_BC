@@ -125,6 +125,7 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
           provider_reconcile_due_at: null,
           provider_reconcile_lease_token: null,
           provider_reconcile_lease_expires_at: null,
+          last_error_at: input.nowIso,
         };
       }
     ),
@@ -390,6 +391,66 @@ describe("processTakeoffJobAttempt", () => {
 
     expect(outcome.status).toBe("in_progress");
     expect(processLevelAFn).not.toHaveBeenCalled();
+  });
+
+  it("reconciles persisted terminal batch states instead of timing them out", async () => {
+    const { state, repository } = createWorkerRepository({
+      id: JOB_ID,
+      tenant_id: TENANT_ID,
+      level: "A",
+      status: "processing",
+      processing_strategy: "batch",
+      provider_batch_id: "batches/test-terminal",
+      provider_batch_state: "succeeded",
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 4,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
+      retry_count: 1,
+      error_code: null,
+      error_message: null,
+      created_by: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      next_retry_at: null,
+      last_error_at: null,
+    });
+
+    repository.acquireBatchReconcileLease.mockResolvedValueOnce({
+      claimed: true,
+      attemptCount: 999,
+    });
+    const reconcileTakeoffBatchJobFn = vi.fn(async () => {
+      state.job = {
+        ...state.job,
+        status: "completed",
+        error_code: null,
+        error_message: null,
+      };
+
+      return {
+        jobId: JOB_ID,
+        resultId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        status: "completed" as const,
+        itemsCount: 1,
+        warningsCount: 0,
+        tokenCount: 100,
+        costCents: 12,
+        durationMs: 250,
+      };
+    });
+
+    const outcome = await processTakeoffJobAttempt(JOB_ID, {
+      correlationId: CORRELATION_ID,
+      trigger: "reconcile",
+      repository,
+      reconcileTakeoffBatchJobFn,
+      now: () => FIXED_NOW,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    expect(outcome.status).toBe("completed");
+    expect(reconcileTakeoffBatchJobFn).toHaveBeenCalledTimes(1);
+    expect(repository.markBatchReconcileTimeoutAsFailed).not.toHaveBeenCalled();
+    expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
   });
 
   it("marks unsupported levels as terminal failures", async () => {
