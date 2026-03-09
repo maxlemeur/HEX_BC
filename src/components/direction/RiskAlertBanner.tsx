@@ -32,8 +32,10 @@ const STATUS_VARIANT = {
 } as const;
 
 function buildAlertHref(alert: DirectionSyntheticAlert) {
-  if (alert.latestJobId) {
-    return `/dashboard/affaires/${alert.projectId}/takeoff/${alert.latestJobId}/review?versionId=${alert.versionId}&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
+  const reviewJobId = alert.latestJobId ?? alert.jobId;
+
+  if (reviewJobId) {
+    return `/dashboard/affaires/${alert.projectId}/takeoff/${reviewJobId}/review?versionId=${alert.versionId}&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
   }
 
   return `/dashboard/affaires/${alert.projectId}`;

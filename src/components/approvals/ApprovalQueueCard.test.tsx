@@ -87,7 +87,7 @@ describe("ApprovalQueueCard", () => {
             {
               ...BASE_ITEM.syntheticAlerts[0],
               jobId: "job-2",
-              latestJobId: "job-2",
+              latestJobId: null,
             },
           ],
         }}

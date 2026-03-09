@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/link", () => ({
   default: function MockLink({
@@ -44,7 +44,30 @@ const ALERT: DirectionSyntheticAlert = {
   lotLabels: [],
 };
 
+afterEach(() => {
+  cleanup();
+});
+
 describe("RiskAlertBanner", () => {
+  it("deep-links with the alert job when latestJobId is missing", () => {
+    render(
+      <RiskAlertBanner
+        alerts={[
+          {
+            ...ALERT,
+            jobId: "job-fallback",
+            latestJobId: null,
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: "Ouvrir la revue" })).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1/takeoff/job-fallback/review?versionId=version-1&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only"
+    );
+  });
+
   it("moves focus to the note field and restores it to the trigger on cancel", async () => {
     const user = userEvent.setup();
     render(<RiskAlertBanner alerts={[ALERT]} />);

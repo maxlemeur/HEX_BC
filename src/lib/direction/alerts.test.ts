@@ -8,6 +8,7 @@ function createAlert(
 ): TakeoffRiskAlert {
   return {
     alert_id: overrides.alert_id ?? "11111111-1111-4111-8111-111111111111",
+    takeoff_job_id: overrides.takeoff_job_id ?? "job-1",
     scope_type: overrides.scope_type ?? "project",
     scope_id: overrides.scope_id ?? null,
     scope_label: overrides.scope_label ?? "Affaire test",
@@ -97,5 +98,39 @@ describe("buildDirectionSyntheticAlerts", () => {
 
     expect(alerts).toHaveLength(1);
     expect(alerts[0]?.label).toBe("Signal a traiter avant arbitrage");
+  });
+
+  it("keeps an actionable job id when alerts share one and latestJobId is missing", () => {
+    const alerts = buildDirectionSyntheticAlerts({
+      projectId: "project-1",
+      projectName: "Affaire test",
+      versionId: "version-1",
+      amountHtCents: 500_000,
+      marginBp: 2_500,
+      discountBp: 0,
+      approvalStatus: "approved",
+      exceptionCount: 1,
+      openHypothesesCount: 0,
+      riskScore: 28,
+      sendTargetAt: null,
+      latestJobId: null,
+      alerts: [
+        createAlert({
+          cause_code: "vat_inconsistency",
+          cause_label: "TVA incoherente",
+          severity: "info",
+          risk_score: 28,
+          takeoff_job_id: "job-fallback",
+          metadata: {},
+        }),
+      ],
+    });
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      jobId: "job-fallback",
+      latestJobId: null,
+      label: "Signal a traiter avant arbitrage",
+    });
   });
 });

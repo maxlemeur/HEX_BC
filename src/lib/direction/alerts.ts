@@ -121,6 +121,36 @@ function collectLotLabels(alerts: TakeoffRiskAlert[]) {
   );
 }
 
+function resolveAlertJobId(alert: TakeoffRiskAlert) {
+  if (typeof alert.takeoff_job_id === "string") {
+    return alert.takeoff_job_id;
+  }
+
+  const metadata =
+    typeof alert.metadata === "object" && alert.metadata !== null
+      ? (alert.metadata as Record<string, unknown>)
+      : {};
+
+  return (
+    (typeof metadata.takeoff_job_id === "string"
+      ? metadata.takeoff_job_id
+      : null) ??
+    (typeof metadata.takeoffJobId === "string"
+      ? metadata.takeoffJobId
+      : null)
+  );
+}
+
+function resolveSharedAlertJobId(alerts: TakeoffRiskAlert[]) {
+  const jobIds = dedupeStrings(
+    alerts
+      .map((alert) => resolveAlertJobId(alert))
+      .filter((jobId): jobId is string => Boolean(jobId))
+  );
+
+  return jobIds.length === 1 ? jobIds[0] : null;
+}
+
 function buildAlertGroup(
   input: BuildDirectionSyntheticAlertsInput,
   key: string,
@@ -138,7 +168,7 @@ function buildAlertGroup(
     projectId: input.projectId,
     projectName: input.projectName,
     versionId: input.versionId,
-    jobId: alerts[0]?.alert_id ? input.latestJobId : null,
+    jobId: input.latestJobId ?? resolveSharedAlertJobId(alerts),
     latestJobId: input.latestJobId,
     level: deriveGroupLevel(alerts, fallbackSeverity),
     label,
