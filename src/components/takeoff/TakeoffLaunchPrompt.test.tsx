@@ -15,11 +15,21 @@ import {
   TakeoffLaunchPrompt,
   shouldShowTakeoffPrompt,
 } from "@/components/takeoff/TakeoffLaunchPrompt";
+import { classifyTakeoffPlanSetSource } from "@/lib/takeoff/document-classifier";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const PLAN_SET_ID = "33333333-3333-4333-8333-333333333333";
 const JOB_ID = "44444444-4444-4444-8444-444444444444";
+const DEFAULT_RECOMMENDATION = classifyTakeoffPlanSetSource({
+  files: [
+    {
+      file_name: "lot-cvc-dpgf.pdf",
+      file_type: "application/pdf",
+      page_count: 2,
+    },
+  ],
+});
 
 describe("shouldShowTakeoffPrompt", () => {
   const BASE = {
@@ -106,6 +116,7 @@ describe("TakeoffLaunchPrompt", () => {
     versionLabel: "V1 (brouillon)",
     planSetId: PLAN_SET_ID,
     planFileCount: 3,
+    launchRecommendation: DEFAULT_RECOMMENDATION,
     onLaunched: vi.fn(),
     onDismissTemporary: vi.fn(),
     onDismissPermanent: vi.fn(),
@@ -117,7 +128,8 @@ describe("TakeoffLaunchPrompt", () => {
     expect(
       screen.getByText("Lancer une premiere analyse"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Rapide")).toBeInTheDocument();
+    expect(screen.getByText(/Niveau recommande :/)).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Standard" })).toBeChecked();
     expect(screen.getByText("V1 (brouillon)")).toBeInTheDocument();
     expect(screen.getByText(/3 plans pour alimenter/)).toBeInTheDocument();
   });
@@ -143,8 +155,27 @@ describe("TakeoffLaunchPrompt", () => {
       projectId: PROJECT_ID,
       planSetId: PLAN_SET_ID,
       versionId: VERSION_ID,
+      level: "B",
     });
     expect(DEFAULT_PROPS.onLaunched).toHaveBeenCalledWith(JOB_ID);
+  });
+
+  it('allows overriding to level C before launch', async () => {
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: JOB_ID });
+
+    render(<TakeoffLaunchPrompt {...DEFAULT_PROPS} />);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Detaille" }));
+    fireEvent.click(screen.getByRole("button", { name: "Lancer maintenant" }));
+
+    await waitFor(() => {
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
+        projectId: PROJECT_ID,
+        planSetId: PLAN_SET_ID,
+        versionId: VERSION_ID,
+        level: "C",
+      });
+    });
   });
 
   it('"Plus tard" calls onDismissTemporary', () => {

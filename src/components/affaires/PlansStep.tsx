@@ -13,6 +13,10 @@ import {
   type PlanSetListItem,
 } from "@/lib/takeoff/client";
 import {
+  classifyTakeoffPlanSetSource,
+  type TakeoffDocumentRecommendation,
+} from "@/lib/takeoff/document-classifier";
+import {
   DEFAULT_IMPORT_PLAN_SET_NAME,
   IMPORT_FLOW_PLAN_SET_METADATA,
   hasDefaultImportPlanSetMarker,
@@ -109,6 +113,8 @@ export function PlansStep({
   const [uploadedCount, setUploadedCount] = useState(0);
   const [uploadedSizeBytes, setUploadedSizeBytes] = useState(0);
   const [uploadSummaryWarning, setUploadSummaryWarning] = useState<string | null>(null);
+  const [launchRecommendation, setLaunchRecommendation] =
+    useState<TakeoffDocumentRecommendation | null>(null);
   const {
     dismissed: permanentlyDismissed,
     dismissPermanently,
@@ -173,10 +179,16 @@ export function PlansStep({
       const planFiles = await fetchPlanFiles(planSet.id);
       const currentCount = planFiles.length;
       const currentSize = sumFileSizes(planFiles.map((file) => file.file_size_bytes));
+      setLaunchRecommendation(
+        classifyTakeoffPlanSetSource({
+          files: planFiles,
+        })
+      );
 
       setUploadedCount(Math.max(0, currentCount - initialCounts.fileCount));
       setUploadedSizeBytes(Math.max(0, currentSize - initialCounts.totalSizeBytes));
     } catch {
+      setLaunchRecommendation(null);
       if (fallbackSummary) {
         setUploadedCount((currentCount) => currentCount + fallbackSummary.uploadedCount);
         setUploadedSizeBytes(
@@ -384,13 +396,14 @@ export function PlansStep({
                 </div>
               )}
 
-              {!permanentlyDismissed && planSet ? (
+              {!permanentlyDismissed && planSet && launchRecommendation ? (
                 <TakeoffLaunchPrompt
                   projectId={projectId}
                   versionId={versionId}
                   versionLabel="Brouillon en cours"
                   planSetId={planSet.id}
                   planFileCount={uploadedCount + (initialCountsRef.current?.fileCount ?? 0)}
+                  launchRecommendation={launchRecommendation}
                   compact
                   onDismissTemporary={handleFinish}
                   onDismissPermanent={() => {

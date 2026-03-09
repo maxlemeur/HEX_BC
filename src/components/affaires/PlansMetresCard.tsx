@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeProps } from "@/components/ui/Badge";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
+import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 import type { TakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 
 /* ------------------------------------------------------------------ */
@@ -16,6 +17,7 @@ export type AffaireHubPlansSummaryData = {
   planFileCount: number;
   totalSizeBytes: number;
   defaultPlanSetId: string | null;
+  launchRecommendation?: TakeoffDocumentRecommendation | null;
   latestJob: {
     jobId: string;
     status: TakeoffVisibleJobStatus;

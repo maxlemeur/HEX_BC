@@ -1,10 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useToast } from "@/components/ui/Toast";
 import { launchTakeoffFromPlanSet } from "@/app/dashboard/affaires/_actions/takeoff";
+import {
+  TAKEOFF_LEVEL_BUSINESS_LABELS,
+  getTakeoffSelectionWarning,
+  isTakeoffLevelCompatible,
+  type TakeoffDocumentRecommendation,
+} from "@/lib/takeoff/document-classifier";
 
 /* ------------------------------------------------------------------ */
 /*  Visibility logic (pure, testable)                                  */
@@ -37,6 +43,7 @@ type TakeoffLaunchPromptProps = {
   versionLabel?: string;
   planSetId: string;
   planFileCount: number;
+  launchRecommendation: TakeoffDocumentRecommendation;
   onLaunched?: (jobId: string) => void;
   onDismissTemporary?: () => void;
   onDismissPermanent?: () => void;
@@ -55,6 +62,7 @@ export function TakeoffLaunchPrompt({
   versionLabel,
   planSetId,
   planFileCount,
+  launchRecommendation,
   onLaunched,
   onDismissTemporary,
   onDismissPermanent,
@@ -64,12 +72,40 @@ export function TakeoffLaunchPrompt({
   const [state, setState] = useState<PromptState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdJobId, setCreatedJobId] = useState<string | null>(null);
+  const [selectedLevel, setSelectedLevel] = useState<
+    "B" | "C" | null
+  >(
+    launchRecommendation.recommendedLevel === "B" ||
+      launchRecommendation.recommendedLevel === "C"
+      ? launchRecommendation.recommendedLevel
+      : null
+  );
   const resolvedVersionLabel =
     typeof versionLabel === "string" && versionLabel.trim().length > 0
       ? versionLabel.trim()
       : "Brouillon en cours";
+  const levelWarning = getTakeoffSelectionWarning({
+    recommendation: launchRecommendation,
+    selectedLevel,
+  });
+
+  useEffect(() => {
+    if (
+      launchRecommendation.recommendedLevel === "B" ||
+      launchRecommendation.recommendedLevel === "C"
+    ) {
+      setSelectedLevel(launchRecommendation.recommendedLevel);
+      return;
+    }
+
+    setSelectedLevel(null);
+  }, [launchRecommendation]);
 
   const handleLaunch = useCallback(async () => {
+    if (!selectedLevel || !isTakeoffLevelCompatible(launchRecommendation, selectedLevel)) {
+      return;
+    }
+
     setState("launching");
     setErrorMessage(null);
 
@@ -78,6 +114,7 @@ export function TakeoffLaunchPrompt({
         projectId,
         planSetId,
         versionId,
+        level: selectedLevel,
       });
 
       setCreatedJobId(result.jobId);
@@ -93,7 +130,17 @@ export function TakeoffLaunchPrompt({
         err instanceof Error ? err.message : "Impossible de lancer l'analyse.",
       );
     }
-  }, [projectId, planFileCount, planSetId, resolvedVersionLabel, versionId, toast, onLaunched]);
+  }, [
+    launchRecommendation,
+    onLaunched,
+    planFileCount,
+    planSetId,
+    projectId,
+    resolvedVersionLabel,
+    selectedLevel,
+    toast,
+    versionId,
+  ]);
 
   const handleRetry = useCallback(() => {
     void handleLaunch();
@@ -217,8 +264,13 @@ export function TakeoffLaunchPrompt({
             <p className="text-xs text-[var(--slate-600)]">
               Niveau recommande :{" "}
               <span className="inline-flex items-center rounded-full bg-[var(--brand-blue)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--brand-blue)]">
-                Rapide
+                {launchRecommendation.recommendedLevel
+                  ? TAKEOFF_LEVEL_BUSINESS_LABELS[launchRecommendation.recommendedLevel]
+                  : "Choix manuel"}
               </span>
+            </p>
+            <p className="text-xs text-[var(--slate-500)]">
+              Document detecte : {launchRecommendation.documentClass.replaceAll("_", " ")}
             </p>
             <p className="text-xs text-[var(--slate-600)]">
               Version cible :{" "}
@@ -231,6 +283,47 @@ export function TakeoffLaunchPrompt({
               {planFileCount} plan{planFileCount > 1 ? "s" : ""} pour alimenter
               le chiffrage.
             </p>
+            <fieldset className="pt-1">
+              <legend className="text-xs font-medium text-[var(--slate-600)]">
+                Niveau a lancer
+              </legend>
+              <div className="mt-2 flex flex-wrap gap-2" role="radiogroup">
+                {launchRecommendation.compatibleLevels
+                  .filter(
+                    (level): level is "B" | "C" => level === "B" || level === "C"
+                  )
+                  .map((level) => (
+                    <label
+                      key={level}
+                      className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
+                        selectedLevel === level
+                          ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]"
+                          : "border-[var(--slate-200)] bg-white text-[var(--slate-700)]"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name={`takeoff-prompt-level-${planSetId}`}
+                        checked={selectedLevel === level}
+                        onChange={() => setSelectedLevel(level)}
+                      />
+                      {TAKEOFF_LEVEL_BUSINESS_LABELS[level]}
+                    </label>
+                  ))}
+              </div>
+            </fieldset>
+            {levelWarning ? (
+              <div
+                className={`rounded border px-3 py-2 text-xs ${
+                  levelWarning.severity === "critical"
+                    ? "border-[var(--warning)]/30 bg-[var(--warning)]/10 text-[var(--warning)]"
+                    : "border-[var(--brand-blue)]/15 bg-white/80 text-[var(--slate-700)]"
+                }`}
+                role={levelWarning.severity === "critical" ? "alert" : "status"}
+              >
+                {levelWarning.message}
+              </div>
+            ) : null}
           </div>
 
           {/* Actions */}
@@ -239,6 +332,7 @@ export function TakeoffLaunchPrompt({
               type="button"
               className="btn btn-primary text-xs"
               onClick={() => void handleLaunch()}
+              disabled={!selectedLevel}
             >
               Lancer maintenant
             </button>

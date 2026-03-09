@@ -1,17 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { TakeoffUploadForm } from "@/components/takeoff/TakeoffUploadForm";
+import type { TakeoffLevel } from "@/lib/takeoff/client";
+import {
+  TAKEOFF_LEVEL_BUSINESS_LABELS,
+  getTakeoffSelectionWarning,
+  type TakeoffDocumentRecommendation,
+} from "@/lib/takeoff/document-classifier";
 
 const ANALYSIS_LEVELS = [
-  { id: "rapide", label: "Rapide", description: "Scan rapide des quantites principales", enabled: true },
-  { id: "standard", label: "Standard", description: "Analyse standard avec recoupements", enabled: false },
-  { id: "detaille", label: "Detaille", description: "Analyse approfondie poste par poste", enabled: false },
+  { level: "B" as const, label: "Standard", description: "Analyse standard avec recoupements" },
+  { level: "C" as const, label: "Detaille", description: "Analyse approfondie poste par poste" },
 ] as const;
 
 type LaunchMetreDialogProps = {
@@ -47,9 +52,21 @@ function LaunchMetreDialogContent({
   const toast = useToast();
   const [isUploading, setIsUploading] = useState(false);
   const [launchSuccess, setLaunchSuccess] = useState(false);
+  const [selectedLevel, setSelectedLevel] = useState<TakeoffLevel>("B");
+  const [classification, setClassification] =
+    useState<TakeoffDocumentRecommendation | null>(null);
+  const [manuallySelectedLevel, setManuallySelectedLevel] = useState(false);
   const focusStayButton = useCallback((button: HTMLButtonElement | null) => {
     button?.focus();
   }, []);
+  const selectionWarning = useMemo(
+    () =>
+      getTakeoffSelectionWarning({
+        recommendation: classification,
+        selectedLevel,
+      }),
+    [classification, selectedLevel]
+  );
 
   const handleSuccess = useCallback(() => {
     setIsUploading(false);
@@ -189,32 +206,28 @@ function LaunchMetreDialogContent({
                 <div className="space-y-2" role="radiogroup">
                   {ANALYSIS_LEVELS.map((level) => (
                     <label
-                      key={level.id}
+                      key={level.level}
                       aria-label={level.label}
                       className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${
-                        level.enabled
+                        selectedLevel === level.level
                           ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 cursor-pointer"
-                          : "border-[var(--slate-200)] cursor-not-allowed"
+                          : "border-[var(--slate-200)] bg-white cursor-pointer"
                       }`}
                     >
                       <input
                         type="radio"
                         name="analysis-level"
-                        value={level.id}
-                        checked={level.enabled}
-                        disabled={!level.enabled}
-                        aria-disabled={!level.enabled}
-                        readOnly={level.enabled}
+                        value={level.level}
+                        checked={selectedLevel === level.level}
+                        onChange={() => {
+                          setManuallySelectedLevel(true);
+                          setSelectedLevel(level.level);
+                        }}
                         className="mt-0.5"
                       />
                       <div>
                         <span className="text-sm font-medium text-[var(--slate-800)]">
                           {level.label}
-                          {!level.enabled && (
-                            <span className="ml-1.5 text-xs font-normal text-[var(--slate-400)]">
-                              (bientot)
-                            </span>
-                          )}
                         </span>
                         <p className="text-xs text-[var(--slate-500)]">
                           {level.description}
@@ -223,15 +236,54 @@ function LaunchMetreDialogContent({
                     </label>
                   ))}
                 </div>
+                {classification ? (
+                  <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-3 py-2">
+                    <p className="text-xs text-[var(--slate-700)]">
+                      Niveau recommande :{" "}
+                      {classification.recommendedLevel ? (
+                        <span className="font-semibold text-[var(--brand-blue)]">
+                          {TAKEOFF_LEVEL_BUSINESS_LABELS[classification.recommendedLevel]}
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-[var(--warning)]">
+                          Choix manuel requis
+                        </span>
+                      )}
+                    </p>
+                    {selectionWarning ? (
+                      <p
+                        className={`mt-1 text-xs ${
+                          selectionWarning.severity === "critical"
+                            ? "text-[var(--warning)]"
+                            : "text-[var(--slate-600)]"
+                        }`}
+                      >
+                        {selectionWarning.message}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </fieldset>
 
               {/* Upload form / fallback */}
               {draftVersionId ? (
                 <TakeoffUploadForm
                   versionId={draftVersionId}
+                  level={selectedLevel}
+                  allowedLevels={["B", "C"]}
                   compact
                   onSubmittingChange={setIsUploading}
                   onSuccess={handleSuccess}
+                  onClassificationChange={(nextClassification) => {
+                    setClassification(nextClassification);
+                    if (
+                      !manuallySelectedLevel &&
+                      (nextClassification?.recommendedLevel === "B" ||
+                        nextClassification?.recommendedLevel === "C")
+                    ) {
+                      setSelectedLevel(nextClassification.recommendedLevel);
+                    }
+                  }}
                 />
               ) : hasAnyVersion ? (
                 <div className="py-4 text-center">

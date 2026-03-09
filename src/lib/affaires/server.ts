@@ -11,6 +11,10 @@ import {
   listEstimateProjectVersions,
   type ListEstimateProjectVersionsResult,
 } from "@/lib/estimates/server";
+import {
+  classifyTakeoffPlanSetSource,
+  type TakeoffDocumentRecommendation,
+} from "@/lib/takeoff/document-classifier";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
 import {
   getTakeoffFailureReasonLabel,
@@ -155,6 +159,7 @@ export type AffaireHubPlansSummaryResult = {
   planFileCount: number;
   totalSizeBytes: number;
   defaultPlanSetId: string | null;
+  launchRecommendation?: TakeoffDocumentRecommendation | null;
   latestJob: {
     jobId: string;
     status: TakeoffVisibleJobStatus;
@@ -725,6 +730,40 @@ async function fetchAffaireHubPlansSummaryWithContext(
   let coveragePercent: number | null = null;
   let exceptionCount: number | null = null;
   let failureReasonLabel: string | null = null;
+  let launchRecommendation: TakeoffDocumentRecommendation | null = null;
+
+  if (defaultPlanSetId) {
+    const { data: defaultPlanFilesData, error: defaultPlanFilesError } =
+      await context.supabase
+        .from("plan_files" as never)
+        .select("file_name, file_type, page_count" as never)
+        .eq("tenant_id" as never, context.tenantId as never)
+        .eq("plan_set_id" as never, defaultPlanSetId as never)
+        .order("created_at" as never, { ascending: true });
+
+    if (defaultPlanFilesError) {
+      throw mapSupabaseError(
+        defaultPlanFilesError,
+        "Impossible de charger les fichiers du jeu de plans recommande."
+      );
+    }
+
+    const defaultPlanFiles = (defaultPlanFilesData ?? []) as Array<{
+      file_name?: string | null;
+      file_type?: string | null;
+      page_count?: number | null;
+    }>;
+
+    launchRecommendation = classifyTakeoffPlanSetSource({
+      files: defaultPlanFiles.map((file) => ({
+        file_name: file.file_name ?? "plan.pdf",
+        file_type: file.file_type ?? "application/pdf",
+        page_count:
+          typeof file.page_count === "number" ? file.page_count : null,
+      })),
+    });
+  }
+
   if (latestJobRow) {
     const isCompletedOrApplied =
       latestJobRow.status === "completed" || latestJobRow.status === "applied";
@@ -813,6 +852,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
     planFileCount,
     totalSizeBytes,
     defaultPlanSetId,
+    ...(launchRecommendation ? { launchRecommendation } : {}),
     latestJob,
     coveragePercent,
     exceptionCount,

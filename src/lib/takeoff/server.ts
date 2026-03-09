@@ -38,6 +38,10 @@ import {
   logTakeoffAuditEvent,
   takeoffAuditMetadataBuilders,
 } from "@/lib/takeoff/audit";
+import {
+  classifyTakeoffPlanSetSource,
+  classifyTakeoffUploadSource,
+} from "@/lib/takeoff/document-classifier";
 import { validateFileForUpload } from "@/lib/file-validation";
 import {
   assertTakeoffEnabled,
@@ -1209,7 +1213,7 @@ async function resolvePlanSetSourceFile(input: {
 }) {
   const { data, error } = await input.supabase
     .from("plan_files" as never)
-    .select("file_path, file_name, file_type, file_size_bytes" as never)
+    .select("file_path, file_name, file_type, file_size_bytes, page_count" as never)
     .eq("tenant_id" as never, input.tenantId as never)
     .eq("plan_set_id" as never, input.planSetId as never)
     .order("created_at" as never, { ascending: true });
@@ -1223,6 +1227,7 @@ async function resolvePlanSetSourceFile(input: {
     file_name?: string | null;
     file_type?: string | null;
     file_size_bytes?: number | null;
+    page_count?: number | null;
   }>;
 
   if (planFiles.length === 0) {
@@ -1268,6 +1273,7 @@ async function resolvePlanSetSourceFile(input: {
     sourceFilePath,
     sourceFileType,
     sourceFileSizeBytes,
+    planFiles,
   };
 }
 
@@ -1371,7 +1377,7 @@ function assertTakeoffFileIsValid(file: File, level: TakeoffLevel) {
   const validation = validateFileForUpload(file, {
     allowedExtensions: validationConfig.allowedExtensions,
     allowedMimeTypes: validationConfig.allowedMimeTypes,
-    allowEmptyMimeType: false,
+    allowEmptyMimeType: true,
   });
 
   if (validation.valid) return;
@@ -7508,6 +7514,11 @@ export async function createTakeoffJobFromFormData(
     );
 
     const sourceFileName = file.name.trim().length > 0 ? file.name : "upload";
+    const uploadClassification = classifyTakeoffUploadSource({
+      fileName: sourceFileName,
+      mimeType: file.type,
+      sizeBytes: file.size,
+    });
     const sourceFilePath = `${tenantId}/${jobId}/${payloadFingerprint}-${sanitizeFilename(
       sourceFileName
     )}`;
@@ -7643,6 +7654,14 @@ export async function createTakeoffJobFromFormData(
           estimate_version_id: createdJob.estimate_version_id,
           source_file_name: createdJob.source_file_name,
           idempotency_key: idempotencyKey,
+          classification: uploadClassification,
+          selection: {
+            selected_level: level,
+            override_applied:
+              uploadClassification.recommendedLevel === null ||
+              uploadClassification.recommendedLevel !== level,
+            source_kind: "upload",
+          },
         });
 
       await logTakeoffAuditEvent({
@@ -7741,6 +7760,14 @@ export async function createTakeoffJobFromPlanSet(input: {
     planSetId: input.planSetId,
     jobId,
   });
+  const planSetClassification = classifyTakeoffPlanSetSource({
+    files: sourceFile.planFiles.map((planFile) => ({
+      file_name: planFile.file_name ?? `plan-set-${input.planSetId}.pdf`,
+      file_type: planFile.file_type ?? "application/pdf",
+      page_count:
+        typeof planFile.page_count === "number" ? planFile.page_count : null,
+    })),
+  });
 
   const { data: insertedJob, error: insertError } = await supabase
     .from("takeoff_jobs" as never)
@@ -7786,6 +7813,14 @@ export async function createTakeoffJobFromPlanSet(input: {
         estimate_version_id: createdJob.estimate_version_id,
         source_file_name: createdJob.source_file_name,
         plan_set_id: input.planSetId,
+        classification: planSetClassification,
+        selection: {
+          selected_level: level,
+          override_applied:
+            planSetClassification.recommendedLevel === null ||
+            planSetClassification.recommendedLevel !== level,
+          source_kind: "plan_set",
+        },
       });
 
     await logTakeoffAuditEvent({

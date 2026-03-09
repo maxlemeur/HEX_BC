@@ -903,6 +903,18 @@ describe("affaires hub server", () => {
               error: null,
             },
           },
+          {
+            limit: {
+              data: [
+                {
+                  file_name: "lot-cvc-dpgf.pdf",
+                  file_type: "application/pdf",
+                  page_count: 2,
+                },
+              ],
+              error: null,
+            },
+          },
         ],
       },
     });
@@ -912,6 +924,11 @@ describe("affaires hub server", () => {
     const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
 
     expect(summary.defaultPlanSetId).toBe("set-current-default");
+    expect(summary.launchRecommendation).toMatchObject({
+      documentClass: "tabular_pdf",
+      recommendedLevel: "B",
+      compatibleLevels: ["B", "C"],
+    });
   });
 
   it("returns empty plans summary when no plan set or job exists", async () => {

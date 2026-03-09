@@ -23,6 +23,7 @@ vi.mock("@/components/ui/Toast", () => ({
 vi.mock("@/components/takeoff/TakeoffUploadForm", () => ({
   TakeoffUploadForm: (props: Record<string, unknown>) => {
     const versionId = typeof props.versionId === "string" ? props.versionId : "";
+    const level = typeof props.level === "string" ? props.level : "";
     const onSubmittingChange =
       typeof props.onSubmittingChange === "function"
         ? (props.onSubmittingChange as (isSubmitting: boolean) => void)
@@ -31,7 +32,11 @@ vi.mock("@/components/takeoff/TakeoffUploadForm", () => ({
       typeof props.onSuccess === "function" ? (props.onSuccess as () => void) : null;
 
     return (
-      <div data-testid="takeoff-upload-form" data-version-id={versionId}>
+      <div
+        data-testid="takeoff-upload-form"
+        data-version-id={versionId}
+        data-level={level}
+      >
         <button type="button" onClick={() => onSubmittingChange?.(true)}>
           Start Upload
         </button>
@@ -77,6 +82,10 @@ describe("LaunchMetreDialog", () => {
     expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
       "data-version-id",
       "draft-v1"
+    );
+    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
+      "data-level",
+      "B"
     );
   });
 
@@ -233,28 +242,25 @@ describe("LaunchMetreDialog", () => {
   it("renders business-friendly analysis level labels", () => {
     render(<LaunchMetreDialog {...defaultProps} />);
 
-    expect(screen.getByText("Rapide")).toBeInTheDocument();
     expect(screen.getByText("Standard")).toBeInTheDocument();
     expect(screen.getByText("Detaille")).toBeInTheDocument();
   });
 
-  it("has Standard and Detaille levels disabled", () => {
+  it("allows selecting Standard and Detaille levels", async () => {
+    const user = userEvent.setup();
+
     render(<LaunchMetreDialog {...defaultProps} />);
 
     const radios = screen.getAllByRole("radio");
-    // Rapide is checked and enabled
     expect(radios[0]).toBeChecked();
     expect(radios[0]).not.toBeDisabled();
-    // Standard and Detaille are disabled
-    expect(radios[1]).toBeDisabled();
-    expect(radios[2]).toBeDisabled();
-  });
+    expect(radios[1]).not.toBeDisabled();
 
-  it("shows '(bientot)' text on disabled analysis levels", () => {
-    render(<LaunchMetreDialog {...defaultProps} />);
-
-    const bientotLabels = screen.getAllByText("(bientot)");
-    expect(bientotLabels).toHaveLength(2);
+    await user.click(radios[1]);
+    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
+      "data-level",
+      "C"
+    );
   });
 
   it("displays plan summary info when provided", () => {

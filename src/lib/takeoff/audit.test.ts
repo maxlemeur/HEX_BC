@@ -5,6 +5,7 @@ import {
   logTakeoffAuditEvent,
   takeoffAuditMetadataBuilders,
 } from "@/lib/takeoff/audit";
+import { classifyTakeoffUploadSource } from "@/lib/takeoff/document-classifier";
 import { TakeoffErrorCode } from "@/lib/takeoff/errors";
 
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -85,6 +86,50 @@ describe("takeoff audit helpers", () => {
       source_file_name: "niveau-a.csv",
       idempotency_key: null,
       plan_set_id: null,
+      classification: null,
+      selection: null,
+    });
+  });
+
+  it("normalizes classification and selection for takeoff.job.created", () => {
+    const classification = classifyTakeoffUploadSource({
+      fileName: "lot-cvc-dpgf.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2_048,
+    });
+
+    const metadata = takeoffAuditMetadataBuilders["takeoff.job.created"]({
+      level: "C",
+      estimate_version_id: ESTIMATE_VERSION_ID,
+      source_file_name: " lot-cvc-dpgf.pdf ",
+      plan_set_id: JOB_ID,
+      classification,
+      selection: {
+        selected_level: "C",
+        override_applied: true,
+        source_kind: "plan_set",
+      },
+    });
+
+    expect(metadata).toMatchObject({
+      level: "C",
+      plan_set_id: JOB_ID,
+      classification: {
+        document_class: "tabular_pdf",
+        recommended_level: "B",
+        compatible_levels: ["B", "C"],
+        recommendation_strength: "high",
+        signals: {
+          mime_type: "application/pdf",
+          extension: "pdf",
+          file_count: 1,
+        },
+      },
+      selection: {
+        selected_level: "C",
+        override_applied: true,
+        source_kind: "plan_set",
+      },
     });
   });
 

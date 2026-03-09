@@ -1167,7 +1167,10 @@ export function AffaireHub({
             </div>
           )}
 
-          {showTakeoffPrompt && draftVersionId && plansSummary?.defaultPlanSetId && (
+          {showTakeoffPrompt &&
+            draftVersionId &&
+            plansSummary?.defaultPlanSetId &&
+            plansSummary.launchRecommendation && (
             <div className="mb-4 animate-fade-in">
               <TakeoffLaunchPrompt
                 projectId={summary.project.id}
@@ -1175,6 +1178,7 @@ export function AffaireHub({
                 versionLabel={`V${summary.currentVersion!.versionNumber} (brouillon)`}
                 planSetId={plansSummary.defaultPlanSetId}
                 planFileCount={plansSummary.planFileCount}
+                launchRecommendation={plansSummary.launchRecommendation}
                 onLaunched={() => router.refresh()}
                 onDismissTemporary={() => setPromptTemporarilyDismissed(true)}
                 onDismissPermanent={dismissPromptPermanently}

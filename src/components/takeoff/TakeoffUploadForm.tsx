@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -8,23 +8,98 @@ import {
   validateFileForUpload,
 } from "@/lib/file-validation";
 import {
+  TAKEOFF_LEVEL_BUSINESS_LABELS,
+  classifyTakeoffUploadSource,
+  getTakeoffSelectionWarning,
+  isTakeoffLevelCompatible,
+  type TakeoffDocumentRecommendation,
+} from "@/lib/takeoff/document-classifier";
+import {
   createTakeoffJob,
   isTakeoffApiError,
+  type TakeoffLevel,
 } from "@/lib/takeoff/client";
 
-const TAKEOFF_ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
-const TAKEOFF_ALLOWED_MIME_TYPES = [
+const TAKEOFF_LEVEL_OPTIONS = [
+  {
+    level: "A" as const,
+    label: "Niveau A",
+    description: "Import de metrage structure",
+  },
+  {
+    level: "B" as const,
+    label: "Niveau B",
+    description: "Extraction de tableaux PDF",
+  },
+  {
+    level: "C" as const,
+    label: "Niveau C",
+    description: "Pre-estimation sur plans PDF",
+  },
+];
+
+const TAKEOFF_UPLOAD_RULES: Record<
+  TakeoffLevel,
+  {
+    allowedExtensions: string[];
+    allowedMimeTypes: string[];
+    accept: string;
+    helperLabel: string;
+    intro: string;
+  }
+> = {
+  A: {
+    allowedExtensions: ["csv", "xlsx", "xls"],
+    allowedMimeTypes: [
+      "text/csv",
+      "application/csv",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ],
+    accept: [
+      ".csv",
+      ".xlsx",
+      ".xls",
+      "text/csv",
+      "application/csv",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ].join(","),
+    helperLabel: `Formats supportes: CSV, XLSX, XLS - Max ${MAX_FILE_SIZE_LABEL}`,
+    intro: "Importez un fichier metrage structure pour lancer une extraction Niveau A.",
+  },
+  B: {
+    allowedExtensions: ["pdf"],
+    allowedMimeTypes: ["application/pdf"],
+    accept: [".pdf", "application/pdf"].join(","),
+    helperLabel: `Formats supportes: PDF - Max ${MAX_FILE_SIZE_LABEL}`,
+    intro: "Importez un PDF pour extraire automatiquement les tableaux et quantites.",
+  },
+  C: {
+    allowedExtensions: ["pdf"],
+    allowedMimeTypes: ["application/pdf"],
+    accept: [".pdf", "application/pdf"].join(","),
+    helperLabel: `Formats supportes: PDF - Max ${MAX_FILE_SIZE_LABEL}`,
+    intro: "Importez un plan PDF pour generer une premiere pre-estimation exploitable.",
+  },
+};
+
+const TAKEOFF_ALL_LEVELS: TakeoffLevel[] = ["A", "B", "C"];
+const TAKEOFF_SUPPORTED_EXTENSIONS = ["csv", "xlsx", "xls", "pdf"];
+const TAKEOFF_SUPPORTED_MIME_TYPES = [
   "text/csv",
   "application/csv",
+  "application/pdf",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
-const TAKEOFF_ACCEPT_ATTRIBUTE = [
-  ".csv",
-  ".xlsx",
-  ".xls",
-  ...TAKEOFF_ALLOWED_MIME_TYPES,
-].join(",");
+
+const TAKEOFF_DOCUMENT_CLASS_LABELS: Record<string, string> = {
+  structured: "Metrage structure",
+  tabular_pdf: "PDF tabulaire",
+  complex_plan: "Plan complexe",
+  unsupported: "Document non reconnu",
+};
 
 type SubmitState = "idle" | "loading" | "success" | "error";
 
@@ -32,8 +107,13 @@ type TakeoffJobCreateResponse = Awaited<ReturnType<typeof createTakeoffJob>>;
 
 type TakeoffUploadFormProps = {
   versionId: string;
+  level?: TakeoffLevel;
+  allowedLevels?: TakeoffLevel[];
   onSuccess?: (job: TakeoffJobCreateResponse) => void;
   onSubmittingChange?: (isSubmitting: boolean) => void;
+  onClassificationChange?: (
+    classification: TakeoffDocumentRecommendation | null
+  ) => void;
   compact?: boolean;
 };
 
@@ -82,15 +162,55 @@ function resolveApiErrorMessage(error: unknown) {
   return error.message || "Impossible de lancer l'extraction.";
 }
 
-function validateTakeoffFile(file: File | null): string | null {
+function resolveAllowedLevelOptions(allowedLevels: TakeoffLevel[]) {
+  const normalizedAllowedLevels =
+    allowedLevels.length > 0 ? allowedLevels : TAKEOFF_ALL_LEVELS;
+
+  if (normalizedAllowedLevels.length === 1 && normalizedAllowedLevels[0] === "A") {
+    return TAKEOFF_UPLOAD_RULES.A;
+  }
+
+  const supportsStructured = normalizedAllowedLevels.includes("A");
+  const supportsPdf =
+    normalizedAllowedLevels.includes("B") || normalizedAllowedLevels.includes("C");
+
+  if (supportsStructured && supportsPdf) {
+    return {
+      allowedExtensions: TAKEOFF_SUPPORTED_EXTENSIONS,
+      allowedMimeTypes: TAKEOFF_SUPPORTED_MIME_TYPES,
+      accept: [
+        ".csv",
+        ".xlsx",
+        ".xls",
+        ".pdf",
+        "text/csv",
+        "application/csv",
+        "application/pdf",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ].join(","),
+      helperLabel: `Formats supportes: CSV, XLSX, XLS, PDF - Max ${MAX_FILE_SIZE_LABEL}`,
+      intro:
+        "Importez un metrage structure ou un PDF pour obtenir une recommandation de niveau avant lancement.",
+    };
+  }
+
+  return TAKEOFF_UPLOAD_RULES.B;
+}
+
+function validateTakeoffFileSupport(
+  file: File | null,
+  allowedLevels: TakeoffLevel[]
+): string | null {
   if (!file) {
     return "Aucun fichier selectionne.";
   }
 
+  const uploadRules = resolveAllowedLevelOptions(allowedLevels);
   const validation = validateFileForUpload(file, {
-    allowedExtensions: TAKEOFF_ALLOWED_EXTENSIONS,
-    allowedMimeTypes: TAKEOFF_ALLOWED_MIME_TYPES,
-    allowEmptyMimeType: false,
+    allowedExtensions: uploadRules.allowedExtensions,
+    allowedMimeTypes: uploadRules.allowedMimeTypes,
+    allowEmptyMimeType: true,
   });
 
   if (validation.valid) {
@@ -100,29 +220,97 @@ function validateTakeoffFile(file: File | null): string | null {
   return validation.error;
 }
 
+function resolvePreferredLevel(input: {
+  recommendation: TakeoffDocumentRecommendation | null;
+  allowedLevels: TakeoffLevel[];
+  currentLevel: TakeoffLevel;
+  preserveManualSelection: boolean;
+}): TakeoffLevel {
+  const allowedLevels = input.allowedLevels.length > 0 ? input.allowedLevels : TAKEOFF_ALL_LEVELS;
+  const compatibleLevels =
+    input.recommendation?.compatibleLevels.filter((level) =>
+      allowedLevels.includes(level)
+    ) ?? allowedLevels;
+  const recommendedLevel = input.recommendation?.recommendedLevel;
+
+  if (!compatibleLevels.includes(input.currentLevel)) {
+    if (recommendedLevel && compatibleLevels.includes(recommendedLevel)) {
+      return recommendedLevel;
+    }
+
+    return compatibleLevels[0] ?? allowedLevels[0] ?? "A";
+  }
+
+  if (!input.preserveManualSelection && recommendedLevel && compatibleLevels.includes(recommendedLevel)) {
+    return recommendedLevel;
+  }
+
+  return input.currentLevel;
+}
+
 export function TakeoffUploadForm({
   versionId,
+  level,
+  allowedLevels,
   onSuccess,
   onSubmittingChange,
+  onClassificationChange,
   compact,
 }: TakeoffUploadFormProps) {
   const router = useRouter();
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const isSubmittingRef = useRef(false);
+  const normalizedAllowedLevels =
+    allowedLevels && allowedLevels.length > 0 ? allowedLevels : TAKEOFF_ALL_LEVELS;
+  const initialLevel =
+    level && normalizedAllowedLevels.includes(level)
+      ? level
+      : normalizedAllowedLevels[0] ?? "A";
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFileFingerprint, setSelectedFileFingerprint] = useState("");
   const [stableIdempotencyKey, setStableIdempotencyKey] = useState<string | null>(
     null
   );
+  const [selectedLevel, setSelectedLevel] = useState<TakeoffLevel>(initialLevel);
+  const [manuallySelectedLevel, setManuallySelectedLevel] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
-
-  const canSubmit = submitState !== "loading" && selectedFile !== null;
+  const uploadRules = resolveAllowedLevelOptions(normalizedAllowedLevels);
+  const recommendation = useMemo(
+    () =>
+      selectedFile
+        ? classifyTakeoffUploadSource({
+            fileName: selectedFile.name,
+            mimeType: selectedFile.type,
+            sizeBytes: selectedFile.size,
+          })
+        : null,
+    [selectedFile]
+  );
+  const compatibleLevels = useMemo(
+    () =>
+      recommendation?.compatibleLevels.filter((optionLevel) =>
+        normalizedAllowedLevels.includes(optionLevel)
+      ) ?? normalizedAllowedLevels,
+    [normalizedAllowedLevels, recommendation]
+  );
+  const selectionWarning = useMemo(
+    () =>
+      getTakeoffSelectionWarning({
+        recommendation,
+        selectedLevel,
+      }),
+    [recommendation, selectedLevel]
+  );
+  const canSubmit =
+    submitState !== "loading" &&
+    selectedFile !== null &&
+    isTakeoffLevelCompatible(recommendation, selectedLevel);
 
   const buttonLabel = (() => {
     if (submitState === "loading") {
@@ -158,6 +346,38 @@ export function TakeoffUploadForm({
     };
   }, [notifySubmittingChange]);
 
+  useEffect(() => {
+    if (!level || !normalizedAllowedLevels.includes(level)) return;
+    setSelectedLevel(level);
+  }, [level, normalizedAllowedLevels]);
+
+  useEffect(() => {
+    onClassificationChange?.(recommendation);
+  }, [onClassificationChange, recommendation]);
+
+  useEffect(() => {
+    if (!recommendation) {
+      return;
+    }
+
+    const nextLevel = resolvePreferredLevel({
+      recommendation,
+      allowedLevels: normalizedAllowedLevels,
+      currentLevel: selectedLevel,
+      preserveManualSelection: Boolean(level) || manuallySelectedLevel,
+    });
+
+    if (nextLevel !== selectedLevel) {
+      setSelectedLevel(nextLevel);
+    }
+  }, [
+    level,
+    manuallySelectedLevel,
+    normalizedAllowedLevels,
+    recommendation,
+    selectedLevel,
+  ]);
+
   function resetTransientState() {
     setSubmitState("idle");
     setUploadProgress(0);
@@ -179,7 +399,10 @@ export function TakeoffUploadForm({
   function handleFileSelection(file: File | null) {
     resetTransientState();
 
-    const validationMessage = validateTakeoffFile(file);
+    const validationMessage = validateTakeoffFileSupport(
+      file,
+      normalizedAllowedLevels
+    );
     if (validationMessage) {
       setSelectedFile(null);
       setSelectedFileFingerprint("");
@@ -208,6 +431,17 @@ export function TakeoffUploadForm({
     setAnnouncement(file ? `Fichier ${file.name} selectionne.` : "");
   }
 
+  function handleLevelChange(nextLevel: TakeoffLevel) {
+    if (submitState === "loading" || nextLevel === selectedLevel) {
+      return;
+    }
+
+    setManuallySelectedLevel(true);
+    setSelectedLevel(nextLevel);
+    resetTransientState();
+    setAnnouncement(`Niveau ${nextLevel} selectionne.`);
+  }
+
   function openFilePicker() {
     if (submitState === "loading") return;
     fileInputRef.current?.click();
@@ -216,12 +450,26 @@ export function TakeoffUploadForm({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const validationMessage = validateTakeoffFile(selectedFile);
+    const validationMessage = validateTakeoffFileSupport(
+      selectedFile,
+      normalizedAllowedLevels
+    );
     if (validationMessage) {
       notifySubmittingChange(false);
       setSubmitState("error");
       setErrorMessage(validationMessage);
       setAnnouncement(validationMessage);
+      return;
+    }
+
+    if (!isTakeoffLevelCompatible(recommendation, selectedLevel)) {
+      const message =
+        selectionWarning?.message ??
+        "Le niveau choisi n'est pas compatible avec le document detecte.";
+      notifySubmittingChange(false);
+      setSubmitState("error");
+      setErrorMessage(message);
+      setAnnouncement(message);
       return;
     }
 
@@ -248,7 +496,7 @@ export function TakeoffUploadForm({
     try {
       const job = await createTakeoffJob({
         estimateVersionId: versionId,
-        level: "A",
+        level: selectedLevel,
         file: selectedFile,
         idempotencyKey,
         onUploadProgress: (progress) => setUploadProgress(progress),
@@ -283,7 +531,7 @@ export function TakeoffUploadForm({
             Nouvelle extraction
           </h2>
           <p className="mt-1 text-sm text-[var(--slate-500)]">
-            Importez un fichier metrage pour lancer une extraction Niveau A.
+            {uploadRules.intro}
           </p>
         </div>
       )}
@@ -294,7 +542,7 @@ export function TakeoffUploadForm({
           ref={fileInputRef}
           type="file"
           className="sr-only"
-          accept={TAKEOFF_ACCEPT_ATTRIBUTE}
+          accept={uploadRules.accept}
           onChange={(event) => {
             handleFileSelection(event.target.files?.[0] ?? null);
             event.target.value = "";
@@ -305,7 +553,7 @@ export function TakeoffUploadForm({
 
         <div>
           <label htmlFor={fileInputId} className="form-label">
-            Fichier de plans
+            Fichier source
           </label>
           <div
             className={`rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
@@ -353,7 +601,7 @@ export function TakeoffUploadForm({
                 : "Glissez-deposez un fichier ou cliquez pour parcourir"}
             </p>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Formats supportes: CSV, XLSX, XLS - Max {MAX_FILE_SIZE_LABEL}
+              {uploadRules.helperLabel}
             </p>
           </div>
         </div>
@@ -386,28 +634,87 @@ export function TakeoffUploadForm({
           </div>
         ) : null}
 
+        {selectedFile && recommendation ? (
+          <div className="rounded-xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--slate-500)]">
+              Detection document
+            </p>
+            <p className="mt-1 text-sm font-semibold text-[var(--slate-800)]">
+              {TAKEOFF_DOCUMENT_CLASS_LABELS[recommendation.documentClass]}
+            </p>
+            <p className="mt-2 text-sm text-[var(--slate-700)]">
+              Niveau recommande :{" "}
+              {recommendation.recommendedLevel ? (
+                <span className="font-semibold text-[var(--brand-blue)]">
+                  {TAKEOFF_LEVEL_BUSINESS_LABELS[recommendation.recommendedLevel]}
+                </span>
+              ) : (
+                <span className="font-semibold text-[var(--warning)]">
+                  Choix manuel requis
+                </span>
+              )}
+            </p>
+            <p className="mt-1 text-xs text-[var(--slate-500)]">
+              Niveaux compatibles :{" "}
+              {compatibleLevels.map((levelOption) => TAKEOFF_LEVEL_BUSINESS_LABELS[levelOption]).join(", ")}
+            </p>
+            {selectionWarning ? (
+              <div
+                className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+                  selectionWarning.severity === "critical"
+                    ? "border-[var(--warning)]/30 bg-[var(--warning)]/10 text-[var(--warning)]"
+                    : "border-[var(--brand-blue)]/20 bg-white/70 text-[var(--slate-700)]"
+                }`}
+                role={selectionWarning.severity === "critical" ? "alert" : "status"}
+              >
+                {selectionWarning.message}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {!compact && (
           <fieldset>
             <legend className="form-label mb-2">Niveau d&apos;extraction</legend>
             <div className="grid gap-3 sm:grid-cols-3">
-              <label className="flex items-center gap-2 rounded-xl border border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 px-3 py-2">
-                <input type="radio" name="takeoff-level" checked readOnly />
-                <span className="text-sm font-medium text-[var(--slate-800)]">
-                  Niveau A
-                </span>
-              </label>
-              <label className="flex items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-100)] px-3 py-2 opacity-70">
-                <input type="radio" name="takeoff-level" disabled />
-                <span className="text-sm text-[var(--slate-600)]">
-                  Niveau B (bientot)
-                </span>
-              </label>
-              <label className="flex items-center gap-2 rounded-xl border border-[var(--slate-200)] bg-[var(--slate-100)] px-3 py-2 opacity-70">
-                <input type="radio" name="takeoff-level" disabled />
-                <span className="text-sm text-[var(--slate-600)]">
-                  Niveau C (bientot)
-                </span>
-              </label>
+              {TAKEOFF_LEVEL_OPTIONS.filter((option) =>
+                normalizedAllowedLevels.includes(option.level)
+              ).map((option) => {
+                const isSelected = selectedLevel === option.level;
+                const isCompatible = compatibleLevels.includes(option.level);
+                const isDisabled = submitState === "loading" || !isCompatible;
+
+                return (
+                  <label
+                    key={option.level}
+                    className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${
+                      isSelected
+                        ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"
+                        : "border-[var(--slate-200)] bg-white"
+                    } ${isDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                    aria-disabled={isDisabled}
+                  >
+                    <input
+                      type="radio"
+                      name="takeoff-level"
+                      checked={isSelected}
+                      disabled={isDisabled}
+                      onChange={() => handleLevelChange(option.level)}
+                    />
+                    <span className="text-sm text-[var(--slate-800)]">
+                      <span className="font-medium">{option.label}</span>
+                      <span className="ml-2 text-[var(--slate-500)]">
+                        {option.description}
+                      </span>
+                      {!isCompatible ? (
+                        <span className="ml-2 text-[var(--warning)]">
+                          indisponible pour ce document
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </fieldset>
         )}

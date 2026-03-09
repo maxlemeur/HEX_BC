@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { getAuthenticatedContext } from "@/lib/estimates/server";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
 import { TAKEOFF_LEVELS, type TakeoffLevel } from "@/lib/takeoff/types";
 import type { Database, Json } from "@/types/database";
 
@@ -42,6 +43,18 @@ const takeoffDpgfDecisionSchema = z.enum([
   "manual_fix",
   "out_of_scope",
 ]);
+const takeoffDocumentClassSchema = z.enum([
+  "structured",
+  "tabular_pdf",
+  "complex_plan",
+  "unsupported",
+]);
+const takeoffRecommendationStrengthSchema = z.enum(["high", "low"]);
+const takeoffRecommendationWarningCodeSchema = z.enum([
+  "ambiguous_pdf",
+  "unsupported_override",
+  "mixed_pdf_signals",
+]);
 
 const jsonSchema: z.ZodType<Json> = z.lazy(() =>
   z.union([
@@ -62,6 +75,37 @@ const takeoffAuditMetadataSchemas = {
       source_file_name: nullableNameSchema,
       idempotency_key: z.string().trim().min(1).max(255).nullable(),
       plan_set_id: z.string().uuid().nullable().optional(),
+      classification: z
+        .object({
+          document_class: takeoffDocumentClassSchema,
+          recommended_level: z.enum(TAKEOFF_LEVELS).nullable(),
+          compatible_levels: z.array(z.enum(TAKEOFF_LEVELS)).min(1),
+          recommendation_strength: takeoffRecommendationStrengthSchema,
+          warning_code: takeoffRecommendationWarningCodeSchema.nullable().default(null),
+          warning_message: nullableMessageSchema.default(null),
+          signals: z
+            .object({
+              mime_type: nullableCodeSchema.default(null),
+              extension: z.string().trim().max(32),
+              file_count: nonNegativeIntSchema.default(0),
+              total_page_count: nonNegativeIntSchema.nullable().default(null),
+              matched_table_hints: z.array(z.string().trim().min(1).max(120)).default([]),
+              matched_plan_hints: z.array(z.string().trim().min(1).max(120)).default([]),
+            })
+            .strict(),
+        })
+        .strict()
+        .nullable()
+        .default(null),
+      selection: z
+        .object({
+          selected_level: z.enum(TAKEOFF_LEVELS),
+          override_applied: z.boolean().default(false),
+          source_kind: z.enum(["upload", "plan_set"]),
+        })
+        .strict()
+        .nullable()
+        .default(null),
     })
     .strict(),
   "takeoff.job.processing": z
@@ -192,6 +236,12 @@ export type BuildTakeoffAuditMetadataInputByAction = {
     source_file_name: string | null;
     idempotency_key?: string | null;
     plan_set_id?: string | null;
+    classification?: TakeoffDocumentRecommendation | null;
+    selection?: {
+      selected_level: TakeoffLevel;
+      override_applied: boolean;
+      source_kind: "upload" | "plan_set";
+    } | null;
   };
   "takeoff.job.processing": {
     attempt?: number;
@@ -291,6 +341,29 @@ export const takeoffAuditMetadataBuilders: TakeoffAuditMetadataBuilders = {
       source_file_name: normalizeNullableString(input.source_file_name),
       idempotency_key: normalizeNullableString(input.idempotency_key ?? null),
       plan_set_id: input.plan_set_id ?? null,
+      classification: input.classification
+        ? {
+            document_class: input.classification.documentClass,
+            recommended_level: input.classification.recommendedLevel,
+            compatible_levels: input.classification.compatibleLevels,
+            recommendation_strength: input.classification.recommendationStrength,
+            warning_code: input.classification.warningCode ?? null,
+            warning_message: normalizeNullableString(
+              input.classification.warningMessage ?? null
+            ),
+            signals: {
+              mime_type: normalizeNullableString(
+                input.classification.signals.mimeType
+              ),
+              extension: input.classification.signals.extension,
+              file_count: input.classification.signals.fileCount,
+              total_page_count: input.classification.signals.totalPageCount,
+              matched_table_hints: input.classification.signals.matchedTableHints,
+              matched_plan_hints: input.classification.signals.matchedPlanHints,
+            },
+          }
+        : null,
+      selection: input.selection ?? null,
     }),
   "takeoff.job.processing": (input) =>
     takeoffAuditMetadataSchemas["takeoff.job.processing"].parse({

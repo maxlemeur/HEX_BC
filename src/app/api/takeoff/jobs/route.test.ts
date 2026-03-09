@@ -34,6 +34,16 @@ const ESTIMATE_VERSION_ID = "33333333-3333-4333-8333-333333333333";
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function getAuditMetadata(
+  auditRow: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  const afterData =
+    auditRow?.after_data && typeof auditRow.after_data === "object"
+      ? (auditRow.after_data as { metadata?: Record<string, unknown> })
+      : null;
+  return afterData?.metadata;
+}
+
 type SupabaseMockOptions = {
   estimateStatus?: "draft" | "sent" | "accepted" | "archived";
   missingEstimate?: boolean;
@@ -516,6 +526,21 @@ describe("POST /api/takeoff/jobs", () => {
     expect(supabase.__state.uploads).toHaveLength(1);
     expect(supabase.__state.audits).toHaveLength(1);
     expect(supabase.__state.audits[0]?.action).toBe("takeoff.job.created");
+    expect(getAuditMetadata(supabase.__state.audits[0])).toMatchObject({
+      level: "A",
+      estimate_version_id: ESTIMATE_VERSION_ID,
+      classification: {
+        document_class: "structured",
+        recommended_level: "A",
+        compatible_levels: ["A"],
+        recommendation_strength: "high",
+      },
+      selection: {
+        selected_level: "A",
+        override_applied: false,
+        source_kind: "upload",
+      },
+    });
     expect(triggerTakeoffJobProcessing).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: expect.stringMatching(UUID_REGEX),
@@ -605,7 +630,7 @@ describe("POST /api/takeoff/jobs", () => {
     const response = await POST(
       buildTakeoffRequest({
         level: "B",
-        fileName: "niveau-b.pdf",
+        fileName: "lot-cvc-dpgf.pdf",
         fileType: "application/pdf",
         fileContent: "%PDF-1.7\nstub",
       })
@@ -618,7 +643,19 @@ describe("POST /api/takeoff/jobs", () => {
     expect(response.status).toBe(201);
     expect(body.ok).toBe(true);
     expect(body.data?.level).toBe("B");
-    expect(body.data?.source_file_name).toBe("niveau-b.pdf");
+    expect(body.data?.source_file_name).toBe("lot-cvc-dpgf.pdf");
+    expect(getAuditMetadata(supabase.__state.audits[0])).toMatchObject({
+      classification: {
+        document_class: "tabular_pdf",
+        recommended_level: "B",
+        compatible_levels: ["B", "C"],
+      },
+      selection: {
+        selected_level: "B",
+        override_applied: false,
+        source_kind: "upload",
+      },
+    });
   });
 
   it("returns 422 when file format is not supported", async () => {
