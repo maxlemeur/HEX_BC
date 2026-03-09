@@ -523,4 +523,112 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       true
     );
   });
+
+  it("returns an inconclusive pilot decision when no successful jobs are available", () => {
+    const payload = buildTakeoffMetricsStatsPayload({
+      tenantId: "tenant-pilot",
+      killSwitchEnabled: true,
+      period: "30d",
+      now: new Date("2026-03-10T12:00:00.000Z"),
+      jobs: Array.from({ length: 8 }, (_, index) => ({
+        id: `job-failed-${index}`,
+        status: "failed",
+        level: "B",
+        model: "gemini-3-flash-preview",
+        duration_ms: null,
+        cost_cents: null,
+        retry_count: 0,
+        error_code: "AI_TIMEOUT",
+        created_at: `2026-03-${String(index + 1).padStart(2, "0")}T10:00:00.000Z`,
+      })),
+      runMetrics: [],
+      results: [],
+      items: [],
+      auditLogs: [],
+    });
+
+    expect(payload.pilot.goNoGo.status).toBe("inconclusive");
+    expect(payload.pilot.goNoGo.label).toBe("Inconclusif");
+    expect(payload.pilot.goNoGo.summary).toMatch(/Aucun dossier exploitable/);
+    expect(payload.pilot.goNoGo.criteria).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "volume",
+          passed: true,
+          status: "pass",
+        }),
+        expect.objectContaining({
+          key: "avg_cost",
+          actualLabel: "-",
+          passed: false,
+          status: "inconclusive",
+        }),
+        expect.objectContaining({
+          key: "correction_rate",
+          actualLabel: "-",
+          passed: false,
+          status: "inconclusive",
+        }),
+      ])
+    );
+  });
+
+  it("uses measured jobs for the pilot average cost criterion", () => {
+    const payload = buildTakeoffMetricsStatsPayload({
+      tenantId: "tenant-pilot",
+      killSwitchEnabled: true,
+      period: "30d",
+      now: new Date("2026-03-10T12:00:00.000Z"),
+      jobs: [
+        {
+          id: "job-expensive-1",
+          status: "completed",
+          level: "B",
+          model: "gemini-3-flash-preview",
+          duration_ms: 120_000,
+          cost_cents: 1_500,
+          retry_count: 0,
+          error_code: null,
+          created_at: "2026-03-01T10:00:00.000Z",
+        },
+        {
+          id: "job-expensive-2",
+          status: "completed",
+          level: "B",
+          model: "gemini-3-flash-preview",
+          duration_ms: 120_000,
+          cost_cents: 1_500,
+          retry_count: 0,
+          error_code: null,
+          created_at: "2026-03-02T10:00:00.000Z",
+        },
+        ...Array.from({ length: 6 }, (_, index) => ({
+          id: `job-pending-${index}`,
+          status: "pending",
+          level: "B",
+          model: "gemini-3-flash-preview",
+          duration_ms: null,
+          cost_cents: null,
+          retry_count: 0,
+          error_code: null,
+          created_at: `2026-03-${String(index + 3).padStart(2, "0")}T10:00:00.000Z`,
+        })),
+      ],
+      runMetrics: [],
+      results: [],
+      items: [],
+      auditLogs: [],
+    });
+
+    const avgCostCriterion = payload.pilot.goNoGo.criteria.find(
+      (criterion) => criterion.key === "avg_cost"
+    );
+
+    expect(avgCostCriterion?.actualLabel).toMatch(/15,00/);
+    expect(avgCostCriterion).toMatchObject({
+      passed: false,
+      status: "fail",
+    });
+    expect(payload.pilot.goNoGo.status).toBe("watch");
+  });
 });

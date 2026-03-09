@@ -445,8 +445,12 @@ function buildGoNoGoCriterion(input: {
   targetLabel: string;
   actualLabel: string;
   passed: boolean;
+  status?: TakeoffPilotGoNoGoCriterion["status"];
 }): TakeoffPilotGoNoGoCriterion {
-  return input;
+  return {
+    ...input,
+    status: input.status ?? (input.passed ? "pass" : "fail"),
+  };
 }
 
 export function buildTakeoffMetricsStatsPayload(
@@ -485,6 +489,7 @@ export function buildTakeoffMetricsStatsPayload(
   let totalDurationMs = 0;
   let durationCount = 0;
   let totalCostCents = 0;
+  let costCount = 0;
 
   for (const job of jobs) {
     if (job.status === "completed" || job.status === "applied") {
@@ -504,6 +509,7 @@ export function buildTakeoffMetricsStatsPayload(
 
     if (job.cost_cents != null) {
       totalCostCents += job.cost_cents;
+      costCount += 1;
     }
   }
 
@@ -517,6 +523,8 @@ export function buildTakeoffMetricsStatsPayload(
     durationCount > 0 ? Math.round(totalDurationMs / durationCount) : 0;
   const avgCostCentsPerJob =
     totalJobs > 0 ? Math.round(totalCostCents / totalJobs) : 0;
+  const avgMeasuredCostCentsPerJob =
+    costCount > 0 ? Math.round(totalCostCents / costCount) : 0;
   const avgItemsPerJob =
     totalJobs > 0
       ? Number(
@@ -751,8 +759,11 @@ export function buildTakeoffMetricsStatsPayload(
   });
 
   const pilotMinVolumeJobs = getPilotMinVolumeJobs(period);
+  const hasSuccessfulJobs = successfulJobsCount > 0;
+  const hasMeasuredPilotCost = costCount > 0;
+  const hasMeasuredPilotDuration = durationCount > 0;
   const satisfactionRate =
-    successfulJobsCount > 0
+    hasSuccessfulJobs
       ? Number(
           (
             ((quicklyValidatedJobs + untouchedSuccessfulJobs) / successfulJobsCount) *
@@ -773,43 +784,68 @@ export function buildTakeoffMetricsStatsPayload(
       key: "avg_cost",
       label: "Cout moyen",
       targetLabel: `<= ${formatPilotCost(PILOT_GO_NO_GO_MAX_AVG_COST_CENTS)}`,
-      actualLabel: formatPilotCost(avgCostCentsPerJob),
-      passed: avgCostCentsPerJob <= PILOT_GO_NO_GO_MAX_AVG_COST_CENTS,
+      actualLabel: hasMeasuredPilotCost ? formatPilotCost(avgMeasuredCostCentsPerJob) : "-",
+      passed:
+        hasMeasuredPilotCost &&
+        avgMeasuredCostCentsPerJob <= PILOT_GO_NO_GO_MAX_AVG_COST_CENTS,
+      status: hasMeasuredPilotCost ? undefined : "inconclusive",
     }),
     buildGoNoGoCriterion({
       key: "avg_duration",
       label: "Temps moyen",
       targetLabel: `<= ${formatPilotDuration(PILOT_GO_NO_GO_MAX_AVG_DURATION_MS)}`,
-      actualLabel: formatPilotDuration(avgDurationMs),
-      passed: avgDurationMs <= PILOT_GO_NO_GO_MAX_AVG_DURATION_MS,
+      actualLabel: hasMeasuredPilotDuration ? formatPilotDuration(avgDurationMs) : "-",
+      passed:
+        hasMeasuredPilotDuration && avgDurationMs <= PILOT_GO_NO_GO_MAX_AVG_DURATION_MS,
+      status: hasMeasuredPilotDuration ? undefined : "inconclusive",
     }),
     buildGoNoGoCriterion({
       key: "correction_rate",
       label: "Taux de correction",
       targetLabel: `<= ${formatPilotPercent(PILOT_GO_NO_GO_MAX_CORRECTION_RATE)}`,
-      actualLabel: formatPilotPercent(correctionKpis.correctionRate),
-      passed: correctionKpis.correctionRate <= PILOT_GO_NO_GO_MAX_CORRECTION_RATE,
+      actualLabel: hasSuccessfulJobs ? formatPilotPercent(correctionKpis.correctionRate) : "-",
+      passed:
+        hasSuccessfulJobs &&
+        correctionKpis.correctionRate <= PILOT_GO_NO_GO_MAX_CORRECTION_RATE,
+      status: hasSuccessfulJobs ? undefined : "inconclusive",
     }),
     buildGoNoGoCriterion({
       key: "satisfaction",
       label: "Satisfaction",
       targetLabel: `>= ${formatPilotPercent(PILOT_GO_NO_GO_MIN_SATISFACTION_RATE)}`,
-      actualLabel: formatPilotPercent(satisfactionRate),
-      passed: satisfactionRate >= PILOT_GO_NO_GO_MIN_SATISFACTION_RATE,
+      actualLabel: hasSuccessfulJobs ? formatPilotPercent(satisfactionRate) : "-",
+      passed:
+        hasSuccessfulJobs && satisfactionRate >= PILOT_GO_NO_GO_MIN_SATISFACTION_RATE,
+      status: hasSuccessfulJobs ? undefined : "inconclusive",
     }),
   ];
 
-  const failedCriteriaCount = goNoGoCriteria.filter((criterion) => !criterion.passed).length;
+  const failedCriteriaCount = goNoGoCriteria.filter(
+    (criterion) => criterion.status === "fail"
+  ).length;
+  const hasInconclusiveCriteria = goNoGoCriteria.some(
+    (criterion) => criterion.status === "inconclusive"
+  );
   let goNoGoStatus: TakeoffPilotGoNoGoStatus = "go";
   let goNoGoLabel = "GO";
   let goNoGoSummary =
     "Les indicateurs restent compatibles avec une poursuite du pilote sur ce tenant.";
 
   if (totalJobs === 0) {
-    goNoGoStatus = "watch";
-    goNoGoLabel = "A surveiller";
+    goNoGoStatus = "inconclusive";
+    goNoGoLabel = "Inconclusif";
     goNoGoSummary =
       "Aucun dossier mesure sur la periode. Le pilote n'est pas encore concluant.";
+  } else if (!hasSuccessfulJobs) {
+    goNoGoStatus = "inconclusive";
+    goNoGoLabel = "Inconclusif";
+    goNoGoSummary =
+      "Aucun dossier exploitable n'a encore abouti. Le pilote reste trop immature pour conclure.";
+  } else if (hasInconclusiveCriteria) {
+    goNoGoStatus = "inconclusive";
+    goNoGoLabel = "Inconclusif";
+    goNoGoSummary =
+      "Certaines mesures pilote manquent encore. Completez les dossiers mesures avant decision.";
   } else if (totalJobs < pilotMinVolumeJobs) {
     goNoGoStatus = "watch";
     goNoGoLabel = "A surveiller";

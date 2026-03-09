@@ -80,6 +80,7 @@ const DASHBOARD_PAYLOAD: TakeoffMetricsPilotStatsPayload = {
           targetLabel: ">= 8 dossiers",
           actualLabel: "12 dossiers",
           passed: true,
+          status: "pass",
         },
       ],
     },

@@ -226,7 +226,7 @@ describe("GET /api/takeoff/metrics/stats", () => {
     expect(body.data.corrections.kpis.quicklyValidatedJobs).toBe(0);
     expect(body.data.pilot.killSwitchEnabled).toBe(true);
     expect(body.data.pilot.weeklySnapshots[0]?.totalJobs).toBe(1);
-    expect(body.data.pilot.goNoGo.status).toBe("watch");
+    expect(body.data.pilot.goNoGo.status).toBe("inconclusive");
     expect(body.data.costByLevel).toEqual([
       expect.objectContaining({ level: "C" }),
     ]);

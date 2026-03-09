@@ -24,9 +24,10 @@ export type TakeoffPilotGoNoGoCriterion = {
   targetLabel: string;
   actualLabel: string;
   passed: boolean;
+  status: "pass" | "fail" | "inconclusive";
 };
 
-export type TakeoffPilotGoNoGoStatus = "go" | "watch" | "no_go";
+export type TakeoffPilotGoNoGoStatus = "go" | "watch" | "no_go" | "inconclusive";
 
 export type TakeoffPilotGoNoGo = {
   status: TakeoffPilotGoNoGoStatus;

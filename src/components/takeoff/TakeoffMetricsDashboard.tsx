@@ -696,13 +696,13 @@ function PilotDecisionCard({
   const variantClass =
     data.status === "go"
       ? "border-[var(--success)]/20 bg-[var(--success)]/5"
-      : data.status === "watch"
+      : data.status === "watch" || data.status === "inconclusive"
         ? "border-[var(--warning)]/20 bg-[var(--warning)]/5"
         : "border-[var(--danger)]/20 bg-[var(--danger)]/5";
   const labelClass =
     data.status === "go"
       ? "text-[var(--success)]"
-      : data.status === "watch"
+      : data.status === "watch" || data.status === "inconclusive"
         ? "text-[var(--warning)]"
         : "text-[var(--danger)]";
 
@@ -742,12 +742,18 @@ function PilotDecisionCard({
                 <td className="px-3 py-2">
                   <span
                     className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      criterion.passed
+                      criterion.status === "pass"
                         ? "bg-[var(--success)]/12 text-[var(--success)]"
-                        : "bg-[var(--danger)]/12 text-[var(--danger)]"
+                        : criterion.status === "inconclusive"
+                          ? "bg-[var(--warning)]/12 text-[var(--warning)]"
+                          : "bg-[var(--danger)]/12 text-[var(--danger)]"
                     }`}
                   >
-                    {criterion.passed ? "OK" : "Hors cible"}
+                    {criterion.status === "pass"
+                      ? "OK"
+                      : criterion.status === "inconclusive"
+                        ? "Inconclusif"
+                        : "Hors cible"}
                   </span>
                 </td>
               </tr>
