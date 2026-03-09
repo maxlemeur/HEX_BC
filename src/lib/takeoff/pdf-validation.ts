@@ -35,7 +35,7 @@ const PDF_UNRELIABLE_MIME_TYPES = new Set([
 ]);
 
 function normalizeMimeType(value: string | null | undefined) {
-  return value?.trim().toLowerCase() ?? "";
+  return value?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
 }
 
 export function isPdfFileName(fileName: string) {
