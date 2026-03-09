@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
@@ -108,6 +109,12 @@ export function AffairesCardList({
           item.currentVersionNumber !== null &&
           item.currentStatus !== null;
 
+        const primaryHref = hasCurrentVersion
+          ? item.currentStatus === "draft"
+            ? `/dashboard/estimates/${item.currentVersionId}/edit`
+            : `/dashboard/estimates/${item.currentVersionId}`
+          : `/dashboard/affaires/${item.projectId}`;
+
         const canDelete =
           !hasCurrentVersion || item.currentStatus === "draft";
 
@@ -116,74 +123,79 @@ export function AffairesCardList({
             key={item.projectId}
             variants={cardVariants}
             transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            className="dashboard-card p-4 block relative"
+            className="dashboard-card relative overflow-hidden transition-shadow hover:shadow-md"
           >
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <div className="min-w-0">
-                <h3 className="font-semibold text-sm text-[var(--slate-900)] truncate">
-                  {item.projectName}
-                </h3>
-                {item.projectClient && (
-                  <p className="text-xs text-[var(--slate-500)] truncate mt-0.5">
-                    {item.projectClient}
-                  </p>
-                )}
+            <Link
+              href={primaryHref}
+              className="block p-4 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
+            >
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-sm text-[var(--slate-900)] truncate">
+                    {item.projectName}
+                  </h3>
+                  {item.projectClient && (
+                    <p className="text-xs text-[var(--slate-500)] truncate mt-0.5">
+                      {item.projectClient}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {item.hasDpgf && (
+                    <span
+                      className="inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold bg-blue-50 text-blue-800 border border-blue-200"
+                      title="DPGF charge"
+                    >
+                      DPGF
+                    </span>
+                  )}
+                  <span className="text-xs text-[var(--slate-400)]">
+                    {item.versionCount} version{item.versionCount !== 1 ? "s" : ""}
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
-                {item.hasDpgf && (
-                  <span
-                    className="inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold bg-blue-50 text-blue-800 border border-blue-200"
-                    title="DPGF charge"
-                  >
-                    DPGF
+
+              {item.projectReference && (
+                <p className="text-xs text-[var(--slate-400)] mb-2 truncate">
+                  Ref. {item.projectReference}
+                </p>
+              )}
+
+              <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                {hasCurrentVersion ? (
+                  <AffaireStatusBadges
+                    currentVersionNumber={item.currentVersionNumber!}
+                    currentStatus={item.currentStatus!}
+                    acceptedVersionNumber={item.acceptedVersionNumber}
+                  />
+                ) : (
+                  <span className="text-xs font-medium text-[var(--slate-500)]">
+                    Aucun chiffrage
                   </span>
                 )}
-                <span className="text-xs text-[var(--slate-400)]">
-                  {item.versionCount} version{item.versionCount !== 1 ? "s" : ""}
+                {item.currentApprovalStatus && APPROVAL_BADGE[item.currentApprovalStatus] && (
+                  <span
+                    className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[item.currentApprovalStatus].className}`}
+                  >
+                    {APPROVAL_BADGE[item.currentApprovalStatus].label}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-[var(--slate-700)]">
+                  {item.currentTotalHtCents !== null
+                    ? `${formatAmount(item.currentTotalHtCents)} HT`
+                    : "—"}
+                </span>
+                <span className="text-[var(--slate-400)]">
+                  {formatDate(item.currentUpdatedAt)}
                 </span>
               </div>
-            </div>
-
-            {item.projectReference && (
-              <p className="text-xs text-[var(--slate-400)] mb-2 truncate">
-                Ref. {item.projectReference}
-              </p>
-            )}
-
-            <div className="mb-3 flex flex-wrap items-center gap-1.5">
-              {hasCurrentVersion ? (
-                <AffaireStatusBadges
-                  currentVersionNumber={item.currentVersionNumber!}
-                  currentStatus={item.currentStatus!}
-                  acceptedVersionNumber={item.acceptedVersionNumber}
-                />
-              ) : (
-                <span className="text-xs font-medium text-[var(--slate-500)]">
-                  Aucun chiffrage
-                </span>
-              )}
-              {item.currentApprovalStatus && APPROVAL_BADGE[item.currentApprovalStatus] && (
-                <span
-                  className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[item.currentApprovalStatus].className}`}
-                >
-                  {APPROVAL_BADGE[item.currentApprovalStatus].label}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-[var(--slate-700)]">
-                {item.currentTotalHtCents !== null
-                  ? `${formatAmount(item.currentTotalHtCents)} HT`
-                  : "—"}
-              </span>
-              <span className="text-[var(--slate-400)]">
-                {formatDate(item.currentUpdatedAt)}
-              </span>
-            </div>
+            </Link>
 
             {/* Actions */}
-            <div className="flex items-center gap-1 mt-3 pt-3 border-t border-[var(--slate-100)]">
+            <div className="flex items-center gap-1 px-4 pb-4 pt-3 border-t border-[var(--slate-100)]">
               {/* Hub affaire – toujours visible */}
               <button
                 type="button"

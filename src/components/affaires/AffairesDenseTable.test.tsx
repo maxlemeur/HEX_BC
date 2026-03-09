@@ -1,0 +1,135 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { AffaireListItem } from "./types";
+import { AffairesDenseTable } from "./AffairesDenseTable";
+
+const pushMock = vi.fn();
+const requestDeleteMock = vi.fn();
+const fetchExpandDataMock = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: pushMock,
+  }),
+}));
+
+vi.mock("next/link", () => ({
+  default: function MockLink({
+    href,
+    className,
+    children,
+  }: {
+    href: string;
+    className?: string;
+    children: React.ReactNode;
+  }) {
+    return (
+      <a href={href} className={className}>
+        {children}
+      </a>
+    );
+  },
+}));
+
+vi.mock("@/components/ui/ConfirmModal", () => ({
+  ConfirmModal: () => null,
+}));
+
+vi.mock("./AffaireStatusBadges", () => ({
+  AffaireStatusBadges: () => <div data-testid="affaire-status-badges">Statut</div>,
+}));
+
+vi.mock("./useDeleteAffaire", () => ({
+  useDeleteAffaire: () => ({
+    requestDelete: requestDeleteMock,
+    modalProps: {
+      open: false,
+      title: "",
+      message: "",
+      onConfirm: vi.fn(),
+      onCancel: vi.fn(),
+    },
+  }),
+}));
+
+vi.mock("@/app/dashboard/affaires/_actions/dense-table-expand", () => ({
+  fetchAffaireDenseExpandData: (...args: unknown[]) => fetchExpandDataMock(...args),
+}));
+
+const baseItem: AffaireListItem = {
+  projectId: "project-1",
+  projectName: "Affaire Alpha",
+  projectReference: "REF-001",
+  projectClient: "Client Demo",
+  versionCount: 3,
+  hasCurrentVersion: true,
+  currentVersionId: "version-1",
+  currentVersionNumber: 3,
+  currentStatus: "sent",
+  currentTotalHtCents: 125000,
+  currentUpdatedAt: "2026-03-09T12:00:00.000Z",
+  acceptedVersionId: null,
+  acceptedVersionNumber: null,
+  hasDpgf: true,
+  currentApprovalStatus: null,
+};
+
+describe("AffairesDenseTable", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchExpandDataMock.mockResolvedValue({
+      summary: {
+        currentVersion: null,
+        acceptedVersion: null,
+        lineCount: 0,
+      },
+      dpgfSource: null,
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("navigates to the primary estimate when the row body is clicked", () => {
+    render(
+      <AffairesDenseTable
+        items={[baseItem]}
+        emptyVariant="filtered"
+      />
+    );
+
+    fireEvent.click(screen.getByText("Affaire Alpha"));
+
+    expect(pushMock).toHaveBeenCalledWith("/dashboard/estimates/version-1");
+  });
+
+  it("does not trigger row navigation when the hub action is clicked", () => {
+    render(
+      <AffairesDenseTable
+        items={[baseItem]}
+        emptyVariant="filtered"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hub affaire" }));
+
+    expect(pushMock).toHaveBeenCalledTimes(1);
+    expect(pushMock).toHaveBeenCalledWith("/dashboard/affaires/project-1");
+  });
+
+  it("does not trigger row navigation when the expand toggle is clicked", () => {
+    render(
+      <AffairesDenseTable
+        items={[baseItem]}
+        emptyVariant="filtered"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Deplier" }));
+
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(fetchExpandDataMock).toHaveBeenCalledWith("project-1");
+  });
+});

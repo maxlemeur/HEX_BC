@@ -246,19 +246,28 @@ export function AffairesDenseTable({
                   item.currentVersionNumber !== null &&
                   item.currentStatus !== null;
 
+                const primaryHref = hasCurrentVersion
+                  ? item.currentStatus === "draft"
+                    ? `/dashboard/estimates/${item.currentVersionId}/edit`
+                    : `/dashboard/estimates/${item.currentVersionId}`
+                  : `/dashboard/affaires/${item.projectId}`;
                 const expanded = isExpanded(item.projectId);
                 const cached = expandCache[item.projectId];
 
                 return (
                   <Fragment key={item.projectId}>
                   <tr
-                    className="border-b border-[var(--slate-100)] hover:bg-[var(--slate-50)] transition-colors"
+                    className="border-b border-[var(--slate-100)] cursor-pointer hover:bg-[var(--slate-50)] transition-colors"
+                    onClick={() => router.push(primaryHref)}
                   >
                     <td>
                       <button
                         type="button"
                         className={`expand-button ${expanded ? "expanded" : ""}`}
-                        onClick={() => handleToggleExpand(item.projectId)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleToggleExpand(item.projectId);
+                        }}
                         aria-expanded={expanded}
                         aria-label={expanded ? "Replier" : "Deplier"}
                       >
@@ -349,7 +358,10 @@ export function AffairesDenseTable({
                           type="button"
                           title="Hub affaire"
                           className="inline-flex items-center justify-center rounded p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                          onClick={() => router.push(`/dashboard/affaires/${item.projectId}`)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            router.push(`/dashboard/affaires/${item.projectId}`);
+                          }}
                         >
                           <svg
                             width="16"
@@ -372,7 +384,10 @@ export function AffairesDenseTable({
                             type="button"
                             title="Voir le detail"
                             className="inline-flex items-center justify-center rounded p-1 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-                            onClick={() => router.push(`/dashboard/estimates/${item.currentVersionId}`)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              router.push(`/dashboard/estimates/${item.currentVersionId}`);
+                            }}
                           >
                             <svg
                               width="16"
@@ -396,11 +411,14 @@ export function AffairesDenseTable({
                             type="button"
                             title="Editer l'affaire"
                             className="inline-flex items-center justify-center rounded p-1 text-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
-                            onClick={() => router.push(
-                              hasCurrentVersion
-                                ? `/dashboard/estimates/${item.currentVersionId}/edit`
-                                : `/dashboard/affaires/${item.projectId}`
-                            )}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              router.push(
+                                hasCurrentVersion
+                                  ? `/dashboard/estimates/${item.currentVersionId}/edit`
+                                  : `/dashboard/affaires/${item.projectId}`
+                              );
+                            }}
                           >
                             <svg
                               width="16"
@@ -424,7 +442,10 @@ export function AffairesDenseTable({
                             type="button"
                             title="Supprimer l'affaire"
                             className="inline-flex items-center justify-center rounded p-1 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                            onClick={() => requestDelete(item.projectId, item.projectName)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              requestDelete(item.projectId, item.projectName);
+                            }}
                           >
                             <svg
                               width="16"

@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 
 import { cn } from "@/lib/utils";
 
@@ -127,23 +127,27 @@ export function ToastViewport({
       aria-live="polite"
       aria-relevant="additions removals"
     >
-      <AnimatePresence mode="popLayout">
-        {toasts.map((toast) => (
-          <motion.div
-            key={toast.id}
-            className="pointer-events-auto"
-            initial={{ opacity: 0, x: 80 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 80, transition: { duration: 0.15 } }}
-            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            onAnimationComplete={(definition) => {
-              if (definition === "exit" && onExitEnd) onExitEnd(toast.id);
-            }}
-          >
-            <Toast toast={toast} onDismiss={onDismiss} />
-          </motion.div>
-        ))}
-      </AnimatePresence>
+      {toasts.map((toast) => (
+        <motion.div
+          key={toast.id}
+          className="pointer-events-auto"
+          initial={{ opacity: 0, x: 80 }}
+          animate={{
+            opacity: toast.exiting ? 0 : 1,
+            x: toast.exiting ? 80 : 0,
+          }}
+          transition={
+            toast.exiting
+              ? { duration: EXIT_ANIMATION_MS / 1000 }
+              : { type: "spring", damping: 25, stiffness: 300 }
+          }
+          onAnimationComplete={() => {
+            if (toast.exiting && onExitEnd) onExitEnd(toast.id);
+          }}
+        >
+          <Toast toast={toast} onDismiss={onDismiss} />
+        </motion.div>
+      ))}
     </div>
   );
 }
@@ -152,7 +156,12 @@ export function ToastViewport({
 
 export function ToastProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
+  const toastsRef = useRef<ToastRecord[]>([]);
   const timeoutIdsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    toastsRef.current = toasts;
+  }, [toasts]);
 
   /* Remove a toast from the array (internal — after exit animation) */
   const removeToast = useCallback((id: string) => {
@@ -166,24 +175,16 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
 
   /* Start exit animation — public "dismiss" */
   const startExit = useCallback((id: string) => {
-    setToasts((previous) => {
-      const target = previous.find((t) => t.id === id);
-      if (!target || target.exiting) return previous;
+    const currentToasts = toastsRef.current;
+    const target = currentToasts.find((toast) => toast.id === id);
+    if (!target || target.exiting) return;
 
-      const currentlyVisibleIds = new Set<string>();
-      for (const toast of previous) {
-        if (!toast.exiting && currentlyVisibleIds.size < MAX_VISIBLE) {
-          currentlyVisibleIds.add(toast.id);
-        }
+    const currentlyVisibleIds = new Set<string>();
+    for (const toast of currentToasts) {
+      if (!toast.exiting && currentlyVisibleIds.size < MAX_VISIBLE) {
+        currentlyVisibleIds.add(toast.id);
       }
-
-      // Remove queued toasts immediately instead of briefly rendering them as exiting.
-      if (!currentlyVisibleIds.has(id)) {
-        return previous.filter((t) => t.id !== id);
-      }
-
-      return previous.map((t) => (t.id === id ? { ...t, exiting: true } : t));
-    });
+    }
 
     // Clear auto-dismiss timer if running
     const existingTid = timeoutIdsRef.current.get(id);
@@ -191,7 +192,20 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
       clearTimeout(existingTid);
       timeoutIdsRef.current.delete(id);
     }
-  }, []);
+
+    // Remove queued toasts immediately instead of briefly rendering them as exiting.
+    if (!currentlyVisibleIds.has(id)) {
+      setToasts((previous) => previous.filter((toast) => toast.id !== id));
+      return;
+    }
+
+    setToasts((previous) =>
+      previous.map((toast) => (toast.id === id ? { ...toast, exiting: true } : toast))
+    );
+
+    const exitTid = setTimeout(() => removeToast(id), EXIT_ANIMATION_MS + 50);
+    timeoutIdsRef.current.set(id, exitTid);
+  }, [removeToast]);
 
   /* Called by ToastViewport when exit animation completes */
   const handleExitEnd = useCallback((id: string) => {
@@ -237,19 +251,12 @@ export function ToastProvider({ children }: Readonly<{ children: React.ReactNode
     for (const toast of toasts) {
       if (timeoutIdsRef.current.has(toast.id)) continue;
 
-      if (toast.exiting) {
-        // Fallback for environments where onAnimationEnd doesn't fire.
-        const tid = setTimeout(() => removeToast(toast.id), EXIT_ANIMATION_MS + 50);
-        timeoutIdsRef.current.set(toast.id, tid);
-        continue;
-      }
-
-      if (visibleIds.has(toast.id)) {
+      if (!toast.exiting && visibleIds.has(toast.id)) {
         const tid = setTimeout(() => startExit(toast.id), toast.durationMs);
         timeoutIdsRef.current.set(toast.id, tid);
       }
     }
-  }, [toasts, visibleIds, startExit, removeToast]);
+  }, [toasts, visibleIds, startExit]);
 
   /* Cleanup all timeouts on unmount */
   useEffect(() => {
