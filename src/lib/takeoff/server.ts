@@ -6645,14 +6645,33 @@ export async function resubmitTakeoffJob(
   }
 
   const retryCount = existingJob.retry_count ?? 0;
-  const hasLiveProviderBatch =
+  const hasProviderBatchReference =
     existingJob.processing_strategy === "batch" &&
     typeof existingJob.provider_batch_id === "string" &&
-    existingJob.provider_batch_id.length > 0 &&
+    existingJob.provider_batch_id.length > 0;
+  const hasSucceededProviderBatch =
+    hasProviderBatchReference && existingJob.provider_batch_state === "succeeded";
+  const hasLiveProviderBatch =
+    hasProviderBatchReference &&
     !(
       existingJob.provider_batch_state &&
       TAKEOFF_PROVIDER_TERMINAL_STATES.has(existingJob.provider_batch_state)
     );
+
+  if (hasSucceededProviderBatch) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message:
+        "Le batch provider a deja reussi. Relancez un reconcile au lieu d'une resoumission.",
+      details: {
+        provider_batch_id: existingJob.provider_batch_id,
+        provider_batch_state: existingJob.provider_batch_state,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
 
   if (hasLiveProviderBatch) {
     throw new TakeoffError({

@@ -151,6 +151,15 @@ function hasLiveProviderBatch(input: ResolveTakeoffOperatorStateInput) {
   );
 }
 
+function hasSucceededProviderBatch(input: ResolveTakeoffOperatorStateInput) {
+  return (
+    input.processingStrategy === "batch" &&
+    typeof input.providerBatchId === "string" &&
+    input.providerBatchId.length > 0 &&
+    input.providerBatchState === "succeeded"
+  );
+}
+
 export function resolveTakeoffOperatorState(
   input: ResolveTakeoffOperatorStateInput
 ): TakeoffOperatorStateDescriptor {
@@ -177,6 +186,7 @@ export function resolveTakeoffOperatorState(
       hasMutationAccess &&
       (input.status === "failed" || input.status === "canceled") &&
       (input.retryCount ?? 0) < TAKEOFF_RETRY_MAX &&
+      !hasSucceededProviderBatch(input) &&
       !hasLiveProviderBatch(input),
   };
 }

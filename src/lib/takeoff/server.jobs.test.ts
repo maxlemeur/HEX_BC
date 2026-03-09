@@ -1090,6 +1090,37 @@ describe("takeoff job server helpers (TKF-009)", () => {
     });
   });
 
+  it("blocks resubmit when the provider batch already succeeded upstream", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          status: "failed",
+          processing_strategy: "batch",
+          provider_batch_id: "batch-succeeded",
+          provider_batch_state: "succeeded",
+          error_code: "AI_TIMEOUT",
+          error_message: "Timed out waiting for reconcile",
+        }),
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "engineer",
+    } as never);
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      details: expect.objectContaining({
+        provider_batch_id: "batch-succeeded",
+        provider_batch_state: "succeeded",
+      }),
+    });
+  });
+
   it("blocks operator actions for viewer role", async () => {
     const supabase = createSupabaseMock({
       jobs: [

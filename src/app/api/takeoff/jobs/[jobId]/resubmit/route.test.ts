@@ -98,8 +98,9 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
     expect(vi.mocked(triggerTakeoffJobProcessing)).not.toHaveBeenCalled();
   });
 
-  it("returns 503 when the async worker trigger is not queued", async () => {
+  it("returns 200 when the async worker trigger is not queued", async () => {
     vi.mocked(resubmitTakeoffJob).mockResolvedValue(RESUBMIT_RESPONSE as never);
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(triggerTakeoffJobProcessing).mockResolvedValue({
       triggered: false,
       correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -110,19 +111,26 @@ describe("POST /api/takeoff/jobs/[jobId]/resubmit", () => {
     const response = await POST(request, context);
     const body = (await response.json()) as {
       ok: boolean;
-      error?: {
-        code?: string;
-        message?: string;
-        retryable?: boolean;
+      data?: {
+        job?: {
+          id?: string;
+          status?: string;
+        };
       };
     };
 
-    expect(response.status).toBe(503);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe(TakeoffErrorCode.INTERNAL_ERROR);
-    expect(body.error?.message).toBe(
-      "Le worker async takeoff n'a pas pu etre declenche."
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data?.job?.id).toBe(JOB_ID);
+    expect(body.data?.job?.status).toBe("pending");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Takeoff resubmit accepted but async processing trigger failed.",
+      expect.objectContaining({
+        jobId: JOB_ID,
+        correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      })
     );
-    expect(body.error?.retryable).toBe(true);
+
+    consoleErrorSpy.mockRestore();
   });
 });

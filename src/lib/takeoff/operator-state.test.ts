@@ -38,4 +38,19 @@ describe("resolveTakeoffOperatorState", () => {
 
     expect(state.canResubmit).toBe(false);
   });
+
+  it("hides resubmit when the provider already succeeded upstream", () => {
+    const state = resolveTakeoffOperatorState({
+      status: "failed",
+      retryCount: 1,
+      processingStrategy: "batch",
+      providerBatchId: "batch-succeeded",
+      providerBatchState: "succeeded",
+      tenantRole: "admin",
+    });
+
+    expect(state.state).toBe("orphan_to_reconcile");
+    expect(state.canResubmit).toBe(false);
+    expect(state.canReconcile).toBe(true);
+  });
 });
