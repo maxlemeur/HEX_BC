@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:webpack": "next dev --webpack",
     "build": "npm run validate-openapi && next build",
     "start": "next start",
     "e2e": "node ./e2e/run-ps1.mjs e2e/smoke.ps1",

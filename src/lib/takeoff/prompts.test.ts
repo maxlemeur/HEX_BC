@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getTakeoffEscalationModelConfig,
   getTakeoffLevelConfig,
   getTakeoffModelConfig,
   getTakeoffPrompt,
@@ -197,21 +198,21 @@ describe("takeoff prompts", () => {
 
   it("uses centralized matrix level -> model -> thinkingLevel", () => {
     expect(TAKEOFF_LEVEL_MODEL_MATRIX).toEqual({
-      A: { model: "gemini-3-flash-preview", thinkingLevel: "low" },
-      B: { model: "gemini-3-pro-preview", thinkingLevel: "medium" },
-      C: { model: "gemini-3-pro-preview", thinkingLevel: "high" },
+      A: { model: "gemini-3.1-flash-lite-preview", thinkingLevel: "low" },
+      B: { model: "gemini-3-flash-preview", thinkingLevel: "medium" },
+      C: { model: "gemini-3.1-pro-preview", thinkingLevel: "high" },
     });
 
     expect(getTakeoffModelConfig("A")).toEqual({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-flash-lite-preview",
       thinkingLevel: "low",
     });
     expect(getTakeoffModelConfig("B")).toEqual({
-      model: "gemini-3-pro-preview",
+      model: "gemini-3-flash-preview",
       thinkingLevel: "medium",
     });
     expect(getTakeoffModelConfig("C")).toEqual({
-      model: "gemini-3-pro-preview",
+      model: "gemini-3.1-pro-preview",
       thinkingLevel: "high",
     });
   });
@@ -220,23 +221,37 @@ describe("takeoff prompts", () => {
     expect(getTakeoffLevelConfig("A")).toEqual({
       level: "A",
       promptVersion: "takeoff-a-v1",
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-flash-lite-preview",
       thinkingLevel: "low",
     });
 
     expect(getTakeoffLevelConfig("B")).toEqual({
       level: "B",
       promptVersion: "takeoff-b-v1",
-      model: "gemini-3-pro-preview",
+      model: "gemini-3-flash-preview",
       thinkingLevel: "medium",
     });
 
     expect(getTakeoffLevelConfig("C")).toEqual({
       level: "C",
       promptVersion: "takeoff-c-v1",
-      model: "gemini-3-pro-preview",
+      model: "gemini-3.1-pro-preview",
       thinkingLevel: "high",
     });
+  });
+
+  it("declares explicit fallback/escalation models where needed", () => {
+    expect(getTakeoffEscalationModelConfig("A")).toEqual({
+      model: "gemini-3-flash-preview",
+      thinkingLevel: "low",
+      reason: "Fallback when Flash-Lite produces invalid structured output.",
+    });
+    expect(getTakeoffEscalationModelConfig("B")).toEqual({
+      model: "gemini-3.1-pro-preview",
+      thinkingLevel: "medium",
+      reason: "Fallback when Flash extraction is ambiguous or structurally weak.",
+    });
+    expect(getTakeoffEscalationModelConfig("C")).toBeNull();
   });
 
   it("returns merged runtime config with final prompt", () => {
@@ -248,7 +263,7 @@ describe("takeoff prompts", () => {
 
     expect(runtimeConfig.level).toBe("C");
     expect(runtimeConfig.promptVersion).toBe("takeoff-c-v1");
-    expect(runtimeConfig.model).toBe("gemini-3-pro-preview");
+    expect(runtimeConfig.model).toBe("gemini-3.1-pro-preview");
     expect(runtimeConfig.thinkingLevel).toBe("high");
     expect(runtimeConfig.prompt).toContain("- source: runtime-file.xlsx");
     expect(runtimeConfig.prompt).toContain("Niveau C: confidence global est requis pour le niveau C.");

@@ -19,20 +19,41 @@ export type TakeoffModelConfig = {
   thinkingLevel: GeminiThinkingLevel;
 };
 
+export type TakeoffEscalationModelConfig = TakeoffModelConfig & {
+  reason: string;
+};
+
 export const TAKEOFF_LEVEL_MODEL_MATRIX = {
   A: {
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.1-flash-lite-preview",
     thinkingLevel: "low",
   },
   B: {
-    model: "gemini-3-pro-preview",
+    model: "gemini-3-flash-preview",
     thinkingLevel: "medium",
   },
   C: {
-    model: "gemini-3-pro-preview",
+    model: "gemini-3.1-pro-preview",
     thinkingLevel: "high",
   },
 } as const satisfies Record<TakeoffPromptLevel, TakeoffModelConfig>;
+
+export const TAKEOFF_LEVEL_ESCALATION_MODEL_MATRIX = {
+  A: {
+    model: "gemini-3-flash-preview",
+    thinkingLevel: "low",
+    reason: "Fallback when Flash-Lite produces invalid structured output.",
+  },
+  B: {
+    model: "gemini-3.1-pro-preview",
+    thinkingLevel: "medium",
+    reason: "Fallback when Flash extraction is ambiguous or structurally weak.",
+  },
+  C: null,
+} as const satisfies Record<
+  TakeoffPromptLevel,
+  TakeoffEscalationModelConfig | null
+>;
 
 const COMMON_SCHEMA_CONSTRAINTS = [
   "La sortie DOIT etre un objet JSON strictement compatible avec TakeoffExchangeSchema.",
@@ -174,6 +195,12 @@ export function getTakeoffLevelConfig(
     model: modelConfig.model,
     thinkingLevel: modelConfig.thinkingLevel,
   };
+}
+
+export function getTakeoffEscalationModelConfig(
+  level: TakeoffPromptLevel
+): TakeoffEscalationModelConfig | null {
+  return TAKEOFF_LEVEL_ESCALATION_MODEL_MATRIX[level];
 }
 
 export function getTakeoffPromptDefinition(

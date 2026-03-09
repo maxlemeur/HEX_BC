@@ -307,7 +307,7 @@ export async function loginWithUi(page: Page) {
   const maxAttempts = 3;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    await page.goto("/login");
+    await page.goto("/login", { waitUntil: "domcontentloaded" });
 
     if (/\/dashboard(?:$|[/?#])/.test(page.url())) {
       await bootstrapTenantMembershipIfMissing(page);
@@ -325,7 +325,7 @@ export async function loginWithUi(page: Page) {
       await bootstrapTenantMembershipIfMissing(page);
       return;
     } catch {
-      await page.goto("/dashboard");
+      await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
       if (/\/dashboard(?:$|[/?#])/.test(page.url())) {
         return;
       }
@@ -358,19 +358,47 @@ export async function createEstimateViaWizard(
 ) {
   const projectName = options?.projectName ?? buildEstimateName("EST262-PROJET");
   const title = options?.title ?? "E2E EST-262";
+  const projectNameInput = page.getByLabel(/Nom du projet/i);
+  const titleInput = page.getByLabel(/Titre de la version/i);
+  const nextButton = page.getByRole("button", { name: /^Suivant$/ });
+  const dateDevisInput = page.getByLabel(/Date devis/i);
+  const validiteInput = page.getByLabel(/Validit/i);
 
-  await page.goto("/dashboard/estimates/new");
+  await page.goto("/dashboard/estimates/new", {
+    waitUntil: "domcontentloaded",
+  });
   await expect(page.getByRole("heading", { name: /Nouveau chiffrage/i })).toBeVisible();
 
-  await page.getByLabel(/Nom du projet/i).fill(projectName);
-  await page.getByLabel(/Titre de la version/i).fill(title);
+  await projectNameInput.fill(projectName);
+  await expect(projectNameInput).toHaveValue(projectName);
+  await titleInput.fill(title);
+  await expect(titleInput).toHaveValue(title);
 
-  await page.getByRole("button", { name: /^Suivant$/ }).click();
+  let parametersStepReached = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await nextButton.click();
 
-  await page.getByLabel(/Date devis/i).fill(options?.dateDevis ?? "2026-02-02");
-  await page.getByLabel(/Validit/i).fill(options?.validiteJours ?? "30");
+    try {
+      await expect(dateDevisInput).toBeVisible({ timeout: 5_000 });
+      parametersStepReached = true;
+      break;
+    } catch {
+      await projectNameInput.fill(projectName);
+      await expect(projectNameInput).toHaveValue(projectName);
+      await titleInput.fill(title);
+      await expect(titleInput).toHaveValue(title);
+    }
+  }
 
-  await page.getByRole("button", { name: /^Suivant$/ }).click();
+  expect(parametersStepReached, "wizard should reach the parameters step").toBe(true);
+
+  await dateDevisInput.fill(options?.dateDevis ?? "2026-02-02");
+  await validiteInput.fill(options?.validiteJours ?? "30");
+
+  await nextButton.click();
+  await expect(
+    page.getByRole("heading", { name: /^Import$/i }),
+  ).toBeVisible({ timeout: 15_000 });
 
   await Promise.all([
     page.waitForURL(ESTIMATE_EDIT_URL_PATTERN, { timeout: 60_000 }),

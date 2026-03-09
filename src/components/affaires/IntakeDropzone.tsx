@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import {
   AFFAIRE_INTAKE_ALLOWED_EXTENSIONS,
@@ -119,7 +119,7 @@ export function IntakeDropzone({
   onUploadComplete,
   compact = false,
 }: IntakeDropzoneProps) {
-  const inputId = useId();
+  const inputId = `intake-dropzone-input-${projectId}`;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<DropzoneState>({ phase: "idle" });
   const [dragActive, setDragActive] = useState(false);

@@ -9,6 +9,7 @@ const launchTakeoffFromPlanSetSchema = z.object({
   projectId: z.string().uuid(),
   planSetId: z.string().uuid(),
   versionId: z.string().uuid(),
+  level: z.enum(["B", "C"]).default("B"),
 });
 
 export type LaunchTakeoffFromPlanSetInput = z.infer<
@@ -23,6 +24,7 @@ export async function launchTakeoffFromPlanSet(
     projectId: parsed.projectId,
     planSetId: parsed.planSetId,
     estimateVersionId: parsed.versionId,
+    level: parsed.level,
   });
 
   await triggerTakeoffJobProcessing({ jobId: job.id, trigger: "create" });
