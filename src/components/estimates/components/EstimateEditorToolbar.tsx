@@ -63,6 +63,7 @@ type EstimateEditorToolbarProps = {
   onOpenAssemblyPicker: () => void;
   onOpenImportFromEstimateDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
+  onOpenGeneratedOuvrageDialog?: () => void;
   onAddRootSection: () => void;
   rootAddSectionLabel?: string;
   onExpandAllSections?: () => void;
@@ -139,6 +140,7 @@ export function EstimateEditorToolbar({
   onOpenAssemblyPicker,
   onOpenImportFromEstimateDialog,
   onOpenEstimateStructureDraftDialog,
+  onOpenGeneratedOuvrageDialog,
   onAddRootSection,
   rootAddSectionLabel = "+ Ajouter un Lot",
   onExpandAllSections,
@@ -304,6 +306,17 @@ export function EstimateEditorToolbar({
             data-testid="estimate-editor-open-structure-draft-button"
           >
             Structure IA
+          </button>
+        ) : null}
+        {onOpenGeneratedOuvrageDialog ? (
+          <button
+            className="btn btn-secondary btn-sm"
+            type="button"
+            onClick={onOpenGeneratedOuvrageDialog}
+            disabled={meta.isReadOnly}
+            data-testid="estimate-editor-open-generated-ouvrage-button"
+          >
+            Generer des ouvrages
           </button>
         ) : null}
 
@@ -578,7 +591,7 @@ export function EstimateEditorToolbar({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <label
-                    className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+                    className="typo-label text-muted-foreground"
                     htmlFor="estimate-quality-filter"
                   >
                     Filtre qualité
@@ -603,7 +616,7 @@ export function EstimateEditorToolbar({
                 </div>
                 <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
                   <label
-                    className="text-xs font-semibold uppercase tracking-[0.08em] text-orange-700"
+                    className="typo-label text-orange-700"
                     htmlFor="estimate-outlier-method"
                   >
                     Outliers
@@ -698,7 +711,7 @@ export function EstimateEditorToolbar({
           </button>
           <div className="mx-1 h-4 w-px bg-slate-300" />
           <label
-            className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+            className="typo-label text-muted-foreground"
             htmlFor="estimate-bulk-move-target"
           >
             Déplacer
@@ -728,7 +741,7 @@ export function EstimateEditorToolbar({
           </button>
           <div className="mx-1 h-4 w-px bg-slate-300" />
           <label
-            className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+            className="typo-label text-muted-foreground"
             htmlFor="estimate-bulk-category"
           >
             Catégorie
@@ -759,7 +772,7 @@ export function EstimateEditorToolbar({
           </button>
           <div className="mx-1 h-4 w-px bg-slate-300" />
           <label
-            className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+            className="typo-label text-muted-foreground"
             htmlFor="estimate-bulk-labor-role"
           >
             Rôle MO

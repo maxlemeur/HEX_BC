@@ -1,5 +1,7 @@
 "use client";
 
+import { cn } from "@/lib/utils";
+
 type GeneratedOuvrageFooterBarProps = {
   selectedCount: number;
   selectedReviewedCount: number;
@@ -26,20 +28,55 @@ export function GeneratedOuvrageFooterBar({
   onInsertSelected,
 }: GeneratedOuvrageFooterBarProps) {
   const isDiscarded = draftStatus === "discarded";
-  const statusCopy = isDiscarded
-    ? "Toutes les propositions ont ete ecartees"
-    : selectedCount === 0
-      ? "Selectionnez un ouvrage pret a inserer. Unite, quantite et sous-detail valide sont requis."
-      : selectedMissingParentCount > 0
-        ? `${selectedMissingParentCount}/${selectedCount} ouvrage(s) selectionne(s) doivent encore completer unite ou quantite.`
-        : selectedMissingReviewCount > 0
-          ? `${selectedReviewedCount}/${selectedCount} ouvrage(s) selectionne(s) ont un sous-detail valide.`
-          : `${selectedReviewedCount}/${selectedCount} ouvrage(s) selectionne(s) pret(s) a inserer.`;
+
+  // Determine status copy and color variant
+  let statusCopy: string;
+  let statusVariant: "amber" | "green" | "slate";
+
+  if (isDiscarded) {
+    statusCopy = "Toutes les propositions ont ete ecartees.";
+    statusVariant = "slate";
+  } else if (selectedCount === 0) {
+    statusCopy =
+      "Selectionnez un ouvrage pret a inserer. Unite, quantite et sous-detail valide sont requis.";
+    statusVariant = "slate";
+  } else if (selectedMissingParentCount > 0) {
+    statusCopy = `${selectedMissingParentCount} ouvrage(s) selectionne(s) incomplet(s). Completez-les avant insertion.`;
+    statusVariant = "amber";
+  } else if (selectedMissingReviewCount > 0) {
+    statusCopy = `${selectedMissingReviewCount} ouvrage(s) selectionne(s) sans sous-detail valide. Validez-les avant insertion.`;
+    statusVariant = "amber";
+  } else {
+    statusCopy = `${selectedReviewedCount} ouvrage(s) selectionne(s) pret(s) a inserer.`;
+    statusVariant = "green";
+  }
+
+  // Determine insert button text
+  let insertButtonText: string;
+  if (isInserting) {
+    insertButtonText = "Insertion...";
+  } else if (selectedCount === 0) {
+    insertButtonText = "Selectionnez des ouvrages";
+  } else if (!canInsertSelected) {
+    insertButtonText = "Insertion indisponible";
+  } else {
+    insertButtonText = `Inserer ${selectedReviewedCount} ouvrage(s)`;
+  }
 
   return (
     <div className="mt-4 border-t border-slate-200 pt-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="max-w-2xl text-sm text-slate-600">
+        <div
+          className={cn(
+            "max-w-2xl rounded-lg border px-3 py-2 text-sm",
+            statusVariant === "amber" &&
+              "border-amber-200 bg-amber-50 text-amber-800",
+            statusVariant === "green" &&
+              "border-emerald-200 bg-emerald-50 text-emerald-800",
+            statusVariant === "slate" &&
+              "border-slate-200 bg-slate-50 text-slate-600"
+          )}
+        >
           {statusCopy}
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
@@ -65,9 +102,7 @@ export function GeneratedOuvrageFooterBar({
               disabled={!canInsertSelected || isInserting}
               data-testid="generated-ouvrage-insert-button"
             >
-              {isInserting
-                ? "Insertion..."
-                : "Inserer les ouvrages selectionnes"}
+              {insertButtonText}
             </button>
           )}
         </div>

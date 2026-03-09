@@ -114,7 +114,10 @@ alter table public.estimate_version_events
       'seal_verified',
       'approval_rules_evaluated',
       'approval_status_changed',
-      'approval_decided'
+      'approval_decided',
+      'generated_ouvrage_draft_created',
+      'generated_ouvrage_inserted',
+      'generated_ouvrage_discarded'
     )
   );
 
@@ -151,7 +154,10 @@ begin
     'seal_verified',
     'approval_rules_evaluated',
     'approval_status_changed',
-    'approval_decided'
+    'approval_decided',
+    'generated_ouvrage_draft_created',
+    'generated_ouvrage_inserted',
+    'generated_ouvrage_discarded'
   ) then
     raise exception
       using
@@ -293,6 +299,7 @@ create policy "Tenant directors can view labor roles"
   );
 
 drop policy if exists "Tenant admins can decide estimate approvals" on public.estimate_approvals;
+drop policy if exists "Tenant approvers can decide estimate approvals" on public.estimate_approvals;
 create policy "Tenant approvers can decide estimate approvals"
   on public.estimate_approvals
   for update

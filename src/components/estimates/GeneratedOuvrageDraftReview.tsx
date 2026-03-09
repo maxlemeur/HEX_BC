@@ -108,9 +108,18 @@ export function GeneratedOuvrageDraftReview({
       )}
 
       {/* Status announcement */}
-      <div aria-live="polite" className="sr-only">
-        {statusMessage}
-      </div>
+      {statusMessage && (
+        <div
+          aria-live="polite"
+          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800"
+        >
+          {statusMessage}
+        </div>
+      )}
+      {/* Keep sr-only fallback for screen readers when no visible message */}
+      {!statusMessage && (
+        <div aria-live="polite" className="sr-only" />
+      )}
 
       {/* Candidate list */}
       <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">

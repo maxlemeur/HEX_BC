@@ -291,6 +291,7 @@ type EstimateEditorTableProps = {
   onOpenBulkSuggestDialog: () => void;
   onOpenImportFromEstimateDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
+  onOpenGeneratedOuvrageDialog?: () => void;
   onReorder: (parentId: string | null, orderedIds: string[]) => void;
   onMoveItem: (
     itemId: string,
@@ -802,6 +803,7 @@ export function EstimateEditorTable({
   onOpenBulkSuggestDialog,
   onOpenImportFromEstimateDialog,
   onOpenEstimateStructureDraftDialog,
+  onOpenGeneratedOuvrageDialog,
   onReorder,
   onMoveItem,
   scrollToItemId,
@@ -2253,8 +2255,8 @@ export function EstimateEditorTable({
     <EstimateEditorProvider value={estimateEditorContextValue}>
       <EstimateEditorRowActionsProvider value={rowActionsContextValue}>
         <EstimateSpreadsheetProvider navigation={spreadsheetNavigation}>
-          <div ref={tableCardRef} data-testid="estimate-editor-table-shell">
-      <div className="dashboard-card p-6" data-testid="estimate-editor-table-card">
+          <div ref={tableCardRef} data-testid="estimate-editor-table-shell" data-density="compact">
+      <div className="dashboard-card relative z-10 p-6" data-testid="estimate-editor-table-card">
         <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
         <EstimateEditorToolbar
@@ -2285,6 +2287,7 @@ export function EstimateEditorTable({
           onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
           onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
           onOpenEstimateStructureDraftDialog={onOpenEstimateStructureDraftDialog}
+          onOpenGeneratedOuvrageDialog={onOpenGeneratedOuvrageDialog}
           onAddRootSection={() => onAddSection(null)}
           rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
           onExpandAllSections={handleExpandAllSections}
