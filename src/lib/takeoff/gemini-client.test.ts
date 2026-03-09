@@ -23,6 +23,7 @@ describe("callGeminiStructured", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("returns structured data and metadata on success", async () => {
@@ -149,6 +150,92 @@ describe("callGeminiStructured", () => {
     expect(result.providerBatchStateRaw).toBe("JOB_STATE_SUCCEEDED");
   });
 
+  it("reads batch inline results from nested dest.inlinedResponses payloads", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            name: "batches/test-3",
+            metadata: {
+              state: "JOB_STATE_SUBMITTED",
+            },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            done: true,
+            metadata: {
+              state: "JOB_STATE_SUCCEEDED",
+            },
+            response: {
+              dest: {
+                inlinedResponses: [
+                  {
+                    response: {
+                      candidates: [
+                        {
+                          content: {
+                            parts: [
+                              {
+                                text: JSON.stringify({
+                                  items: [
+                                    {
+                                      designation: "Tube cuivre",
+                                      quantity: 12,
+                                      unit: "ml",
+                                    },
+                                  ],
+                                }),
+                              },
+                            ],
+                          },
+                          finishReason: "STOP",
+                        },
+                      ],
+                      usageMetadata: {
+                        promptTokenCount: 100,
+                        candidatesTokenCount: 40,
+                        totalTokenCount: 140,
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callGeminiStructured(
+      {
+        prompt: "Extract",
+        schema: TestSchema,
+        deliveryMode: "batch",
+        context: {
+          model: "gemini-3-flash-preview",
+        },
+      },
+      {
+        apiKey: "test-key",
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.data.items).toEqual([
+      {
+        designation: "Tube cuivre",
+        quantity: 12,
+        unit: "ml",
+      },
+    ]);
+    expect(result.providerBatchId).toBe("batches/test-3");
+    expect(result.providerBatchStateRaw).toBe("JOB_STATE_SUCCEEDED");
+  });
+
   it("does not retry batch mode after a batch has been submitted", async () => {
     const sleep = vi.fn().mockResolvedValue(undefined);
     const invokeBatch = vi.fn().mockImplementation(async (input) => {
@@ -184,6 +271,47 @@ describe("callGeminiStructured", () => {
 
     expect(invokeBatch).toHaveBeenCalledTimes(1);
     expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("aborts batch HTTP calls when the timeout budget is exhausted", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      const signal = init?.signal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            const abortError = new Error("aborted");
+            abortError.name = "AbortError";
+            reject(abortError);
+          },
+          { once: true }
+        );
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = callGeminiStructured(
+      {
+        prompt: "Extract",
+        schema: TestSchema,
+        deliveryMode: "batch",
+        timeoutMs: 2_000,
+        maxRetries: 0,
+      },
+      {
+        apiKey: "test-key",
+      }
+    );
+    const pendingExpectation = expect(pending).rejects.toMatchObject({
+      code: "AI_TIMEOUT",
+    });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await pendingExpectation;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("honors explicit timeout values above 180 seconds", async () => {

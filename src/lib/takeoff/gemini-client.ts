@@ -171,6 +171,42 @@ function timeoutError(timeoutMs: number) {
   return error;
 }
 
+function isAbortError(error: unknown) {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
+
+function remainingTimeoutMs(startedAt: number, timeoutMs: number) {
+  return Math.max(1, timeoutMs - (Date.now() - startedAt));
+}
+
+async function fetchWithTimeout(input: {
+  url: string;
+  init: RequestInit;
+  timeoutMs: number;
+  timeoutErrorMs?: number;
+}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), input.timeoutMs);
+
+  try {
+    return await fetch(input.url, {
+      ...input.init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw timeoutError(input.timeoutErrorMs ?? input.timeoutMs);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function extractCandidateText(payload: Record<string, unknown>) {
   const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
   const firstCandidate = candidates[0];
@@ -231,12 +267,34 @@ function extractBatchInlineResponse(payload: Record<string, unknown>) {
     payload.response && typeof payload.response === "object"
       ? (payload.response as Record<string, unknown>)
       : payload;
+  const responseDest =
+    response.dest && typeof response.dest === "object"
+      ? (response.dest as Record<string, unknown>)
+      : null;
+  const payloadDest =
+    payload.dest && typeof payload.dest === "object"
+      ? (payload.dest as Record<string, unknown>)
+      : null;
 
-  const inlinedResponses = Array.isArray(response.inlinedResponses)
-    ? response.inlinedResponses
-    : Array.isArray(response.inlined_responses)
-      ? response.inlined_responses
-      : [];
+  const candidateContainers = [responseDest, payloadDest, response, payload];
+  let inlinedResponses: unknown[] = [];
+
+  for (const container of candidateContainers) {
+    if (!container) {
+      continue;
+    }
+
+    if (Array.isArray(container.inlinedResponses)) {
+      inlinedResponses = container.inlinedResponses;
+      break;
+    }
+
+    if (Array.isArray(container.inlined_responses)) {
+      inlinedResponses = container.inlined_responses;
+      break;
+    }
+  }
+
   const firstInlineResponse = inlinedResponses[0];
   if (!firstInlineResponse || typeof firstInlineResponse !== "object") {
     return {
@@ -308,23 +366,21 @@ async function invokeGeminiApi(input: {
   timeoutMs: number;
   thinkingLevel?: GeminiThinkingLevel;
 }): Promise<GeminiProviderResponse> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), input.timeoutMs);
   const payload = buildGeminiGenerateContentRequest(input);
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE_URL}/${encodeURIComponent(input.model)}:generateContent`,
-      {
+    const response = await fetchWithTimeout({
+      url: `${GEMINI_API_BASE_URL}/${encodeURIComponent(input.model)}:generateContent`,
+      init: {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-goog-api-key": input.apiKey,
         },
         body: JSON.stringify(payload),
-        signal: controller.signal,
-      }
-    );
+      },
+      timeoutMs: input.timeoutMs,
+    });
 
     const responseText = await response.text();
     let jsonPayload: Record<string, unknown> = {};
@@ -372,16 +428,11 @@ async function invokeGeminiApi(input: {
       usage: extractUsage(jsonPayload),
     };
   } catch (error) {
-    if (
-      error instanceof DOMException &&
-      error.name === "AbortError"
-    ) {
+    if (isAbortError(error)) {
       throw timeoutError(input.timeoutMs);
     }
 
     throw error;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
@@ -418,9 +469,9 @@ async function invokeGeminiBatchApi(input: {
   }
 
   const startedAt = Date.now();
-  const createResponse = await fetch(
-    `${GEMINI_API_BASE_URL}/${encodeURIComponent(input.model)}:batchGenerateContent`,
-    {
+  const createResponse = await fetchWithTimeout({
+    url: `${GEMINI_API_BASE_URL}/${encodeURIComponent(input.model)}:batchGenerateContent`,
+    init: {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -443,8 +494,10 @@ async function invokeGeminiBatchApi(input: {
           },
         },
       }),
-    }
-  );
+    },
+    timeoutMs: remainingTimeoutMs(startedAt, input.timeoutMs),
+    timeoutErrorMs: input.timeoutMs,
+  });
 
   const createPayloadText = await createResponse.text();
   let createPayload: Record<string, unknown> = {};
@@ -501,12 +554,17 @@ async function invokeGeminiBatchApi(input: {
   );
 
   while (Date.now() - startedAt < input.timeoutMs) {
-    const pollResponse = await fetch(`${GEMINI_API_ROOT}/${batchJobName}`, {
-      method: "GET",
-      headers: {
-        "x-goog-api-key": input.apiKey,
-        "Content-Type": "application/json",
+    const pollResponse = await fetchWithTimeout({
+      url: `${GEMINI_API_ROOT}/${batchJobName}`,
+      init: {
+        method: "GET",
+        headers: {
+          "x-goog-api-key": input.apiKey,
+          "Content-Type": "application/json",
+        },
       },
+      timeoutMs: remainingTimeoutMs(startedAt, input.timeoutMs),
+      timeoutErrorMs: input.timeoutMs,
     });
 
     const pollPayloadText = await pollResponse.text();
@@ -562,6 +620,16 @@ async function invokeGeminiBatchApi(input: {
       lastEmittedState = batchState;
     }
 
+    if (
+      batchState === "JOB_STATE_FAILED" ||
+      batchState === "JOB_STATE_CANCELLED" ||
+      batchState === "JOB_STATE_EXPIRED"
+    ) {
+      const providerError = new Error(`Gemini Batch job ended in state ${batchState}.`);
+      (providerError as Error & { details?: unknown }).details = pollPayload;
+      throw providerError;
+    }
+
     if (done || batchState === "JOB_STATE_SUCCEEDED") {
       const { response: inlineResponse, error: inlineError } =
         extractBatchInlineResponse(pollPayload);
@@ -598,17 +666,9 @@ async function invokeGeminiBatchApi(input: {
       };
     }
 
-    if (
-      batchState === "JOB_STATE_FAILED" ||
-      batchState === "JOB_STATE_CANCELLED" ||
-      batchState === "JOB_STATE_EXPIRED"
-    ) {
-      const providerError = new Error(`Gemini Batch job ended in state ${batchState}.`);
-      (providerError as Error & { details?: unknown }).details = pollPayload;
-      throw providerError;
-    }
-
-    await delay(pollIntervalMs);
+    await delay(
+      Math.min(pollIntervalMs, remainingTimeoutMs(startedAt, input.timeoutMs))
+    );
   }
 
   throw timeoutError(input.timeoutMs);

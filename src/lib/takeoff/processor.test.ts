@@ -166,6 +166,7 @@ type SupabaseMockOptions = {
   failCompletedJobUpdate?: boolean;
   failRunMetricsDeleteWhenNonEmpty?: boolean;
   failTakeoffItemsInsertOnce?: boolean;
+  failProviderBatchSnapshotRpc?: boolean;
 };
 
 type SupabaseMockState = {
@@ -309,6 +310,7 @@ function createTakeoffProcessorSupabaseMock(
 ): {
   supabase: {
     from: (table: string) => unknown;
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<QueryResponse<null>>;
     storage: {
       from: (
         bucket: string
@@ -436,6 +438,7 @@ function createTakeoffProcessorSupabaseMock(
   const failRunMetricsDeleteWhenNonEmpty =
     options.failRunMetricsDeleteWhenNonEmpty ?? false;
   let takeoffItemsInsertFailuresRemaining = options.failTakeoffItemsInsertOnce ? 1 : 0;
+  const failProviderBatchSnapshotRpc = options.failProviderBatchSnapshotRpc ?? false;
   let cancellationApplied = false;
 
   let resultIdSequence = 0;
@@ -1064,6 +1067,86 @@ function createTakeoffProcessorSupabaseMock(
         };
       }),
     },
+    rpc: vi.fn(
+      async (fn: string, args: Record<string, unknown>): Promise<QueryResponse<null>> => {
+        if (fn !== "persist_takeoff_provider_batch_snapshot") {
+          throw new Error(`Unexpected rpc: ${fn}`);
+        }
+
+        if (failProviderBatchSnapshotRpc) {
+          return {
+            data: null,
+            error: {
+              code: "PGRST301",
+              message: "Simulated provider batch snapshot rpc failure",
+            },
+          };
+        }
+
+        if (args.p_should_update_snapshot === true) {
+          state.job = {
+            ...state.job,
+            processing_strategy:
+              typeof args.p_processing_strategy === "string"
+                ? args.p_processing_strategy
+                : (state.job.processing_strategy ?? "sync"),
+            provider_batch_id:
+              typeof args.p_provider_batch_id === "string" || args.p_provider_batch_id === null
+                ? (args.p_provider_batch_id as string | null)
+                : state.job.provider_batch_id,
+            provider_batch_state:
+              typeof args.p_provider_batch_state === "string" ||
+              args.p_provider_batch_state === null
+                ? (args.p_provider_batch_state as string | null)
+                : state.job.provider_batch_state,
+            provider_batch_updated_at:
+              typeof args.p_provider_batch_updated_at === "string" ||
+              args.p_provider_batch_updated_at === null
+                ? (args.p_provider_batch_updated_at as string | null)
+                : state.job.provider_batch_updated_at,
+          };
+        }
+
+        if (args.p_should_insert_event === true) {
+          state.providerEvents.push({
+            tenant_id:
+              typeof args.p_tenant_id === "string" ? args.p_tenant_id : state.job.tenant_id,
+            takeoff_job_id:
+              typeof args.p_job_id === "string" ? args.p_job_id : state.job.id,
+            estimate_version_id:
+              typeof args.p_estimate_version_id === "string"
+                ? args.p_estimate_version_id
+                : state.job.estimate_version_id,
+            provider: typeof args.p_provider === "string" ? args.p_provider : "gemini",
+            processing_strategy:
+              typeof args.p_processing_strategy === "string"
+                ? args.p_processing_strategy
+                : (state.job.processing_strategy ?? "sync"),
+            provider_batch_id:
+              typeof args.p_provider_batch_id === "string" || args.p_provider_batch_id === null
+                ? (args.p_provider_batch_id as string | null)
+                : null,
+            provider_batch_state:
+              typeof args.p_provider_batch_state === "string" ||
+              args.p_provider_batch_state === null
+                ? (args.p_provider_batch_state as string | null)
+                : null,
+            provider_state_raw:
+              typeof args.p_provider_state_raw === "string" ||
+              args.p_provider_state_raw === null
+                ? (args.p_provider_state_raw as string | null)
+                : null,
+            message:
+              typeof args.p_message === "string" || args.p_message === null
+                ? (args.p_message as string | null)
+                : null,
+            metadata: isRecord(args.p_metadata) ? deepClone(args.p_metadata) : {},
+          });
+        }
+
+        return { data: null, error: null };
+      }
+    ),
     from: vi.fn((table: string) => {
       if (table === "takeoff_jobs") {
         return {
@@ -1591,6 +1674,57 @@ describe("processLevelA", () => {
     expect(
       mock.state.providerEvents.map((event) => event.provider_batch_state)
     ).toEqual(["submitted", "running", "succeeded"]);
+  });
+
+  it("does not partially persist provider batch state when the atomic RPC fails", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        processing_strategy: "batch",
+      },
+      featureFlags: {
+        TAKEOFF_GEMINI_BATCH_MODE: "true",
+      },
+      failProviderBatchSnapshotRpc: true,
+    });
+    const callGemini = vi.fn().mockImplementation(async (options) => {
+      await options.onBatchLifecycleEvent?.({
+        provider: "gemini",
+        providerBatchId: "batches/test-atomic-failure",
+        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
+        observedAt: "2026-02-25T10:00:01.000Z",
+        isTerminal: false,
+        message: "submitted",
+      });
+
+      return buildGeminiResult(
+        buildTakeoffExchange([
+          {
+            designation: "Tube PVC",
+            quantity: 12,
+            unit: "ml",
+            source_page: 1,
+            source_file: "niveau-a.csv",
+          },
+        ])
+      );
+    });
+
+    await expect(
+      processLevelA(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+
+    expect(mock.state.job.provider_batch_id).toBeNull();
+    expect(mock.state.job.provider_batch_state).toBeNull();
+    expect(mock.state.job.provider_batch_updated_at).toBeNull();
+    expect(mock.state.providerEvents).toHaveLength(0);
   });
 
   it("clears stale batch metadata when retrying a failed job in sync mode", async () => {

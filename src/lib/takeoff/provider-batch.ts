@@ -1,3 +1,5 @@
+import type { PostgrestError } from "@supabase/supabase-js";
+
 import type { getAuthenticatedContext } from "@/lib/estimates/server";
 import { mapSupabaseError } from "@/lib/estimates/errors";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
@@ -142,62 +144,41 @@ export async function persistTakeoffProviderBatchSnapshot(
     currentSnapshot?.provider_batch_updated_at !== nextSnapshot.provider_batch_updated_at;
   const shouldInsertEvent = baseSnapshotChanged;
 
-  if (snapshotChanged) {
-    const { error } = await input.supabase
-      .from("takeoff_jobs" as never)
-      .update({
-        processing_strategy: nextSnapshot.processing_strategy,
-        provider_batch_id: nextSnapshot.provider_batch_id,
-        provider_batch_state: nextSnapshot.provider_batch_state,
-        provider_batch_updated_at: nextSnapshot.provider_batch_updated_at,
-      } as never)
-      .eq("id" as never, input.jobId as never)
-      .eq("tenant_id" as never, input.tenantId as never);
-
-    if (error) {
-      throw toTakeoffError(
-        mapSupabaseError(
-          error,
-          "Impossible de persister l'etat provider du batch takeoff."
-        ),
-        {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          retryable: false,
-          jobId: input.jobId,
-        }
-      );
-    }
+  if (!snapshotChanged && !shouldInsertEvent) {
+    return nextSnapshot;
   }
 
-  if (shouldInsertEvent) {
-    const { error } = await input.supabase
-      .from("takeoff_job_provider_events" as never)
-      .insert({
-        tenant_id: input.tenantId,
-        takeoff_job_id: input.jobId,
-        estimate_version_id: input.estimateVersionId,
-        provider: input.provider,
-        processing_strategy: nextSnapshot.processing_strategy,
-        provider_batch_id: nextSnapshot.provider_batch_id,
-        provider_batch_state: nextSnapshot.provider_batch_state,
-        provider_state_raw: nextSnapshot.provider_state_raw,
-        message: normalizeNullableText(input.message),
-        metadata: input.metadata ?? {},
-      } as never);
+  const { error } = await input.supabase.rpc(
+    "persist_takeoff_provider_batch_snapshot" as never,
+    {
+      p_job_id: input.jobId,
+      p_tenant_id: input.tenantId,
+      p_estimate_version_id: input.estimateVersionId,
+      p_provider: input.provider,
+      p_processing_strategy: nextSnapshot.processing_strategy,
+      p_provider_batch_id: nextSnapshot.provider_batch_id,
+      p_provider_batch_state: nextSnapshot.provider_batch_state,
+      p_provider_batch_updated_at: nextSnapshot.provider_batch_updated_at,
+      p_provider_state_raw: nextSnapshot.provider_state_raw,
+      p_message: normalizeNullableText(input.message),
+      p_metadata: input.metadata ?? {},
+      p_should_update_snapshot: snapshotChanged,
+      p_should_insert_event: shouldInsertEvent,
+    } as never
+  );
 
-    if (error) {
-      throw toTakeoffError(
-        mapSupabaseError(
-          error,
-          "Impossible d'historiser l'etat provider du batch takeoff."
-        ),
-        {
-          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
-          retryable: false,
-          jobId: input.jobId,
-        }
-      );
-    }
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(
+        error as PostgrestError,
+        "Impossible de persister l'etat provider du batch takeoff et son historique."
+      ),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: input.jobId,
+      }
+    );
   }
 
   return nextSnapshot;
