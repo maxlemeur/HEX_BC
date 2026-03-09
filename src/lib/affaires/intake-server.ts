@@ -2614,14 +2614,9 @@ export async function updateAffaireBrief(input: {
     status: "a_confirmer",
     confirmedAt: null,
   });
-  const nextSources = remapBriefSourcesForEditedDraft({
-    previous: existing.draft,
-    next: nextDraft,
-  });
 
   const contentChanged =
-    getComparableBriefPayload(existing.draft) !== getComparableBriefPayload(nextDraft) ||
-    existing.draft.status !== nextDraft.status;
+    getComparableBriefPayload(existing.draft) !== getComparableBriefPayload(nextDraft);
 
   if (!contentChanged) {
     return {
@@ -2629,6 +2624,11 @@ export async function updateAffaireBrief(input: {
       status: existing.draft.status,
     } as const;
   }
+
+  const nextSources = remapBriefSourcesForEditedDraft({
+    previous: existing.draft,
+    next: nextDraft,
+  });
 
   const { error } = await resolveSupabaseQuery<{ error: unknown }>(
     context.supabase

@@ -490,4 +490,29 @@ describe("affaire intake server brief regressions", () => {
       }),
     ]);
   });
+
+  it("keeps confirmed briefs confirmed when a save normalizes to the same content", async () => {
+    const { context, updatedBriefPayloads, deletedBriefIds, insertedSourcePayloads, insertedEventPayloads } =
+      createSupabaseContext();
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await updateAffaireBrief({
+      projectId: PROJECT_ID,
+      summary: "  Ancienne synthese  ",
+      scope: ["Lot Alpha", " Lot Beta ", "Lot Alpha"],
+      vigilancePoints: ["Point A", "Point B"],
+      assumptions: ["Hypothese A", " Hypothese B "],
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      status: "confirme",
+    });
+    expect(updatedBriefPayloads).toEqual([]);
+    expect(deletedBriefIds).toEqual([]);
+    expect(insertedSourcePayloads).toEqual([]);
+    expect(insertedEventPayloads).toEqual([]);
+    expect(syncAffaireRegisterFromBrief).not.toHaveBeenCalled();
+  });
 });
