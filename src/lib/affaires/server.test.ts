@@ -808,7 +808,7 @@ describe("affaires hub server", () => {
       latestJob: {
         jobId: "job-1",
         status: "review_required",
-        label: "Analyse a verifier",
+        label: "Revue requise",
         reviewVersionId: "ver-1",
       },
       coveragePercent: 70,
@@ -1256,13 +1256,75 @@ describe("affaires hub server", () => {
 
     expect(summary.latestJob).toEqual({
       jobId: "job-2",
-      status: "running",
-      label: "Analyse en attente",
+      status: "queued",
+      label: "En file",
       reviewVersionId: "ver-2",
     });
     expect(summary.coveragePercent).toBeNull();
     expect(summary.exceptionCount).toBeNull();
     expect(fetchTakeoffDpgfSummaryForHub).not.toHaveBeenCalled();
+  });
+
+  it("returns provider_pending status when a batch job is waiting on provider execution", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Provider Pending",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: { data: null, count: 1, error: null },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-provider",
+                status: "processing",
+                level: "B",
+                processing_strategy: "batch",
+                provider_batch_state: "running",
+                source_file_name: null,
+                created_at: "2026-03-05T11:00:00+00:00",
+                error_code: null,
+                error_message: null,
+                estimate_version_id: "ver-provider",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          { limit: { data: null, count: 1, error: null } },
+          { limit: { data: [{ file_size_bytes: 200 }], error: null } },
+        ],
+      },
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.latestJob).toEqual({
+      jobId: "job-provider",
+      status: "provider_pending",
+      label: "En attente provider",
+      reviewVersionId: "ver-provider",
+    });
   });
 
   it("returns failureReasonLabel when job has known error_code", async () => {
@@ -1319,11 +1381,13 @@ describe("affaires hub server", () => {
 
     expect(summary.latestJob).toEqual({
       jobId: "job-3",
-      status: "failed",
-      label: "Analyse echouee",
+      status: "action_required",
+      label: "Echec a corriger",
       reviewVersionId: "ver-3",
     });
-    expect(summary.failureReasonLabel).toBe("Delai depasse");
+    expect(summary.failureReasonLabel).toBe(
+      "Delai depasse. Relancez l'analyse ou essayez un niveau plus rapide."
+    );
   });
 
   it("returns null failureReasonLabel when error_code is unknown", async () => {
@@ -1444,12 +1508,12 @@ describe("affaires hub server", () => {
     const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
 
     expect(summary.latestJob?.status).toBe("review_required");
-    expect(summary.latestJob?.label).toBe("Analyse a verifier");
+    expect(summary.latestJob?.label).toBe("Revue requise");
     expect(summary.coveragePercent).toBe(75);
     expect(summary.exceptionCount).toBe(5);
   });
 
-  it("returns done status when job is completed with zero exceptions", async () => {
+  it("returns completed status when job is completed with zero exceptions", async () => {
     const context = createHubContext({
       tableScenarios: {
         estimate_projects: [
@@ -1511,7 +1575,7 @@ describe("affaires hub server", () => {
 
     const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
 
-    expect(summary.latestJob?.status).toBe("done");
+    expect(summary.latestJob?.status).toBe("completed");
     expect(summary.latestJob?.label).toBe("Analyse terminee");
     expect(summary.coveragePercent).toBe(100);
     expect(summary.exceptionCount).toBe(0);
@@ -1664,7 +1728,7 @@ describe("affaires hub server", () => {
     expect(summary.coveragePercent).toBeNull();
     expect(summary.exceptionCount).toBeNull();
     expect(summary.latestJob?.status).toBe("review_required");
-    expect(summary.latestJob?.label).toBe("Analyse a verifier");
+    expect(summary.latestJob?.label).toBe("Revue requise");
   });
 
   it("returns NOT_FOUND when project is not accessible", async () => {

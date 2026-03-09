@@ -5,7 +5,6 @@ import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import {
   getBusinessLevelLabel,
-  getBusinessStatusLabel,
   getConfidenceLabel,
 } from "@/components/takeoff/takeoff-job-list-shared";
 import type {
@@ -14,6 +13,7 @@ import type {
   TakeoffActivityCenterCounters,
   TakeoffActivityCenterConfidenceLabel,
 } from "@/lib/takeoff/types";
+import { resolveTakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 
 /* ─── Constants ─── */
 
@@ -708,6 +708,25 @@ export async function listActivityCenterJobs(
       ? (confidenceMap.get(row.id) ?? null)
       : null;
     const resolvedSource = resolvedSourceByJobId.get(row.id) ?? null;
+    const visibleStatus = resolveTakeoffVisibleJobStatus({
+      status: row.status,
+      processingStrategy:
+        row.processing_strategy === "sync" || row.processing_strategy === "batch"
+          ? row.processing_strategy
+          : null,
+      providerBatchState:
+        row.provider_batch_state === "submitted" ||
+        row.provider_batch_state === "pending" ||
+        row.provider_batch_state === "running" ||
+        row.provider_batch_state === "succeeded" ||
+        row.provider_batch_state === "failed" ||
+        row.provider_batch_state === "cancelled" ||
+        row.provider_batch_state === "expired" ||
+        row.provider_batch_state === "unknown"
+          ? row.provider_batch_state
+          : null,
+      exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : null,
+    });
 
     return {
       jobId: row.id,
@@ -732,7 +751,7 @@ export async function listActivityCenterJobs(
           ? row.provider_batch_state
           : null,
       providerBatchUpdatedAt: row.provider_batch_updated_at ?? null,
-      statusLabel: getBusinessStatusLabel(row.status),
+      statusLabel: visibleStatus.label,
       statusRaw: row.status,
       itemCount: itemCountMap.get(row.id) ?? 0,
       coveragePercent: isEnrichable ? (coverageMap.get(row.id) ?? 0) : 0,

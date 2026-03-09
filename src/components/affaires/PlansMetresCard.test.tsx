@@ -13,13 +13,14 @@ describe("PlansMetresCard", () => {
       <PlansMetresCard
         projectId="project-1"
         plans={{
+          defaultPlanSetId: "plan-set-1",
           planSetCount: 1,
           planFileCount: 1,
           totalSizeBytes: 1024,
           latestJob: {
             jobId: "job-1",
             status: "review_required",
-            label: "Analyse a verifier",
+            label: "Revue requise",
             reviewVersionId: "version-target",
           },
           coveragePercent: 75,
@@ -30,7 +31,7 @@ describe("PlansMetresCard", () => {
       />
     );
 
-    expect(screen.getByRole("link", { name: "Voir les exceptions" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Revoir l'analyse" })).toHaveAttribute(
       "href",
       "/dashboard/affaires/project-1/takeoff/job-1/review?versionId=version-target&view=dpgf&dpgfView=exceptions_only"
     );
@@ -65,12 +66,13 @@ describe("PlansMetresCard", () => {
       <PlansMetresCard
         projectId="project-1"
         plans={{
+          defaultPlanSetId: "plan-set-1",
           planSetCount: 1,
           planFileCount: 1,
           totalSizeBytes: 1024,
           latestJob: {
             jobId: "job-1",
-            status: "done",
+            status: "completed",
             label: "Analyse terminee",
             reviewVersionId: "version-target",
           },
@@ -87,5 +89,42 @@ describe("PlansMetresCard", () => {
       "href",
       "/dashboard/affaires/project-1"
     );
+  });
+
+  it("exposes retry and remediation CTAs when the latest job needs action", () => {
+    render(
+      <PlansMetresCard
+        projectId="project-1"
+        onLaunchMetre={vi.fn()}
+        plans={{
+          defaultPlanSetId: "plan-set-1",
+          planSetCount: 1,
+          planFileCount: 1,
+          totalSizeBytes: 1024,
+          latestJob: {
+            jobId: "job-1",
+            status: "action_required",
+            label: "Echec a corriger",
+            reviewVersionId: "version-target",
+          },
+          coveragePercent: null,
+          exceptionCount: null,
+          openQuestionsCount: 0,
+          failureReasonLabel:
+            "Delai depasse. Relancez l'analyse ou essayez un niveau plus rapide.",
+        }}
+      />
+    );
+
+    expect(screen.getByText(/Delai depasse/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Relancer l'analyse" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Changer de niveau" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Importer un autre document" })
+    ).toHaveAttribute("href", "/dashboard/affaires/project-1/plans");
   });
 });

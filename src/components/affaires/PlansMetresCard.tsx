@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeProps } from "@/components/ui/Badge";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
+import type { TakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -17,7 +18,7 @@ export type AffaireHubPlansSummaryData = {
   defaultPlanSetId: string | null;
   latestJob: {
     jobId: string;
-    status: "running" | "done" | "failed" | "review_required";
+    status: TakeoffVisibleJobStatus;
     label: string;
     reviewVersionId: string;
   } | null;
@@ -42,10 +43,12 @@ type PlansMetresCardProps = {
 type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 
 const FE_STATUS_BADGE: Record<string, BadgeVariant> = {
-  running: "info",
-  done: "success",
+  queued: "info",
+  processing: "info",
+  provider_pending: "info",
+  completed: "success",
   review_required: "warning",
-  failed: "error",
+  action_required: "error",
 };
 
 /* ------------------------------------------------------------------ */
@@ -179,8 +182,17 @@ export function PlansMetresCard({
     : null;
 
   const isCompletedState =
-    latestJob &&
-    (latestJob.status === "done" || latestJob.status === "review_required");
+    latestJob !== null &&
+    (latestJob.status === "completed" || latestJob.status === "review_required");
+  const canReview =
+    latestJob !== null &&
+    (latestJob.status === "completed" || latestJob.status === "review_required");
+  const needsAction = latestJob?.status === "action_required";
+  const isQueuedOrProcessing =
+    latestJob !== null &&
+    (latestJob.status === "queued" ||
+      latestJob.status === "processing" ||
+      latestJob.status === "provider_pending");
 
   const coverageAvailable =
     plans.coveragePercent !== null && plans.exceptionCount !== null;
@@ -229,7 +241,7 @@ export function PlansMetresCard({
               {latestJob.label}
             </Badge>
           </div>
-          {latestJob.status === "failed" && plans.failureReasonLabel && (
+          {needsAction && plans.failureReasonLabel && (
             <p className="mt-1 text-xs text-[var(--slate-500)]">
               {plans.failureReasonLabel}
             </p>
@@ -273,16 +285,14 @@ export function PlansMetresCard({
         >
           Voir les plans
         </Link>
-        {latestJob &&
-          (latestJob.status === "done" ||
-            latestJob.status === "review_required") && (
-            <Link
-              href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`}
-              className="btn btn-secondary btn-sm inline-flex"
-            >
-              Voir les exceptions
-            </Link>
-          )}
+        {canReview ? (
+          <Link
+            href={`/dashboard/affaires/${projectId}/takeoff/${latestJob.jobId}/review?versionId=${latestJob.reviewVersionId}&view=dpgf&dpgfView=exceptions_only`}
+            className="btn btn-secondary btn-sm inline-flex"
+          >
+            Revoir l&apos;analyse
+          </Link>
+        ) : null}
         {plans.openQuestionsCount > 0 ? (
           <Link
             href={`/dashboard/affaires/${projectId}`}
@@ -291,14 +301,50 @@ export function PlansMetresCard({
             Ouvrir le registre
           </Link>
         ) : null}
-        <button
-          type="button"
-          disabled={!onLaunchMetre}
-          onClick={onLaunchMetre}
-          className={`btn btn-secondary btn-sm inline-flex${!onLaunchMetre ? " opacity-50" : ""}`}
-        >
-          Analyser les plans
-        </button>
+        {needsAction ? (
+          <>
+            <button
+              type="button"
+              disabled={!onLaunchMetre}
+              onClick={onLaunchMetre}
+              className={`btn btn-secondary btn-sm inline-flex${!onLaunchMetre ? " opacity-50" : ""}`}
+            >
+              Relancer l&apos;analyse
+            </button>
+            <button
+              type="button"
+              disabled={!onLaunchMetre}
+              onClick={onLaunchMetre}
+              className={`btn btn-secondary btn-sm inline-flex${!onLaunchMetre ? " opacity-50" : ""}`}
+            >
+              Changer de niveau
+            </button>
+            <Link
+              href={`/dashboard/affaires/${projectId}/plans`}
+              className="btn btn-secondary btn-sm inline-flex"
+            >
+              Importer un autre document
+            </Link>
+          </>
+        ) : null}
+        {isQueuedOrProcessing ? (
+          <Link
+            href={`/dashboard/affaires/${projectId}/takeoff`}
+            className="btn btn-secondary btn-sm inline-flex"
+          >
+            Suivre l&apos;analyse
+          </Link>
+        ) : null}
+        {!needsAction ? (
+          <button
+            type="button"
+            disabled={!onLaunchMetre}
+            onClick={onLaunchMetre}
+            className={`btn btn-secondary btn-sm inline-flex${!onLaunchMetre ? " opacity-50" : ""}`}
+          >
+            Analyser les plans
+          </button>
+        ) : null}
       </div>
     </section>
   );

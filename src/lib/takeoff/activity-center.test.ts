@@ -172,7 +172,9 @@ function createSupabaseMock() {
       source_file_name: "manual-upload.xlsx",
       source_file_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       level: "A",
-      status: "pending",
+      status: "processing",
+      processing_strategy: "batch",
+      provider_batch_state: "running",
       created_at: "2026-03-06T08:30:00.000Z",
       retry_count: 0,
       tenant_id: TENANT_ID,
@@ -377,5 +379,23 @@ describe("listActivityCenterJobs", () => {
         versionLabel: "V3",
       }),
     ]);
+  });
+
+  it("exposes provider-facing technical jobs with a business status label", async () => {
+    const response = await listActivityCenterJobs({
+      project_id: PROJECT_ID,
+      limit: 20,
+      offset: 0,
+    });
+
+    const technicalJob = response.jobs.find((job) => job.jobId === JOB_C_ID);
+
+    expect(technicalJob).toEqual(
+      expect.objectContaining({
+        jobId: JOB_C_ID,
+        statusRaw: "processing",
+        statusLabel: "En attente provider",
+      })
+    );
   });
 });

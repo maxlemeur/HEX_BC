@@ -12,6 +12,11 @@ import {
   type ListEstimateProjectVersionsResult,
 } from "@/lib/estimates/server";
 import { fetchTakeoffDpgfSummaryForHub } from "@/lib/takeoff/server";
+import {
+  getTakeoffFailureReasonLabel,
+  resolveTakeoffVisibleJobStatus,
+  type TakeoffVisibleJobStatus,
+} from "@/lib/takeoff/visible-status";
 import type { Database } from "@/types/database";
 
 import {
@@ -152,7 +157,7 @@ export type AffaireHubPlansSummaryResult = {
   defaultPlanSetId: string | null;
   latestJob: {
     jobId: string;
-    status: "running" | "done" | "failed" | "review_required";
+    status: TakeoffVisibleJobStatus;
     label: string;
     reviewVersionId: string;
   } | null;
@@ -505,41 +510,6 @@ async function fetchAffaireHubDpgfSourceWithContext(
   };
 }
 
-const FAILURE_REASON_LABELS: Record<string, string> = {
-  TAKEOFF_FILE_TYPE_INVALID: "Fichier invalide",
-  TAKEOFF_FILE_TOO_LARGE: "Fichier trop volumineux",
-  AI_SCHEMA: "Extraction incomplete",
-  TAKEOFF_LEVEL_C_INVALID_SCHEMA: "Extraction incomplete",
-  AI_TIMEOUT: "Delai depasse",
-  TAKEOFF_LEVEL_C_TIMEOUT: "Delai depasse",
-  AI_SAFETY: "Contenu bloque",
-  TAKEOFF_LEVEL_C_BUDGET_EXCEEDED: "Budget depasse",
-};
-
-function mapJobStatusToFE(
-  dbStatus: string,
-  exceptionCount: number
-): { status: "running" | "done" | "failed" | "review_required"; label: string } {
-  switch (dbStatus) {
-    case "pending":
-      return { status: "running", label: "Analyse en attente" };
-    case "processing":
-      return { status: "running", label: "Analyse en cours" };
-    case "completed":
-      return exceptionCount > 0
-        ? { status: "review_required", label: "Analyse a verifier" }
-        : { status: "done", label: "Analyse terminee" };
-    case "applied":
-      return { status: "done", label: "Analyse terminee" };
-    case "failed":
-      return { status: "failed", label: "Analyse echouee" };
-    case "canceled":
-      return { status: "failed", label: "Annulee" };
-    default:
-      return { status: "running", label: dbStatus };
-  }
-}
-
 async function resolveTakeoffReviewVersionId(input: {
   context: AffaireContext;
   projectId: string;
@@ -611,7 +581,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
     context.supabase
       .from("takeoff_jobs" as never)
       .select(
-        "id, status, level, source_file_name, created_at, error_code, error_message, estimate_version_id, estimate_versions!inner(project_id)" as never
+        "id, status, level, processing_strategy, provider_batch_state, source_file_name, created_at, error_code, error_message, estimate_version_id, estimate_versions!inner(project_id)" as never
       )
       .eq("tenant_id" as never, context.tenantId as never)
       .eq("estimate_versions.project_id" as never, project.id as never)
@@ -742,6 +712,8 @@ async function fetchAffaireHubPlansSummaryWithContext(
     id: string;
     status: string;
     level: string;
+    processing_strategy: string | null;
+    provider_batch_state: string | null;
     source_file_name: string | null;
     created_at: string;
     error_code: string | null;
@@ -793,15 +765,35 @@ async function fetchAffaireHubPlansSummaryWithContext(
     }
 
     if (latestJobRow.status === "failed" || latestJobRow.status === "canceled") {
-      failureReasonLabel = latestJobRow.error_code
-        ? FAILURE_REASON_LABELS[latestJobRow.error_code] ?? null
-        : null;
+      failureReasonLabel = getTakeoffFailureReasonLabel({
+        errorCode: latestJobRow.error_code,
+        fallbackMessage: latestJobRow.error_message,
+      });
     }
 
-    const mapped =
-      isCompletedOrApplied && (coveragePercent === null || exceptionCount === null)
-        ? { status: "review_required" as const, label: "Analyse a verifier" }
-        : mapJobStatusToFE(latestJobRow.status, exceptionCount ?? 0);
+    const mapped = resolveTakeoffVisibleJobStatus({
+      status: latestJobRow.status,
+      processingStrategy:
+        latestJobRow.processing_strategy === "sync" ||
+        latestJobRow.processing_strategy === "batch"
+          ? latestJobRow.processing_strategy
+          : null,
+      providerBatchState:
+        latestJobRow.provider_batch_state === "submitted" ||
+        latestJobRow.provider_batch_state === "pending" ||
+        latestJobRow.provider_batch_state === "running" ||
+        latestJobRow.provider_batch_state === "succeeded" ||
+        latestJobRow.provider_batch_state === "failed" ||
+        latestJobRow.provider_batch_state === "cancelled" ||
+        latestJobRow.provider_batch_state === "expired" ||
+        latestJobRow.provider_batch_state === "unknown"
+          ? latestJobRow.provider_batch_state
+          : null,
+      exceptionCount,
+      compareSummaryUnavailable:
+        isCompletedOrApplied &&
+        (coveragePercent === null || exceptionCount === null),
+    });
     latestJob = {
       jobId: latestJobRow.id,
       status: mapped.status,
