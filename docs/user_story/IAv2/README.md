@@ -16,67 +16,16 @@ La V2 doit prouver que le systeme est exploitable en production, pilotable et re
 
 ## Review appliquee de l'implementation actuelle
 
-### Finding 1 — High
+### Fondations deja en place sur `main`
 
-Le mode Batch actuel n'est pas encore un vrai mode batch production.
+- la persistence durable du provider batch et des etats `provider_batch_*` est en place
+- la reconciliation batch est decouplee du cycle applicatif synchrone
+- le budget d'escalade Level B projette deja le cout total avant rerun premium
+- l'instrumentation des corrections humaines et des decisions DPGF alimente deja l'audit et les stats pilote
 
-Pourquoi:
-- le code cree un batch Gemini puis le poll dans le meme appel applicatif
-- ce poll est borne par le `timeoutMs` courant du processor
-- il n'y a pas de persistence du `batchJobName` ni d'etat batch en base
+Ces points ne sont plus des gaps de baseline IAv2. Le cadrage ci-dessous porte uniquement sur le travail restant.
 
-Impact:
-- risque de faux `timeout`
-- aucune reprise propre apres redemarrage worker
-- pas de reconciliation differree
-- impossible d'exploiter vraiment la promesse cout/async du Batch API
-
-Code:
-- `src/lib/takeoff/gemini-client.ts`
-- `src/lib/takeoff/processor.ts`
-
-Conclusion:
-- le Batch a ete bien introduit techniquement comme transport,
-- mais pas encore comme architecture asynchrone durable.
-
-### Finding 2 — High
-
-Le plafond de cout d'escalade n'est pas un vrai plafond global.
-
-Pourquoi:
-- l'escalade regarde le cout deja consomme par le run primaire
-- elle ne projette pas le cout total probable apres re-run sur modele premium
-
-Impact:
-- un dossier peut depasser le budget defini tout en respectant formellement la condition actuelle
-- la promesse "budget-aware" reste partielle
-
-Code:
-- `src/lib/takeoff/processor.ts`
-
-Conclusion:
-- il faut un vrai moteur de budget `before-run`, pas un simple garde-fou `after primary run`.
-
-### Finding 3 — Medium
-
-Le niveau B continue meme si le nombre de pages PDF ne peut pas etre lu.
-
-Pourquoi:
-- l'erreur de lecture page count est loggee en warning
-- le traitement degrade ensuite vers un chunk unique minimal
-
-Impact:
-- sous-analyse possible sur PDF mal forme
-- comportement difficile a expliquer au chiffreur
-- risque de faux sentiment de succes
-
-Code:
-- `src/lib/takeoff/processor.ts`
-
-Conclusion:
-- sur les documents critiques, il vaut mieux un echec explicite qu'un succes degrade silencieux.
-
-### Finding 4 — Medium
+### Finding 1 — Medium
 
 Le parcours `B/C` est ouvert, mais encore incomplet du point de vue metier.
 
@@ -97,18 +46,34 @@ Code:
 Conclusion:
 - il faut maintenant traiter le produit comme un workflow complet, pas comme un simple lanceur de jobs.
 
+### Finding 2 — Medium
+
+La reprise operateur existe dans le modele technique, mais reste encore partielle dans le parcours produit.
+
+Pourquoi:
+- les etats batch et la reconciliation sont persistants, mais les parcours de relance, abandon et remediation ne sont pas encore tous visibles de bout en bout
+- le hub et les CTA de reprise doivent encore converger vers un contrat metier unique pour eviter les zones grises support
+
+Impact:
+- un incident provider peut encore demander une lecture technique du job plutot qu'une remediation evidente cote produit
+- la promesse "batch durable" est reelle cote moteur, mais pas encore entierement transformee en parcours operateur robuste
+
+Code:
+- `src/lib/takeoff/activity-center.ts`
+- `src/lib/takeoff/server.ts`
+
+Conclusion:
+- la suite IAv2 doit finir le passage de la durabilite technique vers une remediation operateur lisible et actionnable.
+
 ---
 
 ## Edge Cases a traiter en IAv2
 
 | Sujet | Risque actuel | Reponse attendue en V2 |
 |---|---|---|
-| Batch Gemini long | timeout local avant fin reelle du batch | batch durable avec polling/reconciliation decouples |
-| Budget escalation | plafond non cumulatif | projection cout total avant escalation |
-| PDF mal forme | succes degrade silencieux possible | echec explicite ou parcours de remediation |
-| MIME vide / scanner | upload rejete alors que le fichier est valide | fallback par extension + verification serveur |
+| Batch Gemini long | fondation durable deja en place, reprise operateur encore a finaliser | monitoring, CTA de reprise et remediation visibles metier |
 | Dossier multi-plans | mono-fichier `B/C` peu pratique | lancement plan set natif et merge traceable |
-| Jobs bloques | pas de batch state persiste | ecran de reprise, relance, abandon, reconciliation |
+| Jobs bloques | reprise metier encore partielle malgre les etats batch persistants | ecran de reprise, relance, abandon, reconciliation |
 | Output C trop brut | gain metier limite | pre-chiffrage structure par lots/familles/postes |
 | Absence de benchmark reel | impossible de prouver le ROI | corpus, scoring, corrections humaines, pilot tenant |
 

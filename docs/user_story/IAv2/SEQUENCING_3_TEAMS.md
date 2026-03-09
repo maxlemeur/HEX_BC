@@ -4,33 +4,25 @@
 
 ### Theme A — Batch durable & reprise
 
-- EST-421
 - EST-424
 - EST-427
 
 ### Theme B — Routage cout / confiance / robustesse input
 
-- EST-422
 - EST-425
 - EST-428
 
 ### Theme C — Instrumentation metier & UX operateur
 
-- EST-423
 - EST-426
 - EST-429
+
+Les fondations transverses `EST-421`, `EST-422` et `EST-423` sont deja presentes sur `main`.
+Le sequencing ci-dessous couvre donc le travail restant a lancer a partir de cet etat de branche.
 
 ---
 
 ## Ce qui peut partir en meme temps
-
-### Vague 9.1
-
-- Equipe A: EST-421
-- Equipe B: EST-422
-- Equipe C: EST-423
-
-Ces 3 tickets sont independants et peuvent partir ensemble.
 
 ### Vague 9.2
 
@@ -38,7 +30,8 @@ Ces 3 tickets sont independants et peuvent partir ensemble.
 - Equipe B: EST-425
 - Equipe C: EST-426
 
-Peut partir en parallele apres la Vague 9.1, avec les dependances ci-dessous.
+Premiere vague restante a lancer sur `main`.
+Ces 3 tickets peuvent partir ensemble, avec les fondations deja en place et les dependances ci-dessous.
 
 ### Vague 9.3
 
@@ -54,9 +47,6 @@ Peut partir en parallele apres la Vague 9.2.
 
 | Ticket | Dependances |
 |---|---|
-| EST-421 | aucune |
-| EST-422 | aucune |
-| EST-423 | aucune |
 | EST-424 | EST-421 |
 | EST-425 | EST-422 |
 | EST-426 | EST-421, EST-423 |
@@ -70,29 +60,29 @@ Peut partir en parallele apres la Vague 9.2.
 
 ### Equipe A
 
-- Commence par la persistance batch
-- Enchaine sur le worker de reconciliation
+- S'appuie sur la persistance batch deja en place
+- Commence par le worker de reconciliation
 - Termine sur les actions de reprise operateur
 
 ### Equipe B
 
-- Commence par le moteur budget/escalade
-- Enchaine sur le classifieur document/niveau
+- S'appuie sur le moteur budget/escalade deja en place
+- Commence par le classifieur document/niveau
 - Termine sur la robustesse PDF terrain
 
 ### Equipe C
 
-- Commence par l'instrumentation des corrections humaines
-- Enchaine sur le monitoring hub et les statuts lisibles
+- S'appuie sur l'instrumentation des corrections humaines deja en place
+- Commence par le monitoring hub et les statuts lisibles
 - Termine sur le tableau de bord pilote et les criteres go/no-go
 
 ---
 
 ## Contraintes de coordination
 
-- EST-421 doit stabiliser le contrat de persistence batch avant EST-424 et EST-426.
-- EST-422 doit stabiliser les raisons de routage et de blocage budget avant EST-425.
-- EST-423 doit definir les evenements de correction avant EST-426 et EST-429.
+- EST-421 constitue deja le contrat de persistence batch sur lequel s'appuient EST-424 et EST-426.
+- EST-422 constitue deja le contrat budget/escalade sur lequel s'appuie EST-425.
+- EST-423 constitue deja le contrat d'evenements de correction sur lequel s'appuient EST-426 et EST-429.
 - EST-426 doit definir le contrat d'etats jobs visible dans le hub avant EST-427 et EST-429.
 
 ---
