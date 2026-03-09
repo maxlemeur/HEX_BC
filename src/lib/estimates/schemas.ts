@@ -975,6 +975,24 @@ export const estimateStructureDraftApplyModeSchema = z.enum([
   "create_empty",
   "merge_existing",
 ]);
+export const versionZeroDraftStatusSchema = z.enum([
+  "ia_a_revoir",
+  "ready_for_version",
+  "materialized",
+  "discarded",
+  "superseded",
+]);
+export const versionZeroLotStatusSchema = z.enum([
+  "generated",
+  "partial",
+  "missing",
+]);
+export const versionZeroLineReviewStatusSchema = z.enum([
+  "pending",
+  "accepted",
+  "edited",
+  "rejected",
+]);
 
 export const generateEstimateStructureDraftSchema = z.preprocess(
   (value) => {
@@ -1059,6 +1077,115 @@ export const applyEstimateStructureDraftSchema = z.preprocess(
     selected_root_node_ids: estimateStructureDraftNodeIdsSchema,
     overrides: z.array(estimateStructureDraftOverrideSchema).max(500).optional().default([]),
   })
+);
+
+const versionZeroSelectedLotsSchema = z
+  .array(z.string().trim().min(1, "Lot invalide.").max(160, "Lot trop long."))
+  .max(50, "selected_lots ne peut pas contenir plus de 50 lots.")
+  .superRefine((lots, ctx) => {
+    const seen = new Set<string>();
+
+    lots.forEach((lot, index) => {
+      const normalized = lot.trim().toLowerCase();
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        return;
+      }
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "selected_lots doit contenir des valeurs uniques.",
+        path: [index],
+      });
+    });
+  });
+
+export const generateVersionZeroDraftSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null || value === "") {
+      return {};
+    }
+
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      brief_id: record.brief_id ?? record.briefId ?? null,
+      selected_lots: record.selected_lots ?? record.selectedLots ?? [],
+    };
+  },
+  z.object({
+    brief_id: nullableUuidSchema.optional(),
+    selected_lots: versionZeroSelectedLotsSchema.optional().default([]),
+  })
+);
+
+export const reviewVersionZeroLineSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      review_status: record.review_status ?? record.reviewStatus,
+      edited_values: record.edited_values ?? record.editedValues ?? null,
+    };
+  },
+  z.object({
+    review_status: versionZeroLineReviewStatusSchema.refine(
+      (status) => status !== "pending",
+      "Le statut pending ne peut pas etre applique manuellement."
+    ),
+    edited_values: z
+      .preprocess(
+        (value) => {
+          if (value === undefined || value === null || value === "") {
+            return undefined;
+          }
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return value;
+          }
+
+          const record = value as Record<string, unknown>;
+          return {
+            title: record.title,
+            description: record.description,
+            quantity: record.quantity,
+            unit: record.unit,
+          };
+        },
+        z
+          .object({
+            title: optionalNullableTextSchema.optional(),
+            description: optionalNullableTextSchema.optional(),
+            quantity: z.union([nonNegativeNumberSchema, z.null()]).optional(),
+            unit: optionalNullableTextSchema.optional(),
+          })
+          .optional()
+      )
+      .optional(),
+  })
+).superRefine((payload, ctx) => {
+  if (payload.review_status === "edited" && !payload.edited_values) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "edited_values est requis quand review_status vaut edited.",
+      path: ["edited_values"],
+    });
+  }
+});
+
+export const materializeVersionZeroDraftSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null || value === "") {
+      return {};
+    }
+    return value;
+  },
+  z.object({})
 );
 
 export const importLinkedDpgfSourceSchema = z.preprocess(
@@ -1353,6 +1480,20 @@ export type ImportEstimateSectionsInput = z.infer<
 >;
 export type ImportLinkedDpgfSourceInput = z.infer<
   typeof importLinkedDpgfSourceSchema
+>;
+export type VersionZeroDraftStatus = z.infer<typeof versionZeroDraftStatusSchema>;
+export type VersionZeroLotStatus = z.infer<typeof versionZeroLotStatusSchema>;
+export type VersionZeroLineReviewStatus = z.infer<
+  typeof versionZeroLineReviewStatusSchema
+>;
+export type GenerateVersionZeroDraftInput = z.infer<
+  typeof generateVersionZeroDraftSchema
+>;
+export type ReviewVersionZeroLineInput = z.infer<
+  typeof reviewVersionZeroLineSchema
+>;
+export type MaterializeVersionZeroDraftInput = z.infer<
+  typeof materializeVersionZeroDraftSchema
 >;
 export type ListEstimateImportSourcesQueryInput = z.infer<
   typeof listEstimateImportSourcesQuerySchema
