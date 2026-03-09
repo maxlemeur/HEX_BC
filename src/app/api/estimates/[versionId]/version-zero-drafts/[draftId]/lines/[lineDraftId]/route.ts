@@ -48,14 +48,7 @@ export async function PATCH(
       draftId,
       lineDraftId,
       reviewStatus: body.review_status,
-      editedValues: body.edited_values
-        ? {
-            title: body.edited_values.title ?? null,
-            description: body.edited_values.description ?? null,
-            quantity: body.edited_values.quantity ?? null,
-            unit: body.edited_values.unit ?? null,
-          }
-        : undefined,
+      editedValues: body.edited_values,
     });
     return ok(data);
   } catch (error) {
