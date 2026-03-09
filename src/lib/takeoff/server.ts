@@ -86,6 +86,7 @@ import {
   type TakeoffDpgfComparisonResponse,
   type TakeoffDpgfComparisonSummary,
   type TakeoffDpgfComparisonTakeoffLine,
+  type TakeoffDpgfReviewDecision,
   type TakeoffDpgfManualLinkRecord,
   type TakeoffPriceSuggestionAction,
   type TakeoffPriceSuggestionConfidenceLabel,
@@ -5910,7 +5911,7 @@ export async function saveTakeoffReviewDecision(
 
   const existingDecision = (existingDecisionRow.data ?? null) as
     | {
-        decision?: string | null;
+        decision?: TakeoffDpgfReviewDecision | null;
         reason?: string | null;
         carried_over_from_version_id: string | null;
         carried_over_at: string | null;
@@ -8040,25 +8041,26 @@ export async function batchUpdateTakeoffItems(
 
       const updatedItem = normalizeTakeoffItemRow(updatedData as TakeoffItemRow);
 
-      // Audit events (non-blocking)
-      for (const audit of auditFields) {
-        if (audit.field === "is_excluded" && audit.next === true) {
-          logTakeoffAuditEvent({
-            supabase,
-            tenantId,
-            userId,
-            jobId: normalizedJobId,
-            estimateVersionId: jobRow.estimate_version_id,
-            action: "takeoff.item.excluded",
-            metadata: takeoffAuditMetadataBuilders["takeoff.item.excluded"]({
-              item_id: entry.item_id,
-              reason: entry.fields.exclusion_reason ?? null,
-            }),
-            tableName: "takeoff_items",
-            mode: "non-blocking",
-          });
-        } else {
-          logTakeoffAuditEvent({
+      await Promise.all(
+        auditFields.map((audit) => {
+          if (audit.field === "is_excluded" && audit.next === true) {
+            return logTakeoffAuditEvent({
+              supabase,
+              tenantId,
+              userId,
+              jobId: normalizedJobId,
+              estimateVersionId: jobRow.estimate_version_id,
+              action: "takeoff.item.excluded",
+              metadata: takeoffAuditMetadataBuilders["takeoff.item.excluded"]({
+                item_id: entry.item_id,
+                reason: entry.fields.exclusion_reason ?? null,
+              }),
+              tableName: "takeoff_items",
+              mode: "non-blocking",
+            });
+          }
+
+          return logTakeoffAuditEvent({
             supabase,
             tenantId,
             userId,
@@ -8074,8 +8076,8 @@ export async function batchUpdateTakeoffItems(
             tableName: "takeoff_items",
             mode: "non-blocking",
           });
-        }
-      }
+        })
+      );
 
       results.push({
         item_id: entry.item_id,

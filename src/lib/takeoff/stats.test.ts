@@ -142,6 +142,16 @@ describe("buildTakeoffMetricsStatsPayload", () => {
           },
         },
         {
+          record_id: "job-c-2",
+          action: "takeoff.dpgf.review_decision",
+          created_at: "2026-02-26T11:30:00.000Z",
+          after_data: {
+            metadata: {
+              next_decision: "keep_takeoff",
+            },
+          },
+        },
+        {
           record_id: "job-outside-scope",
           action: "takeoff.item.modified",
           created_at: "2026-02-26T11:00:00.000Z",
@@ -151,13 +161,6 @@ describe("buildTakeoffMetricsStatsPayload", () => {
               next_value: "ignore",
             },
           },
-        },
-      ],
-      reviewDecisions: [
-        {
-          takeoff_job_id: "job-c-2",
-          decision: "keep_takeoff",
-          decided_at: "2026-02-26T11:30:00.000Z",
         },
       ],
     });
@@ -390,5 +393,81 @@ describe("buildTakeoffMetricsStatsPayload", () => {
 
     expect(trendCreatedTotal).toBe(payload.kpis.totalJobs);
     expect(trendFailedTotal).toBe(payload.kpis.failedJobs);
+  });
+
+  it("counts repeated DPGF transitions from audit history and keeps the job corrected", () => {
+    const payload = buildTakeoffMetricsStatsPayload({
+      period: "30d",
+      now: new Date("2026-03-10T12:00:00.000Z"),
+      jobs: [
+        {
+          id: "job-dpgf-history",
+          status: "completed",
+          level: "C",
+          model: "gemini-3-pro-preview",
+          duration_ms: 1_000,
+          cost_cents: 15,
+          retry_count: 0,
+          error_code: null,
+          created_at: "2026-03-08T10:00:00.000Z",
+        },
+      ],
+      runMetrics: [],
+      results: [],
+      items: [],
+      auditLogs: [
+        {
+          record_id: "job-dpgf-history",
+          action: "takeoff.dpgf.review_decision",
+          created_at: "2026-03-08T10:10:00.000Z",
+          after_data: {
+            metadata: {
+              next_decision: "manual_fix",
+            },
+          },
+        },
+        {
+          record_id: "job-dpgf-history",
+          action: "takeoff.dpgf.review_decision",
+          created_at: "2026-03-08T10:20:00.000Z",
+          after_data: {
+            metadata: {
+              next_decision: "keep_takeoff",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(payload.corrections.kpis).toMatchObject({
+      totalEvents: 2,
+      correctedJobs: 1,
+      quicklyValidatedJobs: 0,
+      untouchedSuccessfulJobs: 0,
+      correctionRate: 100,
+      quickValidationRate: 0,
+    });
+    expect(payload.corrections.eventCounts).toEqual([
+      {
+        type: "dpgf_keep_takeoff",
+        label: "Takeoff valide",
+        count: 1,
+      },
+      {
+        type: "dpgf_manual_fix",
+        label: "Corrections DPGF manuelles",
+        count: 1,
+      },
+    ]);
+    expect(payload.corrections.byLevel).toEqual([
+      {
+        level: "C",
+        correctedJobs: 1,
+        quicklyValidatedJobs: 0,
+        untouchedSuccessfulJobs: 0,
+        correctionRate: 100,
+        quickValidationRate: 0,
+      },
+    ]);
   });
 });

@@ -71,7 +71,17 @@ type SupabaseMockOptions = {
   jobStatus?: string;
   missingJob?: boolean;
   items?: StoredItem[];
+  auditInsert?: (payload: Record<string, unknown>) => Promise<{ data: null; error: null }>;
 };
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+
+  return { promise, resolve };
+}
 
 function createSupabaseMock(options: SupabaseMockOptions = {}) {
   const storedItems = new Map<string, StoredItem>();
@@ -210,6 +220,9 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
         return {
           insert: vi.fn(async (payload: Record<string, unknown>) => {
             audits.push(payload);
+            if (options.auditInsert) {
+              return options.auditInsert(payload);
+            }
             return { data: null, error: null };
           }),
         };
@@ -484,5 +497,40 @@ describe("PATCH /api/takeoff/jobs/[jobId]/items", () => {
 
     // Should have audit events for designation change + exclusion
     expect(supabase.__state.audits.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("waits for audit writes before returning the response", async () => {
+    const auditInsert = createDeferred<{ data: null; error: null }>();
+    const supabase = createSupabaseMock({
+      auditInsert: async () => auditInsert.promise,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const [request, context] = buildPatchRequest(JOB_ID, {
+      items: [
+        {
+          item_id: ITEM_ID_1,
+          updated_at: UPDATED_AT,
+          fields: { designation: "Tube PVC 150mm" },
+        },
+      ],
+    });
+
+    let settled = false;
+    const responsePromise = PATCH(request, context).then((response) => {
+      settled = true;
+      return response;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(supabase.__state.audits).toHaveLength(1);
+    expect(settled).toBe(false);
+
+    auditInsert.resolve({ data: null, error: null });
+
+    const response = await responsePromise;
+    expect(response.status).toBe(200);
+    expect(settled).toBe(true);
   });
 });

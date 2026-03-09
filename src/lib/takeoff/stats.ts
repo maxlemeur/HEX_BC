@@ -122,6 +122,12 @@ function readNestedBoolean(value: unknown, key: string): boolean | null {
 function mapAuditLogToCorrectionEventType(
   auditLog: TakeoffMetricsAuditLogRow
 ): TakeoffCorrectionMetricsEventType | null {
+  if (auditLog.action === "takeoff.dpgf.review_decision") {
+    const metadata = readNestedRecord(auditLog.after_data, "metadata");
+    const nextDecision = readNestedString(metadata, "next_decision");
+    return nextDecision ? mapReviewDecisionToCorrectionEventType(nextDecision) : null;
+  }
+
   if (auditLog.action === "takeoff.item.excluded") {
     return "item_excluded";
   }
@@ -203,12 +209,6 @@ export type TakeoffMetricsAuditLogRow = {
   after_data: unknown;
 };
 
-export type TakeoffMetricsReviewDecisionRow = {
-  takeoff_job_id: string;
-  decision: string;
-  decided_at: string;
-};
-
 export type ParsedTakeoffMetricsQuery = {
   period: TakeoffMetricsPeriod;
   level: TakeoffLevel | null;
@@ -223,7 +223,6 @@ export type BuildTakeoffMetricsStatsPayloadInput = {
   results: TakeoffMetricsResultRow[];
   items: TakeoffMetricsItemRow[];
   auditLogs?: TakeoffMetricsAuditLogRow[];
-  reviewDecisions?: TakeoffMetricsReviewDecisionRow[];
   now?: Date;
 };
 
@@ -335,9 +334,6 @@ export function buildTakeoffMetricsStatsPayload(
   const items = input.items.filter((item) => jobById.has(item.job_id));
   const auditLogs = (input.auditLogs ?? []).filter((auditLog) =>
     jobById.has(auditLog.record_id)
-  );
-  const reviewDecisions = (input.reviewDecisions ?? []).filter((decision) =>
-    jobById.has(decision.takeoff_job_id)
   );
 
   const itemCountByJob = new Map<string, number>();
@@ -453,14 +449,6 @@ export function buildTakeoffMetricsStatsPayload(
       continue;
     }
     registerCorrectionEvent(auditLog.record_id, eventType);
-  }
-
-  for (const reviewDecision of reviewDecisions) {
-    const eventType = mapReviewDecisionToCorrectionEventType(reviewDecision.decision);
-    if (!eventType) {
-      continue;
-    }
-    registerCorrectionEvent(reviewDecision.takeoff_job_id, eventType);
   }
 
   let correctedJobs = 0;

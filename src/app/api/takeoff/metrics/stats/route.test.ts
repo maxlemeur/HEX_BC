@@ -117,16 +117,15 @@ function createSupabaseMock() {
           },
         },
       },
-    ],
-    error: null,
-  });
-
-  const reviewDecisionsBuilder = createAwaitableBuilder({
-    data: [
       {
-        takeoff_job_id: "job-c-1",
-        decision: "keep_takeoff",
-        decided_at: "2026-02-25T11:30:00.000Z",
+        record_id: "job-c-1",
+        action: "takeoff.dpgf.review_decision",
+        created_at: "2026-02-25T11:30:00.000Z",
+        after_data: {
+          metadata: {
+            next_decision: "keep_takeoff",
+          },
+        },
       },
     ],
     error: null,
@@ -176,12 +175,6 @@ function createSupabaseMock() {
         };
       }
 
-      if (table === "takeoff_dpgf_review_decisions") {
-        return {
-          select: vi.fn(() => reviewDecisionsBuilder),
-        };
-      }
-
       throw new Error(`Unexpected table: ${table}`);
     }),
   };
@@ -192,7 +185,6 @@ function createSupabaseMock() {
       jobsBuilder,
       runMetricsBuilder,
       auditLogsBuilder,
-      reviewDecisionsBuilder,
     },
   };
 }
@@ -232,12 +224,15 @@ describe("GET /api/takeoff/metrics/stats", () => {
     ]);
     expect(builders.jobsBuilder.eq).toHaveBeenCalledWith("level", "C");
     expect(builders.runMetricsBuilder.eq).toHaveBeenCalledWith("level", "C");
-    expect(builders.auditLogsBuilder.in).toHaveBeenCalledWith("record_id", [
+    expect(builders.auditLogsBuilder.in).toHaveBeenNthCalledWith(1, "record_id", [
       "job-c-1",
     ]);
-    expect(builders.reviewDecisionsBuilder.in).toHaveBeenCalledWith("takeoff_job_id", [
-      "job-c-1",
+    expect(builders.auditLogsBuilder.in).toHaveBeenNthCalledWith(2, "action", [
+      "takeoff.item.excluded",
+      "takeoff.item.modified",
+      "takeoff.dpgf.review_decision",
     ]);
+    expect(supabase.from).not.toHaveBeenCalledWith("takeoff_dpgf_review_decisions");
   });
 
   it("returns 400 for invalid level parameter", async () => {
