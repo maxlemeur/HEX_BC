@@ -32,10 +32,12 @@ import type { TakeoffJobListResponse, TakeoffJobSummary } from "@/lib/takeoff/ty
 const VERSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 function createJob(overrides: Partial<TakeoffJobSummary> = {}): TakeoffJobSummary {
+  const status = overrides.status ?? "failed";
+
   return {
     id: overrides.id ?? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     estimate_version_id: overrides.estimate_version_id ?? VERSION_ID,
-    status: overrides.status ?? "failed",
+    status,
     level: overrides.level ?? "A",
     processing_strategy: overrides.processing_strategy ?? "sync",
     provider_batch_id: overrides.provider_batch_id ?? null,
@@ -54,6 +56,12 @@ function createJob(overrides: Partial<TakeoffJobSummary> = {}): TakeoffJobSummar
     error_message: overrides.error_message ?? "Timed out",
     next_retry_at: overrides.next_retry_at ?? null,
     last_error_at: overrides.last_error_at ?? null,
+    can_cancel:
+      overrides.can_cancel ??
+      (status === "pending" || status === "processing"),
+    can_resubmit:
+      overrides.can_resubmit ??
+      (status === "failed" || status === "canceled"),
     started_at: overrides.started_at ?? null,
     completed_at: overrides.completed_at ?? null,
     created_at: overrides.created_at ?? "2026-02-25T10:00:00.000Z",
@@ -209,13 +217,39 @@ describe("TakeoffJobList", () => {
       );
     });
 
-    const cancelButtons = screen.getAllByRole("button", { name: "Annuler" });
-    await user.click(cancelButtons[1]!);
+    const cancelButton = screen.getByRole("button", { name: "Annuler" });
+    await user.click(cancelButton);
     await waitFor(() => {
       expect(cancelTakeoffJob).toHaveBeenCalledWith(
         "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
       );
     });
+  });
+
+  it("hides retry and cancel actions when the backend marks them unavailable", async () => {
+    vi.mocked(listTakeoffJobs).mockResolvedValue(
+      createResponse([
+        createJob({
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          status: "failed",
+          can_resubmit: false,
+        }),
+        createJob({
+          id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          status: "processing",
+          retry_count: 0,
+          error_code: null,
+          error_message: null,
+          can_cancel: false,
+        }),
+      ])
+    );
+
+    renderTakeoffJobList();
+
+    expect((await screen.findAllByText("niveau-a.csv")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Relancer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Annuler" })).not.toBeInTheDocument();
   });
 
   it("renders a dedicated message for 403/404 errors", async () => {

@@ -114,4 +114,34 @@ describe("POST /api/takeoff/jobs/[jobId]/reconcile", () => {
     );
     expect(vi.mocked(triggerTakeoffJobProcessing)).not.toHaveBeenCalled();
   });
+
+  it("returns 503 when the reconcile worker trigger is not queued", async () => {
+    vi.mocked(reconcileTakeoffJobNow).mockResolvedValue(
+      RECONCILE_RESPONSE as never
+    );
+    vi.mocked(triggerTakeoffJobProcessing).mockResolvedValue({
+      triggered: false,
+      correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      statusCode: 503,
+    });
+    const [request, context] = buildPostRequest();
+
+    const response = await POST(request, context);
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: {
+        code?: string;
+        message?: string;
+        retryable?: boolean;
+      };
+    };
+
+    expect(response.status).toBe(503);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe(TakeoffErrorCode.INTERNAL_ERROR);
+    expect(body.error?.message).toBe(
+      "Le worker async takeoff n'a pas pu etre declenche."
+    );
+    expect(body.error?.retryable).toBe(true);
+  });
 });

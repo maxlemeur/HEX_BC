@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import { ok, toErrorResponse } from "@/lib/estimates/errors";
 import { triggerTakeoffJobProcessing } from "@/lib/takeoff/edge-trigger";
-import { TakeoffError, toTakeoffErrorResponse } from "@/lib/takeoff/errors";
+import {
+  TakeoffError,
+  TakeoffErrorCode,
+  toTakeoffErrorResponse,
+} from "@/lib/takeoff/errors";
 import { reconcileTakeoffJobNow } from "@/lib/takeoff/server";
 
 async function getJobId(paramsPromise: Promise<{ jobId: string }>) {
@@ -26,13 +30,18 @@ export async function POST(
       });
 
       if (!triggerResult.triggered) {
-        console.error(
-          "Takeoff reconcile accepted but async processing trigger failed.",
-          {
-            jobId: data.job.id,
-            correlationId: triggerResult.correlationId,
-          }
-        );
+        throw new TakeoffError({
+          status: 503,
+          code: TakeoffErrorCode.INTERNAL_ERROR,
+          message: "Le worker async takeoff n'a pas pu etre declenche.",
+          details: {
+            action: "reconcile",
+            correlation_id: triggerResult.correlationId,
+            status_code: triggerResult.statusCode,
+          },
+          retryable: true,
+          jobId: data.job.id,
+        });
       }
     }
 

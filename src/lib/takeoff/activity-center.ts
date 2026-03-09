@@ -790,6 +790,7 @@ export async function listActivityCenterJobs(
       providerReconcileDueAt: row.provider_reconcile_due_at ?? null,
       providerReconcileLeaseExpiresAt:
         row.provider_reconcile_lease_expires_at ?? null,
+      retryCount: row.retry_count,
       tenantRole,
     });
 

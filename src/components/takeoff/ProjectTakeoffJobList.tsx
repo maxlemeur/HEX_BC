@@ -404,10 +404,12 @@ export default function ProjectTakeoffJobList({
                     const pendingAction = pendingActions[job.id];
                     const canRetry =
                       job.status === "failed" &&
-                      job.retry_count < TAKEOFF_JOB_MAX_RETRY_COUNT;
+                      job.retry_count < TAKEOFF_JOB_MAX_RETRY_COUNT &&
+                      (job.can_resubmit ?? true);
                     const canCancel =
-                      job.status === "pending" ||
-                      job.status === "processing";
+                      (job.status === "pending" ||
+                        job.status === "processing") &&
+                      (job.can_cancel ?? true);
                     const reviewEnabled =
                       job.status === "completed" ||
                       job.status === "applied";
@@ -510,42 +512,46 @@ export default function ProjectTakeoffJobList({
                                 Comparer
                               </Link>
                             ) : null}
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => {
-                                void handleAction(
-                                  job.id,
-                                  "retry"
-                                );
-                              }}
-                              disabled={
-                                !canRetry ||
-                                Boolean(pendingAction)
-                              }
-                            >
-                              {pendingAction === "retry"
-                                ? "Relance..."
-                                : "Relancer"}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => {
-                                void handleAction(
-                                  job.id,
-                                  "cancel"
-                                );
-                              }}
-                              disabled={
-                                !canCancel ||
-                                Boolean(pendingAction)
-                              }
-                            >
-                              {pendingAction === "cancel"
-                                ? "Annulation..."
-                                : "Annuler"}
-                            </button>
+                            {canRetry || pendingAction === "retry" ? (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => {
+                                  void handleAction(
+                                    job.id,
+                                    "retry"
+                                  );
+                                }}
+                                disabled={
+                                  !canRetry ||
+                                  Boolean(pendingAction)
+                                }
+                              >
+                                {pendingAction === "retry"
+                                  ? "Relance..."
+                                  : "Relancer"}
+                              </button>
+                            ) : null}
+                            {canCancel || pendingAction === "cancel" ? (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => {
+                                  void handleAction(
+                                    job.id,
+                                    "cancel"
+                                  );
+                                }}
+                                disabled={
+                                  !canCancel ||
+                                  Boolean(pendingAction)
+                                }
+                              >
+                                {pendingAction === "cancel"
+                                  ? "Annulation..."
+                                  : "Annuler"}
+                              </button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>

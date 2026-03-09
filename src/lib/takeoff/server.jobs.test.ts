@@ -989,6 +989,40 @@ describe("takeoff job server helpers (TKF-009)", () => {
     );
   });
 
+  it("allows reconcile when the provider batch already succeeded upstream", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          status: "processing",
+          completed_at: null,
+          error_code: null,
+          error_message: null,
+          processing_strategy: "batch",
+          provider_batch_id: "batch-succeeded",
+          provider_batch_state: "succeeded",
+          provider_batch_updated_at: "2026-02-25T08:00:00.000Z",
+          provider_reconcile_due_at: null,
+          provider_reconcile_attempt_count: 2,
+        }),
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await reconcileTakeoffJobNow(JOB_ID);
+
+    expect(response.command).toBe("reconcile");
+    expect(response.outcome).toBe("applied");
+    expect(response.job.status).toBe("processing");
+    expect(response.job.provider_batch_state).toBe("succeeded");
+    expect(response.job.provider_reconcile_due_at).toBeTruthy();
+  });
+
   it("returns noop when reconcile is already leased by another worker", async () => {
     const supabase = createSupabaseMock({
       jobs: [
@@ -1023,6 +1057,37 @@ describe("takeoff job server helpers (TKF-009)", () => {
     expect(supabase.__state.jobsById.get(JOB_ID)?.provider_reconcile_due_at).toBe(
       "2026-02-25T08:00:00.000Z"
     );
+  });
+
+  it("blocks resubmit while a provider batch is still active", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          status: "failed",
+          processing_strategy: "batch",
+          provider_batch_id: "batch-running",
+          provider_batch_state: "running",
+          error_code: "AI_TIMEOUT",
+          error_message: "Timed out waiting for reconcile",
+        }),
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "engineer",
+    } as never);
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 409,
+      code: "CONFLICT",
+      details: expect.objectContaining({
+        provider_batch_id: "batch-running",
+        provider_batch_state: "running",
+      }),
+    });
   });
 
   it("blocks operator actions for viewer role", async () => {

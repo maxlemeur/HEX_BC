@@ -1759,6 +1759,7 @@ function decorateTakeoffJobSummaryWithOperatorState(
     providerReconcileLeaseExpiresAt:
       job.provider_reconcile_lease_expires_at ?? null,
     errorCode: job.error_code,
+    retryCount: job.retry_count,
     tenantRole,
   });
 
@@ -6503,6 +6504,7 @@ export async function reconcileTakeoffJobNow(
     providerReconcileDueAt: existingJob.provider_reconcile_due_at,
     providerReconcileLeaseExpiresAt: existingJob.provider_reconcile_lease_expires_at,
     errorCode: existingJob.error_code,
+    retryCount: existingJob.retry_count,
     tenantRole,
   });
 
@@ -6514,22 +6516,6 @@ export async function reconcileTakeoffJobNow(
       details: {
         processing_strategy: existingJob.processing_strategy,
         provider_batch_id: existingJob.provider_batch_id,
-      },
-      retryable: false,
-      jobId: normalizedJobId,
-    });
-  }
-
-  if (
-    existingJob.provider_batch_state &&
-    TAKEOFF_PROVIDER_TERMINAL_STATES.has(existingJob.provider_batch_state)
-  ) {
-    throw new TakeoffError({
-      status: 409,
-      code: TakeoffErrorCode.CONFLICT,
-      message: "Le provider est deja dans un etat terminal pour ce job.",
-      details: {
-        provider_batch_state: existingJob.provider_batch_state,
       },
       retryable: false,
       jobId: normalizedJobId,
@@ -6659,6 +6645,30 @@ export async function resubmitTakeoffJob(
   }
 
   const retryCount = existingJob.retry_count ?? 0;
+  const hasLiveProviderBatch =
+    existingJob.processing_strategy === "batch" &&
+    typeof existingJob.provider_batch_id === "string" &&
+    existingJob.provider_batch_id.length > 0 &&
+    !(
+      existingJob.provider_batch_state &&
+      TAKEOFF_PROVIDER_TERMINAL_STATES.has(existingJob.provider_batch_state)
+    );
+
+  if (hasLiveProviderBatch) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message:
+        "Le job possede deja un batch provider actif. Relancez un reconcile au lieu d'une resoumission.",
+      details: {
+        provider_batch_id: existingJob.provider_batch_id,
+        provider_batch_state: existingJob.provider_batch_state,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
   if (retryCount >= TAKEOFF_RETRY_MAX) {
     throw new TakeoffError({
       status: 409,

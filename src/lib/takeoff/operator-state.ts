@@ -20,6 +20,11 @@ const PROVIDER_FAILED_STATES = new Set<TakeoffProviderBatchState>([
   "cancelled",
   "expired",
 ]);
+const PROVIDER_TERMINAL_STATES = new Set<TakeoffProviderBatchState>([
+  "succeeded",
+  ...PROVIDER_FAILED_STATES,
+]);
+const TAKEOFF_RETRY_MAX = 3;
 
 const TAKEOFF_OPERATOR_STATE_LABELS: Record<TakeoffJobOperatorState, string> = {
   none: "Aucune action requise",
@@ -37,6 +42,7 @@ export type ResolveTakeoffOperatorStateInput = {
   providerReconcileDueAt?: string | null;
   providerReconcileLeaseExpiresAt?: string | null;
   errorCode?: string | null;
+  retryCount?: number | null;
   tenantRole?: string | null;
   now?: Date;
 };
@@ -72,6 +78,21 @@ function resolveTakeoffOperatorStateValue(
 ): TakeoffJobOperatorState {
   if (input.processingStrategy !== "batch" || !input.providerBatchId) {
     return "none";
+  }
+
+  if (
+    input.status === "processing" &&
+    input.providerBatchState &&
+    PROVIDER_TERMINAL_STATES.has(input.providerBatchState)
+  ) {
+    return "orphan_to_reconcile";
+  }
+
+  if (
+    input.status === "failed" &&
+    input.providerBatchState === "succeeded"
+  ) {
+    return "orphan_to_reconcile";
   }
 
   if (
@@ -120,6 +141,16 @@ function resolveTakeoffOperatorStateValue(
   return "awaiting_provider_result";
 }
 
+function hasLiveProviderBatch(input: ResolveTakeoffOperatorStateInput) {
+  return (
+    input.processingStrategy === "batch" &&
+    typeof input.providerBatchId === "string" &&
+    input.providerBatchId.length > 0 &&
+    (input.providerBatchState == null ||
+      !PROVIDER_TERMINAL_STATES.has(input.providerBatchState))
+  );
+}
+
 export function resolveTakeoffOperatorState(
   input: ResolveTakeoffOperatorStateInput
 ): TakeoffOperatorStateDescriptor {
@@ -144,6 +175,8 @@ export function resolveTakeoffOperatorState(
       (input.status === "pending" || input.status === "processing"),
     canResubmit:
       hasMutationAccess &&
-      (input.status === "failed" || input.status === "canceled"),
+      (input.status === "failed" || input.status === "canceled") &&
+      (input.retryCount ?? 0) < TAKEOFF_RETRY_MAX &&
+      !hasLiveProviderBatch(input),
   };
 }
