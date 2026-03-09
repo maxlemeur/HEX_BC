@@ -1,7 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
+
+import {
+  subscribe as subscribeCockpit,
+  getSnapshot as getCockpitSnapshot,
+  getServerSnapshot as getCockpitServerSnapshot,
+} from "@/lib/stores/cockpit-suggestions-store";
 
 import { useUserContext } from "@/components/UserContext";
 import { useLastAffaireId } from "@/hooks/useLastAffaireContext";
@@ -116,18 +122,6 @@ export function buildNavigationItems(input: BuildNavGroupsInput): CommandItem[] 
 const RECENTS_KEY = "command-palette-recents";
 const MAX_RECENTS = 5;
 
-export function shouldShowAnalysePlansAction(params: {
-  pathname: string;
-  isTakeoffEnabled: boolean;
-  tenantRole: string | null;
-}) {
-  return (
-    /^\/dashboard\/affaires\/[^/]+$/.test(params.pathname) &&
-    params.isTakeoffEnabled &&
-    params.tenantRole !== "director"
-  );
-}
-
 export function fuzzyMatch(query: string, item: CommandItem): boolean {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const target = [item.label, item.description ?? "", ...(item.keywords ?? [])]
@@ -217,27 +211,34 @@ export function useCommandPalette() {
       }),
     [tenantRole, isExpert, takeoffStatus, isTakeoffEnabled, lastAffaireId]
   );
+  const cockpitSuggestions = useSyncExternalStore(
+    subscribeCockpit,
+    getCockpitSnapshot,
+    getCockpitServerSnapshot
+  );
+
   const allItems = useMemo(() => {
-    const contextualActions: CommandItem[] =
-      shouldShowAnalysePlansAction({
-        pathname,
-        isTakeoffEnabled,
-        tenantRole,
-      })
-        ? [
-            {
-              id: "action-analyse-plans",
-              group: "actions",
-              label: "Analyser les plans",
-              description: "Lancer une analyse des plans",
-              keywords: ["analyser", "plans", "metre", "takeoff", "extraction", "analyse"],
-              action: () =>
-                document.dispatchEvent(new CustomEvent("open-analyse-plans")),
-            },
-          ]
-        : [];
+    const contextualActions: CommandItem[] = cockpitSuggestions.map((s) => ({
+      id: `cockpit-${s.actionId}`,
+      group: "actions" as const,
+      label: s.label,
+      description: s.preview,
+      keywords: ["cockpit", s.intent.replace(/_/g, " ")],
+      ...(s.target.kind === "navigate"
+        ? { href: s.target.href }
+        : {
+            action: () =>
+              document.dispatchEvent(
+                new CustomEvent("cockpit-open-dialog", {
+                  detail: s.target.kind === "open_dialog"
+                    ? s.target.dialogId
+                    : undefined,
+                })
+              ),
+          }),
+    }));
     return [...ACTION_ITEMS, ...contextualActions, ...navigationItems];
-  }, [navigationItems, pathname, isTakeoffEnabled, tenantRole]);
+  }, [navigationItems, cockpitSuggestions]);
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");

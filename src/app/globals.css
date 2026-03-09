@@ -3326,3 +3326,12 @@ button, a, [role="button"] {
   transition-duration: 0.2s;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Cockpit command bar strip */
+.cockpit-command-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}

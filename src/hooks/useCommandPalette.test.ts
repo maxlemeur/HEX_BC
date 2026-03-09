@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   buildNavigationItems,
   fuzzyMatch,
-  shouldShowAnalysePlansAction,
   type CommandItem,
 } from "@/hooks/useCommandPalette";
 
@@ -116,34 +115,3 @@ describe("buildNavigationItems", () => {
   });
 });
 
-describe("shouldShowAnalysePlansAction", () => {
-  it("returns true on affaire hub pages when takeoff is enabled", () => {
-    expect(
-      shouldShowAnalysePlansAction({
-        pathname: "/dashboard/affaires/proj-123",
-        isTakeoffEnabled: true,
-        tenantRole: "admin",
-      })
-    ).toBe(true);
-  });
-
-  it("returns false for director read-only review pages", () => {
-    expect(
-      shouldShowAnalysePlansAction({
-        pathname: "/dashboard/affaires/proj-123",
-        isTakeoffEnabled: true,
-        tenantRole: "director",
-      })
-    ).toBe(false);
-  });
-
-  it("returns false outside affaire hub pages", () => {
-    expect(
-      shouldShowAnalysePlansAction({
-        pathname: "/dashboard/affaires/proj-123/takeoff",
-        isTakeoffEnabled: true,
-        tenantRole: "admin",
-      })
-    ).toBe(false);
-  });
-});
