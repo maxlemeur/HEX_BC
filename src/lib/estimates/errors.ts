@@ -39,7 +39,7 @@ export type ApiFailureResponse = {
 };
 
 export class ApiError extends Error {
-  readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500;
+  readonly status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500 | 503;
   readonly code: ApiErrorCode | string;
   readonly details?: unknown;
 
@@ -49,7 +49,7 @@ export class ApiError extends Error {
     message,
     details,
   }: {
-    status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500;
+    status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500 | 503;
     code: ApiErrorCode | string;
     message: string;
     details?: unknown;
