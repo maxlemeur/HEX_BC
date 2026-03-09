@@ -56,10 +56,28 @@ const VISUAL_STATE_BORDER: Record<string, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-function buildCardHref(item: ApprovalQueueItem): string {
+function resolveExceptionReviewJobId(item: ApprovalQueueItem): string | null {
   if (item.latestJobId) {
-    return `/dashboard/affaires/${item.projectId}/takeoff/${item.latestJobId}/review?versionId=${item.versionId}&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
+    return item.latestJobId;
   }
+
+  for (const alert of item.syntheticAlerts) {
+    const reviewJobId = alert.latestJobId ?? alert.jobId;
+    if (reviewJobId) {
+      return reviewJobId;
+    }
+  }
+
+  return null;
+}
+
+function buildCardHref(item: ApprovalQueueItem): string {
+  const reviewJobId = resolveExceptionReviewJobId(item);
+
+  if (reviewJobId) {
+    return `/dashboard/affaires/${item.projectId}/takeoff/${reviewJobId}/review?versionId=${item.versionId}&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
+  }
+
   return `/dashboard/affaires/${item.projectId}`;
 }
 
@@ -72,7 +90,7 @@ export function ApprovalQueueCard({ item }: { item: ApprovalQueueItem }) {
   return (
     <Link
       href={href}
-      className={`dashboard-card block p-5 transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)] ${borderClass}`}
+      className={`dashboard-card block p-5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-blue)] ${borderClass}`}
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">

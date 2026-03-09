@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/link", () => ({
@@ -74,6 +74,46 @@ describe("ApprovalQueueCard", () => {
     expect(screen.getByRole("link")).toHaveAttribute(
       "href",
       "/dashboard/affaires/project-1/takeoff/job-1/review?versionId=version-1&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only"
+    );
+  });
+
+  it("falls back to the synthetic alert job when the RPC latest job is missing", () => {
+    const { container } = render(
+      <ApprovalQueueCard
+        item={{
+          ...BASE_ITEM,
+          latestJobId: null,
+          syntheticAlerts: [
+            {
+              ...BASE_ITEM.syntheticAlerts[0],
+              jobId: "job-2",
+              latestJobId: "job-2",
+            },
+          ],
+        }}
+      />
+    );
+
+    expect(within(container).getByRole("link")).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1/takeoff/job-2/review?versionId=version-1&from=approval&reviewMode=validation&view=dpgf&dpgfView=exceptions_only"
+    );
+  });
+
+  it("falls back to the affaire hub when no exception review job can be resolved", () => {
+    const { container } = render(
+      <ApprovalQueueCard
+        item={{
+          ...BASE_ITEM,
+          latestJobId: null,
+          syntheticAlerts: [],
+        }}
+      />
+    );
+
+    expect(within(container).getByRole("link")).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1"
     );
   });
 

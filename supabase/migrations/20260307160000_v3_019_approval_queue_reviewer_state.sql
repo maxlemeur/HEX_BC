@@ -108,11 +108,33 @@ returns table (
   cause_code_counts jsonb,
   latest_job_id uuid
 )
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
+declare
+  current_user_id uuid := auth.uid();
+  scoped_tenant_id uuid := public.current_tenant_id();
+begin
+  if current_user_id is null then
+    raise exception using errcode = '42501', message = 'AUTHENTICATION_REQUIRED';
+  end if;
+
+  if scoped_tenant_id is null then
+    raise exception using errcode = '42501', message = 'TENANT_CONTEXT_REQUIRED';
+  end if;
+
+  if not (
+    select public.has_tenant_role(
+      scoped_tenant_id,
+      array['admin'::public.tenant_role, 'director'::public.tenant_role]
+    )
+  ) then
+    raise exception using errcode = '42501', message = 'APPROVAL_QUEUE_ACCESS_DENIED';
+  end if;
+
+  return query
   with open_cycles as (
     select
       c.id as cycle_id,
@@ -122,7 +144,7 @@ as $$
       c.tenant_id
     from public.estimate_review_cycles c
     where c.decision is null
-      and c.tenant_id = (select public.current_tenant_id())
+      and c.tenant_id = scoped_tenant_id
   ),
   cycle_versions as (
     select
@@ -158,8 +180,8 @@ as $$
       qs.cycle_id,
       qs.state as reviewer_state
     from public.approval_queue_reviewer_states qs
-    where qs.tenant_id = (select public.current_tenant_id())
-      and qs.reviewer_id = (select auth.uid())
+    where qs.tenant_id = scoped_tenant_id
+      and qs.reviewer_id = current_user_id
   ),
   risk_agg as (
     select
@@ -177,7 +199,7 @@ as $$
       join open_cycles oc on oc.version_id = era.version_id
       where era.is_active
         and era.status = 'to_process'
-        and era.tenant_id = (select public.current_tenant_id())
+        and era.tenant_id = scoped_tenant_id
       group by era.version_id, era.cause_code
     ) ra
     group by ra.version_id
@@ -220,4 +242,5 @@ as $$
     case when p_sort_by = 'margin' then wp.margin_bp end asc nulls last,
     case when p_sort_by = 'age' then wp.requested_at end asc,
     wp.requested_at asc;
+end;
 $$;
