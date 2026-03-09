@@ -38,6 +38,10 @@ type TakeoffJobRow = {
   estimate_version_id: string;
   level: string;
   status: string;
+  processing_strategy: string | null;
+  provider_batch_id: string | null;
+  provider_batch_state: string | null;
+  provider_batch_updated_at: string | null;
   source_file_name: string | null;
   source_file_path: string | null;
   source_file_type: string | null;
@@ -112,6 +116,19 @@ type AuditLogPayload = {
   [key: string]: unknown;
 };
 
+type ProviderEventPayload = {
+  tenant_id: string;
+  takeoff_job_id: string;
+  estimate_version_id: string;
+  provider: string;
+  processing_strategy: string;
+  provider_batch_id: string | null;
+  provider_batch_state: string | null;
+  provider_state_raw: string | null;
+  message: string | null;
+  metadata: Record<string, unknown>;
+};
+
 type SupabaseMockOptions = {
   job?: Partial<TakeoffJobRow>;
   existingResults?: StoredTakeoffResultRow[];
@@ -150,6 +167,7 @@ type SupabaseMockState = {
     metadata: Record<string, unknown>;
   } | null;
   auditLogs: AuditLogPayload[];
+  providerEvents: ProviderEventPayload[];
   downloadRequests: string[];
 };
 
@@ -229,6 +247,8 @@ function buildGeminiResult(
     durationMs: overrides.durationMs ?? 1_800,
     model: overrides.model ?? "gemini-3-flash-preview",
     promptVersion: overrides.promptVersion ?? "takeoff-a-v1",
+    providerBatchId: overrides.providerBatchId ?? null,
+    providerBatchStateRaw: overrides.providerBatchStateRaw ?? null,
   };
 }
 
@@ -282,6 +302,10 @@ function createTakeoffProcessorSupabaseMock(
     estimate_version_id: ESTIMATE_VERSION_ID,
     level: "A",
     status: "pending",
+    processing_strategy: "sync",
+    provider_batch_id: null,
+    provider_batch_state: null,
+    provider_batch_updated_at: null,
     source_file_name: "niveau-a.csv",
     source_file_path: DEFAULT_SOURCE_PATH,
     source_file_type: "text/csv",
@@ -337,6 +361,7 @@ function createTakeoffProcessorSupabaseMock(
           }
         : null,
     auditLogs: [],
+    providerEvents: [],
     downloadRequests: [],
   };
 
@@ -976,6 +1001,17 @@ function createTakeoffProcessorSupabaseMock(
         };
       }
 
+      if (table === "takeoff_job_provider_events") {
+        return {
+          insert: vi.fn(
+            async (payload: ProviderEventPayload): Promise<QueryResponse<null>> => {
+              state.providerEvents.push(deepClone(payload));
+              return { data: null, error: null };
+            }
+          ),
+        };
+      }
+
       if (table === "feature_flags") {
         return {
           select: vi.fn(() => createFeatureFlagsSelectBuilder()),
@@ -1225,6 +1261,209 @@ describe("processLevelA", () => {
       );
     }
   );
+
+  it("falls back from Flash-Lite to Flash when the primary structured response is invalid", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      featureFlags: {
+        TAKEOFF_AI_ESCALATION_ENABLED: "true",
+      },
+    });
+    const callGemini = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new TakeoffError({
+          code: TakeoffErrorCode.AI_SCHEMA,
+          message: "Schema mismatch",
+          retryable: false,
+          details: {
+            provider_details: {
+              provider_status: 200,
+              provider_code: "AI_SCHEMA",
+            },
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        buildGeminiResult(
+          buildTakeoffExchange([
+            {
+              designation: "Tableau secours",
+              quantity: 3,
+              unit: "u",
+              source_page: 1,
+              source_file: "niveau-a.csv",
+              confidence: 0.93,
+              evidence: "Fallback Flash",
+            },
+          ]),
+          {
+            model: "gemini-3-flash-preview",
+            promptVersion: "takeoff-a-v1",
+          }
+        )
+      );
+
+    const result = await processLevelA(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(callGemini).toHaveBeenCalledTimes(2);
+    expect(callGemini).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        context: expect.objectContaining({
+          level: "A",
+          model: "gemini-3.1-flash-lite-preview",
+          promptVersion: "takeoff-a-v1",
+        }),
+      })
+    );
+    expect(callGemini).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        context: expect.objectContaining({
+          level: "A",
+          model: "gemini-3-flash-preview",
+          promptVersion: "takeoff-a-v1",
+        }),
+      })
+    );
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      model: "gemini-3-flash-preview",
+      prompt_version: "takeoff-a-v1",
+      thinking_level: "low",
+      routing: {
+        strategy: "single_model_with_fallback",
+        primary_model: "gemini-3.1-flash-lite-preview",
+        primary_thinking_level: "low",
+        escalated: true,
+        escalation_trigger: "primary_model_error",
+        final_model: "gemini-3-flash-preview",
+        final_thinking_level: "low",
+      },
+    });
+  });
+
+  it("passes batch delivery mode to Gemini when the tenant enables it", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        processing_strategy: "batch",
+      },
+      featureFlags: {
+        TAKEOFF_GEMINI_BATCH_MODE: "true",
+      },
+    });
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(
+        buildTakeoffExchange([
+          {
+            designation: "Tube PVC",
+            quantity: 12,
+            unit: "ml",
+            source_page: 1,
+            source_file: "niveau-a.csv",
+          },
+        ]),
+        {
+          model: "gemini-3.1-flash-lite-preview",
+          promptVersion: "takeoff-a-v1",
+        }
+      )
+    );
+
+    await processLevelA(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(callGemini).toHaveBeenCalledTimes(1);
+    expect(callGemini.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        deliveryMode: "batch",
+      })
+    );
+    expect(mock.state.job.processing_strategy).toBe("batch");
+  });
+
+  it("persists batch provider snapshot and events during Gemini batch lifecycle", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        processing_strategy: "batch",
+      },
+      featureFlags: {
+        TAKEOFF_GEMINI_BATCH_MODE: "true",
+      },
+    });
+    const callGemini = vi.fn().mockImplementation(async (options) => {
+      await options.onBatchLifecycleEvent?.({
+        provider: "gemini",
+        providerBatchId: "batches/test-1",
+        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
+        observedAt: "2026-02-25T10:00:01.000Z",
+        isTerminal: false,
+        message: "submitted",
+      });
+      await options.onBatchLifecycleEvent?.({
+        provider: "gemini",
+        providerBatchId: "batches/test-1",
+        providerBatchStateRaw: "JOB_STATE_RUNNING",
+        observedAt: "2026-02-25T10:00:03.000Z",
+        isTerminal: false,
+        message: "running",
+      });
+      await options.onBatchLifecycleEvent?.({
+        provider: "gemini",
+        providerBatchId: "batches/test-1",
+        providerBatchStateRaw: "JOB_STATE_SUCCEEDED",
+        observedAt: "2026-02-25T10:00:05.000Z",
+        isTerminal: true,
+        message: "succeeded",
+      });
+
+      return buildGeminiResult(
+        buildTakeoffExchange([
+          {
+            designation: "Tube PVC",
+            quantity: 12,
+            unit: "ml",
+            source_page: 1,
+            source_file: "niveau-a.csv",
+          },
+        ]),
+        {
+          model: "gemini-3.1-flash-lite-preview",
+          promptVersion: "takeoff-a-v1",
+          providerBatchId: "batches/test-1",
+          providerBatchStateRaw: "JOB_STATE_SUCCEEDED",
+        }
+      );
+    });
+
+    await processLevelA(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(mock.state.job.provider_batch_id).toBe("batches/test-1");
+    expect(mock.state.job.provider_batch_state).toBe("succeeded");
+    expect(mock.state.job.provider_batch_updated_at).toBe(
+      "2026-02-25T10:00:05.000Z"
+    );
+    expect(
+      mock.state.providerEvents.map((event) => event.provider_batch_state)
+    ).toEqual(["submitted", "running", "succeeded"]);
+  });
 
   it("replaces existing result/items on rerun without duplicates", async () => {
     const previousResultId = "66666666-6666-4666-8666-666666666666";
@@ -1504,7 +1743,7 @@ describe("processLevelB", () => {
         tokenCount: 5_200,
         costCents: 154,
         durationMs: 3_800,
-        model: "gemini-3-pro-preview",
+        model: "gemini-3-flash-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -1533,7 +1772,7 @@ describe("processLevelB", () => {
         files: [expect.objectContaining({ mimeType: "application/pdf" })],
         context: expect.objectContaining({
           level: "B",
-          model: "gemini-3-pro-preview",
+          model: "gemini-3-flash-preview",
           promptVersion: "takeoff-b-v1",
         }),
       })
@@ -1555,8 +1794,14 @@ describe("processLevelB", () => {
       source_file_name: "niveau-b.pdf",
       processing_mode: "pdf_vision",
       tables_count: 1,
-      model: "gemini-3-pro-preview",
+      model: "gemini-3-flash-preview",
       prompt_version: "takeoff-b-v1",
+      routing: expect.objectContaining({
+        strategy: "primary_then_escalation",
+        primary_model: "gemini-3-flash-preview",
+        escalated: false,
+        final_model: "gemini-3-flash-preview",
+      }),
     });
     expect(mock.state.takeoffResults[0]?.tables).toEqual(
       expect.arrayContaining([
@@ -1603,7 +1848,7 @@ describe("processLevelB", () => {
     );
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(exchange, {
-        model: "gemini-3-pro-preview",
+        model: "gemini-3-flash-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -1698,7 +1943,7 @@ describe("processLevelB", () => {
 
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(exchange, {
-        model: "gemini-3-pro-preview",
+        model: "gemini-3-flash-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -1816,7 +2061,7 @@ describe("processLevelB", () => {
           tokenCount: 400,
           costCents: 20,
           durationMs: 900,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3-flash-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -1825,7 +2070,7 @@ describe("processLevelB", () => {
           tokenCount: 450,
           costCents: 23,
           durationMs: 1_000,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3-flash-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -1834,7 +2079,7 @@ describe("processLevelB", () => {
           tokenCount: 500,
           costCents: 26,
           durationMs: 1_100,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3-flash-preview",
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -1932,7 +2177,7 @@ describe("processLevelB", () => {
           tokenCount: 300,
           costCents: 15,
           durationMs: 700,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3-flash-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -1941,7 +2186,7 @@ describe("processLevelB", () => {
           tokenCount: 420,
           costCents: 20,
           durationMs: 850,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3-flash-preview",
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -2049,7 +2294,7 @@ describe("processLevelB", () => {
           tokenCount: 500,
           costCents: 25,
           durationMs: 900,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3-flash-preview",
           promptVersion: "takeoff-b-v1",
         })
       )
@@ -2058,7 +2303,7 @@ describe("processLevelB", () => {
           tokenCount: 520,
           costCents: 26,
           durationMs: 950,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3-flash-preview",
           promptVersion: "takeoff-b-v1",
         })
       );
@@ -2118,7 +2363,7 @@ describe("processLevelB", () => {
 
     const callGemini = vi.fn().mockResolvedValue(
       buildGeminiResult(invalidPayload, {
-        model: "gemini-3-pro-preview",
+        model: "gemini-3-flash-preview",
         promptVersion: "takeoff-b-v1",
       })
     );
@@ -2153,6 +2398,317 @@ describe("processLevelB", () => {
         issues: expect.any(Array),
       })
     );
+  });
+
+  it("escalates Level B from Flash to Pro when the extracted structure is empty", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      featureFlags: {
+        TAKEOFF_AI_ESCALATION_ENABLED: "true",
+        TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE: "0.75",
+        TAKEOFF_AI_ESCALATION_MAX_COST_CENTS: "500",
+      },
+      job: {
+        level: "B",
+        source_file_name: "niveau-b-empty.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: toArrayBuffer("%PDF-1.7\nempty"),
+        mimeType: "application/pdf",
+      },
+    });
+
+    const weakExchange: TakeoffExchange = {
+      items: [],
+      warnings: [],
+      tables: [
+        {
+          page: 1,
+          title: "Extraction incomplète",
+          headers: ["designation", "quantity", "unit"],
+          rows: [{ row_index: 0, cells: ["Support mural", "8", "u"] }],
+        },
+      ],
+      metadata: {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.42,
+    };
+    const escalatedExchange = buildTakeoffExchange(
+      [
+        {
+          designation: "Support mural",
+          quantity: 8,
+          unit: "u",
+          source_page: 1,
+          source_file: "niveau-b-empty.pdf",
+          confidence: 0.86,
+          evidence: "Escalade Pro",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+
+    const callGemini = vi
+      .fn()
+      .mockResolvedValueOnce(
+        buildGeminiResult(weakExchange, {
+          costCents: 11,
+          model: "gemini-3-flash-preview",
+          promptVersion: "takeoff-b-v1",
+          tokenUsage: {
+            inputTokens: 100_000,
+            reasoningTokens: 0,
+            outputTokens: 20_000,
+            totalTokens: 120_000,
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        buildGeminiResult(escalatedExchange, {
+          costCents: 44,
+          model: "gemini-3.1-pro-preview",
+          promptVersion: "takeoff-b-v1",
+          tokenUsage: {
+            inputTokens: 100_000,
+            reasoningTokens: 0,
+            outputTokens: 20_000,
+            totalTokens: 120_000,
+          },
+        })
+      );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.itemsCount).toBe(1);
+    expect(callGemini).toHaveBeenCalledTimes(2);
+    expect(callGemini).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        context: expect.objectContaining({
+          level: "B",
+          model: "gemini-3-flash-preview",
+        }),
+      })
+    );
+    expect(callGemini).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        context: expect.objectContaining({
+          level: "B",
+          model: "gemini-3.1-pro-preview",
+        }),
+      })
+    );
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      model: "gemini-3.1-pro-preview",
+      prompt_version: "takeoff-b-v1",
+      thinking_level: "medium",
+      routing: {
+        strategy: "primary_then_escalation",
+        primary_model: "gemini-3-flash-preview",
+        primary_thinking_level: "medium",
+        escalated: true,
+        escalation_trigger: "weak_level_b_result",
+        final_model: "gemini-3.1-pro-preview",
+        final_thinking_level: "medium",
+        budget: {
+          decision: "allow",
+          reason: "within_budget",
+          observed_cost_cents: 11,
+          estimated_escalation_cost_cents: 44,
+          projected_total_cost_cents: 55,
+          max_allowed_cost_cents: 500,
+        },
+      },
+    });
+  });
+
+  it("keeps the primary Level B result and traces budget_blocked when projected escalation cost exceeds the ceiling", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      featureFlags: {
+        TAKEOFF_AI_ESCALATION_ENABLED: "true",
+        TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE: "0.75",
+        TAKEOFF_AI_ESCALATION_MAX_COST_CENTS: "50",
+      },
+      job: {
+        level: "B",
+        source_file_name: "niveau-b-budget.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: toArrayBuffer("%PDF-1.7\nbudget"),
+        mimeType: "application/pdf",
+      },
+    });
+
+    const weakExchange: TakeoffExchange = {
+      items: [],
+      warnings: [],
+      tables: [
+        {
+          page: 1,
+          title: "Extraction incomplète",
+          headers: ["designation", "quantity", "unit"],
+          rows: [{ row_index: 0, cells: ["Support mural", "8", "u"] }],
+        },
+      ],
+      metadata: {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.42,
+    };
+
+    const callGemini = vi.fn().mockResolvedValueOnce(
+      buildGeminiResult(weakExchange, {
+        costCents: 11,
+        model: "gemini-3-flash-preview",
+        promptVersion: "takeoff-b-v1",
+        tokenUsage: {
+          inputTokens: 100_000,
+          reasoningTokens: 0,
+          outputTokens: 20_000,
+          totalTokens: 120_000,
+        },
+      })
+    );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.itemsCount).toBe(0);
+    expect(callGemini).toHaveBeenCalledTimes(1);
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      model: "gemini-3-flash-preview",
+      routing: {
+        strategy: "primary_then_escalation",
+        escalation_candidate: true,
+        escalated: false,
+        escalation_trigger: "weak_level_b_result",
+        escalation_block_reason: "budget_blocked",
+        final_model: "gemini-3-flash-preview",
+        budget: {
+          decision: "block",
+          reason: "budget_blocked",
+          observed_cost_cents: 11,
+          estimated_escalation_cost_cents: 44,
+          projected_total_cost_cents: 55,
+          max_allowed_cost_cents: 50,
+        },
+      },
+    });
+  });
+
+  it("blocks escalation when the dossier is already too expensive before the premium rerun", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      featureFlags: {
+        TAKEOFF_AI_ESCALATION_ENABLED: "true",
+        TAKEOFF_AI_ESCALATION_MIN_CONFIDENCE: "0.75",
+        TAKEOFF_AI_ESCALATION_MAX_COST_CENTS: "80",
+      },
+      job: {
+        level: "B",
+        source_file_name: "niveau-b-deja-cher.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: toArrayBuffer("%PDF-1.7\ndeja-cher"),
+        mimeType: "application/pdf",
+      },
+    });
+
+    const expensivePrimaryExchange = buildTakeoffExchange(
+      [
+        {
+          designation: "Support mural",
+          quantity: 8,
+          unit: "u",
+          source_page: 1,
+          source_file: "niveau-b-deja-cher.pdf",
+          confidence: 0.42,
+          evidence: "Flash",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+    expensivePrimaryExchange.confidence = 0.42;
+
+    const callGemini = vi.fn().mockResolvedValueOnce(
+      buildGeminiResult(expensivePrimaryExchange, {
+        costCents: 70,
+        model: "gemini-3-flash-preview",
+        promptVersion: "takeoff-b-v1",
+        tokenUsage: {
+          inputTokens: 100_000,
+          reasoningTokens: 0,
+          outputTokens: 20_000,
+          totalTokens: 120_000,
+        },
+      })
+    );
+
+    const result = await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.itemsCount).toBe(1);
+    expect(callGemini).toHaveBeenCalledTimes(1);
+    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
+      model: "gemini-3-flash-preview",
+      routing: {
+        strategy: "primary_then_escalation",
+        escalation_candidate: true,
+        escalated: false,
+        escalation_trigger: "weak_level_b_result",
+        escalation_block_reason: "budget_blocked",
+        final_model: "gemini-3-flash-preview",
+        budget: {
+          decision: "block",
+          reason: "budget_blocked",
+          observed_cost_cents: 70,
+          estimated_escalation_cost_cents: 44,
+          projected_total_cost_cents: 114,
+          max_allowed_cost_cents: 80,
+        },
+      },
+    });
   });
 
   it("stores raw Gemini timeout details and marks the job as retryable failure", async () => {
@@ -2334,7 +2890,7 @@ describe("processLevelC", () => {
           tokenCount: 600,
           costCents: 30,
           durationMs: 1_000,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-c-v1",
         })
       )
@@ -2343,7 +2899,7 @@ describe("processLevelC", () => {
           tokenCount: 700,
           costCents: 35,
           durationMs: 1_100,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-c-v1",
         })
       )
@@ -2352,7 +2908,7 @@ describe("processLevelC", () => {
           tokenCount: 500,
           costCents: 20,
           durationMs: 900,
-          model: "gemini-3-pro-preview",
+          model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-c-v1",
         })
       );
@@ -2467,7 +3023,7 @@ describe("processLevelC", () => {
         tokenCount: 900,
         costCents: 40,
         durationMs: 900,
-        model: "gemini-3-pro-preview",
+        model: "gemini-3.1-pro-preview",
         promptVersion: "takeoff-c-v1",
       })
     );
@@ -2574,7 +3130,7 @@ describe("processLevelC", () => {
         tokenCount: 400,
         costCents: 25,
         durationMs: 900,
-        model: "gemini-3-pro-preview",
+        model: "gemini-3.1-pro-preview",
         promptVersion: "takeoff-c-v1",
       })
     );
@@ -2695,7 +3251,7 @@ describe("processLevelC", () => {
         tokenCount: 1_200,
         costCents: 40,
         durationMs: 900,
-        model: "gemini-3-pro-preview",
+        model: "gemini-3.1-pro-preview",
         promptVersion: "takeoff-c-v1",
       })
     );
