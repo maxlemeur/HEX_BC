@@ -59,6 +59,10 @@ const IN_FLIGHT_VISIBLE_STATUS_SET = new Set<TakeoffVisibleJobStatus>(
 
 const FAILURE_REASON_LABELS: Record<string, string> = {
   TAKEOFF_FILE_TYPE_INVALID: "Document non exploitable. Importez un autre document PDF lisible.",
+  TAKEOFF_PDF_CORRUPTED:
+    "Le PDF est invalide ou protege. Reexportez-le avant de relancer l'analyse.",
+  TAKEOFF_PDF_NOT_INTERPRETABLE:
+    "Le PDF est lisible mais reste inexploitable. Importez un PDF mieux exporte ou un autre document.",
   TAKEOFF_FILE_TOO_LARGE:
     "Document trop volumineux. Essayez un niveau plus rapide ou decoupez le document.",
   AI_SCHEMA:

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation";
 
 import {
+  MAX_FILE_SIZE_BYTES,
   MAX_FILE_SIZE_LABEL,
   validateFileForUpload,
 } from "@/lib/file-validation";
@@ -19,6 +20,7 @@ import {
   isTakeoffApiError,
   type TakeoffLevel,
 } from "@/lib/takeoff/client";
+import { validateTakeoffPdfUploadMetadata } from "@/lib/takeoff/pdf-validation";
 
 const TAKEOFF_LEVEL_OPTIONS = [
   {
@@ -153,7 +155,7 @@ function resolveApiErrorMessage(error: unknown) {
   }
 
   if (error.status === 422) {
-    return "Le fichier ou le niveau transmis est invalide.";
+    return error.message || "Le fichier ou le niveau transmis est invalide.";
   }
 
   if (error.status === 0) {
@@ -205,6 +207,32 @@ function validateTakeoffFileSupport(
 ): string | null {
   if (!file) {
     return "Aucun fichier selectionne.";
+  }
+
+  if (file.size <= 0) {
+    return "Le fichier est vide.";
+  }
+
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    return `Le fichier depasse ${MAX_FILE_SIZE_LABEL}.`;
+  }
+
+  const supportsPdf =
+    allowedLevels.includes("B") || allowedLevels.includes("C");
+  if (supportsPdf && file.name.trim().toLowerCase().endsWith(".pdf")) {
+    const pdfValidation = validateTakeoffPdfUploadMetadata({
+      fileName: file.name,
+      mimeType: file.type,
+      fileSizeBytes: file.size,
+      maxFileSizeBytes: MAX_FILE_SIZE_BYTES,
+      maxFileSizeLabel: MAX_FILE_SIZE_LABEL,
+    });
+
+    if (!pdfValidation.valid) {
+      return pdfValidation.message;
+    }
+
+    return null;
   }
 
   const uploadRules = resolveAllowedLevelOptions(allowedLevels);

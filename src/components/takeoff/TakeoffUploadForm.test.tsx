@@ -341,7 +341,7 @@ describe("TakeoffUploadForm", () => {
     await user.click(screen.getByRole("radio", { name: /niveau b/i }));
     await user.upload(
       screen.getByLabelText("Fichier source"),
-      new File(["designation;quantity;unit"], "niveau-b.pdf", { type: "text/csv" })
+      new File(["designation;quantity;unit"], "niveau-a.csv", { type: "text/csv" })
     );
 
     expect(screen.getByText("Metrage structure")).toBeInTheDocument();

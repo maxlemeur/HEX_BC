@@ -2145,6 +2145,7 @@ describe("processLevelB", () => {
   });
 
   it("completes a PDF job and persists tables metadata and metrics", async () => {
+    const pdfBytes = await createPdfArrayBuffer(2);
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
         level: "B",
@@ -2153,7 +2154,7 @@ describe("processLevelB", () => {
         source_file_type: "application/pdf",
       },
       downloadFile: {
-        bytes: toArrayBuffer("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj"),
+        bytes: pdfBytes,
         mimeType: "application/pdf",
       },
     });
@@ -2253,6 +2254,7 @@ describe("processLevelB", () => {
   });
 
   it("accepts PDF MIME types with parameters in level B input", async () => {
+    const pdfBytes = await createPdfArrayBuffer(1);
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
         level: "B",
@@ -2261,7 +2263,7 @@ describe("processLevelB", () => {
         source_file_type: "application/pdf; charset=utf-8",
       },
       downloadFile: {
-        bytes: toArrayBuffer("%PDF-1.7\nmime-params"),
+        bytes: pdfBytes,
         mimeType: "application/pdf; charset=utf-8",
       },
     });
@@ -2307,13 +2309,14 @@ describe("processLevelB", () => {
       })
     );
     expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
-      file_type: "application/pdf; charset=utf-8",
+      file_type: "application/pdf",
       source_file_name: "mime-params.pdf",
       processing_mode: "pdf_vision",
     });
   });
 
   it("supports multi-page table extraction and keeps source page metadata", async () => {
+    const pdfBytes = await createPdfArrayBuffer(4);
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
         level: "B",
@@ -2322,7 +2325,7 @@ describe("processLevelB", () => {
         source_file_type: "application/pdf",
       },
       downloadFile: {
-        bytes: toArrayBuffer("%PDF-1.7\nmulti-page"),
+        bytes: pdfBytes,
         mimeType: "application/pdf",
       },
     });
@@ -2412,6 +2415,39 @@ describe("processLevelB", () => {
         expect.objectContaining({ designation: "Support mural", source_page: 4 }),
       ])
     );
+  });
+
+  it("fails explicitly when the source PDF is corrupted before Gemini is called", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "corrompu.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: toArrayBuffer("not-a-valid-pdf"),
+        mimeType: "application/pdf",
+      },
+    });
+    const callGemini = vi.fn();
+
+    await expect(
+      processLevelB(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
+      retryable: false,
+    });
+
+    expect(callGemini).not.toHaveBeenCalled();
+    expect(mock.state.job.status).toBe("failed");
+    expect(mock.state.job.error_code).toBe(TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED);
   });
 
   it("preserves per-file source names when a plan set is merged into one PDF", async () => {
@@ -2891,6 +2927,7 @@ describe("processLevelB", () => {
   });
 
   it("fails with snapshot when Gemini response is invalid for level B schema", async () => {
+    const pdfBytes = await createPdfArrayBuffer(1);
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
         level: "B",
@@ -2899,7 +2936,7 @@ describe("processLevelB", () => {
         source_file_type: "application/pdf",
       },
       downloadFile: {
-        bytes: toArrayBuffer("%PDF-1.7\ninvalid"),
+        bytes: pdfBytes,
         mimeType: "application/pdf",
       },
     });
@@ -2961,7 +2998,74 @@ describe("processLevelB", () => {
     );
   });
 
+  it("fails explicitly when the PDF is readable but no exploitable table is detected", async () => {
+    const pdfBytes = await createPdfArrayBuffer(1);
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        source_file_name: "scan-image-only.pdf",
+        source_file_path: DEFAULT_SOURCE_PATH_B,
+        source_file_type: "application/pdf",
+      },
+      downloadFile: {
+        bytes: pdfBytes,
+        mimeType: "application/pdf",
+      },
+    });
+
+    const emptyExchange: TakeoffExchange = {
+      items: [],
+      warnings: [],
+      tables: [
+        {
+          page: 1,
+          title: "Scan sans lignes exploitables",
+          headers: ["designation", "quantite", "unite"],
+          rows: [
+            {
+              row_index: 0,
+              cells: ["-", "-", "-"],
+            },
+          ],
+        },
+      ],
+      metadata: {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+        schema_version: "v1",
+      },
+      confidence: 0.52,
+    };
+
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(emptyExchange, {
+        model: "gemini-3-flash-preview",
+        promptVersion: "takeoff-b-v1",
+      })
+    );
+
+    await expect(
+      processLevelB(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE,
+      retryable: false,
+    });
+
+    expect(mock.state.job.status).toBe("failed");
+    expect(mock.state.job.error_code).toBe(
+      TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE
+    );
+  });
+
   it("escalates Level B from Flash to Pro when the extracted structure is empty", async () => {
+    const pdfBytes = await createPdfArrayBuffer(1);
     const mock = createTakeoffProcessorSupabaseMock({
       featureFlags: {
         TAKEOFF_AI_ESCALATION_ENABLED: "true",
@@ -2975,7 +3079,7 @@ describe("processLevelB", () => {
         source_file_type: "application/pdf",
       },
       downloadFile: {
-        bytes: toArrayBuffer("%PDF-1.7\nempty"),
+        bytes: pdfBytes,
         mimeType: "application/pdf",
       },
     });
@@ -3113,6 +3217,7 @@ describe("processLevelB", () => {
   });
 
   it("keeps the primary Level B result and traces budget_blocked when projected escalation cost exceeds the ceiling", async () => {
+    const pdfBytes = await createPdfArrayBuffer(1);
     const mock = createTakeoffProcessorSupabaseMock({
       featureFlags: {
         TAKEOFF_AI_ESCALATION_ENABLED: "true",
@@ -3126,7 +3231,7 @@ describe("processLevelB", () => {
         source_file_type: "application/pdf",
       },
       downloadFile: {
-        bytes: toArrayBuffer("%PDF-1.7\nbudget"),
+        bytes: pdfBytes,
         mimeType: "application/pdf",
       },
     });
@@ -3165,39 +3270,34 @@ describe("processLevelB", () => {
       })
     );
 
-    const result = await processLevelB(JOB_ID, {
-      supabase: mock.supabase as never,
-      tenantId: TENANT_ID,
-      userId: USER_ID,
-      now: () => FIXED_NOW,
-      callGemini,
+    await expect(
+      processLevelB(JOB_ID, {
+        supabase: mock.supabase as never,
+        tenantId: TENANT_ID,
+        userId: USER_ID,
+        now: () => FIXED_NOW,
+        callGemini,
+      })
+    ).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE,
+      details: expect.objectContaining({
+        provider_meta: expect.objectContaining({
+          routing: expect.objectContaining({
+            escalation_block_reason: "budget_blocked",
+          }),
+        }),
+      }),
     });
 
-    expect(result.status).toBe("completed");
-    expect(result.itemsCount).toBe(0);
     expect(callGemini).toHaveBeenCalledTimes(1);
-    expect(mock.state.takeoffResults[0]?.provider_meta).toMatchObject({
-      model: "gemini-3-flash-preview",
-      routing: {
-        strategy: "primary_then_escalation",
-        escalation_candidate: true,
-        escalated: false,
-        escalation_trigger: "weak_level_b_result",
-        escalation_block_reason: "budget_blocked",
-        final_model: "gemini-3-flash-preview",
-        budget: {
-          decision: "block",
-          reason: "budget_blocked",
-          observed_cost_cents: 11,
-          estimated_escalation_cost_cents: 44,
-          projected_total_cost_cents: 55,
-          max_allowed_cost_cents: 50,
-        },
-      },
-    });
+    expect(mock.state.job.status).toBe("failed");
+    expect(mock.state.job.error_code).toBe(
+      TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE
+    );
   });
 
   it("blocks escalation when the dossier is already too expensive before the premium rerun", async () => {
+    const pdfBytes = await createPdfArrayBuffer(1);
     const mock = createTakeoffProcessorSupabaseMock({
       featureFlags: {
         TAKEOFF_AI_ESCALATION_ENABLED: "true",
@@ -3211,7 +3311,7 @@ describe("processLevelB", () => {
         source_file_type: "application/pdf",
       },
       downloadFile: {
-        bytes: toArrayBuffer("%PDF-1.7\ndeja-cher"),
+        bytes: pdfBytes,
         mimeType: "application/pdf",
       },
     });
@@ -3284,6 +3384,7 @@ describe("processLevelB", () => {
   });
 
   it("stores raw Gemini timeout details and marks the job as retryable failure", async () => {
+    const pdfBytes = await createPdfArrayBuffer(1);
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
         level: "B",
@@ -3292,7 +3393,7 @@ describe("processLevelB", () => {
         source_file_type: "application/pdf",
       },
       downloadFile: {
-        bytes: toArrayBuffer("%PDF-1.7\ntimeout"),
+        bytes: pdfBytes,
         mimeType: "application/pdf",
       },
     });

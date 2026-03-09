@@ -16,6 +16,8 @@ export enum TakeoffErrorCode {
   TAKEOFF_FILE_REQUIRED = "TAKEOFF_FILE_REQUIRED",
   TAKEOFF_FILE_TOO_LARGE = "TAKEOFF_FILE_TOO_LARGE",
   TAKEOFF_FILE_TYPE_INVALID = "TAKEOFF_FILE_TYPE_INVALID",
+  TAKEOFF_PDF_CORRUPTED = "TAKEOFF_PDF_CORRUPTED",
+  TAKEOFF_PDF_NOT_INTERPRETABLE = "TAKEOFF_PDF_NOT_INTERPRETABLE",
   TAKEOFF_LEVEL_UNSUPPORTED = "TAKEOFF_LEVEL_UNSUPPORTED",
   TAKEOFF_ESTIMATE_VERSION_ID_INVALID = "TAKEOFF_ESTIMATE_VERSION_ID_INVALID",
   TAKEOFF_JOB_NOT_FOUND = "TAKEOFF_JOB_NOT_FOUND",
@@ -305,6 +307,8 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
   if (
     code === TakeoffErrorCode.VALIDATION_ERROR ||
     code === TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID ||
+    code === TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED ||
+    code === TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE ||
     code === TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED ||
     code === TakeoffErrorCode.TAKEOFF_ESTIMATE_VERSION_ID_INVALID ||
     code === TakeoffErrorCode.AI_SCHEMA ||
@@ -376,6 +380,14 @@ function getDefaultMessage(code: TakeoffErrorCode) {
 
   if (code === TakeoffErrorCode.TAKEOFF_FILE_REQUIRED) {
     return "Le champ file est requis.";
+  }
+
+  if (code === TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED) {
+    return "Le PDF est invalide, corrompu ou protege.";
+  }
+
+  if (code === TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE) {
+    return "Le PDF est lisible mais ne contient pas assez d'elements exploitables.";
   }
 
   if (code === TakeoffErrorCode.TAKEOFF_JOB_NOT_RETRIABLE) {

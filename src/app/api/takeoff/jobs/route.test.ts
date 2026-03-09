@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PDFDocument } from "pdf-lib";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
@@ -308,7 +309,7 @@ function buildTakeoffRequest(input?: {
   level?: string;
   fileName?: string;
   fileType?: string;
-  fileContent?: string;
+  fileContent?: BlobPart;
   fileSizeBytes?: number;
   headers?: Record<string, string>;
 }) {
@@ -343,6 +344,14 @@ function buildTakeoffListRequest(query?: string) {
       method: "GET",
     }
   );
+}
+
+async function createPdfBytes(pageCount = 1) {
+  const pdf = await PDFDocument.create();
+  for (let index = 0; index < pageCount; index += 1) {
+    pdf.addPage([595, 842]);
+  }
+  return new Uint8Array(await pdf.save());
 }
 
 describe("GET /api/takeoff/jobs", () => {
@@ -626,13 +635,14 @@ describe("POST /api/takeoff/jobs", () => {
   it("creates a level B job when a PDF is uploaded", async () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const pdfBytes = await createPdfBytes();
 
     const response = await POST(
       buildTakeoffRequest({
         level: "B",
         fileName: "lot-cvc-dpgf.pdf",
         fileType: "application/pdf",
-        fileContent: "%PDF-1.7\nstub",
+        fileContent: pdfBytes,
       })
     );
     const body = (await response.json()) as {
@@ -656,6 +666,52 @@ describe("POST /api/takeoff/jobs", () => {
         source_kind: "upload",
       },
     });
+  });
+
+  it("accepts a PDF when the browser sends application/octet-stream", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    const pdfBytes = await createPdfBytes();
+
+    const response = await POST(
+      buildTakeoffRequest({
+        level: "B",
+        fileName: "terrain-plan.pdf",
+        fileType: "application/octet-stream",
+        fileContent: pdfBytes,
+      })
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      data?: { level?: string };
+    };
+
+    expect(response.status).toBe(201);
+    expect(body.ok).toBe(true);
+    expect(body.data?.level).toBe("B");
+  });
+
+  it("returns 422 with a dedicated code when the uploaded PDF is corrupted", async () => {
+    const supabase = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(
+      buildTakeoffRequest({
+        level: "B",
+        fileName: "terrain-corrompu.pdf",
+        fileType: "application/pdf",
+        fileContent: "not-a-valid-pdf",
+      })
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string; message?: string };
+    };
+
+    expect(response.status).toBe(422);
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe("TAKEOFF_PDF_CORRUPTED");
+    expect(body.error?.message).toMatch(/pdf/i);
   });
 
   it("returns 422 when file format is not supported", async () => {

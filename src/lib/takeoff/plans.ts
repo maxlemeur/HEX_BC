@@ -13,6 +13,7 @@ import {
 } from "@/lib/estimates/errors";
 import { getAuthenticatedContext } from "@/lib/estimates/server";
 import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { resolveTakeoffPdfMimeType } from "@/lib/takeoff/pdf-validation";
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
 export const PLAN_FILES_BUCKET = "plan-files";
@@ -135,7 +136,7 @@ const normalizedMimeTypeSchema = z.preprocess(
     if (typeof value !== "string") return value;
     return value.trim().toLowerCase();
   },
-  z.string().min(1, "Champ obligatoire.")
+  z.string()
 );
 
 const metadataSchema = z.record(z.string(), z.unknown());
@@ -198,19 +199,25 @@ export const createPlanFileSchema = z
   })
   .strict()
   .superRefine((input, ctx) => {
-    if (input.file_type !== PLAN_FILE_ALLOWED_MIME_TYPE) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["file_type"],
-        message: "Seul le type MIME application/pdf est accepte.",
-      });
-    }
-
     if (!input.file_name.toLowerCase().endsWith(PLAN_FILE_ALLOWED_EXTENSION)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["file_name"],
         message: "Le fichier doit avoir l'extension .pdf.",
+      });
+    }
+
+    if (
+      !resolveTakeoffPdfMimeType({
+        fileName: input.file_name,
+        mimeType: input.file_type,
+      })
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["file_type"],
+        message:
+          "Le type MIME du fichier n'est pas compatible avec un PDF. Verifiez l'export ou l'extension .pdf.",
       });
     }
   });

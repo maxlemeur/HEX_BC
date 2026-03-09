@@ -28,6 +28,7 @@ import {
   TakeoffErrorCode,
   toTakeoffError,
 } from "@/lib/takeoff/errors";
+import { resolveTakeoffOperatorState } from "@/lib/takeoff/operator-state";
 import { checkApplyGuard } from "@/lib/takeoff/guards";
 import {
   TakeoffMappingRuleSchema,
@@ -42,12 +43,21 @@ import {
   classifyTakeoffPlanSetSource,
   classifyTakeoffUploadSource,
 } from "@/lib/takeoff/document-classifier";
-import { validateFileForUpload } from "@/lib/file-validation";
+import {
+  MAX_FILE_SIZE_BYTES,
+  MAX_FILE_SIZE_LABEL,
+  validateFileForUpload,
+} from "@/lib/file-validation";
 import {
   assertTakeoffEnabled,
   getTakeoffGeminiDeliveryConfigForTenant,
   getTakeoffLowConfidenceThresholdForTenant,
 } from "@/lib/takeoff/feature-flags";
+import {
+  inspectTakeoffPdfBytes,
+  resolveTakeoffPdfMimeType,
+  validateTakeoffPdfUploadMetadata,
+} from "@/lib/takeoff/pdf-validation";
 import { resolveTakeoffProcessingStrategy } from "@/lib/takeoff/provider-batch";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { computeTakeoffMappingPreview } from "@/lib/takeoff/mapping-engine";
@@ -172,6 +182,17 @@ const TAKEOFF_MAPPING_RULES_SELECT = [
   "is_active",
 ].join(", ");
 const TAKEOFF_TENANT_ADMIN_ROLE = "admin";
+const TAKEOFF_TENANT_ENGINEER_ROLE = "engineer";
+const TAKEOFF_OPERATOR_ALLOWED_ROLES = new Set([
+  TAKEOFF_TENANT_ADMIN_ROLE,
+  TAKEOFF_TENANT_ENGINEER_ROLE,
+]);
+const TAKEOFF_PROVIDER_TERMINAL_STATES = new Set<TakeoffProviderBatchState>([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+]);
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TAKEOFF_JOBS_LIST_LIMIT = 20;
@@ -207,6 +228,9 @@ const TAKEOFF_JOB_LIST_SELECT = [
   "retry_count",
   "next_retry_at",
   "last_error_at",
+  "provider_reconcile_due_at",
+  "provider_reconcile_attempt_count",
+  "provider_reconcile_lease_expires_at",
   "token_count",
   "cost_cents",
   "duration_ms",
@@ -637,6 +661,9 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     error_message: z.string().nullable(),
     next_retry_at: z.string().nullable().optional(),
     last_error_at: z.string().nullable().optional(),
+    provider_reconcile_due_at: z.string().nullable().optional(),
+    provider_reconcile_attempt_count: z.number().int().nonnegative().nullable().optional(),
+    provider_reconcile_lease_expires_at: z.string().nullable().optional(),
     started_at: z.string().nullable(),
     completed_at: z.string().nullable(),
     created_at: z.string(),
@@ -668,6 +695,10 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     error_message: row.error_message,
     next_retry_at: row.next_retry_at ?? null,
     last_error_at: row.last_error_at ?? null,
+    provider_reconcile_due_at: row.provider_reconcile_due_at ?? null,
+    provider_reconcile_attempt_count: row.provider_reconcile_attempt_count ?? 0,
+    provider_reconcile_lease_expires_at:
+      row.provider_reconcile_lease_expires_at ?? null,
     started_at: row.started_at,
     completed_at: row.completed_at,
     created_at: row.created_at,
@@ -1058,6 +1089,10 @@ type TakeoffJobDetailRow = {
   retry_count: number | null;
   next_retry_at: string | null;
   last_error_at: string | null;
+  provider_reconcile_due_at: string | null;
+  provider_reconcile_attempt_count: number | null;
+  provider_reconcile_lease_token?: string | null;
+  provider_reconcile_lease_expires_at: string | null;
   token_count: number | null;
   cost_cents: number | null;
   duration_ms: number | null;
@@ -1373,6 +1408,36 @@ function resolveTakeoffUploadValidation(level: TakeoffLevel) {
 }
 
 function assertTakeoffFileIsValid(file: File, level: TakeoffLevel) {
+  if (level !== "A") {
+    const validation = validateTakeoffPdfUploadMetadata({
+      fileName: file.name,
+      mimeType: file.type,
+      fileSizeBytes: file.size,
+      maxFileSizeBytes: MAX_FILE_SIZE_BYTES,
+      maxFileSizeLabel: MAX_FILE_SIZE_LABEL,
+    });
+
+    if (validation.valid) {
+      return;
+    }
+
+    if (validation.reason === "too_large") {
+      throw new TakeoffError({
+        status: 413,
+        code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+        message: validation.message,
+        retryable: false,
+      });
+    }
+
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
+      message: validation.message,
+      retryable: false,
+    });
+  }
+
   const validationConfig = resolveTakeoffUploadValidation(level);
   const validation = validateFileForUpload(file, {
     allowedExtensions: validationConfig.allowedExtensions,
@@ -1681,16 +1746,51 @@ function normalizeTakeoffApplySummary(input: {
   };
 }
 
-function normalizeTakeoffJobSummaryRow(row: unknown): TakeoffJobSummary {
-  return parseWithSchema(
-    takeoffJobSummarySchema,
-    row,
-    "Donnees takeoff_jobs invalides en base."
+function decorateTakeoffJobSummaryWithOperatorState(
+  job: TakeoffJobSummary,
+  tenantRole?: string | null
+): TakeoffJobSummary {
+  const operatorState = resolveTakeoffOperatorState({
+    status: job.status,
+    processingStrategy: job.processing_strategy,
+    providerBatchId: job.provider_batch_id,
+    providerBatchState: job.provider_batch_state,
+    providerReconcileDueAt: job.provider_reconcile_due_at ?? null,
+    providerReconcileLeaseExpiresAt:
+      job.provider_reconcile_lease_expires_at ?? null,
+    errorCode: job.error_code,
+    tenantRole,
+  });
+
+  return {
+    ...job,
+    operator_state: operatorState.state,
+    operator_state_label: operatorState.label,
+    can_reconcile: operatorState.canReconcile,
+    can_cancel: operatorState.canCancel,
+    can_resubmit: operatorState.canResubmit,
+  };
+}
+
+function normalizeTakeoffJobSummaryRow(
+  row: unknown,
+  tenantRole?: string | null
+): TakeoffJobSummary {
+  return decorateTakeoffJobSummaryWithOperatorState(
+    parseWithSchema(
+      takeoffJobSummarySchema,
+      row,
+      "Donnees takeoff_jobs invalides en base."
+    ),
+    tenantRole
   );
 }
 
-function normalizeTakeoffJobSummaryRows(rows: unknown[]): TakeoffJobSummary[] {
-  return rows.map((row) => normalizeTakeoffJobSummaryRow(row));
+function normalizeTakeoffJobSummaryRows(
+  rows: unknown[],
+  tenantRole?: string | null
+): TakeoffJobSummary[] {
+  return rows.map((row) => normalizeTakeoffJobSummaryRow(row, tenantRole));
 }
 
 function normalizeTakeoffResultRow(row: unknown): TakeoffJobResult {
@@ -2578,12 +2678,14 @@ function getTakeoffRetryBackoffMs(retryCount: number) {
 function buildTerminalStatusConflictError(input: {
   status: string;
   allowedStatuses: string[];
-  action: "retry" | "cancel";
+  action: "retry" | "cancel" | "resubmit";
 }): TakeoffError {
   const message =
     input.action === "retry"
       ? "Le job doit etre en statut failed pour etre relance."
-      : "Le job doit etre en statut pending ou processing pour etre annule.";
+      : input.action === "resubmit"
+        ? "Le job doit etre en statut failed ou canceled pour etre resoumis."
+        : "Le job doit etre en statut pending ou processing pour etre annule.";
 
   return new TakeoffError({
     status: 409,
@@ -4351,7 +4453,7 @@ async function listTakeoffItemCountsByJobId(input: {
 export async function listTakeoffJobs(
   input: ListTakeoffJobsQuery
 ): Promise<TakeoffJobListResponse> {
-  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedTakeoffContext();
   const limit = input.limit ?? DEFAULT_TAKEOFF_JOBS_LIST_LIMIT;
   const offset = input.offset ?? 0;
   const rangeEnd = offset + limit - 1;
@@ -4444,7 +4546,10 @@ export async function listTakeoffJobs(
     );
   }
 
-  const jobs = normalizeTakeoffJobSummaryRows((data ?? []) as TakeoffJobDetailRow[]);
+  const jobs = normalizeTakeoffJobSummaryRows(
+    (data ?? []) as TakeoffJobDetailRow[],
+    tenantRole
+  );
   const uniqueJobIds = Array.from(new Set(jobs.map((job) => job.id)));
   const itemCountByJobId = await listTakeoffItemCountsByJobId({
     supabase,
@@ -4471,7 +4576,7 @@ export async function getTakeoffJobDetails(
   jobId: string,
   input: GetTakeoffJobDetailsQuery
 ): Promise<TakeoffJobDetailResponse> {
-  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedTakeoffContext();
   const limit = input.items_limit ?? DEFAULT_TAKEOFF_JOB_ITEMS_LIMIT;
   const offset = input.items_offset ?? 0;
   const normalizedJobId = parseWithSchema(
@@ -4501,7 +4606,7 @@ export async function getTakeoffJobDetails(
   ]);
 
   return {
-    job: normalizeTakeoffJobSummaryRow(jobRow),
+    job: normalizeTakeoffJobSummaryRow(jobRow, tenantRole),
     result,
     items: {
       data: items.data,
@@ -6323,8 +6428,338 @@ export async function previewTakeoffJobConversion(
   });
 }
 
+function assertTakeoffOperatorActionRole(tenantRole: string | null | undefined) {
+  if (tenantRole && TAKEOFF_OPERATOR_ALLOWED_ROLES.has(tenantRole)) {
+    return;
+  }
+
+  throw new TakeoffError({
+    status: 403,
+    code: TakeoffErrorCode.FORBIDDEN,
+    message: "Acces refuse.",
+    retryable: false,
+  });
+}
+
+function toTakeoffOperatorAuditRole(
+  tenantRole: string | null | undefined
+): "admin" | "engineer" | null {
+  if (tenantRole === TAKEOFF_TENANT_ADMIN_ROLE) {
+    return "admin";
+  }
+
+  if (tenantRole === TAKEOFF_TENANT_ENGINEER_ROLE) {
+    return "engineer";
+  }
+
+  return null;
+}
+
+function buildTakeoffJobResetUpdate(input: { retryCount: number }) {
+  return {
+    status: "pending",
+    retry_count: input.retryCount + 1,
+    next_retry_at: null,
+    last_error_at: null,
+    started_at: null,
+    completed_at: null,
+    token_count: null,
+    cost_cents: null,
+    duration_ms: null,
+    error_code: null,
+    error_message: null,
+    provider_batch_id: null,
+    provider_batch_state: null,
+    provider_batch_updated_at: null,
+    provider_reconcile_due_at: null,
+    provider_reconcile_attempt_count: 0,
+    provider_reconcile_lease_token: null,
+    provider_reconcile_lease_expires_at: null,
+  };
+}
+
+export async function reconcileTakeoffJobNow(
+  jobId: string
+): Promise<TakeoffJobActionResponse> {
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
+
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const existingJob = await getTakeoffJobDetailByIdOrThrow({
+    supabase,
+    tenantId,
+    jobId: normalizedJobId,
+  });
+  const operatorState = resolveTakeoffOperatorState({
+    status: existingJob.status,
+    processingStrategy: existingJob.processing_strategy,
+    providerBatchId: existingJob.provider_batch_id,
+    providerBatchState: existingJob.provider_batch_state,
+    providerReconcileDueAt: existingJob.provider_reconcile_due_at,
+    providerReconcileLeaseExpiresAt: existingJob.provider_reconcile_lease_expires_at,
+    errorCode: existingJob.error_code,
+    tenantRole,
+  });
+
+  if (existingJob.processing_strategy !== "batch" || !existingJob.provider_batch_id) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "Le job n'est pas un job batch relancable en reconcile.",
+      details: {
+        processing_strategy: existingJob.processing_strategy,
+        provider_batch_id: existingJob.provider_batch_id,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  if (
+    existingJob.provider_batch_state &&
+    TAKEOFF_PROVIDER_TERMINAL_STATES.has(existingJob.provider_batch_state)
+  ) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "Le provider est deja dans un etat terminal pour ce job.",
+      details: {
+        provider_batch_state: existingJob.provider_batch_state,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  if (!operatorState.canReconcile) {
+    await logTakeoffAuditEvent({
+      supabase,
+      tenantId,
+      userId,
+      jobId: normalizedJobId,
+      estimateVersionId: existingJob.estimate_version_id,
+      action: "takeoff.job.reconcile_requested",
+      metadata: takeoffAuditMetadataBuilders["takeoff.job.reconcile_requested"]({
+        reason: "manual_reconcile",
+        requested_by_role: toTakeoffOperatorAuditRole(tenantRole),
+        from_status: existingJob.status,
+        from_provider_batch_state: existingJob.provider_batch_state,
+        outcome: "noop",
+      }),
+      mode: "non-blocking",
+    });
+
+    return {
+      job: normalizeTakeoffJobSummaryRow(existingJob, tenantRole),
+      command: "reconcile",
+      outcome: "noop",
+    };
+  }
+
+  const reconcileRequestedAt = new Date().toISOString();
+  const updatePayload: Partial<TakeoffJobDetailRow> = {
+    provider_reconcile_due_at: reconcileRequestedAt,
+    provider_reconcile_attempt_count: existingJob.provider_reconcile_attempt_count ?? 0,
+    provider_reconcile_lease_token: null,
+    provider_reconcile_lease_expires_at: null,
+  };
+
+  if (existingJob.status === "failed") {
+    updatePayload.status = "processing";
+    updatePayload.completed_at = null;
+    updatePayload.last_error_at = null;
+    updatePayload.error_code = null;
+    updatePayload.error_message = null;
+  }
+
+  const query = supabase
+    .from("takeoff_jobs" as never)
+    .update(updatePayload as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("id" as never, normalizedJobId as never);
+
+  const { data, error } =
+    existingJob.status === "failed"
+      ? await query
+          .eq("status" as never, "failed" as never)
+          .select(TAKEOFF_JOB_DETAIL_SELECT as never)
+          .maybeSingle()
+      : await query
+          .eq("status" as never, "processing" as never)
+          .select(TAKEOFF_JOB_DETAIL_SELECT as never)
+          .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de relancer le reconcile du job takeoff."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  const updatedJob = (data as TakeoffJobDetailRow | null) ?? existingJob;
+  const outcome = data ? "applied" : "noop";
+
+  await logTakeoffAuditEvent({
+    supabase,
+    tenantId,
+    userId,
+    jobId: normalizedJobId,
+    estimateVersionId: updatedJob.estimate_version_id,
+    action: "takeoff.job.reconcile_requested",
+    metadata: takeoffAuditMetadataBuilders["takeoff.job.reconcile_requested"]({
+      reason: "manual_reconcile",
+      requested_by_role: toTakeoffOperatorAuditRole(tenantRole),
+      from_status: existingJob.status,
+      from_provider_batch_state: existingJob.provider_batch_state,
+      outcome,
+    }),
+    mode: "non-blocking",
+  });
+
+  return {
+    job: normalizeTakeoffJobSummaryRow(updatedJob, tenantRole),
+    command: "reconcile",
+    outcome,
+  };
+}
+
+export async function resubmitTakeoffJob(
+  jobId: string
+): Promise<TakeoffJobActionResponse> {
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
+
+  const normalizedJobId = parseWithSchema(
+    takeoffJobIdSchema,
+    jobId,
+    "Identifiant job invalide."
+  );
+  const existingJob = await getTakeoffJobDetailByIdOrThrow({
+    supabase,
+    tenantId,
+    jobId: normalizedJobId,
+  });
+
+  if (existingJob.status !== "failed" && existingJob.status !== "canceled") {
+    throw buildTerminalStatusConflictError({
+      action: "resubmit",
+      status: existingJob.status,
+      allowedStatuses: ["failed", "canceled"],
+    });
+  }
+
+  const retryCount = existingJob.retry_count ?? 0;
+  if (retryCount >= TAKEOFF_RETRY_MAX) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "Le nombre maximal de relances est atteint pour ce job.",
+      details: {
+        retry_count: retryCount,
+        retry_max: TAKEOFF_RETRY_MAX,
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  if (existingJob.status === "failed" && existingJob.completed_at) {
+    const requiredBackoffMs = getTakeoffRetryBackoffMs(retryCount);
+    const completedAtMs = Date.parse(existingJob.completed_at);
+    if (Number.isFinite(completedAtMs)) {
+      const earliestRetryAtMs = completedAtMs + requiredBackoffMs;
+      if (Date.now() < earliestRetryAtMs) {
+        throw new TakeoffError({
+          status: 409,
+          code: TakeoffErrorCode.CONFLICT,
+          message: "Le delai de relance n'est pas encore ecoule pour ce job.",
+          details: {
+            retry_count: retryCount,
+            retry_backoff_ms: requiredBackoffMs,
+            retry_available_at: new Date(earliestRetryAtMs).toISOString(),
+          },
+          retryable: false,
+          jobId: normalizedJobId,
+        });
+      }
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("takeoff_jobs" as never)
+    .update(buildTakeoffJobResetUpdate({ retryCount }) as never)
+    .eq("tenant_id" as never, tenantId as never)
+    .eq("id" as never, normalizedJobId as never)
+    .in("status" as never, ["failed", "canceled"] as never)
+    .select(TAKEOFF_JOB_DETAIL_SELECT as never)
+    .maybeSingle();
+
+  if (error) {
+    throw toTakeoffError(
+      mapSupabaseError(error, "Impossible de resoumettre le job takeoff."),
+      {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        retryable: false,
+        jobId: normalizedJobId,
+      }
+    );
+  }
+
+  if (!data) {
+    throw new TakeoffError({
+      status: 409,
+      code: TakeoffErrorCode.CONFLICT,
+      message: "Le job n'est plus dans un statut resoumettable.",
+      details: {
+        allowed_statuses: ["failed", "canceled"],
+      },
+      retryable: false,
+      jobId: normalizedJobId,
+    });
+  }
+
+  const updatedJob = data as TakeoffJobDetailRow;
+
+  await logTakeoffAuditEvent({
+    supabase,
+    tenantId,
+    userId,
+    jobId: normalizedJobId,
+    estimateVersionId: updatedJob.estimate_version_id,
+    action: "takeoff.job.resubmitted",
+    metadata: takeoffAuditMetadataBuilders["takeoff.job.resubmitted"]({
+      from_attempt: retryCount + 1,
+      to_attempt: retryCount + 2,
+      reason: "manual_resubmit",
+      requested_by_role: toTakeoffOperatorAuditRole(tenantRole),
+      from_status: existingJob.status,
+      from_provider_batch_state: existingJob.provider_batch_state,
+      outcome: "applied",
+    }),
+    mode: "non-blocking",
+  });
+
+  return {
+    job: normalizeTakeoffJobSummaryRow(updatedJob, tenantRole),
+    command: "resubmit",
+    outcome: "applied",
+  };
+}
+
 export async function retryTakeoffJob(jobId: string): Promise<TakeoffJobActionResponse> {
-  const { supabase, tenantId, userId } = await getAuthenticatedTakeoffContext();
+  const { supabase, tenantId, userId, tenantRole } =
+    await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
     jobId,
@@ -6383,22 +6818,7 @@ export async function retryTakeoffJob(jobId: string): Promise<TakeoffJobActionRe
 
   const { data, error } = await supabase
     .from("takeoff_jobs" as never)
-    .update({
-      status: "pending",
-      retry_count: retryCount + 1,
-      next_retry_at: null,
-      last_error_at: null,
-      started_at: null,
-      completed_at: null,
-      token_count: null,
-      cost_cents: null,
-      duration_ms: null,
-      error_code: null,
-      error_message: null,
-      provider_batch_id: null,
-      provider_batch_state: null,
-      provider_batch_updated_at: null,
-    } as never)
+    .update(buildTakeoffJobResetUpdate({ retryCount }) as never)
     .eq("tenant_id" as never, tenantId as never)
     .eq("id" as never, normalizedJobId as never)
     .eq("status" as never, "failed" as never)
@@ -6449,13 +6869,16 @@ export async function retryTakeoffJob(jobId: string): Promise<TakeoffJobActionRe
   });
 
   return {
-    job: normalizeTakeoffJobSummaryRow(updatedJob),
+    job: normalizeTakeoffJobSummaryRow(updatedJob, tenantRole),
+    command: "retry",
+    outcome: "applied",
   };
 }
 
 export async function cancelTakeoffJob(jobId: string): Promise<TakeoffJobActionResponse> {
   const { supabase, tenantId, userId, tenantRole } =
     await getAuthenticatedTakeoffContext();
+  assertTakeoffOperatorActionRole(tenantRole);
   const normalizedJobId = parseWithSchema(
     takeoffJobIdSchema,
     jobId,
@@ -6534,7 +6957,9 @@ export async function cancelTakeoffJob(jobId: string): Promise<TakeoffJobActionR
   });
 
   return {
-    job: normalizeTakeoffJobSummaryRow(updatedJob),
+    job: normalizeTakeoffJobSummaryRow(updatedJob, tenantRole),
+    command: "cancel",
+    outcome: "applied",
   };
 }
 
@@ -7297,7 +7722,7 @@ export async function applyTakeoffJob(
     });
 
     return {
-      job: normalizeTakeoffJobSummaryRow(updatedJobRow),
+      job: normalizeTakeoffJobSummaryRow(updatedJobRow, tenantRole),
       summary,
     };
   } catch (error) {
@@ -7446,14 +7871,37 @@ export async function createTakeoffJobFromFormData(
     level = parseTakeoffLevel(formData);
 
     assertTakeoffFileIsValid(file, level);
+    const fileBytes = await file.arrayBuffer();
 
-    const fileContentHash = toHexSha256(Buffer.from(await file.arrayBuffer()));
+    if (level !== "A") {
+      const pdfInspection = await inspectTakeoffPdfBytes(fileBytes);
+      if (!pdfInspection.valid) {
+        throw new TakeoffError({
+          status: 422,
+          code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
+          message: pdfInspection.message,
+          retryable: false,
+          level,
+          details: pdfInspection.details,
+        });
+      }
+    }
+
+    const normalizedSourceFileType =
+      level === "A"
+        ? file.type
+        : resolveTakeoffPdfMimeType({
+            fileName: file.name,
+            mimeType: file.type,
+          }) ?? file.type;
+
+    const fileContentHash = toHexSha256(Buffer.from(fileBytes));
     const payloadFingerprint = toHexSha256(
       JSON.stringify({
         estimate_version_id: estimateVersionId,
         level,
         file_name: file.name,
-        file_type: file.type,
+        file_type: normalizedSourceFileType,
         file_size_bytes: file.size,
         file_content_hash: fileContentHash,
       })
@@ -7516,7 +7964,7 @@ export async function createTakeoffJobFromFormData(
     const sourceFileName = file.name.trim().length > 0 ? file.name : "upload";
     const uploadClassification = classifyTakeoffUploadSource({
       fileName: sourceFileName,
-      mimeType: file.type,
+      mimeType: normalizedSourceFileType,
       sizeBytes: file.size,
     });
     const sourceFilePath = `${tenantId}/${jobId}/${payloadFingerprint}-${sanitizeFilename(
@@ -7526,7 +7974,7 @@ export async function createTakeoffJobFromFormData(
     const { error: uploadError } = await supabase.storage
       .from(TAKEOFF_FILES_BUCKET)
       .upload(sourceFilePath, file, {
-        contentType: file.type,
+        contentType: normalizedSourceFileType,
         upsert: Boolean(idempotencyKey),
       });
 
@@ -7553,7 +8001,7 @@ export async function createTakeoffJobFromFormData(
         processing_strategy: processingStrategy,
         source_file_name: sourceFileName,
         source_file_path: sourceFilePath,
-        source_file_type: file.type,
+        source_file_type: normalizedSourceFileType,
         source_file_size_bytes: file.size,
         prompt_version: getTakeoffPromptVersion(level),
         created_by: userId,

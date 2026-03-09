@@ -32,6 +32,11 @@ import {
   toTakeoffError,
 } from "@/lib/takeoff/errors";
 import {
+  buildTakeoffPdfNotInterpretableMessage,
+  inspectTakeoffPdfBytes,
+  resolveTakeoffPdfMimeType,
+} from "@/lib/takeoff/pdf-validation";
+import {
   getTakeoffChunkingConfigForTenant,
   getTakeoffEscalationConfigForTenant,
   getTakeoffGeminiDeliveryConfigForTenant,
@@ -1290,8 +1295,15 @@ async function downloadTakeoffSourceFile(input: {
           normalizeNullableText(input.job.source_file_name) ??
           "plan.pdf",
         mimeType:
-          normalizeNullableText(data.type) ??
-          normalizeNullableText(singleFile.file_type) ??
+          resolveTakeoffPdfMimeType({
+            fileName:
+              normalizeNullableText(singleFile.file_name) ??
+              normalizeNullableText(input.job.source_file_name) ??
+              "plan.pdf",
+            mimeType:
+              normalizeNullableText(data.type) ??
+              normalizeNullableText(singleFile.file_type),
+          }) ??
           "application/pdf",
         bytes: await data.arrayBuffer(),
       };
@@ -1331,8 +1343,9 @@ async function downloadTakeoffSourceFile(input: {
         sourcePdf = await PDFDocument.load(await data.arrayBuffer());
       } catch (pdfError) {
         throw new TakeoffError({
-          code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
-          message: "Un fichier du jeu de plans n'est pas un PDF valide.",
+          code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
+          message:
+            "Un fichier du jeu de plans est invalide ou protege. Reimportez un PDF exploitable avant de relancer.",
           details: pdfError,
           retryable: false,
           jobId: input.job.id,
@@ -1403,9 +1416,12 @@ async function downloadTakeoffSourceFile(input: {
   const fallbackFileName = normalizeNullableText(input.job.source_file_name) ?? "upload";
   const fileName = getFileNameFromStoragePath(sourcePath, fallbackFileName);
   const mimeType =
-    normalizeNullableText(data.type) ??
-    normalizeNullableText(input.job.source_file_type) ??
-    inferMimeTypeFromFilename(fileName);
+    resolveTakeoffPdfMimeType({
+      fileName,
+      mimeType:
+        normalizeNullableText(data.type) ??
+        normalizeNullableText(input.job.source_file_type),
+    }) ?? inferMimeTypeFromFilename(fileName);
 
   return {
     fileName,
@@ -2440,14 +2456,22 @@ async function processLevelCGeminiChunks(input: {
   let pageCount: number;
   try {
     pageCount = await getPdfPageCount(input.sourceFile.bytes);
-  } catch (error) {
+  } catch {
+    const pdfInspection = await inspectTakeoffPdfBytes(input.sourceFile.bytes);
     throw new TakeoffError({
-      code: TakeoffErrorCode.TAKEOFF_FILE_TYPE_INVALID,
-      message: "Impossible de lire le nombre de pages du PDF source.",
+      code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
+      message: pdfInspection.valid
+        ? "Le PDF est invalide ou incomplet. Reexportez-le avant de relancer l'analyse."
+        : pdfInspection.message,
       retryable: false,
       jobId: input.job.id,
       level: TAKEOFF_LEVEL_C,
-      details: error,
+      details: pdfInspection.valid
+        ? {
+            reason: "invalid_pdf_page_count",
+            source_file_name: input.sourceFile.fileName,
+          }
+        : pdfInspection.details,
     });
   }
 
@@ -2899,6 +2923,38 @@ type StructuredTakeoffRunResult = {
   providerMeta: Record<string, unknown>;
 };
 
+function assertPdfResultIsInterpretable(input: {
+  job: TakeoffJobProcessingRow;
+  level: "B" | "C";
+  sourceFile: DownloadedTakeoffFile;
+  tablesCount: number;
+  itemsCount: number;
+  providerMeta?: Record<string, unknown>;
+}) {
+  const isInterpretable =
+    input.level === "C"
+      ? input.itemsCount > 0
+      : input.tablesCount > 0 && input.itemsCount > 0;
+
+  if (isInterpretable) {
+    return;
+  }
+
+  throw new TakeoffError({
+    code: TakeoffErrorCode.TAKEOFF_PDF_NOT_INTERPRETABLE,
+    message: buildTakeoffPdfNotInterpretableMessage(input.level),
+    retryable: false,
+    jobId: input.job.id,
+    level: input.level,
+    details: {
+      source_file_name: input.sourceFile.fileName,
+      tables_count: input.tablesCount,
+      items_count: input.itemsCount,
+      provider_meta: input.providerMeta ?? null,
+    },
+  });
+}
+
 async function processLevelBGeminiChunks(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
@@ -2934,12 +2990,22 @@ async function processLevelBGeminiChunks(input: {
   let pageCount: number | null = null;
   try {
     pageCount = await getPdfPageCount(input.sourceFile.bytes);
-  } catch (error) {
-    console.warn("Impossible de lire le nombre de pages du PDF source Level B.", {
-      job_id: input.job.id,
-      tenant_id: input.job.tenant_id,
-      source_file_name: input.sourceFile.fileName,
-      error,
+  } catch {
+    const pdfInspection = await inspectTakeoffPdfBytes(input.sourceFile.bytes);
+    throw new TakeoffError({
+      code: TakeoffErrorCode.TAKEOFF_PDF_CORRUPTED,
+      message: pdfInspection.valid
+        ? "Le PDF est invalide ou incomplet. Reexportez-le avant de relancer l'analyse."
+        : pdfInspection.message,
+      retryable: false,
+      jobId: input.job.id,
+      level: TAKEOFF_LEVEL_B,
+      details: pdfInspection.valid
+        ? {
+            reason: "invalid_pdf_page_count",
+            source_file_name: input.sourceFile.fileName,
+          }
+        : pdfInspection.details,
     });
   }
 
@@ -3586,6 +3652,15 @@ async function processTakeoffLevel(
       });
       levelCChunkMetrics = cloneLevelCChunkMetrics(levelCResult.chunkMetrics);
 
+      assertPdfResultIsInterpretable({
+        job,
+        level: TAKEOFF_LEVEL_C,
+        sourceFile,
+        tablesCount: levelCResult.tablesCount,
+        itemsCount: levelCResult.itemsForInsert.length,
+        providerMeta: levelCResult.providerMeta,
+      });
+
       const persisted = await persistTakeoffResultAndItems({
         supabase: context.supabase,
         job,
@@ -3679,6 +3754,15 @@ async function processTakeoffLevel(
       attemptedModel = levelBResult.model;
       attemptedThinkingLevel = levelBResult.thinkingLevel;
       attemptedPromptVersion = levelBResult.promptVersion;
+
+      assertPdfResultIsInterpretable({
+        job,
+        level: TAKEOFF_LEVEL_B,
+        sourceFile,
+        tablesCount: levelBResult.tablesCount,
+        itemsCount: levelBResult.itemsForInsert.length,
+        providerMeta: levelBResult.providerMeta,
+      });
 
       const persisted = await persistTakeoffResultAndItems({
         supabase: context.supabase,

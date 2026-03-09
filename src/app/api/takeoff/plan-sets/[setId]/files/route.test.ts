@@ -505,6 +505,26 @@ describe("/api/takeoff/plan-sets/[setId]/files", () => {
     expect(extractPlanFiles(listBody.data).length).toBeGreaterThan(0);
   });
 
+  it("accepts PDF registration when MIME is application/octet-stream but extension is .pdf", async () => {
+    const supabase = createSupabaseMock({
+      planFiles: [],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await postUploadWithFallback(SET_ID, makeParams(), {
+      fileName: "plan-terrain.pdf",
+      fileType: "application/octet-stream",
+      fileSizeBytes: 1024,
+    });
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: { code?: string };
+    };
+
+    expect([200, 201]).toContain(response.status);
+    expect(body.ok).toBe(true);
+  });
+
   it("returns 413 when uploaded file exceeds 50 MB", async () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);

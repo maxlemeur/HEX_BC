@@ -7,6 +7,11 @@ import {
   registerPlanFile,
   uploadFileToSignedUrl,
 } from "@/lib/takeoff/client";
+import {
+  inspectTakeoffPdfBytes,
+  resolveTakeoffPdfMimeType,
+  validateTakeoffPdfUploadMetadata,
+} from "@/lib/takeoff/pdf-validation";
 
 const PLAN_PDF_ACCEPT = ".pdf,application/pdf";
 const PLAN_PDF_MAX_SIZE_BYTES = 50 * 1024 * 1024;
@@ -21,6 +26,7 @@ type UploadFileEntry = {
   status: UploadFileStatus;
   progress: number;
   error: string | null;
+  normalizedMimeType: string | null;
 };
 
 export type PlanFileUploadSummary = {
@@ -34,21 +40,41 @@ type PlanFileUploadZoneProps = {
   onUploadActivityChange?: (isActive: boolean) => void;
 };
 
-function validatePdfFile(file: File): string | null {
-  if (!file.name.toLowerCase().endsWith(".pdf")) {
-    return `"${file.name}" n'est pas un PDF.`;
+async function validatePdfFile(file: File): Promise<{
+  error: string | null;
+  normalizedMimeType: string | null;
+}> {
+  const metadataValidation = validateTakeoffPdfUploadMetadata({
+    fileName: file.name,
+    mimeType: file.type,
+    fileSizeBytes: file.size,
+    maxFileSizeBytes: PLAN_PDF_MAX_SIZE_BYTES,
+    maxFileSizeLabel: PLAN_PDF_MAX_SIZE_LABEL,
+  });
+
+  if (!metadataValidation.valid) {
+    return {
+      error: `"${file.name}" ${metadataValidation.message.toLowerCase()}`,
+      normalizedMimeType: null,
+    };
   }
-  const mime = file.type.trim().toLowerCase();
-  if (mime && mime !== "application/pdf") {
-    return `"${file.name}" n'est pas un PDF (type: ${file.type}).`;
+
+  const pdfInspection = await inspectTakeoffPdfBytes(await file.arrayBuffer());
+  if (!pdfInspection.valid) {
+    return {
+      error: `"${file.name}" ${pdfInspection.message.toLowerCase()}`,
+      normalizedMimeType: null,
+    };
   }
-  if (file.size <= 0) {
-    return `"${file.name}" est vide.`;
-  }
-  if (file.size > PLAN_PDF_MAX_SIZE_BYTES) {
-    return `"${file.name}" depasse ${PLAN_PDF_MAX_SIZE_LABEL}.`;
-  }
-  return null;
+
+  return {
+    error: null,
+    normalizedMimeType:
+      resolveTakeoffPdfMimeType({
+        fileName: file.name,
+        mimeType: file.type,
+      }) ?? "application/pdf",
+  };
 }
 
 function generateEntryId() {
@@ -92,7 +118,7 @@ export function PlanFileUploadZone({
         try {
           const response = await registerPlanFile(setId, {
             file_name: entry.file.name,
-            file_type: entry.file.type || "application/pdf",
+            file_type: entry.normalizedMimeType || "application/pdf",
             file_size_bytes: entry.file.size,
           });
 
@@ -140,20 +166,21 @@ export function PlanFileUploadZone({
   );
 
   const handleFiles = useCallback(
-    (fileList: FileList | File[]) => {
+    async (fileList: FileList | File[]) => {
       const files = Array.from(fileList);
       if (files.length === 0) return;
 
       const newEntries: UploadFileEntry[] = [];
       for (const file of files) {
-        const validationError = validatePdfFile(file);
-        if (validationError) {
+        const validation = await validatePdfFile(file);
+        if (validation.error) {
           newEntries.push({
             id: generateEntryId(),
             file,
             status: "error",
             progress: 0,
-            error: validationError,
+            error: validation.error,
+            normalizedMimeType: null,
           });
         } else {
           newEntries.push({
@@ -162,6 +189,7 @@ export function PlanFileUploadZone({
             status: "pending",
             progress: 0,
             error: null,
+            normalizedMimeType: validation.normalizedMimeType,
           });
         }
       }
@@ -198,7 +226,9 @@ export function PlanFileUploadZone({
         accept={PLAN_PDF_ACCEPT}
         multiple
         onChange={(e) => {
-          if (e.target.files) handleFiles(e.target.files);
+          if (e.target.files) {
+            void handleFiles(e.target.files);
+          }
           e.target.value = "";
         }}
         disabled={hasActiveUploads}
@@ -242,7 +272,9 @@ export function PlanFileUploadZone({
           e.stopPropagation();
           setDragActive(false);
           if (hasActiveUploads) return;
-          if (e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+          if (e.dataTransfer.files) {
+            void handleFiles(e.dataTransfer.files);
+          }
         }}
       >
         <p className="text-sm font-medium text-[var(--slate-700)]">

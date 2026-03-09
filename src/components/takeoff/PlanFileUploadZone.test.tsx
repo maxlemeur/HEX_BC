@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { PDFDocument } from "pdf-lib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlanFileUploadZone } from "@/components/takeoff/PlanFileUploadZone";
@@ -18,8 +19,13 @@ import {
 
 const SET_ID = "aaaa1111-2222-4333-8444-555566667777";
 
-function makePdfFile(name = "plan.pdf", size = 1024) {
-  return new File(["x".repeat(size)], name, { type: "application/pdf" });
+async function makePdfFile(
+  name = "plan.pdf",
+  mimeType = "application/pdf"
+) {
+  const pdf = await PDFDocument.create();
+  pdf.addPage([595, 842]);
+  return new File([new Uint8Array(await pdf.save())], name, { type: mimeType });
 }
 
 function renderZone(onUploadsComplete = vi.fn()) {
@@ -73,7 +79,7 @@ describe("PlanFileUploadZone", () => {
     dropFiles([docxFile]);
 
     await waitFor(() => {
-      expect(screen.getByText(/n'est pas un PDF/i)).toBeInTheDocument();
+      expect(screen.getByText(/doit etre un pdf/i)).toBeInTheDocument();
     });
   });
 
@@ -110,7 +116,7 @@ describe("PlanFileUploadZone", () => {
     renderZone(onComplete);
 
     const input = document.querySelector("input[type='file']") as HTMLInputElement;
-    const pdfFile = makePdfFile();
+    const pdfFile = await makePdfFile();
 
     await user.upload(input, pdfFile);
 
@@ -118,7 +124,7 @@ describe("PlanFileUploadZone", () => {
       expect(registerPlanFile).toHaveBeenCalledWith(SET_ID, {
         file_name: "plan.pdf",
         file_type: "application/pdf",
-        file_size_bytes: 1024,
+        file_size_bytes: pdfFile.size,
       });
     });
 
@@ -136,11 +142,71 @@ describe("PlanFileUploadZone", () => {
 
     renderZone();
 
-    dropFiles([makePdfFile()]);
+    dropFiles([await makePdfFile()]);
 
     await waitFor(() => {
       const errorElements = screen.getAllByText(/Echec de l'upload/i);
       expect(errorElements.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it("accepts a PDF when the browser sends application/octet-stream", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(registerPlanFile).mockResolvedValue({
+      plan_file: {
+        id: "file-1",
+        created_at: "2026-02-25T10:00:00.000Z",
+        updated_at: "2026-02-25T10:00:00.000Z",
+        tenant_id: "tenant-1",
+        plan_set_id: SET_ID,
+        file_path: "path/to/file.pdf",
+        file_name: "terrain.pdf",
+        file_type: "application/pdf",
+        file_size_bytes: 1024,
+        page_count: null,
+        file_hash: null,
+        metadata: {},
+        created_by: null,
+      },
+      signed_upload: {
+        url: "https://storage.example.com/upload",
+        method: "PUT" as const,
+        path: "path/to/file.pdf",
+        token: "tok123",
+        expires_in_seconds: 7200,
+      },
+    });
+    vi.mocked(uploadFileToSignedUrl).mockResolvedValue(undefined);
+
+    renderZone();
+
+    const input = document.querySelector("input[type='file']") as HTMLInputElement;
+    const pdfFile = await makePdfFile("terrain.pdf", "application/octet-stream");
+
+    await user.upload(input, pdfFile);
+
+    await waitFor(() => {
+      expect(registerPlanFile).toHaveBeenCalledWith(SET_ID, {
+        file_name: "terrain.pdf",
+        file_type: "application/pdf",
+        file_size_bytes: pdfFile.size,
+      });
+    });
+  });
+
+  it("rejects a corrupted PDF with an explicit remediation message", async () => {
+    renderZone();
+
+    const corruptedPdf = new File(["not-a-pdf"], "corrompu.pdf", {
+      type: "application/pdf",
+    });
+
+    dropFiles([corruptedPdf]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/corrompu\.pdf/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/invalide ou corrompu/i)).toBeInTheDocument();
     });
   });
 
@@ -176,7 +242,11 @@ describe("PlanFileUploadZone", () => {
     renderZone();
 
     const input = document.querySelector("input[type='file']") as HTMLInputElement;
-    const files = [makePdfFile("a.pdf"), makePdfFile("b.pdf"), makePdfFile("c.pdf")];
+    const files = [
+      await makePdfFile("a.pdf"),
+      await makePdfFile("b.pdf"),
+      await makePdfFile("c.pdf"),
+    ];
 
     await user.upload(input, files);
 
