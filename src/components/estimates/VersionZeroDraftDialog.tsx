@@ -150,7 +150,7 @@ export function VersionZeroDraftDialog({
   }
 
   const activeDraft = review?.draft ?? null;
-  const canMaterialize = Boolean(activeDraft) && activeDraft.counts.pending === 0;
+  const canMaterialize = activeDraft?.counts.pending === 0;
 
   async function handleGenerate() {
     setIsBusy(true);

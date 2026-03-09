@@ -34,6 +34,7 @@ describe("launchTakeoffFromPlanSet", () => {
         projectId: "not-a-uuid",
         planSetId: PLAN_SET_ID,
         versionId: VERSION_ID,
+        level: "B",
       }),
     ).rejects.toThrow();
   });
@@ -46,12 +47,14 @@ describe("launchTakeoffFromPlanSet", () => {
       projectId: PROJECT_ID,
       planSetId: PLAN_SET_ID,
       versionId: VERSION_ID,
+      level: "B",
     });
 
     expect(createTakeoffJobFromPlanSetMock).toHaveBeenCalledWith({
       projectId: PROJECT_ID,
       planSetId: PLAN_SET_ID,
       estimateVersionId: VERSION_ID,
+      level: "B",
     });
     expect(result).toEqual({ jobId: JOB_ID });
   });
@@ -64,6 +67,7 @@ describe("launchTakeoffFromPlanSet", () => {
       projectId: PROJECT_ID,
       planSetId: PLAN_SET_ID,
       versionId: VERSION_ID,
+      level: "B",
     });
 
     expect(triggerTakeoffJobProcessingMock).toHaveBeenCalledWith({
@@ -80,6 +84,7 @@ describe("launchTakeoffFromPlanSet", () => {
       projectId: PROJECT_ID,
       planSetId: PLAN_SET_ID,
       versionId: VERSION_ID,
+      level: "B",
     });
 
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(
@@ -88,5 +93,24 @@ describe("launchTakeoffFromPlanSet", () => {
     expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith(
       `/dashboard/affaires/${PROJECT_ID}/takeoff`,
     );
+  });
+
+  it("passes through level C when requested", async () => {
+    createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
+    triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true });
+
+    await launchTakeoffFromPlanSet({
+      projectId: PROJECT_ID,
+      planSetId: PLAN_SET_ID,
+      versionId: VERSION_ID,
+      level: "C",
+    });
+
+    expect(createTakeoffJobFromPlanSetMock).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      planSetId: PLAN_SET_ID,
+      estimateVersionId: VERSION_ID,
+      level: "C",
+    });
   });
 });

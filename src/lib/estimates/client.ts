@@ -61,6 +61,9 @@ const ESTIMATE_STATUS_VALUES: EstimateStatus[] = [
 const ESTIMATE_CURRENCY_VALUES = ["EUR", "USD", "GBP"] as const;
 
 type JsonRecord = Record<string, unknown>;
+type VersionZeroDraftCounts = NonNullable<
+  VersionZeroDraftSummary["activeDraft"]
+>["counts"];
 
 type ApiEnvelope<T> = {
   ok?: boolean;
@@ -467,7 +470,7 @@ export type VersionZeroReview = {
     selectedLots: string[];
     summaryText: string | null;
     generationMetadata: Record<string, unknown>;
-    counts: VersionZeroDraftSummary["activeDraft"]["counts"];
+    counts: VersionZeroDraftCounts;
   };
   lots: VersionZeroReviewLot[];
 };

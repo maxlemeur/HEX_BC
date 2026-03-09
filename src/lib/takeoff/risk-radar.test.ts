@@ -320,3 +320,4 @@ describe("takeoff risk radar", () => {
 
     expect(alert?.takeoff_job_id).toBe(JOB_ID);
   });
+});

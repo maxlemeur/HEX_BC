@@ -250,7 +250,10 @@ function createSupabaseMock(options: SupabaseMockOptions = {}) {
       }),
       then: (
         onFulfilled?: (
-          value: { data: Array<{ id: string }>; error: null }
+          value: {
+            data: Array<{ id: string }>;
+            error: { code: string; message: string } | null;
+          }
         ) => unknown,
         onRejected?: (reason: unknown) => unknown
       ) => {

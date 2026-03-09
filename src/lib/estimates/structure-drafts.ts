@@ -37,7 +37,7 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   source_job_id?: string | null;
   source_file_name?: string | null;
   source_page?: number | null;
-  source_metadata?: unknown;
+  source_metadata?: Json | null;
   source_extracted_at?: string | null;
 };
 type EstimateStructureDraftRow =

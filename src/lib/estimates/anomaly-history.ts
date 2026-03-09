@@ -105,6 +105,7 @@ const DEFAULT_GATING_SEVERITY_BY_FLAG: Record<
   critical_open_questions: "blocking",
   client_clarification_required: "blocking",
   open_questions_pending: "warning",
+  version_zero_review_pending: "blocking",
 };
 
 function parseCsvFlagList(value: string | null): Set<EstimateGatingFlagKey> {

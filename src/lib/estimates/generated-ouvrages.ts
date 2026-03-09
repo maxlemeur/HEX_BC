@@ -26,7 +26,7 @@ type EstimateItemRow = Database["public"]["Tables"]["estimate_items"]["Row"] & {
   source_job_id?: string | null;
   source_file_name?: string | null;
   source_page?: number | null;
-  source_metadata?: unknown;
+  source_metadata?: Json | null;
   source_extracted_at?: string | null;
 };
 
@@ -4168,7 +4168,7 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
         "Ouvrage genere",
       source_page: item.source_page ?? sources[0]?.source_page_from ?? null,
       source_extracted_at: draft?.created_at ?? item.source_extracted_at ?? null,
-      source_metadata: {
+      source_metadata: toJson({
         kind: "generated_ouvrage",
         draft_id: application.draft_id,
         candidate_id: application.candidate_id,
@@ -4196,7 +4196,7 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
         inferences,
         risk_signals: normalizeRiskSignals(snapshotSummary.risk_signals),
         sources,
-      },
+      }),
     };
   });
 }

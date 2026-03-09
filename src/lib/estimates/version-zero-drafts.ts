@@ -31,15 +31,24 @@ import type {
 
 type Supabase = SupabaseClient<Database>;
 type JsonRecord = Record<string, unknown>;
+type VersionZeroDraftCounts = NonNullable<
+  VersionZeroDraftSummary["activeDraft"]
+>["counts"];
 type TenantRole = Database["public"]["Enums"]["tenant_role"];
 type EstimateStatus = Database["public"]["Enums"]["estimate_status"];
 type EstimateVersionRow = Database["public"]["Tables"]["estimate_versions"]["Row"];
 type EstimateVersionZeroDraftRow =
   Database["public"]["Tables"]["estimate_version_zero_drafts"]["Row"];
+type EstimateVersionZeroDraftInsert =
+  Database["public"]["Tables"]["estimate_version_zero_drafts"]["Insert"];
 type EstimateVersionZeroLotRow =
   Database["public"]["Tables"]["estimate_version_zero_lots"]["Row"];
+type EstimateVersionZeroLotInsert =
+  Database["public"]["Tables"]["estimate_version_zero_lots"]["Insert"];
 type EstimateVersionZeroLineRow =
   Database["public"]["Tables"]["estimate_version_zero_lines"]["Row"];
+type EstimateVersionZeroLineInsert =
+  Database["public"]["Tables"]["estimate_version_zero_lines"]["Insert"];
 type EstimateVersionZeroApplicationInsert =
   Database["public"]["Tables"]["estimate_version_zero_applications"]["Insert"];
 type MaterializeVersionZeroDraftRpcResult =
@@ -220,7 +229,7 @@ export type VersionZeroReview = {
     selectedLots: string[];
     summaryText: string | null;
     generationMetadata: JsonRecord;
-    counts: VersionZeroDraftSummary["activeDraft"]["counts"];
+    counts: VersionZeroDraftCounts;
   };
   lots: VersionZeroReviewLot[];
 };
@@ -399,6 +408,10 @@ function toJsonRecord(value: unknown): JsonRecord {
     return {};
   }
   return value as JsonRecord;
+}
+
+function toJson(value: unknown): Json {
+  return value as Json;
 }
 
 function readStringArrayFromJson(value: Json) {
@@ -919,13 +932,15 @@ async function persistGeneratedDraft(input: {
       brief_id: input.briefId,
       created_by: input.userId,
       status: "ia_a_revoir",
-      summary: buildSummaryPayload({
-        lots: input.generation.lots,
-        summaryText: input.generation.summaryText,
-      }),
-      generation_metadata: input.generation.generationMetadata,
+      summary: toJson(
+        buildSummaryPayload({
+          lots: input.generation.lots,
+          summaryText: input.generation.summaryText,
+        })
+      ),
+      generation_metadata: toJson(input.generation.generationMetadata),
       selected_lots: input.selectedLots,
-    })
+    } satisfies EstimateVersionZeroDraftInsert)
     .select("*")
     .single();
 
@@ -954,7 +969,7 @@ async function persistGeneratedDraft(input: {
       inferences: lot.inferences,
       missing_signals: lot.missingSignals,
     },
-  }));
+  })) satisfies EstimateVersionZeroLotInsert[];
 
   const { data: insertedLots, error: lotsError } = await input.supabase
     .from("estimate_version_zero_lots")
@@ -977,7 +992,7 @@ async function persistGeneratedDraft(input: {
       draft_id: draft.id,
       lot_id: lotIdByKey.get(lot.key) ?? "",
       line_order: index,
-      review_status: "pending",
+      review_status: "pending" as const,
       proposed_title: line.proposedTitle,
       proposed_description: line.proposedDescription,
       proposed_quantity: line.proposedQuantity,
@@ -994,7 +1009,7 @@ async function persistGeneratedDraft(input: {
         risk_signals: line.riskSignals,
       },
     }))
-  );
+  ) satisfies EstimateVersionZeroLineInsert[];
 
   if (lineRows.length > 0) {
     const { error: linesError } = await input.supabase

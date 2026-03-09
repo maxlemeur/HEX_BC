@@ -6,6 +6,9 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   assertTakeoffEnabled: vi.fn(),
+  getTakeoffGeminiDeliveryConfigForTenant: vi.fn().mockResolvedValue({
+    useBatchApi: false,
+  }),
 }));
 
 vi.mock("@/lib/takeoff/edge-trigger", () => ({
@@ -356,6 +359,10 @@ describe("GET /api/takeoff/jobs", () => {
           estimate_version_id: ESTIMATE_VERSION_ID,
           status: "failed",
           level: "A",
+          processing_strategy: "sync" as const,
+          provider_batch_id: null,
+          provider_batch_state: null,
+          provider_batch_updated_at: null,
           source_file_name: "niveau-a.csv",
           source_file_type: "text/csv",
           source_file_size_bytes: 1024,
@@ -591,23 +598,27 @@ describe("POST /api/takeoff/jobs", () => {
     expect(body.error?.code).toBe("TAKEOFF_FILE_TOO_LARGE");
   });
 
-  it("returns 422 when level is not A", async () => {
+  it("creates a level B job when a PDF is uploaded", async () => {
     const supabase = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
     const response = await POST(
       buildTakeoffRequest({
         level: "B",
+        fileName: "niveau-b.pdf",
+        fileType: "application/pdf",
+        fileContent: "%PDF-1.7\nstub",
       })
     );
     const body = (await response.json()) as {
       ok: boolean;
-      error?: { code?: string };
+      data?: { level?: string; source_file_name?: string };
     };
 
-    expect(response.status).toBe(422);
-    expect(body.ok).toBe(false);
-    expect(body.error?.code).toBe("TAKEOFF_LEVEL_UNSUPPORTED");
+    expect(response.status).toBe(201);
+    expect(body.ok).toBe(true);
+    expect(body.data?.level).toBe("B");
+    expect(body.data?.source_file_name).toBe("niveau-b.pdf");
   });
 
   it("returns 422 when file format is not supported", async () => {
