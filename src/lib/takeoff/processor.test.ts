@@ -38,6 +38,7 @@ type TakeoffJobRow = {
   estimate_version_id: string;
   level: string;
   status: string;
+  plan_set_id?: string | null;
   processing_strategy: string | null;
   provider_batch_id: string | null;
   provider_batch_state: string | null;
@@ -135,12 +136,28 @@ type SupabaseMockOptions = {
   existingItems?: StoredTakeoffItemRow[];
   existingRunMetrics?: StoredTakeoffRunMetricRow[];
   featureFlags?: Record<string, string | null>;
+  planFiles?: Array<{
+    id: string;
+    plan_set_id?: string | null;
+    file_path: string;
+    file_name?: string | null;
+    file_type?: string | null;
+    page_count: number | null;
+    metadata: Record<string, unknown>;
+  }>;
   planFile?: {
     id: string;
     file_path: string;
     page_count: number | null;
     metadata: Record<string, unknown>;
   } | null;
+  planFileDownloads?: Record<
+    string,
+    {
+      bytes: ArrayBuffer;
+      mimeType: string;
+    }
+  >;
   downloadFile?: {
     bytes: ArrayBuffer;
     mimeType: string;
@@ -159,10 +176,23 @@ type SupabaseMockState = {
   takeoffItems: StoredTakeoffItemRow[];
   takeoffRunMetrics: StoredTakeoffRunMetricRow[];
   featureFlags: Record<string, string | null>;
+  planFiles: Array<{
+    id: string;
+    tenant_id: string;
+    plan_set_id: string | null;
+    file_path: string;
+    file_name: string | null;
+    file_type: string | null;
+    page_count: number | null;
+    metadata: Record<string, unknown>;
+  }>;
   planFile: {
     id: string;
     tenant_id: string;
+    plan_set_id: string | null;
     file_path: string;
+    file_name: string | null;
+    file_type: string | null;
     page_count: number | null;
     metadata: Record<string, unknown>;
   } | null;
@@ -302,6 +332,7 @@ function createTakeoffProcessorSupabaseMock(
     estimate_version_id: ESTIMATE_VERSION_ID,
     level: "A",
     status: "pending",
+    plan_set_id: null,
     processing_strategy: "sync",
     provider_batch_id: null,
     provider_batch_state: null,
@@ -348,6 +379,31 @@ function createTakeoffProcessorSupabaseMock(
       TAKEOFF_C_MAX_COST_CENTS: "2000",
       ...(options.featureFlags ?? {}),
     },
+    planFiles: options.planFiles
+      ? options.planFiles.map((planFile) => ({
+          id: planFile.id,
+          tenant_id: TENANT_ID,
+          plan_set_id: planFile.plan_set_id ?? null,
+          file_path: planFile.file_path,
+          file_name: planFile.file_name ?? null,
+          file_type: planFile.file_type ?? null,
+          page_count: planFile.page_count,
+          metadata: deepClone(planFile.metadata),
+        }))
+      : options.planFile
+      ? [
+          {
+            id: options.planFile.id,
+            tenant_id: TENANT_ID,
+            plan_set_id: null,
+            file_path: options.planFile.file_path,
+            file_name: null,
+            file_type: null,
+            page_count: options.planFile.page_count,
+            metadata: deepClone(options.planFile.metadata),
+          },
+        ]
+      : [],
     planFile:
       options.planFile === null
         ? null
@@ -355,7 +411,10 @@ function createTakeoffProcessorSupabaseMock(
         ? {
             id: options.planFile.id,
             tenant_id: TENANT_ID,
+            plan_set_id: null,
             file_path: options.planFile.file_path,
+            file_name: null,
+            file_type: null,
             page_count: options.planFile.page_count,
             metadata: deepClone(options.planFile.metadata),
           }
@@ -371,6 +430,7 @@ function createTakeoffProcessorSupabaseMock(
       bytes: toArrayBuffer("designation,quantity,unit\nTube PVC,12,ml\nCable U1000,8,m"),
       mimeType: "text/csv",
     } satisfies { bytes: ArrayBuffer; mimeType: string });
+  const planFileDownloads = options.planFileDownloads ?? {};
   const cancelOnResultInsert = options.cancelOnResultInsert ?? false;
   const failCompletedJobUpdate = options.failCompletedJobUpdate ?? false;
   const failRunMetricsDeleteWhenNonEmpty =
@@ -816,9 +876,44 @@ function createTakeoffProcessorSupabaseMock(
   function createPlanFilesSelectBuilder() {
     const filters: Record<string, string> = {};
 
+    const then: QueryThen<
+      Array<{
+        file_path: string | null;
+        file_name: string | null;
+        file_type: string | null;
+      }>
+    > = (onfulfilled, onrejected) => {
+      const data = state.planFiles
+        .filter((planFile) => {
+          if (filters.tenant_id && filters.tenant_id !== planFile.tenant_id) {
+            return false;
+          }
+          if (filters.plan_set_id && filters.plan_set_id !== planFile.plan_set_id) {
+            return false;
+          }
+          if (filters.file_path && filters.file_path !== planFile.file_path) {
+            return false;
+          }
+          return true;
+        })
+        .map((planFile) => ({
+          file_path: planFile.file_path,
+          file_name: planFile.file_name,
+          file_type: planFile.file_type,
+        }));
+
+      return Promise.resolve({
+        data: deepClone(data),
+        error: null,
+      }).then(onfulfilled, onrejected);
+    };
+
     const builder = {
       eq: vi.fn((column: string, value: string) => {
         filters[column] = value;
+        return builder;
+      }),
+      order: vi.fn(() => {
         return builder;
       }),
       maybeSingle: vi.fn(
@@ -829,28 +924,31 @@ function createTakeoffProcessorSupabaseMock(
             metadata: Record<string, unknown>;
           } | null>
         > => {
-          if (!state.planFile) {
-            return { data: null, error: null };
-          }
+          const matchedPlanFile = state.planFiles.find((planFile) => {
+            if (filters.tenant_id && filters.tenant_id !== planFile.tenant_id) {
+              return false;
+            }
+            if (filters.file_path && filters.file_path !== planFile.file_path) {
+              return false;
+            }
+            return true;
+          });
 
-          if (filters.tenant_id && filters.tenant_id !== state.planFile.tenant_id) {
-            return { data: null, error: null };
-          }
-
-          if (filters.file_path && filters.file_path !== state.planFile.file_path) {
+          if (!matchedPlanFile) {
             return { data: null, error: null };
           }
 
           return {
             data: {
-              id: state.planFile.id,
-              page_count: state.planFile.page_count,
-              metadata: deepClone(state.planFile.metadata),
+              id: matchedPlanFile.id,
+              page_count: matchedPlanFile.page_count,
+              metadata: deepClone(matchedPlanFile.metadata),
             },
             error: null,
           };
         }
       ),
+      then,
     };
 
     return builder;
@@ -863,23 +961,32 @@ function createTakeoffProcessorSupabaseMock(
     const filters: Record<string, string> = {};
 
     const then: QueryThen<null> = (onfulfilled, onrejected) => {
-      if (
-        state.planFile &&
-        (!filters.id || filters.id === state.planFile.id) &&
-        (!filters.tenant_id || filters.tenant_id === state.planFile.tenant_id)
-      ) {
-        state.planFile = {
-          ...state.planFile,
+      state.planFiles = state.planFiles.map((planFile) => {
+        if (filters.id && filters.id !== planFile.id) {
+          return planFile;
+        }
+        if (filters.tenant_id && filters.tenant_id !== planFile.tenant_id) {
+          return planFile;
+        }
+
+        const updatedPlanFile = {
+          ...planFile,
           page_count:
             typeof payload.page_count === "number"
               ? payload.page_count
-              : state.planFile.page_count,
+              : planFile.page_count,
           metadata:
             payload.metadata && isRecord(payload.metadata)
               ? deepClone(payload.metadata)
-              : state.planFile.metadata,
+              : planFile.metadata,
         };
-      }
+
+        if (state.planFile?.id === updatedPlanFile.id) {
+          state.planFile = deepClone(updatedPlanFile);
+        }
+
+        return updatedPlanFile;
+      });
 
       return Promise.resolve({ data: null, error: null }).then(onfulfilled, onrejected);
     };
@@ -898,7 +1005,7 @@ function createTakeoffProcessorSupabaseMock(
   const supabase = {
     storage: {
       from: vi.fn((bucket: string) => {
-        if (bucket !== "takeoff-files") {
+        if (bucket !== "takeoff-files" && bucket !== "plan-files") {
           throw new Error(`Unexpected storage bucket: ${bucket}`);
         }
 
@@ -913,6 +1020,27 @@ function createTakeoffProcessorSupabaseMock(
               } | null>
             > => {
               state.downloadRequests.push(path);
+
+              if (bucket === "plan-files") {
+                const planDownload = planFileDownloads[path];
+                if (!planDownload) {
+                  return {
+                    data: null,
+                    error: {
+                      code: "404",
+                      message: "Not found",
+                    },
+                  };
+                }
+
+                return {
+                  data: {
+                    type: planDownload.mimeType,
+                    arrayBuffer: async () => planDownload.bytes,
+                  },
+                  error: null,
+                };
+              }
 
               if (path !== state.job.source_file_path) {
                 return {
@@ -1465,6 +1593,47 @@ describe("processLevelA", () => {
     ).toEqual(["submitted", "running", "succeeded"]);
   });
 
+  it("clears stale batch metadata when retrying a failed job in sync mode", async () => {
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        status: "failed",
+        retry_count: 1,
+        processing_strategy: "sync",
+        provider_batch_id: "batches/old-attempt",
+        provider_batch_state: "failed",
+        provider_batch_updated_at: "2026-02-24T08:00:00.000Z",
+        error_code: TakeoffErrorCode.AI_TIMEOUT,
+        error_message: "Previous timeout",
+      },
+    });
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(
+        buildTakeoffExchange([
+          {
+            designation: "Tube PVC",
+            quantity: 6,
+            unit: "ml",
+            source_page: 1,
+            source_file: "niveau-a.csv",
+          },
+        ])
+      )
+    );
+
+    await processLevelA(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(mock.state.job.processing_strategy).toBe("sync");
+    expect(mock.state.job.provider_batch_id).toBeNull();
+    expect(mock.state.job.provider_batch_state).toBeNull();
+    expect(mock.state.job.provider_batch_updated_at).toBeNull();
+  });
+
   it("replaces existing result/items on rerun without duplicates", async () => {
     const previousResultId = "66666666-6666-4666-8666-666666666666";
     const mock = createTakeoffProcessorSupabaseMock({
@@ -1975,6 +2144,128 @@ describe("processLevelB", () => {
     );
   });
 
+  it("preserves per-file source names when a plan set is merged into one PDF", async () => {
+    const planSetId = "55555555-5555-4555-8555-555555555555";
+    const firstPlanPath = `${TENANT_ID}/${planSetId}/plan-a.pdf`;
+    const secondPlanPath = `${TENANT_ID}/${planSetId}/plan-b.pdf`;
+    const mock = createTakeoffProcessorSupabaseMock({
+      job: {
+        level: "B",
+        plan_set_id: planSetId,
+        source_file_name: "plan-a.pdf",
+        source_file_path: null,
+        source_file_type: "application/pdf",
+      },
+      planFiles: [
+        {
+          id: "88888888-8888-4888-8888-888888888881",
+          plan_set_id: planSetId,
+          file_path: firstPlanPath,
+          file_name: "plan-a.pdf",
+          file_type: "application/pdf",
+          page_count: 1,
+          metadata: {},
+        },
+        {
+          id: "88888888-8888-4888-8888-888888888882",
+          plan_set_id: planSetId,
+          file_path: secondPlanPath,
+          file_name: "plan-b.pdf",
+          file_type: "application/pdf",
+          page_count: 2,
+          metadata: {},
+        },
+      ],
+      planFileDownloads: {
+        [firstPlanPath]: {
+          bytes: await createPdfArrayBuffer(1),
+          mimeType: "application/pdf",
+        },
+        [secondPlanPath]: {
+          bytes: await createPdfArrayBuffer(2),
+          mimeType: "application/pdf",
+        },
+      },
+    });
+
+    const exchange = buildTakeoffExchange(
+      [
+        {
+          designation: "Cheminement principal",
+          quantity: 10,
+          unit: "m",
+          source_page: 1,
+          confidence: 0.87,
+          evidence: "Plan A",
+        },
+        {
+          designation: "Support mural",
+          quantity: 24,
+          unit: "u",
+          source_page: 3,
+          confidence: 0.84,
+          evidence: "Plan B",
+        },
+      ],
+      [],
+      {
+        level: "B",
+        prompt_version: "takeoff-b-v1",
+        file_type: "application/pdf",
+      }
+    );
+    exchange.tables = [
+      {
+        page: 1,
+        title: "Plan A",
+        headers: ["designation", "quantity", "unit"],
+        rows: [{ row_index: 0, cells: ["Cheminement principal", "10", "m"] }],
+      },
+      {
+        page: 3,
+        title: "Plan B",
+        headers: ["designation", "quantity", "unit"],
+        rows: [{ row_index: 0, cells: ["Support mural", "24", "u"] }],
+      },
+    ];
+
+    const callGemini = vi.fn().mockResolvedValue(
+      buildGeminiResult(exchange, {
+        model: "gemini-3-flash-preview",
+        promptVersion: "takeoff-b-v1",
+      })
+    );
+
+    await processLevelB(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => FIXED_NOW,
+      callGemini,
+    });
+
+    expect(mock.state.takeoffItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          designation: "Cheminement principal",
+          source_page: 1,
+          source_file_name: "plan-a.pdf",
+          metadata: expect.objectContaining({
+            source_file: "plan-a.pdf",
+          }),
+        }),
+        expect.objectContaining({
+          designation: "Support mural",
+          source_page: 3,
+          source_file_name: "plan-b.pdf",
+          metadata: expect.objectContaining({
+            source_file: "plan-b.pdf",
+          }),
+        }),
+      ])
+    );
+  });
+
   it("chunks Level B PDF extraction using tenant page/chunk configuration", async () => {
     const pdfBytes = await createPdfArrayBuffer(6);
     const mock = createTakeoffProcessorSupabaseMock({
@@ -2462,7 +2753,9 @@ describe("processLevelB", () => {
       .fn()
       .mockResolvedValueOnce(
         buildGeminiResult(weakExchange, {
+          tokenCount: 120_000,
           costCents: 11,
+          durationMs: 1_200,
           model: "gemini-3-flash-preview",
           promptVersion: "takeoff-b-v1",
           tokenUsage: {
@@ -2475,7 +2768,9 @@ describe("processLevelB", () => {
       )
       .mockResolvedValueOnce(
         buildGeminiResult(escalatedExchange, {
+          tokenCount: 120_000,
           costCents: 44,
+          durationMs: 2_400,
           model: "gemini-3.1-pro-preview",
           promptVersion: "takeoff-b-v1",
           tokenUsage: {
@@ -2497,6 +2792,9 @@ describe("processLevelB", () => {
 
     expect(result.status).toBe("completed");
     expect(result.itemsCount).toBe(1);
+    expect(result.tokenCount).toBe(240_000);
+    expect(result.costCents).toBe(55);
+    expect(result.durationMs).toBe(3_600);
     expect(callGemini).toHaveBeenCalledTimes(2);
     expect(callGemini).toHaveBeenNthCalledWith(
       1,
@@ -2538,6 +2836,10 @@ describe("processLevelB", () => {
         },
       },
     });
+    expect(mock.state.takeoffResults[0]?.token_count).toBe(240_000);
+    expect(mock.state.takeoffResults[0]?.cost_cents).toBe(55);
+    expect(mock.state.job.token_count).toBe(240_000);
+    expect(mock.state.job.cost_cents).toBe(55);
   });
 
   it("keeps the primary Level B result and traces budget_blocked when projected escalation cost exceeds the ceiling", async () => {

@@ -151,6 +151,7 @@ type DownloadedTakeoffFile = {
   fileName: string;
   mimeType: string;
   bytes: ArrayBuffer;
+  sourceFileNamesByPage?: string[];
 };
 
 type NormalizedTakeoffItemForInsert = {
@@ -559,6 +560,7 @@ function dedupeLevelBTables(tables: TakeoffExchange["tables"]) {
 function normalizeTakeoffExchange(input: {
   exchange: TakeoffExchange;
   sourceFileName: string | null;
+  sourceFileNamesByPage?: readonly string[];
   parseWarnings: TakeoffWarning[];
 }): {
   exchange: TakeoffExchange;
@@ -576,8 +578,14 @@ function normalizeTakeoffExchange(input: {
   const pageItemCounters = new Map<number, number>();
 
   input.exchange.items.forEach((item, index) => {
+    const pageMappedSourceFileName =
+      item.source_page === undefined || item.source_page === null || !input.sourceFileNamesByPage
+        ? null
+        : input.sourceFileNamesByPage[item.source_page - 1] ?? null;
     const sourceFileName =
-      normalizeNullableText(item.source_file) ?? input.sourceFileName;
+      normalizeNullableText(item.source_file) ??
+      normalizeNullableText(pageMappedSourceFileName) ??
+      input.sourceFileName;
     const normalizedUnit = normalizeTakeoffUnit({
       unit: item.unit,
       itemIndex: index,
@@ -906,6 +914,9 @@ async function markJobAsProcessing(input: {
       completed_at: null,
       error_code: null,
       error_message: null,
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_batch_updated_at: null,
       model: input.model,
       thinking_level: input.thinkingLevel,
       prompt_version: input.promptVersion,
@@ -1148,6 +1159,7 @@ async function downloadTakeoffSourceFile(input: {
     }
 
     const mergedPdf = await PDFDocument.create();
+    const sourceFileNamesByPage: string[] = [];
     for (const planFile of planFiles) {
       const sourcePath = normalizeNullableText(planFile.file_path);
       if (!sourcePath) {
@@ -1192,6 +1204,9 @@ async function downloadTakeoffSourceFile(input: {
       const copiedPages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
       for (const copiedPage of copiedPages) {
         mergedPdf.addPage(copiedPage);
+        sourceFileNamesByPage.push(
+          normalizeNullableText(planFile.file_name) ?? `plan-${sourceFileNamesByPage.length + 1}.pdf`
+        );
       }
     }
 
@@ -1199,6 +1214,7 @@ async function downloadTakeoffSourceFile(input: {
       fileName: `plan-set-${planSetId}.pdf`,
       mimeType: "application/pdf",
       bytes: toArrayBuffer(await mergedPdf.save()),
+      sourceFileNamesByPage,
     };
   }
 
@@ -2508,6 +2524,7 @@ async function processLevelCGeminiChunks(input: {
   const normalized = normalizeTakeoffExchange({
     exchange: merged.exchange,
     sourceFileName: normalizeNullableText(input.job.source_file_name),
+    sourceFileNamesByPage: input.sourceFile.sourceFileNamesByPage,
     parseWarnings: [],
   });
   const tablesCount = normalized.exchange.tables?.length ?? 0;
@@ -2684,6 +2701,25 @@ function evaluateEscalationBudget(input: {
     projectedTotalCostCents,
     maxAllowedCostCents: input.config.maxCostCents,
   };
+}
+
+function sumGeminiTokenUsage(
+  ...usages: readonly GeminiTokenUsageBreakdown[]
+): GeminiTokenUsageBreakdown {
+  return usages.reduce<GeminiTokenUsageBreakdown>(
+    (accumulator, usage) => ({
+      inputTokens: accumulator.inputTokens + usage.inputTokens,
+      reasoningTokens: accumulator.reasoningTokens + usage.reasoningTokens,
+      outputTokens: accumulator.outputTokens + usage.outputTokens,
+      totalTokens: accumulator.totalTokens + usage.totalTokens,
+    }),
+    {
+      inputTokens: 0,
+      reasoningTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    }
+  );
 }
 
 function shouldEscalateLevelBResult(
@@ -2893,6 +2929,7 @@ async function processLevelBGeminiChunks(input: {
   const normalized = normalizeTakeoffExchange({
     exchange: strictMergedExchange,
     sourceFileName: normalizeNullableText(input.job.source_file_name),
+    sourceFileNamesByPage: input.sourceFile.sourceFileNamesByPage,
     parseWarnings: [],
   });
   const tablesCount = normalized.exchange.tables?.length ?? 0;
@@ -2978,6 +3015,7 @@ async function executeStructuredTakeoffRun(input: {
   const normalized = normalizeTakeoffExchange({
     exchange: strictExchange,
     sourceFileName: normalizeNullableText(input.job.source_file_name),
+    sourceFileNamesByPage: input.sourceFile.sourceFileNamesByPage,
     parseWarnings: preparedLevelInput.parseWarnings,
   });
   const tablesCount = normalized.exchange.tables?.length ?? 0;
@@ -3093,6 +3131,10 @@ async function executeLevelBWithRouting(input: {
 
       return {
         ...escalatedResult,
+        tokenCount: primaryResult.tokenCount + escalatedResult.tokenCount,
+        tokenUsage: sumGeminiTokenUsage(primaryResult.tokenUsage, escalatedResult.tokenUsage),
+        costCents: primaryResult.costCents + escalatedResult.costCents,
+        durationMs: primaryResult.durationMs + escalatedResult.durationMs,
         providerMeta: {
           ...escalatedResult.providerMeta,
           routing: {
@@ -3229,7 +3271,7 @@ async function processTakeoffLevel(
   const processingStartedAt = now();
   let attemptedModel = levelConfig.model;
   let attemptedThinkingLevel = levelConfig.thinkingLevel;
-  let attemptedPromptVersion = levelConfig.promptVersion;
+  let attemptedPromptVersion: string = levelConfig.promptVersion;
   let processingStrategy: TakeoffProcessingStrategy | null = null;
 
   let job: TakeoffJobProcessingRow | null = null;
@@ -3304,6 +3346,9 @@ async function processTakeoffLevel(
     const onBatchLifecycleEvent =
       deliveryMode === "batch"
         ? async (event: GeminiBatchLifecycleEvent) => {
+            if (!job) {
+              return;
+            }
             job = await persistGeminiBatchLifecycleEvent({
               supabase: context.supabase,
               job,
