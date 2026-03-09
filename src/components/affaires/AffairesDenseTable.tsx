@@ -1,19 +1,25 @@
 "use client";
 
+import { Fragment, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { useDeleteAffaire } from "./useDeleteAffaire";
+import {
+  fetchAffaireDenseExpandData,
+  type AffaireDenseExpandData,
+} from "@/app/dashboard/affaires/_actions/dense-table-expand";
 import type { AffaireListItem } from "./types";
 
 const APPROVAL_BADGE: Record<string, { label: string; className: string }> = {
-  required: { label: "A valider", className: "bg-amber-50 text-amber-700 border-amber-200" },
-  in_review: { label: "En revue", className: "bg-blue-50 text-blue-700 border-blue-200" },
-  approved: { label: "Approuvee", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  changes_requested: { label: "A reprendre", className: "bg-red-50 text-red-700 border-red-200" },
+  required: { label: "A valider", className: "bg-amber-50 text-amber-900 border-amber-200" },
+  in_review: { label: "En revue", className: "bg-blue-50 text-blue-800 border-blue-200" },
+  approved: { label: "Approuvee", className: "bg-emerald-50 text-emerald-800 border-emerald-200" },
+  changes_requested: { label: "A reprendre", className: "bg-red-50 text-red-800 border-red-200" },
 };
 
 type AffairesEmptyVariant = "no-data" | "filtered";
@@ -46,7 +52,7 @@ function AffairesEmptyState({
 }) {
   return (
     <tr>
-      <td colSpan={11} className="py-16 text-center">
+      <td colSpan={12} className="py-16 text-center">
         {emptyVariant === "no-data" ? (
           <EmptyState
             icon={
@@ -98,6 +104,48 @@ function AffairesEmptyState({
   );
 }
 
+function versionStatusLabel(status: string): string {
+  switch (status) {
+    case "draft":
+      return "Brouillon";
+    case "sent":
+      return "Envoye";
+    case "accepted":
+      return "Accepte";
+    case "archived":
+      return "Archive";
+    default:
+      return status;
+  }
+}
+
+function importStatusBadge(status: string) {
+  switch (status) {
+    case "done":
+      return { label: "Importe", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+    case "running":
+      return { label: "En cours", className: "bg-blue-50 text-blue-700 border-blue-200" };
+    case "failed":
+      return { label: "Echec", className: "bg-red-50 text-red-700 border-red-200" };
+    default:
+      return { label: status, className: "bg-gray-50 text-gray-600 border-gray-200" };
+  }
+}
+
+function mappingStatusBadge(status: string | null) {
+  if (!status) return null;
+  switch (status) {
+    case "mapped":
+      return { label: "Mappe", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+    case "partial":
+      return { label: "Partiel", className: "bg-amber-50 text-amber-700 border-amber-200" };
+    case "unmapped":
+      return { label: "Non mappe", className: "bg-gray-50 text-gray-600 border-gray-200" };
+    default:
+      return { label: status, className: "bg-gray-50 text-gray-600 border-gray-200" };
+  }
+}
+
 export function AffairesDenseTable({
   items,
   emptyVariant,
@@ -106,6 +154,43 @@ export function AffairesDenseTable({
   const router = useRouter();
   const { requestDelete, modalProps } = useDeleteAffaire();
 
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [expandCache, setExpandCache] = useState<
+    Record<string, AffaireDenseExpandData | "loading" | "error">
+  >({});
+
+  // Only consider expanded IDs that are in the current items (auto-reset on pagination/filter)
+  const currentItemIds = useMemo(() => new Set(items.map((i) => i.projectId)), [items]);
+  const isExpanded = useCallback(
+    (id: string) => expandedIds.has(id) && currentItemIds.has(id),
+    [expandedIds, currentItemIds]
+  );
+
+  const handleToggleExpand = useCallback(
+    (projectId: string) => {
+      setExpandedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(projectId)) {
+          next.delete(projectId);
+        } else {
+          next.add(projectId);
+          if (!expandCache[projectId] || expandCache[projectId] === "error") {
+            setExpandCache((c) => ({ ...c, [projectId]: "loading" }));
+            fetchAffaireDenseExpandData(projectId)
+              .then((data) =>
+                setExpandCache((c) => ({ ...c, [projectId]: data }))
+              )
+              .catch(() =>
+                setExpandCache((c) => ({ ...c, [projectId]: "error" }))
+              );
+          }
+        }
+        return next;
+      });
+    },
+    [expandCache]
+  );
+
   return (
     <div className="dashboard-card overflow-hidden">
       <ConfirmModal {...modalProps} />
@@ -113,6 +198,7 @@ export function AffairesDenseTable({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--slate-200)] bg-[var(--slate-50)]">
+              <th className="w-10" />
               <th className="px-4 py-3 text-left text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Nom affaire
               </th>
@@ -143,7 +229,7 @@ export function AffairesDenseTable({
               <th className="px-4 py-3 text-right text-xs font-medium text-[var(--slate-500)] uppercase tracking-wider">
                 Date MAJ
               </th>
-              <th className="w-10" />
+              <th className="w-28" />
             </tr>
           </thead>
           <tbody>
@@ -160,18 +246,36 @@ export function AffairesDenseTable({
                   item.currentVersionNumber !== null &&
                   item.currentStatus !== null;
 
-                const targetHref = hasCurrentVersion
-                  ? item.currentStatus === "draft"
-                    ? `/dashboard/estimates/${item.currentVersionId}/edit`
-                    : `/dashboard/estimates/${item.currentVersionId}`
-                  : `/dashboard/affaires/${item.projectId}`;
+                const expanded = isExpanded(item.projectId);
+                const cached = expandCache[item.projectId];
 
                 return (
+                  <Fragment key={item.projectId}>
                   <tr
-                    key={item.projectId}
-                    className="border-b border-[var(--slate-100)] cursor-pointer hover:bg-[var(--slate-50)] transition-colors"
-                    onClick={() => router.push(targetHref)}
+                    className="border-b border-[var(--slate-100)] hover:bg-[var(--slate-50)] transition-colors"
                   >
+                    <td>
+                      <button
+                        type="button"
+                        className={`expand-button ${expanded ? "expanded" : ""}`}
+                        onClick={() => handleToggleExpand(item.projectId)}
+                        aria-expanded={expanded}
+                        aria-label={expanded ? "Replier" : "Deplier"}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
+                      </button>
+                    </td>
                     <td className="px-4 py-3 font-medium text-[var(--slate-900)] max-w-[200px] truncate">
                       {item.projectName}
                     </td>
@@ -222,7 +326,7 @@ export function AffairesDenseTable({
                     <td className="px-4 py-3 text-center">
                       {item.currentApprovalStatus && APPROVAL_BADGE[item.currentApprovalStatus] ? (
                         <span
-                          className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[item.currentApprovalStatus].className}`}
+                          className={`inline-flex items-center px-2 py-1 rounded text-[10px] font-semibold border ${APPROVAL_BADGE[item.currentApprovalStatus].className}`}
                         >
                           {APPROVAL_BADGE[item.currentApprovalStatus].label}
                         </span>
@@ -239,15 +343,13 @@ export function AffairesDenseTable({
                       {formatDate(item.currentUpdatedAt)}
                     </td>
                     <td className="px-2 py-3 text-center">
-                      {(!hasCurrentVersion || item.currentStatus === "draft") && (
+                      <div className="inline-flex items-center gap-1">
+                        {/* Hub affaire – toujours visible */}
                         <button
                           type="button"
-                          title="Supprimer l'affaire"
-                          className="inline-flex items-center justify-center rounded p-1 text-[var(--slate-400)] hover:text-red-600 hover:bg-red-50 transition-colors"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            requestDelete(item.projectId, item.projectName);
-                          }}
+                          title="Hub affaire"
+                          className="inline-flex items-center justify-center rounded p-1 text-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          onClick={() => router.push(`/dashboard/affaires/${item.projectId}`)}
                         >
                           <svg
                             width="16"
@@ -260,19 +362,290 @@ export function AffairesDenseTable({
                             strokeLinejoin="round"
                             aria-hidden="true"
                           >
-                            <path d="M3 6h18" />
-                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                            <polyline points="9 22 9 12 15 12 15 22" />
                           </svg>
                         </button>
-                      )}
+                        {/* Detail estimation – visible quand non-brouillon */}
+                        {hasCurrentVersion && item.currentStatus !== "draft" && (
+                          <button
+                            type="button"
+                            title="Voir le detail"
+                            className="inline-flex items-center justify-center rounded p-1 text-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+                            onClick={() => router.push(`/dashboard/estimates/${item.currentVersionId}`)}
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                          </button>
+                        )}
+                        {/* Editer – visible quand brouillon */}
+                        {(!hasCurrentVersion || item.currentStatus === "draft") && (
+                          <button
+                            type="button"
+                            title="Editer l'affaire"
+                            className="inline-flex items-center justify-center rounded p-1 text-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                            onClick={() => router.push(
+                              hasCurrentVersion
+                                ? `/dashboard/estimates/${item.currentVersionId}/edit`
+                                : `/dashboard/affaires/${item.projectId}`
+                            )}
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </button>
+                        )}
+                        {/* Supprimer – visible quand brouillon */}
+                        {(!hasCurrentVersion || item.currentStatus === "draft") && (
+                          <button
+                            type="button"
+                            title="Supprimer l'affaire"
+                            className="inline-flex items-center justify-center rounded p-1 text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            onClick={() => requestDelete(item.projectId, item.projectName)}
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
+
+                  {expanded && (
+                    <tr className="expanded-content-row">
+                      <td colSpan={12}>
+                        <div className="expanded-content animate-expand-down">
+                          {cached === "loading" ? (
+                            <div className="flex items-center gap-3 rounded-xl border border-[var(--slate-100)] bg-white p-4">
+                              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--slate-200)] border-t-[var(--brand-blue)]" />
+                              <span className="text-sm text-[var(--slate-500)]">Chargement...</span>
+                            </div>
+                          ) : cached === "error" ? (
+                            <div className="rounded-xl border border-[var(--error)]/20 bg-[var(--error-light)] px-4 py-3 text-sm text-[var(--error)]">
+                              Erreur lors du chargement.
+                            </div>
+                          ) : cached ? (
+                            <ExpandedContent data={cached} projectId={item.projectId} />
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Expanded content — 3 column grid                                   */
+/* ------------------------------------------------------------------ */
+
+function ExpandedContent({
+  data,
+  projectId,
+}: {
+  data: AffaireDenseExpandData;
+  projectId: string;
+}) {
+  const { summary, dpgfSource } = data;
+  const cv = summary.currentVersion;
+  const av = summary.acceptedVersion;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Column 1 — Resume financier */}
+      <div className="space-y-1.5 text-sm">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)] mb-2">
+          Resume financier
+        </h4>
+        {cv ? (
+          <>
+            <p>
+              <span className="text-[var(--slate-500)]">Total HT : </span>
+              <span className="font-semibold text-[var(--slate-900)]">
+                {formatAmount(cv.totalHtCents)}
+              </span>
+            </p>
+            <p>
+              <span className="text-[var(--slate-500)]">Marge : </span>
+              <span className="font-medium">{cv.marginPercent.toFixed(1)} %</span>
+            </p>
+            <p>
+              <span className="text-[var(--slate-500)]">Nb lignes : </span>
+              <span>{summary.lineCount}</span>
+            </p>
+            <p>
+              <span className="text-[var(--slate-500)]">Version courante : </span>
+              <span>
+                V{cv.versionNumber} — {versionStatusLabel(cv.status)}
+              </span>
+            </p>
+            {av && (
+              <p>
+                <span className="text-[var(--slate-500)]">Version acceptee : </span>
+                <span className="text-emerald-700 font-medium">
+                  V{av.versionNumber} — {formatAmount(av.totalHtCents)}
+                </span>
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-[var(--slate-400)] italic">Aucun chiffrage en cours</p>
+        )}
+      </div>
+
+      {/* Column 2 — Source DPGF */}
+      <div className="space-y-1.5 text-sm">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)] mb-2">
+          Source DPGF
+        </h4>
+        {dpgfSource ? (
+          <>
+            <p>
+              <span className="text-[var(--slate-500)]">Fichier : </span>
+              <span className="font-medium truncate">{dpgfSource.filename}</span>
+            </p>
+            <p>
+              <span className="text-[var(--slate-500)]">Format : </span>
+              <span>{dpgfSource.sourceFormat}</span>
+            </p>
+            <p>
+              <span className="text-[var(--slate-500)]">Lignes source : </span>
+              <span>{dpgfSource.rowCount}</span>
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[var(--slate-500)]">Import :</span>
+              {(() => {
+                const b = importStatusBadge(dpgfSource.importStatus);
+                return (
+                  <span
+                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${b.className}`}
+                  >
+                    {b.label}
+                  </span>
+                );
+              })()}
+              {(() => {
+                const b = mappingStatusBadge(dpgfSource.mappingStatus);
+                if (!b) return null;
+                return (
+                  <>
+                    <span className="text-[var(--slate-500)]">Mapping :</span>
+                    <span
+                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${b.className}`}
+                    >
+                      {b.label}
+                    </span>
+                  </>
+                );
+              })()}
+            </div>
+            <p>
+              <span className="text-[var(--slate-500)]">Importe le : </span>
+              <span>{formatDate(dpgfSource.importedAt)}</span>
+            </p>
+          </>
+        ) : (
+          <p className="text-[var(--slate-400)] italic border border-dashed border-[var(--slate-200)] rounded px-3 py-2">
+            Aucune DPGF importee
+          </p>
+        )}
+      </div>
+
+      {/* Column 3 — Actions rapides */}
+      <div className="space-y-2 text-sm">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)] mb-2">
+          Actions rapides
+        </h4>
+        <Link
+          href={`/dashboard/affaires/${projectId}`}
+          className="flex items-center gap-2 text-blue-600 hover:text-blue-800 hover:underline"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            <polyline points="9 22 9 12 15 12 15 22" />
+          </svg>
+          Hub affaire
+        </Link>
+        {cv && cv.status !== "draft" && (
+          <Link
+            href={`/dashboard/estimates/${cv.id}`}
+            className="flex items-center gap-2 text-emerald-600 hover:text-emerald-800 hover:underline"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            Voir l&apos;estimation
+          </Link>
+        )}
+        {cv && cv.status === "draft" && (
+          <Link
+            href={`/dashboard/estimates/${cv.id}/edit`}
+            className="flex items-center gap-2 text-amber-600 hover:text-amber-800 hover:underline"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+            Editer le chiffrage
+          </Link>
+        )}
+        {cv && (
+          <Link
+            href={`/dashboard/estimates/${cv.id}/print`}
+            className="flex items-center gap-2 text-[var(--slate-600)] hover:text-[var(--slate-900)] hover:underline"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="6 9 6 2 18 2 18 9" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="8" />
+            </svg>
+            Exporter
+          </Link>
+        )}
       </div>
     </div>
   );

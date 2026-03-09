@@ -136,6 +136,13 @@ export function DashboardShell({
     return "navigation" as const;
   }, [pathname]);
 
+  const density = useMemo(() => {
+    if (/\/estimates\/[^/]+/.test(pathname) || pathname.startsWith("/dashboard/takeoff")) {
+      return "compact" as const;
+    }
+    return "comfortable" as const;
+  }, [pathname]);
+
   // Global listener for "?" key to open shortcuts modal
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -421,6 +428,7 @@ export function DashboardShell({
       </aside>
 
       <main
+        data-density={density}
         className="min-w-0 flex-1 min-h-screen pl-0 transition-[padding-left] duration-300 ease-in-out md:pl-[var(--sidebar-offset)]"
         style={{
           ["--sidebar-offset" as string]: collapsed
@@ -428,7 +436,7 @@ export function DashboardShell({
             : "var(--sidebar-width)",
         }}
       >
-        <div className="mx-auto w-full px-6 py-8">
+        <div className="mx-auto w-full px-4 pb-8 pt-20 sm:px-6 sm:py-8">
           {children}
         </div>
       </main>

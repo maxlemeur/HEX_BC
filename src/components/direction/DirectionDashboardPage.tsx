@@ -92,7 +92,7 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
       <header className="space-y-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="page-title">Cockpit direction</h1>
+            <h1 className="typo-h1">Cockpit direction</h1>
             <p className="mt-1 max-w-3xl text-sm text-[var(--slate-500)]">
               Priorisez les arbitrages, gardez une vue claire des affaires
               fragiles et renvoyez rapidement les dossiers a traiter.
@@ -105,10 +105,10 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
             aria-atomic="true"
           >
             <article className="dashboard-card min-w-[170px] p-4">
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-400)]">
+              <p className="typo-label text-[var(--slate-400)]">
                 Portefeuille
               </p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+              <p className="mt-2 typo-kpi animate-count-up text-[var(--slate-900)]">
                 {data.summary.totalAffaires}
               </p>
               <p className="mt-1 text-xs text-[var(--slate-500)]">
@@ -118,10 +118,10 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
             </article>
 
             <article className="dashboard-card min-w-[170px] p-4">
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-400)]">
+              <p className="typo-label text-[var(--slate-400)]">
                 A surveiller
               </p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--danger)]">
+              <p className="mt-2 typo-kpi animate-count-up text-[var(--danger)]">
                 {data.summary.criticalCount}
               </p>
               <p className="mt-1 text-xs text-[var(--slate-500)]">
@@ -131,10 +131,10 @@ export function DirectionDashboardPage({ data, initialQuery }: Readonly<Props>) 
             </article>
 
             <article className="dashboard-card min-w-[170px] p-4">
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--slate-400)]">
+              <p className="typo-label text-[var(--slate-400)]">
                 Validation
               </p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--brand-blue)]">
+              <p className="mt-2 typo-kpi animate-count-up text-[var(--brand-blue)]">
                 {data.summary.validationPendingCount}
               </p>
               <p className="mt-1 text-xs text-[var(--slate-500)]">

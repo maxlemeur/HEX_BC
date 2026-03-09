@@ -29,7 +29,7 @@ function SkeletonBlock({
     <div
       aria-hidden="true"
       className={cn(
-        "animate-pulse bg-slate-200/50",
+        "bg-slate-200/50 animate-shimmer",
         VARIANT_DEFAULTS[variant],
         rounded && "rounded-full",
         className

@@ -10,6 +10,8 @@ import {
   useState,
 } from "react";
 
+import { AnimatePresence, motion } from "motion/react";
+
 import { cn } from "@/lib/utils";
 
 /* ────────────────── Types ────────────────── */
@@ -73,7 +75,7 @@ export function Toast({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id
     <div
       data-toast-id={toast.id}
       className={cn(
-        "rounded-xl border px-4 py-3 shadow-lg",
+        "relative overflow-hidden rounded-xl border px-4 py-3 shadow-lg",
         "flex min-w-[280px] max-w-[420px] items-start justify-between gap-3",
         TOAST_VARIANTS[toast.variant]
       )}
@@ -93,6 +95,15 @@ export function Toast({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id
       >
         Fermer
       </button>
+
+      <div className="absolute bottom-0 left-0 right-0 h-0.5 overflow-hidden rounded-b-xl">
+        <div
+          className="h-full bg-current opacity-20"
+          style={{
+            animation: `toast-progress ${toast.durationMs}ms linear forwards`,
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -116,18 +127,23 @@ export function ToastViewport({
       aria-live="polite"
       aria-relevant="additions removals"
     >
-      {toasts.map((toast) => (
-        <div
-          key={toast.id}
-          className={cn(
-            "pointer-events-auto",
-            toast.exiting ? "animate-toast-exit" : "animate-slide-in-right"
-          )}
-          onAnimationEnd={toast.exiting && onExitEnd ? () => onExitEnd(toast.id) : undefined}
-        >
-          <Toast toast={toast} onDismiss={onDismiss} />
-        </div>
-      ))}
+      <AnimatePresence mode="popLayout">
+        {toasts.map((toast) => (
+          <motion.div
+            key={toast.id}
+            className="pointer-events-auto"
+            initial={{ opacity: 0, x: 80 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 80, transition: { duration: 0.15 } }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            onAnimationComplete={(definition) => {
+              if (definition === "exit" && onExitEnd) onExitEnd(toast.id);
+            }}
+          >
+            <Toast toast={toast} onDismiss={onDismiss} />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }
