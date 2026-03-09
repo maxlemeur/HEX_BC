@@ -1096,7 +1096,15 @@ export type TakeoffActivityCenterJobRow = {
   providerBatchState: TakeoffProviderBatchState | null;
   providerBatchUpdatedAt: string | null;
   statusLabel: string;
-  statusRaw: TakeoffJobStatus | string;
+  statusRaw:
+    | "queued"
+    | "processing"
+    | "provider_pending"
+    | "review_required"
+    | "action_required"
+    | "completed"
+    | string;
+  technicalStatusRaw: TakeoffJobStatus | string;
   itemCount: number;
   coveragePercent: number;
   exceptionCount: number;
@@ -1112,7 +1120,7 @@ export type TakeoffActivityCenterFilters = {
   versionId?: string | null;
   lot?: string | null;
   planSetId?: string | null;
-  status?: TakeoffJobStatus | null;
+  status?: string | null;
   level?: TakeoffLevel | null;
   period?: TakeoffJobListPeriod | null;
 };

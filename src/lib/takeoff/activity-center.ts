@@ -379,13 +379,13 @@ function resolveJobSource(
     : null;
 }
 
-async function countJobsWithBlockingExceptions(
+async function listJobsWithBlockingExceptions(
   supabase: SupabaseClient,
   tenantId: string,
   jobIds: string[]
-): Promise<number> {
+): Promise<Set<string>> {
   if (jobIds.length === 0) {
-    return 0;
+    return new Set();
   }
 
   const jobsWithExceptions = new Set<string>();
@@ -399,7 +399,7 @@ async function countJobsWithBlockingExceptions(
       .in("takeoff_job_id" as never, batch as never);
 
     if (error) {
-      return 0;
+      return new Set();
     }
 
     for (const row of (data ?? []) as Array<{ takeoff_job_id: string }>) {
@@ -407,7 +407,7 @@ async function countJobsWithBlockingExceptions(
     }
   }
 
-  return jobsWithExceptions.size;
+  return jobsWithExceptions;
 }
 
 async function countItemsByJobId(
@@ -662,22 +662,58 @@ export async function listActivityCenterJobs(
       ? allRows.filter((row) => resolvedSourceByJobId.get(row.id) !== null)
       : allRows;
 
-  const technicalCount = sourceFilteredRows.filter(
-    (row) => row.status === "pending" || row.status === "processing"
-  ).length;
-  const usableCount = sourceFilteredRows.filter(
-    (row) => row.status === "completed" || row.status === "applied"
-  ).length;
-  const blockingExceptionsCount = await countJobsWithBlockingExceptions(
+  const blockingExceptionJobIds = await listJobsWithBlockingExceptions(
     supabase,
     tenantId,
     sourceFilteredRows
       .filter((row) => row.status === "completed" || row.status === "applied")
       .map((row) => row.id)
   );
+  const visibleStatusByJobId = new Map(
+    sourceFilteredRows.map((row) => [
+      row.id,
+      resolveTakeoffVisibleJobStatus({
+        status: row.status,
+        processingStrategy:
+          row.processing_strategy === "sync" || row.processing_strategy === "batch"
+            ? row.processing_strategy
+            : null,
+        providerBatchState:
+          row.provider_batch_state === "submitted" ||
+          row.provider_batch_state === "pending" ||
+          row.provider_batch_state === "running" ||
+          row.provider_batch_state === "succeeded" ||
+          row.provider_batch_state === "failed" ||
+          row.provider_batch_state === "cancelled" ||
+          row.provider_batch_state === "expired" ||
+          row.provider_batch_state === "unknown"
+            ? row.provider_batch_state
+            : null,
+        exceptionCount: blockingExceptionJobIds.has(row.id) ? 1 : 0,
+      }),
+    ])
+  );
+  const technicalCount = sourceFilteredRows.filter((row) => {
+    const visibleStatus = visibleStatusByJobId.get(row.id);
+    return (
+      visibleStatus?.status === "queued" ||
+      visibleStatus?.status === "processing" ||
+      visibleStatus?.status === "provider_pending"
+    );
+  }).length;
+  const usableCount = sourceFilteredRows.filter((row) => {
+    const visibleStatus = visibleStatusByJobId.get(row.id);
+    return (
+      visibleStatus?.status === "completed" ||
+      visibleStatus?.status === "review_required"
+    );
+  }).length;
+  const blockingExceptionsCount = blockingExceptionJobIds.size;
 
   const statusFilteredRows = input.status
-    ? sourceFilteredRows.filter((row) => row.status === input.status)
+    ? sourceFilteredRows.filter(
+        (row) => visibleStatusByJobId.get(row.id)?.status === input.status
+      )
     : sourceFilteredRows;
   const pagedRows = statusFilteredRows.slice(offset, offset + limit);
   const total = statusFilteredRows.length;
@@ -708,25 +744,27 @@ export async function listActivityCenterJobs(
       ? (confidenceMap.get(row.id) ?? null)
       : null;
     const resolvedSource = resolvedSourceByJobId.get(row.id) ?? null;
-    const visibleStatus = resolveTakeoffVisibleJobStatus({
-      status: row.status,
-      processingStrategy:
-        row.processing_strategy === "sync" || row.processing_strategy === "batch"
-          ? row.processing_strategy
-          : null,
-      providerBatchState:
-        row.provider_batch_state === "submitted" ||
-        row.provider_batch_state === "pending" ||
-        row.provider_batch_state === "running" ||
-        row.provider_batch_state === "succeeded" ||
-        row.provider_batch_state === "failed" ||
-        row.provider_batch_state === "cancelled" ||
-        row.provider_batch_state === "expired" ||
-        row.provider_batch_state === "unknown"
-          ? row.provider_batch_state
-          : null,
-      exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : null,
-    });
+    const visibleStatus =
+      visibleStatusByJobId.get(row.id) ??
+      resolveTakeoffVisibleJobStatus({
+        status: row.status,
+        processingStrategy:
+          row.processing_strategy === "sync" || row.processing_strategy === "batch"
+            ? row.processing_strategy
+            : null,
+        providerBatchState:
+          row.provider_batch_state === "submitted" ||
+          row.provider_batch_state === "pending" ||
+          row.provider_batch_state === "running" ||
+          row.provider_batch_state === "succeeded" ||
+          row.provider_batch_state === "failed" ||
+          row.provider_batch_state === "cancelled" ||
+          row.provider_batch_state === "expired" ||
+          row.provider_batch_state === "unknown"
+            ? row.provider_batch_state
+            : null,
+        exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : null,
+      });
 
     return {
       jobId: row.id,
@@ -752,7 +790,8 @@ export async function listActivityCenterJobs(
           : null,
       providerBatchUpdatedAt: row.provider_batch_updated_at ?? null,
       statusLabel: visibleStatus.label,
-      statusRaw: row.status,
+      statusRaw: visibleStatus.status,
+      technicalStatusRaw: row.status,
       itemCount: itemCountMap.get(row.id) ?? 0,
       coveragePercent: isEnrichable ? (coverageMap.get(row.id) ?? 0) : 0,
       exceptionCount: isEnrichable ? (exceptionMap.get(row.id) ?? 0) : 0,

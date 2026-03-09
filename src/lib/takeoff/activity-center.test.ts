@@ -377,6 +377,7 @@ describe("listActivityCenterJobs", () => {
         lotLabel: "CVC",
         planSetLabel: "Plans architecte - Lot CVC",
         versionLabel: "V3",
+        statusRaw: "review_required",
       }),
     ]);
   });
@@ -393,9 +394,23 @@ describe("listActivityCenterJobs", () => {
     expect(technicalJob).toEqual(
       expect.objectContaining({
         jobId: JOB_C_ID,
-        statusRaw: "processing",
+        statusRaw: "provider_pending",
+        technicalStatusRaw: "processing",
         statusLabel: "En attente provider",
       })
     );
+  });
+
+  it("filters jobs by visible status instead of the raw database status", async () => {
+    const response = await listActivityCenterJobs({
+      project_id: PROJECT_ID,
+      status: "review_required",
+      limit: 20,
+      offset: 0,
+    });
+
+    expect(response.jobs).toHaveLength(2);
+    expect(response.jobs.map((job) => job.jobId)).toEqual([JOB_A_ID, JOB_B_ID]);
+    expect(response.jobs.every((job) => job.statusRaw === "review_required")).toBe(true);
   });
 });

@@ -192,13 +192,14 @@ export default function TakeoffJobsTable({
             {jobs.map((job) => {
               const pendingAction = pendingActions[job.jobId];
               const canRetry =
-                job.statusRaw === "failed" &&
+                job.technicalStatusRaw === "failed" &&
                 job.retryCount < TAKEOFF_JOB_MAX_RETRY_COUNT;
               const canCancel =
-                job.statusRaw === "pending" ||
-                job.statusRaw === "processing";
+                job.technicalStatusRaw === "pending" ||
+                job.technicalStatusRaw === "processing";
               const reviewEnabled =
-                job.statusRaw === "completed" || job.statusRaw === "applied";
+                job.statusRaw === "completed" ||
+                job.statusRaw === "review_required";
 
               return (
                 <article
@@ -336,14 +337,14 @@ export default function TakeoffJobsTable({
                 {jobs.map((job) => {
                   const pendingAction = pendingActions[job.jobId];
                   const canRetry =
-                    job.statusRaw === "failed" &&
+                    job.technicalStatusRaw === "failed" &&
                     job.retryCount < TAKEOFF_JOB_MAX_RETRY_COUNT;
                   const canCancel =
-                    job.statusRaw === "pending" ||
-                    job.statusRaw === "processing";
+                    job.technicalStatusRaw === "pending" ||
+                    job.technicalStatusRaw === "processing";
                   const reviewEnabled =
                     job.statusRaw === "completed" ||
-                    job.statusRaw === "applied";
+                    job.statusRaw === "review_required";
 
                   return (
                     <tr key={job.jobId}>

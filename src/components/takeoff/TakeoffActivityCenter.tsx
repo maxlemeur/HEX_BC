@@ -11,7 +11,7 @@ import {
 } from "@/lib/takeoff/client";
 import { resolveActivityCenterLotLabel } from "@/lib/takeoff/activity-center-shared";
 import {
-  BUSINESS_STATUS_LABEL_MAP,
+  BUSINESS_STATUS_FILTER_OPTIONS,
   BUSINESS_LEVEL_FILTER_OPTIONS,
   JobsTableSkeleton,
   PAGE_SIZE_OPTIONS,
@@ -88,7 +88,7 @@ export default function TakeoffActivityCenter({
       if (!latestData) return 0;
       const hasProcessing = latestData.counters.technicalJobs > 0;
       const hasPending = latestData.jobs?.some(
-        (job) => job.statusRaw === "pending"
+        (job) => job.statusRaw === "queued"
       );
       return hasProcessing || hasPending
         ? TAKEOFF_LIST_REFRESH_INTERVAL_MS
@@ -152,13 +152,7 @@ export default function TakeoffActivityCenter({
     ];
   })();
 
-  const statusOptions = [
-    { value: "all", label: "Tous les statuts" },
-    ...Object.entries(BUSINESS_STATUS_LABEL_MAP).map(([value, label]) => ({
-      value,
-      label,
-    })),
-  ];
+  const statusOptions = BUSINESS_STATUS_FILTER_OPTIONS;
 
   const handleTabKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

@@ -57,6 +57,7 @@ import {
   clearCockpitSuggestions,
 } from "@/lib/stores/cockpit-suggestions-store";
 import { recordCockpitCommandAction } from "@/app/dashboard/affaires/_actions/cockpit";
+import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -313,7 +314,10 @@ function ActionBar({
       )}
 
       {/* Launch metre */}
-      {takeoffEnabled && plansSummary && plansSummary.planSetCount > 0 && (
+      {takeoffEnabled &&
+      plansSummary &&
+      plansSummary.planSetCount > 0 &&
+      canLaunchNewTakeoffAnalysis(plansSummary.latestJob?.status) && (
         <button
           type="button"
           onClick={onLaunchMetre}

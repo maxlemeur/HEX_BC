@@ -13,6 +13,12 @@ export const TAKEOFF_VISIBLE_JOB_STATUSES = [
   "completed",
 ] as const;
 
+export const TAKEOFF_IN_FLIGHT_VISIBLE_JOB_STATUSES = [
+  "queued",
+  "processing",
+  "provider_pending",
+] as const;
+
 export type TakeoffVisibleJobStatus =
   (typeof TAKEOFF_VISIBLE_JOB_STATUSES)[number];
 
@@ -47,6 +53,10 @@ const PROVIDER_PENDING_STATES = new Set<TakeoffProviderBatchState>([
   "running",
 ]);
 
+const IN_FLIGHT_VISIBLE_STATUS_SET = new Set<TakeoffVisibleJobStatus>(
+  TAKEOFF_IN_FLIGHT_VISIBLE_JOB_STATUSES,
+);
+
 const FAILURE_REASON_LABELS: Record<string, string> = {
   TAKEOFF_FILE_TYPE_INVALID: "Document non exploitable. Importez un autre document PDF lisible.",
   TAKEOFF_FILE_TOO_LARGE:
@@ -69,6 +79,18 @@ export function getTakeoffVisibleJobStatusLabel(
   status: TakeoffVisibleJobStatus
 ): string {
   return TAKEOFF_VISIBLE_JOB_STATUS_LABELS[status];
+}
+
+export function isTakeoffVisibleJobInFlight(
+  status: TakeoffVisibleJobStatus | null | undefined
+): boolean {
+  return status != null && IN_FLIGHT_VISIBLE_STATUS_SET.has(status);
+}
+
+export function canLaunchNewTakeoffAnalysis(
+  status: TakeoffVisibleJobStatus | null | undefined
+): boolean {
+  return status == null;
 }
 
 export function resolveTakeoffVisibleJobStatus(

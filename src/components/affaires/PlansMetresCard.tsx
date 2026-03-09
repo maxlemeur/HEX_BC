@@ -6,7 +6,11 @@ import { Badge } from "@/components/ui/Badge";
 import type { BadgeProps } from "@/components/ui/Badge";
 import { formatFileSize } from "@/components/takeoff/PlanFileCard";
 import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
-import type { TakeoffVisibleJobStatus } from "@/lib/takeoff/visible-status";
+import {
+  canLaunchNewTakeoffAnalysis,
+  isTakeoffVisibleJobInFlight,
+  type TakeoffVisibleJobStatus,
+} from "@/lib/takeoff/visible-status";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -190,11 +194,8 @@ export function PlansMetresCard({
     latestJob !== null &&
     (latestJob.status === "completed" || latestJob.status === "review_required");
   const needsAction = latestJob?.status === "action_required";
-  const isQueuedOrProcessing =
-    latestJob !== null &&
-    (latestJob.status === "queued" ||
-      latestJob.status === "processing" ||
-      latestJob.status === "provider_pending");
+  const isQueuedOrProcessing = isTakeoffVisibleJobInFlight(latestJob?.status);
+  const canLaunchNewAnalysis = canLaunchNewTakeoffAnalysis(latestJob?.status);
 
   const coverageAvailable =
     plans.coveragePercent !== null && plans.exceptionCount !== null;
@@ -337,7 +338,7 @@ export function PlansMetresCard({
             Suivre l&apos;analyse
           </Link>
         ) : null}
-        {!needsAction ? (
+        {canLaunchNewAnalysis ? (
           <button
             type="button"
             disabled={!onLaunchMetre}

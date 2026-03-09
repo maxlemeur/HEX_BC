@@ -1,6 +1,7 @@
 import type { AffaireHubPlansSummaryData } from "@/components/affaires/PlansMetresCard";
 import type { AffaireRegisterSummary } from "@/lib/affaires/register";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -63,6 +64,7 @@ export function computeCockpitSuggestions(
     takeoffEnabled &&
     plansSummary &&
     plansSummary.planSetCount > 0 &&
+    canLaunchNewTakeoffAnalysis(plansSummary.latestJob?.status) &&
     !isReadOnlyReview
   ) {
     suggestions.push({

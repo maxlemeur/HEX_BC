@@ -29,6 +29,7 @@ const ACTIVITY_CENTER_RESPONSE = {
       providerBatchUpdatedAt: "2026-03-01T10:05:00.000Z",
       statusLabel: "Analyse terminee",
       statusRaw: "completed",
+      technicalStatusRaw: "completed",
       itemCount: 42,
       coveragePercent: 85,
       exceptionCount: 3,

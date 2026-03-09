@@ -2,15 +2,23 @@ import type {
   TakeoffProcessingStrategy,
   TakeoffProviderBatchState,
 } from "@/lib/takeoff/types";
+import {
+  getTakeoffVisibleJobStatusLabel,
+  TAKEOFF_VISIBLE_JOB_STATUSES,
+} from "@/lib/takeoff/visible-status";
 
 export const TAKEOFF_MAX_LIST_OFFSET = 10_000;
 export const TAKEOFF_LIST_REFRESH_INTERVAL_MS = 20_000;
 export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
 export const STATUS_CSS_MAP: Record<string, string> = {
+  queued: "status-draft",
   pending: "status-draft",
+  provider_pending: "status-sent",
   processing: "status-sent",
   completed: "status-confirmed",
+  review_required: "status-warning",
+  action_required: "status-canceled",
   failed: "status-canceled",
   canceled: "status-canceled",
   applied: "status-accepted",
@@ -164,13 +172,21 @@ export const BUSINESS_LEVEL_FILTER_OPTIONS: Array<{
 ];
 
 export const BUSINESS_STATUS_LABEL_MAP: Record<string, string> = {
-  pending: "En attente",
-  processing: "Analyse en cours",
-  completed: "Analyse terminee",
-  failed: "Analyse echouee",
-  canceled: "Annulee",
-  applied: "Appliquee",
+  queued: getTakeoffVisibleJobStatusLabel("queued"),
+  processing: getTakeoffVisibleJobStatusLabel("processing"),
+  provider_pending: getTakeoffVisibleJobStatusLabel("provider_pending"),
+  review_required: getTakeoffVisibleJobStatusLabel("review_required"),
+  action_required: getTakeoffVisibleJobStatusLabel("action_required"),
+  completed: getTakeoffVisibleJobStatusLabel("completed"),
 };
+
+export const BUSINESS_STATUS_FILTER_OPTIONS = [
+  { value: "all", label: "Tous les statuts" },
+  ...TAKEOFF_VISIBLE_JOB_STATUSES.map((status) => ({
+    value: status,
+    label: getTakeoffVisibleJobStatusLabel(status),
+  })),
+] as const;
 
 export function getBusinessLevelLabel(level: string): string {
   return BUSINESS_LEVEL_LABEL_MAP[level] ?? level;

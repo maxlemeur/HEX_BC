@@ -93,7 +93,7 @@ describe("computeCockpitSuggestions", () => {
         makeInput({
           takeoffEnabled: true,
           isReadOnlyReview: false,
-          plansSummary: makePlansSummary({ planSetCount: 1 }),
+          plansSummary: makePlansSummary({ planSetCount: 1, latestJob: null }),
         }),
       );
       const s = result.find((s) => s.intent === "analyze_plans");
@@ -123,6 +123,40 @@ describe("computeCockpitSuggestions", () => {
           plansSummary: makePlansSummary(),
         }),
       );
+      expect(result.find((s) => s.intent === "analyze_plans")).toBeUndefined();
+    });
+
+    it("is absent when an analysis is already running", () => {
+      const result = computeCockpitSuggestions(
+        makeInput({
+          plansSummary: makePlansSummary({
+            latestJob: {
+              jobId: "j-1",
+              status: "provider_pending",
+              label: "En attente provider",
+              reviewVersionId: "rv-1",
+            },
+          }),
+        }),
+      );
+
+      expect(result.find((s) => s.intent === "analyze_plans")).toBeUndefined();
+    });
+
+    it("is absent when the latest job requires review", () => {
+      const result = computeCockpitSuggestions(
+        makeInput({
+          plansSummary: makePlansSummary({
+            latestJob: {
+              jobId: "j-1",
+              status: "review_required",
+              label: "Revue requise",
+              reviewVersionId: "rv-1",
+            },
+          }),
+        }),
+      );
+
       expect(result.find((s) => s.intent === "analyze_plans")).toBeUndefined();
     });
   });
@@ -315,7 +349,7 @@ describe("computeCockpitSuggestions", () => {
   // -- Ordering -------------------------------------------------------
 
   describe("ordering", () => {
-    it("returns suggestions in order: analyze_plans, view_exceptions, list_hypotheses, prepare_validation", () => {
+    it("returns suggestions in order once the latest job requires review", () => {
       const result = computeCockpitSuggestions(
         makeInput({
           takeoffEnabled: true,
@@ -334,27 +368,21 @@ describe("computeCockpitSuggestions", () => {
           approvalSummary: makeApprovalSummary(true),
         }),
       );
-      expect(result).toHaveLength(4);
-      expect(result[0].intent).toBe("analyze_plans");
-      expect(result[1].intent).toBe("view_exceptions");
-      expect(result[2].intent).toBe("list_hypotheses");
-      expect(result[3].intent).toBe("prepare_validation");
+      expect(result).toHaveLength(3);
+      expect(result[0].intent).toBe("view_exceptions");
+      expect(result[1].intent).toBe("list_hypotheses");
+      expect(result[2].intent).toBe("prepare_validation");
     });
 
-    it("all 4 suggestions can be returned at once", () => {
+    it("surfaces analyze_plans only when there is no latest job to follow up", () => {
       const result = computeCockpitSuggestions(
         makeInput({
           takeoffEnabled: true,
           isReadOnlyReview: false,
           plansSummary: makePlansSummary({
             planSetCount: 1,
-            exceptionCount: 1,
-            latestJob: {
-              jobId: "j-1",
-              status: "review_required",
-              label: "Job",
-              reviewVersionId: "rv-1",
-            },
+            exceptionCount: 0,
+            latestJob: null,
           }),
           registerSummary: makeRegisterSummary({ openQuestionsCount: 1 }),
           approvalSummary: makeApprovalSummary(true),
@@ -362,10 +390,10 @@ describe("computeCockpitSuggestions", () => {
       );
       const intents = result.map((s) => s.intent);
       expect(intents).toContain("analyze_plans");
-      expect(intents).toContain("view_exceptions");
       expect(intents).toContain("list_hypotheses");
       expect(intents).toContain("prepare_validation");
-      expect(result).toHaveLength(4);
+      expect(intents).not.toContain("view_exceptions");
+      expect(result).toHaveLength(3);
     });
   });
 });

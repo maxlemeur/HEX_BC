@@ -32,23 +32,23 @@ describe("getBusinessStatusLabel", () => {
   });
 
   it("maps processing to Analyse en cours", () => {
-    expect(getBusinessStatusLabel("processing")).toBe("Analyse en cours");
+    expect(getBusinessStatusLabel("processing")).toBe("En traitement");
   });
 
-  it("maps failed to Analyse echouee", () => {
-    expect(getBusinessStatusLabel("failed")).toBe("Analyse echouee");
+  it("maps queued to En file", () => {
+    expect(getBusinessStatusLabel("queued")).toBe("En file");
   });
 
-  it("maps pending to En attente", () => {
-    expect(getBusinessStatusLabel("pending")).toBe("En attente");
+  it("maps provider_pending to En attente provider", () => {
+    expect(getBusinessStatusLabel("provider_pending")).toBe("En attente provider");
   });
 
-  it("maps canceled to Annulee", () => {
-    expect(getBusinessStatusLabel("canceled")).toBe("Annulee");
+  it("maps review_required to Revue requise", () => {
+    expect(getBusinessStatusLabel("review_required")).toBe("Revue requise");
   });
 
-  it("maps applied to Appliquee", () => {
-    expect(getBusinessStatusLabel("applied")).toBe("Appliquee");
+  it("maps action_required to Echec a corriger", () => {
+    expect(getBusinessStatusLabel("action_required")).toBe("Echec a corriger");
   });
 
   it("returns raw value for unknown status", () => {

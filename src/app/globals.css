@@ -478,6 +478,15 @@ body {
   background: var(--success);
 }
 
+.status-warning {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+
+.status-warning::before {
+  background: var(--warning);
+}
+
 .status-accepted {
   background: var(--success-light);
   color: #059669;

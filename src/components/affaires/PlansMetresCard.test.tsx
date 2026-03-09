@@ -35,6 +35,9 @@ describe("PlansMetresCard", () => {
       "href",
       "/dashboard/affaires/project-1/takeoff/job-1/review?versionId=version-target&view=dpgf&dpgfView=exceptions_only"
     );
+    expect(
+      screen.queryByRole("button", { name: "Analyser les plans" })
+    ).not.toBeInTheDocument();
   });
 
   it("calls onDismissEmpty from the empty state CTA", () => {
@@ -126,5 +129,40 @@ describe("PlansMetresCard", () => {
     expect(
       screen.getByRole("link", { name: "Importer un autre document" })
     ).toHaveAttribute("href", "/dashboard/affaires/project-1/plans");
+    expect(
+      screen.queryByRole("button", { name: "Analyser les plans" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("replaces the launch CTA with a follow CTA while an analysis is already running", () => {
+    render(
+      <PlansMetresCard
+        projectId="project-1"
+        onLaunchMetre={vi.fn()}
+        plans={{
+          defaultPlanSetId: "plan-set-1",
+          planSetCount: 1,
+          planFileCount: 1,
+          totalSizeBytes: 1024,
+          latestJob: {
+            jobId: "job-1",
+            status: "provider_pending",
+            label: "En attente provider",
+            reviewVersionId: "version-target",
+          },
+          coveragePercent: null,
+          exceptionCount: null,
+          openQuestionsCount: 0,
+          failureReasonLabel: null,
+        }}
+      />
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Suivre l'analyse" })
+    ).toHaveAttribute("href", "/dashboard/affaires/project-1/takeoff");
+    expect(
+      screen.queryByRole("button", { name: "Analyser les plans" })
+    ).not.toBeInTheDocument();
   });
 });
