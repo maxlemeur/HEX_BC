@@ -322,8 +322,8 @@ export function GeneratedOuvrageCandidateCard({
             </p>
           )}
 
-          {/* Sources - hidden when parent incomplete */}
-          {candidate.sources.length > 0 && parentReadiness.isReady && (
+          {/* Sources remain available in review mode, including incomplete candidates. */}
+          {candidate.sources.length > 0 && (
             <div className="mt-2">
               <button
                 type="button"

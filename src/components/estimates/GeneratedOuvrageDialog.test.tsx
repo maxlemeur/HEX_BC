@@ -266,14 +266,22 @@ async function reviewSubdetailForCandidate(user: ReturnType<typeof userEvent.set
   );
 
   const card = screen.getByTestId(`candidate-card-${candidateId}`);
-  await user.click(within(card).getByText("Sous-detail"));
+  await user.click(
+    within(card).getByRole("button", { name: /Valider le sous-detail/i })
+  );
   await waitFor(() => {
     expect(mockFetchGeneratedOuvrageSubdetailDraft).toHaveBeenCalled();
   });
+  const subdetailEditor = await screen.findByText("Sous-detail compose");
   await waitFor(() => {
-    expect(screen.getByText("Valider le sous-detail")).toBeInTheDocument();
+    expect(subdetailEditor).toBeInTheDocument();
   });
-  await user.click(screen.getByText("Valider le sous-detail"));
+  await user.click(
+    within(subdetailEditor.closest("section") as HTMLElement).getByRole(
+      "button",
+      { name: /^Valider le sous-detail$/i }
+    )
+  );
   await waitFor(() => {
     expect(mockUpdateGeneratedOuvrageSubdetailDraft).toHaveBeenCalled();
   });
@@ -422,7 +430,7 @@ describe("GeneratedOuvrageDialog", () => {
     const designationInput = screen.getByTestId("edit-designation");
     await user.clear(designationInput);
     await user.type(designationInput, "Mur en beton arme modifie");
-    await user.click(screen.getByText("Valider"));
+    await user.click(screen.getByRole("button", { name: /Valider la ligne/i }));
 
     // Select the edited candidate
     const checkbox = within(
@@ -482,18 +490,25 @@ describe("GeneratedOuvrageDialog", () => {
     await user.click(checkbox);
 
     expect(
-      screen.getByText(/1\/1 ouvrage\(s\) selectionne\(s\) pret\(s\) a inserer/i)
+      screen.getByText(/1 ouvrage\(s\) selectionne\(s\) pret\(s\) a inserer\./i)
     ).toBeInTheDocument();
 
     const card = screen.getByTestId("candidate-card-c1");
     await user.click(within(card).getByText("Modifier"));
     await user.clear(screen.getByTestId("edit-quantity"));
     await user.type(screen.getByTestId("edit-quantity"), "80");
-    await user.click(screen.getByText("Valider"));
+    await user.click(screen.getByRole("button", { name: /Valider la ligne/i }));
 
-    expect(screen.getByText(/Sous-detail : A revoir/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/0\/1 ouvrage\(s\) selectionne\(s\) ont un sous-detail valide/i)
+      screen.getByText(
+        /Les modifications du parent imposent une nouvelle validation du sous-detail\./i
+      )
+    ).toBeInTheDocument();
+    const updatedCard = screen.getByTestId("candidate-card-c1");
+    expect(
+      within(updatedCard).getByText(
+        /Ligne complete\. Validez le sous-detail pour debloquer l'insertion\./i
+      )
     ).toBeInTheDocument();
     expect(screen.getByTestId("generated-ouvrage-insert-button")).toBeDisabled();
   });
@@ -514,14 +529,101 @@ describe("GeneratedOuvrageDialog", () => {
 
     const incompleteCard = screen.getByTestId("candidate-card-c3");
     expect(
-      within(incompleteCard).getByText(/Completer unite, quantite avant selection ou insertion/i)
+      within(incompleteCard).getByText(/Cet ouvrage n'est pas pret a etre insere\./i)
     ).toBeInTheDocument();
     expect(within(incompleteCard).getByRole("checkbox")).toBeDisabled();
-    expect(within(incompleteCard).getByText("Selectionner")).toBeDisabled();
+    expect(
+      within(incompleteCard).getByRole("button", { name: /Completer la ligne/i })
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         /Selectionnez un ouvrage pret a inserer\. Unite, quantite et sous-detail valide sont requis\./i
       )
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the insert CTA name stable across review states", async () => {
+    const draftResult = makeDraftResult();
+    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
+
+    render(<GeneratedOuvrageDialog {...defaultProps} />);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Texte source"), "Test");
+    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Mur en beton")).toBeInTheDocument();
+    });
+
+    const insertButton = screen.getByRole("button", {
+      name: /Inserer les ouvrages selectionnes/i,
+    });
+    expect(insertButton).toBeDisabled();
+
+    const checkbox = within(
+      screen.getByTestId("candidate-card-c1")
+    ).getByRole("checkbox");
+    await user.click(checkbox);
+    expect(
+      screen.getByRole("button", {
+        name: /Inserer les ouvrages selectionnes/i,
+      })
+    ).toBeDisabled();
+
+    await reviewSubdetailForCandidate(user, "c1");
+
+    expect(
+      screen.getByRole("button", {
+        name: /Inserer les ouvrages selectionnes/i,
+      })
+    ).toBeEnabled();
+  });
+
+  it("shows sources for incomplete candidates in review mode", async () => {
+    const baseDraft = makeDraftResult();
+    const draftResult = makeDraftResult(undefined, [
+      baseDraft.candidates[0],
+      baseDraft.candidates[1],
+      {
+        ...baseDraft.candidates[2],
+        sources: [
+          {
+            sourceFragmentId: "sf-incomplete",
+            sourceDocumentId: null,
+            type: "text",
+            label: "Source incomplete",
+            excerpt: "Quantite et unite absentes dans l'extrait.",
+            sourceFileName: null,
+            sourcePageFrom: null,
+            sourcePageTo: null,
+            selectionLabel: null,
+          },
+        ],
+      },
+    ]);
+    mockGenerateOuvragesFromText.mockResolvedValueOnce(draftResult);
+
+    render(<GeneratedOuvrageDialog {...defaultProps} />);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Texte source"), "Test");
+    await user.click(screen.getByTestId("generated-ouvrage-generate-button"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Cloison a verifier")).toBeInTheDocument();
+    });
+
+    const incompleteCard = screen.getByTestId("candidate-card-c3");
+    await user.click(
+      within(incompleteCard).getByRole("button", {
+        name: /Voir les sources \(1\)/i,
+      })
+    );
+
+    expect(within(incompleteCard).getByText("Source incomplete")).toBeInTheDocument();
+    expect(
+      within(incompleteCard).getByText(/Quantite et unite absentes dans l'extrait\./i)
     ).toBeInTheDocument();
   });
 
@@ -643,7 +745,7 @@ describe("GeneratedOuvrageDialog", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Toutes les propositions ont ete ecartees/i)
+        screen.getByText(/Toutes les propositions ont ete rejetees ou ecartees\./i)
       ).toBeInTheDocument();
     });
   });

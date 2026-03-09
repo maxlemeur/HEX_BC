@@ -51,18 +51,6 @@ export function GeneratedOuvrageFooterBar({
     statusVariant = "green";
   }
 
-  // Determine insert button text
-  let insertButtonText: string;
-  if (isInserting) {
-    insertButtonText = "Insertion...";
-  } else if (selectedCount === 0) {
-    insertButtonText = "Selectionnez des ouvrages";
-  } else if (!canInsertSelected) {
-    insertButtonText = "Insertion indisponible";
-  } else {
-    insertButtonText = `Inserer ${selectedReviewedCount} ouvrage(s)`;
-  }
-
   return (
     <div className="mt-4 border-t border-slate-200 pt-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -102,7 +90,7 @@ export function GeneratedOuvrageFooterBar({
               disabled={!canInsertSelected || isInserting}
               data-testid="generated-ouvrage-insert-button"
             >
-              {insertButtonText}
+              Inserer les ouvrages selectionnes
             </button>
           )}
         </div>
