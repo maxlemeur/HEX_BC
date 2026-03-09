@@ -39,6 +39,8 @@ describe("parseTakeoffMetricsQuery", () => {
 describe("buildTakeoffMetricsStatsPayload", () => {
   it("computes KPI and level aggregates with tenant-scope filtering by job id", () => {
     const payload = buildTakeoffMetricsStatsPayload({
+      tenantId: "tenant-pilot",
+      killSwitchEnabled: true,
       period: "7d",
       now: new Date("2026-03-01T10:00:00.000Z"),
       jobs: [
@@ -272,6 +274,20 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       ],
     });
     expect(payload.trend).toHaveLength(7);
+    expect(payload.pilot).toMatchObject({
+      tenantId: "tenant-pilot",
+      killSwitchEnabled: true,
+      killSwitchLabel: "Pilote actif",
+      satisfactionLabel: "50 %",
+      goNoGo: {
+        status: "no_go",
+      },
+    });
+    expect(payload.pilot.weeklySnapshots[0]).toMatchObject({
+      totalJobs: 3,
+      correctionRate: 50,
+      satisfactionRate: 50,
+    });
   });
 
   it.each([
@@ -295,6 +311,8 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       nextJobAt.setDate(nextJobAt.getDate() + 1);
 
       const payload = buildTakeoffMetricsStatsPayload({
+        tenantId: "tenant-pilot",
+        killSwitchEnabled: true,
         period,
         now,
         jobs: [
@@ -347,6 +365,8 @@ describe("buildTakeoffMetricsStatsPayload", () => {
   it("keeps daily trend totals aligned with KPI totals for 7d", () => {
     const now = new Date("2026-03-10T12:00:00.000Z");
     const payload = buildTakeoffMetricsStatsPayload({
+      tenantId: "tenant-pilot",
+      killSwitchEnabled: true,
       period: "7d",
       now,
       jobs: [
@@ -397,6 +417,8 @@ describe("buildTakeoffMetricsStatsPayload", () => {
 
   it("counts repeated DPGF transitions from audit history and keeps the job corrected", () => {
     const payload = buildTakeoffMetricsStatsPayload({
+      tenantId: "tenant-pilot",
+      killSwitchEnabled: false,
       period: "30d",
       now: new Date("2026-03-10T12:00:00.000Z"),
       jobs: [
@@ -469,5 +491,36 @@ describe("buildTakeoffMetricsStatsPayload", () => {
         quickValidationRate: 0,
       },
     ]);
+    expect(payload.pilot.killSwitchLabel).toBe("Pilote coupe");
+  });
+
+  it("returns a GO decision when pilot thresholds are met with enough volume", () => {
+    const payload = buildTakeoffMetricsStatsPayload({
+      tenantId: "tenant-pilot",
+      killSwitchEnabled: true,
+      period: "30d",
+      now: new Date("2026-03-10T12:00:00.000Z"),
+      jobs: Array.from({ length: 8 }, (_, index) => ({
+        id: `job-go-${index}`,
+        status: "completed",
+        level: "B",
+        model: "gemini-3-flash-preview",
+        duration_ms: 120_000,
+        cost_cents: 200,
+        retry_count: 0,
+        error_code: null,
+        created_at: `2026-03-${String(index + 1).padStart(2, "0")}T10:00:00.000Z`,
+      })),
+      runMetrics: [],
+      results: [],
+      items: [],
+      auditLogs: [],
+    });
+
+    expect(payload.pilot.goNoGo.status).toBe("go");
+    expect(payload.pilot.goNoGo.label).toBe("GO");
+    expect(payload.pilot.goNoGo.criteria.every((criterion) => criterion.passed)).toBe(
+      true
+    );
   });
 });

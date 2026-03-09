@@ -14,16 +14,32 @@ import {
   type TakeoffMetricsPeriod,
   type TakeoffMetricsRecentJob,
   type TakeoffMetricsReliability,
-  type TakeoffMetricsStatsPayload,
   type TakeoffMetricsTokenBreakdown,
   type TakeoffMetricsTrendPoint,
 } from "@/lib/takeoff/types";
+import type {
+  TakeoffMetricsPilotStatsPayload,
+  TakeoffPilotGoNoGo,
+  TakeoffPilotGoNoGoCriterion,
+  TakeoffPilotGoNoGoCriterionKey,
+  TakeoffPilotGoNoGoStatus,
+  TakeoffPilotMetrics,
+  TakeoffPilotWeeklySnapshot,
+} from "@/lib/takeoff/pilot-metrics";
 
 const PERIOD_TO_DAYS: Record<TakeoffMetricsPeriod, number> = {
   "7d": 7,
   "30d": 30,
   "90d": 90,
 };
+
+const PILOT_SATISFACTION_DEFINITION =
+  "Proxy calcule sur les jobs exploitables valides rapidement ou sans retouche explicite.";
+
+const PILOT_GO_NO_GO_MAX_AVG_COST_CENTS = 1_000;
+const PILOT_GO_NO_GO_MAX_AVG_DURATION_MS = 600_000;
+const PILOT_GO_NO_GO_MAX_CORRECTION_RATE = 40;
+const PILOT_GO_NO_GO_MIN_SATISFACTION_RATE = 60;
 
 function getTrendWindowStart(
   period: TakeoffMetricsPeriod,
@@ -45,6 +61,56 @@ type LevelAccumulator = {
   durationCount: number;
   itemCount: number;
 };
+
+type WeeklyPilotAccumulator = {
+  key: string;
+  label: string;
+  totalJobs: number;
+  successfulJobs: number;
+  totalCostCents: number;
+  costCount: number;
+  durationTotalMs: number;
+  durationCount: number;
+  correctedJobs: number;
+  quicklyValidatedJobs: number;
+  untouchedSuccessfulJobs: number;
+};
+
+function formatPilotCount(value: number): string {
+  return new Intl.NumberFormat("fr-FR").format(value);
+}
+
+function formatPilotPercent(value: number): string {
+  return `${new Intl.NumberFormat("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  }).format(value)} %`;
+}
+
+function formatPilotCost(cents: number): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+  }).format(cents / 100);
+}
+
+function formatPilotDuration(ms: number): string {
+  if (ms <= 0) {
+    return "0 min";
+  }
+
+  return `${new Intl.NumberFormat("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  }).format(ms / 60_000)} min`;
+}
+
+function getPilotMinVolumeJobs(period: TakeoffMetricsPeriod): number {
+  if (period === "7d") return 3;
+  if (period === "30d") return 8;
+  return 20;
+}
 
 const CORRECTION_EVENT_LABELS: Record<TakeoffCorrectionMetricsEventType, string> = {
   item_excluded: "Items exclus",
@@ -217,6 +283,8 @@ export type ParsedTakeoffMetricsQuery = {
 };
 
 export type BuildTakeoffMetricsStatsPayloadInput = {
+  tenantId: string;
+  killSwitchEnabled: boolean;
   period: TakeoffMetricsPeriod;
   jobs: TakeoffMetricsJobRow[];
   runMetrics: TakeoffMetricsRunMetricRow[];
@@ -320,9 +388,70 @@ function toBucketKey(
   return matchedKey;
 }
 
+function buildWeeklyPilotBuckets(
+  period: TakeoffMetricsPeriod,
+  days: number,
+  now: Date
+): WeeklyPilotAccumulator[] {
+  const weekCount = Math.max(1, Math.ceil(days / 7));
+  const oldestBucketStart = getTrendWindowStart(period, days, now);
+
+  return Array.from({ length: weekCount }, (_, index) => {
+    const weekStart = new Date(oldestBucketStart);
+    weekStart.setDate(weekStart.getDate() + index * 7);
+
+    return {
+      key: weekStart.toISOString().slice(0, 10),
+      label: weekStart.toLocaleDateString("fr-FR", {
+        day: "2-digit",
+        month: "short",
+      }),
+      totalJobs: 0,
+      successfulJobs: 0,
+      totalCostCents: 0,
+      costCount: 0,
+      durationTotalMs: 0,
+      durationCount: 0,
+      correctedJobs: 0,
+      quicklyValidatedJobs: 0,
+      untouchedSuccessfulJobs: 0,
+    };
+  });
+}
+
+function toWeeklyPilotBucketKey(
+  dateStr: string,
+  buckets: WeeklyPilotAccumulator[]
+): string | null {
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  const dateKey = parsed.toISOString().slice(0, 10);
+  let matchedKey: string | null = null;
+  for (const bucket of buckets) {
+    if (bucket.key <= dateKey) {
+      matchedKey = bucket.key;
+    }
+  }
+
+  return matchedKey;
+}
+
+function buildGoNoGoCriterion(input: {
+  key: TakeoffPilotGoNoGoCriterionKey;
+  label: string;
+  targetLabel: string;
+  actualLabel: string;
+  passed: boolean;
+}): TakeoffPilotGoNoGoCriterion {
+  return input;
+}
+
 export function buildTakeoffMetricsStatsPayload(
   input: BuildTakeoffMetricsStatsPayloadInput
-): TakeoffMetricsStatsPayload {
+): TakeoffMetricsPilotStatsPayload {
   const now = input.now ?? new Date();
   const { period, jobs } = input;
   const days = PERIOD_TO_DAYS[period];
@@ -546,6 +675,179 @@ export function buildTakeoffMetricsStatsPayload(
     byLevel: correctionsByLevel,
   };
 
+  const weeklyPilotBuckets = buildWeeklyPilotBuckets(period, days, now);
+  const weeklyPilotBucketMap = new Map(
+    weeklyPilotBuckets.map((bucket) => [bucket.key, bucket] as const)
+  );
+
+  for (const job of jobs) {
+    const weeklyBucketKey = toWeeklyPilotBucketKey(job.created_at, weeklyPilotBuckets);
+    if (!weeklyBucketKey) {
+      continue;
+    }
+
+    const bucket = weeklyPilotBucketMap.get(weeklyBucketKey);
+    if (!bucket) {
+      continue;
+    }
+
+    bucket.totalJobs += 1;
+    if (job.cost_cents != null) {
+      bucket.totalCostCents += job.cost_cents;
+      bucket.costCount += 1;
+    }
+
+    if (!successfulJobIds.has(job.id)) {
+      continue;
+    }
+
+    bucket.successfulJobs += 1;
+    if (job.duration_ms != null) {
+      bucket.durationTotalMs += job.duration_ms;
+      bucket.durationCount += 1;
+    }
+
+    const jobTypes = jobEventTypes.get(job.id) ?? new Set<TakeoffCorrectionMetricsEventType>();
+    const hasCorrection = Array.from(jobTypes).some((type) =>
+      MATERIAL_CORRECTION_EVENTS.has(type)
+    );
+    const hasQuickValidation = !hasCorrection
+      ? Array.from(jobTypes).some((type) => QUICK_VALIDATION_EVENTS.has(type))
+      : false;
+
+    if (hasCorrection) {
+      bucket.correctedJobs += 1;
+    } else if (hasQuickValidation) {
+      bucket.quicklyValidatedJobs += 1;
+    } else {
+      bucket.untouchedSuccessfulJobs += 1;
+    }
+  }
+
+  const weeklySnapshots: TakeoffPilotWeeklySnapshot[] = weeklyPilotBuckets.map((bucket) => {
+    const satisfactionNumerator =
+      bucket.quicklyValidatedJobs + bucket.untouchedSuccessfulJobs;
+
+    return {
+      key: bucket.key,
+      label: bucket.label,
+      totalJobs: bucket.totalJobs,
+      successfulJobs: bucket.successfulJobs,
+      avgCostCentsPerJob:
+        bucket.costCount > 0 ? Math.round(bucket.totalCostCents / bucket.costCount) : 0,
+      avgDurationMs:
+        bucket.durationCount > 0
+          ? Math.round(bucket.durationTotalMs / bucket.durationCount)
+          : 0,
+      correctionRate:
+        bucket.successfulJobs > 0
+          ? Number(((bucket.correctedJobs / bucket.successfulJobs) * 100).toFixed(1))
+          : 0,
+      satisfactionRate:
+        bucket.successfulJobs > 0
+          ? Number(((satisfactionNumerator / bucket.successfulJobs) * 100).toFixed(1))
+          : 0,
+    };
+  });
+
+  const pilotMinVolumeJobs = getPilotMinVolumeJobs(period);
+  const satisfactionRate =
+    successfulJobsCount > 0
+      ? Number(
+          (
+            ((quicklyValidatedJobs + untouchedSuccessfulJobs) / successfulJobsCount) *
+            100
+          ).toFixed(1)
+        )
+      : 0;
+
+  const goNoGoCriteria: TakeoffPilotGoNoGoCriterion[] = [
+    buildGoNoGoCriterion({
+      key: "volume",
+      label: "Volume observe",
+      targetLabel: `>= ${formatPilotCount(pilotMinVolumeJobs)} dossiers`,
+      actualLabel: `${formatPilotCount(totalJobs)} dossiers`,
+      passed: totalJobs >= pilotMinVolumeJobs,
+    }),
+    buildGoNoGoCriterion({
+      key: "avg_cost",
+      label: "Cout moyen",
+      targetLabel: `<= ${formatPilotCost(PILOT_GO_NO_GO_MAX_AVG_COST_CENTS)}`,
+      actualLabel: formatPilotCost(avgCostCentsPerJob),
+      passed: avgCostCentsPerJob <= PILOT_GO_NO_GO_MAX_AVG_COST_CENTS,
+    }),
+    buildGoNoGoCriterion({
+      key: "avg_duration",
+      label: "Temps moyen",
+      targetLabel: `<= ${formatPilotDuration(PILOT_GO_NO_GO_MAX_AVG_DURATION_MS)}`,
+      actualLabel: formatPilotDuration(avgDurationMs),
+      passed: avgDurationMs <= PILOT_GO_NO_GO_MAX_AVG_DURATION_MS,
+    }),
+    buildGoNoGoCriterion({
+      key: "correction_rate",
+      label: "Taux de correction",
+      targetLabel: `<= ${formatPilotPercent(PILOT_GO_NO_GO_MAX_CORRECTION_RATE)}`,
+      actualLabel: formatPilotPercent(correctionKpis.correctionRate),
+      passed: correctionKpis.correctionRate <= PILOT_GO_NO_GO_MAX_CORRECTION_RATE,
+    }),
+    buildGoNoGoCriterion({
+      key: "satisfaction",
+      label: "Satisfaction",
+      targetLabel: `>= ${formatPilotPercent(PILOT_GO_NO_GO_MIN_SATISFACTION_RATE)}`,
+      actualLabel: formatPilotPercent(satisfactionRate),
+      passed: satisfactionRate >= PILOT_GO_NO_GO_MIN_SATISFACTION_RATE,
+    }),
+  ];
+
+  const failedCriteriaCount = goNoGoCriteria.filter((criterion) => !criterion.passed).length;
+  let goNoGoStatus: TakeoffPilotGoNoGoStatus = "go";
+  let goNoGoLabel = "GO";
+  let goNoGoSummary =
+    "Les indicateurs restent compatibles avec une poursuite du pilote sur ce tenant.";
+
+  if (totalJobs === 0) {
+    goNoGoStatus = "watch";
+    goNoGoLabel = "A surveiller";
+    goNoGoSummary =
+      "Aucun dossier mesure sur la periode. Le pilote n'est pas encore concluant.";
+  } else if (totalJobs < pilotMinVolumeJobs) {
+    goNoGoStatus = "watch";
+    goNoGoLabel = "A surveiller";
+    goNoGoSummary =
+      "Le volume terrain reste insuffisant pour conclure un go/no-go robuste.";
+  } else if (failedCriteriaCount === 0) {
+    goNoGoStatus = "go";
+    goNoGoLabel = "GO";
+  } else if (failedCriteriaCount === 1) {
+    goNoGoStatus = "watch";
+    goNoGoLabel = "A surveiller";
+    goNoGoSummary =
+      "Un critere pilote reste fragile. Continuez le tenant pilote avant decision finale.";
+  } else {
+    goNoGoStatus = "no_go";
+    goNoGoLabel = "NO-GO";
+    goNoGoSummary =
+      "Plusieurs criteres pilote sont hors cible. La generalisation doit rester bloquee.";
+  }
+
+  const goNoGo: TakeoffPilotGoNoGo = {
+    status: goNoGoStatus,
+    label: goNoGoLabel,
+    summary: goNoGoSummary,
+    criteria: goNoGoCriteria,
+  };
+
+  const pilot: TakeoffPilotMetrics = {
+    tenantId: input.tenantId,
+    killSwitchFlagKey: "TAKEOFF_MODULE_ENABLED",
+    killSwitchEnabled: input.killSwitchEnabled,
+    killSwitchLabel: input.killSwitchEnabled ? "Pilote actif" : "Pilote coupe",
+    satisfactionLabel: formatPilotPercent(satisfactionRate),
+    satisfactionDefinition: PILOT_SATISFACTION_DEFINITION,
+    weeklySnapshots,
+    goNoGo,
+  };
+
   // Trend
   const trendBuckets = buildTrendBuckets(period, days, now);
   const trendMap = new Map(trendBuckets.map((bucket) => [bucket.key, bucket]));
@@ -734,6 +1036,7 @@ export function buildTakeoffMetricsStatsPayload(
     period,
     kpis,
     corrections,
+    pilot,
     trend: trendBuckets,
     costByLevel,
     tokenBreakdown,

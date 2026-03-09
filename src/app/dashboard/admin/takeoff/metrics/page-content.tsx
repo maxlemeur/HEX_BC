@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import type { ComponentType } from "react";
 
 import { getUserContext } from "@/lib/auth/server";
-import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 type TakeoffMetricsDashboardProps = {
   tenantId: string;
@@ -33,11 +32,6 @@ export async function renderAdminTakeoffMetricsPage(
 
   if (!profile || !tenantId || profile.tenant_role !== "admin") {
     redirect("/dashboard/profile");
-  }
-
-  const enabled = await isTakeoffEnabled(tenantId);
-  if (!enabled) {
-    redirect("/dashboard");
   }
 
   const Dashboard = await (input.loadDashboard ?? loadTakeoffMetricsDashboard)();

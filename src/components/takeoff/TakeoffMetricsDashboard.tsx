@@ -12,10 +12,14 @@ import type {
   TakeoffMetricsPeriod,
   TakeoffMetricsRecentJob,
   TakeoffMetricsReliability,
-  TakeoffMetricsStatsPayload,
   TakeoffMetricsTokenBreakdown,
   TakeoffMetricsTrendPoint,
 } from "@/lib/takeoff/types";
+import type {
+  TakeoffMetricsPilotStatsPayload,
+  TakeoffPilotGoNoGo,
+  TakeoffPilotWeeklySnapshot,
+} from "@/lib/takeoff/pilot-metrics";
 import { TAKEOFF_METRICS_PERIODS } from "@/lib/takeoff/types";
 
 // ---------------------------------------------------------------------------
@@ -666,6 +670,144 @@ function CorrectionByLevelTable({
   );
 }
 
+function PilotStatusBadge({
+  killSwitchEnabled,
+}: {
+  killSwitchEnabled: boolean;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+        killSwitchEnabled
+          ? "bg-[var(--success)]/12 text-[var(--success)]"
+          : "bg-[var(--danger)]/12 text-[var(--danger)]"
+      }`}
+    >
+      {killSwitchEnabled ? "Pilote actif" : "Pilote coupe"}
+    </span>
+  );
+}
+
+function PilotDecisionCard({
+  data,
+}: {
+  data: TakeoffPilotGoNoGo;
+}) {
+  const variantClass =
+    data.status === "go"
+      ? "border-[var(--success)]/20 bg-[var(--success)]/5"
+      : data.status === "watch"
+        ? "border-[var(--warning)]/20 bg-[var(--warning)]/5"
+        : "border-[var(--danger)]/20 bg-[var(--danger)]/5";
+  const labelClass =
+    data.status === "go"
+      ? "text-[var(--success)]"
+      : data.status === "watch"
+        ? "text-[var(--warning)]"
+        : "text-[var(--danger)]";
+
+  return (
+    <div className={`rounded-xl border p-4 ${variantClass}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+            Decision go/no-go
+          </p>
+          <p className={`mt-2 text-2xl font-black ${labelClass}`}>{data.label}</p>
+          <p className="mt-2 text-sm text-[var(--slate-600)]">{data.summary}</p>
+        </div>
+      </div>
+      <div className="mt-4 overflow-x-auto">
+        <table className="w-full min-w-[560px] text-sm">
+          <thead className="bg-white/60 text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+            <tr>
+              <th className="px-3 py-2">Critere</th>
+              <th className="px-3 py-2">Cible</th>
+              <th className="px-3 py-2">Observe</th>
+              <th className="px-3 py-2">Statut</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.criteria.map((criterion) => (
+              <tr key={criterion.key} className="border-t border-white/70">
+                <td className="px-3 py-2 font-medium text-[var(--slate-800)]">
+                  {criterion.label}
+                </td>
+                <td className="px-3 py-2 text-[var(--slate-600)]">
+                  {criterion.targetLabel}
+                </td>
+                <td className="px-3 py-2 text-[var(--slate-600)]">
+                  {criterion.actualLabel}
+                </td>
+                <td className="px-3 py-2">
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      criterion.passed
+                        ? "bg-[var(--success)]/12 text-[var(--success)]"
+                        : "bg-[var(--danger)]/12 text-[var(--danger)]"
+                    }`}
+                  >
+                    {criterion.passed ? "OK" : "Hors cible"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function PilotWeeklyTable({
+  rows,
+}: {
+  rows: TakeoffPilotWeeklySnapshot[];
+}) {
+  if (rows.length === 0) {
+    return (
+      <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
+        Aucune semaine pilote disponible.
+      </div>
+    );
+  }
+
+  return (
+    <table className="w-full min-w-[760px] text-sm">
+      <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+        <tr>
+          <th className="px-4 py-3">Semaine</th>
+          <th className="px-4 py-3 text-right">Volume</th>
+          <th className="px-4 py-3 text-right">Cout moyen</th>
+          <th className="px-4 py-3 text-right">Temps moyen</th>
+          <th className="px-4 py-3 text-right">Taux correction</th>
+          <th className="px-4 py-3 text-right">Satisfaction</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.key} className="border-t border-[var(--slate-100)]">
+            <td className="px-4 py-3 font-semibold">{row.label}</td>
+            <td className="px-4 py-3 text-right">{formatNumber(row.totalJobs)}</td>
+            <td className="px-4 py-3 text-right">
+              {formatCostCents(row.avgCostCentsPerJob)}
+            </td>
+            <td className="px-4 py-3 text-right">
+              {formatDurationMs(row.avgDurationMs)}
+            </td>
+            <td className="px-4 py-3 text-right">
+              {formatPercent(row.correctionRate)} %
+            </td>
+            <td className="px-4 py-3 text-right">
+              {formatPercent(row.satisfactionRate)} %
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main Dashboard Component
 // ---------------------------------------------------------------------------
@@ -675,7 +817,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
   const [level, setLevel] = useState<"all" | TakeoffLevel>("all");
   const levelFilterSuffix = level === "all" ? "" : `&level=${level}`;
 
-  const { data, error, isLoading } = useSWR<TakeoffMetricsStatsPayload>(
+  const { data, error, isLoading } = useSWR<TakeoffMetricsPilotStatsPayload>(
     `/api/takeoff/stats?period=${period}${levelFilterSuffix}&t=${tenantId}`,
     fetcher,
     { revalidateOnFocus: false, refreshInterval: 120_000 }
@@ -711,7 +853,7 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
               Métriques takeoff
             </h1>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Observabilité des extractions, des coûts et des corrections humaines.
+              Observabilite des extractions, des couts, des corrections humaines et du pilote tenant.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -722,6 +864,46 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
             </p>
           </div>
         </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[0.95fr_1.3fr] animate-slide-in stagger-2">
+        <div className="dashboard-card p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+                Pilote tenant
+              </h2>
+              <p className="mt-1 text-sm text-[var(--slate-500)]">
+                Kill switch et definition partageable des signaux pilote.
+              </p>
+            </div>
+            <PilotStatusBadge killSwitchEnabled={data.pilot.killSwitchEnabled} />
+          </div>
+
+          <dl className="mt-4 space-y-3 text-sm">
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                Flag kill switch
+              </dt>
+              <dd className="mt-1 font-mono text-[var(--slate-700)]">
+                {data.pilot.killSwitchFlagKey}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+                Satisfaction
+              </dt>
+              <dd className="mt-1 text-[var(--slate-700)]">
+                {data.pilot.satisfactionLabel}
+              </dd>
+              <p className="mt-1 text-xs text-[var(--slate-500)]">
+                {data.pilot.satisfactionDefinition}
+              </p>
+            </div>
+          </dl>
+        </div>
+
+        <PilotDecisionCard data={data.pilot.goNoGo} />
       </section>
 
       {/* Section 1: KPI Strip */}
@@ -810,6 +992,20 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
             </h2>
           </div>
           <CorrectionByLevelTable rows={data.corrections.byLevel} />
+        </div>
+      </section>
+
+      <section className="dashboard-card overflow-hidden animate-slide-in stagger-3">
+        <div className="border-b border-[var(--slate-200)] px-4 py-3">
+          <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+            Suivi hebdo pilote
+          </h2>
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            Volume, cout moyen, temps moyen, taux de correction et satisfaction par semaine.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <PilotWeeklyTable rows={data.pilot.weeklySnapshots} />
         </div>
       </section>
 

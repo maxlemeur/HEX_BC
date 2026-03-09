@@ -8,7 +8,7 @@ import {
   unauthorized,
 } from "@/lib/estimates/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   buildTakeoffMetricsStatsPayload,
   parseTakeoffMetricsQuery,
@@ -104,7 +104,7 @@ async function fetchRowsByJobIdBatch<T>(input: {
 export async function GET(request: Request) {
   try {
     const { supabase, tenantId } = await getActorContext();
-    await assertTakeoffEnabled(tenantId, { supabase });
+    const killSwitchEnabled = await isTakeoffEnabled(tenantId, { supabase });
 
     const url = new URL(request.url);
     const now = new Date();
@@ -197,6 +197,8 @@ export async function GET(request: Request) {
     });
 
     const payload = buildTakeoffMetricsStatsPayload({
+      tenantId,
+      killSwitchEnabled,
       period,
       jobs,
       runMetrics,

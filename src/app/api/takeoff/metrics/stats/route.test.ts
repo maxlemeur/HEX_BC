@@ -5,12 +5,12 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 vi.mock("@/lib/takeoff/feature-flags", () => ({
-  assertTakeoffEnabled: vi.fn(),
+  isTakeoffEnabled: vi.fn(),
 }));
 
 import { GET } from "@/app/api/takeoff/metrics/stats/route";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -74,7 +74,7 @@ function createSupabaseMock() {
         cost_cents: 12,
         retry_count: 1,
         error_code: "AI_TIMEOUT",
-        created_at: "2026-02-25T10:00:00.000Z",
+        created_at: "2026-03-08T10:00:00.000Z",
       },
     ],
     error: null,
@@ -109,7 +109,7 @@ function createSupabaseMock() {
       {
         record_id: "job-c-1",
         action: "takeoff.item.modified",
-        created_at: "2026-02-25T11:00:00.000Z",
+        created_at: "2026-03-08T11:00:00.000Z",
         after_data: {
           metadata: {
             field: "is_verified",
@@ -120,7 +120,7 @@ function createSupabaseMock() {
       {
         record_id: "job-c-1",
         action: "takeoff.dpgf.review_decision",
-        created_at: "2026-02-25T11:30:00.000Z",
+        created_at: "2026-03-08T11:30:00.000Z",
         after_data: {
           metadata: {
             next_decision: "keep_takeoff",
@@ -197,7 +197,7 @@ describe("GET /api/takeoff/metrics/stats", () => {
   it("returns metrics payload and applies optional level filter", async () => {
     const { supabase, builders } = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
+    vi.mocked(isTakeoffEnabled).mockResolvedValue(true);
 
     const response = await GET(
       new Request("http://localhost/api/takeoff/metrics/stats?period=7d&level=C")
@@ -210,6 +210,11 @@ describe("GET /api/takeoff/metrics/stats", () => {
         corrections: {
           kpis: { quicklyValidatedJobs: number };
         };
+        pilot: {
+          killSwitchEnabled: boolean;
+          weeklySnapshots: Array<{ totalJobs: number }>;
+          goNoGo: { status: string };
+        };
         costByLevel: Array<{ level: string }>;
       };
     };
@@ -219,6 +224,9 @@ describe("GET /api/takeoff/metrics/stats", () => {
     expect(body.data.period).toBe("7d");
     expect(body.data.kpis.totalJobs).toBe(1);
     expect(body.data.corrections.kpis.quicklyValidatedJobs).toBe(0);
+    expect(body.data.pilot.killSwitchEnabled).toBe(true);
+    expect(body.data.pilot.weeklySnapshots[0]?.totalJobs).toBe(1);
+    expect(body.data.pilot.goNoGo.status).toBe("watch");
     expect(body.data.costByLevel).toEqual([
       expect.objectContaining({ level: "C" }),
     ]);
@@ -238,7 +246,7 @@ describe("GET /api/takeoff/metrics/stats", () => {
   it("returns 400 for invalid level parameter", async () => {
     const { supabase } = createSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
+    vi.mocked(isTakeoffEnabled).mockResolvedValue(true);
 
     const response = await GET(
       new Request("http://localhost/api/takeoff/metrics/stats?level=Z")
@@ -251,5 +259,24 @@ describe("GET /api/takeoff/metrics/stats", () => {
     expect(response.status).toBe(400);
     expect(body.ok).toBe(false);
     expect(body.error?.code).toBe("BAD_REQUEST");
+  });
+
+  it("keeps pilot metrics readable when the tenant kill switch is off", async () => {
+    const { supabase } = createSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(isTakeoffEnabled).mockResolvedValue(false);
+
+    const response = await GET(
+      new Request("http://localhost/api/takeoff/metrics/stats?period=30d")
+    );
+    const body = (await response.json()) as {
+      ok: boolean;
+      data: { pilot: { killSwitchEnabled: boolean; killSwitchLabel: string } };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.data.pilot.killSwitchEnabled).toBe(false);
+    expect(body.data.pilot.killSwitchLabel).toBe("Pilote coupe");
   });
 });
