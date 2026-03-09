@@ -25,7 +25,9 @@ function createAwaitableBuilder<T>(response: QueryResponse<T>) {
   const builder = {
     eq: vi.fn(),
     gte: vi.fn(),
+    in: vi.fn(),
     not: vi.fn(),
+    order: vi.fn(),
     then: promise.then.bind(promise),
     catch: promise.catch.bind(promise),
     finally: promise.finally.bind(promise),
@@ -33,7 +35,9 @@ function createAwaitableBuilder<T>(response: QueryResponse<T>) {
 
   builder.eq.mockReturnValue(builder);
   builder.gte.mockReturnValue(builder);
+  builder.in.mockReturnValue(builder);
   builder.not.mockReturnValue(builder);
+  builder.order.mockReturnValue(builder);
 
   return builder;
 }
@@ -100,6 +104,34 @@ function createSupabaseMock() {
     error: null,
   });
 
+  const auditLogsBuilder = createAwaitableBuilder({
+    data: [
+      {
+        record_id: "job-c-1",
+        action: "takeoff.item.modified",
+        created_at: "2026-02-25T11:00:00.000Z",
+        after_data: {
+          metadata: {
+            field: "is_verified",
+            next_value: true,
+          },
+        },
+      },
+    ],
+    error: null,
+  });
+
+  const reviewDecisionsBuilder = createAwaitableBuilder({
+    data: [
+      {
+        takeoff_job_id: "job-c-1",
+        decision: "keep_takeoff",
+        decided_at: "2026-02-25T11:30:00.000Z",
+      },
+    ],
+    error: null,
+  });
+
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -138,6 +170,18 @@ function createSupabaseMock() {
         };
       }
 
+      if (table === "audit_logs") {
+        return {
+          select: vi.fn(() => auditLogsBuilder),
+        };
+      }
+
+      if (table === "takeoff_dpgf_review_decisions") {
+        return {
+          select: vi.fn(() => reviewDecisionsBuilder),
+        };
+      }
+
       throw new Error(`Unexpected table: ${table}`);
     }),
   };
@@ -147,6 +191,8 @@ function createSupabaseMock() {
     builders: {
       jobsBuilder,
       runMetricsBuilder,
+      auditLogsBuilder,
+      reviewDecisionsBuilder,
     },
   };
 }
@@ -169,6 +215,9 @@ describe("GET /api/takeoff/metrics/stats", () => {
       data: {
         period: string;
         kpis: { totalJobs: number };
+        corrections: {
+          kpis: { quicklyValidatedJobs: number };
+        };
         costByLevel: Array<{ level: string }>;
       };
     };
@@ -177,11 +226,18 @@ describe("GET /api/takeoff/metrics/stats", () => {
     expect(body.ok).toBe(true);
     expect(body.data.period).toBe("7d");
     expect(body.data.kpis.totalJobs).toBe(1);
+    expect(body.data.corrections.kpis.quicklyValidatedJobs).toBe(0);
     expect(body.data.costByLevel).toEqual([
       expect.objectContaining({ level: "C" }),
     ]);
     expect(builders.jobsBuilder.eq).toHaveBeenCalledWith("level", "C");
     expect(builders.runMetricsBuilder.eq).toHaveBeenCalledWith("level", "C");
+    expect(builders.auditLogsBuilder.in).toHaveBeenCalledWith("record_id", [
+      "job-c-1",
+    ]);
+    expect(builders.reviewDecisionsBuilder.in).toHaveBeenCalledWith("takeoff_job_id", [
+      "job-c-1",
+    ]);
   });
 
   it("returns 400 for invalid level parameter", async () => {

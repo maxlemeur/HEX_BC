@@ -255,6 +255,7 @@ function createSupabaseMock() {
     links: StoredLink[];
     reviewDecisions: StoredDecision[];
     evidences: StoredEvidence[];
+    auditActions: string[];
     importId: string;
     manualLinkRpcError: {
       code: string;
@@ -327,6 +328,7 @@ function createSupabaseMock() {
     links: [],
     reviewDecisions: [],
     evidences: [],
+    auditActions: [],
     importId: "99999999-9999-4999-8999-999999999999",
     manualLinkRpcError: null,
   };
@@ -797,6 +799,17 @@ function createSupabaseMock() {
         };
       }
 
+      if (table === "audit_logs") {
+        return {
+          insert: vi.fn(async (payload: Record<string, unknown>) => {
+            if (typeof payload.action === "string") {
+              state.auditActions.push(payload.action);
+            }
+            return { data: null, error: null };
+          }),
+        };
+      }
+
       throw new Error(`Unexpected table: ${table}`);
     }),
     rpc: vi.fn(async (fn: string, args: Record<string, unknown>) => {
@@ -1208,6 +1221,7 @@ describe("takeoff DPGF comparison server helpers", () => {
       carried_over_from_version_number: 2,
     });
     expect(mock.state.reviewDecisions[0]?.decision).toBe("manual_fix");
+    expect(mock.state.auditActions).toContain("takeoff.dpgf.review_decision");
     expect(
       mock.state.evidences.some(
         (evidence) =>

@@ -18,6 +18,7 @@ export const TAKEOFF_AUDIT_ACTIONS = [
   "takeoff.job.canceled",
   "takeoff.item.excluded",
   "takeoff.item.modified",
+  "takeoff.dpgf.review_decision",
   "takeoff.apply.started",
   "takeoff.apply.override",
   "takeoff.apply.completed",
@@ -35,6 +36,12 @@ const nullableCodeSchema = z.string().trim().min(1).max(120).nullable();
 const nullableMessageSchema = z.string().trim().min(1).max(4000).nullable();
 const nullableNameSchema = z.string().trim().min(1).max(255).nullable();
 const nullableUuidSchema = z.string().uuid().nullable();
+const takeoffDpgfDecisionSchema = z.enum([
+  "keep_dpgf",
+  "keep_takeoff",
+  "manual_fix",
+  "out_of_scope",
+]);
 
 const jsonSchema: z.ZodType<Json> = z.lazy(() =>
   z.union([
@@ -111,6 +118,16 @@ const takeoffAuditMetadataSchemas = {
       previous_value: jsonSchema.nullable().default(null),
       next_value: jsonSchema.nullable().default(null),
       reason: nullableReasonSchema.default(null),
+    })
+    .strict(),
+  "takeoff.dpgf.review_decision": z
+    .object({
+      estimate_item_id: z.string().uuid(),
+      review_reference: z.string().trim().min(1).max(500),
+      previous_decision: takeoffDpgfDecisionSchema.nullable().default(null),
+      next_decision: takeoffDpgfDecisionSchema,
+      previous_reason: nullableReasonSchema.default(null),
+      next_reason: nullableReasonSchema.default(null),
     })
     .strict(),
   "takeoff.apply.started": z
@@ -211,6 +228,14 @@ export type BuildTakeoffAuditMetadataInputByAction = {
     previous_value?: Json | null;
     next_value?: Json | null;
     reason?: string | null;
+  };
+  "takeoff.dpgf.review_decision": {
+    estimate_item_id: string;
+    review_reference: string;
+    previous_decision?: "keep_dpgf" | "keep_takeoff" | "manual_fix" | "out_of_scope" | null;
+    next_decision: "keep_dpgf" | "keep_takeoff" | "manual_fix" | "out_of_scope";
+    previous_reason?: string | null;
+    next_reason?: string | null;
   };
   "takeoff.apply.started": {
     estimate_version_id: string;
@@ -315,6 +340,15 @@ export const takeoffAuditMetadataBuilders: TakeoffAuditMetadataBuilders = {
       previous_value: input.previous_value ?? null,
       next_value: input.next_value ?? null,
       reason: normalizeNullableString(input.reason),
+    }),
+  "takeoff.dpgf.review_decision": (input) =>
+    takeoffAuditMetadataSchemas["takeoff.dpgf.review_decision"].parse({
+      estimate_item_id: input.estimate_item_id,
+      review_reference: input.review_reference,
+      previous_decision: input.previous_decision ?? null,
+      next_decision: input.next_decision,
+      previous_reason: normalizeNullableString(input.previous_reason),
+      next_reason: normalizeNullableString(input.next_reason),
     }),
   "takeoff.apply.started": (input) =>
     takeoffAuditMetadataSchemas["takeoff.apply.started"].parse({

@@ -4,6 +4,8 @@ import { useState } from "react";
 import useSWR from "swr";
 
 import type {
+  TakeoffCorrectionMetricsByLevel,
+  TakeoffCorrectionMetricsEventCount,
   TakeoffLevel,
   TakeoffMetricsCostByLevel,
   TakeoffMetricsErrorEntry,
@@ -588,6 +590,82 @@ function CostByLevelTable({ data }: { data: TakeoffMetricsCostByLevel[] }) {
   );
 }
 
+function CorrectionEventsTable({
+  events,
+}: {
+  events: TakeoffCorrectionMetricsEventCount[];
+}) {
+  if (events.length === 0) {
+    return (
+      <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
+        Aucune correction explicite captee sur la periode.
+      </div>
+    );
+  }
+
+  return (
+    <table className="w-full min-w-[420px] text-sm">
+      <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+        <tr>
+          <th className="px-4 py-3">Signal</th>
+          <th className="px-4 py-3 text-right">Occurrences</th>
+        </tr>
+      </thead>
+      <tbody>
+        {events.map((event) => (
+          <tr key={event.type} className="border-t border-[var(--slate-100)]">
+            <td className="px-4 py-3">{event.label}</td>
+            <td className="px-4 py-3 text-right font-semibold">{formatNumber(event.count)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function CorrectionByLevelTable({
+  rows,
+}: {
+  rows: TakeoffCorrectionMetricsByLevel[];
+}) {
+  if (rows.length === 0) {
+    return (
+      <div className="flex h-24 items-center justify-center text-sm text-[var(--slate-500)]">
+        Aucun job exploitable pour la lecture metier.
+      </div>
+    );
+  }
+
+  return (
+    <table className="w-full min-w-[720px] text-sm">
+      <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-500)]">
+        <tr>
+          <th className="px-4 py-3">Niveau</th>
+          <th className="px-4 py-3 text-right">Sorties corrigees</th>
+          <th className="px-4 py-3 text-right">Validation rapide</th>
+          <th className="px-4 py-3 text-right">Sans retouche</th>
+          <th className="px-4 py-3 text-right">Taux correction</th>
+          <th className="px-4 py-3 text-right">Taux validation rapide</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.level} className="border-t border-[var(--slate-100)]">
+            <td className="px-4 py-3 font-semibold">{row.level}</td>
+            <td className="px-4 py-3 text-right">{formatNumber(row.correctedJobs)}</td>
+            <td className="px-4 py-3 text-right">{formatNumber(row.quicklyValidatedJobs)}</td>
+            <td className="px-4 py-3 text-right">{formatNumber(row.untouchedSuccessfulJobs)}</td>
+            <td className="px-4 py-3 text-right">{formatPercent(row.correctionRate)} %</td>
+            <td className="px-4 py-3 text-right">
+              {formatPercent(row.quickValidationRate)} %
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main Dashboard Component
 // ---------------------------------------------------------------------------
@@ -630,10 +708,10 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-[var(--slate-800)]">
-              Métriques d&apos;extraction
+              Métriques takeoff
             </h1>
             <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Observabilité des extractions, coûts et performances.
+              Observabilité des extractions, des coûts et des corrections humaines.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -688,6 +766,51 @@ export function TakeoffMetricsDashboard({ tenantId }: { tenantId: string }) {
           value={formatDecimal(data.kpis.avgItemsPerJob)}
           hint="Moyenne sur la periode"
         />
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 animate-slide-in stagger-2">
+        <MetricCard
+          label="Sorties corrigees"
+          value={formatNumber(data.corrections.kpis.correctedJobs)}
+          hint={`${formatPercent(data.corrections.kpis.correctionRate)} % des jobs exploitables`}
+          variant={data.corrections.kpis.correctedJobs > 0 ? "warning" : "default"}
+        />
+        <MetricCard
+          label="Validation rapide"
+          value={formatNumber(data.corrections.kpis.quicklyValidatedJobs)}
+          hint={`${formatPercent(data.corrections.kpis.quickValidationRate)} % valides apres revue`}
+          variant={data.corrections.kpis.quicklyValidatedJobs > 0 ? "success" : "default"}
+        />
+        <MetricCard
+          label="Sans retouche"
+          value={formatNumber(data.corrections.kpis.untouchedSuccessfulJobs)}
+          hint="Jobs completes/appliques sans action explicite"
+        />
+        <MetricCard
+          label="Evenements correction"
+          value={formatNumber(data.corrections.kpis.totalEvents)}
+          hint="Historique consolide des corrections humaines"
+        />
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1fr_1.25fr] animate-slide-in stagger-3">
+        <div className="dashboard-card overflow-hidden">
+          <div className="border-b border-[var(--slate-200)] px-4 py-3">
+            <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+              Corrections capturees
+            </h2>
+          </div>
+          <CorrectionEventsTable events={data.corrections.eventCounts} />
+        </div>
+
+        <div className="dashboard-card overflow-hidden">
+          <div className="border-b border-[var(--slate-200)] px-4 py-3">
+            <h2 className="text-sm font-semibold text-[var(--slate-700)]">
+              Lecture metier par niveau
+            </h2>
+          </div>
+          <CorrectionByLevelTable rows={data.corrections.byLevel} />
+        </div>
       </section>
 
       {/* Section 2: Trend + Cost by Level */}

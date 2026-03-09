@@ -2,6 +2,11 @@ import { badRequest } from "@/lib/estimates/errors";
 import {
   TAKEOFF_LEVELS,
   TAKEOFF_METRICS_PERIODS,
+  type TakeoffCorrectionMetrics,
+  type TakeoffCorrectionMetricsByLevel,
+  type TakeoffCorrectionMetricsEventCount,
+  type TakeoffCorrectionMetricsEventType,
+  type TakeoffCorrectionMetricsKpis,
   type TakeoffLevel,
   type TakeoffMetricsCostByLevel,
   type TakeoffMetricsErrorEntry,
@@ -41,6 +46,126 @@ type LevelAccumulator = {
   itemCount: number;
 };
 
+const CORRECTION_EVENT_LABELS: Record<TakeoffCorrectionMetricsEventType, string> = {
+  item_excluded: "Items exclus",
+  designation_changed: "Designations corrigees",
+  quantity_changed: "Quantites corrigees",
+  unit_changed: "Unites corrigees",
+  manual_verification: "Verifications manuelles",
+  dpgf_keep_dpgf: "DPGF conserve",
+  dpgf_keep_takeoff: "Takeoff valide",
+  dpgf_manual_fix: "Corrections DPGF manuelles",
+  dpgf_out_of_scope: "Lignes hors scope",
+};
+
+const CORRECTION_EVENT_ORDER: TakeoffCorrectionMetricsEventType[] = [
+  "item_excluded",
+  "designation_changed",
+  "quantity_changed",
+  "unit_changed",
+  "manual_verification",
+  "dpgf_keep_dpgf",
+  "dpgf_keep_takeoff",
+  "dpgf_manual_fix",
+  "dpgf_out_of_scope",
+];
+
+const MATERIAL_CORRECTION_EVENTS = new Set<TakeoffCorrectionMetricsEventType>([
+  "item_excluded",
+  "designation_changed",
+  "quantity_changed",
+  "unit_changed",
+  "dpgf_keep_dpgf",
+  "dpgf_manual_fix",
+  "dpgf_out_of_scope",
+]);
+
+const QUICK_VALIDATION_EVENTS = new Set<TakeoffCorrectionMetricsEventType>([
+  "manual_verification",
+  "dpgf_keep_takeoff",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readNestedRecord(
+  value: unknown,
+  key: string
+): Record<string, unknown> | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const nested = value[key];
+  return isRecord(nested) ? nested : null;
+}
+
+function readNestedString(value: unknown, key: string): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const nested = value[key];
+  return typeof nested === "string" ? nested : null;
+}
+
+function readNestedBoolean(value: unknown, key: string): boolean | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const nested = value[key];
+  return typeof nested === "boolean" ? nested : null;
+}
+
+function mapAuditLogToCorrectionEventType(
+  auditLog: TakeoffMetricsAuditLogRow
+): TakeoffCorrectionMetricsEventType | null {
+  if (auditLog.action === "takeoff.item.excluded") {
+    return "item_excluded";
+  }
+
+  if (auditLog.action !== "takeoff.item.modified") {
+    return null;
+  }
+
+  const metadata = readNestedRecord(auditLog.after_data, "metadata");
+  const field = readNestedString(metadata, "field");
+
+  switch (field) {
+    case "designation":
+      return "designation_changed";
+    case "quantity":
+      return "quantity_changed";
+    case "unit":
+      return "unit_changed";
+    case "is_verified": {
+      const nextValue = readNestedBoolean(metadata, "next_value");
+      return nextValue ? "manual_verification" : null;
+    }
+    default:
+      return null;
+  }
+}
+
+function mapReviewDecisionToCorrectionEventType(
+  decision: string
+): TakeoffCorrectionMetricsEventType | null {
+  switch (decision) {
+    case "keep_dpgf":
+      return "dpgf_keep_dpgf";
+    case "keep_takeoff":
+      return "dpgf_keep_takeoff";
+    case "manual_fix":
+      return "dpgf_manual_fix";
+    case "out_of_scope":
+      return "dpgf_out_of_scope";
+    default:
+      return null;
+  }
+}
+
 export type TakeoffMetricsJobRow = {
   id: string;
   status: string;
@@ -71,6 +196,19 @@ export type TakeoffMetricsItemRow = {
   job_id: string;
 };
 
+export type TakeoffMetricsAuditLogRow = {
+  record_id: string;
+  action: string;
+  created_at: string;
+  after_data: unknown;
+};
+
+export type TakeoffMetricsReviewDecisionRow = {
+  takeoff_job_id: string;
+  decision: string;
+  decided_at: string;
+};
+
 export type ParsedTakeoffMetricsQuery = {
   period: TakeoffMetricsPeriod;
   level: TakeoffLevel | null;
@@ -84,6 +222,8 @@ export type BuildTakeoffMetricsStatsPayloadInput = {
   runMetrics: TakeoffMetricsRunMetricRow[];
   results: TakeoffMetricsResultRow[];
   items: TakeoffMetricsItemRow[];
+  auditLogs?: TakeoffMetricsAuditLogRow[];
+  reviewDecisions?: TakeoffMetricsReviewDecisionRow[];
   now?: Date;
 };
 
@@ -193,6 +333,12 @@ export function buildTakeoffMetricsStatsPayload(
   const runMetrics = input.runMetrics.filter((metric) => jobById.has(metric.job_id));
   const results = input.results.filter((result) => jobById.has(result.job_id));
   const items = input.items.filter((item) => jobById.has(item.job_id));
+  const auditLogs = (input.auditLogs ?? []).filter((auditLog) =>
+    jobById.has(auditLog.record_id)
+  );
+  const reviewDecisions = (input.reviewDecisions ?? []).filter((decision) =>
+    jobById.has(decision.takeoff_job_id)
+  );
 
   const itemCountByJob = new Map<string, number>();
   for (const item of items) {
@@ -281,6 +427,135 @@ export function buildTakeoffMetricsStatsPayload(
     avgCostCentsPerJob,
     avgConfidence,
     avgItemsPerJob,
+  };
+
+  const successfulJobIds = new Set(
+    jobs
+      .filter((job) => job.status === "completed" || job.status === "applied")
+      .map((job) => job.id)
+  );
+  const eventCountsMap = new Map<TakeoffCorrectionMetricsEventType, number>();
+  const jobEventTypes = new Map<string, Set<TakeoffCorrectionMetricsEventType>>();
+
+  const registerCorrectionEvent = (
+    jobId: string,
+    type: TakeoffCorrectionMetricsEventType
+  ) => {
+    eventCountsMap.set(type, (eventCountsMap.get(type) ?? 0) + 1);
+    const existing = jobEventTypes.get(jobId) ?? new Set<TakeoffCorrectionMetricsEventType>();
+    existing.add(type);
+    jobEventTypes.set(jobId, existing);
+  };
+
+  for (const auditLog of auditLogs) {
+    const eventType = mapAuditLogToCorrectionEventType(auditLog);
+    if (!eventType) {
+      continue;
+    }
+    registerCorrectionEvent(auditLog.record_id, eventType);
+  }
+
+  for (const reviewDecision of reviewDecisions) {
+    const eventType = mapReviewDecisionToCorrectionEventType(reviewDecision.decision);
+    if (!eventType) {
+      continue;
+    }
+    registerCorrectionEvent(reviewDecision.takeoff_job_id, eventType);
+  }
+
+  let correctedJobs = 0;
+  let quicklyValidatedJobs = 0;
+  let untouchedSuccessfulJobs = 0;
+  const correctionByLevel = new Map<
+    string,
+    {
+      successfulJobs: number;
+      correctedJobs: number;
+      quicklyValidatedJobs: number;
+      untouchedSuccessfulJobs: number;
+    }
+  >();
+
+  for (const job of jobs) {
+    if (!successfulJobIds.has(job.id)) {
+      continue;
+    }
+
+    const levelKey = job.level || "?";
+    const levelEntry = correctionByLevel.get(levelKey) ?? {
+      successfulJobs: 0,
+      correctedJobs: 0,
+      quicklyValidatedJobs: 0,
+      untouchedSuccessfulJobs: 0,
+    };
+    levelEntry.successfulJobs += 1;
+
+    const jobTypes = jobEventTypes.get(job.id) ?? new Set<TakeoffCorrectionMetricsEventType>();
+    const hasCorrection = Array.from(jobTypes).some((type) =>
+      MATERIAL_CORRECTION_EVENTS.has(type)
+    );
+    const hasQuickValidation = !hasCorrection
+      ? Array.from(jobTypes).some((type) => QUICK_VALIDATION_EVENTS.has(type))
+      : false;
+
+    if (hasCorrection) {
+      correctedJobs += 1;
+      levelEntry.correctedJobs += 1;
+    } else if (hasQuickValidation) {
+      quicklyValidatedJobs += 1;
+      levelEntry.quicklyValidatedJobs += 1;
+    } else {
+      untouchedSuccessfulJobs += 1;
+      levelEntry.untouchedSuccessfulJobs += 1;
+    }
+
+    correctionByLevel.set(levelKey, levelEntry);
+  }
+
+  const successfulJobsCount = successfulJobIds.size;
+  const correctionEventCounts: TakeoffCorrectionMetricsEventCount[] = CORRECTION_EVENT_ORDER
+    .map((type) => ({
+      type,
+      label: CORRECTION_EVENT_LABELS[type],
+      count: eventCountsMap.get(type) ?? 0,
+    }))
+    .filter((entry) => entry.count > 0);
+  const correctionKpis: TakeoffCorrectionMetricsKpis = {
+    totalEvents: correctionEventCounts.reduce((sum, entry) => sum + entry.count, 0),
+    correctedJobs,
+    quicklyValidatedJobs,
+    untouchedSuccessfulJobs,
+    correctionRate:
+      successfulJobsCount > 0
+        ? Number(((correctedJobs / successfulJobsCount) * 100).toFixed(1))
+        : 0,
+    quickValidationRate:
+      successfulJobsCount > 0
+        ? Number(((quicklyValidatedJobs / successfulJobsCount) * 100).toFixed(1))
+        : 0,
+  };
+  const correctionsByLevel: TakeoffCorrectionMetricsByLevel[] = Array.from(
+    correctionByLevel.entries()
+  )
+    .map(([level, data]) => ({
+      level,
+      correctedJobs: data.correctedJobs,
+      quicklyValidatedJobs: data.quicklyValidatedJobs,
+      untouchedSuccessfulJobs: data.untouchedSuccessfulJobs,
+      correctionRate:
+        data.successfulJobs > 0
+          ? Number(((data.correctedJobs / data.successfulJobs) * 100).toFixed(1))
+          : 0,
+      quickValidationRate:
+        data.successfulJobs > 0
+          ? Number(((data.quicklyValidatedJobs / data.successfulJobs) * 100).toFixed(1))
+          : 0,
+    }))
+    .sort((a, b) => a.level.localeCompare(b.level));
+  const corrections: TakeoffCorrectionMetrics = {
+    kpis: correctionKpis,
+    eventCounts: correctionEventCounts,
+    byLevel: correctionsByLevel,
   };
 
   // Trend
@@ -470,6 +745,7 @@ export function buildTakeoffMetricsStatsPayload(
     generatedAt: now.toISOString(),
     period,
     kpis,
+    corrections,
     trend: trendBuckets,
     costByLevel,
     tokenBreakdown,

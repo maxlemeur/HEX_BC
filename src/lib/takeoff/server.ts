@@ -41,8 +41,10 @@ import {
 import { validateFileForUpload } from "@/lib/file-validation";
 import {
   assertTakeoffEnabled,
+  getTakeoffGeminiDeliveryConfigForTenant,
   getTakeoffLowConfidenceThresholdForTenant,
 } from "@/lib/takeoff/feature-flags";
+import { resolveTakeoffProcessingStrategy } from "@/lib/takeoff/provider-batch";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { computeTakeoffMappingPreview } from "@/lib/takeoff/mapping-engine";
 import {
@@ -64,6 +66,8 @@ import {
   TAKEOFF_JOB_LIST_PERIODS,
   TAKEOFF_JOB_STATUSES,
   TAKEOFF_LEVELS,
+  type TakeoffProcessingStrategy,
+  type TakeoffProviderBatchState,
   type CreateTakeoffMappingRuleInput,
   type TakeoffApplyRequest,
   type TakeoffApplyResponse,
@@ -138,14 +142,15 @@ import {
 import { listAccessibleTakeoffJobsForVersion } from "@/lib/takeoff/version-links";
 
 const TAKEOFF_FILES_BUCKET = "takeoff-files";
-const TAKEOFF_ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
-const TAKEOFF_ALLOWED_MIME_TYPES = [
+const TAKEOFF_STRUCTURED_ALLOWED_EXTENSIONS = ["csv", "xlsx", "xls"];
+const TAKEOFF_STRUCTURED_ALLOWED_MIME_TYPES = [
   "text/csv",
   "application/csv",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
-const TAKEOFF_LEVEL: TakeoffLevel = "A";
+const TAKEOFF_PDF_ALLOWED_EXTENSIONS = ["pdf"];
+const TAKEOFF_PDF_ALLOWED_MIME_TYPES = ["application/pdf"];
 const TAKEOFF_PLAN_SET_LEVEL: TakeoffLevel = "B";
 const TAKEOFF_MAPPING_RULES_SELECT = [
   "id",
@@ -182,6 +187,10 @@ const TAKEOFF_JOB_LIST_SELECT = [
   "estimate_version_id",
   "status",
   "level",
+  "processing_strategy",
+  "provider_batch_id",
+  "provider_batch_state",
+  "provider_batch_updated_at",
   "source_file_name",
   "source_file_type",
   "source_file_size_bytes",
@@ -594,6 +603,22 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     estimate_version_id: z.string().uuid(),
     status: z.string(),
     level: z.string(),
+    processing_strategy: z.enum(["sync", "batch"]).nullable().optional(),
+    provider_batch_id: z.string().nullable().optional(),
+    provider_batch_state: z
+      .enum([
+        "submitted",
+        "pending",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "expired",
+        "unknown",
+      ])
+      .nullable()
+      .optional(),
+    provider_batch_updated_at: z.string().nullable().optional(),
     source_file_name: z.string().nullable(),
     source_file_type: z.string().nullable(),
     source_file_size_bytes: z.number().int().nonnegative().nullable(),
@@ -621,6 +646,10 @@ const takeoffJobSummarySchema: z.ZodType<TakeoffJobSummary> = z
     estimate_version_id: row.estimate_version_id,
     status: row.status,
     level: row.level,
+    processing_strategy: row.processing_strategy ?? null,
+    provider_batch_id: row.provider_batch_id ?? null,
+    provider_batch_state: row.provider_batch_state ?? null,
+    provider_batch_updated_at: row.provider_batch_updated_at ?? null,
     source_file_name: row.source_file_name,
     source_file_type: row.source_file_type,
     source_file_size_bytes: row.source_file_size_bytes,
@@ -1008,6 +1037,10 @@ type TakeoffJobDetailRow = {
   estimate_version_id: string;
   status: string;
   level: string;
+  processing_strategy: TakeoffProcessingStrategy | null;
+  provider_batch_id: string | null;
+  provider_batch_state: TakeoffProviderBatchState | null;
+  provider_batch_updated_at: string | null;
   source_file_name: string | null;
   source_file_type: string | null;
   source_file_size_bytes: number | null;
@@ -1318,10 +1351,25 @@ function normalizeTakeoffJobRow(row: TakeoffJobRow): TakeoffJobCreateResponse {
   });
 }
 
-function assertTakeoffFileIsValid(file: File) {
+function resolveTakeoffUploadValidation(level: TakeoffLevel) {
+  if (level === "A") {
+    return {
+      allowedExtensions: TAKEOFF_STRUCTURED_ALLOWED_EXTENSIONS,
+      allowedMimeTypes: TAKEOFF_STRUCTURED_ALLOWED_MIME_TYPES,
+    };
+  }
+
+  return {
+    allowedExtensions: TAKEOFF_PDF_ALLOWED_EXTENSIONS,
+    allowedMimeTypes: TAKEOFF_PDF_ALLOWED_MIME_TYPES,
+  };
+}
+
+function assertTakeoffFileIsValid(file: File, level: TakeoffLevel) {
+  const validationConfig = resolveTakeoffUploadValidation(level);
   const validation = validateFileForUpload(file, {
-    allowedExtensions: TAKEOFF_ALLOWED_EXTENSIONS,
-    allowedMimeTypes: TAKEOFF_ALLOWED_MIME_TYPES,
+    allowedExtensions: validationConfig.allowedExtensions,
+    allowedMimeTypes: validationConfig.allowedMimeTypes,
     allowEmptyMimeType: false,
   });
 
@@ -1396,11 +1444,11 @@ function parseTakeoffLevel(formData: FormData) {
 
   const normalized = value.trim().toUpperCase();
 
-  if (normalized !== TAKEOFF_LEVEL) {
+  if (!TAKEOFF_LEVELS.includes(normalized as TakeoffLevel)) {
     throw new TakeoffError({
       status: 422,
       code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
-      message: "Le niveau Takeoff supporte pour cet endpoint est uniquement 'A'.",
+      message: "Le niveau Takeoff doit etre l'un des niveaux supportes: A, B ou C.",
       retryable: false,
     });
   }
@@ -5862,6 +5910,8 @@ export async function saveTakeoffReviewDecision(
 
   const existingDecision = (existingDecisionRow.data ?? null) as
     | {
+        decision?: string | null;
+        reason?: string | null;
         carried_over_from_version_id: string | null;
         carried_over_at: string | null;
       }
@@ -6002,6 +6052,25 @@ export async function saveTakeoffReviewDecision(
   const decision = buildTakeoffDpgfReviewDecisionRecord({
     row: savedDecisionRow,
     carriedOverVersionNumberById,
+  });
+
+  await logTakeoffAuditEvent({
+    supabase,
+    tenantId,
+    userId,
+    jobId: normalizedJobId,
+    estimateVersionId: payload.version_id,
+    action: "takeoff.dpgf.review_decision",
+    metadata: takeoffAuditMetadataBuilders["takeoff.dpgf.review_decision"]({
+      estimate_item_id: payload.estimate_item_id,
+      review_reference: reviewReference,
+      previous_decision: existingDecision?.decision ?? null,
+      next_decision: payload.decision,
+      previous_reason: existingDecision?.reason ?? null,
+      next_reason: normalizedReason,
+    }),
+    tableName: "takeoff_dpgf_review_decisions",
+    mode: "non-blocking",
   });
 
   await refreshTakeoffLineEvidenceSnapshot({
@@ -6319,6 +6388,9 @@ export async function retryTakeoffJob(jobId: string): Promise<TakeoffJobActionRe
       duration_ms: null,
       error_code: null,
       error_message: null,
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_batch_updated_at: null,
     } as never)
     .eq("tenant_id" as never, tenantId as never)
     .eq("id" as never, normalizedJobId as never)
@@ -7366,7 +7438,7 @@ export async function createTakeoffJobFromFormData(
     const estimateVersionId = parseEstimateVersionId(formData);
     level = parseTakeoffLevel(formData);
 
-    assertTakeoffFileIsValid(file);
+    assertTakeoffFileIsValid(file, level);
 
     const fileContentHash = toHexSha256(Buffer.from(await file.arrayBuffer()));
     const payloadFingerprint = toHexSha256(
@@ -7426,6 +7498,13 @@ export async function createTakeoffJobFromFormData(
       tenantRole,
       estimateVersionId,
     });
+    const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
+      tenantId,
+      { supabase }
+    );
+    const processingStrategy = resolveTakeoffProcessingStrategy(
+      geminiDeliveryConfig.useBatchApi
+    );
 
     const sourceFileName = file.name.trim().length > 0 ? file.name : "upload";
     const sourceFilePath = `${tenantId}/${jobId}/${payloadFingerprint}-${sanitizeFilename(
@@ -7457,13 +7536,14 @@ export async function createTakeoffJobFromFormData(
         id: jobId,
         tenant_id: tenantId,
         estimate_version_id: estimateVersionId,
-        level: TAKEOFF_LEVEL,
+        level,
         status: "pending",
+        processing_strategy: processingStrategy,
         source_file_name: sourceFileName,
         source_file_path: sourceFilePath,
         source_file_type: file.type,
         source_file_size_bytes: file.size,
-        prompt_version: getTakeoffPromptVersion(TAKEOFF_LEVEL),
+        prompt_version: getTakeoffPromptVersion(level),
         created_by: userId,
       } as never)
       .select(
@@ -7558,7 +7638,7 @@ export async function createTakeoffJobFromFormData(
     try {
       const createdAuditMetadata =
         takeoffAuditMetadataBuilders["takeoff.job.created"]({
-          level: TAKEOFF_LEVEL,
+          level,
           estimate_version_id: createdJob.estimate_version_id,
           source_file_name: createdJob.source_file_name,
           idempotency_key: idempotencyKey,
@@ -7603,9 +7683,21 @@ export async function createTakeoffJobFromPlanSet(input: {
   projectId: string;
   planSetId: string;
   estimateVersionId: string;
+  level?: Extract<TakeoffLevel, "B" | "C">;
 }): Promise<TakeoffJobCreateResponse> {
   const { supabase, tenantId, userId, tenantRole } =
     await getAuthenticatedContext();
+  const level = input.level ?? TAKEOFF_PLAN_SET_LEVEL;
+
+  if (level !== "B" && level !== "C") {
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
+      message: "Le lancement depuis un jeu de plans supporte uniquement les niveaux B et C.",
+      retryable: false,
+      level,
+    });
+  }
 
   await assertTakeoffEnabled(tenantId, { supabase });
   await assertEstimateVersionAccessibleAsDraft({
@@ -7615,6 +7707,13 @@ export async function createTakeoffJobFromPlanSet(input: {
     tenantRole,
     estimateVersionId: input.estimateVersionId,
   });
+  const geminiDeliveryConfig = await getTakeoffGeminiDeliveryConfigForTenant(
+    tenantId,
+    { supabase }
+  );
+  const processingStrategy = resolveTakeoffProcessingStrategy(
+    geminiDeliveryConfig.useBatchApi
+  );
 
   // Verify plan set belongs to the project and tenant
   const { data: planSetRow, error: planSetError } = await supabase
@@ -7649,13 +7748,14 @@ export async function createTakeoffJobFromPlanSet(input: {
       tenant_id: tenantId,
       estimate_version_id: input.estimateVersionId,
       plan_set_id: input.planSetId,
-      level: TAKEOFF_PLAN_SET_LEVEL,
+      level,
       status: "pending",
+      processing_strategy: processingStrategy,
       source_file_name: sourceFile.sourceFileName,
       source_file_path: sourceFile.sourceFilePath,
       source_file_type: sourceFile.sourceFileType,
       source_file_size_bytes: sourceFile.sourceFileSizeBytes,
-      prompt_version: getTakeoffPromptVersion(TAKEOFF_PLAN_SET_LEVEL),
+      prompt_version: getTakeoffPromptVersion(level),
       created_by: userId,
     } as never)
     .select(
@@ -7679,9 +7779,9 @@ export async function createTakeoffJobFromPlanSet(input: {
   const createdJob = insertedJob as TakeoffJobRow;
 
   try {
-      const createdAuditMetadata =
-        takeoffAuditMetadataBuilders["takeoff.job.created"]({
-        level: TAKEOFF_PLAN_SET_LEVEL,
+    const createdAuditMetadata =
+      takeoffAuditMetadataBuilders["takeoff.job.created"]({
+        level,
         estimate_version_id: createdJob.estimate_version_id,
         source_file_name: createdJob.source_file_name,
         plan_set_id: input.planSetId,

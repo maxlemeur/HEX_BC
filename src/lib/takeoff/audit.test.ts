@@ -62,6 +62,7 @@ describe("takeoff audit helpers", () => {
       "takeoff.job.canceled",
       "takeoff.item.excluded",
       "takeoff.item.modified",
+      "takeoff.dpgf.review_decision",
       "takeoff.apply.started",
       "takeoff.apply.override",
       "takeoff.apply.completed",
@@ -83,6 +84,7 @@ describe("takeoff audit helpers", () => {
       estimate_version_id: ESTIMATE_VERSION_ID,
       source_file_name: "niveau-a.csv",
       idempotency_key: null,
+      plan_set_id: null,
     });
   });
 
@@ -122,6 +124,26 @@ describe("takeoff audit helpers", () => {
       },
       next_value: 15,
       reason: "user correction",
+    });
+  });
+
+  it("normalizes metadata for takeoff.dpgf.review_decision", () => {
+    const metadata = takeoffAuditMetadataBuilders["takeoff.dpgf.review_decision"]({
+      estimate_item_id: ITEM_ID,
+      review_reference: "  dpgf xlsx row 12  ",
+      previous_decision: "keep_takeoff",
+      next_decision: "manual_fix",
+      previous_reason: "  IA ok  ",
+      next_reason: "  Mesure terrain a reprendre.  ",
+    });
+
+    expect(metadata).toEqual({
+      estimate_item_id: ITEM_ID,
+      review_reference: "dpgf xlsx row 12",
+      previous_decision: "keep_takeoff",
+      next_decision: "manual_fix",
+      previous_reason: "IA ok",
+      next_reason: "Mesure terrain a reprendre.",
     });
   });
 

@@ -118,6 +118,48 @@ describe("buildTakeoffMetricsStatsPayload", () => {
         { job_id: "job-c-2" },
         { job_id: "job-outside-scope" },
       ],
+      auditLogs: [
+        {
+          record_id: "job-a-1",
+          action: "takeoff.item.modified",
+          created_at: "2026-02-28T11:00:00.000Z",
+          after_data: {
+            metadata: {
+              field: "quantity",
+              next_value: 14,
+            },
+          },
+        },
+        {
+          record_id: "job-c-2",
+          action: "takeoff.item.modified",
+          created_at: "2026-02-26T11:00:00.000Z",
+          after_data: {
+            metadata: {
+              field: "is_verified",
+              next_value: true,
+            },
+          },
+        },
+        {
+          record_id: "job-outside-scope",
+          action: "takeoff.item.modified",
+          created_at: "2026-02-26T11:00:00.000Z",
+          after_data: {
+            metadata: {
+              field: "designation",
+              next_value: "ignore",
+            },
+          },
+        },
+      ],
+      reviewDecisions: [
+        {
+          takeoff_job_id: "job-c-2",
+          decision: "keep_takeoff",
+          decided_at: "2026-02-26T11:30:00.000Z",
+        },
+      ],
     });
 
     expect(payload.period).toBe("7d");
@@ -181,6 +223,51 @@ describe("buildTakeoffMetricsStatsPayload", () => {
       "job-c-1",
       "job-c-2",
     ]);
+    expect(payload.corrections).toEqual({
+      kpis: {
+        totalEvents: 3,
+        correctedJobs: 1,
+        quicklyValidatedJobs: 1,
+        untouchedSuccessfulJobs: 0,
+        correctionRate: 50,
+        quickValidationRate: 50,
+      },
+      eventCounts: [
+        {
+          type: "quantity_changed",
+          label: "Quantites corrigees",
+          count: 1,
+        },
+        {
+          type: "manual_verification",
+          label: "Verifications manuelles",
+          count: 1,
+        },
+        {
+          type: "dpgf_keep_takeoff",
+          label: "Takeoff valide",
+          count: 1,
+        },
+      ],
+      byLevel: [
+        {
+          level: "A",
+          correctedJobs: 1,
+          quicklyValidatedJobs: 0,
+          untouchedSuccessfulJobs: 0,
+          correctionRate: 100,
+          quickValidationRate: 0,
+        },
+        {
+          level: "C",
+          correctedJobs: 0,
+          quicklyValidatedJobs: 1,
+          untouchedSuccessfulJobs: 0,
+          correctionRate: 0,
+          quickValidationRate: 100,
+        },
+      ],
+    });
     expect(payload.trend).toHaveLength(7);
   });
 

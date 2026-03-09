@@ -10,8 +10,10 @@ import { assertTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import {
   buildTakeoffMetricsStatsPayload,
   parseTakeoffMetricsQuery,
+  type TakeoffMetricsAuditLogRow,
   type TakeoffMetricsItemRow,
   type TakeoffMetricsJobRow,
+  type TakeoffMetricsReviewDecisionRow,
   type TakeoffMetricsResultRow,
   type TakeoffMetricsRunMetricRow,
 } from "@/lib/takeoff/stats";
@@ -24,6 +26,13 @@ type TenantMembershipRow = Pick<
 >;
 
 const TENANT_ADMIN_ROLE: TenantRole = "admin";
+const TAKEOFF_METRICS_JOB_BATCH_SIZE = 100;
+type SupabaseQueryError = {
+  code?: string;
+  message?: string;
+  details?: string | null;
+  hint?: string | null;
+};
 
 async function getActorContext() {
   const supabase = await createSupabaseServerClient();
@@ -65,6 +74,31 @@ async function getActorContext() {
     tenantId: membership.tenant_id,
     tenantRole: membership.role,
   };
+}
+
+async function fetchRowsByJobIdBatch<T>(input: {
+  jobIds: string[];
+  batchSize?: number;
+  fetchBatch: (jobIds: string[]) => Promise<{ data: T[] | null; error: SupabaseQueryError | null }>;
+  errorMessage: string;
+}) {
+  if (input.jobIds.length === 0) {
+    return [] as T[];
+  }
+
+  const batchSize = input.batchSize ?? TAKEOFF_METRICS_JOB_BATCH_SIZE;
+  const rows: T[] = [];
+
+  for (let index = 0; index < input.jobIds.length; index += batchSize) {
+    const batch = input.jobIds.slice(index, index + batchSize);
+    const result = await input.fetchBatch(batch);
+    if (result.error) {
+      throw mapSupabaseError(result.error, input.errorMessage);
+    }
+    rows.push(...(result.data ?? []));
+  }
+
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +175,42 @@ export async function GET(request: Request) {
     const runMetrics = (runMetricsResult.data ?? []) as unknown as TakeoffMetricsRunMetricRow[];
     const results = (resultsResult.data ?? []) as unknown as TakeoffMetricsResultRow[];
     const items = (itemsResult.data ?? []) as unknown as TakeoffMetricsItemRow[];
+    const jobIds = jobs.map((job) => job.id);
+
+    const [auditLogs, reviewDecisions] = await Promise.all([
+      fetchRowsByJobIdBatch<TakeoffMetricsAuditLogRow>({
+        jobIds,
+        errorMessage: "Impossible de charger les evenements de correction takeoff.",
+        fetchBatch: async (batch) =>
+          (await supabase
+            .from("audit_logs" as never)
+            .select("record_id, action, created_at, after_data")
+            .eq("tenant_id" as never, tenantId as never)
+            .gte("created_at" as never, cutoff as never)
+            .in("record_id" as never, batch as never)
+            .in(
+              "action" as never,
+              ["takeoff.item.excluded", "takeoff.item.modified"] as never
+            )) as {
+            data: TakeoffMetricsAuditLogRow[] | null;
+            error: SupabaseQueryError | null;
+          },
+      }),
+      fetchRowsByJobIdBatch<TakeoffMetricsReviewDecisionRow>({
+        jobIds,
+        errorMessage: "Impossible de charger les decisions DPGF takeoff.",
+        fetchBatch: async (batch) =>
+          (await supabase
+            .from("takeoff_dpgf_review_decisions" as never)
+            .select("takeoff_job_id, decision, decided_at")
+            .eq("tenant_id" as never, tenantId as never)
+            .gte("decided_at" as never, cutoff as never)
+            .in("takeoff_job_id" as never, batch as never)) as {
+            data: TakeoffMetricsReviewDecisionRow[] | null;
+            error: SupabaseQueryError | null;
+          },
+      }),
+    ]);
 
     const payload = buildTakeoffMetricsStatsPayload({
       period,
@@ -148,6 +218,8 @@ export async function GET(request: Request) {
       runMetrics,
       results,
       items,
+      auditLogs,
+      reviewDecisions,
       now,
     });
 

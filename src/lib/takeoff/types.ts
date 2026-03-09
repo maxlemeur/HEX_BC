@@ -31,6 +31,24 @@ export const TAKEOFF_JOB_STATUSES = [
   "applied",
 ] as const;
 export type TakeoffJobStatus = (typeof TAKEOFF_JOB_STATUSES)[number];
+
+export const TAKEOFF_PROCESSING_STRATEGIES = ["sync", "batch"] as const;
+export type TakeoffProcessingStrategy =
+  (typeof TAKEOFF_PROCESSING_STRATEGIES)[number];
+
+export const TAKEOFF_PROVIDER_BATCH_STATES = [
+  "submitted",
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+  "unknown",
+] as const;
+export type TakeoffProviderBatchState =
+  (typeof TAKEOFF_PROVIDER_BATCH_STATES)[number];
+
 export const TAKEOFF_JOB_LIST_PERIODS = ["7d", "30d", "90d"] as const;
 export type TakeoffJobListPeriod = (typeof TAKEOFF_JOB_LIST_PERIODS)[number];
 
@@ -44,7 +62,7 @@ export type TakeoffApplyRequest = z.infer<typeof takeoffApplyRequestSchema>;
 
 export type TakeoffJobCreateInput = {
   estimateVersionId: string;
-  level: "A";
+  level: TakeoffLevel;
   file: File;
   idempotencyKey?: string;
   onUploadProgress?: (progressPercent: number) => void;
@@ -71,6 +89,10 @@ export type TakeoffJobSummary = {
   estimate_version_id: string;
   status: TakeoffJobStatus | string;
   level: TakeoffLevel | string;
+  processing_strategy: TakeoffProcessingStrategy | null;
+  provider_batch_id: string | null;
+  provider_batch_state: TakeoffProviderBatchState | null;
+  provider_batch_updated_at: string | null;
   source_file_name: string | null;
   source_file_type: string | null;
   source_file_size_bytes: number | null;
@@ -987,10 +1009,52 @@ export type TakeoffMetricsRecentJob = {
   createdAt: string;
 };
 
+export type TakeoffCorrectionMetricsEventType =
+  | "item_excluded"
+  | "designation_changed"
+  | "quantity_changed"
+  | "unit_changed"
+  | "manual_verification"
+  | "dpgf_keep_dpgf"
+  | "dpgf_keep_takeoff"
+  | "dpgf_manual_fix"
+  | "dpgf_out_of_scope";
+
+export type TakeoffCorrectionMetricsKpis = {
+  totalEvents: number;
+  correctedJobs: number;
+  quicklyValidatedJobs: number;
+  untouchedSuccessfulJobs: number;
+  correctionRate: number;
+  quickValidationRate: number;
+};
+
+export type TakeoffCorrectionMetricsEventCount = {
+  type: TakeoffCorrectionMetricsEventType;
+  label: string;
+  count: number;
+};
+
+export type TakeoffCorrectionMetricsByLevel = {
+  level: string;
+  correctedJobs: number;
+  quicklyValidatedJobs: number;
+  untouchedSuccessfulJobs: number;
+  correctionRate: number;
+  quickValidationRate: number;
+};
+
+export type TakeoffCorrectionMetrics = {
+  kpis: TakeoffCorrectionMetricsKpis;
+  eventCounts: TakeoffCorrectionMetricsEventCount[];
+  byLevel: TakeoffCorrectionMetricsByLevel[];
+};
+
 export type TakeoffMetricsStatsPayload = {
   generatedAt: string;
   period: TakeoffMetricsPeriod;
   kpis: TakeoffMetricsKpis;
+  corrections: TakeoffCorrectionMetrics;
   trend: TakeoffMetricsTrendPoint[];
   costByLevel: TakeoffMetricsCostByLevel[];
   tokenBreakdown: TakeoffMetricsTokenBreakdown;
@@ -1023,6 +1087,9 @@ export type TakeoffActivityCenterJobRow = {
   lotLabel: string | null;
   planSetLabel: string | null;
   levelLabel: TakeoffActivityCenterLevelLabel;
+  processingStrategy: TakeoffProcessingStrategy | null;
+  providerBatchState: TakeoffProviderBatchState | null;
+  providerBatchUpdatedAt: string | null;
   statusLabel: string;
   statusRaw: TakeoffJobStatus | string;
   itemCount: number;
