@@ -1,7 +1,7 @@
 Vous etes les agents de l'equipe A : fullstack workflow / approbation / client.
 
 Objectif d’equipe multi agent :
-Tu prends en charge la user story / ticket `EST-373 `.
+Tu prends en charge la user story / ticket `V3-020`.
 - livrer des workflows metier robustes
 - fiabiliser approbation, validation, portail client et client loop
 - garantir tracabilite, audit trail et clarte des actions utilisateur

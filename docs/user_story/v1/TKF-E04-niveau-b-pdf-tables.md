@@ -1,12 +1,30 @@
 # TKF-E04 — Niveau B : Extraction PDF Schedules
 
-> Phase: 2 | Priorite: P1 | Statut: Termine (fichier fini)
+> Phase: 2 | Priorite: P1 | Statut: Partiel au 2026-03-07
 
 ## Objectif
 
 Implementer le Niveau B du takeoff : upload et gestion de plans/PDF, extraction de tableaux
 structures (nomenclatures, metrages, schedules de finitions) via Gemini Vision, et interface
 de review dediee avec vue par tables et groupement par page.
+
+## Etat codebase au 2026-03-07
+
+Le niveau B est bien avance techniquement, mais il n'est pas encore livre comme parcours
+de lancement clair et generique pour le chiffreur.
+
+Ce qui est present dans le code:
+- gestion des jeux de plans et fichiers PDF (`src/lib/takeoff/plans.ts`, routes `plan-sets`)
+- UI de preparation des plans (`src/components/takeoff/PlanCenter.tsx`)
+- traitement Niveau B dans le processor/worker (`src/lib/takeoff/processor.ts`, `src/lib/takeoff/async-worker.ts`)
+- review dediee avec vue tables (`src/components/takeoff/TakeoffTableView.tsx`)
+
+Ce qui bloque encore la lecture "termine":
+- le flux principal d'upload reste cale sur le niveau `A`
+- la modale de lancement metier affiche encore `Standard` comme `bientot`
+- l'endpoint public `POST /api/takeoff/jobs` n'accepte toujours que `A`
+- il existe bien un lancement depuis un jeu de plans via le hub affaire, mais pas encore
+  un parcours produit unifie, explicite et assumant clairement le Niveau B
 
 ## Ce qui existe deja
 

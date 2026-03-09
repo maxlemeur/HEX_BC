@@ -30,61 +30,40 @@ Et **4 phases de livraison** progressives (MVP → Niveau B + Async → Niveau C
 
 ## Index des epics
 
-| Code    | Nom                                   | Phase     | Priorite | Tickets      | Etat codebase (2026-02-26) | Fichier                                                                    |
-|---------|---------------------------------------|-----------|----------|--------------|-----------------------------|----------------------------------------------------------------------------|
-| TKF-E01 | Fondations Takeoff & Schema Canonique | 1 (MVP)   | P0       | TKF-001 a 006 | Termine (fichier fini)      | [TKF-E01-fondations-schema.md](./TKF-E01-fondations-schema.md)            |
-| TKF-E02 | Niveau A : Import Normaliseur Universel | 1 (MVP) | P0       | TKF-007 a 013 | Termine (fichier fini)      | [TKF-E02-niveau-a-import.md](./TKF-E02-niveau-a-import.md)                |
-| TKF-E03 | Provenance & Tracabilite              | 1 (MVP)   | P1       | TKF-014 a 016 | Termine (fichier fini)      | [TKF-E03-provenance-tracabilite.md](./TKF-E03-provenance-tracabilite.md)  |
-| TKF-E04 | Niveau B : Extraction PDF Schedules   | 2         | P1       | TKF-017 a 021 | Termine (fichier fini)      | [TKF-E04-niveau-b-pdf-tables.md](./TKF-E04-niveau-b-pdf-tables.md)        |
-| TKF-E05 | Niveau C : Pre-estimation Plan Complet| 3         | P1       | TKF-022 a 025 | Termine (fichier fini)      | [TKF-E05-niveau-c-pre-estimation.md](./TKF-E05-niveau-c-pre-estimation.md)|
-| TKF-E06 | Job Async & Resilience                | 2         | P1       | TKF-026 a 028 | Termine (fichier fini)      | [TKF-E06-job-async-resilience.md](./TKF-E06-job-async-resilience.md)      |
-| TKF-E07 | Mapping Rules & Revisions (optionnel) | 4         | P2       | TKF-029 a 032 | Termine (fichier fini)      | [TKF-E07-mapping-rules-revisions.md](./TKF-E07-mapping-rules-revisions.md)|
+| Code    | Nom                                   | Phase     | Priorite | Tickets      | Etat codebase (2026-03-07)                              | Fichier                                                                    |
+|---------|---------------------------------------|-----------|----------|--------------|---------------------------------------------------------|----------------------------------------------------------------------------|
+| TKF-E01 | Fondations Takeoff & Schema Canonique | 1 (MVP)   | P0       | TKF-001 a 006 | Termine                                                 | [TKF-E01-fondations-schema.md](./TKF-E01-fondations-schema.md)            |
+| TKF-E02 | Niveau A : Import Normaliseur Universel | 1 (MVP) | P0       | TKF-007 a 013 | Termine pour le parcours fichier metre                  | [TKF-E02-niveau-a-import.md](./TKF-E02-niveau-a-import.md)                |
+| TKF-E03 | Provenance & Tracabilite              | 1 (MVP)   | P1       | TKF-014 a 016 | Quasi termine                                           | [TKF-E03-provenance-tracabilite.md](./TKF-E03-provenance-tracabilite.md)  |
+| TKF-E04 | Niveau B : Extraction PDF Schedules   | 2         | P1       | TKF-017 a 021 | Partiel: briques codees, lancement utilisateur incomplet| [TKF-E04-niveau-b-pdf-tables.md](./TKF-E04-niveau-b-pdf-tables.md)        |
+| TKF-E05 | Niveau C : Pre-estimation Plan Complet| 3         | P1       | TKF-022 a 025 | Partiel: briques codees, niveau non expose au lancement | [TKF-E05-niveau-c-pre-estimation.md](./TKF-E05-niveau-c-pre-estimation.md)|
+| TKF-E06 | Job Async & Resilience                | 2         | P1       | TKF-026 a 028 | Largement implemente                                    | [TKF-E06-job-async-resilience.md](./TKF-E06-job-async-resilience.md)      |
+| TKF-E07 | Mapping Rules & Revisions (optionnel) | 4         | P2       | TKF-029 a 032 | Largement implemente                                    | [TKF-E07-mapping-rules-revisions.md](./TKF-E07-mapping-rules-revisions.md)|
 
 **Total : 32 tickets**
 
 ---
 
-## Etat d'avancement tickets TKF-* (codebase au 2026-02-26)
+## Bilan reel de la codebase (2026-03-07)
 
-| Ticket | Etat |
-|---|---|
-| TKF-001 | Fini |
-| TKF-002 | Fini |
-| TKF-003 | Fini |
-| TKF-004 | Fini |
-| TKF-005 | Fini |
-| TKF-006 | Fini |
-| TKF-007 | Fini |
-| TKF-008 | Fini |
-| TKF-009 | Fini |
-| TKF-010 | Fini |
-| TKF-011 | Fini |
-| TKF-012 | Fini |
-| TKF-013 | Fini |
-| TKF-014 | Fini |
-| TKF-015 | Fini |
-| TKF-016 | Fini |
-| TKF-017 | Fini |
-| TKF-018 | Fini |
-| TKF-019 | Fini |
-| TKF-020 | Fini |
-| TKF-021 | Fini |
-| TKF-022 | Fini |
-| TKF-023 | Fini |
-| TKF-024 | Fini |
-| TKF-025 | Fini |
-| TKF-026 | Fini |
-| TKF-027 | Fini |
-| TKF-028 | Fini |
-| TKF-029 | Fini |
-| TKF-030 | Fini |
-| TKF-031 | Fini |
-| TKF-032 | Fini |
+L'ancien bilan `32/32 finis` n'est plus representatif du produit livrable.
+Le code contient beaucoup plus de briques que le parcours actuellement expose aux chiffreurs.
 
-Resume:
-- Fini: 32/32
-- Partiel: 0/32
-- A faire: 0/32
+Resume produit:
+- Fait: socle takeoff, parcours Niveau A de bout en bout, provenance, review/apply, async, mapping, diff.
+- Partiel: parcours plans PDF Niveau B, pre-estimation Niveau C.
+- Manque encore pour tenir la promesse metier: exposer proprement les niveaux B/C au lancement et pousser plus loin la conversion vers un chiffrage directement exploitable.
+
+Points de vigilance constates dans le code:
+- Le lancement utilisateur via upload reste force sur le niveau `A`.
+- La modale metier affiche encore `Standard` et `Detaille` comme `bientot`.
+- Le backend public de creation de job refuse toujours les niveaux autres que `A`.
+- Des briques Niveau B/C existent pourtant deja dans le worker, le processor, la review et les guards.
+
+Parcours metier reel aujourd'hui:
+- `Fichier metre CSV/XLS/XLSX -> analyse -> review -> apply au devis`: oui.
+- `Plan PDF / jeu de plans -> analyse IA -> donnees exploitables`: partiellement.
+- `Plan complet -> pre-chiffrage quasi automatique`: pas encore livre de bout en bout pour l'utilisateur final.
 
 ---
 

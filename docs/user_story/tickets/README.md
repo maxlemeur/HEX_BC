@@ -5,11 +5,12 @@
 
 ## Couverture
 
-- Tickets indexes dans ce tableau: **106**
+- Tickets indexes dans ce tableau: **115**
 - Tickets presents dans le sequencing M0-M4: **35**
 - Tickets hors plan (backlog): **30**
 - Tickets M5/M6 (nouvelles stories): **21**
 - Tickets M7/M8 VNext: **20**
+- Tickets M9 IAv2: **9**
 - Fichiers `EST-*` hors index historique: **2** (`EST-125.md`, `EST-125-dev-report.md`)
 
 ## Tickets
@@ -122,6 +123,15 @@
 | [EST-412](./EST-412.md) | Analyse d'impact quantites / prix / marge | VNext | 8/8.2 | A | L | M8 | [EST-E25](../EST-E25-revision-engine-boucle-client.md) |
 | [EST-413](./EST-413.md) | Reponse assistee et contre-proposition structuree | VNext | 8/8.2 | B | M | M8 | [EST-E25](../EST-E25-revision-engine-boucle-client.md) |
 | [EST-414](./EST-414.md) | Questions client -> taches -> decisions | VNext | 8/8.2 | A | M | M8 | [EST-E25](../EST-E25-revision-engine-boucle-client.md) |
+| [EST-421](./EST-421.md) | Persistance batch provider et etats jobs | IAv2 | 9/9.1 | A | M | M9 | [IAV2-E01](../IAv2/IAV2-E01-batch-durable-reprise.md) |
+| [EST-422](./EST-422.md) | Plafond budget global avant escalation | IAv2 | 9/9.1 | B | M | M9 | [IAV2-E02](../IAv2/IAV2-E02-routing-budget-confiance.md) |
+| [EST-423](./EST-423.md) | Instrumentation des corrections humaines | IAv2 | 9/9.1 | C | M | M9 | [IAV2-E03](../IAv2/IAV2-E03-evaluation-pilote-metier.md) |
+| [EST-424](./EST-424.md) | Worker de reconciliation Batch et state machine | IAv2 | 9/9.2 | A | L | M9 | [IAV2-E01](../IAv2/IAV2-E01-batch-durable-reprise.md) |
+| [EST-425](./EST-425.md) | Classifieur document et niveau recommande | IAv2 | 9/9.2 | B | M | M9 | [IAV2-E02](../IAv2/IAV2-E02-routing-budget-confiance.md) |
+| [EST-426](./EST-426.md) | Monitoring hub et statuts lisibles | IAv2 | 9/9.2 | C | M | M9 | [IAV2-E05](../IAv2/IAV2-E05-ux-lancement-monitoring-remediation.md) |
+| [EST-427](./EST-427.md) | Actions operateur de reprise et remediation | IAv2 | 9/9.3 | A | M | M9 | [IAV2-E01](../IAv2/IAV2-E01-batch-durable-reprise.md) |
+| [EST-428](./EST-428.md) | Robustesse PDF terrain et echec explicite | IAv2 | 9/9.3 | B | M | M9 | [IAV2-E05](../IAv2/IAV2-E05-ux-lancement-monitoring-remediation.md) |
+| [EST-429](./EST-429.md) | Dashboard pilote et criteres go/no-go | IAv2 | 9/9.3 | C | M | M9 | [IAV2-E03](../IAv2/IAV2-E03-evaluation-pilote-metier.md) |
 
 ## Usage
 

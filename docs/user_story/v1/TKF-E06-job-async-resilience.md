@@ -1,12 +1,27 @@
 # TKF-E06 — Job Async & Resilience
 
-> Phase: 2 | Priorite: P1 | Statut: Termine (fichier fini)
+> Phase: 2 | Priorite: P1 | Statut: Largement implemente au 2026-03-07
 
 ## Objectif
 
 Deporter le traitement des jobs takeoff vers une Supabase Edge Function asynchrone avec
 retry automatique, implementer un dashboard de suivi des jobs par projet, et mettre en place
 l'observabilite (metriques de cout, duree, taux d'echec).
+
+## Etat codebase au 2026-03-07
+
+Le coeur async est bien present et coherent avec la vision produit:
+- Edge Function Supabase `process_takeoff_job`
+- worker de traitement partage
+- trigger async depuis creation/retry
+- listing des jobs et centre d'activite
+- metriques admin takeoff
+
+Les ajustements necessaires dans cette doc sont surtout de forme:
+- certaines references de composants ont evolue
+- la mise en oeuvre reelle combine Edge Function et worker interne partage
+- le statut `termine` est acceptable sur le moteur async, mais reste trop optimiste si on le
+  lit comme preuve que tout le produit takeoff est termine
 
 ## Ce qui existe deja
 
@@ -128,7 +143,7 @@ l'observabilite (metriques de cout, duree, taux d'echec).
 - [ ] Parametres filtres supportes:
   - `period` (`7d`,`30d`,`90d`)
   - `level` optionnel
-- [ ] `TakeoffStatsPanel` affiche KPI + etat vide/erreur
+- [ ] Le dashboard metriques takeoff affiche KPI + etat vide/erreur
 - [ ] Donnees stats documentees OpenAPI
 - [ ] Tests couvrent calculs, filtres, et precision des aggregations
 
@@ -137,8 +152,12 @@ l'observabilite (metriques de cout, duree, taux d'echec).
 - Fichiers a creer :
   - `src/app/api/takeoff/stats/route.ts`
   - `src/lib/takeoff/stats.ts` — fonctions d'agregation
-  - `src/components/takeoff/TakeoffStatsPanel.tsx`
+  - composant dashboard metriques admin takeoff
 - Reutiliser :
   - `src/lib/supabase/server.ts` — `createSupabaseServerClient()`
   - `src/lib/estimates/errors.ts` — gestion erreurs
 - Dependances : TKF-026
+
+Note de coherence codebase:
+- la codebase expose aussi `src/app/api/takeoff/metrics/stats/route.ts`
+- le composant de dashboard actuellement present est `src/components/takeoff/TakeoffMetricsDashboard.tsx`

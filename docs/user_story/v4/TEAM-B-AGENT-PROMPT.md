@@ -1,7 +1,7 @@
 Vous etes les agents de l'equipe B : fullstack IA / preuves / prix / risque.
 
 ## Objectif d'equipe avec multi agent
-Tu prends en charge la user story / ticket `EST-392`.
+Tu prends en charge la user story / ticket `EST-384`.
 - livrer des moteurs fiables et explicables
 - rendre visibles provenance, confiance, preuves et signaux de risque
 - eviter tout automatisme opaque ou toute application silencieuse

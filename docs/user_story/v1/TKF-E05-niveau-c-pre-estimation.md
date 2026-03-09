@@ -1,6 +1,6 @@
 # TKF-E05 — Niveau C : Pre-estimation Plan Complet
 
-> Phase: 3 | Priorite: P1 | Statut: Termine (fichier fini)
+> Phase: 3 | Priorite: P1 | Statut: Partiel au 2026-03-07
 
 ## Objectif
 
@@ -8,6 +8,23 @@ Implementer le Niveau C du takeoff : analyse de plans architecturaux complets vi
 Vision avec ThinkingLevel.HIGH, generation d'items avec score de confidence et evidence
 textuelle, chunking pour PDF volumineux, et interface de review avec validation obligatoire
 des items low-confidence avant application.
+
+## Etat codebase au 2026-03-07
+
+Le niveau C dispose deja de nombreuses briques techniques, mais il n'est pas encore expose
+comme fonctionnalite complete utilisable par un chiffreur depuis l'interface.
+
+Ce qui est present dans le code:
+- chunking PDF et traitement Niveau C (`src/lib/takeoff/chunking.ts`, `src/lib/takeoff/processor.ts`)
+- prompts et erreurs dedies Niveau C (`src/lib/takeoff/prompts.ts`, `src/lib/takeoff/errors.ts`)
+- support worker async pour jobs `C` (`src/lib/takeoff/async-worker.ts`)
+- review experte avec confidence/evidence et guards d'apply (`src/components/takeoff/TakeoffReviewExpert.tsx`, `src/components/takeoff/EvidencePanel.tsx`, `src/lib/takeoff/guards.ts`)
+
+Ce qui empeche de considerer l'epic comme terminee:
+- aucune exposition produit claire du niveau `C` au lancement
+- la modale metier affiche encore `Detaille` comme `bientot`
+- le flux public d'upload ne cree que des jobs `A`
+- aucun point d'entree utilisateur evident n'a ete trouve pour creer un job `C`
 
 ## Ce qui existe deja
 

@@ -1,12 +1,28 @@
 # TKF-E02 — Niveau A : Import Normaliseur Universel
 
-> Phase: 1 (MVP) | Priorite: P0 | Statut: Termine (fichier fini)
+> Phase: 1 (MVP) | Priorite: P0 | Statut: Termine pour le parcours Niveau A au 2026-03-07
 
 ## Objectif
 
 Implementer le pipeline complet du Niveau A : upload de fichiers CSV/Excel, normalisation
 via Gemini AI, review humaine des items extraits, et application au devis. C'est le coeur
 du MVP Takeoff — le flux de bout en bout qui valide l'architecture.
+
+## Etat codebase au 2026-03-07
+
+Cette epic est globalement conforme a la codebase, a condition de la lire comme un flux
+`import de metrage structure` et non comme un flux `analyse de plans PDF`.
+
+Ce qui est bien livre:
+- creation de job via upload CSV/XLS/XLSX
+- traitement async/suivi de job
+- review avec edition/exclusion
+- apply au devis avec provenance et garde-fous
+
+Ce qu'il ne faut pas sur-interpreter:
+- cette epic ne couvre pas a elle seule la promesse produit complete `plan -> pre-chiffrage`
+- le flux d'upload principal reste volontairement centre sur le niveau `A`
+- les niveaux `B/C` existent ailleurs dans la codebase, mais ne sont pas livres via ce parcours
 
 ## Ce qui existe deja
 

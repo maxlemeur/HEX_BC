@@ -1,6 +1,6 @@
 # TKF-E07 — Mapping Rules & Revisions (optionnel)
 
-> Phase: 4 | Priorite: P2 | Statut: Termine (fichier fini)
+> Phase: 4 | Priorite: P2 | Statut: Largement implemente au 2026-03-07
 
 ## Objectif
 
@@ -8,9 +8,25 @@ Enrichir le pipeline takeoff avec des regles de mapping configurables (conversio
 designations, enrichissement automatique, assemblages) et un systeme de revision delta
 permettant de comparer deux extractions sur le meme document pour detecter les differences.
 
+## Etat codebase au 2026-03-07
+
+Cette epic est bien representee dans le code:
+- CRUD de regles de mapping
+- manager admin
+- preview de conversion avant apply
+- moteur de mapping
+- comparaison entre jobs/revisions
+
+Le principal decalage n'est pas technique mais produit:
+- cette epic suppose un pipeline takeoff largement exploitable
+- or les niveaux `B/C` ne sont pas encore vraiment exposes comme parcours de lancement standard
+- il faut donc eviter que le statut `termine` laisse entendre que la promesse complete
+  `plan -> chiffrage exploitable` est deja pleinement livree
+
 ## Ce qui existe deja
 
-- **Pipeline takeoff complet** : TKF-E01 a TKF-E06 — niveaux A/B/C, async, provenance.
+- **Pipeline takeoff avance** : TKF-E01 a TKF-E06 — socle, niveau A livre, B/C largement codes,
+  async, provenance.
 - **Apply Wizard** : `src/components/takeoff/TakeoffApplyWizard.tsx` — apply multi-etapes.
 - **Assemblages** : `src/lib/estimates/server.ts` — `insertAssemblyIntoVersion()`.
 - **Templates** : pattern templates/assemblages dans le module estimates (EST-E10).

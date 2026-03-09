@@ -1,12 +1,22 @@
 # TKF-E03 — Provenance & Tracabilite
 
-> Phase: 1 (MVP) | Priorite: P1 | Statut: Termine (fichier fini)
+> Phase: 1 (MVP) | Priorite: P1 | Statut: Quasi termine au 2026-03-07
 
 ## Objectif
 
 Assurer la tracabilite complete des items issus du takeoff : chaque ligne du devis generee
 par l'IA porte des metadonnees de provenance (provider, job_id, fichier source, page), les
 actions sont auditees, et un badge visuel dans l'editeur indique l'origine IA des lignes.
+
+## Etat codebase au 2026-03-07
+
+L'epic est largement en place dans le code: provenance sur les lignes de devis, audit takeoff,
+badge source, evidence panel et liens vers la source.
+
+Le point principal a corriger dans cette doc est semantique:
+- le badge n'est pas reserve uniquement a `takeoff_gemini`
+- la codebase supporte plusieurs `source_provider`, dont `takeoff` et `takeoff_gemini`
+- la story doit donc parler de `providers IA supportes` plutot que d'une seule valeur stricte
 
 ## Ce qui existe deja
 
@@ -111,7 +121,8 @@ actions sont auditees, et un badge visuel dans l'editeur indique l'origine IA de
 
 ### Criteres d'acceptation
 
-- [ ] Badge `IA` visible uniquement si `source_provider='takeoff_gemini'`
+- [ ] Badge `IA` visible si `source_provider` correspond a un provider IA supporte
+      (au minimum `takeoff` ou `takeoff_gemini`)
 - [ ] Popover (hover + clic) affiche:
   - `source_file_name`
   - `source_page` (si disponible)
