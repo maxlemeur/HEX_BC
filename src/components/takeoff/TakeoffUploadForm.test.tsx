@@ -292,7 +292,10 @@ describe("TakeoffUploadForm", () => {
     render(<TakeoffUploadForm versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" />);
 
     await user.click(screen.getByRole("radio", { name: /niveau b/i }));
-    await user.upload(screen.getByLabelText("Fichier source"), makePdfFile());
+    await user.upload(
+      screen.getByLabelText("Fichier source"),
+      makePdfFile("dpgf-tableau.pdf")
+    );
     await user.click(screen.getByRole("button", { name: /lancer l'extraction/i }));
 
     await waitFor(() => {
@@ -303,6 +306,30 @@ describe("TakeoffUploadForm", () => {
         })
       );
     });
+  });
+
+  it("resets a manual level override when a different file is selected", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <TakeoffUploadForm
+        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        allowedLevels={["B", "C"]}
+      />
+    );
+
+    const fileInput = screen.getByLabelText("Fichier source");
+
+    await user.upload(fileInput, makePdfFile("dpgf-initial.pdf"));
+    expect(screen.getByRole("radio", { name: /niveau b/i })).toBeChecked();
+
+    await user.click(screen.getByRole("radio", { name: /niveau c/i }));
+    expect(screen.getByRole("radio", { name: /niveau c/i })).toBeChecked();
+
+    await user.upload(fileInput, makePdfFile("bordereau-second.pdf"));
+
+    expect(screen.getByRole("radio", { name: /niveau b/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /niveau c/i })).not.toBeChecked();
   });
 
   it("recommends level A and blocks incompatible PDF levels for a CSV upload", async () => {

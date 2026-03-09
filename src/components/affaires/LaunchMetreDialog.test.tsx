@@ -30,6 +30,53 @@ vi.mock("@/components/takeoff/TakeoffUploadForm", () => ({
         : null;
     const onSuccess =
       typeof props.onSuccess === "function" ? (props.onSuccess as () => void) : null;
+    const onClassificationChange =
+      typeof props.onClassificationChange === "function"
+        ? (props.onClassificationChange as (
+            classification: {
+              recommendedLevel: "B" | "C" | null;
+              compatibleLevels: Array<"B" | "C">;
+              documentClass: "tabular_pdf" | "complex_plan";
+              recommendationStrength: "high";
+              warningCode: null;
+              warningMessage: null;
+              signals: {
+                mimeType: string | null;
+                extension: string;
+                fileCount: number;
+                totalPageCount: number | null;
+                matchedTableHints: string[];
+                matchedPlanHints: string[];
+              };
+            } | null,
+            context: { fileFingerprint: string }
+          ) => void)
+        : null;
+
+    function emitClassification(
+      recommendedLevel: "B" | "C",
+      fileFingerprint: string
+    ) {
+      onClassificationChange?.(
+        {
+          documentClass: recommendedLevel === "B" ? "tabular_pdf" : "complex_plan",
+          recommendedLevel,
+          compatibleLevels: ["B", "C"],
+          recommendationStrength: "high",
+          warningCode: null,
+          warningMessage: null,
+          signals: {
+            mimeType: "application/pdf",
+            extension: "pdf",
+            fileCount: 1,
+            totalPageCount: null,
+            matchedTableHints: recommendedLevel === "B" ? ["dpgf"] : [],
+            matchedPlanHints: recommendedLevel === "C" ? ["plan"] : [],
+          },
+        },
+        { fileFingerprint }
+      );
+    }
 
     return (
       <div
@@ -45,6 +92,18 @@ vi.mock("@/components/takeoff/TakeoffUploadForm", () => ({
         </button>
         <button type="button" onClick={() => onSuccess?.()}>
           Trigger Success
+        </button>
+        <button
+          type="button"
+          onClick={() => emitClassification("B", "file-1")}
+        >
+          Classify File 1 B
+        </button>
+        <button
+          type="button"
+          onClick={() => emitClassification("B", "file-2")}
+        >
+          Classify File 2 B
         </button>
       </div>
     );
@@ -260,6 +319,31 @@ describe("LaunchMetreDialog", () => {
     expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
       "data-level",
       "C"
+    );
+  });
+
+  it("resets a manual override when classification arrives for a different file", async () => {
+    const user = userEvent.setup();
+
+    render(<LaunchMetreDialog {...defaultProps} />);
+
+    await user.click(screen.getByRole("button", { name: "Classify File 1 B" }));
+    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
+      "data-level",
+      "B"
+    );
+
+    await user.click(screen.getByRole("radio", { name: /detaille/i }));
+    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
+      "data-level",
+      "C"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Classify File 2 B" }));
+
+    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
+      "data-level",
+      "B"
     );
   });
 

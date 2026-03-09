@@ -112,7 +112,8 @@ type TakeoffUploadFormProps = {
   onSuccess?: (job: TakeoffJobCreateResponse) => void;
   onSubmittingChange?: (isSubmitting: boolean) => void;
   onClassificationChange?: (
-    classification: TakeoffDocumentRecommendation | null
+    classification: TakeoffDocumentRecommendation | null,
+    context: { fileFingerprint: string }
   ) => void;
   compact?: boolean;
 };
@@ -352,8 +353,10 @@ export function TakeoffUploadForm({
   }, [level, normalizedAllowedLevels]);
 
   useEffect(() => {
-    onClassificationChange?.(recommendation);
-  }, [onClassificationChange, recommendation]);
+    onClassificationChange?.(recommendation, {
+      fileFingerprint: selectedFileFingerprint,
+    });
+  }, [onClassificationChange, recommendation, selectedFileFingerprint]);
 
   useEffect(() => {
     if (!recommendation) {
@@ -399,6 +402,14 @@ export function TakeoffUploadForm({
   function handleFileSelection(file: File | null) {
     resetTransientState();
 
+    const nextFingerprint = file ? toFileFingerprint(file) : "";
+    const isSameFileSelection =
+      nextFingerprint.length > 0 && nextFingerprint === selectedFileFingerprint;
+
+    if (!isSameFileSelection) {
+      setManuallySelectedLevel(false);
+    }
+
     const validationMessage = validateTakeoffFileSupport(
       file,
       normalizedAllowedLevels
@@ -419,7 +430,6 @@ export function TakeoffUploadForm({
       return;
     }
 
-    const nextFingerprint = toFileFingerprint(file);
     const shouldKeepExistingKey =
       nextFingerprint === selectedFileFingerprint && stableIdempotencyKey;
 

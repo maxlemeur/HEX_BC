@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
@@ -56,6 +56,7 @@ function LaunchMetreDialogContent({
   const [classification, setClassification] =
     useState<TakeoffDocumentRecommendation | null>(null);
   const [manuallySelectedLevel, setManuallySelectedLevel] = useState(false);
+  const classifiedFileFingerprintRef = useRef("");
   const focusStayButton = useCallback((button: HTMLButtonElement | null) => {
     button?.focus();
   }, []);
@@ -274,10 +275,21 @@ function LaunchMetreDialogContent({
                   compact
                   onSubmittingChange={setIsUploading}
                   onSuccess={handleSuccess}
-                  onClassificationChange={(nextClassification) => {
+                  onClassificationChange={(nextClassification, context) => {
+                    const isNewFileSelection =
+                      context.fileFingerprint !==
+                      classifiedFileFingerprintRef.current;
+
+                    classifiedFileFingerprintRef.current =
+                      context.fileFingerprint;
                     setClassification(nextClassification);
+
+                    if (isNewFileSelection) {
+                      setManuallySelectedLevel(false);
+                    }
+
                     if (
-                      !manuallySelectedLevel &&
+                      (isNewFileSelection || !manuallySelectedLevel) &&
                       (nextClassification?.recommendedLevel === "B" ||
                         nextClassification?.recommendedLevel === "C")
                     ) {
