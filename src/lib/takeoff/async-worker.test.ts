@@ -99,10 +99,12 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
         };
       }
     ),
-    acquireBatchReconcileLease: vi.fn(async () => ({
-      claimed: false,
-      attemptCount: null,
-    })),
+    acquireBatchReconcileLease: vi.fn(
+      async (): Promise<{ claimed: boolean; attemptCount: number | null }> => ({
+        claimed: false,
+        attemptCount: null,
+      })
+    ),
     scheduleReconcile: vi.fn(
       async (input: { jobId: string; tenantId: string; dueAtIso: string }) => {
         state.reconcileCalls.push(input);

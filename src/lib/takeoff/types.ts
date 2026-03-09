@@ -49,6 +49,16 @@ export const TAKEOFF_PROVIDER_BATCH_STATES = [
 export type TakeoffProviderBatchState =
   (typeof TAKEOFF_PROVIDER_BATCH_STATES)[number];
 
+export const TAKEOFF_JOB_OPERATOR_STATES = [
+  "none",
+  "submitted_to_provider",
+  "awaiting_provider_result",
+  "provider_failed",
+  "orphan_to_reconcile",
+] as const;
+export type TakeoffJobOperatorState =
+  (typeof TAKEOFF_JOB_OPERATOR_STATES)[number];
+
 export const TAKEOFF_JOB_LIST_PERIODS = ["7d", "30d", "90d"] as const;
 export type TakeoffJobListPeriod = (typeof TAKEOFF_JOB_LIST_PERIODS)[number];
 
@@ -106,6 +116,14 @@ export type TakeoffJobSummary = {
   error_message: string | null;
   next_retry_at: string | null;
   last_error_at: string | null;
+  provider_reconcile_due_at?: string | null;
+  provider_reconcile_attempt_count?: number;
+  provider_reconcile_lease_expires_at?: string | null;
+  operator_state?: TakeoffJobOperatorState | null;
+  operator_state_label?: string | null;
+  can_reconcile?: boolean;
+  can_cancel?: boolean;
+  can_resubmit?: boolean;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -271,6 +289,8 @@ export type TakeoffJobDetailResponse = {
 
 export type TakeoffJobActionResponse = {
   job: TakeoffJobSummary;
+  command?: "retry" | "cancel" | "reconcile" | "resubmit";
+  outcome?: "applied" | "noop";
 };
 
 export type TakeoffApplyResponse = {
@@ -1095,6 +1115,8 @@ export type TakeoffActivityCenterJobRow = {
   processingStrategy: TakeoffProcessingStrategy | null;
   providerBatchState: TakeoffProviderBatchState | null;
   providerBatchUpdatedAt: string | null;
+  providerReconcileDueAt?: string | null;
+  providerReconcileLeaseExpiresAt?: string | null;
   statusLabel: string;
   statusRaw:
     | "queued"
@@ -1105,6 +1127,11 @@ export type TakeoffActivityCenterJobRow = {
     | "completed"
     | string;
   technicalStatusRaw: TakeoffJobStatus | string;
+  operatorState?: TakeoffJobOperatorState | null;
+  operatorStateLabel?: string | null;
+  canReconcile?: boolean;
+  canCancel?: boolean;
+  canResubmit?: boolean;
   itemCount: number;
   coveragePercent: number;
   exceptionCount: number;

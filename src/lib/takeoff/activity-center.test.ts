@@ -151,6 +151,12 @@ function createSupabaseMock() {
       source_file_type: "application/pdf",
       level: "A",
       status: "completed",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_batch_updated_at: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_lease_expires_at: null,
       created_at: "2026-03-06T10:30:00.000Z",
       retry_count: 0,
       tenant_id: TENANT_ID,
@@ -162,6 +168,12 @@ function createSupabaseMock() {
       source_file_type: "application/pdf",
       level: "A",
       status: "applied",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_batch_updated_at: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_lease_expires_at: null,
       created_at: "2026-03-06T09:30:00.000Z",
       retry_count: 0,
       tenant_id: TENANT_ID,
@@ -174,7 +186,11 @@ function createSupabaseMock() {
       level: "A",
       status: "processing",
       processing_strategy: "batch",
+      provider_batch_id: "batch-job-c",
       provider_batch_state: "running",
+      provider_batch_updated_at: "2026-03-06T08:31:00.000Z",
+      provider_reconcile_due_at: null,
+      provider_reconcile_lease_expires_at: null,
       created_at: "2026-03-06T08:30:00.000Z",
       retry_count: 0,
       tenant_id: TENANT_ID,
@@ -331,6 +347,7 @@ describe("listActivityCenterJobs", () => {
     vi.mocked(assertTakeoffEnabled).mockResolvedValue(undefined);
     vi.mocked(getAuthenticatedContext).mockResolvedValue({
       tenantId: TENANT_ID,
+      tenantRole: "admin",
       supabase: createSupabaseMock() as never,
     } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
   });
@@ -397,6 +414,8 @@ describe("listActivityCenterJobs", () => {
         statusRaw: "provider_pending",
         technicalStatusRaw: "processing",
         statusLabel: "En attente provider",
+        operatorState: "awaiting_provider_result",
+        canReconcile: true,
       })
     );
   });

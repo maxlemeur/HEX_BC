@@ -20,7 +20,8 @@ import {
   cancelTakeoffJob,
   isTakeoffApiError,
   patchTakeoffItems,
-  retryTakeoffJob,
+  reconcileTakeoffJob,
+  resubmitTakeoffJob,
 } from "@/lib/takeoff/client";
 import { TAKEOFF_LOW_CONFIDENCE_THRESHOLD_FLAG_KEY } from "@/lib/takeoff/constants";
 import { DEFAULT_LOW_CONFIDENCE_THRESHOLD } from "@/lib/takeoff/guards";
@@ -32,6 +33,7 @@ import {
 } from "@/lib/takeoff/types";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import {
+  getOperatorStateBadgeVariant,
   getProcessingStrategyLabel,
   getProviderBatchStateLabel,
 } from "@/components/takeoff/takeoff-job-list-shared";
@@ -491,7 +493,8 @@ export default function TakeoffJobMonitor({
   const { data, error, errorStatus, isPolling, refetch } =
     useTakeoffJobPolling(jobId);
 
-  const [retryState, setRetryState] = useState<ActionState>("idle");
+  const [reconcileState, setReconcileState] = useState<ActionState>("idle");
+  const [resubmitState, setResubmitState] = useState<ActionState>("idle");
   const [cancelState, setCancelState] = useState<ActionState>("idle");
   const [actionError, setActionError] = useState<string | null>(null);
   const [applyState, setApplyState] = useState<ActionState>("idle");
@@ -501,17 +504,36 @@ export default function TakeoffJobMonitor({
     null
   );
 
-  const handleRetry = useCallback(async () => {
-    setRetryState("loading");
+  const handleReconcile = useCallback(async () => {
+    setReconcileState("loading");
     setActionError(null);
     try {
-      await retryTakeoffJob(jobId);
-      setRetryState("idle");
+      await reconcileTakeoffJob(jobId);
+      setReconcileState("idle");
       refetch();
     } catch (err) {
-      setRetryState("error");
+      setReconcileState("error");
       setActionError(
-        isTakeoffApiError(err) ? err.message : "Impossible de relancer cette extraction."
+        isTakeoffApiError(err)
+          ? err.message
+          : "Impossible de relancer le reconcile de cette extraction."
+      );
+    }
+  }, [jobId, refetch]);
+
+  const handleResubmit = useCallback(async () => {
+    setResubmitState("loading");
+    setActionError(null);
+    try {
+      await resubmitTakeoffJob(jobId);
+      setResubmitState("idle");
+      refetch();
+    } catch (err) {
+      setResubmitState("error");
+      setActionError(
+        isTakeoffApiError(err)
+          ? err.message
+          : "Impossible de resoumettre cette extraction."
       );
     }
   }, [jobId, refetch]);
@@ -659,10 +681,10 @@ export default function TakeoffJobMonitor({
   const job = data.job;
   const status = job.status;
   const isActive = status === "pending" || status === "processing";
-  const isFailed = status === "failed";
   const isCompleted = status === "completed";
-  const canRetry = isFailed && job.retry_count < TAKEOFF_JOB_MAX_RETRY_COUNT;
-  const canCancel = isActive;
+  const canReconcile = job.can_reconcile ?? false;
+  const canResubmit = job.can_resubmit ?? false;
+  const canCancel = job.can_cancel ?? isActive;
   const canOpenApplyWizard = isCompleted && includedItemsCount > 0;
 
   return (
@@ -674,6 +696,19 @@ export default function TakeoffJobMonitor({
             {isActive && <Spinner />}
             {getStatusLabel(status)}
           </span>
+          {job.operator_state && job.operator_state !== "none" ? (
+            <span
+              className={`status-badge status-inline ${
+                getOperatorStateBadgeVariant(job.operator_state) === "error"
+                  ? "status-canceled"
+                  : getOperatorStateBadgeVariant(job.operator_state) === "warning"
+                    ? "status-warning"
+                    : "status-sent"
+              }`}
+            >
+              {job.operator_state_label ?? job.operator_state}
+            </span>
+          ) : null}
         </div>
         <Link
           href={`/dashboard/estimates/${versionId}/takeoff/new`}
@@ -739,22 +774,33 @@ export default function TakeoffJobMonitor({
           </span>
         )}
 
-        {canRetry && (
+        {canReconcile && (
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={retryState === "loading"}
-            onClick={handleRetry}
+            disabled={reconcileState === "loading"}
+            onClick={handleReconcile}
           >
-            {retryState === "loading" ? "Relance..." : "Relancer"}
+            {reconcileState === "loading"
+              ? "Reconcile..."
+              : "Relancer reconcile"}
           </button>
         )}
 
-        {isFailed && !canRetry && (
+        {canResubmit ? (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={resubmitState === "loading"}
+            onClick={handleResubmit}
+          >
+            {resubmitState === "loading" ? "Resoumission..." : "Resoumettre"}
+          </button>
+        ) : status === "failed" && job.can_resubmit === false ? (
           <span className="text-xs text-[var(--slate-500)] self-center">
-            Nombre maximal de relances atteint
+            Aucune resoumission disponible pour ce job.
           </span>
-        )}
+        ) : null}
 
         {canCancel && (
           <button

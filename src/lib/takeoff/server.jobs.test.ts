@@ -17,6 +17,8 @@ import {
   getTakeoffJobDetails,
   listTakeoffJobs,
   parseListTakeoffJobsQuery,
+  reconcileTakeoffJobNow,
+  resubmitTakeoffJob,
   retryTakeoffJob,
 } from "@/lib/takeoff/server";
 
@@ -36,6 +38,14 @@ type TakeoffJobStoredRow = {
   tenant_id: string;
   status: string;
   level: string;
+  processing_strategy?: string | null;
+  provider_batch_id?: string | null;
+  provider_batch_state?: string | null;
+  provider_batch_updated_at?: string | null;
+  provider_reconcile_due_at?: string | null;
+  provider_reconcile_attempt_count?: number | null;
+  provider_reconcile_lease_token?: string | null;
+  provider_reconcile_lease_expires_at?: string | null;
   source_file_name: string | null;
   source_file_type: string | null;
   source_file_size_bytes: number | null;
@@ -121,6 +131,16 @@ function baseJob(
     tenant_id: tenantId,
     status: input.status ?? "failed",
     level: input.level ?? "A",
+    processing_strategy: input.processing_strategy ?? "sync",
+    provider_batch_id: input.provider_batch_id ?? null,
+    provider_batch_state: input.provider_batch_state ?? null,
+    provider_batch_updated_at: input.provider_batch_updated_at ?? null,
+    provider_reconcile_due_at: input.provider_reconcile_due_at ?? null,
+    provider_reconcile_attempt_count:
+      input.provider_reconcile_attempt_count ?? 0,
+    provider_reconcile_lease_token: input.provider_reconcile_lease_token ?? null,
+    provider_reconcile_lease_expires_at:
+      input.provider_reconcile_lease_expires_at ?? null,
     source_file_name: input.source_file_name ?? "niveau-a.csv",
     source_file_type: input.source_file_type ?? "text/csv",
     source_file_size_bytes: input.source_file_size_bytes ?? 1024,
@@ -892,6 +912,151 @@ describe("takeoff job server helpers (TKF-009)", () => {
     );
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it("resubmits failed jobs with a full operator reset", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          status: "failed",
+          retry_count: 1,
+          completed_at: "2026-02-25T08:00:00.000Z",
+          processing_strategy: "batch",
+          provider_batch_id: "batch-123",
+          provider_batch_state: "failed",
+          provider_batch_updated_at: "2026-02-25T07:59:00.000Z",
+          provider_reconcile_due_at: "2026-02-25T07:58:00.000Z",
+          provider_reconcile_attempt_count: 4,
+          provider_reconcile_lease_expires_at: "2026-02-25T07:58:30.000Z",
+        }),
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "engineer",
+    } as never);
+
+    const response = await resubmitTakeoffJob(JOB_ID);
+
+    expect(response.command).toBe("resubmit");
+    expect(response.outcome).toBe("applied");
+    expect(response.job.status).toBe("pending");
+    expect(response.job.retry_count).toBe(2);
+    expect(response.job.provider_batch_id).toBeNull();
+    expect(response.job.provider_reconcile_due_at).toBeNull();
+    expect(response.job.provider_reconcile_attempt_count).toBe(0);
+    expect(supabase.__state.auditLogs.at(-1)?.action).toBe(
+      "takeoff.job.resubmitted"
+    );
+  });
+
+  it("reconciles failed timeout batch jobs instead of resubmitting them", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          status: "failed",
+          processing_strategy: "batch",
+          provider_batch_id: "batch-456",
+          provider_batch_state: "running",
+          provider_batch_updated_at: "2026-02-25T07:59:00.000Z",
+          provider_reconcile_due_at: "2026-02-25T07:58:00.000Z",
+          provider_reconcile_attempt_count: 3,
+          error_code: "AI_TIMEOUT",
+          error_message: "Timed out waiting for reconcile",
+        }),
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await reconcileTakeoffJobNow(JOB_ID);
+
+    expect(response.command).toBe("reconcile");
+    expect(response.outcome).toBe("applied");
+    expect(response.job.status).toBe("processing");
+    expect(response.job.error_code).toBeNull();
+    expect(response.job.provider_reconcile_due_at).toBeTruthy();
+    expect(supabase.__state.auditLogs.at(-1)?.action).toBe(
+      "takeoff.job.reconcile_requested"
+    );
+  });
+
+  it("returns noop when reconcile is already leased by another worker", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          status: "processing",
+          completed_at: null,
+          error_code: null,
+          error_message: null,
+          processing_strategy: "batch",
+          provider_batch_id: "batch-789",
+          provider_batch_state: "running",
+          provider_batch_updated_at: "2026-02-25T08:00:00.000Z",
+          provider_reconcile_due_at: "2026-02-25T08:00:00.000Z",
+          provider_reconcile_attempt_count: 2,
+          provider_reconcile_lease_expires_at: "2099-02-25T08:01:30.000Z",
+        }),
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await reconcileTakeoffJobNow(JOB_ID);
+
+    expect(response.command).toBe("reconcile");
+    expect(response.outcome).toBe("noop");
+    expect(response.job.status).toBe("processing");
+    expect(supabase.__state.jobsById.get(JOB_ID)?.provider_reconcile_due_at).toBe(
+      "2026-02-25T08:00:00.000Z"
+    );
+  });
+
+  it("blocks operator actions for viewer role", async () => {
+    const supabase = createSupabaseMock({
+      jobs: [
+        baseJob({
+          status: "failed",
+          processing_strategy: "batch",
+          provider_batch_id: "batch-123",
+          provider_batch_state: "running",
+          error_code: "AI_TIMEOUT",
+        }),
+      ],
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase,
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      tenantRole: "viewer",
+    } as never);
+
+    await expect(resubmitTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+    });
+    await expect(reconcileTakeoffJobNow(JOB_ID)).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+    });
+    await expect(cancelTakeoffJob(JOB_ID)).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+    });
   });
 
   it("cancels pending jobs and logs audit event", async () => {

@@ -7,7 +7,8 @@ import TakeoffJobMonitor from "@/components/takeoff/TakeoffJobMonitor";
 const useTakeoffJobPollingMock = vi.hoisted(() => vi.fn());
 const applyTakeoffJobMock = vi.hoisted(() => vi.fn());
 const cancelTakeoffJobMock = vi.hoisted(() => vi.fn());
-const retryTakeoffJobMock = vi.hoisted(() => vi.fn());
+const reconcileTakeoffJobMock = vi.hoisted(() => vi.fn());
+const resubmitTakeoffJobMock = vi.hoisted(() => vi.fn());
 const acquireEstimateDraftLockMock = vi.hoisted(() => vi.fn());
 const renewEstimateDraftLockMock = vi.hoisted(() => vi.fn());
 const releaseEstimateDraftLockMock = vi.hoisted(() => vi.fn());
@@ -19,7 +20,8 @@ vi.mock("@/lib/takeoff/use-takeoff-job-polling", () => ({
 vi.mock("@/lib/takeoff/client", () => ({
   applyTakeoffJob: applyTakeoffJobMock,
   cancelTakeoffJob: cancelTakeoffJobMock,
-  retryTakeoffJob: retryTakeoffJobMock,
+  reconcileTakeoffJob: reconcileTakeoffJobMock,
+  resubmitTakeoffJob: resubmitTakeoffJobMock,
   isTakeoffApiError: (error: unknown) =>
     Boolean(
       error &&
@@ -126,6 +128,14 @@ function createJobDetailResponse(
       error_message: null,
       next_retry_at: null,
       last_error_at: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_expires_at: null,
+      operator_state: "none",
+      operator_state_label: null,
+      can_reconcile: false,
+      can_cancel: status === "pending" || status === "processing",
+      can_resubmit: status === "failed" || status === "canceled",
       started_at: "2026-02-25T10:00:00.000Z",
       completed_at: "2026-02-25T10:00:10.000Z",
       created_at: "2026-02-25T10:00:00.000Z",
@@ -173,6 +183,8 @@ describe("TakeoffJobMonitor", () => {
     releaseEstimateDraftLockMock.mockResolvedValue({
       released: true,
     });
+    reconcileTakeoffJobMock.mockResolvedValue({ job: { id: "job" } });
+    resubmitTakeoffJobMock.mockResolvedValue({ job: { id: "job" } });
   });
 
   afterEach(() => {
@@ -303,5 +315,44 @@ describe("TakeoffJobMonitor", () => {
     expect(
       screen.getAllByText("La version cible est verrouillee par Marie.")
     ).not.toHaveLength(0);
+  });
+
+  it("uses operator remediation actions from the job contract", async () => {
+    const refetch = vi.fn();
+    const detail = createJobDetailResponse("processing");
+    detail.job.processing_strategy = "batch";
+    detail.job.provider_batch_id = "batch-123";
+    detail.job.provider_batch_state = "running";
+    detail.job.operator_state = "orphan_to_reconcile";
+    detail.job.operator_state_label = "Reprise reconcile requise";
+    detail.job.can_reconcile = true;
+    detail.job.can_cancel = true;
+    detail.job.can_resubmit = false;
+
+    useTakeoffJobPollingMock.mockReturnValue({
+      data: detail,
+      error: null,
+      errorStatus: null,
+      isPolling: false,
+      refetch,
+    });
+
+    render(
+      <TakeoffJobMonitor
+        jobId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        versionId="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+      />
+    );
+
+    expect(screen.getByText("Reprise reconcile requise")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /relancer reconcile/i }));
+
+    await waitFor(() => {
+      expect(reconcileTakeoffJobMock).toHaveBeenCalledWith(
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      );
+      expect(refetch).toHaveBeenCalled();
+    });
   });
 });

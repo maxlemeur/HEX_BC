@@ -620,6 +620,26 @@ export async function retryTakeoffJob(
   );
 }
 
+export async function reconcileTakeoffJob(
+  jobId: string
+): Promise<TakeoffJobActionResponse> {
+  return requestTakeoffJson<TakeoffJobActionResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/reconcile`,
+    { method: "POST" },
+    "Impossible de relancer le reconcile du job takeoff."
+  );
+}
+
+export async function resubmitTakeoffJob(
+  jobId: string
+): Promise<TakeoffJobActionResponse> {
+  return requestTakeoffJson<TakeoffJobActionResponse>(
+    `/api/takeoff/jobs/${encodeURIComponent(jobId)}/resubmit`,
+    { method: "POST" },
+    "Impossible de resoumettre le job takeoff."
+  );
+}
+
 export async function cancelTakeoffJob(
   jobId: string
 ): Promise<TakeoffJobActionResponse> {

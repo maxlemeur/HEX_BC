@@ -1,4 +1,5 @@
 import type {
+  TakeoffJobOperatorState,
   TakeoffProcessingStrategy,
   TakeoffProviderBatchState,
 } from "@/lib/takeoff/types";
@@ -246,6 +247,17 @@ export function getProviderBatchStateBadgeVariant(
   }
   if (state === "unknown") return "warning";
   if (state === "submitted" || state === "pending" || state === "running") {
+    return "info";
+  }
+  return "neutral";
+}
+
+export function getOperatorStateBadgeVariant(
+  state: TakeoffJobOperatorState | null | undefined
+): "neutral" | "info" | "success" | "warning" | "error" {
+  if (state === "provider_failed") return "error";
+  if (state === "orphan_to_reconcile") return "warning";
+  if (state === "submitted_to_provider" || state === "awaiting_provider_result") {
     return "info";
   }
   return "neutral";

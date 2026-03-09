@@ -16,6 +16,8 @@ export const TAKEOFF_AUDIT_ACTIONS = [
   "takeoff.job.completed",
   "takeoff.job.failed",
   "takeoff.job.retried",
+  "takeoff.job.reconcile_requested",
+  "takeoff.job.resubmitted",
   "takeoff.job.canceled",
   "takeoff.item.excluded",
   "takeoff.item.modified",
@@ -141,6 +143,28 @@ const takeoffAuditMetadataSchemas = {
       reason: nullableReasonSchema.default(null),
     })
     .strict(),
+  "takeoff.job.reconcile_requested": z
+    .object({
+      status: z.literal("reconcile_requested").default("reconcile_requested"),
+      reason: nullableReasonSchema.default(null),
+      requested_by_role: z.enum(["admin", "engineer"]).nullable().default(null),
+      from_status: nullableCodeSchema.default(null),
+      from_provider_batch_state: nullableCodeSchema.default(null),
+      outcome: z.enum(["applied", "noop"]).default("applied"),
+    })
+    .strict(),
+  "takeoff.job.resubmitted": z
+    .object({
+      status: z.literal("resubmitted").default("resubmitted"),
+      from_attempt: positiveIntSchema.default(1),
+      to_attempt: positiveIntSchema.default(2),
+      reason: nullableReasonSchema.default(null),
+      requested_by_role: z.enum(["admin", "engineer"]).nullable().default(null),
+      from_status: nullableCodeSchema.default(null),
+      from_provider_batch_state: nullableCodeSchema.default(null),
+      outcome: z.enum(["applied", "noop"]).default("applied"),
+    })
+    .strict(),
   "takeoff.job.canceled": z
     .object({
       status: z.literal("canceled").default("canceled"),
@@ -263,6 +287,22 @@ export type BuildTakeoffAuditMetadataInputByAction = {
     from_attempt?: number;
     to_attempt?: number;
     reason?: string | null;
+  };
+  "takeoff.job.reconcile_requested": {
+    reason?: string | null;
+    requested_by_role?: "admin" | "engineer" | null;
+    from_status?: string | null;
+    from_provider_batch_state?: string | null;
+    outcome?: "applied" | "noop";
+  };
+  "takeoff.job.resubmitted": {
+    from_attempt?: number;
+    to_attempt?: number;
+    reason?: string | null;
+    requested_by_role?: "admin" | "engineer" | null;
+    from_status?: string | null;
+    from_provider_batch_state?: string | null;
+    outcome?: "applied" | "noop";
   };
   "takeoff.job.canceled": {
     reason?: string | null;
@@ -393,6 +433,30 @@ export const takeoffAuditMetadataBuilders: TakeoffAuditMetadataBuilders = {
       from_attempt: input.from_attempt,
       to_attempt: input.to_attempt,
       reason: normalizeNullableString(input.reason),
+    }),
+  "takeoff.job.reconcile_requested": (input) =>
+    takeoffAuditMetadataSchemas["takeoff.job.reconcile_requested"].parse({
+      status: "reconcile_requested",
+      reason: normalizeNullableString(input.reason),
+      requested_by_role: input.requested_by_role ?? null,
+      from_status: normalizeNullableString(input.from_status),
+      from_provider_batch_state: normalizeNullableString(
+        input.from_provider_batch_state
+      ),
+      outcome: input.outcome ?? "applied",
+    }),
+  "takeoff.job.resubmitted": (input) =>
+    takeoffAuditMetadataSchemas["takeoff.job.resubmitted"].parse({
+      status: "resubmitted",
+      from_attempt: input.from_attempt,
+      to_attempt: input.to_attempt,
+      reason: normalizeNullableString(input.reason),
+      requested_by_role: input.requested_by_role ?? null,
+      from_status: normalizeNullableString(input.from_status),
+      from_provider_batch_state: normalizeNullableString(
+        input.from_provider_batch_state
+      ),
+      outcome: input.outcome ?? "applied",
     }),
   "takeoff.job.canceled": (input) =>
     takeoffAuditMetadataSchemas["takeoff.job.canceled"].parse({

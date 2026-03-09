@@ -7,10 +7,10 @@ import { useSWRConfig } from "swr";
 import {
   cancelTakeoffJob,
   isTakeoffApiError,
-  retryTakeoffJob,
+  reconcileTakeoffJob,
+  resubmitTakeoffJob,
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
-import { TAKEOFF_JOB_MAX_RETRY_COUNT } from "@/lib/takeoff/types";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
@@ -19,6 +19,7 @@ import {
   formatCount,
   formatTimestamp,
   getConfidenceBadgeVariant,
+  getOperatorStateBadgeVariant,
   getProcessingStrategyLabel,
   getProviderBatchStateBadgeVariant,
   getProviderBatchStateLabel,
@@ -34,7 +35,7 @@ type Props = {
   pageSize: number;
 };
 
-type ActionKind = "retry" | "cancel";
+type ActionKind = "reconcile" | "resubmit" | "cancel";
 
 export default function TakeoffJobsTable({
   projectId,
@@ -55,8 +56,10 @@ export default function TakeoffJobsTable({
       setPendingActions((current) => ({ ...current, [jobId]: action }));
 
       try {
-        if (action === "retry") {
-          await retryTakeoffJob(jobId);
+        if (action === "reconcile") {
+          await reconcileTakeoffJob(jobId);
+        } else if (action === "resubmit") {
+          await resubmitTakeoffJob(jobId);
         } else {
           await cancelTakeoffJob(jobId);
         }
@@ -71,8 +74,10 @@ export default function TakeoffJobsTable({
         setActionError(
           isTakeoffApiError(err)
             ? err.message
-            : action === "retry"
-              ? "Impossible de relancer cette extraction."
+            : action === "reconcile"
+              ? "Impossible de relancer le reconcile de cette extraction."
+              : action === "resubmit"
+                ? "Impossible de resoumettre cette extraction."
               : "Impossible d'annuler cette extraction."
         );
       } finally {
@@ -91,7 +96,8 @@ export default function TakeoffJobsTable({
   const renderJobActions = (
     job: TakeoffActivityCenterResponse["jobs"][number],
     pendingAction: ActionKind | undefined,
-    canRetry: boolean,
+    canReconcile: boolean,
+    canResubmit: boolean,
     canCancel: boolean,
     reviewEnabled: boolean
   ) => (
@@ -110,16 +116,34 @@ export default function TakeoffJobsTable({
           Review
         </Link>
       ) : null}
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm"
-        onClick={() => {
-          void handleAction(job.jobId, "retry");
-        }}
-        disabled={!canRetry || Boolean(pendingAction)}
-      >
-        {pendingAction === "retry" ? "Relance..." : "Relancer"}
-      </button>
+      {canReconcile ? (
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => {
+            void handleAction(job.jobId, "reconcile");
+          }}
+          disabled={Boolean(pendingAction)}
+        >
+          {pendingAction === "reconcile"
+            ? "Reconcile..."
+            : "Relancer reconcile"}
+        </button>
+      ) : null}
+      {canResubmit ? (
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={() => {
+            void handleAction(job.jobId, "resubmit");
+          }}
+          disabled={Boolean(pendingAction)}
+        >
+          {pendingAction === "resubmit"
+            ? "Resoumission..."
+            : "Resoumettre"}
+        </button>
+      ) : null}
       <button
         type="button"
         className="btn btn-secondary btn-sm"
@@ -191,12 +215,9 @@ export default function TakeoffJobsTable({
           <div className="space-y-3 p-4 md:hidden">
             {jobs.map((job) => {
               const pendingAction = pendingActions[job.jobId];
-              const canRetry =
-                job.technicalStatusRaw === "failed" &&
-                job.retryCount < TAKEOFF_JOB_MAX_RETRY_COUNT;
-              const canCancel =
-                job.technicalStatusRaw === "pending" ||
-                job.technicalStatusRaw === "processing";
+              const canReconcile = job.canReconcile ?? false;
+              const canResubmit = job.canResubmit ?? false;
+              const canCancel = job.canCancel ?? false;
               const reviewEnabled =
                 job.statusRaw === "completed" ||
                 job.statusRaw === "review_required";
@@ -247,6 +268,14 @@ export default function TakeoffJobsTable({
                         state: job.providerBatchState,
                       })}
                     </Badge>
+                    {job.operatorState && job.operatorState !== "none" ? (
+                      <Badge
+                        variant={getOperatorStateBadgeVariant(job.operatorState)}
+                        size="sm"
+                      >
+                        {job.operatorStateLabel ?? job.operatorState}
+                      </Badge>
+                    ) : null}
                     {job.neverApplied ? (
                       <Badge variant="warning" size="sm">
                         Jamais applique
@@ -305,7 +334,8 @@ export default function TakeoffJobsTable({
                     {renderJobActions(
                       job,
                       pendingAction,
-                      canRetry,
+                      canReconcile,
+                      canResubmit,
                       canCancel,
                       reviewEnabled
                     )}
@@ -336,12 +366,9 @@ export default function TakeoffJobsTable({
               <tbody>
                 {jobs.map((job) => {
                   const pendingAction = pendingActions[job.jobId];
-                  const canRetry =
-                    job.technicalStatusRaw === "failed" &&
-                    job.retryCount < TAKEOFF_JOB_MAX_RETRY_COUNT;
-                  const canCancel =
-                    job.technicalStatusRaw === "pending" ||
-                    job.technicalStatusRaw === "processing";
+                  const canReconcile = job.canReconcile ?? false;
+                  const canResubmit = job.canResubmit ?? false;
+                  const canCancel = job.canCancel ?? false;
                   const reviewEnabled =
                     job.statusRaw === "completed" ||
                     job.statusRaw === "review_required";
@@ -377,6 +404,17 @@ export default function TakeoffJobsTable({
                             state: job.providerBatchState,
                           })}
                         </Badge>
+                        {job.operatorState && job.operatorState !== "none" ? (
+                          <Badge
+                            variant={getOperatorStateBadgeVariant(
+                              job.operatorState
+                            )}
+                            size="sm"
+                            className="ml-1"
+                          >
+                            {job.operatorStateLabel ?? job.operatorState}
+                          </Badge>
+                        ) : null}
                       </td>
                       <td>
                         <span
@@ -427,7 +465,8 @@ export default function TakeoffJobsTable({
                         {renderJobActions(
                           job,
                           pendingAction,
-                          canRetry,
+                          canReconcile,
+                          canResubmit,
                           canCancel,
                           reviewEnabled
                         )}

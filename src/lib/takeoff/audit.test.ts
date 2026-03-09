@@ -60,6 +60,8 @@ describe("takeoff audit helpers", () => {
       "takeoff.job.completed",
       "takeoff.job.failed",
       "takeoff.job.retried",
+      "takeoff.job.reconcile_requested",
+      "takeoff.job.resubmitted",
       "takeoff.job.canceled",
       "takeoff.item.excluded",
       "takeoff.item.modified",
@@ -145,6 +147,26 @@ describe("takeoff audit helpers", () => {
       error_code: null,
       error_message: "provider timeout",
       retryable: false,
+    });
+  });
+
+  it("normalizes metadata for takeoff.job.reconcile_requested", () => {
+    const metadata =
+      takeoffAuditMetadataBuilders["takeoff.job.reconcile_requested"]({
+        reason: " manual_reconcile ",
+        requested_by_role: "admin",
+        from_status: " processing ",
+        from_provider_batch_state: " running ",
+        outcome: "applied",
+      });
+
+    expect(metadata).toEqual({
+      status: "reconcile_requested",
+      reason: "manual_reconcile",
+      requested_by_role: "admin",
+      from_status: "processing",
+      from_provider_batch_state: "running",
+      outcome: "applied",
     });
   });
 
