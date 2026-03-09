@@ -11,6 +11,7 @@ import {
 } from "@/components/estimates/SealIntegrityBadge";
 import { isFeatureEnabled } from "@/lib/feature-flags";
 import { computeEstimateTotals } from "@/lib/estimate-calculations";
+import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import { verifyEstimateSeal } from "@/lib/estimates/server";
 import { normalizeEstimateCurrency } from "@/lib/money";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -42,23 +43,6 @@ type PrintPageProps = {
   params?: Promise<{ versionId: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
-
-function toSafeErrorLogDetails(error: unknown) {
-  if (error instanceof Error) {
-    const digest =
-      "digest" in error && typeof error.digest === "string" ? error.digest : null;
-
-    return {
-      errorName: error.name,
-      errorMessage: error.message,
-      ...(digest ? { errorDigest: digest } : {}),
-    };
-  }
-
-  return {
-    errorMessage: typeof error === "string" ? error : "Unknown error",
-  };
-}
 
 function formatPrintDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -261,7 +245,7 @@ export default async function PrintEstimatePage({
     } catch (error) {
       console.error("Failed to verify estimate seal for print", {
         versionId,
-        ...toSafeErrorLogDetails(error),
+        ...toSafeEstimateErrorLogDetails(error),
       });
       sealState = "error";
     }

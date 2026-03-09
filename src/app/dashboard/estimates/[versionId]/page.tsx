@@ -31,6 +31,7 @@ import {
   getEstimateApprovalSummary,
   listEstimateApprovalDecisionJournal,
 } from "@/lib/estimates/rules-engine";
+import { toSafeEstimateErrorLogDetails } from "@/lib/estimates/logging";
 import {
   listEstimateProjectVersions,
   listEstimateVersionVariants,
@@ -70,23 +71,6 @@ const STATUS_BADGE_STYLES: Record<string, StatusBadgeStyle> = {
   accepted: { bg: "#059669", color: "#fff", label: "Accepté" },
   archived: { bg: "var(--slate-500)", color: "#fff", label: "Archivé" },
 };
-
-function toSafeErrorLogDetails(error: unknown) {
-  if (error instanceof Error) {
-    const digest =
-      "digest" in error && typeof error.digest === "string" ? error.digest : null;
-
-    return {
-      errorName: error.name,
-      errorMessage: error.message,
-      ...(digest ? { errorDigest: digest } : {}),
-    };
-  }
-
-  return {
-    errorMessage: typeof error === "string" ? error : "Unknown error",
-  };
-}
 
 function StatusBadge({ status }: { status: string }) {
   const style = STATUS_BADGE_STYLES[status] ?? STATUS_BADGE_STYLES.draft;
@@ -310,7 +294,7 @@ export default async function EstimateDetailPage({
     } catch (error) {
       console.error("Failed to verify estimate seal", {
         versionId,
-        ...toSafeErrorLogDetails(error),
+        ...toSafeEstimateErrorLogDetails(error),
       });
       sealState = "error";
     }
