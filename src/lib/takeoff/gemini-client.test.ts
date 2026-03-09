@@ -36,7 +36,7 @@ describe("callGeminiStructured", () => {
           tenantId: "tenant-1",
           level: "A",
           promptVersion: "takeoff-a-v1",
-          model: "gemini-3-pro-preview",
+          model: "gemini-3.1-pro-preview",
         },
       },
       {
@@ -63,7 +63,7 @@ describe("callGeminiStructured", () => {
       totalTokens: 100_000,
     });
     expect(result.costCents).toBeGreaterThanOrEqual(0);
-    expect(result.model).toBe("gemini-3-pro-preview");
+    expect(result.model).toBe("gemini-3.1-pro-preview");
     expect(result.promptVersion).toBe("takeoff-a-v1");
     expect(logger).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -86,7 +86,7 @@ describe("callGeminiStructured", () => {
         schema: TestSchema,
         context: {
           level: "C",
-          model: "gemini-3-pro-preview",
+          model: "gemini-3.1-pro-preview",
         },
       },
       {
@@ -110,6 +110,80 @@ describe("callGeminiStructured", () => {
       totalTokens: 350,
     });
     expect(result.tokenCount).toBe(350);
+  });
+
+  it("uses Batch delivery when requested", async () => {
+    const invoke = vi.fn();
+    const invokeBatch = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        items: [{ designation: "Cable U1000", quantity: 42, unit: "ml" }],
+      }),
+      usage: {
+        promptTokenCount: 100,
+        candidatesTokenCount: 50,
+        totalTokenCount: 150,
+      },
+      batchJobName: "batches/test-1",
+      batchState: "JOB_STATE_SUCCEEDED",
+    });
+
+    const result = await callGeminiStructured(
+      {
+        prompt: "Extract takeoff lines",
+        schema: TestSchema,
+        deliveryMode: "batch",
+        context: {
+          model: "gemini-3-flash-preview",
+        },
+      },
+      {
+        invoke,
+        invokeBatch,
+      }
+    );
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(invokeBatch).toHaveBeenCalledTimes(1);
+    expect(result.data.items[0]?.designation).toBe("Cable U1000");
+    expect(result.providerBatchId).toBe("batches/test-1");
+    expect(result.providerBatchStateRaw).toBe("JOB_STATE_SUCCEEDED");
+  });
+
+  it("does not retry batch mode after a batch has been submitted", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const invokeBatch = vi.fn().mockImplementation(async (input) => {
+      await input.onBatchLifecycleEvent?.({
+        provider: "gemini",
+        providerBatchId: "batches/test-2",
+        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
+        observedAt: "2026-03-09T10:00:00.000Z",
+        isTerminal: false,
+      });
+
+      throw {
+        code: "ETIMEDOUT",
+        message: "timed out",
+      };
+    });
+
+    await expect(
+      callGeminiStructured(
+        {
+          prompt: "Extract takeoff lines",
+          schema: TestSchema,
+          deliveryMode: "batch",
+        },
+        {
+          invokeBatch,
+          sleep,
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "AI_TIMEOUT",
+    });
+
+    expect(invokeBatch).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   it("honors explicit timeout values above 180 seconds", async () => {

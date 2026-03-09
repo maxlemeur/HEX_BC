@@ -1,3 +1,8 @@
+import type {
+  TakeoffProcessingStrategy,
+  TakeoffProviderBatchState,
+} from "@/lib/takeoff/types";
+
 export const TAKEOFF_MAX_LIST_OFFSET = 10_000;
 export const TAKEOFF_LIST_REFRESH_INTERVAL_MS = 20_000;
 export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
@@ -173,6 +178,61 @@ export function getBusinessLevelLabel(level: string): string {
 
 export function getBusinessStatusLabel(status: string): string {
   return BUSINESS_STATUS_LABEL_MAP[status] ?? status;
+}
+
+const PROCESSING_STRATEGY_LABEL_MAP: Record<TakeoffProcessingStrategy, string> = {
+  sync: "Synchrone",
+  batch: "Batch provider",
+};
+
+const PROVIDER_BATCH_STATE_LABEL_MAP: Record<TakeoffProviderBatchState, string> = {
+  submitted: "Soumis au provider",
+  pending: "En file provider",
+  running: "Traitement provider",
+  succeeded: "Provider termine",
+  failed: "Echec provider",
+  cancelled: "Provider annule",
+  expired: "Provider expire",
+  unknown: "Etat provider inconnu",
+};
+
+export function getProcessingStrategyLabel(
+  strategy: TakeoffProcessingStrategy | null | undefined
+): string {
+  if (!strategy) {
+    return "Strategie inconnue";
+  }
+
+  return PROCESSING_STRATEGY_LABEL_MAP[strategy] ?? strategy;
+}
+
+export function getProviderBatchStateLabel(input: {
+  strategy: TakeoffProcessingStrategy | null | undefined;
+  state: TakeoffProviderBatchState | null | undefined;
+}): string {
+  if (input.strategy === "sync") {
+    return "Hors batch";
+  }
+
+  if (!input.state) {
+    return "Non soumis";
+  }
+
+  return PROVIDER_BATCH_STATE_LABEL_MAP[input.state] ?? input.state;
+}
+
+export function getProviderBatchStateBadgeVariant(
+  state: TakeoffProviderBatchState | null | undefined
+): "neutral" | "info" | "success" | "warning" | "error" {
+  if (state === "succeeded") return "success";
+  if (state === "failed" || state === "cancelled" || state === "expired") {
+    return "error";
+  }
+  if (state === "unknown") return "warning";
+  if (state === "submitted" || state === "pending" || state === "running") {
+    return "info";
+  }
+  return "neutral";
 }
 
 export function getConfidenceLabel(confidence: number | null): string {

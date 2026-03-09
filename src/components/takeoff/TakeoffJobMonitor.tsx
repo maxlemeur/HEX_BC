@@ -31,6 +31,10 @@ import {
   type TakeoffJobSummary,
 } from "@/lib/takeoff/types";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import {
+  getProcessingStrategyLabel,
+  getProviderBatchStateLabel,
+} from "@/components/takeoff/takeoff-job-list-shared";
 
 type TakeoffJobMonitorProps = {
   jobId: string;
@@ -358,8 +362,43 @@ function JobDetailsGrid({ job }: { job: TakeoffJobSummary }) {
         <dd className="mt-1 text-sm">{job.level}</dd>
       </div>
       <div>
+        <dt className="text-xs font-medium text-[var(--slate-500)]">
+          Strategie
+        </dt>
+        <dd className="mt-1 text-sm">
+          {getProcessingStrategyLabel(job.processing_strategy)}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs font-medium text-[var(--slate-500)]">
+          Etat provider
+        </dt>
+        <dd className="mt-1 text-sm">
+          {getProviderBatchStateLabel({
+            strategy: job.processing_strategy,
+            state: job.provider_batch_state,
+          })}
+        </dd>
+      </div>
+      <div>
+        <dt className="text-xs font-medium text-[var(--slate-500)]">
+          Maj provider
+        </dt>
+        <dd className="mt-1 text-sm">
+          {formatTimestamp(job.provider_batch_updated_at)}
+        </dd>
+      </div>
+      <div>
         <dt className="text-xs font-medium text-[var(--slate-500)]">ID extraction</dt>
         <dd className="mt-1 font-mono text-xs">{job.id}</dd>
+      </div>
+      <div>
+        <dt className="text-xs font-medium text-[var(--slate-500)]">
+          ID batch provider
+        </dt>
+        <dd className="mt-1 font-mono text-xs">
+          {job.provider_batch_id ?? "-"}
+        </dd>
       </div>
       <div>
         <dt className="text-xs font-medium text-[var(--slate-500)]">

@@ -19,6 +19,9 @@ import {
   formatCount,
   formatTimestamp,
   getConfidenceBadgeVariant,
+  getProcessingStrategyLabel,
+  getProviderBatchStateBadgeVariant,
+  getProviderBatchStateLabel,
   getStatusCss,
   isCoverageLow,
 } from "@/components/takeoff/takeoff-job-list-shared";
@@ -229,6 +232,20 @@ export default function TakeoffJobsTable({
                     <Badge variant="neutral" size="sm">
                       {job.levelLabel}
                     </Badge>
+                    <Badge variant="neutral" size="sm">
+                      {getProcessingStrategyLabel(job.processingStrategy)}
+                    </Badge>
+                    <Badge
+                      variant={getProviderBatchStateBadgeVariant(
+                        job.providerBatchState
+                      )}
+                      size="sm"
+                    >
+                      {getProviderBatchStateLabel({
+                        strategy: job.processingStrategy,
+                        state: job.providerBatchState,
+                      })}
+                    </Badge>
                     {job.neverApplied ? (
                       <Badge variant="warning" size="sm">
                         Jamais applique
@@ -304,6 +321,8 @@ export default function TakeoffJobsTable({
                   <th>Version</th>
                   <th>Source</th>
                   <th>Niveau</th>
+                  <th>Strategie</th>
+                  <th>Etat provider</th>
                   <th>Statut</th>
                   <th>Date</th>
                   <th>Items</th>
@@ -340,6 +359,24 @@ export default function TakeoffJobsTable({
                       </td>
                       <td>{job.planSetLabel ?? "-"}</td>
                       <td>{job.levelLabel}</td>
+                      <td>
+                        <Badge variant="neutral" size="sm">
+                          {getProcessingStrategyLabel(job.processingStrategy)}
+                        </Badge>
+                      </td>
+                      <td>
+                        <Badge
+                          variant={getProviderBatchStateBadgeVariant(
+                            job.providerBatchState
+                          )}
+                          size="sm"
+                        >
+                          {getProviderBatchStateLabel({
+                            strategy: job.processingStrategy,
+                            state: job.providerBatchState,
+                          })}
+                        </Badge>
+                      </td>
                       <td>
                         <span
                           className={`status-badge ${getStatusCss(job.statusRaw)}`}

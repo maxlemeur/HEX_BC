@@ -4,12 +4,15 @@ import { mapGeminiErrorToTakeoffError, TakeoffError } from "@/lib/takeoff/errors
 import type { TakeoffMetadata } from "@/lib/takeoff/types";
 import { zodToGeminiJsonSchema } from "@/lib/takeoff/schemas";
 
-const DEFAULT_MODEL = "gemini-3-pro-preview";
+const DEFAULT_MODEL = "gemini-3.1-pro-preview";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 250;
+const MIN_BATCH_POLL_INTERVAL_MS = 2_000;
+const MAX_BATCH_POLL_INTERVAL_MS = 30_000;
+const GEMINI_API_ROOT = "https://generativelanguage.googleapis.com/v1beta";
 const GEMINI_API_BASE_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models";
+  `${GEMINI_API_ROOT}/models`;
 
 type GeminiTokenUsage = {
   promptTokenCount?: number;
@@ -25,12 +28,18 @@ type GeminiProviderResponse = {
   safetyBlocked?: boolean;
 };
 
+type GeminiBatchProviderResponse = GeminiProviderResponse & {
+  batchJobName: string;
+  batchState: string;
+};
+
 type GeminiProviderThinkingLevel = "LOW" | "MEDIUM" | "HIGH";
 
 type GeminiCallLoggerPayload = {
   job_id: string | null;
   tenant_id: string | null;
   level: TakeoffMetadata["level"] | null;
+  delivery_mode: "sync" | "batch";
   duration_ms: number;
   input_token_count: number;
   reasoning_token_count: number;
@@ -54,6 +63,18 @@ type GeminiCallDependencies = {
     timeoutMs: number;
     thinkingLevel?: GeminiThinkingLevel;
   }) => Promise<GeminiProviderResponse>;
+  invokeBatch?: (input: {
+    apiKey: string;
+    model: string;
+    prompt: string;
+    files: GeminiStructuredFile[];
+    schema: Record<string, unknown>;
+    timeoutMs: number;
+    thinkingLevel?: GeminiThinkingLevel;
+    onBatchLifecycleEvent?: (
+      event: GeminiBatchLifecycleEvent
+    ) => Promise<void> | void;
+  }) => Promise<GeminiBatchProviderResponse>;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   apiKey?: string;
@@ -65,6 +86,15 @@ export type GeminiThinkingLevel = "low" | "medium" | "high";
 export type GeminiStructuredFile = {
   data: string;
   mimeType: string;
+};
+
+export type GeminiBatchLifecycleEvent = {
+  provider: "gemini";
+  providerBatchId: string;
+  providerBatchStateRaw: string;
+  observedAt: string;
+  isTerminal: boolean;
+  message?: string;
 };
 
 export type CallGeminiStructuredContext = {
@@ -82,7 +112,11 @@ export type CallGeminiStructuredOptions<T> = {
   thinkingLevel?: GeminiThinkingLevel;
   timeoutMs?: number;
   maxRetries?: number;
+  deliveryMode?: "sync" | "batch";
   context?: CallGeminiStructuredContext;
+  onBatchLifecycleEvent?: (
+    event: GeminiBatchLifecycleEvent
+  ) => Promise<void> | void;
 };
 
 export type CallGeminiStructuredResult<T> = {
@@ -93,6 +127,8 @@ export type CallGeminiStructuredResult<T> = {
   durationMs: number;
   model: string;
   promptVersion: string;
+  providerBatchId: string | null;
+  providerBatchStateRaw: string | null;
 };
 
 export type GeminiTokenUsageBreakdown = {
@@ -190,18 +226,48 @@ function extractUsage(payload: Record<string, unknown>): GeminiTokenUsage {
   };
 }
 
-async function invokeGeminiApi(input: {
-  apiKey: string;
-  model: string;
+function extractBatchInlineResponse(payload: Record<string, unknown>) {
+  const response =
+    payload.response && typeof payload.response === "object"
+      ? (payload.response as Record<string, unknown>)
+      : payload;
+
+  const inlinedResponses = Array.isArray(response.inlinedResponses)
+    ? response.inlinedResponses
+    : Array.isArray(response.inlined_responses)
+      ? response.inlined_responses
+      : [];
+  const firstInlineResponse = inlinedResponses[0];
+  if (!firstInlineResponse || typeof firstInlineResponse !== "object") {
+    return {
+      response: null,
+      error: null,
+    };
+  }
+
+  const inlineRecord = firstInlineResponse as Record<string, unknown>;
+  const inlineResponse =
+    inlineRecord.response && typeof inlineRecord.response === "object"
+      ? (inlineRecord.response as Record<string, unknown>)
+      : null;
+  const inlineError =
+    inlineRecord.error && typeof inlineRecord.error === "object"
+      ? (inlineRecord.error as Record<string, unknown>)
+      : null;
+
+  return {
+    response: inlineResponse,
+    error: inlineError,
+  };
+}
+
+function buildGeminiGenerateContentRequest(input: {
   prompt: string;
   files: GeminiStructuredFile[];
   schema: Record<string, unknown>;
-  timeoutMs: number;
   thinkingLevel?: GeminiThinkingLevel;
-}): Promise<GeminiProviderResponse> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), input.timeoutMs);
-
+  model: string;
+}) {
   const contents = [
     {
       parts: [
@@ -222,16 +288,29 @@ async function invokeGeminiApi(input: {
   };
 
   if (input.thinkingLevel && supportsGemini3ThinkingLevel(input.model)) {
-    // Gemini REST expects thinkingConfig inside generationConfig with uppercase enum values.
     generationConfig.thinkingConfig = {
       thinkingLevel: toGeminiProviderThinkingLevel(input.thinkingLevel),
     };
   }
 
-  const payload = {
+  return {
     contents,
     generationConfig,
   };
+}
+
+async function invokeGeminiApi(input: {
+  apiKey: string;
+  model: string;
+  prompt: string;
+  files: GeminiStructuredFile[];
+  schema: Record<string, unknown>;
+  timeoutMs: number;
+  thinkingLevel?: GeminiThinkingLevel;
+}): Promise<GeminiProviderResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), input.timeoutMs);
+  const payload = buildGeminiGenerateContentRequest(input);
 
   try {
     const response = await fetch(
@@ -306,6 +385,235 @@ async function invokeGeminiApi(input: {
   }
 }
 
+async function invokeGeminiBatchApi(input: {
+  apiKey: string;
+  model: string;
+  prompt: string;
+  files: GeminiStructuredFile[];
+  schema: Record<string, unknown>;
+  timeoutMs: number;
+  thinkingLevel?: GeminiThinkingLevel;
+  onBatchLifecycleEvent?: (
+    event: GeminiBatchLifecycleEvent
+  ) => Promise<void> | void;
+}): Promise<GeminiBatchProviderResponse> {
+  async function emitBatchLifecycleEvent(
+    providerBatchId: string,
+    providerBatchStateRaw: string,
+    isTerminal: boolean,
+    message?: string
+  ) {
+    if (!input.onBatchLifecycleEvent) {
+      return;
+    }
+
+    await input.onBatchLifecycleEvent({
+      provider: "gemini",
+      providerBatchId,
+      providerBatchStateRaw,
+      observedAt: new Date().toISOString(),
+      isTerminal,
+      message,
+    });
+  }
+
+  const startedAt = Date.now();
+  const createResponse = await fetch(
+    `${GEMINI_API_BASE_URL}/${encodeURIComponent(input.model)}:batchGenerateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": input.apiKey,
+      },
+      body: JSON.stringify({
+        batch: {
+          display_name: `takeoff-${Date.now()}`,
+          input_config: {
+            requests: {
+              requests: [
+                {
+                  request: buildGeminiGenerateContentRequest(input),
+                  metadata: {
+                    key: "takeoff-request-0",
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }),
+    }
+  );
+
+  const createPayloadText = await createResponse.text();
+  let createPayload: Record<string, unknown> = {};
+  if (createPayloadText.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(createPayloadText);
+      if (parsed && typeof parsed === "object") {
+        createPayload = parsed as Record<string, unknown>;
+      }
+    } catch {
+      if (createResponse.ok) {
+        throw new Error("Gemini Batch API a retourne une reponse JSON invalide.");
+      }
+    }
+  }
+
+  if (!createResponse.ok) {
+    const providerError = new Error(
+      `Gemini Batch provider error (${createResponse.status}).`
+    );
+    (providerError as Error & { status?: number; details?: unknown }).status =
+      createResponse.status;
+    (providerError as Error & { status?: number; details?: unknown }).details =
+      createPayload;
+    throw providerError;
+  }
+
+  const batchJobName = typeof createPayload.name === "string" ? createPayload.name : null;
+  if (!batchJobName) {
+    throw new Error("Gemini Batch API n'a pas retourne de nom de job.");
+  }
+
+  const createMetadata =
+    createPayload.metadata && typeof createPayload.metadata === "object"
+      ? (createPayload.metadata as Record<string, unknown>)
+      : {};
+  const initialBatchState =
+    typeof createMetadata.state === "string"
+      ? createMetadata.state
+      : "JOB_STATE_SUBMITTED";
+  let lastEmittedState: string | null = null;
+
+  await emitBatchLifecycleEvent(
+    batchJobName,
+    initialBatchState,
+    false,
+    "Batch Gemini soumis au provider."
+  );
+  lastEmittedState = initialBatchState;
+
+  const pollIntervalMs = Math.max(
+    MIN_BATCH_POLL_INTERVAL_MS,
+    Math.min(MAX_BATCH_POLL_INTERVAL_MS, Math.trunc(input.timeoutMs / 6))
+  );
+
+  while (Date.now() - startedAt < input.timeoutMs) {
+    const pollResponse = await fetch(`${GEMINI_API_ROOT}/${batchJobName}`, {
+      method: "GET",
+      headers: {
+        "x-goog-api-key": input.apiKey,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const pollPayloadText = await pollResponse.text();
+    let pollPayload: Record<string, unknown> = {};
+    if (pollPayloadText.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(pollPayloadText);
+        if (parsed && typeof parsed === "object") {
+          pollPayload = parsed as Record<string, unknown>;
+        }
+      } catch {
+        if (pollResponse.ok) {
+          throw new Error("Gemini Batch API a retourne un statut JSON invalide.");
+        }
+      }
+    }
+
+    if (!pollResponse.ok) {
+      const providerError = new Error(
+        `Gemini Batch provider status error (${pollResponse.status}).`
+      );
+      (providerError as Error & { status?: number; details?: unknown }).status =
+        pollResponse.status;
+      (providerError as Error & { status?: number; details?: unknown }).details =
+        pollPayload;
+      throw providerError;
+    }
+
+    const metadata =
+      pollPayload.metadata && typeof pollPayload.metadata === "object"
+        ? (pollPayload.metadata as Record<string, unknown>)
+        : {};
+    const batchState =
+      typeof metadata.state === "string" ? metadata.state : "JOB_STATE_PENDING";
+    const done = pollPayload.done === true;
+
+    if (batchState !== lastEmittedState) {
+      const isTerminalState =
+        done ||
+        batchState === "JOB_STATE_SUCCEEDED" ||
+        batchState === "JOB_STATE_FAILED" ||
+        batchState === "JOB_STATE_CANCELLED" ||
+        batchState === "JOB_STATE_EXPIRED";
+
+      await emitBatchLifecycleEvent(
+        batchJobName,
+        batchState,
+        isTerminalState,
+        isTerminalState
+          ? `Batch Gemini termine avec l'etat ${batchState}.`
+          : `Batch Gemini en transition vers ${batchState}.`
+      );
+      lastEmittedState = batchState;
+    }
+
+    if (done || batchState === "JOB_STATE_SUCCEEDED") {
+      const { response: inlineResponse, error: inlineError } =
+        extractBatchInlineResponse(pollPayload);
+
+      if (inlineError) {
+        const providerError = new Error("Gemini Batch API request failed.");
+        (providerError as Error & { details?: unknown }).details = inlineError;
+        throw providerError;
+      }
+
+      if (!inlineResponse) {
+        throw new Error("Gemini Batch API n'a retourne aucune reponse inline exploitable.");
+      }
+
+      const candidateInfo = extractCandidateText(inlineResponse);
+      const promptFeedback =
+        inlineResponse.promptFeedback && typeof inlineResponse.promptFeedback === "object"
+          ? (inlineResponse.promptFeedback as Record<string, unknown>)
+          : null;
+      const blockReason =
+        promptFeedback && typeof promptFeedback.blockReason === "string"
+          ? promptFeedback.blockReason
+          : null;
+
+      return {
+        text: candidateInfo.text,
+        finishReason: candidateInfo.finishReason,
+        safetyBlocked:
+          candidateInfo.finishReason?.toUpperCase() === "SAFETY" ||
+          blockReason?.toUpperCase() === "SAFETY",
+        usage: extractUsage(inlineResponse),
+        batchJobName,
+        batchState,
+      };
+    }
+
+    if (
+      batchState === "JOB_STATE_FAILED" ||
+      batchState === "JOB_STATE_CANCELLED" ||
+      batchState === "JOB_STATE_EXPIRED"
+    ) {
+      const providerError = new Error(`Gemini Batch job ended in state ${batchState}.`);
+      (providerError as Error & { details?: unknown }).details = pollPayload;
+      throw providerError;
+    }
+
+    await delay(pollIntervalMs);
+  }
+
+  throw timeoutError(input.timeoutMs);
+}
+
 function toTokenUsageBreakdown(usage: GeminiTokenUsage): GeminiTokenUsageBreakdown {
   const inputTokens = Math.max(0, usage.promptTokenCount ?? 0);
   const reasoningTokens = Math.max(0, usage.thoughtsTokenCount ?? 0);
@@ -329,15 +637,23 @@ function estimateCostCents(model: string, usage: GeminiTokenUsage) {
   const promptTokens = usage.promptTokenCount ?? 0;
   const outputTokens = usage.candidatesTokenCount ?? 0;
 
-  const pricingUsdPerMillion: Record<string, { input: number; output: number }> = {
-    "gemini-3-pro-preview": { input: 2, output: 12 },
-    "gemini-3-flash-preview": { input: 0.25, output: 1.5 },
-  };
+  const normalizedModel = model.trim().toLowerCase();
+  let pricing: { input: number; output: number } | null = null;
 
-  const pricing = pricingUsdPerMillion[model];
-  if (!pricing) {
-    return 0;
+  if (normalizedModel === "gemini-3.1-pro-preview") {
+    pricing =
+      promptTokens > 200_000
+        ? { input: 4, output: 18 }
+        : { input: 2, output: 12 };
+  } else if (normalizedModel === "gemini-3-flash-preview") {
+    pricing = { input: 0.5, output: 3 };
+  } else if (normalizedModel === "gemini-3.1-flash-lite-preview") {
+    pricing = { input: 0.25, output: 1.5 };
+  } else if (normalizedModel === "gemini-3-pro-preview") {
+    pricing = { input: 2, output: 12 };
   }
+
+  if (!pricing) return 0;
 
   const usd =
     (promptTokens / 1_000_000) * pricing.input +
@@ -379,10 +695,13 @@ export async function callGeminiStructured<T>(
   const timeoutMs = resolveTimeoutMs(options.timeoutMs);
   const maxRetries = resolveMaxRetries(options.maxRetries);
   const invoke = deps.invoke ?? invokeGeminiApi;
+  const invokeBatch = deps.invokeBatch ?? invokeGeminiBatchApi;
   const sleep = deps.sleep ?? delay;
   const now = deps.now ?? (() => Date.now());
   const model = options.context?.model ?? DEFAULT_MODEL;
   const promptVersion = options.context?.promptVersion ?? "unknown";
+  const deliveryMode = options.deliveryMode ?? "sync";
+  let batchSubmissionObserved = false;
 
   const logger =
     deps.logger ??
@@ -399,15 +718,30 @@ export async function callGeminiStructured<T>(
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     try {
-      const providerResult = await invoke({
-        apiKey,
-        model,
-        prompt: options.prompt,
-        files: options.files ?? [],
-        schema: zodToGeminiJsonSchema(options.schema),
-        timeoutMs,
-        thinkingLevel: options.thinkingLevel,
-      });
+      const providerResult =
+        deliveryMode === "batch"
+          ? await invokeBatch({
+              apiKey,
+              model,
+              prompt: options.prompt,
+              files: options.files ?? [],
+              schema: zodToGeminiJsonSchema(options.schema),
+              timeoutMs,
+              thinkingLevel: options.thinkingLevel,
+              onBatchLifecycleEvent: async (event) => {
+                batchSubmissionObserved = true;
+                await options.onBatchLifecycleEvent?.(event);
+              },
+            })
+          : await invoke({
+              apiKey,
+              model,
+              prompt: options.prompt,
+              files: options.files ?? [],
+              schema: zodToGeminiJsonSchema(options.schema),
+              timeoutMs,
+              thinkingLevel: options.thinkingLevel,
+            });
 
       if (providerResult.safetyBlocked) {
         throw new TakeoffError({
@@ -445,6 +779,7 @@ export async function callGeminiStructured<T>(
         job_id: options.context?.jobId ?? null,
         tenant_id: options.context?.tenantId ?? null,
         level: options.context?.level ?? null,
+        delivery_mode: deliveryMode,
         duration_ms: durationMs,
         input_token_count: tokenUsage.inputTokens,
         reasoning_token_count: tokenUsage.reasoningTokens,
@@ -465,16 +800,30 @@ export async function callGeminiStructured<T>(
         durationMs,
         model,
         promptVersion,
+        providerBatchId:
+          "batchJobName" in providerResult &&
+          typeof providerResult.batchJobName === "string"
+            ? providerResult.batchJobName
+            : null,
+        providerBatchStateRaw:
+          "batchState" in providerResult &&
+          typeof providerResult.batchState === "string"
+            ? providerResult.batchState
+            : null,
       };
     } catch (error) {
       const mapped = mapGeminiErrorToTakeoffError(error);
-      const shouldRetry = mapped.retryable && attempt < maxRetries;
+      const shouldRetry =
+        mapped.retryable &&
+        attempt < maxRetries &&
+        !(deliveryMode === "batch" && batchSubmissionObserved);
       const durationMs = now() - startedAt;
 
       logger({
         job_id: options.context?.jobId ?? null,
         tenant_id: options.context?.tenantId ?? null,
         level: options.context?.level ?? null,
+        delivery_mode: deliveryMode,
         duration_ms: durationMs,
         input_token_count: 0,
         reasoning_token_count: 0,

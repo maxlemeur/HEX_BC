@@ -53,6 +53,9 @@ type JobRow = {
   source_file_type: string | null;
   level: string;
   status: string;
+  processing_strategy: string | null;
+  provider_batch_state: string | null;
+  provider_batch_updated_at: string | null;
   created_at: string;
   retry_count: number;
 };
@@ -209,7 +212,7 @@ async function listMatchingJobs(
       supabase
         .from("takeoff_jobs" as never)
         .select(
-          "id, estimate_version_id, source_file_name, source_file_type, level, status, created_at, retry_count" as never
+          "id, estimate_version_id, source_file_name, source_file_type, level, status, processing_strategy, provider_batch_state, provider_batch_updated_at, created_at, retry_count" as never
         )
         .eq("tenant_id" as never, tenantId as never),
       filterOpts
@@ -713,6 +716,22 @@ export async function listActivityCenterJobs(
       lotLabel: resolvedSource?.lotLabel ?? null,
       planSetLabel: resolvedSource?.planSetLabel ?? null,
       levelLabel: getBusinessLevelLabel(row.level) as TakeoffActivityCenterJobRow["levelLabel"],
+      processingStrategy:
+        row.processing_strategy === "sync" || row.processing_strategy === "batch"
+          ? row.processing_strategy
+          : null,
+      providerBatchState:
+        row.provider_batch_state === "submitted" ||
+        row.provider_batch_state === "pending" ||
+        row.provider_batch_state === "running" ||
+        row.provider_batch_state === "succeeded" ||
+        row.provider_batch_state === "failed" ||
+        row.provider_batch_state === "cancelled" ||
+        row.provider_batch_state === "expired" ||
+        row.provider_batch_state === "unknown"
+          ? row.provider_batch_state
+          : null,
+      providerBatchUpdatedAt: row.provider_batch_updated_at ?? null,
       statusLabel: getBusinessStatusLabel(row.status),
       statusRaw: row.status,
       itemCount: itemCountMap.get(row.id) ?? 0,
