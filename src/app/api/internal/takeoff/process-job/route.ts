@@ -10,7 +10,7 @@ const workerPayloadSchema = z
   .object({
     job_id: z.string().uuid("job_id doit etre un UUID valide."),
     correlation_id: z.string().min(1).max(128).optional(),
-    trigger: z.enum(["create", "retry", "manual"]).optional(),
+    trigger: z.enum(["create", "retry", "manual", "reconcile"]).optional(),
   })
   .strict();
 
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
       serviceRoleKey: payload.serviceRoleKey,
     });
 
-    const status = outcome.should_retry || outcome.status === "in_progress" ? 202 : 200;
+    const status = outcome.should_requeue || outcome.status === "in_progress" ? 202 : 200;
     return ok(outcome, status);
   } catch (error) {
     if (error instanceof TakeoffError) {

@@ -2,8 +2,12 @@ import type { PostgrestError } from "@supabase/supabase-js";
 
 import type { getAuthenticatedContext } from "@/lib/estimates/server";
 import { mapSupabaseError } from "@/lib/estimates/errors";
+import {
+  TAKEOFF_BATCH_RECONCILE_BACKOFF_SECONDS,
+} from "@/lib/takeoff/constants";
 import { TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import type {
+  TakeoffLevel,
   TakeoffProcessingStrategy,
   TakeoffProviderBatchState,
 } from "@/lib/takeoff/types";
@@ -66,6 +70,13 @@ export function resolveTakeoffProcessingStrategy(useBatchApi: boolean): TakeoffP
   return useBatchApi ? "batch" : "sync";
 }
 
+export function resolveExecutableTakeoffProcessingStrategy(
+  level: TakeoffLevel,
+  requestedStrategy: TakeoffProcessingStrategy
+): TakeoffProcessingStrategy {
+  return level === "A" ? requestedStrategy : "sync";
+}
+
 export function normalizeTakeoffProcessingStrategy(
   value: unknown
 ): TakeoffProcessingStrategy | null {
@@ -99,6 +110,33 @@ export function normalizeGeminiProviderBatchState(
 
   const normalized = trimmed.toUpperCase();
   return GEMINI_BATCH_STATE_MAP[normalized] ?? "unknown";
+}
+
+export function isTerminalTakeoffProviderBatchState(
+  value: TakeoffProviderBatchState | null | undefined
+) {
+  return (
+    value === "succeeded" ||
+    value === "failed" ||
+    value === "cancelled" ||
+    value === "expired"
+  );
+}
+
+export function getTakeoffBatchReconcileBackoffSeconds(attemptCount: number) {
+  if (!Number.isFinite(attemptCount) || attemptCount <= 1) {
+    return TAKEOFF_BATCH_RECONCILE_BACKOFF_SECONDS[0];
+  }
+
+  const index = Math.max(
+    0,
+    Math.min(
+      TAKEOFF_BATCH_RECONCILE_BACKOFF_SECONDS.length - 1,
+      Math.trunc(attemptCount) - 1
+    )
+  );
+
+  return TAKEOFF_BATCH_RECONCILE_BACKOFF_SECONDS[index];
 }
 
 export async function persistTakeoffProviderBatchSnapshot(

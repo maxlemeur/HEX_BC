@@ -9,6 +9,8 @@ declare const Deno: {
 
 type WorkerOutcomeStatus =
   | "completed"
+  | "submitted_to_provider"
+  | "awaiting_provider_result"
   | "failed_retryable"
   | "failed_terminal"
   | "in_progress"
@@ -20,13 +22,14 @@ type WorkerOutcome = {
   tenant_id: string | null;
   level: string | null;
   status: WorkerOutcomeStatus;
-  trigger: "create" | "retry" | "manual";
+  trigger: "create" | "retry" | "manual" | "reconcile";
   retry_count: number;
   attempt: number;
   retryable: boolean;
-  should_retry: boolean;
-  next_retry_in_seconds: number | null;
-  next_retry_at: string | null;
+  should_requeue: boolean;
+  requeue_reason: "retry" | "reconcile" | null;
+  next_run_in_seconds: number | null;
+  next_run_at: string | null;
   duration_ms: number;
   error_code: string | null;
   error_message: string | null;
@@ -45,7 +48,7 @@ type WorkerEnvelope = {
 type ProcessTakeoffJobPayload = {
   job_id: string;
   correlation_id?: string;
-  trigger?: "create" | "retry" | "manual";
+  trigger?: "create" | "retry" | "manual" | "reconcile";
 };
 
 const REQUEST_TIMEOUT_MS = 240_000;
@@ -216,7 +219,12 @@ async function parsePayload(request: Request): Promise<Required<ProcessTakeoffJo
   }
 
   const trigger = data.trigger ?? "manual";
-  if (trigger !== "create" && trigger !== "retry" && trigger !== "manual") {
+  if (
+    trigger !== "create" &&
+    trigger !== "retry" &&
+    trigger !== "manual" &&
+    trigger !== "reconcile"
+  ) {
     throw new Error("INVALID_TRIGGER");
   }
 
@@ -275,7 +283,7 @@ async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function selfInvokeRetry(
+async function selfInvokeRequeue(
   config: RuntimeConfig,
   payload: Required<ProcessTakeoffJobPayload>
 ) {
@@ -305,7 +313,7 @@ async function selfInvokeRetry(
 
     return true;
   } catch (error) {
-    console.error("Retry self-invocation failed.", {
+    console.error("Requeue self-invocation failed.", {
       job_id: payload.job_id,
       correlation_id: payload.correlation_id,
       error,
@@ -349,12 +357,14 @@ Deno.serve(async (request: Request) => {
       correlation_id: outcome.correlation_id,
     });
 
-    if (outcome.should_retry && outcome.next_retry_in_seconds && outcome.next_retry_in_seconds > 0) {
-      await sleep(outcome.next_retry_in_seconds * 1000);
+    if (outcome.should_requeue) {
+      if (outcome.next_run_in_seconds && outcome.next_run_in_seconds > 0) {
+        await sleep(outcome.next_run_in_seconds * 1000);
+      }
 
-      const scheduled = await selfInvokeRetry(config, {
+      const scheduled = await selfInvokeRequeue(config, {
         job_id: outcome.job_id,
-        trigger: "retry",
+        trigger: outcome.requeue_reason ?? "retry",
         correlation_id: outcome.correlation_id,
       });
 

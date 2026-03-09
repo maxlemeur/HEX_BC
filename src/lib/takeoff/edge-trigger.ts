@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 export type TriggerTakeoffJobProcessingInput = {
   jobId: string;
   correlationId?: string;
-  trigger?: "create" | "retry" | "manual";
+  trigger?: "create" | "retry" | "manual" | "reconcile";
   timeoutMs?: number;
   fetchFn?: typeof fetch;
 };

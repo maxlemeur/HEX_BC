@@ -3,7 +3,12 @@ import { PDFDocument } from "pdf-lib";
 
 import type { CallGeminiStructuredResult } from "@/lib/takeoff/gemini-client";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
-import { processLevelA, processLevelB, processLevelC } from "@/lib/takeoff/processor";
+import {
+  processLevelA,
+  processLevelB,
+  processLevelC,
+  reconcileTakeoffBatchJob,
+} from "@/lib/takeoff/processor";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -43,6 +48,10 @@ type TakeoffJobRow = {
   provider_batch_id: string | null;
   provider_batch_state: string | null;
   provider_batch_updated_at: string | null;
+  provider_reconcile_due_at: string | null;
+  provider_reconcile_attempt_count: number;
+  provider_reconcile_lease_token: string | null;
+  provider_reconcile_lease_expires_at: string | null;
   source_file_name: string | null;
   source_file_path: string | null;
   source_file_type: string | null;
@@ -339,6 +348,10 @@ function createTakeoffProcessorSupabaseMock(
     provider_batch_id: null,
     provider_batch_state: null,
     provider_batch_updated_at: null,
+    provider_reconcile_due_at: null,
+    provider_reconcile_attempt_count: 0,
+    provider_reconcile_lease_token: null,
+    provider_reconcile_lease_expires_at: null,
     source_file_name: "niveau-a.csv",
     source_file_path: DEFAULT_SOURCE_PATH,
     source_file_type: "text/csv",
@@ -1300,6 +1313,10 @@ describe("processLevelA", () => {
       durationMs: 2_500,
     });
 
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected a completed Level A result.");
+    }
     expect(result.resultId).toBe(mock.state.takeoffResults[0]?.id);
     expect([mock.state.initialStatus, ...mock.state.statusTransitions]).toEqual([
       "pending",
@@ -1560,7 +1577,7 @@ describe("processLevelA", () => {
     });
   });
 
-  it("passes batch delivery mode to Gemini when the tenant enables it", async () => {
+  it("submits Level A in batch mode when the tenant enables it", async () => {
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
         processing_strategy: "batch",
@@ -1569,42 +1586,43 @@ describe("processLevelA", () => {
         TAKEOFF_GEMINI_BATCH_MODE: "true",
       },
     });
-    const callGemini = vi.fn().mockResolvedValue(
-      buildGeminiResult(
-        buildTakeoffExchange([
-          {
-            designation: "Tube PVC",
-            quantity: 12,
-            unit: "ml",
-            source_page: 1,
-            source_file: "niveau-a.csv",
-          },
-        ]),
-        {
-          model: "gemini-3.1-flash-lite-preview",
-          promptVersion: "takeoff-a-v1",
-        }
-      )
-    );
+    const submitGeminiBatch = vi.fn().mockResolvedValue({
+      durationMs: 125,
+      model: "gemini-3.1-flash-lite-preview",
+      promptVersion: "takeoff-a-v1",
+      providerBatchId: "batches/test-submit",
+      providerBatchStateRaw: "JOB_STATE_SUBMITTED",
+    });
 
-    await processLevelA(JOB_ID, {
+    const result = await processLevelA(JOB_ID, {
       supabase: mock.supabase as never,
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      submitGeminiBatch,
     });
 
-    expect(callGemini).toHaveBeenCalledTimes(1);
-    expect(callGemini.mock.calls[0]?.[0]).toEqual(
+    expect(result).toEqual(
       expect.objectContaining({
-        deliveryMode: "batch",
+        status: "submitted_to_provider",
+        providerBatchId: "batches/test-submit",
+      })
+    );
+    expect(submitGeminiBatch).toHaveBeenCalledTimes(1);
+    expect(submitGeminiBatch.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          level: "A",
+          model: "gemini-3.1-flash-lite-preview",
+        }),
       })
     );
     expect(mock.state.job.processing_strategy).toBe("batch");
+    expect(mock.state.job.status).toBe("processing");
+    expect(mock.state.job.provider_reconcile_due_at).toBe(FIXED_NOW.toISOString());
   });
 
-  it("persists batch provider snapshot and events during Gemini batch lifecycle", async () => {
+  it("persists batch provider snapshot and transitions during submission and reconcile", async () => {
     const mock = createTakeoffProcessorSupabaseMock({
       job: {
         processing_strategy: "batch",
@@ -1613,7 +1631,7 @@ describe("processLevelA", () => {
         TAKEOFF_GEMINI_BATCH_MODE: "true",
       },
     });
-    const callGemini = vi.fn().mockImplementation(async (options) => {
+    const submitGeminiBatch = vi.fn().mockImplementation(async (options) => {
       await options.onBatchLifecycleEvent?.({
         provider: "gemini",
         providerBatchId: "batches/test-1",
@@ -1622,49 +1640,89 @@ describe("processLevelA", () => {
         isTerminal: false,
         message: "submitted",
       });
-      await options.onBatchLifecycleEvent?.({
-        provider: "gemini",
+      return {
+        durationMs: 50,
+        model: "gemini-3.1-flash-lite-preview",
+        promptVersion: "takeoff-a-v1",
         providerBatchId: "batches/test-1",
-        providerBatchStateRaw: "JOB_STATE_RUNNING",
-        observedAt: "2026-02-25T10:00:03.000Z",
-        isTerminal: false,
-        message: "running",
-      });
-      await options.onBatchLifecycleEvent?.({
-        provider: "gemini",
-        providerBatchId: "batches/test-1",
-        providerBatchStateRaw: "JOB_STATE_SUCCEEDED",
-        observedAt: "2026-02-25T10:00:05.000Z",
-        isTerminal: true,
-        message: "succeeded",
-      });
-
-      return buildGeminiResult(
-        buildTakeoffExchange([
-          {
-            designation: "Tube PVC",
-            quantity: 12,
-            unit: "ml",
-            source_page: 1,
-            source_file: "niveau-a.csv",
-          },
-        ]),
-        {
-          model: "gemini-3.1-flash-lite-preview",
-          promptVersion: "takeoff-a-v1",
-          providerBatchId: "batches/test-1",
-          providerBatchStateRaw: "JOB_STATE_SUCCEEDED",
-        }
-      );
+        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
+      };
     });
 
-    await processLevelA(JOB_ID, {
+    const submission = await processLevelA(JOB_ID, {
       supabase: mock.supabase as never,
       tenantId: TENANT_ID,
       userId: USER_ID,
       now: () => FIXED_NOW,
-      callGemini,
+      submitGeminiBatch,
     });
+    expect(submission.status).toBe("submitted_to_provider");
+
+    const waiting = await reconcileTakeoffBatchJob(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => new Date("2026-02-25T10:00:03.000Z"),
+      pollGeminiBatchOnce: vi.fn().mockImplementation(async (options) => {
+        await options.onBatchLifecycleEvent?.({
+          provider: "gemini",
+          providerBatchId: "batches/test-1",
+          providerBatchStateRaw: "JOB_STATE_RUNNING",
+          observedAt: "2026-02-25T10:00:03.000Z",
+          isTerminal: false,
+          message: "running",
+        });
+
+        return {
+          status: "pending" as const,
+          durationMs: 30,
+          model: "gemini-3.1-flash-lite-preview",
+          promptVersion: "takeoff-a-v1",
+          providerBatchId: "batches/test-1",
+          providerBatchStateRaw: "JOB_STATE_RUNNING",
+        };
+      }),
+    });
+    expect(waiting.status).toBe("awaiting_provider_result");
+
+    const completed = await reconcileTakeoffBatchJob(JOB_ID, {
+      supabase: mock.supabase as never,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      now: () => new Date("2026-02-25T10:00:05.000Z"),
+      pollGeminiBatchOnce: vi.fn().mockImplementation(async (options) => {
+        await options.onBatchLifecycleEvent?.({
+          provider: "gemini",
+          providerBatchId: "batches/test-1",
+          providerBatchStateRaw: "JOB_STATE_SUCCEEDED",
+          observedAt: "2026-02-25T10:00:05.000Z",
+          isTerminal: true,
+          message: "succeeded",
+        });
+
+        return {
+          ...buildGeminiResult(
+            buildTakeoffExchange([
+              {
+                designation: "Tube PVC",
+                quantity: 12,
+                unit: "ml",
+                source_page: 1,
+                source_file: "niveau-a.csv",
+              },
+            ]),
+            {
+              model: "gemini-3.1-flash-lite-preview",
+              promptVersion: "takeoff-a-v1",
+              providerBatchId: "batches/test-1",
+              providerBatchStateRaw: "JOB_STATE_SUCCEEDED",
+            }
+          ),
+          status: "succeeded" as const,
+        };
+      }),
+    });
+    expect(completed.status).toBe("completed");
 
     expect(mock.state.job.provider_batch_id).toBe("batches/test-1");
     expect(mock.state.job.provider_batch_state).toBe("succeeded");
@@ -1686,7 +1744,7 @@ describe("processLevelA", () => {
       },
       failProviderBatchSnapshotRpc: true,
     });
-    const callGemini = vi.fn().mockImplementation(async (options) => {
+    const submitGeminiBatch = vi.fn().mockImplementation(async (options) => {
       await options.onBatchLifecycleEvent?.({
         provider: "gemini",
         providerBatchId: "batches/test-atomic-failure",
@@ -1696,17 +1754,13 @@ describe("processLevelA", () => {
         message: "submitted",
       });
 
-      return buildGeminiResult(
-        buildTakeoffExchange([
-          {
-            designation: "Tube PVC",
-            quantity: 12,
-            unit: "ml",
-            source_page: 1,
-            source_file: "niveau-a.csv",
-          },
-        ])
-      );
+      return {
+        durationMs: 50,
+        model: "gemini-3.1-flash-lite-preview",
+        promptVersion: "takeoff-a-v1",
+        providerBatchId: "batches/test-atomic-failure",
+        providerBatchStateRaw: "JOB_STATE_SUBMITTED",
+      };
     });
 
     await expect(
@@ -1715,7 +1769,7 @@ describe("processLevelA", () => {
         tenantId: TENANT_ID,
         userId: USER_ID,
         now: () => FIXED_NOW,
-        callGemini,
+        submitGeminiBatch,
       })
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
@@ -1843,6 +1897,9 @@ describe("processLevelA", () => {
     });
 
     expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("Expected a completed Level A retry result.");
+    }
     expect(result.itemsCount).toBe(1);
     expect([mock.state.initialStatus, ...mock.state.statusTransitions]).toEqual([
       "failed",

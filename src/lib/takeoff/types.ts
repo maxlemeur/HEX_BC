@@ -824,13 +824,17 @@ export const TAKEOFF_JOB_MAX_RETRY_COUNT = 3;
 
 export type TakeoffJobAttemptOutcomeStatus =
   | "completed"
+  | "submitted_to_provider"
+  | "awaiting_provider_result"
   | "failed_retryable"
   | "failed_terminal"
   | "in_progress"
   | "noop_terminal"
   | "canceled";
 
-export type TakeoffJobAttemptTrigger = "create" | "retry" | "manual";
+export type TakeoffJobAttemptTrigger = "create" | "retry" | "manual" | "reconcile";
+
+export type TakeoffJobAttemptRequeueReason = "retry" | "reconcile";
 
 export type TakeoffJobAttemptOutcome = {
   job_id: string;
@@ -841,9 +845,10 @@ export type TakeoffJobAttemptOutcome = {
   retry_count: number;
   attempt: number;
   retryable: boolean;
-  should_retry: boolean;
-  next_retry_in_seconds: number | null;
-  next_retry_at: string | null;
+  should_requeue: boolean;
+  requeue_reason: TakeoffJobAttemptRequeueReason | null;
+  next_run_in_seconds: number | null;
+  next_run_at: string | null;
   duration_ms: number;
   error_code: string | null;
   error_message: string | null;

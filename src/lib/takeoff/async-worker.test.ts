@@ -8,6 +8,13 @@ type WorkerJobRow = {
   tenant_id: string;
   level: string;
   status: string;
+  processing_strategy: string | null;
+  provider_batch_id: string | null;
+  provider_batch_state: string | null;
+  provider_reconcile_due_at: string | null;
+  provider_reconcile_attempt_count: number;
+  provider_reconcile_lease_token: string | null;
+  provider_reconcile_lease_expires_at: string | null;
   retry_count: number;
   error_code: string | null;
   error_message: string | null;
@@ -34,6 +41,11 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
       jobId: string;
       tenantId: string;
       lastErrorAtIso?: string;
+    }>,
+    reconcileCalls: [] as Array<{
+      jobId: string;
+      tenantId: string;
+      dueAtIso: string;
     }>,
     unsupportedCalls: [] as Array<{
       jobId: string;
@@ -87,6 +99,35 @@ function createWorkerRepository(initialJob: WorkerJobRow) {
         };
       }
     ),
+    acquireBatchReconcileLease: vi.fn(async () => ({
+      claimed: false,
+      attemptCount: null,
+    })),
+    scheduleReconcile: vi.fn(
+      async (input: { jobId: string; tenantId: string; dueAtIso: string }) => {
+        state.reconcileCalls.push(input);
+        state.job = {
+          ...state.job,
+          provider_reconcile_due_at: input.dueAtIso,
+          provider_reconcile_lease_token: null,
+          provider_reconcile_lease_expires_at: null,
+        };
+      }
+    ),
+    markBatchReconcileTimeoutAsFailed: vi.fn(
+      async (input: { jobId: string; tenantId: string; nowIso: string }) => {
+        state.job = {
+          ...state.job,
+          status: "failed",
+          error_code: TakeoffErrorCode.AI_TIMEOUT,
+          error_message:
+            "Le batch provider n'a pas atteint d'etat terminal apres epuisement des tentatives de reconciliation.",
+          provider_reconcile_due_at: null,
+          provider_reconcile_lease_token: null,
+          provider_reconcile_lease_expires_at: null,
+        };
+      }
+    ),
   };
 
   return {
@@ -102,6 +143,13 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "pending",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
       retry_count: 0,
       error_code: null,
       error_message: null,
@@ -140,7 +188,7 @@ describe("processTakeoffJobAttempt", () => {
     });
 
     expect(outcome.status).toBe("completed");
-    expect(outcome.should_retry).toBe(false);
+    expect(outcome.should_requeue).toBe(false);
     expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
     expect(repository.scheduleRetry).not.toHaveBeenCalled();
   });
@@ -151,6 +199,13 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "pending",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
       retry_count: 0,
       error_code: null,
       error_message: null,
@@ -189,8 +244,9 @@ describe("processTakeoffJobAttempt", () => {
     });
 
     expect(outcome.status).toBe("failed_retryable");
-    expect(outcome.should_retry).toBe(true);
-    expect(outcome.next_retry_in_seconds).toBe(5);
+    expect(outcome.should_requeue).toBe(true);
+    expect(outcome.requeue_reason).toBe("retry");
+    expect(outcome.next_run_in_seconds).toBe(5);
     expect(repository.scheduleRetry).toHaveBeenCalledTimes(1);
     expect(repository.clearRetrySchedule).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalled();
@@ -202,6 +258,13 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
       retry_count: 3,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out",
@@ -238,7 +301,7 @@ describe("processTakeoffJobAttempt", () => {
     });
 
     expect(outcome.status).toBe("failed_terminal");
-    expect(outcome.should_retry).toBe(false);
+    expect(outcome.should_requeue).toBe(false);
     expect(repository.scheduleRetry).not.toHaveBeenCalled();
     expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
   });
@@ -249,6 +312,13 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "failed",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
       retry_count: 1,
       error_code: TakeoffErrorCode.AI_TIMEOUT,
       error_message: "Timed out during previous attempt",
@@ -279,7 +349,7 @@ describe("processTakeoffJobAttempt", () => {
     });
 
     expect(outcome.status).toBe("failed_terminal");
-    expect(outcome.should_retry).toBe(false);
+    expect(outcome.should_requeue).toBe(false);
     expect(repository.scheduleRetry).not.toHaveBeenCalled();
     expect(repository.clearRetrySchedule).toHaveBeenCalledTimes(1);
     expect(logger.warn).not.toHaveBeenCalled();
@@ -292,6 +362,13 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "A",
       status: "processing",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
       retry_count: 1,
       error_code: null,
       error_message: null,
@@ -321,6 +398,13 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "Z",
       status: "pending",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
       retry_count: 0,
       error_code: null,
       error_message: null,
@@ -349,6 +433,13 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "B",
       status: "pending",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
       retry_count: 0,
       error_code: null,
       error_message: null,
@@ -402,6 +493,13 @@ describe("processTakeoffJobAttempt", () => {
       tenant_id: TENANT_ID,
       level: "C",
       status: "pending",
+      processing_strategy: "sync",
+      provider_batch_id: null,
+      provider_batch_state: null,
+      provider_reconcile_due_at: null,
+      provider_reconcile_attempt_count: 0,
+      provider_reconcile_lease_token: null,
+      provider_reconcile_lease_expires_at: null,
       retry_count: 0,
       error_code: null,
       error_message: null,

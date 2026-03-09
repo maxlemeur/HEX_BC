@@ -1,7 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 
+import {
+  TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS,
+  TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS,
+} from "@/lib/takeoff/constants";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
-import { processLevelA, processLevelB, processLevelC } from "@/lib/takeoff/processor";
+import {
+  processLevelA,
+  processLevelB,
+  processLevelC,
+  reconcileTakeoffBatchJob,
+} from "@/lib/takeoff/processor";
+import { getTakeoffBatchReconcileBackoffSeconds } from "@/lib/takeoff/provider-batch";
 import type {
   TakeoffJobAttemptOutcome,
   TakeoffJobAttemptTrigger,
@@ -30,6 +40,7 @@ type SupabaseClientLike = {
     select: (columns: string) => SupabaseSelectBuilderLike;
     update: (payload: Record<string, unknown>) => SupabaseUpdateBuilderLike;
   };
+  rpc?: (fn: string, args: Record<string, unknown>) => Promise<SupabaseMutationResult>;
 };
 
 type WorkerJobRow = {
@@ -37,6 +48,13 @@ type WorkerJobRow = {
   tenant_id: string;
   level: string;
   status: string;
+  processing_strategy: string | null;
+  provider_batch_id: string | null;
+  provider_batch_state: string | null;
+  provider_reconcile_due_at: string | null;
+  provider_reconcile_attempt_count: number | null;
+  provider_reconcile_lease_token: string | null;
+  provider_reconcile_lease_expires_at: string | null;
   retry_count: number | null;
   error_code: string | null;
   error_message: string | null;
@@ -63,6 +81,26 @@ type TakeoffWorkerRepository = {
     tenantId: string;
     lastErrorAtIso?: string;
   }) => Promise<void>;
+  acquireBatchReconcileLease: (input: {
+    jobId: string;
+    tenantId: string;
+    nowIso: string;
+    leaseToken: string;
+    leaseExpiresAtIso: string;
+  }) => Promise<{
+    claimed: boolean;
+    attemptCount: number | null;
+  }>;
+  scheduleReconcile: (input: {
+    jobId: string;
+    tenantId: string;
+    dueAtIso: string;
+  }) => Promise<void>;
+  markBatchReconcileTimeoutAsFailed: (input: {
+    jobId: string;
+    tenantId: string;
+    nowIso: string;
+  }) => Promise<void>;
 };
 
 type ProcessTakeoffJobAttemptOptions = {
@@ -73,6 +111,7 @@ type ProcessTakeoffJobAttemptOptions = {
   processLevelAFn?: typeof processLevelA;
   processLevelBFn?: typeof processLevelB;
   processLevelCFn?: typeof processLevelC;
+  reconcileTakeoffBatchJobFn?: typeof reconcileTakeoffBatchJob;
   repository?: TakeoffWorkerRepository;
   logger?: Pick<typeof console, "info" | "warn" | "error">;
 };
@@ -130,6 +169,18 @@ function isUuidLike(value: string) {
   );
 }
 
+function isBatchReconcileCandidate(job: WorkerJobRow) {
+  return (
+    job.status === "processing" &&
+    job.processing_strategy === "batch" &&
+    typeof job.provider_batch_id === "string" &&
+    job.provider_batch_id.length > 0 &&
+    !["succeeded", "failed", "cancelled", "expired"].includes(
+      job.provider_batch_state ?? ""
+    )
+  );
+}
+
 function normalizeJobRow(row: unknown): WorkerJobRow | null {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
     return null;
@@ -145,6 +196,28 @@ function normalizeJobRow(row: unknown): WorkerJobRow | null {
     tenant_id: record.tenant_id,
     level: typeof record.level === "string" ? record.level : "",
     status: typeof record.status === "string" ? record.status : "",
+    processing_strategy:
+      typeof record.processing_strategy === "string" ? record.processing_strategy : null,
+    provider_batch_id:
+      typeof record.provider_batch_id === "string" ? record.provider_batch_id : null,
+    provider_batch_state:
+      typeof record.provider_batch_state === "string" ? record.provider_batch_state : null,
+    provider_reconcile_due_at:
+      typeof record.provider_reconcile_due_at === "string"
+        ? record.provider_reconcile_due_at
+        : null,
+    provider_reconcile_attempt_count:
+      typeof record.provider_reconcile_attempt_count === "number"
+        ? record.provider_reconcile_attempt_count
+        : null,
+    provider_reconcile_lease_token:
+      typeof record.provider_reconcile_lease_token === "string"
+        ? record.provider_reconcile_lease_token
+        : null,
+    provider_reconcile_lease_expires_at:
+      typeof record.provider_reconcile_lease_expires_at === "string"
+        ? record.provider_reconcile_lease_expires_at
+        : null,
     retry_count: typeof record.retry_count === "number" ? record.retry_count : null,
     error_code: typeof record.error_code === "string" ? record.error_code : null,
     error_message: typeof record.error_message === "string" ? record.error_message : null,
@@ -167,6 +240,13 @@ function createSupabaseTakeoffWorkerRepository(
             "tenant_id",
             "level",
             "status",
+            "processing_strategy",
+            "provider_batch_id",
+            "provider_batch_state",
+            "provider_reconcile_due_at",
+            "provider_reconcile_attempt_count",
+            "provider_reconcile_lease_token",
+            "provider_reconcile_lease_expires_at",
             "retry_count",
             "error_code",
             "error_message",
@@ -259,6 +339,93 @@ function createSupabaseTakeoffWorkerRepository(
         });
       }
     },
+
+    async acquireBatchReconcileLease(input) {
+      const { data, error } = await (supabase as unknown as {
+        rpc: (
+          fn: string,
+          args: Record<string, unknown>
+        ) => Promise<SupabaseMutationResult>;
+      }).rpc("acquire_takeoff_batch_reconcile_lease", {
+        p_job_id: input.jobId,
+        p_tenant_id: input.tenantId,
+        p_now: input.nowIso,
+        p_lease_token: input.leaseToken,
+        p_lease_expires_at: input.leaseExpiresAtIso,
+      });
+
+      if (error) {
+        throw toTakeoffError(error, {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          fallbackMessage: "Impossible de reserver le lease de reconciliation batch.",
+          retryable: false,
+          jobId: input.jobId,
+        });
+      }
+
+      const row =
+        Array.isArray(data) && data.length > 0 && data[0] && typeof data[0] === "object"
+          ? (data[0] as Record<string, unknown>)
+          : null;
+
+      return {
+        claimed: row?.claimed === true,
+        attemptCount:
+          typeof row?.provider_reconcile_attempt_count === "number"
+            ? row.provider_reconcile_attempt_count
+            : null,
+      };
+    },
+
+    async scheduleReconcile(input) {
+      const { error } = await supabase
+        .from("takeoff_jobs")
+        .update({
+          provider_reconcile_due_at: input.dueAtIso,
+          provider_reconcile_lease_token: null,
+          provider_reconcile_lease_expires_at: null,
+        })
+        .eq("id", input.jobId)
+        .eq("tenant_id", input.tenantId)
+        .eq("status", "processing");
+
+      if (error) {
+        throw toTakeoffError(error, {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          fallbackMessage: "Impossible de reprogrammer la reconciliation batch.",
+          retryable: false,
+          jobId: input.jobId,
+        });
+      }
+    },
+
+    async markBatchReconcileTimeoutAsFailed(input) {
+      const { error } = await supabase
+        .from("takeoff_jobs")
+        .update({
+          status: "failed",
+          completed_at: input.nowIso,
+          error_code: TakeoffErrorCode.AI_TIMEOUT,
+          error_message:
+            "Le batch provider n'a pas atteint d'etat terminal apres epuisement des tentatives de reconciliation.",
+          provider_reconcile_due_at: null,
+          provider_reconcile_lease_token: null,
+          provider_reconcile_lease_expires_at: null,
+          last_error_at: input.nowIso,
+        })
+        .eq("id", input.jobId)
+        .eq("tenant_id", input.tenantId)
+        .eq("status", "processing");
+
+      if (error) {
+        throw toTakeoffError(error, {
+          fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+          fallbackMessage: "Impossible de clore le job batch en timeout provider.",
+          retryable: false,
+          jobId: input.jobId,
+        });
+      }
+    },
   };
 }
 
@@ -270,9 +437,10 @@ function buildOutcome(input: {
   trigger: TakeoffJobAttemptTrigger;
   retryCount: number;
   retryable: boolean;
-  shouldRetry: boolean;
-  nextRetryInSeconds?: number | null;
-  nextRetryAt?: string | null;
+  shouldRequeue: boolean;
+  requeueReason?: TakeoffJobAttemptOutcome["requeue_reason"];
+  nextRunInSeconds?: number | null;
+  nextRunAt?: string | null;
   durationMs: number;
   errorCode?: string | null;
   errorMessage?: string | null;
@@ -287,9 +455,10 @@ function buildOutcome(input: {
     retry_count: input.retryCount,
     attempt: input.retryCount + 1,
     retryable: input.retryable,
-    should_retry: input.shouldRetry,
-    next_retry_in_seconds: input.nextRetryInSeconds ?? null,
-    next_retry_at: input.nextRetryAt ?? null,
+    should_requeue: input.shouldRequeue,
+    requeue_reason: input.requeueReason ?? null,
+    next_run_in_seconds: input.nextRunInSeconds ?? null,
+    next_run_at: input.nextRunAt ?? null,
     duration_ms: input.durationMs,
     error_code: input.errorCode ?? null,
     error_message: input.errorMessage ?? null,
@@ -333,6 +502,8 @@ export async function processTakeoffJobAttempt(
 
   const retryCount = sanitizeRetryCount(job.retry_count);
   const durationMs = Math.max(0, now().getTime() - startedAt.getTime());
+  const reconcileTakeoffBatchJobFn =
+    options.reconcileTakeoffBatchJobFn ?? reconcileTakeoffBatchJob;
 
   if (TAKEOFF_TERMINAL_JOB_STATUSES.has(job.status)) {
     return buildOutcome({
@@ -343,12 +514,236 @@ export async function processTakeoffJobAttempt(
       trigger: options.trigger,
       retryCount,
       retryable: false,
-      shouldRetry: false,
+      shouldRequeue: false,
       durationMs,
       errorCode: job.error_code,
       errorMessage: job.error_message,
       correlationId: options.correlationId,
     });
+  }
+
+  if (isBatchReconcileCandidate(job)) {
+    const leaseToken = crypto.randomUUID();
+    const nowIso = now().toISOString();
+    const leaseExpiresAtIso = new Date(
+      now().getTime() + TAKEOFF_BATCH_RECONCILE_LEASE_TTL_SECONDS * 1000
+    ).toISOString();
+    const lease = await repository.acquireBatchReconcileLease({
+      jobId: job.id,
+      tenantId: job.tenant_id,
+      nowIso,
+      leaseToken,
+      leaseExpiresAtIso,
+    });
+
+    if (!lease.claimed) {
+      return buildOutcome({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        level: job.level,
+        status: "in_progress",
+        trigger: options.trigger,
+        retryCount,
+        retryable: false,
+        shouldRequeue: false,
+        durationMs,
+        errorCode: job.error_code,
+        errorMessage: job.error_message,
+        correlationId: options.correlationId,
+      });
+    }
+
+    if ((lease.attemptCount ?? 0) > TAKEOFF_BATCH_RECONCILE_MAX_ATTEMPTS) {
+      await repository.markBatchReconcileTimeoutAsFailed({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        nowIso,
+      });
+
+      return buildOutcome({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        level: job.level,
+        status: "failed_terminal",
+        trigger: options.trigger,
+        retryCount,
+        retryable: false,
+        shouldRequeue: false,
+        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+        errorCode: TakeoffErrorCode.AI_TIMEOUT,
+        errorMessage:
+          "Le batch provider n'a pas atteint d'etat terminal apres epuisement des tentatives de reconciliation.",
+        correlationId: options.correlationId,
+      });
+    }
+
+    try {
+      const reconcileResult = await reconcileTakeoffBatchJobFn(job.id, {
+        tenantId: job.tenant_id,
+        userId: job.created_by ?? undefined,
+        supabase: serviceRoleClient as never,
+        now,
+      });
+
+      if (reconcileResult.status === "awaiting_provider_result") {
+        const backoffSeconds = getTakeoffBatchReconcileBackoffSeconds(
+          lease.attemptCount ?? 1
+        );
+        const nextRunAtIso = new Date(now().getTime() + backoffSeconds * 1000).toISOString();
+
+        await repository.scheduleReconcile({
+          jobId: job.id,
+          tenantId: job.tenant_id,
+          dueAtIso: nextRunAtIso,
+        });
+
+        return buildOutcome({
+          jobId: job.id,
+          tenantId: job.tenant_id,
+          level: job.level,
+          status: "awaiting_provider_result",
+          trigger: options.trigger,
+          retryCount,
+          retryable: false,
+          shouldRequeue: true,
+          requeueReason: "reconcile",
+          nextRunInSeconds: backoffSeconds,
+          nextRunAt: nextRunAtIso,
+          durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+          errorCode: null,
+          errorMessage: null,
+          correlationId: options.correlationId,
+        });
+      }
+
+      await repository.clearRetrySchedule({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+      });
+
+      const refreshed = await repository.getJobById(job.id);
+      const refreshedRetryCount = sanitizeRetryCount(refreshed?.retry_count ?? retryCount);
+
+      return buildOutcome({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        level: job.level,
+        status: "completed",
+        trigger: options.trigger,
+        retryCount: refreshedRetryCount,
+        retryable: false,
+        shouldRequeue: false,
+        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+        errorCode: refreshed?.error_code,
+        errorMessage: refreshed?.error_message,
+        correlationId: options.correlationId,
+      });
+    } catch (error) {
+      const mappedError = toTakeoffError(error, {
+        fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
+        fallbackMessage: "La reconciliation batch du job takeoff a echoue.",
+        jobId: job.id,
+        level: job.level === "A" || job.level === "B" || job.level === "C" ? job.level : undefined,
+      });
+      const refreshed = await repository.getJobById(job.id);
+      const current = refreshed ?? job;
+
+      if (current.status === "processing" && isBatchReconcileCandidate(current) && mappedError.retryable) {
+        const backoffSeconds = getTakeoffBatchReconcileBackoffSeconds(
+          lease.attemptCount ?? current.provider_reconcile_attempt_count ?? 1
+        );
+        const nextRunAtIso = new Date(now().getTime() + backoffSeconds * 1000).toISOString();
+
+        await repository.scheduleReconcile({
+          jobId: current.id,
+          tenantId: current.tenant_id,
+          dueAtIso: nextRunAtIso,
+        });
+
+        logger.warn("Takeoff async worker scheduled reconcile retry", {
+          job_id: current.id,
+          tenant_id: current.tenant_id,
+          level: current.level,
+          attempt: lease.attemptCount ?? 1,
+          duration_ms: Math.max(0, now().getTime() - startedAt.getTime()),
+          status: "awaiting_provider_result",
+          correlation_id: options.correlationId,
+          error_code: mappedError.code,
+        });
+
+        return buildOutcome({
+          jobId: current.id,
+          tenantId: current.tenant_id,
+          level: current.level,
+          status: "awaiting_provider_result",
+          trigger: options.trigger,
+          retryCount: sanitizeRetryCount(current.retry_count),
+          retryable: true,
+          shouldRequeue: true,
+          requeueReason: "reconcile",
+          nextRunInSeconds: backoffSeconds,
+          nextRunAt: nextRunAtIso,
+          durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+          errorCode: mappedError.code,
+          errorMessage: mappedError.message,
+          correlationId: options.correlationId,
+        });
+      }
+
+      if (current.status === "canceled") {
+        await repository.clearRetrySchedule({
+          jobId: current.id,
+          tenantId: current.tenant_id,
+        });
+
+        return buildOutcome({
+          jobId: current.id,
+          tenantId: current.tenant_id,
+          level: current.level,
+          status: "canceled",
+          trigger: options.trigger,
+          retryCount: sanitizeRetryCount(current.retry_count),
+          retryable: false,
+          shouldRequeue: false,
+          durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+          errorCode: current.error_code,
+          errorMessage: current.error_message,
+          correlationId: options.correlationId,
+        });
+      }
+
+      if (TAKEOFF_TERMINAL_JOB_STATUSES.has(current.status)) {
+        return buildOutcome({
+          jobId: current.id,
+          tenantId: current.tenant_id,
+          level: current.level,
+          status: "failed_terminal",
+          trigger: options.trigger,
+          retryCount: sanitizeRetryCount(current.retry_count),
+          retryable: false,
+          shouldRequeue: false,
+          durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+          errorCode: current.error_code ?? mappedError.code,
+          errorMessage: current.error_message ?? mappedError.message,
+          correlationId: options.correlationId,
+        });
+      }
+
+      return buildOutcome({
+        jobId: current.id,
+        tenantId: current.tenant_id,
+        level: current.level,
+        status: "in_progress",
+        trigger: options.trigger,
+        retryCount: sanitizeRetryCount(current.retry_count),
+        retryable: false,
+        shouldRequeue: false,
+        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+        errorCode: current.error_code ?? mappedError.code,
+        errorMessage: current.error_message ?? mappedError.message,
+        correlationId: options.correlationId,
+      });
+    }
   }
 
   if (job.status === "processing") {
@@ -360,7 +755,7 @@ export async function processTakeoffJobAttempt(
       trigger: options.trigger,
       retryCount,
       retryable: false,
-      shouldRetry: false,
+      shouldRequeue: false,
       durationMs,
       errorCode: job.error_code,
       errorMessage: job.error_message,
@@ -398,7 +793,7 @@ export async function processTakeoffJobAttempt(
       trigger: options.trigger,
       retryCount,
       retryable: false,
-      shouldRetry: false,
+      shouldRequeue: false,
       durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
       errorCode: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
       errorMessage: "Le niveau takeoff n'est pas encore supporte par le worker async.",
@@ -407,12 +802,39 @@ export async function processTakeoffJobAttempt(
   }
 
   try {
-    await processLevelFn(job.id, {
+    const result = await processLevelFn(job.id, {
       tenantId: job.tenant_id,
       userId: job.created_by ?? undefined,
       supabase: serviceRoleClient as never,
       now,
     });
+
+    if (result.status === "submitted_to_provider") {
+      const nextRunAtIso = now().toISOString();
+
+      await repository.clearRetrySchedule({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+      });
+
+      return buildOutcome({
+        jobId: job.id,
+        tenantId: job.tenant_id,
+        level: job.level,
+        status: "submitted_to_provider",
+        trigger: options.trigger,
+        retryCount,
+        retryable: false,
+        shouldRequeue: true,
+        requeueReason: "reconcile",
+        nextRunInSeconds: 0,
+        nextRunAt: nextRunAtIso,
+        durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
+        errorCode: null,
+        errorMessage: null,
+        correlationId: options.correlationId,
+      });
+    }
 
     await repository.clearRetrySchedule({
       jobId: job.id,
@@ -430,7 +852,7 @@ export async function processTakeoffJobAttempt(
       trigger: options.trigger,
       retryCount: refreshedRetryCount,
       retryable: false,
-      shouldRetry: false,
+      shouldRequeue: false,
       durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
       errorCode: refreshed?.error_code,
       errorMessage: refreshed?.error_message,
@@ -460,7 +882,7 @@ export async function processTakeoffJobAttempt(
         trigger: options.trigger,
         retryCount: currentRetryCount,
         retryable: false,
-        shouldRetry: false,
+        shouldRequeue: false,
         durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
         errorCode: current.error_code,
         errorMessage: current.error_message,
@@ -482,7 +904,7 @@ export async function processTakeoffJobAttempt(
         trigger: options.trigger,
         retryCount: currentRetryCount,
         retryable: false,
-        shouldRetry: false,
+        shouldRequeue: false,
         durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
         errorCode: current.error_code,
         errorMessage: current.error_message,
@@ -499,7 +921,7 @@ export async function processTakeoffJobAttempt(
         trigger: options.trigger,
         retryCount: currentRetryCount,
         retryable: false,
-        shouldRetry: false,
+        shouldRequeue: false,
         durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
         errorCode: current.error_code,
         errorMessage: current.error_message,
@@ -540,9 +962,10 @@ export async function processTakeoffJobAttempt(
         trigger: options.trigger,
         retryCount: currentRetryCount,
         retryable: true,
-        shouldRetry: true,
-        nextRetryInSeconds: backoffSeconds,
-        nextRetryAt: nextRetryAtIso,
+        shouldRequeue: true,
+        requeueReason: "retry",
+        nextRunInSeconds: backoffSeconds,
+        nextRunAt: nextRetryAtIso,
         durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
         errorCode: current.error_code ?? mappedError.code,
         errorMessage: current.error_message ?? mappedError.message,
@@ -575,7 +998,7 @@ export async function processTakeoffJobAttempt(
       trigger: options.trigger,
       retryCount: currentRetryCount,
       retryable: false,
-      shouldRetry: false,
+      shouldRequeue: false,
       durationMs: Math.max(0, now().getTime() - startedAt.getTime()),
       errorCode: current.error_code ?? mappedError.code,
       errorMessage: current.error_message ?? mappedError.message,
