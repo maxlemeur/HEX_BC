@@ -1,10 +1,56 @@
-import { describe, expect, it } from "vitest";
+import { renderHook, act, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mockPush = vi.fn();
+const mockRecordCockpitCommandAction = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mockPush,
+  }),
+  usePathname: () => "/dashboard/affaires/project-1",
+}));
+
+vi.mock("@/components/UserContext", () => ({
+  useUserContext: () => ({
+    profile: {
+      tenant_role: "admin",
+    },
+  }),
+}));
+
+vi.mock("@/hooks/useUiMode", () => ({
+  useUiMode: () => ({
+    isExpert: true,
+  }),
+}));
+
+vi.mock("@/hooks/useTakeoffEnabled", () => ({
+  useTakeoffEnabled: () => ({
+    status: "ready",
+    enabled: true,
+  }),
+}));
+
+vi.mock("@/hooks/useLastAffaireContext", () => ({
+  useLastAffaireId: () => "11111111-1111-1111-1111-111111111111",
+}));
+
+vi.mock("@/app/dashboard/affaires/_actions/cockpit", () => ({
+  recordCockpitCommandAction: (...args: unknown[]) =>
+    mockRecordCockpitCommandAction(...args),
+}));
 
 import {
   buildNavigationItems,
   fuzzyMatch,
   type CommandItem,
+  useCommandPalette,
 } from "@/hooks/useCommandPalette";
+import {
+  _resetForTest as resetCockpitSuggestionsStore,
+  setCockpitSuggestions,
+} from "@/lib/stores/cockpit-suggestions-store";
 
 function makeItem(overrides: Partial<CommandItem> = {}): CommandItem {
   return {
@@ -56,6 +102,12 @@ describe("fuzzyMatch", () => {
 });
 
 describe("buildNavigationItems", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetCockpitSuggestionsStore();
+    window.localStorage.clear();
+  });
+
   function hrefs(items: CommandItem[]) {
     return items.map((item) => item.href);
   }
@@ -113,5 +165,40 @@ describe("buildNavigationItems", () => {
     });
     expect(items.find((i) => i.id === "nav-takeoff")).toBeDefined();
   });
-});
 
+  it("records cockpit history when executing a contextual command", async () => {
+    setCockpitSuggestions({
+      projectId: "11111111-1111-1111-1111-111111111111",
+      suggestions: [
+        {
+          actionId: "prepare-validation",
+          label: "Preparer la validation",
+          intent: "prepare_validation",
+          preview: "Soumettre le chiffrage pour validation.",
+          target: { kind: "open_dialog", dialogId: "approval-submit" },
+          requiresConfirmation: false,
+          confirmTone: "info",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useCommandPalette());
+    const cockpitItem = result.current.flatItems.find(
+      (item) => item.id === "cockpit-prepare-validation"
+    );
+
+    expect(cockpitItem).toBeDefined();
+
+    act(() => {
+      result.current.execute(cockpitItem!);
+    });
+
+    await waitFor(() => {
+      expect(mockRecordCockpitCommandAction).toHaveBeenCalledWith({
+        projectId: "11111111-1111-1111-1111-111111111111",
+        actionId: "prepare-validation",
+        intent: "prepare_validation",
+      });
+    });
+  });
+});

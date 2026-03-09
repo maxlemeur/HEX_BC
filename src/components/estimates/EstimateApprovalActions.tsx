@@ -405,6 +405,25 @@ export function EstimateApprovalActions({
     return () => window.removeEventListener("popstate", syncFromUrl);
   }, []);
 
+  useEffect(() => {
+    if (typeof document === "undefined" || !summary.permissions.canPrepareRequest) {
+      return;
+    }
+
+    const handleCockpitDialog = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== "approval-submit") {
+        return;
+      }
+
+      setFormError(null);
+      setShowSubmitPanel(true);
+      setSubmitPanelUrlState(true);
+    };
+
+    document.addEventListener("cockpit-open-dialog", handleCockpitDialog);
+    return () => document.removeEventListener("cockpit-open-dialog", handleCockpitDialog);
+  }, [summary.permissions.canPrepareRequest]);
+
   function resetDraftForm() {
     setDraftScopeType("project");
     setDraftScopeId(null);

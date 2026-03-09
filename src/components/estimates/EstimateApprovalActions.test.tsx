@@ -385,4 +385,24 @@ describe("EstimateApprovalActions", () => {
       "/dashboard/estimates/version-1/edit"
     );
   });
+
+  it("opens the submission panel when the cockpit requests approval-submit", async () => {
+    render(
+      <EstimateApprovalActions
+        versionId="version-1"
+        projectId="project-1"
+        summary={buildSummary()}
+        submissionOverview={buildSubmissionOverview()}
+      />
+    );
+
+    expect(screen.queryByText("Couverture")).not.toBeInTheDocument();
+
+    window.document.dispatchEvent(
+      new CustomEvent("cockpit-open-dialog", { detail: "approval-submit" })
+    );
+
+    expect(await screen.findByText("Couverture")).toBeInTheDocument();
+    expect(window.location.search).toContain("approvalSubmit=open");
+  });
 });

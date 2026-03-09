@@ -940,9 +940,14 @@ export function AffaireHub({
 
   // Push cockpit suggestions to store for Ctrl+K bridge
   useEffect(() => {
-    if (cockpitSuggestions?.length) setCockpitSuggestions(cockpitSuggestions);
+    if (cockpitSuggestions?.length) {
+      setCockpitSuggestions({
+        projectId: summary.project.id,
+        suggestions: cockpitSuggestions,
+      });
+    }
     return () => clearCockpitSuggestions();
-  }, [cockpitSuggestions]);
+  }, [cockpitSuggestions, summary.project.id]);
 
   // Bridge: command palette dispatches "cockpit-open-dialog" custom event
   useEffect(() => {
@@ -1050,6 +1055,11 @@ export function AffaireHub({
           projectId={summary.project.id}
           onOpenDialog={(dialogId) => {
             if (dialogId === "launch-metre") setShowLaunchMetreDialog(true);
+            if (dialogId === "approval-submit") {
+              document.dispatchEvent(
+                new CustomEvent("cockpit-open-dialog", { detail: dialogId }),
+              );
+            }
           }}
           onExecute={(s) => {
             recordCockpitCommandAction({

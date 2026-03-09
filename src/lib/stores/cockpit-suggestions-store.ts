@@ -1,19 +1,30 @@
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 
-let state: CockpitSuggestion[] = [];
+export type CockpitSuggestionsSnapshot = {
+  projectId: string | null;
+  suggestions: CockpitSuggestion[];
+};
+
+let state: CockpitSuggestionsSnapshot = {
+  projectId: null,
+  suggestions: [],
+};
 const listeners = new Set<() => void>();
 
 function emit() {
   listeners.forEach((l) => l());
 }
 
-export function setCockpitSuggestions(suggestions: CockpitSuggestion[]) {
-  state = suggestions;
+export function setCockpitSuggestions(snapshot: CockpitSuggestionsSnapshot) {
+  state = snapshot;
   emit();
 }
 
 export function clearCockpitSuggestions() {
-  state = [];
+  state = {
+    projectId: null,
+    suggestions: [],
+  };
   emit();
 }
 
@@ -24,16 +35,22 @@ export function subscribe(listener: () => void): () => void {
   };
 }
 
-export function getSnapshot(): CockpitSuggestion[] {
+export function getSnapshot(): CockpitSuggestionsSnapshot {
   return state;
 }
 
-export function getServerSnapshot(): CockpitSuggestion[] {
-  return [];
+export function getServerSnapshot(): CockpitSuggestionsSnapshot {
+  return {
+    projectId: null,
+    suggestions: [],
+  };
 }
 
 /** Reset internal state — only for tests. */
 export function _resetForTest() {
-  state = [];
+  state = {
+    projectId: null,
+    suggestions: [],
+  };
   listeners.clear();
 }

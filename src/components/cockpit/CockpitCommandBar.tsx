@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import type { CockpitSuggestion, CockpitIntent } from "@/lib/cockpit/suggestions";
 import { useCockpitCommandBar } from "@/hooks/useCockpitCommandBar";
@@ -93,12 +93,13 @@ export function CockpitCommandBar({
     confirmPreview,
     cancelPreview,
     hideAction,
+    showAction,
     resetHidden,
   } = useCockpitCommandBar(suggestions, projectId);
 
   const pillRefs = useRef<(HTMLElement | null)[]>([]);
-  const manageRef = useRef<HTMLDivElement | null>(null);
-  const manageButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [showOverflowMenu, setShowOverflowMenu] = useState(false);
+  const [showManageMenu, setShowManageMenu] = useState(false);
 
   const totalPills = filteredSuggestions.length + (overflowSuggestions.length > 0 ? 1 : 0);
 
@@ -153,11 +154,24 @@ export function CockpitCommandBar({
     }
   }, [confirmPreview, onExecute, onOpenDialog]);
 
-  /* -- Manage popover toggle -- */
-  const toggleManage = useCallback(() => {
-    const el = manageRef.current;
-    if (!el) return;
-    el.hidden = !el.hidden;
+  const toggleOverflowMenu = useCallback(() => {
+    setShowOverflowMenu((current) => {
+      const next = !current;
+      if (next) {
+        setShowManageMenu(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleManageMenu = useCallback(() => {
+    setShowManageMenu((current) => {
+      const next = !current;
+      if (next) {
+        setShowOverflowMenu(false);
+      }
+      return next;
+    });
   }, []);
 
   if (filteredSuggestions.length === 0 && overflowSuggestions.length === 0) {
@@ -210,58 +224,100 @@ export function CockpitCommandBar({
         })}
 
         {overflowSuggestions.length > 0 ? (
-          <button
-            ref={(el) => { pillRefs.current[filteredSuggestions.length] = el; }}
-            type="button"
-            className={pillClass}
-            tabIndex={filteredSuggestions.length === activeIndex ? 0 : -1}
-            onClick={toggleManage}
-          >
-            +{overflowSuggestions.length} autre{overflowSuggestions.length !== 1 ? "s" : ""}
-          </button>
+          <div className="relative inline-block">
+            <button
+              ref={(el) => { pillRefs.current[filteredSuggestions.length] = el; }}
+              type="button"
+              className={pillClass}
+              tabIndex={filteredSuggestions.length === activeIndex ? 0 : -1}
+              aria-expanded={showOverflowMenu}
+              onClick={toggleOverflowMenu}
+            >
+              +{overflowSuggestions.length} autre{overflowSuggestions.length !== 1 ? "s" : ""}
+            </button>
+            {showOverflowMenu ? (
+              <div className="absolute left-0 top-full z-20 mt-1 min-w-[240px] rounded-lg border border-slate-200 bg-surface p-2 shadow-lg">
+                {overflowSuggestions.map((suggestion) =>
+                  suggestion.target.kind === "navigate" ? (
+                    <Link
+                      key={suggestion.actionId}
+                      href={suggestion.target.href}
+                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-sm hover:bg-slate-50"
+                      onClick={() => {
+                        setShowOverflowMenu(false);
+                        handleExecute(suggestion);
+                      }}
+                    >
+                      {INTENT_ICONS[suggestion.intent]}
+                      <span>{suggestion.label}</span>
+                    </Link>
+                  ) : (
+                    <button
+                      key={suggestion.actionId}
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-slate-50"
+                      onClick={() => {
+                        setShowOverflowMenu(false);
+                        handleExecute(suggestion);
+                      }}
+                    >
+                      {INTENT_ICONS[suggestion.intent]}
+                      <span>{suggestion.label}</span>
+                    </button>
+                  ),
+                )}
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
         {/* Manage popover */}
         <div className="relative inline-block">
           <button
-            ref={manageButtonRef}
             type="button"
             className="text-xs text-slate-500 underline hover:text-slate-700"
-            onClick={toggleManage}
+            aria-expanded={showManageMenu}
+            onClick={toggleManageMenu}
           >
             Gerer
           </button>
-          <div
-            ref={manageRef}
-            hidden
-            className="absolute right-0 top-full z-20 mt-1 min-w-[200px] rounded-lg border border-slate-200 bg-surface p-2 shadow-lg"
-          >
-            {suggestions.map((s) => (
-              <label
-                key={s.actionId}
-                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+          {showManageMenu ? (
+            <div className="absolute right-0 top-full z-20 mt-1 min-w-[200px] rounded-lg border border-slate-200 bg-surface p-2 shadow-lg">
+              {suggestions.map((s) => {
+                const isVisible =
+                  filteredSuggestions.some((f) => f.actionId === s.actionId) ||
+                  overflowSuggestions.some((o) => o.actionId === s.actionId);
+
+                return (
+                  <label
+                    key={s.actionId}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      className="accent-primary"
+                      checked={isVisible}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          showAction(s.actionId);
+                          return;
+                        }
+                        hideAction(s.actionId);
+                      }}
+                    />
+                    {s.label}
+                  </label>
+                );
+              })}
+              <button
+                type="button"
+                className="mt-1 w-full rounded px-2 py-1 text-left text-xs text-slate-500 hover:bg-slate-50"
+                onClick={resetHidden}
               >
-                <input
-                  type="checkbox"
-                  className="accent-primary"
-                  checked={filteredSuggestions.some((f) => f.actionId === s.actionId) || overflowSuggestions.some((o) => o.actionId === s.actionId)}
-                  onChange={(e) => {
-                    if (!e.target.checked) {
-                      hideAction(s.actionId);
-                    }
-                  }}
-                />
-                {s.label}
-              </label>
-            ))}
-            <button
-              type="button"
-              className="mt-1 w-full rounded px-2 py-1 text-left text-xs text-slate-500 hover:bg-slate-50"
-              onClick={resetHidden}
-            >
-              Reinitialiser
-            </button>
-          </div>
+                Reinitialiser
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <span className="sr-only" aria-live="polite">

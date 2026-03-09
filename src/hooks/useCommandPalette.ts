@@ -8,11 +8,13 @@ import {
   getSnapshot as getCockpitSnapshot,
   getServerSnapshot as getCockpitServerSnapshot,
 } from "@/lib/stores/cockpit-suggestions-store";
+import type { CockpitIntent } from "@/lib/cockpit/suggestions";
 
 import { useUserContext } from "@/components/UserContext";
 import { useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
+import { recordCockpitCommandAction } from "@/app/dashboard/affaires/_actions/cockpit";
 import {
   buildNavGroups,
   type BuildNavGroupsInput,
@@ -31,6 +33,11 @@ export type CommandItem = {
   keywords?: string[];
   href?: string;
   action?: () => void;
+  cockpitTracking?: {
+    projectId: string;
+    actionId: string;
+    intent: CockpitIntent;
+  };
 };
 
 export type CommandGroup = {
@@ -218,12 +225,21 @@ export function useCommandPalette() {
   );
 
   const allItems = useMemo(() => {
-    const contextualActions: CommandItem[] = cockpitSuggestions.map((s) => ({
+    const contextualActions: CommandItem[] = cockpitSuggestions.suggestions.map((s) => ({
       id: `cockpit-${s.actionId}`,
       group: "actions" as const,
       label: s.label,
       description: s.preview,
       keywords: ["cockpit", s.intent.replace(/_/g, " ")],
+      ...(cockpitSuggestions.projectId
+        ? {
+            cockpitTracking: {
+              projectId: cockpitSuggestions.projectId,
+              actionId: s.actionId,
+              intent: s.intent,
+            },
+          }
+        : {}),
       ...(s.target.kind === "navigate"
         ? { href: s.target.href }
         : {
@@ -302,6 +318,12 @@ export function useCommandPalette() {
     (item: CommandItem) => {
       closePalette();
       saveRecent(item.id);
+
+      if (item.cockpitTracking) {
+        void Promise.resolve(recordCockpitCommandAction(item.cockpitTracking)).catch(() => {
+          // Ignore tracking failures: command execution should still complete.
+        });
+      }
 
       if (item.action) {
         item.action();

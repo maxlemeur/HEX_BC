@@ -201,6 +201,31 @@ describe("useCockpitCommandBar", () => {
     expect(stored).toContain("action-0");
   });
 
+  it("showAction() restores a hidden suggestion and updates localStorage", () => {
+    const suggestions = makeSuggestions(3);
+    const { result } = renderHook(() =>
+      useCockpitCommandBar(suggestions, PROJECT_ID),
+    );
+
+    act(() => {
+      result.current.hideAction("action-1");
+    });
+    expect(
+      result.current.filteredSuggestions.find((s) => s.actionId === "action-1"),
+    ).toBeUndefined();
+
+    act(() => {
+      result.current.showAction("action-1");
+    });
+
+    expect(
+      result.current.filteredSuggestions.find((s) => s.actionId === "action-1"),
+    ).toBeDefined();
+    expect(
+      JSON.parse(storage[`cockpit-cmd-hidden-${PROJECT_ID}`] ?? "[]"),
+    ).not.toContain("action-1");
+  });
+
   it("resetHidden() clears all hidden and removes localStorage key", () => {
     const suggestions = makeSuggestions(3);
     const { result } = renderHook(() =>

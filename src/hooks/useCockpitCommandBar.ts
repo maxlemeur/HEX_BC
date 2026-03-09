@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 
@@ -31,20 +31,12 @@ export function useCockpitCommandBar(
   suggestions: CockpitSuggestion[],
   projectId: string,
 ) {
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [hiddenVersion, setHiddenVersion] = useState(0);
   const [previewSuggestion, setPreviewSuggestion] =
     useState<CockpitSuggestion | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
-  const prevProjectIdRef = useRef(projectId);
-
-  // Hydrate from localStorage (avoid SSR mismatch)
-  useEffect(() => {
-    const ids = readHiddenIds(projectId);
-    if (ids.size > 0 || prevProjectIdRef.current !== projectId) {
-      prevProjectIdRef.current = projectId;
-      setHiddenIds(ids);
-    }
-  }, [projectId]);
+  void hiddenVersion;
+  const hiddenIds = readHiddenIds(projectId);
 
   const allVisible = suggestions.filter((s) => !hiddenIds.has(s.actionId));
   const filteredSuggestions = allVisible.slice(0, MAX_VISIBLE);
@@ -73,21 +65,32 @@ export function useCockpitCommandBar(
 
   const hideAction = useCallback(
     (actionId: string) => {
-      setHiddenIds((prev) => {
-        const next = new Set(prev);
-        next.add(actionId);
-        writeHiddenIds(projectId, next);
-        return next;
-      });
+      const next = new Set(readHiddenIds(projectId));
+      next.add(actionId);
+      writeHiddenIds(projectId, next);
+      setHiddenVersion((prev) => prev + 1);
+    },
+    [projectId],
+  );
+
+  const showAction = useCallback(
+    (actionId: string) => {
+      const next = new Set(readHiddenIds(projectId));
+      if (!next.has(actionId)) {
+        return;
+      }
+      next.delete(actionId);
+      writeHiddenIds(projectId, next);
+      setHiddenVersion((prev) => prev + 1);
     },
     [projectId],
   );
 
   const resetHidden = useCallback(() => {
-    setHiddenIds(new Set());
     try {
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}${projectId}`);
     } catch {}
+    setHiddenVersion((prev) => prev + 1);
   }, [projectId]);
 
   return {
@@ -100,6 +103,7 @@ export function useCockpitCommandBar(
     confirmPreview,
     cancelPreview,
     hideAction,
+    showAction,
     resetHidden,
   };
 }
