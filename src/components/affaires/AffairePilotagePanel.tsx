@@ -58,8 +58,18 @@ type AffairePilotagePanelProps = {
     | null;
   lineCount: number;
   takeoffEnabled?: boolean;
-  onOpenSurface: (surfaceId: CockpitSurfaceId) => void;
+  onOpenSurface?: (surfaceId: CockpitSurfaceId) => void;
 };
+
+function hasValidatedDpgfMapping(dpgfSource: AffaireHubDpgfSourceResult) {
+  return (
+    dpgfSource !== null &&
+    dpgfSource.importStatus === "completed" &&
+    (dpgfSource.mappingStatus === null ||
+      dpgfSource.mappingStatus === "validated" ||
+      dpgfSource.mappingStatus === "applied")
+  );
+}
 
 function isDocumentProcessing(
   document: NonNullable<AffairePilotagePanelProps["intakeWorkspace"]>["documents"][number],
@@ -176,6 +186,9 @@ function buildPilotageSteps(input: {
   const briefStatus = input.intakeWorkspace?.briefDraft?.status ?? null;
   const hasConfirmedBrief = briefStatus === "confirme";
   const latestJob = input.plansSummary?.latestJob ?? null;
+  const takeoffCoverageAvailable =
+    input.plansSummary?.coveragePercent != null &&
+    input.plansSummary?.exceptionCount != null;
 
   const dossierSummaryParts: string[] = [];
   let dossierStatus: PilotageStepStatus = "waiting";
@@ -306,6 +319,19 @@ function buildPilotageSteps(input: {
         input.plansSummary?.failureReasonLabel ??
         "Une action est requise avant de reprendre l'analyse des plans.",
     };
+  } else if (latestJob?.status === "review_required") {
+    const exceptionCount = input.plansSummary?.exceptionCount;
+    metreStep = {
+      key: "metre",
+      label: "Metre & preuves",
+      status: "blocked",
+      summary:
+        typeof exceptionCount === "number" && exceptionCount > 0
+          ? `${exceptionCount} ecart${exceptionCount > 1 ? "s" : ""} majeur${exceptionCount > 1 ? "s" : ""} a revoir.`
+          : takeoffCoverageAvailable
+            ? "La revue des metres reste requise avant d'appliquer les quantites dans le devis."
+            : "La revue des metres reste requise, mais le resume compare est indisponible.",
+    };
   } else if (
     latestJob &&
     (latestJob.status === "queued" ||
@@ -325,7 +351,7 @@ function buildPilotageSteps(input: {
       status: "blocked",
       summary: `${input.plansSummary?.exceptionCount ?? 0} ecart${(input.plansSummary?.exceptionCount ?? 0) > 1 ? "s" : ""} majeur${(input.plansSummary?.exceptionCount ?? 0) > 1 ? "s" : ""} a revoir.`,
     };
-  } else if (latestJob && (latestJob.status === "completed" || latestJob.status === "review_required")) {
+  } else if (latestJob && latestJob.status === "completed") {
     const coveragePercent = input.plansSummary?.coveragePercent;
     metreStep = {
       key: "metre",
@@ -410,9 +436,11 @@ function buildPilotageSteps(input: {
 function buildPilotageExceptions(input: {
   projectId: string;
   intakeWorkspace: AffairePilotagePanelProps["intakeWorkspace"];
+  dpgfSource: AffaireHubDpgfSourceResult;
   plansSummary: AffaireHubPlansSummaryData | null;
   registerSummary: AffaireRegisterSummary | null;
   approvalSummary: EstimateApprovalSummary | null;
+  allowSurfaceActions?: boolean;
 }) {
   const exceptions: PilotageException[] = [];
   const reviewDocumentsCount = countDocumentsNeedingReview(input.intakeWorkspace);
@@ -420,6 +448,7 @@ function buildPilotageExceptions(input: {
     input.intakeWorkspace?.missingPieces.filter((piece) => piece.severity === "critical")
       .length ?? 0;
   const missingPiecesCount = input.intakeWorkspace?.missingPieces.length ?? 0;
+  const allowSurfaceActions = input.allowSurfaceActions ?? true;
 
   if (reviewDocumentsCount > 0) {
     exceptions.push({
@@ -436,7 +465,7 @@ function buildPilotageExceptions(input: {
     });
   }
 
-  if (missingPiecesCount > 0) {
+  if (missingPiecesCount > 0 && allowSurfaceActions) {
     exceptions.push({
       id: "missing-pieces",
       title: `Ajouter ${missingPiecesCount} piece${missingPiecesCount > 1 ? "s" : ""} manquante${missingPiecesCount > 1 ? "s" : ""}`,
@@ -453,7 +482,7 @@ function buildPilotageExceptions(input: {
     });
   }
 
-  if (input.intakeWorkspace?.briefDraft?.status === "a_confirmer") {
+  if (input.intakeWorkspace?.briefDraft?.status === "a_confirmer" && allowSurfaceActions) {
     exceptions.push({
       id: "brief-confirm",
       title: "Confirmer le brief affaire",
@@ -464,6 +493,34 @@ function buildPilotageExceptions(input: {
         kind: "surface",
         label: "Ouvrir le brief",
         surfaceId: "brief-confirm",
+      },
+    });
+  }
+
+  if (input.dpgfSource?.importStatus === "failed") {
+    exceptions.push({
+      id: "dpgf-import-failed",
+      title: "Corriger l'import du DPGF",
+      summary:
+        "Le dernier import du DPGF a echoue. Reprenez cette etape avant de structurer le devis.",
+      severity: "critical",
+      action: {
+        kind: "href",
+        label: "Voir le DPGF",
+        href: "#dpgf",
+      },
+    });
+  } else if (input.dpgfSource !== null && !hasValidatedDpgfMapping(input.dpgfSource)) {
+    exceptions.push({
+      id: "dpgf-mapping-pending",
+      title: "Finaliser la structure du devis",
+      summary:
+        "Le DPGF est importe mais son mapping doit etre valide avant de poursuivre le chiffrage.",
+      severity: "warning",
+      action: {
+        kind: "href",
+        label: "Verifier le DPGF",
+        href: "#dpgf",
       },
     });
   }
@@ -539,10 +596,24 @@ function buildPilotageExceptions(input: {
         href: buildTakeoffExceptionsHref(input.projectId, input.plansSummary),
       },
     });
+  } else if (input.plansSummary?.latestJob?.status === "review_required") {
+    exceptions.push({
+      id: "takeoff-review-required",
+      title: "Revoir l'analyse des plans",
+      summary:
+        "Le backend signale qu'une revue reste requise avant d'exploiter les metres dans le devis.",
+      severity: "warning",
+      action: {
+        kind: "href",
+        label: "Ouvrir la revue",
+        href: buildTakeoffExceptionsHref(input.projectId, input.plansSummary),
+      },
+    });
   } else if (
     input.plansSummary &&
     input.plansSummary.planSetCount > 0 &&
-    input.plansSummary.latestJob === null
+    input.plansSummary.latestJob === null &&
+    allowSurfaceActions
   ) {
     exceptions.push({
       id: "takeoff-launch",
@@ -594,7 +665,7 @@ function ExceptionActionButton({
   onOpenSurface,
 }: {
   action: PilotageAction;
-  onOpenSurface: AffairePilotagePanelProps["onOpenSurface"];
+  onOpenSurface?: AffairePilotagePanelProps["onOpenSurface"];
 }) {
   if (action.kind === "href") {
     return (
@@ -619,6 +690,10 @@ function ExceptionActionButton({
         </svg>
       </Link>
     );
+  }
+
+  if (!onOpenSurface) {
+    return null;
   }
 
   return (
@@ -658,6 +733,7 @@ export function AffairePilotagePanel({
   takeoffEnabled = false,
   onOpenSurface,
 }: AffairePilotagePanelProps) {
+  const allowSurfaceActions = typeof onOpenSurface === "function";
   const steps = buildPilotageSteps({
     intakeWorkspace,
     dpgfSource,
@@ -670,9 +746,11 @@ export function AffairePilotagePanel({
   const exceptions = buildPilotageExceptions({
     projectId,
     intakeWorkspace,
+    dpgfSource,
     plansSummary,
     registerSummary,
     approvalSummary,
+    allowSurfaceActions,
   });
 
   return (

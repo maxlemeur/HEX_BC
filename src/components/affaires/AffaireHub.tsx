@@ -1631,7 +1631,13 @@ export function AffaireHub({
               }
               lineCount={summary.lineCount}
               takeoffEnabled={takeoffEnabled}
-              onOpenSurface={(surfaceId) => openHubSurface(surfaceId)}
+              onOpenSurface={
+                isReadOnlyReview
+                  ? undefined
+                  : (surfaceId) => {
+                      openHubSurface(surfaceId);
+                    }
+              }
             />
           </div>
 

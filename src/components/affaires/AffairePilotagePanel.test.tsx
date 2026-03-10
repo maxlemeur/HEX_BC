@@ -48,6 +48,23 @@ function makeIntakeWorkspace(overrides?: Partial<Parameters<typeof buildPilotage
   };
 }
 
+function makeDpgfSource(
+  overrides?: Partial<NonNullable<Parameters<typeof buildPilotageSteps>[0]["dpgfSource"]>>,
+) {
+  return {
+    importId: "import-1",
+    filename: "dpgf.xlsx",
+    sourceFormat: "xlsx",
+    importStatus: "completed",
+    mappingStatus: "validated",
+    importedAt: "2026-03-10T08:00:00.000Z",
+    mappingUpdatedAt: "2026-03-10T08:05:00.000Z",
+    parseMode: "spreadsheet",
+    rowCount: 42,
+    ...overrides,
+  };
+}
+
 describe("AffairePilotagePanel", () => {
   it("builds a blocked dossier step when intake still has review items", () => {
     const steps = buildPilotageSteps({
@@ -104,6 +121,7 @@ describe("AffairePilotagePanel", () => {
           status: "a_confirmer",
         },
       }),
+      dpgfSource: null,
       plansSummary: {
         defaultPlanSetId: "plan-set-1",
         planSetCount: 1,
@@ -141,6 +159,104 @@ describe("AffairePilotagePanel", () => {
     expect(exceptions.some((exception) => exception.id === "brief-confirm")).toBe(true);
   });
 
+  it("surfaces DPGF mapping blockers in the exception queue", () => {
+    const exceptions = buildPilotageExceptions({
+      projectId: "project-1",
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: makeDpgfSource({
+        mappingStatus: "mapped",
+      }),
+      plansSummary: null,
+      registerSummary: null,
+      approvalSummary: null,
+    });
+
+    expect(exceptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "dpgf-mapping-pending",
+          severity: "warning",
+          action: {
+            kind: "href",
+            label: "Verifier le DPGF",
+            href: "#dpgf",
+          },
+        }),
+      ]),
+    );
+  });
+
+  it("keeps degraded review_required takeoff jobs blocked and actionable", () => {
+    const steps = buildPilotageSteps({
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: makeDpgfSource(),
+      plansSummary: {
+        defaultPlanSetId: "plan-set-1",
+        planSetCount: 1,
+        planFileCount: 1,
+        totalSizeBytes: 1024,
+        latestJob: {
+          jobId: "job-1",
+          status: "review_required",
+          label: "Revue requise",
+          reviewVersionId: "version-review",
+        },
+        coveragePercent: null,
+        exceptionCount: null,
+        openQuestionsCount: 0,
+        failureReasonLabel: null,
+      },
+      approvalSummary: null,
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      lineCount: 12,
+      takeoffEnabled: true,
+    });
+    const exceptions = buildPilotageExceptions({
+      projectId: "project-1",
+      intakeWorkspace: makeIntakeWorkspace(),
+      dpgfSource: makeDpgfSource(),
+      plansSummary: {
+        defaultPlanSetId: "plan-set-1",
+        planSetCount: 1,
+        planFileCount: 1,
+        totalSizeBytes: 1024,
+        latestJob: {
+          jobId: "job-1",
+          status: "review_required",
+          label: "Revue requise",
+          reviewVersionId: "version-review",
+        },
+        coveragePercent: null,
+        exceptionCount: null,
+        openQuestionsCount: 0,
+        failureReasonLabel: null,
+      },
+      registerSummary: null,
+      approvalSummary: null,
+    });
+
+    expect(steps.find((step) => step.key === "metre")).toMatchObject({
+      status: "blocked",
+    });
+    expect(exceptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "takeoff-review-required",
+          action: {
+            kind: "href",
+            label: "Ouvrir la revue",
+            href:
+              "/dashboard/affaires/project-1/takeoff/job-1/review?versionId=version-review&view=dpgf&dpgfView=exceptions_only",
+          },
+        }),
+      ]),
+    );
+  });
+
   it("opens the intake upload surface from the exception queue", async () => {
     const user = userEvent.setup();
     const onOpenSurface = vi.fn();
@@ -171,5 +287,27 @@ describe("AffairePilotagePanel", () => {
     await user.click(screen.getByRole("button", { name: /Ajouter des pieces/i }));
 
     expect(onOpenSurface).toHaveBeenCalledWith("intake-upload");
+  });
+
+  it("omits surface-based exceptions when no surface opener is available", () => {
+    const exceptions = buildPilotageExceptions({
+      projectId: "project-1",
+      intakeWorkspace: makeIntakeWorkspace({
+        missingPieces: [
+          {
+            code: "cctp_missing",
+            label: "CCTP manquant",
+            severity: "critical",
+          },
+        ],
+      }),
+      dpgfSource: null,
+      plansSummary: null,
+      registerSummary: null,
+      approvalSummary: null,
+      allowSurfaceActions: false,
+    });
+
+    expect(exceptions.some((exception) => exception.id === "missing-pieces")).toBe(false);
   });
 });
