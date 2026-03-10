@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createTakeoffCarryOverStatus,
   linkTakeoffJobsFromSourceVersionToTargetVersion,
   summarizeTakeoffCarryOverSourceVersion,
 } from "@/lib/takeoff/version-links";
@@ -343,6 +344,40 @@ describe("linkTakeoffJobsFromSourceVersionToTargetVersion", () => {
         },
       ])
     );
+  });
+});
+
+describe("createTakeoffCarryOverStatus", () => {
+  it("uses source job counts to avoid contradictory totals when the summary is unavailable", () => {
+    const status = createTakeoffCarryOverStatus({
+      summary: {
+        sourceVersionId: SOURCE_VERSION_ID,
+        sourceVersionNumber: 4,
+        state: "unavailable",
+        totalJobs: 0,
+        acquiredJobs: 0,
+        inProgressJobs: 0,
+        actionRequiredJobs: 0,
+      },
+      linkState: "partial",
+      linkedJobs: 2,
+      sourceJobs: 5,
+    });
+
+    expect(status).toEqual({
+      summary: {
+        sourceVersionId: SOURCE_VERSION_ID,
+        sourceVersionNumber: 4,
+        state: "unavailable",
+        totalJobs: 5,
+        acquiredJobs: 0,
+        inProgressJobs: 0,
+        actionRequiredJobs: 0,
+      },
+      linkState: "partial",
+      linkedJobs: 2,
+      unlinkedJobs: 3,
+    });
   });
 });
 

@@ -987,6 +987,9 @@ function ConfirmationStep({
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [carryOverPreview, setCarryOverPreview] =
     useState<TakeoffCarryOverSummary | null>(null);
+  const [previewSourceVersionId, setPreviewSourceVersionId] = useState<
+    string | null | undefined
+  >(undefined);
   const [isCarryOverPreviewLoading, setIsCarryOverPreviewLoading] = useState(true);
   const carryOverPreviewRequestIdRef = useRef(0);
 
@@ -995,6 +998,7 @@ function ConfirmationStep({
     const requestId = ++carryOverPreviewRequestIdRef.current;
 
     setIsCarryOverPreviewLoading(true);
+    setPreviewSourceVersionId(undefined);
 
     void getUnifiedImportFlowTakeoffCarryOverPreview({ projectId })
       .then((result) => {
@@ -1003,6 +1007,7 @@ function ConfirmationStep({
         }
 
         setCarryOverPreview(result);
+        setPreviewSourceVersionId(result.sourceVersionId);
       })
       .catch(() => {
         if (cancelled || carryOverPreviewRequestIdRef.current !== requestId) {
@@ -1018,6 +1023,7 @@ function ConfirmationStep({
           inProgressJobs: 0,
           actionRequiredJobs: 0,
         });
+        setPreviewSourceVersionId(undefined);
       })
       .finally(() => {
         if (!cancelled && carryOverPreviewRequestIdRef.current === requestId) {
@@ -1041,6 +1047,7 @@ function ConfirmationStep({
           projectId,
           mapping,
           createEstimate,
+          previewSourceVersionId,
         });
 
         onSuccess(result);
@@ -1054,7 +1061,7 @@ function ConfirmationStep({
         setIsConfirming(false);
       }
     },
-    [importId, projectId, mapping, onSuccess],
+    [importId, projectId, mapping, onSuccess, previewSourceVersionId],
   );
 
   const carryOverPreviewCopy =

@@ -300,12 +300,26 @@ export function createTakeoffCarryOverStatus(input: {
   summary: TakeoffCarryOverSummary;
   linkState: TakeoffCarryOverLinkState;
   linkedJobs?: number;
+  sourceJobs?: number;
 }): TakeoffCarryOverStatus {
   const linkedJobs = Math.max(input.linkedJobs ?? 0, 0);
-  const unlinkedJobs = Math.max(input.summary.totalJobs - linkedJobs, 0);
+  const sourceJobs = Math.max(
+    input.sourceJobs ?? input.summary.totalJobs,
+    linkedJobs,
+    0
+  );
+  const summaryTotalJobs = Math.max(input.summary.totalJobs, sourceJobs);
+  const summary =
+    summaryTotalJobs === input.summary.totalJobs
+      ? input.summary
+      : {
+          ...input.summary,
+          totalJobs: summaryTotalJobs,
+        };
+  const unlinkedJobs = Math.max(sourceJobs - linkedJobs, 0);
 
   return {
-    summary: input.summary,
+    summary,
     linkState: input.linkState,
     linkedJobs,
     unlinkedJobs,
