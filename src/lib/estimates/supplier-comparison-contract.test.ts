@@ -64,7 +64,7 @@ function buildCandidate(): EstimateSupplierComparisonCandidate {
 }
 
 describe("buildEstimateSupplierComparisonAlternatives", () => {
-  it("keeps heuristic kinds visible and appends selected_current when needed", () => {
+  it("keeps selected_current inside the first three visible alternatives when needed", () => {
     const alternatives = buildEstimateSupplierComparisonAlternatives({
       candidate: buildCandidate(),
       selectedSupplierPriceId: "00000000-0000-4000-8000-000000000010",
@@ -73,8 +73,8 @@ describe("buildEstimateSupplierComparisonAlternatives", () => {
     expect(alternatives.map((alternative) => alternative.kind)).toEqual([
       "best_price",
       "most_recent",
-      "preferred_supplier",
       "selected_current",
+      "preferred_supplier",
     ]);
     expect(alternatives.find((alternative) => alternative.kind === "selected_current")).toMatchObject(
       {

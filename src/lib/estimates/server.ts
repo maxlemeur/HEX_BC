@@ -746,6 +746,22 @@ type SuggestedCataloguePrice = {
   alternatives: SuggestedSupplierAlternative[];
 };
 
+type SupplierPricebookRow = {
+  id: string;
+  supplier_id: string;
+  product_id: string;
+  supplier_sku: string | null;
+  unit: string;
+  unit_price_cents: number;
+  currency: string;
+  updated_at: string;
+  created_at: string;
+  notes: string | null;
+  is_active: boolean;
+};
+
+type HydratedSuggestedCatalogueCandidate = Omit<SuggestedCataloguePrice, "alternatives">;
+
 type EstimateSupplierComparisonSourceAlternative = {
   supplier_price_id: string;
   supplier_id: string;
@@ -818,9 +834,365 @@ export type EstimateSupplierComparisonCandidate = {
 const SUPPLIER_COMPARISON_ALTERNATIVE_KIND_ORDER: SupplierComparisonAlternativeKind[] = [
   "best_price",
   "most_recent",
-  "preferred_supplier",
   "selected_current",
+  "preferred_supplier",
 ];
+
+async function resolvePreferredSupplierIdForCandidates(input: {
+  supabase: Supabase;
+  tenantId: string;
+  supplierPrices: SupplierPricebookRow[];
+}) {
+  const preferredSupplierValue = await getFeatureFlagValueForTenant(
+    input.tenantId,
+    "PREFERRED_SUPPLIER_ID",
+    { supabase: input.supabase }
+  );
+
+  if (preferredSupplierValue && /^[0-9a-fA-F-]{36}$/.test(preferredSupplierValue)) {
+    return preferredSupplierValue;
+  }
+
+  const supplierFrequency = new Map<string, number>();
+  input.supplierPrices.forEach((row) => {
+    supplierFrequency.set(
+      row.supplier_id,
+      (supplierFrequency.get(row.supplier_id) ?? 0) + 1
+    );
+  });
+
+  return (
+    [...supplierFrequency.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ??
+    null
+  );
+}
+
+async function hydrateSuggestedCatalogueCandidates(input: {
+  supabase: Supabase;
+  tenantId: string;
+  supplierPrices: SupplierPricebookRow[];
+  stalePriceDays: number;
+  query: string;
+  filterByRelevance: boolean;
+}) {
+  if (input.supplierPrices.length === 0) {
+    return [] as HydratedSuggestedCatalogueCandidate[];
+  }
+
+  const productById = new Map<string, { id: string; designation: string; reference: string | null }>();
+  const supplierById = new Map<string, { id: string; name: string }>();
+
+  const productIds = Array.from(new Set(input.supplierPrices.map((row) => row.product_id)));
+  if (productIds.length > 0) {
+    const { data: productsData, error: productsError } = await input.supabase
+      .from("products")
+      .select("id, designation, reference")
+      .eq("tenant_id", input.tenantId)
+      .in("id", productIds);
+
+    if (productsError) {
+      throw mapSupabaseError(
+        productsError,
+        "Impossible de charger les produits des suggestions."
+      );
+    }
+
+    ((productsData ?? []) as Array<{
+      id: string;
+      designation: string;
+      reference: string | null;
+    }>).forEach((product) => {
+      productById.set(product.id, product);
+    });
+  }
+
+  const supplierIds = Array.from(new Set(input.supplierPrices.map((row) => row.supplier_id)));
+  if (supplierIds.length > 0) {
+    const { data: suppliersData, error: suppliersError } = await input.supabase
+      .from("suppliers")
+      .select("id, name")
+      .eq("tenant_id", input.tenantId)
+      .in("id", supplierIds);
+
+    if (suppliersError) {
+      throw mapSupabaseError(
+        suppliersError,
+        "Impossible de charger les fournisseurs des suggestions."
+      );
+    }
+
+    ((suppliersData ?? []) as Array<{ id: string; name: string }>).forEach((supplier) => {
+      supplierById.set(supplier.id, supplier);
+    });
+  }
+
+  const supplierPriceIds = input.supplierPrices.map((row) => row.id);
+  const materialIndexBySupplierPriceId = new Map<
+    string,
+    {
+      index_code: string;
+      index_value: number;
+      updated_at: string;
+      index_date: string;
+    }
+  >();
+
+  if (supplierPriceIds.length > 0) {
+    const { data: linksData, error: linksError } = await input.supabase
+      .from("dpgf_catalogue_links")
+      .select("supplier_price_id, material_index_id")
+      .eq("tenant_id", input.tenantId)
+      .in("supplier_price_id", supplierPriceIds);
+
+    if (linksError) {
+      throw mapSupabaseError(
+        linksError,
+        "Impossible de charger les liaisons catalogue des suggestions."
+      );
+    }
+
+    const links = (linksData ?? []) as Array<{
+      supplier_price_id: string | null;
+      material_index_id: string | null;
+    }>;
+    const materialIndexIds = Array.from(
+      new Set(
+        links
+          .map((link) => link.material_index_id)
+          .filter((value): value is string => typeof value === "string")
+      )
+    );
+
+    if (materialIndexIds.length > 0) {
+      const { data: indicesData, error: indicesError } = await input.supabase
+        .from("material_indices")
+        .select("id, index_code, index_value, updated_at, index_date")
+        .eq("tenant_id", input.tenantId)
+        .in("id", materialIndexIds);
+
+      if (indicesError) {
+        throw mapSupabaseError(
+          indicesError,
+          "Impossible de charger les indices materiaux des suggestions."
+        );
+      }
+
+      const indexById = new Map(
+        ((indicesData ?? []) as Array<{
+          id: string;
+          index_code: string;
+          index_value: number;
+          updated_at: string;
+          index_date: string;
+        }>).map((index) => [index.id, index])
+      );
+
+      links.forEach((link) => {
+        if (!link.supplier_price_id || !link.material_index_id) return;
+        const index = indexById.get(link.material_index_id);
+        if (!index) return;
+        materialIndexBySupplierPriceId.set(link.supplier_price_id, index);
+      });
+    }
+  }
+
+  const now = new Date();
+
+  return input.supplierPrices
+    .map((row) => {
+      const product = productById.get(row.product_id);
+      const supplier = supplierById.get(row.supplier_id);
+      const materialIndex = materialIndexBySupplierPriceId.get(row.id);
+      const hasMaterialIndexAdjustment =
+        typeof materialIndex?.index_value === "number" && materialIndex.index_value > 0;
+      const adjustedUnitPriceCents = hasMaterialIndexAdjustment
+        ? Math.round((row.unit_price_cents * materialIndex.index_value) / 100)
+        : row.unit_price_cents;
+      const updatedAt = row.updated_at ?? row.created_at ?? null;
+      const relevanceScore = computeSearchRelevance({
+        query: input.query,
+        designation: product?.designation ?? "",
+        supplierName: supplier?.name ?? "",
+        supplierSku: row.supplier_sku ?? null,
+        productReference: product?.reference ?? null,
+      });
+
+      return {
+        supplier_price_id: row.id,
+        product_id: row.product_id,
+        product_designation: product?.designation ?? "Produit",
+        product_reference: product?.reference ?? null,
+        supplier_id: row.supplier_id,
+        supplier_name: supplier?.name ?? "Fournisseur",
+        supplier_reference: row.supplier_sku ?? null,
+        unit: row.unit ?? null,
+        unit_price_cents: row.unit_price_cents,
+        adjusted_unit_price_cents: adjustedUnitPriceCents,
+        currency: row.currency ?? null,
+        updated_at: updatedAt,
+        is_stale: isPriceStale(
+          { updatedAt, createdAt: row.created_at ?? null },
+          input.stalePriceDays,
+          now
+        ),
+        stale_days: input.stalePriceDays,
+        relevance_score: relevanceScore,
+        has_material_index_adjustment: hasMaterialIndexAdjustment,
+        material_index_code: materialIndex?.index_code ?? null,
+        material_index_value: materialIndex?.index_value ?? null,
+        catalogue_url: extractCatalogueUrl(row.notes),
+      } satisfies HydratedSuggestedCatalogueCandidate;
+    })
+    .filter((candidate) =>
+      input.filterByRelevance ? candidate.relevance_score > 0 : true
+    )
+    .sort((left, right) => {
+      if (right.relevance_score !== left.relevance_score) {
+        return right.relevance_score - left.relevance_score;
+      }
+      return toTimestamp(right.updated_at) - toTimestamp(left.updated_at);
+    });
+}
+
+function buildSuggestedCatalogueAlternatives(input: {
+  productCandidates: HydratedSuggestedCatalogueCandidate[];
+  preferredSupplierId: string | null;
+}) {
+  const alternatives: SuggestedSupplierAlternative[] = [];
+  const pushAlternative = (
+    kind: SupplierAlternativeKind,
+    selected: HydratedSuggestedCatalogueCandidate | null
+  ) => {
+    if (!selected) return;
+    if (alternatives.some((existing) => existing.supplier_price_id === selected.supplier_price_id)) {
+      return;
+    }
+    alternatives.push({
+      kind,
+      supplier_price_id: selected.supplier_price_id,
+      supplier_id: selected.supplier_id,
+      supplier_name: selected.supplier_name,
+      unit_price_cents: selected.unit_price_cents,
+      adjusted_unit_price_cents: selected.adjusted_unit_price_cents,
+      currency: selected.currency,
+      supplier_reference: selected.supplier_reference,
+      unit: selected.unit,
+      updated_at: selected.updated_at,
+      is_stale: selected.is_stale,
+      catalogue_url: selected.catalogue_url,
+    });
+  };
+
+  const bestPrice = [...input.productCandidates].sort((left, right) => {
+    if (left.adjusted_unit_price_cents !== right.adjusted_unit_price_cents) {
+      return left.adjusted_unit_price_cents - right.adjusted_unit_price_cents;
+    }
+    return toTimestamp(right.updated_at) - toTimestamp(left.updated_at);
+  })[0] ?? null;
+  const mostRecent = getMostRecentRecord(input.productCandidates);
+  const preferredSupplier = input.preferredSupplierId
+    ? getMostRecentRecord(
+        input.productCandidates.filter(
+          (entry) => entry.supplier_id === input.preferredSupplierId
+        )
+      )
+    : null;
+
+  pushAlternative("best_price", bestPrice);
+  pushAlternative("most_recent", mostRecent);
+  pushAlternative("preferred_supplier", preferredSupplier);
+
+  return alternatives;
+}
+
+async function findSelectedSupplierComparisonCandidate(input: {
+  supabase: Supabase;
+  tenantId: string;
+  selectedSupplierPriceId: string;
+  stalePriceDays: number;
+}) {
+  const { data: selectedPriceData, error: selectedPriceError } = await input.supabase
+    .from("supplier_pricebook")
+    .select(
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active"
+    )
+    .eq("tenant_id", input.tenantId)
+    .eq("id", input.selectedSupplierPriceId)
+    .maybeSingle();
+
+  if (selectedPriceError) {
+    throw mapSupabaseError(
+      selectedPriceError,
+      "Impossible de charger la selection fournisseur actuelle."
+    );
+  }
+
+  const selectedPrice = (selectedPriceData ?? null) as SupplierPricebookRow | null;
+  if (!selectedPrice) {
+    return null;
+  }
+
+  const { data: productPriceData, error: productPriceError } = await input.supabase
+    .from("supplier_pricebook")
+    .select(
+      "id, supplier_id, product_id, supplier_sku, unit, unit_price_cents, currency, updated_at, created_at, notes, is_active"
+    )
+    .eq("tenant_id", input.tenantId)
+    .eq("product_id", selectedPrice.product_id)
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(400);
+
+  if (productPriceError) {
+    throw mapSupabaseError(
+      productPriceError,
+      "Impossible de charger les alternatives de la selection fournisseur."
+    );
+  }
+
+  const selectedAndPeerRows = Array.from(
+    new Map(
+      [selectedPrice, ...(((productPriceData ?? []) as SupplierPricebookRow[]) ?? [])].map(
+        (row) => [row.id, row] as const
+      )
+    ).values()
+  );
+  const selectedAndPeerRowsById = new Map(
+    selectedAndPeerRows.map((row) => [row.id, row] as const)
+  );
+  const preferredSupplierId = await resolvePreferredSupplierIdForCandidates({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    supplierPrices: selectedAndPeerRows.filter((row) => row.is_active),
+  });
+  const candidates = await hydrateSuggestedCatalogueCandidates({
+    supabase: input.supabase,
+    tenantId: input.tenantId,
+    supplierPrices: selectedAndPeerRows,
+    stalePriceDays: input.stalePriceDays,
+    query: "",
+    filterByRelevance: false,
+  });
+  const selectedCandidate =
+    candidates.find(
+      (candidate) => candidate.supplier_price_id === input.selectedSupplierPriceId
+    ) ?? null;
+
+  if (!selectedCandidate) {
+    return null;
+  }
+
+  return {
+    ...selectedCandidate,
+    alternatives: buildSuggestedCatalogueAlternatives({
+      productCandidates: candidates.filter((candidate) => {
+        const row = selectedAndPeerRowsById.get(candidate.supplier_price_id);
+        return candidate.product_id === selectedCandidate.product_id && row?.is_active === true;
+      }),
+      preferredSupplierId,
+    }),
+  } satisfies SuggestedCataloguePrice;
+}
 
 function toEstimateSupplierComparisonSourceAlternative(input: {
   supplier_price_id: string;
@@ -6195,7 +6567,7 @@ export async function suggestEstimateCataloguePrices(
     throw badRequest("Le parametre q contient uniquement des caracteres non supportes.");
   }
 
-  const [productResult, supplierResult, preferredSupplierValue] = await Promise.all([
+  const [productResult, supplierResult] = await Promise.all([
     supabase
       .from("products")
       .select("id, designation, reference")
@@ -6208,7 +6580,6 @@ export async function suggestEstimateCataloguePrices(
       .eq("tenant_id", tenantId)
       .ilike("name", `%${safeSearch}%`)
       .limit(40),
-    getFeatureFlagValueForTenant(tenantId, "PREFERRED_SUPPLIER_ID", { supabase }),
   ]);
 
   if (productResult.error) {
@@ -6230,9 +6601,6 @@ export async function suggestEstimateCataloguePrices(
     id: string;
     name: string;
   }>;
-
-  const productById = new Map(products.map((product) => [product.id, product]));
-  const supplierById = new Map(suppliers.map((supplier) => [supplier.id, supplier]));
 
   const productIds = products.map((product) => product.id);
   const supplierIds = suppliers.map((supplier) => supplier.id);
@@ -6277,19 +6645,7 @@ export async function suggestEstimateCataloguePrices(
     );
   }
 
-  const supplierPrices = (supplierPricesData ?? []) as Array<{
-    id: string;
-    supplier_id: string;
-    product_id: string;
-    supplier_sku: string | null;
-    unit: string;
-    unit_price_cents: number;
-    currency: string;
-    updated_at: string;
-    created_at: string;
-    notes: string | null;
-    is_active: boolean;
-  }>;
+  const supplierPrices = (supplierPricesData ?? []) as SupplierPricebookRow[];
 
   if (supplierPrices.length === 0) {
     return {
@@ -6299,199 +6655,19 @@ export async function suggestEstimateCataloguePrices(
     };
   }
 
-  const missingProductIds = Array.from(
-    new Set(
-      supplierPrices
-        .map((row) => row.product_id)
-        .filter((id) => !productById.has(id))
-    )
-  );
-  const missingSupplierIds = Array.from(
-    new Set(
-      supplierPrices
-        .map((row) => row.supplier_id)
-        .filter((id) => !supplierById.has(id))
-    )
-  );
-
-  if (missingProductIds.length > 0) {
-    const { data: missingProducts, error: missingProductsError } = await supabase
-      .from("products")
-      .select("id, designation, reference")
-      .eq("tenant_id", tenantId)
-      .in("id", missingProductIds);
-
-    if (missingProductsError) {
-      throw mapSupabaseError(
-        missingProductsError,
-        "Impossible de charger les produits des suggestions."
-      );
-    }
-
-    (missingProducts ?? []).forEach((product) => {
-      productById.set(product.id, product);
-    });
-  }
-
-  if (missingSupplierIds.length > 0) {
-    const { data: missingSuppliers, error: missingSuppliersError } = await supabase
-      .from("suppliers")
-      .select("id, name")
-      .eq("tenant_id", tenantId)
-      .in("id", missingSupplierIds);
-
-    if (missingSuppliersError) {
-      throw mapSupabaseError(
-        missingSuppliersError,
-        "Impossible de charger les fournisseurs des suggestions."
-      );
-    }
-
-    (missingSuppliers ?? []).forEach((supplier) => {
-      supplierById.set(supplier.id, supplier);
-    });
-  }
-
-  const supplierPriceIds = supplierPrices.map((row) => row.id);
-  const materialIndexBySupplierPriceId = new Map<
-    string,
-    {
-      index_code: string;
-      index_value: number;
-      updated_at: string;
-      index_date: string;
-    }
-  >();
-
-  if (supplierPriceIds.length > 0) {
-    const { data: linksData, error: linksError } = await supabase
-      .from("dpgf_catalogue_links")
-      .select("supplier_price_id, material_index_id")
-      .eq("tenant_id", tenantId)
-      .in("supplier_price_id", supplierPriceIds);
-
-    if (linksError) {
-      throw mapSupabaseError(
-        linksError,
-        "Impossible de charger les liaisons catalogue des suggestions."
-      );
-    }
-
-    const links = (linksData ?? []) as Array<{
-      supplier_price_id: string | null;
-      material_index_id: string | null;
-    }>;
-    const materialIndexIds = Array.from(
-      new Set(
-        links
-          .map((link) => link.material_index_id)
-          .filter((value): value is string => typeof value === "string")
-      )
-    );
-
-    if (materialIndexIds.length > 0) {
-      const { data: indicesData, error: indicesError } = await supabase
-        .from("material_indices")
-        .select("id, index_code, index_value, updated_at, index_date")
-        .eq("tenant_id", tenantId)
-        .in("id", materialIndexIds);
-
-      if (indicesError) {
-        throw mapSupabaseError(
-          indicesError,
-          "Impossible de charger les indices materiaux des suggestions."
-        );
-      }
-
-      const indexById = new Map(
-        ((indicesData ?? []) as Array<{
-          id: string;
-          index_code: string;
-          index_value: number;
-          updated_at: string;
-          index_date: string;
-        }>).map((index) => [index.id, index])
-      );
-
-      links.forEach((link) => {
-        if (!link.supplier_price_id || !link.material_index_id) return;
-        const index = indexById.get(link.material_index_id);
-        if (!index) return;
-        materialIndexBySupplierPriceId.set(link.supplier_price_id, index);
-      });
-    }
-  }
-
-  let preferredSupplierId: string | null = null;
-  if (preferredSupplierValue && /^[0-9a-fA-F-]{36}$/.test(preferredSupplierValue)) {
-    preferredSupplierId = preferredSupplierValue;
-  } else {
-    const supplierFrequency = new Map<string, number>();
-    supplierPrices.forEach((row) => {
-      supplierFrequency.set(
-        row.supplier_id,
-        (supplierFrequency.get(row.supplier_id) ?? 0) + 1
-      );
-    });
-    preferredSupplierId =
-      [...supplierFrequency.entries()]
-        .sort((left, right) => right[1] - left[1])[0]?.[0] ?? null;
-  }
-
-  const now = new Date();
-
-  const candidates = supplierPrices
-    .map((row) => {
-      const product = productById.get(row.product_id);
-      const supplier = supplierById.get(row.supplier_id);
-      const materialIndex = materialIndexBySupplierPriceId.get(row.id);
-      const hasMaterialIndexAdjustment =
-        typeof materialIndex?.index_value === "number" && materialIndex.index_value > 0;
-      const adjustedUnitPriceCents = hasMaterialIndexAdjustment
-        ? Math.round((row.unit_price_cents * materialIndex.index_value) / 100)
-        : row.unit_price_cents;
-      const updatedAt = row.updated_at ?? row.created_at ?? null;
-      const relevanceScore = computeSearchRelevance({
-        query: normalizedQuery,
-        designation: product?.designation ?? "",
-        supplierName: supplier?.name ?? "",
-        supplierSku: row.supplier_sku ?? null,
-        productReference: product?.reference ?? null,
-      });
-
-      return {
-        supplier_price_id: row.id,
-        product_id: row.product_id,
-        product_designation: product?.designation ?? "Produit",
-        product_reference: product?.reference ?? null,
-        supplier_id: row.supplier_id,
-        supplier_name: supplier?.name ?? "Fournisseur",
-        supplier_reference: row.supplier_sku ?? null,
-        unit: row.unit ?? null,
-        unit_price_cents: row.unit_price_cents,
-        adjusted_unit_price_cents: adjustedUnitPriceCents,
-        currency: row.currency ?? null,
-        updated_at: updatedAt,
-        is_stale: isPriceStale(
-          { updatedAt, createdAt: row.created_at ?? null },
-          stalePriceDays,
-          now
-        ),
-        stale_days: stalePriceDays,
-        relevance_score: relevanceScore,
-        has_material_index_adjustment: hasMaterialIndexAdjustment,
-        material_index_code: materialIndex?.index_code ?? null,
-        material_index_value: materialIndex?.index_value ?? null,
-        catalogue_url: extractCatalogueUrl(row.notes),
-      };
-    })
-    .filter((candidate) => candidate.relevance_score > 0)
-    .sort((left, right) => {
-      if (right.relevance_score !== left.relevance_score) {
-        return right.relevance_score - left.relevance_score;
-      }
-      return toTimestamp(right.updated_at) - toTimestamp(left.updated_at);
-    });
+  const preferredSupplierId = await resolvePreferredSupplierIdForCandidates({
+    supabase,
+    tenantId,
+    supplierPrices,
+  });
+  const candidates = await hydrateSuggestedCatalogueCandidates({
+    supabase,
+    tenantId,
+    supplierPrices,
+    stalePriceDays,
+    query: normalizedQuery,
+    filterByRelevance: true,
+  });
 
   const candidatesByProductId = new Map<string, typeof candidates>();
   candidates.forEach((candidate) => {
@@ -6500,55 +6676,13 @@ export async function suggestEstimateCataloguePrices(
     candidatesByProductId.set(candidate.product_id, productCandidates);
   });
 
-  const suggestions = candidates.slice(0, 10).map((candidate) => {
-    const productCandidates = candidatesByProductId.get(candidate.product_id) ?? [candidate];
-    const alternatives: SuggestedSupplierAlternative[] = [];
-    const pushAlternative = (
-      kind: SupplierAlternativeKind,
-      selected: (typeof productCandidates)[number] | null
-    ) => {
-      if (!selected) return;
-      if (alternatives.some((existing) => existing.supplier_price_id === selected.supplier_price_id)) {
-        return;
-      }
-      alternatives.push({
-        kind,
-        supplier_price_id: selected.supplier_price_id,
-        supplier_id: selected.supplier_id,
-        supplier_name: selected.supplier_name,
-        unit_price_cents: selected.unit_price_cents,
-        adjusted_unit_price_cents: selected.adjusted_unit_price_cents,
-        currency: selected.currency,
-        supplier_reference: selected.supplier_reference,
-        unit: selected.unit,
-        updated_at: selected.updated_at,
-        is_stale: selected.is_stale,
-        catalogue_url: selected.catalogue_url,
-      });
-    };
-
-    const bestPrice = [...productCandidates].sort((left, right) => {
-      if (left.adjusted_unit_price_cents !== right.adjusted_unit_price_cents) {
-        return left.adjusted_unit_price_cents - right.adjusted_unit_price_cents;
-      }
-      return toTimestamp(right.updated_at) - toTimestamp(left.updated_at);
-    })[0] ?? null;
-    const mostRecent = getMostRecentRecord(productCandidates);
-    const preferredSupplier = preferredSupplierId
-      ? getMostRecentRecord(
-          productCandidates.filter((entry) => entry.supplier_id === preferredSupplierId)
-        )
-      : null;
-
-    pushAlternative("best_price", bestPrice);
-    pushAlternative("most_recent", mostRecent);
-    pushAlternative("preferred_supplier", preferredSupplier);
-
-    return {
-      ...candidate,
-      alternatives,
-    } satisfies SuggestedCataloguePrice;
-  });
+  const suggestions = candidates.slice(0, 10).map((candidate) => ({
+    ...candidate,
+    alternatives: buildSuggestedCatalogueAlternatives({
+      productCandidates: candidatesByProductId.get(candidate.product_id) ?? [candidate],
+      preferredSupplierId,
+    }),
+  })) satisfies SuggestedCataloguePrice[];
 
   return {
     query: normalizedQuery,
@@ -6633,7 +6767,7 @@ export async function getEstimateSupplierComparisons(
     suggestionsEntries[0]?.[1]?.stale_price_days ??
     (await getStalePriceDaysForTenant(tenantId, { supabase }));
 
-  const comparisons = normalizedItemIds.map((itemId) => {
+  const comparisons = await Promise.all(normalizedItemIds.map(async (itemId) => {
     const item = itemById.get(itemId);
     if (!item) {
       return {
@@ -6659,7 +6793,18 @@ export async function getEstimateSupplierComparisons(
           );
         }) ?? null
       : null;
-    const candidate = selectedSuggestion ?? suggestions[0] ?? null;
+    const candidate =
+      selectedSuggestion ??
+      (selectedSupplierPriceId
+        ? await findSelectedSupplierComparisonCandidate({
+            supabase,
+            tenantId,
+            selectedSupplierPriceId,
+            stalePriceDays,
+          })
+        : null) ??
+      suggestions[0] ??
+      null;
 
     if (!candidate) {
       return {
@@ -6715,7 +6860,7 @@ export async function getEstimateSupplierComparisons(
       selected_alternative: selectedAlternative,
       alternatives,
     } satisfies EstimateSupplierComparison;
-  });
+  }));
 
   return {
     stale_price_days: stalePriceDays,

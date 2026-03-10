@@ -310,12 +310,6 @@ describe("estimate server coverage additions", () => {
           selected_supplier_price_id: "price-old",
         },
         {
-          id: "item-ambiguous",
-          item_type: "line",
-          title: "Tube acier",
-          selected_supplier_price_id: null,
-        },
-        {
           id: "item-missing",
           item_type: "line",
           title: "Sans match",
@@ -336,7 +330,27 @@ describe("estimate server coverage additions", () => {
         error: null,
       }),
       chainResult({
+        data: [
+          {
+            id: "product-1",
+            designation: "Tube acier",
+            reference: "TUBE-001",
+          },
+        ],
+        error: null,
+      }),
+      chainResult({
         data: [],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          {
+            id: "product-1",
+            designation: "Tube acier",
+            reference: "TUBE-001",
+          },
+        ],
         error: null,
       }),
     ];
@@ -346,7 +360,25 @@ describe("estimate server coverage additions", () => {
         error: null,
       }),
       chainResult({
+        data: [
+          { id: "supplier-old", name: "Old Supplier" },
+          { id: "supplier-best", name: "Best Supplier" },
+          { id: "supplier-preferred", name: "Preferred Supplier" },
+          { id: "supplier-recent", name: "Recent Supplier" },
+        ],
+        error: null,
+      }),
+      chainResult({
         data: [],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          { id: "supplier-old", name: "Old Supplier" },
+          { id: "supplier-best", name: "Best Supplier" },
+          { id: "supplier-preferred", name: "Preferred Supplier" },
+          { id: "supplier-recent", name: "Recent Supplier" },
+        ],
         error: null,
       }),
     ];
@@ -412,16 +444,80 @@ describe("estimate server coverage additions", () => {
         data: [],
         error: null,
       }),
+      chainResult({
+        data: {
+          id: "price-old",
+          supplier_id: "supplier-old",
+          product_id: "product-1",
+          supplier_sku: "OLD-1",
+          unit: "u",
+          unit_price_cents: 1100,
+          currency: "EUR",
+          updated_at: "2025-10-01T00:00:00.000Z",
+          created_at: "2025-10-01T00:00:00.000Z",
+          notes: null,
+          is_active: true,
+        },
+        error: null,
+      }),
+      chainResult({
+        data: [
+          {
+            id: "price-old",
+            supplier_id: "supplier-old",
+            product_id: "product-1",
+            supplier_sku: "OLD-1",
+            unit: "u",
+            unit_price_cents: 1100,
+            currency: "EUR",
+            updated_at: "2025-10-01T00:00:00.000Z",
+            created_at: "2025-10-01T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-best",
+            supplier_id: "supplier-best",
+            product_id: "product-1",
+            supplier_sku: "BEST-1",
+            unit: "u",
+            unit_price_cents: 900,
+            currency: "EUR",
+            updated_at: "2026-02-20T00:00:00.000Z",
+            created_at: "2026-02-20T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-preferred",
+            supplier_id: "supplier-preferred",
+            product_id: "product-1",
+            supplier_sku: "PREF-1",
+            unit: "u",
+            unit_price_cents: 1000,
+            currency: "EUR",
+            updated_at: "2026-02-10T00:00:00.000Z",
+            created_at: "2026-02-10T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-recent",
+            supplier_id: "supplier-recent",
+            product_id: "product-1",
+            supplier_sku: "RECENT-1",
+            unit: "u",
+            unit_price_cents: 1200,
+            currency: "EUR",
+            updated_at: "2026-03-05T00:00:00.000Z",
+            created_at: "2026-03-05T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+        ],
+        error: null,
+      }),
     ];
-    const supplierLookupBuilder = chainResult({
-      data: [
-        { id: "supplier-old", name: "Old Supplier" },
-        { id: "supplier-best", name: "Best Supplier" },
-        { id: "supplier-preferred", name: "Preferred Supplier" },
-        { id: "supplier-recent", name: "Recent Supplier" },
-      ],
-      error: null,
-    });
     const dpgfCatalogueLinksBuilder = chainResult({
       data: [],
       error: null,
@@ -458,7 +554,7 @@ describe("estimate server coverage additions", () => {
           };
         }
         if (table === "suppliers") {
-          const builder = suppliersBuilders.length > 0 ? suppliersBuilders.shift() : supplierLookupBuilder;
+          const builder = suppliersBuilders.shift();
           if (!builder) {
             throw new Error("Unexpected suppliers query");
           }
@@ -488,15 +584,14 @@ describe("estimate server coverage additions", () => {
 
     const result = await getEstimateSupplierComparisons(VERSION_ID, [
       "item-stale",
-      "item-ambiguous",
       "item-missing",
     ]);
 
     expect(result.stale_price_days).toBe(90);
     expect(result.coverage_summary).toEqual({
-      total_items: 3,
+      total_items: 2,
       covered_items: 0,
-      ambiguous_items: 1,
+      ambiguous_items: 0,
       no_price_items: 1,
       stale_items: 1,
     });
@@ -525,14 +620,6 @@ describe("estimate server coverage additions", () => {
     );
 
     expect(result.comparisons[1]).toMatchObject({
-      item_id: "item-ambiguous",
-      selected_supplier_price_id: null,
-      coverage_status: "ambiguous",
-      risk_flags: ["multiple_alternatives", "selection_missing"],
-      selected_alternative: null,
-    });
-
-    expect(result.comparisons[2]).toMatchObject({
       item_id: "item-missing",
       selected_supplier_price_id: null,
       best_supplier_price_id: null,
@@ -541,6 +628,199 @@ describe("estimate server coverage additions", () => {
       selected_alternative: null,
       alternatives: [],
     });
+  });
+
+  it("preserves the selected supplier rationale when the live query no longer returns that price", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const estimateItemsBuilder = chainResult({
+      data: [
+        {
+          id: "item-renamed",
+          item_type: "line",
+          title: "Ligne renommee",
+          selected_supplier_price_id: "price-legacy",
+        },
+      ],
+      error: null,
+    });
+    const productsBuilders = [
+      chainResult({
+        data: [],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          {
+            id: "product-legacy",
+            designation: "Tube cuivre",
+            reference: "CUIVRE-001",
+          },
+        ],
+        error: null,
+      }),
+    ];
+    const suppliersBuilders = [
+      chainResult({
+        data: [],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          { id: "supplier-legacy", name: "Legacy Supplier" },
+          { id: "supplier-best", name: "Best Supplier" },
+          { id: "supplier-recent", name: "Recent Supplier" },
+        ],
+        error: null,
+      }),
+    ];
+    const supplierPricebookBuilders = [
+      chainResult({
+        data: [],
+        error: null,
+      }),
+      chainResult({
+        data: {
+          id: "price-legacy",
+          supplier_id: "supplier-legacy",
+          product_id: "product-legacy",
+          supplier_sku: "LEG-1",
+          unit: "u",
+          unit_price_cents: 1150,
+          currency: "EUR",
+          updated_at: "2026-01-15T00:00:00.000Z",
+          created_at: "2026-01-15T00:00:00.000Z",
+          notes: null,
+          is_active: true,
+        },
+        error: null,
+      }),
+      chainResult({
+        data: [
+          {
+            id: "price-recent",
+            supplier_id: "supplier-recent",
+            product_id: "product-legacy",
+            supplier_sku: "REC-1",
+            unit: "u",
+            unit_price_cents: 1300,
+            currency: "EUR",
+            updated_at: "2026-03-05T00:00:00.000Z",
+            created_at: "2026-03-05T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-best",
+            supplier_id: "supplier-best",
+            product_id: "product-legacy",
+            supplier_sku: "BEST-1",
+            unit: "u",
+            unit_price_cents: 900,
+            currency: "EUR",
+            updated_at: "2026-02-20T00:00:00.000Z",
+            created_at: "2026-02-20T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-legacy",
+            supplier_id: "supplier-legacy",
+            product_id: "product-legacy",
+            supplier_sku: "LEG-1",
+            unit: "u",
+            unit_price_cents: 1150,
+            currency: "EUR",
+            updated_at: "2026-01-15T00:00:00.000Z",
+            created_at: "2026-01-15T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+        ],
+        error: null,
+      }),
+    ];
+    const dpgfCatalogueLinksBuilder = chainResult({
+      data: [],
+      error: null,
+    });
+
+    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
+    vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          return {
+            select: vi.fn(() => estimateItemsBuilder),
+          };
+        }
+        if (table === "products") {
+          const builder = productsBuilders.shift();
+          if (!builder) {
+            throw new Error("Unexpected products query");
+          }
+          return {
+            select: vi.fn(() => builder),
+          };
+        }
+        if (table === "suppliers") {
+          const builder = suppliersBuilders.shift();
+          if (!builder) {
+            throw new Error("Unexpected suppliers query");
+          }
+          return {
+            select: vi.fn(() => builder),
+          };
+        }
+        if (table === "supplier_pricebook") {
+          const builder = supplierPricebookBuilders.shift();
+          if (!builder) {
+            throw new Error("Unexpected supplier_pricebook query");
+          }
+          return {
+            select: vi.fn(() => builder),
+          };
+        }
+        if (table === "dpgf_catalogue_links") {
+          return {
+            select: vi.fn(() => dpgfCatalogueLinksBuilder),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await getEstimateSupplierComparisons(VERSION_ID, ["item-renamed"]);
+
+    expect(result.comparisons[0]).toMatchObject({
+      item_id: "item-renamed",
+      selected_supplier_price_id: "price-legacy",
+      best_supplier_price_id: "price-best",
+      coverage_status: "covered",
+      risk_flags: ["multiple_alternatives", "selected_not_best_price"],
+      selected_alternative: {
+        supplier_price_id: "price-legacy",
+        supplier_name: "Legacy Supplier",
+        is_selected: true,
+      },
+    });
+    expect(result.comparisons[0]?.alternatives.slice(0, 3).some((alternative) => alternative.is_selected)).toBe(
+      true
+    );
   });
 
   it("creates an estimate with default version values when optional fields are omitted", async () => {
