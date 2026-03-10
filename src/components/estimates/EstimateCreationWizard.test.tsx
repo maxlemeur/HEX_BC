@@ -437,6 +437,22 @@ describe("EstimateCreationWizard", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps decimal typing stable in numeric step-2 fields", async () => {
+    const { user } = setup();
+
+    await user.type(screen.getByLabelText(/Nom du projet/), "Project Numbers");
+    await user.click(screen.getByRole("button", { name: /Suivant/ }));
+
+    const marginInput = screen.getByLabelText(/Marge \(%\)/);
+    await user.type(marginInput, "12.5");
+    expect((marginInput as HTMLInputElement).value).toBe("12.5");
+
+    const taxInput = screen.getByLabelText(/TVA \(%\)/);
+    await user.clear(taxInput);
+    await user.type(taxInput, "5.5");
+    expect((taxInput as HTMLInputElement).value).toBe("5.5");
+  });
+
   it("navigates through all 3 steps", async () => {
     const { user } = setup();
 

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { NumberInput } from "@/components/ui/NumberInput";
 import { Modal } from "@/components/ui/Modal";
 import { fetchEstimateItemsForVersion } from "@/lib/estimates/client";
 import {
@@ -906,16 +907,23 @@ export function TakeoffApplyWizard({
                                 />
                               )}
                               {override?.action === "set_price" && (
-                                <input
-                                  type="number"
+                                <NumberInput
                                   min={0}
                                   className="form-input w-full"
                                   value={override.action_params.unit_price_cents}
-                                  onChange={(event) =>
+                                  parseValue={(value) => {
+                                    const parsedValue = Number.parseInt(value, 10);
+                                    if (!Number.isFinite(parsedValue)) {
+                                      return null;
+                                    }
+                                    return Math.max(parsedValue, 0);
+                                  }}
+                                  emptyValue={0}
+                                  onValueChange={(unit_price_cents) =>
                                     handleOverrideParamChange(item.item_id, {
                                       ...override,
                                       action_params: {
-                                        unit_price_cents: Number(event.target.value),
+                                        unit_price_cents,
                                       },
                                     })
                                   }

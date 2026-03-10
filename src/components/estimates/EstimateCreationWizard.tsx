@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { NumberInput, parseLocalizedNumberInput } from "@/components/ui/NumberInput";
 import {
   createEstimate,
   fetchAffaireLinkedDpgfSource,
@@ -913,17 +914,24 @@ export function EstimateCreationWizard({
               Marge (%)
             </label>
             <div className="relative">
-              <input
+              <NumberInput
                 id="wiz-margin-bp"
                 className="form-input pr-8"
-                type="number"
                 step="0.1"
                 min={0}
-                value={Number(data.marginBp) > 0 ? (Number(data.marginBp) / 100).toString() : ""}
-                onChange={(e) => {
-                  const percent = Number(e.target.value || 0);
-                  updateField("marginBp", String(Math.round(percent * 100)));
+                value={Number(data.marginBp) > 0 ? Number(data.marginBp) / 100 : 0}
+                formatValue={(percent) => ((percent ?? 0) > 0 ? String(percent) : "")}
+                parseValue={(value) => {
+                  const parsedValue = parseLocalizedNumberInput(value);
+                  if (parsedValue === null) {
+                    return null;
+                  }
+                  return Math.max(parsedValue, 0);
                 }}
+                emptyValue={0}
+                onValueChange={(percent) =>
+                  updateField("marginBp", String(Math.round(percent * 100)))
+                }
                 placeholder="Ex: 15"
               />
               <span className="estimate-tax-suffix">%</span>
@@ -947,18 +955,25 @@ export function EstimateCreationWizard({
             TVA (%) *
           </label>
           <div className="relative">
-            <input
+            <NumberInput
               id="wiz-tax-rate"
               className={`form-input pr-8 ${errors.taxRateBp ? "border-[var(--error)]" : ""}`}
-              type="number"
               step="0.1"
               min={0}
               max={100}
-              value={Number(data.taxRateBp) > 0 ? (Number(data.taxRateBp) / 100).toString() : ""}
-              onChange={(e) => {
-                const percent = Number(e.target.value || 0);
-                updateField("taxRateBp", String(Math.round(percent * 100)));
+              value={Number(data.taxRateBp) > 0 ? Number(data.taxRateBp) / 100 : 0}
+              formatValue={(percent) => ((percent ?? 0) > 0 ? String(percent) : "")}
+              parseValue={(value) => {
+                const parsedValue = parseLocalizedNumberInput(value);
+                if (parsedValue === null) {
+                  return null;
+                }
+                return Math.max(parsedValue, 0);
               }}
+              emptyValue={0}
+              onValueChange={(percent) =>
+                updateField("taxRateBp", String(Math.round(percent * 100)))
+              }
               placeholder="Ex: 20"
             />
             <span className="estimate-tax-suffix">%</span>

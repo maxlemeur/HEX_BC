@@ -44,6 +44,35 @@ const detailFixture = {
   summary_detail: "Detail narratif complet.",
 };
 
+const deltaSummaryFixture = {
+  explanation_id: "44444444-4444-4444-8444-444444444444",
+  kind: "delta" as const,
+  version_id: "55555555-5555-4555-8555-555555555555",
+  line_id: null,
+  compare_version_id: "66666666-6666-4666-8666-666666666666",
+  summary_short: "V2 vs V1: baisse du devis et erosion de marge.",
+  summary_detail: null,
+  confidence_label: "medium" as const,
+  confidence_score: 0.64,
+  used_fallback: false,
+  provider: "gemini",
+  model: "gemini-3-pro-preview",
+  generated_at: "2026-03-10T09:00:00.000Z",
+  facts: [],
+  hypotheses: [],
+  inferences: [],
+  provenance: [],
+  risk_signals: [],
+  impact_summary: {
+    delta_ht_cents: -68500,
+    delta_ttc_cents: -82200,
+    current_margin_bp: 1650,
+    compare_margin_bp: 1800,
+    margin_bp_delta: -150,
+    top_drivers: ["Mur beton: -685,00 EUR HT"],
+  },
+};
+
 describe("EstimateExplanationPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -167,5 +196,37 @@ describe("EstimateExplanationPanel", () => {
 
     expect(await screen.findByText("Resume apres edition.")).toBeInTheDocument();
     expect(vi.mocked(fetchEstimateLineExplanation)).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders amount and margin impact explicitly for delta explanations", async () => {
+    vi.mocked(fetchEstimateDeltaExplanation).mockResolvedValue(deltaSummaryFixture);
+
+    render(
+      <EstimateExplanationPanel
+        open
+        onOpenChange={() => undefined}
+        kind="delta"
+        versionId={deltaSummaryFixture.version_id}
+        compareVersionId={deltaSummaryFixture.compare_version_id}
+        currentVersionLabel="V2"
+        compareVersionLabel="V1"
+        surfaceLabel="Explication delta entre versions"
+      />
+    );
+
+    expect(
+      await screen.findByText("V2 vs V1: baisse du devis et erosion de marge.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Impact montant")).toBeInTheDocument();
+    expect(screen.getByText("HT -685,00 € · TTC -822,00 €")).toBeInTheDocument();
+    expect(screen.getByText("Impact marge")).toBeInTheDocument();
+    expect(
+      screen.getByText("-1,50 pts · actuelle 16,50% · comparee 18,00%")
+    ).toBeInTheDocument();
+    expect(vi.mocked(fetchEstimateDeltaExplanation)).toHaveBeenCalledWith(
+      deltaSummaryFixture.version_id,
+      deltaSummaryFixture.compare_version_id,
+      { detail: false }
+    );
   });
 });

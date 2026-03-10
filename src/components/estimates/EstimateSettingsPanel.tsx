@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { NumberInput, parseLocalizedNumberInput } from "@/components/ui/NumberInput";
 import {
   SUPPORTED_ESTIMATE_CURRENCIES,
   formatCurrency,
@@ -103,6 +104,24 @@ function toPercentFromBp(stepBp: number) {
 
 function toBpFromPercent(percent: number) {
   return clampCascadeStepBp(Math.round(percent * 100));
+}
+
+function parseNonNegativeNumberInput(value: string) {
+  const parsedValue = parseLocalizedNumberInput(value);
+  if (parsedValue === null) {
+    return null;
+  }
+
+  return Math.max(parsedValue, 0);
+}
+
+function parseIntegerNumberInput(value: string) {
+  const parsedValue = parseLocalizedNumberInput(value);
+  if (parsedValue === null) {
+    return null;
+  }
+
+  return Math.max(Math.round(parsedValue), 0);
 }
 
 function getStepTotal(step: DiscountStepTotal | undefined) {
@@ -242,18 +261,15 @@ export function EstimateSettingsPanel({
           <label className="form-label" htmlFor="estimate-validite">
             Validite (jours)
           </label>
-          <input
+          <NumberInput
             id="estimate-validite"
             className="form-input"
-            type="number"
             min={1}
             value={settings.validite_jours}
             disabled={isReadOnly}
-            onChange={(event) =>
-              onChange({
-                validite_jours: Number(event.target.value || 0),
-              })
-            }
+            parseValue={parseIntegerNumberInput}
+            emptyValue={0}
+            onValueChange={(validite_jours) => onChange({ validite_jours })}
           />
         </div>
 
@@ -333,18 +349,17 @@ export function EstimateSettingsPanel({
                 Ex : Coût 1 000 € × 1.20 = Vente 1 200 € (200 € de marge)
               </p>
               <div className="flex items-center gap-3">
-                <input
+                <NumberInput
                   id="estimate-margin"
                   className="form-input flex-1"
-                  type="number"
                   step="0.01"
                   min={0}
                   value={settings.margin_multiplier}
                   disabled={isReadOnly}
-                  onChange={(event) =>
-                    onChange({
-                      margin_multiplier: Number(event.target.value || 0),
-                    })
+                  parseValue={parseNonNegativeNumberInput}
+                  emptyValue={0}
+                  onValueChange={(margin_multiplier) =>
+                    onChange({ margin_multiplier })
                   }
                 />
                 <span className="shrink-0 rounded-lg border border-border bg-surface-subtle px-3 py-2 text-sm font-medium text-slate-600">
@@ -436,21 +451,20 @@ export function EstimateSettingsPanel({
                 <label className="form-label" htmlFor="estimate-discount">
                   Remise ({settings.currency} HT)
                 </label>
-                <input
+                <NumberInput
                   id="estimate-discount"
                   className="form-input"
-                  type="number"
                   step="0.01"
                   min={0}
                   value={settings.discount_cents / 100}
                   disabled={isReadOnly}
-                  onChange={(event) =>
+                  parseValue={parseNonNegativeNumberInput}
+                  emptyValue={0}
+                  onValueChange={(discountEuros) =>
                     onChange({
                       discount_mode: "simple",
                       discount_steps: [],
-                      discount_cents: Math.round(
-                        Number(event.target.value || 0) * 100
-                      ),
+                      discount_cents: Math.round(discountEuros * 100),
                     })
                   }
                 />
@@ -464,21 +478,19 @@ export function EstimateSettingsPanel({
                   >
                     Coefficient global
                   </label>
-                  <input
+                  <NumberInput
                     id="estimate-discount-global-coefficient"
                     className="form-input"
-                    type="number"
                     min={0}
                     step="0.01"
                     value={globalCoefficient}
                     disabled={isReadOnly}
-                    onChange={(event) =>
+                    parseValue={parseNonNegativeNumberInput}
+                    emptyValue={0}
+                    onValueChange={(global_coefficient) =>
                       onChange({
                         discount_mode: "cascade",
-                        global_coefficient: Math.max(
-                          Number(event.target.value || 0),
-                          0
-                        ),
+                        global_coefficient,
                       })
                     }
                   />
@@ -497,20 +509,19 @@ export function EstimateSettingsPanel({
                           >
                             Etape {index + 1} (%)
                           </label>
-                          <input
+                          <NumberInput
                             id={`estimate-discount-step-${index}`}
                             className="form-input"
-                            type="number"
                             min={0}
                             max={100}
                             step="0.01"
                             value={toPercentFromBp(stepBp)}
                             disabled={isReadOnly}
-                            onChange={(event) => {
+                            parseValue={parseNonNegativeNumberInput}
+                            emptyValue={0}
+                            onValueChange={(percent) => {
                               const nextSteps = [...discountStepsBp];
-                              nextSteps[index] = toBpFromPercent(
-                                Number(event.target.value || 0)
-                              );
+                              nextSteps[index] = toBpFromPercent(percent);
                               onChange({
                                 discount_mode: "cascade",
                                 discount_steps: nextSteps,
@@ -588,18 +599,17 @@ export function EstimateSettingsPanel({
                 <span>Appliquer TVA</span>
               </label>
               <div className="estimate-tax-input">
-                <input
+                <NumberInput
                   id="estimate-tax"
                   className="form-input"
-                  type="number"
                   step="0.01"
                   min={0}
                   value={taxRatePercent}
-                  onChange={(event) =>
+                  parseValue={parseNonNegativeNumberInput}
+                  emptyValue={0}
+                  onValueChange={(taxRatePercentValue) =>
                     onChange({
-                      tax_rate_bp: Math.round(
-                        Number(event.target.value || 0) * 100
-                      ),
+                      tax_rate_bp: Math.round(taxRatePercentValue * 100),
                     })
                   }
                   disabled={!taxEnabled || isReadOnly}

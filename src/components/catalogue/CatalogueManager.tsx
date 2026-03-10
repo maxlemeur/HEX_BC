@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { fetchApi } from "@/components/catalogue/api";
+import { NumberInput } from "@/components/ui/NumberInput";
 import type { CatalogueItem } from "@/components/catalogue/types";
 import { formatEUR, parseEuroToCents } from "@/lib/money";
 
@@ -620,14 +621,18 @@ export function CatalogueManager() {
                 <label className="form-label" htmlFor="catalogue-link-limit">
                   Nombre max de lignes a analyser
                 </label>
-                <input
+                <NumberInput
                   id="catalogue-link-limit"
                   className="form-input"
-                  type="number"
                   min={1}
                   max={5000}
                   value={linkLimit}
-                  onChange={(event) => setLinkLimit(Number(event.target.value) || 1)}
+                  parseValue={(value) => {
+                    const parsedValue = Number.parseInt(value, 10);
+                    return Number.isFinite(parsedValue) ? parsedValue : null;
+                  }}
+                  emptyValue={1}
+                  onValueChange={setLinkLimit}
                 />
               </div>
               <div className="flex flex-col justify-end gap-2">

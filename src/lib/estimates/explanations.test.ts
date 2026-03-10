@@ -27,7 +27,7 @@ const ACTIVE_EXPLANATION_ID = "77777777-7777-4777-8777-777777777777";
 const ACTIVE_SOURCE_ID = "88888888-8888-4888-8888-888888888888";
 
 function buildVersionDetails(overrides?: Partial<Awaited<ReturnType<typeof getEstimateVersionDetails>>>) {
-  return {
+  const base = {
     version: {
       id: VERSION_ID,
       tenant_id: TENANT_ID,
@@ -36,6 +36,9 @@ function buildVersionDetails(overrides?: Partial<Awaited<ReturnType<typeof getEs
       title: "Variante",
       margin_bp: 1200,
       margin_multiplier: 1.12,
+      total_ht_cents: 9000,
+      total_tax_cents: 1800,
+      total_ttc_cents: 10800,
       estimate_projects: {
         id: PROJECT_ID,
         tenant_id: TENANT_ID,
@@ -67,8 +70,50 @@ function buildVersionDetails(overrides?: Partial<Awaited<ReturnType<typeof getEs
     labor_roles: [],
     suggestion_rules: [],
     margin_tiers: [],
+  };
+
+  const result = {
+    ...base,
     ...overrides,
-  } as Awaited<ReturnType<typeof getEstimateVersionDetails>>;
+    version: {
+      ...base.version,
+      ...overrides?.version,
+    },
+    items: overrides?.items ?? base.items,
+  };
+
+  const hasExplicitTotals =
+    overrides?.version !== undefined &&
+    ("total_ht_cents" in overrides.version ||
+      "total_tax_cents" in overrides.version ||
+      "total_ttc_cents" in overrides.version);
+
+  if (!hasExplicitTotals) {
+    const totals = result.items.reduce(
+      (accumulator, item) => {
+        if (item.item_type !== "line") {
+          return accumulator;
+        }
+
+        return {
+          totalHtCents:
+            accumulator.totalHtCents + (item.line_total_ht_cents ?? 0),
+          totalTtcCents:
+            accumulator.totalTtcCents + (item.line_total_ttc_cents ?? 0),
+        };
+      },
+      {
+        totalHtCents: 0,
+        totalTtcCents: 0,
+      }
+    );
+
+    result.version.total_ht_cents = totals.totalHtCents;
+    result.version.total_ttc_cents = totals.totalTtcCents;
+    result.version.total_tax_cents = totals.totalTtcCents - totals.totalHtCents;
+  }
+
+  return result as Awaited<ReturnType<typeof getEstimateVersionDetails>>;
 }
 
 function createSupabaseMock(options?: {
@@ -265,6 +310,100 @@ describe("estimate explanations service", () => {
     vi.clearAllMocks();
   });
 
+  it("falls back to a coherent delta narrative when Gemini contradicts a single-line decrease", async () => {
+    const baseDetails = buildVersionDetails();
+    const baseItem = baseDetails.items[0];
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      createSupabaseMock() as never
+    );
+    vi.mocked(getEstimateVersionDetails)
+      .mockResolvedValueOnce(
+        buildVersionDetails({
+          version: {
+            ...baseDetails.version,
+            total_ht_cents: 342500,
+            total_tax_cents: 68500,
+            total_ttc_cents: 411000,
+          },
+          items: [
+            {
+              ...baseItem,
+              quantity: 100,
+              pu_ht_cents: 3425,
+              line_total_ht_cents: 342500,
+              line_total_ttc_cents: 411000,
+              line_tax_cents: 68500,
+            },
+          ],
+        }) as never
+      )
+      .mockResolvedValueOnce(
+        buildVersionDetails({
+          version: {
+            ...baseDetails.version,
+            id: COMPARE_VERSION_ID,
+            version_number: 1,
+            title: "Reference",
+            total_ht_cents: 411000,
+            total_tax_cents: 82200,
+            total_ttc_cents: 493200,
+          },
+          items: [
+            {
+              ...baseItem,
+              quantity: 120,
+              pu_ht_cents: 3425,
+              line_total_ht_cents: 411000,
+              line_total_ttc_cents: 493200,
+              line_tax_cents: 82200,
+            },
+          ],
+        }) as never
+      );
+    vi.mocked(callGeminiStructured).mockResolvedValue({
+      data: {
+        summary_short: "V2 vs V1: hausse globale de 3 425,00 EUR HT.",
+        summary_detail:
+          "V2 vs V1: hausse globale de 3 425,00 EUR HT. D autres parametres globaux ont probablement augmente.",
+      },
+      tokenCount: 10,
+      tokenUsage: {
+        inputTokens: 5,
+        outputTokens: 5,
+        cachedInputTokens: 0,
+        thoughtsTokens: 0,
+      },
+      costCents: 1,
+      durationMs: 50,
+      model: "gemini-3-pro-preview",
+      promptVersion: "test",
+      providerBatchId: null,
+      providerBatchStateRaw: null,
+    } as never);
+
+    const explanation = await getEstimateDeltaExplanation({
+      versionId: VERSION_ID,
+      compareVersionId: COMPARE_VERSION_ID,
+      includeDetail: true,
+    });
+
+    expect(explanation.kind).toBe("delta");
+    expect(explanation.used_fallback).toBe(true);
+    expect(explanation.provider).toBe("fallback");
+    expect(explanation.summary_short).toContain("Baisse globale de 685,00");
+    expect(explanation.summary_short).toContain(
+      "Driver principal: Mur beton: -685,00"
+    );
+    expect(explanation.summary_detail).toContain(
+      "Une seule ligne explique le delta: Mur beton"
+    );
+    expect(explanation.summary_detail).not.toContain("hausse globale");
+    expect(explanation.impact_summary.delta_ht_cents).toBe(-68500);
+    expect(explanation.impact_summary.delta_ttc_cents).toBe(-82200);
+    expect(explanation.impact_summary.top_drivers[0]).toContain("Mur beton: -685,00");
+  });
+
   it("persists a fallback line explanation when Gemini fails", async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue(
       createSupabaseMock() as never
@@ -310,6 +449,116 @@ describe("estimate explanations service", () => {
     ).rejects.toMatchObject({
       message: "Version de comparaison introuvable.",
     });
+  });
+
+  it("regenerates delta explanations with a deterministic summary when the diff is a single-line decrease", async () => {
+    const baseDetails = buildVersionDetails();
+    const baseItem = baseDetails.items[0];
+    const staleDeltaRow = {
+      id: ACTIVE_EXPLANATION_ID,
+      created_at: "2026-03-07T10:00:00.000Z",
+      updated_at: "2026-03-07T10:00:00.000Z",
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_id: VERSION_ID,
+      line_id: null,
+      compare_version_id: COMPARE_VERSION_ID,
+      requested_by: USER_ID,
+      explanation_kind: "delta",
+      snapshot_fingerprint: "legacy-delta-fingerprint",
+      summary_short: "Hausse globale de 3 425,00 EUR HT.",
+      summary_detail: "Ancien detail incoherent.",
+      confidence_label: "medium",
+      confidence_score: 0.66,
+      used_fallback: false,
+      provider: "gemini",
+      model: "gemini-3-pro-preview",
+      statements_json: {
+        facts: [],
+        hypotheses: [],
+        inferences: [],
+      },
+      risk_signals_json: [],
+      impact_summary_json: {
+        delta_ht_cents: 342500,
+        delta_ttc_cents: 411000,
+        top_drivers: [],
+      },
+      metadata_json: {},
+      generated_at: "2026-03-07T10:00:00.000Z",
+      superseded_at: null,
+      superseded_by_explanation_id: null,
+    };
+
+    const supabase = createSupabaseMock({
+      activeExplanationRows: [staleDeltaRow],
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(getEstimateVersionDetails)
+      .mockResolvedValueOnce(
+        buildVersionDetails({
+          version: {
+            ...baseDetails.version,
+            id: VERSION_ID,
+            version_number: 2,
+            title: "Variante",
+            total_ht_cents: 342500,
+            total_tax_cents: 68500,
+            total_ttc_cents: 411000,
+          },
+          items: [
+            {
+              ...baseItem,
+              pu_ht_cents: 3425,
+              line_total_ht_cents: 342500,
+              line_total_ttc_cents: 411000,
+              line_tax_cents: 68500,
+            },
+          ],
+        }) as never
+      )
+      .mockResolvedValueOnce(
+        buildVersionDetails({
+          version: {
+            ...baseDetails.version,
+            id: COMPARE_VERSION_ID,
+            version_number: 1,
+            title: "Source",
+            total_ht_cents: 411000,
+            total_tax_cents: 82200,
+            total_ttc_cents: 493200,
+          },
+          items: [
+            {
+              ...baseItem,
+              pu_ht_cents: 4110,
+              line_total_ht_cents: 411000,
+              line_total_ttc_cents: 493200,
+              line_tax_cents: 82200,
+            },
+          ],
+        }) as never
+      );
+
+    const explanation = await getEstimateDeltaExplanation({
+      versionId: VERSION_ID,
+      compareVersionId: COMPARE_VERSION_ID,
+      includeDetail: true,
+    });
+
+    expect(explanation.kind).toBe("delta");
+    expect(explanation.used_fallback).toBe(true);
+    expect(explanation.provider).toBe("fallback");
+    expect(explanation.summary_short).toContain("V2 - Variante vs V1 - Source");
+    expect(explanation.summary_short).toContain("Baisse globale de 685,00");
+    expect(explanation.summary_detail).toContain(
+      "Une seule ligne explique le delta: Mur beton: -685,00"
+    );
+    expect(explanation.impact_summary.delta_ht_cents).toBe(-68500);
+    expect(explanation.impact_summary.top_drivers[0]).toContain("Mur beton: -685,00");
+    expect(vi.mocked(callGeminiStructured)).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationInsert).toHaveBeenCalledTimes(1);
   });
 
   it("reuses the winning active snapshot after a duplicate insert race", async () => {

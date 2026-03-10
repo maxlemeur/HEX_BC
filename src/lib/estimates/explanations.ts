@@ -136,6 +136,7 @@ const ESTIMATE_RISK_ALERTS_SELECT = [
 const ESTIMATE_EXPLANATION_PROMPT_VERSION = "estimate-explanation-v1";
 const ESTIMATE_EXPLANATION_MODEL = "gemini-3-pro-preview";
 const ESTIMATE_EXPLANATION_THINKING_LEVEL = "medium" as const;
+const ESTIMATE_DELTA_NARRATIVE_STRATEGY_VERSION = "delta-fallback-v1";
 const MAX_STATEMENTS_PER_BUCKET = 6;
 const MAX_PROVENANCE_ITEMS = 8;
 const MAX_TOP_DRIVERS = 3;
@@ -384,8 +385,18 @@ function buildConfidence(input: {
 }
 
 function buildFingerprint(payload: NormalizedExplanationPayload) {
+  const narrativeStrategyVersion =
+    payload.kind === "delta"
+      ? ESTIMATE_DELTA_NARRATIVE_STRATEGY_VERSION
+      : ESTIMATE_EXPLANATION_PROMPT_VERSION;
+
   return createHash("sha256")
-    .update(JSON.stringify(payload))
+    .update(
+      JSON.stringify({
+        narrative_strategy_version: narrativeStrategyVersion,
+        payload,
+      })
+    )
     .digest("hex");
 }
 
@@ -430,6 +441,73 @@ function extractTopDrivers(diffEntries: EstimateDiffEntry[]) {
       const prefix = delta.deltaHtCents >= 0 ? "+" : "";
       return `${entry.title}: ${prefix}${formatEUR(delta.deltaHtCents)} HT`;
     });
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function getDeltaDirection(deltaHtCents: number | null | undefined) {
+  if (typeof deltaHtCents !== "number" || deltaHtCents === 0) {
+    return "stable" as const;
+  }
+
+  return deltaHtCents > 0 ? "increase" as const : "decrease" as const;
+}
+
+function buildDeltaAmountFragment(impactSummary: EstimateExplanationImpactSummary) {
+  const deltaHt = impactSummary.delta_ht_cents;
+  const deltaTtc = impactSummary.delta_ttc_cents;
+  const direction = getDeltaDirection(deltaHt);
+
+  if (typeof deltaHt !== "number" || typeof deltaTtc !== "number") {
+    return "Delta montant non renseigne";
+  }
+
+  if (direction === "stable") {
+    return `Delta stable a ${formatEUR(0)} HT et ${formatEUR(0)} TTC`;
+  }
+
+  const trendLabel = direction === "increase" ? "Hausse globale" : "Baisse globale";
+  return `${trendLabel} de ${formatEUR(Math.abs(deltaHt))} HT et ${formatEUR(
+    Math.abs(deltaTtc)
+  )} TTC`;
+}
+
+function buildDeltaSummaryShort(input: {
+  currentVersion: string;
+  compareVersion: string;
+  impactSummary: EstimateExplanationImpactSummary;
+}) {
+  const amountFragment = buildDeltaAmountFragment(input.impactSummary);
+  const primaryDriver = input.impactSummary.top_drivers[0] ?? null;
+  const driverFragment = primaryDriver ? ` Driver principal: ${primaryDriver}.` : "";
+  return `${input.currentVersion} vs ${input.compareVersion}: ${amountFragment}.${driverFragment}`;
+}
+
+function hasConflictingDeltaNarrative(input: {
+  narrative: string;
+  impactSummary: EstimateExplanationImpactSummary;
+}) {
+  const direction = getDeltaDirection(input.impactSummary.delta_ht_cents);
+  if (direction === "stable") {
+    return false;
+  }
+
+  const narrative = normalizeSearchText(input.narrative);
+  const increasePattern =
+    /\b(hausse|augmentation|augmente|augmentee|augmenter|en hausse|progression)\b/;
+  const decreasePattern =
+    /\b(baisse|diminution|reduction|reduit|reduite|baisser|en baisse)\b/;
+
+  if (direction === "decrease") {
+    return increasePattern.test(narrative);
+  }
+
+  return decreasePattern.test(narrative);
 }
 
 function extractSourceMetadataStatements(input: {
@@ -838,19 +916,17 @@ function buildFallbackNarrative(input: {
     toNonEmptyString(input.summaryContext.current_version_label) ?? "version courante";
   const compareVersion =
     toNonEmptyString(input.summaryContext.compare_version_label) ?? "version comparee";
-  const deltaHt = input.impactSummary.delta_ht_cents;
-  const deltaTtc = input.impactSummary.delta_ttc_cents;
-  const deltaFragment =
-    typeof deltaHt === "number" && typeof deltaTtc === "number"
-      ? `Delta ${deltaHt >= 0 ? "+" : ""}${formatEUR(deltaHt)} HT et ${deltaTtc >= 0 ? "+" : ""}${formatEUR(deltaTtc)} TTC`
-      : "Delta montant non renseigne";
-  const drivers =
-    input.impactSummary.top_drivers.length > 0
-      ? input.impactSummary.top_drivers.join(" · ")
-      : "aucun poste dominant detecte";
+  const deltaFragment = buildDeltaAmountFragment(input.impactSummary);
+  const drivers = input.impactSummary.top_drivers;
+  const driverDetailFragment =
+    drivers.length === 1
+      ? `Une seule ligne explique le delta: ${drivers[0]}.`
+      : drivers.length > 1
+        ? `Principaux drivers: ${drivers.join(" · ")}.`
+        : "Aucun poste dominant detecte.";
   const detail = [
     `${currentVersion} vs ${compareVersion}: ${deltaFragment}.`,
-    `Principaux drivers: ${drivers}.`,
+    driverDetailFragment,
     `Faits: ${
       input.statements.facts.length > 0
         ? input.statements.facts.map((entry) => entry.label).join(" · ")
@@ -869,7 +945,11 @@ function buildFallbackNarrative(input: {
   ].join(" ");
 
   return {
-    summary_short: `${currentVersion} vs ${compareVersion}: ${deltaFragment}.`,
+    summary_short: buildDeltaSummaryShort({
+      currentVersion,
+      compareVersion,
+      impactSummary: input.impactSummary,
+    }),
     summary_detail: detail,
   };
 }
@@ -892,6 +972,22 @@ function buildNarrativePrompt(input: NormalizedExplanationPayload) {
 }
 
 async function generateNarrative(input: NormalizedExplanationPayload) {
+  if (input.kind === "delta") {
+    const fallback = buildFallbackNarrative({
+      kind: input.kind,
+      summaryContext: input.summary_context,
+      statements: input.statements,
+      impactSummary: input.impact_summary,
+    });
+
+    return {
+      narrative: fallback,
+      usedFallback: true,
+      provider: "fallback",
+      model: null,
+    };
+  }
+
   try {
     const result = await callGeminiStructured<z.infer<typeof explanationNarrativeSchema>>({
       prompt: buildNarrativePrompt(input),
@@ -903,8 +999,54 @@ async function generateNarrative(input: NormalizedExplanationPayload) {
       },
     });
 
+    const summaryContext =
+      input.compare_version_id !== null
+        ? {
+            currentVersion:
+              toNonEmptyString(input.summary_context.current_version_label) ??
+              "version courante",
+            compareVersion:
+              toNonEmptyString(input.summary_context.compare_version_label) ??
+              "version comparee",
+          }
+        : null;
+
+    if (
+      summaryContext &&
+      hasConflictingDeltaNarrative({
+        narrative: `${result.data.summary_short} ${result.data.summary_detail}`,
+        impactSummary: input.impact_summary,
+      })
+    ) {
+      const fallback = buildFallbackNarrative({
+        kind: input.kind,
+        summaryContext: input.summary_context,
+        statements: input.statements,
+        impactSummary: input.impact_summary,
+      });
+
+      return {
+        narrative: fallback,
+        usedFallback: true,
+        provider: "fallback",
+        model: null,
+        failureMessage:
+          "Narration delta ignoree car contradictoire avec les montants du diff.",
+      };
+    }
+
     return {
-      narrative: result.data,
+      narrative:
+        summaryContext
+          ? {
+              ...result.data,
+              summary_short: buildDeltaSummaryShort({
+                currentVersion: summaryContext.currentVersion,
+                compareVersion: summaryContext.compareVersion,
+                impactSummary: input.impact_summary,
+              }),
+            }
+          : result.data,
       usedFallback: false,
       provider: "gemini",
       model: result.model,
@@ -1376,6 +1518,15 @@ function normalizeDeltaExplanationPayload(input: {
   const currentVersionLabel = formatVersionLabel(input.current.version);
   const previousVersionLabel = formatVersionLabel(input.previous.version);
   const topDrivers = extractTopDrivers(diff.entries);
+  const topDriverEntry = [...diff.entries]
+    .map((entry) => ({
+      entry,
+      delta: toEntryDelta(entry),
+    }))
+    .sort(
+      (left, right) =>
+        Math.abs(right.delta.deltaHtCents) - Math.abs(left.delta.deltaHtCents)
+    )[0] ?? null;
 
   pushStatement(facts, {
     label: `${diff.summary.addedCount} ajouts, ${diff.summary.removedCount} suppressions, ${diff.summary.modifiedCount} modifications`,
@@ -1383,10 +1534,31 @@ function normalizeDeltaExplanationPayload(input: {
     confidence_score: 1,
   });
   pushStatement(facts, {
-    label: `Delta total ${diff.summary.deltaHtCents >= 0 ? "+" : ""}${formatEUR(diff.summary.deltaHtCents)} HT et ${diff.summary.deltaTtcCents >= 0 ? "+" : ""}${formatEUR(diff.summary.deltaTtcCents)} TTC`,
-    source_label: "Diff versions",
-    confidence_score: 1,
+      label: `Delta total ${diff.summary.deltaHtCents >= 0 ? "+" : ""}${formatEUR(diff.summary.deltaHtCents)} HT et ${diff.summary.deltaTtcCents >= 0 ? "+" : ""}${formatEUR(diff.summary.deltaTtcCents)} TTC`,
+      source_label: "Diff versions",
+      confidence_score: 1,
   });
+
+  if (
+    diff.summary.addedCount === 0 &&
+    diff.summary.removedCount === 0 &&
+    diff.summary.modifiedCount === 1 &&
+    topDriverEntry &&
+    topDriverEntry.delta.deltaHtCents === diff.summary.deltaHtCents &&
+    topDriverEntry.delta.deltaTtcCents === diff.summary.deltaTtcCents
+  ) {
+    const trendLabel =
+      getDeltaDirection(diff.summary.deltaHtCents) === "increase"
+        ? "hausse"
+        : getDeltaDirection(diff.summary.deltaHtCents) === "decrease"
+          ? "baisse"
+          : "stabilite";
+    pushStatement(facts, {
+      label: `Une seule ligne explique le delta: ${topDriverEntry.entry.title} (${trendLabel} de ${formatEUR(Math.abs(diff.summary.deltaHtCents))} HT)`,
+      source_label: "Diff versions",
+      confidence_score: 1,
+    });
+  }
 
   if (typeof input.current.version.margin_bp === "number") {
     pushStatement(facts, {

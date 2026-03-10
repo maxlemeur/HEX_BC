@@ -57,6 +57,13 @@ const RISK_VARIANTS: Record<
   high: "error",
 };
 
+function formatCurrency(cents: number) {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+  }).format(cents / 100);
+}
+
 function formatConfidenceScore(score: number | null | undefined) {
   if (typeof score !== "number") {
     return "Score non renseigne";
@@ -70,31 +77,92 @@ function formatImpactLabel(input: {
   deltaHt?: number | null;
   deltaTtc?: number | null;
 }) {
-  const format = (value: number) =>
-    new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "EUR",
-    }).format(value / 100);
-
   if (typeof input.deltaHt === "number" || typeof input.deltaTtc === "number") {
     const parts = [];
     if (typeof input.deltaHt === "number") {
-      parts.push(`HT ${input.deltaHt >= 0 ? "+" : ""}${format(input.deltaHt)}`);
+      parts.push(`HT ${input.deltaHt >= 0 ? "+" : ""}${formatCurrency(input.deltaHt)}`);
     }
     if (typeof input.deltaTtc === "number") {
-      parts.push(`TTC ${input.deltaTtc >= 0 ? "+" : ""}${format(input.deltaTtc)}`);
+      parts.push(
+        `TTC ${input.deltaTtc >= 0 ? "+" : ""}${formatCurrency(input.deltaTtc)}`
+      );
     }
     return parts.join(" · ");
   }
 
   const parts = [];
   if (typeof input.currentAmountHt === "number") {
-    parts.push(`HT ${format(input.currentAmountHt)}`);
+    parts.push(`HT ${formatCurrency(input.currentAmountHt)}`);
   }
   if (typeof input.currentAmountTtc === "number") {
-    parts.push(`TTC ${format(input.currentAmountTtc)}`);
+    parts.push(`TTC ${formatCurrency(input.currentAmountTtc)}`);
   }
   return parts.length > 0 ? parts.join(" · ") : "Impact montant non renseigne";
+}
+
+function formatMarginPercent(bp: number) {
+  return new Intl.NumberFormat("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(bp / 100);
+}
+
+function formatMarginLabel(input: {
+  currentMarginBp?: number | null;
+  compareMarginBp?: number | null;
+  marginBpDelta?: number | null;
+}) {
+  if (typeof input.marginBpDelta === "number") {
+    const parts = [
+      `${input.marginBpDelta >= 0 ? "+" : ""}${formatMarginPercent(input.marginBpDelta)} pts`,
+    ];
+    if (typeof input.currentMarginBp === "number") {
+      parts.push(`actuelle ${formatMarginPercent(input.currentMarginBp)}%`);
+    }
+    if (typeof input.compareMarginBp === "number") {
+      parts.push(`comparee ${formatMarginPercent(input.compareMarginBp)}%`);
+    }
+    return parts.join(" · ");
+  }
+
+  if (typeof input.currentMarginBp === "number") {
+    return `${formatMarginPercent(input.currentMarginBp)}%`;
+  }
+
+  if (typeof input.compareMarginBp === "number") {
+    return `${formatMarginPercent(input.compareMarginBp)}%`;
+  }
+
+  return "Impact marge non renseigne";
+}
+
+function hasMarginImpact(input: {
+  currentMarginBp?: number | null;
+  compareMarginBp?: number | null;
+  marginBpDelta?: number | null;
+}) {
+  return (
+    typeof input.currentMarginBp === "number" ||
+    typeof input.compareMarginBp === "number" ||
+    typeof input.marginBpDelta === "number"
+  );
+}
+
+function SummaryMetricCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--slate-50)] p-4">
+      <p className="text-xs uppercase tracking-[0.12em] text-[var(--slate-500)]">
+        {label}
+      </p>
+      <p className="mt-2 text-sm font-semibold text-[var(--slate-950)]">{value}</p>
+    </div>
+  );
 }
 
 function StatementSection({
@@ -330,22 +398,59 @@ export function EstimateExplanationPanel({
           {explanation ? (
             <>
               <section className="rounded-3xl border border-[var(--border)] bg-white p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold text-[var(--slate-950)]">
-                      Resume court
-                    </h3>
-                    <p className="mt-1 text-sm leading-6 text-[var(--slate-700)]">
-                      {explanation.summary_short}
-                    </p>
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-semibold text-[var(--slate-950)]">
+                        Resume court
+                      </h3>
+                      <p className="mt-1 text-sm leading-6 text-[var(--slate-700)]">
+                        {explanation.summary_short}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-xs text-[var(--slate-500)]">
-                    {formatImpactLabel({
-                      currentAmountHt: explanation.impact_summary.current_amount_ht_cents,
-                      currentAmountTtc: explanation.impact_summary.current_amount_ttc_cents,
-                      deltaHt: explanation.impact_summary.delta_ht_cents,
-                      deltaTtc: explanation.impact_summary.delta_ttc_cents,
-                    })}
+
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)]">
+                      Synthese impact
+                    </p>
+                    <div
+                      className={`mt-3 grid gap-3 ${
+                        kind === "delta" &&
+                        hasMarginImpact({
+                          currentMarginBp: explanation.impact_summary.current_margin_bp,
+                          compareMarginBp: explanation.impact_summary.compare_margin_bp,
+                          marginBpDelta: explanation.impact_summary.margin_bp_delta,
+                        })
+                          ? "sm:grid-cols-2"
+                          : "sm:grid-cols-1"
+                      }`}
+                    >
+                      <SummaryMetricCard
+                        label="Impact montant"
+                        value={formatImpactLabel({
+                          currentAmountHt: explanation.impact_summary.current_amount_ht_cents,
+                          currentAmountTtc: explanation.impact_summary.current_amount_ttc_cents,
+                          deltaHt: explanation.impact_summary.delta_ht_cents,
+                          deltaTtc: explanation.impact_summary.delta_ttc_cents,
+                        })}
+                      />
+                      {kind === "delta" &&
+                      hasMarginImpact({
+                        currentMarginBp: explanation.impact_summary.current_margin_bp,
+                        compareMarginBp: explanation.impact_summary.compare_margin_bp,
+                        marginBpDelta: explanation.impact_summary.margin_bp_delta,
+                      }) ? (
+                        <SummaryMetricCard
+                          label="Impact marge"
+                          value={formatMarginLabel({
+                            currentMarginBp: explanation.impact_summary.current_margin_bp,
+                            compareMarginBp: explanation.impact_summary.compare_margin_bp,
+                            marginBpDelta: explanation.impact_summary.margin_bp_delta,
+                          })}
+                        />
+                      ) : null}
+                    </div>
                   </div>
                 </div>
 
