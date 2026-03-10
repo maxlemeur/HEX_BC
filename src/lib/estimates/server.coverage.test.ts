@@ -4,6 +4,11 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+vi.mock("@/lib/feature-flags", () => ({
+  getFeatureFlagValueForTenant: vi.fn().mockResolvedValue(null),
+  getStalePriceDaysForTenant: vi.fn().mockResolvedValue(90),
+}));
+
 import {
   createEstimate,
   createEstimateTemplateFromVersion,
@@ -12,6 +17,7 @@ import {
   deleteMarginTier,
   duplicateEstimateTemplate,
   getEstimateTemplate,
+  getEstimateSupplierComparisons,
   instantiateEstimateFromTemplate,
   listEstimateTemplates,
   listEstimateProjectVersions,
@@ -23,6 +29,10 @@ import {
   updateEstimateItem,
   updateMarginTier,
 } from "@/lib/estimates/server";
+import {
+  getFeatureFlagValueForTenant,
+  getStalePriceDaysForTenant,
+} from "@/lib/feature-flags";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -186,6 +196,8 @@ function createDraftLockBuilder(userId: string | null = USER_ID) {
 describe("estimate server coverage additions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(null);
+    vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
   });
 
   it("lists latest estimates and keeps only the newest version per project", async () => {
@@ -284,6 +296,251 @@ describe("estimate server coverage additions", () => {
       "estimate_projects.user_id",
       USER_ID
     );
+  });
+
+  it("returns supplier comparison coverage states, risk flags and selected alternative details", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const estimateItemsBuilder = chainResult({
+      data: [
+        {
+          id: "item-stale",
+          item_type: "line",
+          title: "Tube acier",
+          selected_supplier_price_id: "price-old",
+        },
+        {
+          id: "item-ambiguous",
+          item_type: "line",
+          title: "Tube acier",
+          selected_supplier_price_id: null,
+        },
+        {
+          id: "item-missing",
+          item_type: "line",
+          title: "Sans match",
+          selected_supplier_price_id: null,
+        },
+      ],
+      error: null,
+    });
+    const productsBuilders = [
+      chainResult({
+        data: [
+          {
+            id: "product-1",
+            designation: "Tube acier",
+            reference: "TUBE-001",
+          },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [],
+        error: null,
+      }),
+    ];
+    const suppliersBuilders = [
+      chainResult({
+        data: [],
+        error: null,
+      }),
+      chainResult({
+        data: [],
+        error: null,
+      }),
+    ];
+    const supplierPricebookBuilders = [
+      chainResult({
+        data: [
+          {
+            id: "price-old",
+            supplier_id: "supplier-old",
+            product_id: "product-1",
+            supplier_sku: "OLD-1",
+            unit: "u",
+            unit_price_cents: 1100,
+            currency: "EUR",
+            updated_at: "2025-10-01T00:00:00.000Z",
+            created_at: "2025-10-01T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-best",
+            supplier_id: "supplier-best",
+            product_id: "product-1",
+            supplier_sku: "BEST-1",
+            unit: "u",
+            unit_price_cents: 900,
+            currency: "EUR",
+            updated_at: "2026-02-20T00:00:00.000Z",
+            created_at: "2026-02-20T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-preferred",
+            supplier_id: "supplier-preferred",
+            product_id: "product-1",
+            supplier_sku: "PREF-1",
+            unit: "u",
+            unit_price_cents: 1000,
+            currency: "EUR",
+            updated_at: "2026-02-10T00:00:00.000Z",
+            created_at: "2026-02-10T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-recent",
+            supplier_id: "supplier-recent",
+            product_id: "product-1",
+            supplier_sku: "RECENT-1",
+            unit: "u",
+            unit_price_cents: 1200,
+            currency: "EUR",
+            updated_at: "2026-03-05T00:00:00.000Z",
+            created_at: "2026-03-05T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [],
+        error: null,
+      }),
+    ];
+    const supplierLookupBuilder = chainResult({
+      data: [
+        { id: "supplier-old", name: "Old Supplier" },
+        { id: "supplier-best", name: "Best Supplier" },
+        { id: "supplier-preferred", name: "Preferred Supplier" },
+        { id: "supplier-recent", name: "Recent Supplier" },
+      ],
+      error: null,
+    });
+    const dpgfCatalogueLinksBuilder = chainResult({
+      data: [],
+      error: null,
+    });
+
+    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue("supplier-preferred");
+    vi.mocked(getStalePriceDaysForTenant).mockResolvedValue(90);
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          return {
+            select: vi.fn(() => estimateItemsBuilder),
+          };
+        }
+        if (table === "products") {
+          const builder = productsBuilders.shift();
+          if (!builder) {
+            throw new Error("Unexpected products query");
+          }
+          return {
+            select: vi.fn(() => builder),
+          };
+        }
+        if (table === "suppliers") {
+          const builder = suppliersBuilders.length > 0 ? suppliersBuilders.shift() : supplierLookupBuilder;
+          if (!builder) {
+            throw new Error("Unexpected suppliers query");
+          }
+          return {
+            select: vi.fn(() => builder),
+          };
+        }
+        if (table === "supplier_pricebook") {
+          const builder = supplierPricebookBuilders.shift();
+          if (!builder) {
+            throw new Error("Unexpected supplier_pricebook query");
+          }
+          return {
+            select: vi.fn(() => builder),
+          };
+        }
+        if (table === "dpgf_catalogue_links") {
+          return {
+            select: vi.fn(() => dpgfCatalogueLinksBuilder),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await getEstimateSupplierComparisons(VERSION_ID, [
+      "item-stale",
+      "item-ambiguous",
+      "item-missing",
+    ]);
+
+    expect(result.stale_price_days).toBe(90);
+    expect(result.coverage_summary).toEqual({
+      total_items: 3,
+      covered_items: 0,
+      ambiguous_items: 1,
+      no_price_items: 1,
+      stale_items: 1,
+    });
+
+    expect(result.comparisons[0]).toMatchObject({
+      item_id: "item-stale",
+      selected_supplier_price_id: "price-old",
+      best_supplier_price_id: "price-best",
+      coverage_status: "stale",
+      risk_flags: [
+        "multiple_alternatives",
+        "selected_stale",
+        "selected_not_best_price",
+      ],
+      selected_alternative: {
+        supplier_price_id: "price-old",
+        is_stale: true,
+        is_selected: true,
+      },
+    });
+    expect(result.comparisons[0]?.alternatives.some((alternative) => alternative.is_selected)).toBe(
+      true
+    );
+    expect(result.comparisons[0]?.alternatives.map((alternative) => alternative.kind)).toEqual(
+      expect.arrayContaining(["best_price", "most_recent", "preferred_supplier"])
+    );
+
+    expect(result.comparisons[1]).toMatchObject({
+      item_id: "item-ambiguous",
+      selected_supplier_price_id: null,
+      coverage_status: "ambiguous",
+      risk_flags: ["multiple_alternatives", "selection_missing"],
+      selected_alternative: null,
+    });
+
+    expect(result.comparisons[2]).toMatchObject({
+      item_id: "item-missing",
+      selected_supplier_price_id: null,
+      best_supplier_price_id: null,
+      coverage_status: "no_price",
+      risk_flags: [],
+      selected_alternative: null,
+      alternatives: [],
+    });
   });
 
   it("creates an estimate with default version values when optional fields are omitted", async () => {

@@ -619,7 +619,14 @@ const suggestedCataloguePriceSchema = z.object({
 });
 
 const estimateSupplierComparisonAlternativeSchema = z.object({
+  kind: z.enum([
+    "best_price",
+    "most_recent",
+    "preferred_supplier",
+    "selected_current",
+  ]),
   supplier_price_id: uuidSchema,
+  supplier_id: uuidSchema,
   supplier_name: z.string(),
   adjusted_unit_price_cents: z.number().int(),
   supplier_reference: z.string().nullable(),
@@ -627,13 +634,32 @@ const estimateSupplierComparisonAlternativeSchema = z.object({
   updated_at: z.string().nullable(),
   is_stale: z.boolean(),
   product_designation: z.string(),
+  is_selected: z.boolean(),
 });
 
 const estimateSupplierComparisonSchema = z.object({
   item_id: uuidSchema,
   selected_supplier_price_id: uuidSchema.nullable(),
   best_supplier_price_id: uuidSchema.nullable(),
+  coverage_status: z.enum(["covered", "ambiguous", "no_price", "stale"]),
+  risk_flags: z.array(
+    z.enum([
+      "multiple_alternatives",
+      "selection_missing",
+      "selected_stale",
+      "selected_not_best_price",
+    ])
+  ),
+  selected_alternative: estimateSupplierComparisonAlternativeSchema.nullable(),
   alternatives: z.array(estimateSupplierComparisonAlternativeSchema),
+});
+
+const estimateSupplierComparisonCoverageSummarySchema = z.object({
+  total_items: z.number().int(),
+  covered_items: z.number().int(),
+  ambiguous_items: z.number().int(),
+  no_price_items: z.number().int(),
+  stale_items: z.number().int(),
 });
 
 const estimateBatchResultSchema = z.object({
@@ -884,6 +910,7 @@ const estimateItemsBulkDataSchema = z.object({
 
 const estimateSupplierComparisonsDataSchema = z.object({
   stale_price_days: z.number().int(),
+  coverage_summary: estimateSupplierComparisonCoverageSummarySchema,
   comparisons: z.array(estimateSupplierComparisonSchema),
 });
 
