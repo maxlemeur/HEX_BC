@@ -30,7 +30,10 @@ vi.mock("@/lib/direction/alerts", () => ({
 }));
 
 import { getAuthenticatedContext } from "@/lib/estimates/server";
-import { fetchDirectionProjectSignals } from "@/lib/direction/server";
+import {
+  fetchDirectionDashboardPageData,
+  fetchDirectionProjectSignals,
+} from "@/lib/direction/server";
 
 type Row = Record<string, unknown>;
 
@@ -38,6 +41,7 @@ function createBuilder(resolve: () => { data: unknown; error: unknown }) {
   const state = {
     eq: new Map<string, unknown>(),
     in: new Map<string, unknown[]>(),
+    or: null as string | null,
   };
 
   const builder = {
@@ -49,6 +53,10 @@ function createBuilder(resolve: () => { data: unknown; error: unknown }) {
     neq: vi.fn(() => builder),
     in: vi.fn((column: string, values: unknown[]) => {
       state.in.set(column, values);
+      return builder;
+    }),
+    or: vi.fn((value: string) => {
+      state.or = value;
       return builder;
     }),
     order: vi.fn(() => builder),
@@ -66,7 +74,39 @@ function createSupabaseMock(fixtures: {
   versions: Row[];
   jobs: Row[];
   alerts: Row[];
+  memberships?: Row[];
+  profiles?: Row[];
+  reviewCycles?: Row[];
+  reviewerStates?: Row[];
+  registerEntries?: Row[];
+  dpgfLinks?: Row[];
+  reviewDecisions?: Row[];
+  estimateItems?: Row[];
+  maxInValues?: number;
 }) {
+  function createBatchLimitError(column: string) {
+    return {
+      code: "QUERY_TOO_LARGE",
+      message: `too many values for ${column}`,
+      details: null,
+      hint: null,
+    };
+  }
+
+  function getBatchLimitError(
+    builder: ReturnType<typeof createBuilder>,
+    column: string
+  ) {
+    const maxInValues = fixtures.maxInValues;
+    const values = builder.getState().in.get(column) ?? [];
+
+    if (maxInValues && values.length > maxInValues) {
+      return createBatchLimitError(column);
+    }
+
+    return null;
+  }
+
   return {
     from: vi.fn((table: string) => {
       if (table === "estimate_versions") {
@@ -96,10 +136,21 @@ function createSupabaseMock(fixtures: {
       if (table === "takeoff_jobs") {
         let builder: ReturnType<typeof createBuilder>;
         builder = createBuilder(() => {
+          const batchError = getBatchLimitError(builder, "estimate_version_id");
+          if (batchError) {
+            return {
+              data: null,
+              error: batchError,
+            };
+          }
+
           const versionIds = builder.getState().in.get("estimate_version_id") ?? [];
+          const statuses = builder.getState().in.get("status") ?? [];
           return {
-            data: fixtures.jobs.filter((row) =>
-              versionIds.includes(row.estimate_version_id)
+            data: fixtures.jobs.filter(
+              (row) =>
+                versionIds.includes(row.estimate_version_id) &&
+                (statuses.length === 0 || statuses.includes(row.status))
             ),
             error: null,
           };
@@ -110,6 +161,14 @@ function createSupabaseMock(fixtures: {
       if (table === "estimate_risk_alerts") {
         let builder: ReturnType<typeof createBuilder>;
         builder = createBuilder(() => {
+          const batchError = getBatchLimitError(builder, "version_id");
+          if (batchError) {
+            return {
+              data: null,
+              error: batchError,
+            };
+          }
+
           const versionIds = builder.getState().in.get("version_id") ?? [];
           return {
             data: fixtures.alerts.filter((row) => versionIds.includes(row.version_id)),
@@ -120,11 +179,146 @@ function createSupabaseMock(fixtures: {
       }
 
       if (table === "tenant_memberships") {
-        return createBuilder(() => ({ data: [], error: null }));
+        return createBuilder(() => ({
+          data: fixtures.memberships ?? [],
+          error: null,
+        }));
       }
 
       if (table === "profiles") {
-        return createBuilder(() => ({ data: [], error: null }));
+        return createBuilder(() => ({
+          data: fixtures.profiles ?? [],
+          error: null,
+        }));
+      }
+
+      if (table === "estimate_review_cycles") {
+        let builder: ReturnType<typeof createBuilder>;
+        builder = createBuilder(() => {
+          const batchError = getBatchLimitError(builder, "version_id");
+          if (batchError) {
+            return {
+              data: null,
+              error: batchError,
+            };
+          }
+
+          const versionIds = builder.getState().in.get("version_id") ?? [];
+          return {
+            data: (fixtures.reviewCycles ?? []).filter((row) =>
+              versionIds.includes(row.version_id)
+            ),
+            error: null,
+          };
+        });
+        return builder;
+      }
+
+      if (table === "approval_queue_reviewer_states") {
+        let builder: ReturnType<typeof createBuilder>;
+        builder = createBuilder(() => {
+          const batchError = getBatchLimitError(builder, "cycle_id");
+          if (batchError) {
+            return {
+              data: null,
+              error: batchError,
+            };
+          }
+
+          const cycleIds = builder.getState().in.get("cycle_id") ?? [];
+          return {
+            data: (fixtures.reviewerStates ?? []).filter((row) =>
+              cycleIds.includes(row.cycle_id)
+            ),
+            error: null,
+          };
+        });
+        return builder;
+      }
+
+      if (table === "affaire_register_entries") {
+        let builder: ReturnType<typeof createBuilder>;
+        builder = createBuilder(() => {
+          const batchError = getBatchLimitError(builder, "project_id");
+          if (batchError) {
+            return {
+              data: null,
+              error: batchError,
+            };
+          }
+
+          return {
+            data: fixtures.registerEntries ?? [],
+            error: null,
+          };
+        });
+        return builder;
+      }
+
+      if (table === "takeoff_dpgf_links") {
+        let builder: ReturnType<typeof createBuilder>;
+        builder = createBuilder(() => {
+          const batchError = getBatchLimitError(builder, "takeoff_job_id");
+          if (batchError) {
+            return {
+              data: null,
+              error: batchError,
+            };
+          }
+
+          const jobIds = builder.getState().in.get("takeoff_job_id") ?? [];
+          return {
+            data: (fixtures.dpgfLinks ?? []).filter((row) =>
+              jobIds.includes(row.takeoff_job_id)
+            ),
+            error: null,
+          };
+        });
+        return builder;
+      }
+
+      if (table === "takeoff_dpgf_review_decisions") {
+        let builder: ReturnType<typeof createBuilder>;
+        builder = createBuilder(() => {
+          const batchError = getBatchLimitError(builder, "takeoff_job_id");
+          if (batchError) {
+            return {
+              data: null,
+              error: batchError,
+            };
+          }
+
+          const jobIds = builder.getState().in.get("takeoff_job_id") ?? [];
+          return {
+            data: (fixtures.reviewDecisions ?? []).filter((row) =>
+              jobIds.includes(row.takeoff_job_id)
+            ),
+            error: null,
+          };
+        });
+        return builder;
+      }
+
+      if (table === "estimate_items") {
+        let builder: ReturnType<typeof createBuilder>;
+        builder = createBuilder(() => {
+          const batchError = getBatchLimitError(builder, "estimate_version_id");
+          if (batchError) {
+            return {
+              data: null,
+              error: batchError,
+            };
+          }
+
+          const versionIds = builder.getState().in.get("estimate_version_id") ?? [];
+          return {
+            data: (fixtures.estimateItems ?? []).filter((row) =>
+              versionIds.includes(row.estimate_version_id)
+            ),
+            error: null,
+          };
+        });
+        return builder;
       }
 
       throw new Error(`Unexpected table: ${table}`);
@@ -298,5 +492,55 @@ describe("fetchDirectionProjectSignals", () => {
 
     expect(result.latestJobId).toBe("job-latest-empty");
     expect(result.alerts).toEqual([]);
+  });
+});
+
+describe("fetchDirectionDashboardPageData", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("batches large version filters before querying Supabase", async () => {
+    const versions = Array.from({ length: 205 }, (_, index) =>
+      createVersionRow(
+        `project-${index + 1}`,
+        `version-${index + 1}`,
+        index + 1
+      )
+    );
+
+    const jobs = versions
+      .filter((_, index) => index % 40 === 0)
+      .map((version, index) => ({
+        id: `job-${index + 1}`,
+        estimate_version_id: version.id,
+        status: "completed",
+        created_at: "2026-03-07T10:00:00.000Z",
+        completed_at: "2026-03-07T10:05:00.000Z",
+      }));
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: "tenant-1",
+      tenantRole: "director",
+      userId: "user-1",
+      supabase: createSupabaseMock({
+        versions,
+        jobs,
+        alerts: [],
+        maxInValues: 100,
+      }),
+    } as never);
+
+    const result = await fetchDirectionDashboardPageData({
+      page: 1,
+      ownerUserId: null,
+      lot: null,
+      horizon: "all",
+      onlyExceptions: false,
+    });
+
+    expect(result.summary.totalAffaires).toBe(205);
+    expect(result.cards).toHaveLength(24);
+    expect(result.pagination.totalPages).toBe(9);
   });
 });

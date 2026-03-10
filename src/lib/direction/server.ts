@@ -550,20 +550,26 @@ async function listReviewCyclesByVersionId(versionIds: string[]) {
   }
 
   const context = await getAuthenticatedContext();
-  const { data: cycles, error: cyclesError } = await context.supabase
-    .from("estimate_review_cycles" as never)
-    .select("id, version_id, requested_at" as never)
-    .is("decision" as never, null)
-    .in("version_id" as never, versionIds as never);
+  const cycleRows = (
+    await Promise.all(
+      chunkItems(versionIds, DIRECTION_BATCH_SIZE).map(async (batch) => {
+        const { data: cycles, error: cyclesError } = await context.supabase
+          .from("estimate_review_cycles" as never)
+          .select("id, version_id, requested_at" as never)
+          .is("decision" as never, null)
+          .in("version_id" as never, batch as never);
 
-  if (cyclesError) {
-    throw mapSupabaseError(
-      cyclesError,
-      "Impossible de charger les cycles de revue ouverts."
-    );
-  }
+        if (cyclesError) {
+          throw mapSupabaseError(
+            cyclesError,
+            "Impossible de charger les cycles de revue ouverts."
+          );
+        }
 
-  const cycleRows = (cycles ?? []) as ReviewCycleRow[];
+        return (cycles ?? []) as ReviewCycleRow[];
+      })
+    )
+  ).flat();
   const cyclesByVersionId = new Map<string, ReviewCycleRow>();
   for (const row of cycleRows) {
     const current = cyclesByVersionId.get(row.version_id);
@@ -576,22 +582,30 @@ async function listReviewCyclesByVersionId(versionIds: string[]) {
   const reviewerStateByCycleId = new Map<string, ReviewerState>();
 
   if (cycleIds.length > 0) {
-    const { data: reviewerStates, error: reviewerStatesError } =
-      await context.supabase
-        .from("approval_queue_reviewer_states" as never)
-        .select("cycle_id, state" as never)
-        .eq("tenant_id" as never, context.tenantId as never)
-        .eq("reviewer_id" as never, context.userId as never)
-        .in("cycle_id" as never, cycleIds as never);
+    const reviewerStateRows = (
+      await Promise.all(
+        chunkItems(cycleIds, DIRECTION_BATCH_SIZE).map(async (batch) => {
+          const { data: reviewerStates, error: reviewerStatesError } =
+            await context.supabase
+              .from("approval_queue_reviewer_states" as never)
+              .select("cycle_id, state" as never)
+              .eq("tenant_id" as never, context.tenantId as never)
+              .eq("reviewer_id" as never, context.userId as never)
+              .in("cycle_id" as never, batch as never);
 
-    if (reviewerStatesError) {
-      throw mapSupabaseError(
-        reviewerStatesError,
-        "Impossible de charger les etats de revue direction."
-      );
-    }
+          if (reviewerStatesError) {
+            throw mapSupabaseError(
+              reviewerStatesError,
+              "Impossible de charger les etats de revue direction."
+            );
+          }
 
-    for (const row of (reviewerStates ?? []) as ReviewerStateRow[]) {
+          return (reviewerStates ?? []) as ReviewerStateRow[];
+        })
+      )
+    ).flat();
+
+    for (const row of reviewerStateRows) {
       reviewerStateByCycleId.set(row.cycle_id, row.state);
     }
   }
@@ -608,21 +622,28 @@ async function listLatestJobsByVersionId(versionIds: string[]) {
   }
 
   const context = await getAuthenticatedContext();
-  const { data, error } = await context.supabase
-    .from("takeoff_jobs" as never)
-    .select("id, estimate_version_id, status, created_at, completed_at" as never)
-    .in("estimate_version_id" as never, versionIds as never)
-    .in("status" as never, ["completed", "applied"] as never)
-    .order("estimate_version_id" as never, { ascending: true })
-    .order("completed_at" as never, { ascending: false })
-    .order("created_at" as never, { ascending: false });
+  const jobRows = (
+    await Promise.all(
+      chunkItems(versionIds, DIRECTION_BATCH_SIZE).map(async (batch) => {
+        const { data, error } = await context.supabase
+          .from("takeoff_jobs" as never)
+          .select("id, estimate_version_id, status, created_at, completed_at" as never)
+          .in("estimate_version_id" as never, batch as never)
+          .in("status" as never, ["completed", "applied"] as never)
+          .order("estimate_version_id" as never, { ascending: true })
+          .order("completed_at" as never, { ascending: false })
+          .order("created_at" as never, { ascending: false });
 
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les derniers jobs metres.");
-  }
+        if (error) {
+          throw mapSupabaseError(error, "Impossible de charger les derniers jobs metres.");
+        }
 
+        return (data ?? []) as TakeoffJobRow[];
+      })
+    )
+  ).flat();
   const jobs = new Map<string, TakeoffJobRow>();
-  for (const row of (data ?? []) as TakeoffJobRow[]) {
+  for (const row of jobRows) {
     if (!jobs.has(row.estimate_version_id)) {
       jobs.set(row.estimate_version_id, row);
     }
@@ -637,50 +658,57 @@ async function listRiskAlertsByVersionId(versionIds: string[]) {
   }
 
   const context = await getAuthenticatedContext();
-  const { data, error } = await context.supabase
-    .from("estimate_risk_alerts" as never)
-    .select(
-      [
-        "id",
-        "created_at",
-        "updated_at",
-        "tenant_id",
-        "project_id",
-        "version_id",
-        "takeoff_job_id",
-        "scope_type",
-        "scope_ref",
-        "scope_id",
-        "scope_label",
-        "cause_code",
-        "severity",
-        "status",
-        "risk_score",
-        "margin_bucket",
-        "line_id",
-        "lot_id",
-        "reason_labels",
-        "provenance",
-        "metadata",
-        "review_note",
-        "reviewed_at",
-        "reviewed_by",
-        "is_active",
-        "first_detected_at",
-        "last_detected_at",
-      ].join(", ") as never
+  const alertRows = (
+    await Promise.all(
+      chunkItems(versionIds, DIRECTION_BATCH_SIZE).map(async (batch) => {
+        const { data, error } = await context.supabase
+          .from("estimate_risk_alerts" as never)
+          .select(
+            [
+              "id",
+              "created_at",
+              "updated_at",
+              "tenant_id",
+              "project_id",
+              "version_id",
+              "takeoff_job_id",
+              "scope_type",
+              "scope_ref",
+              "scope_id",
+              "scope_label",
+              "cause_code",
+              "severity",
+              "status",
+              "risk_score",
+              "margin_bucket",
+              "line_id",
+              "lot_id",
+              "reason_labels",
+              "provenance",
+              "metadata",
+              "review_note",
+              "reviewed_at",
+              "reviewed_by",
+              "is_active",
+              "first_detected_at",
+              "last_detected_at",
+            ].join(", ") as never
+          )
+          .eq("tenant_id" as never, context.tenantId as never)
+          .eq("is_active" as never, true as never)
+          .in("version_id" as never, batch as never);
+
+        if (error) {
+          throw mapSupabaseError(error, "Impossible de charger les alertes de risque.");
+        }
+
+        return (data ?? []) as Array<Record<string, unknown>>;
+      })
     )
-    .eq("tenant_id" as never, context.tenantId as never)
-    .eq("is_active" as never, true as never)
-    .in("version_id" as never, versionIds as never);
-
-  if (error) {
-    throw mapSupabaseError(error, "Impossible de charger les alertes de risque.");
-  }
-
+  ).flat();
   const alertsByVersionId = new Map<string, TakeoffRiskAlert[]>();
 
-  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+  for (const row of alertRows) {
     const normalized = normalizeRiskAlertRow(row);
     const versionId =
       typeof row.version_id === "string" ? row.version_id : null;
