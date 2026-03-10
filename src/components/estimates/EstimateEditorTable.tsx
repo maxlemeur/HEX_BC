@@ -388,17 +388,37 @@ function toObjectRecord(value: unknown) {
   return value as Record<string, unknown>;
 }
 
+function toSupplierComparisonAlternativeKind(value: unknown) {
+  switch (value) {
+    case "best_price":
+    case "most_recent":
+    case "preferred_supplier":
+    case "selected_current":
+      return value;
+    default:
+      return null;
+  }
+}
+
 function toSupplierComparisonAlternative(
   source: unknown
 ): SupplierComparisonAlternative | null {
   const record = toObjectRecord(source);
   if (!record) return null;
 
+  const kind =
+    toSupplierComparisonAlternativeKind(record.kind) ??
+    toSupplierComparisonAlternativeKind(record.alternative_kind) ??
+    "best_price";
   const supplierPriceId =
     toNonEmptyString(record.supplier_price_id) ?? toNonEmptyString(record.supplierPriceId);
   const supplierName =
     toNonEmptyString(record.supplier_name) ?? toNonEmptyString(record.supplierName);
   if (!supplierPriceId || !supplierName) return null;
+  const supplierId =
+    toNonEmptyString(record.supplier_id) ??
+    toNonEmptyString(record.supplierId) ??
+    supplierPriceId;
 
   const adjustedUnitPriceCents = toFiniteNumber(
     record.adjusted_unit_price_cents,
@@ -416,9 +436,12 @@ function toSupplierComparisonAlternative(
     toNonEmptyString(record.designation) ??
     null;
   const isStale = record.is_stale === true || record.isStale === true;
+  const isSelected = record.is_selected === true || record.isSelected === true;
 
   return {
+    kind,
     supplier_price_id: supplierPriceId,
+    supplier_id: supplierId,
     supplier_name: supplierName,
     adjusted_unit_price_cents: adjustedUnitPriceCents,
     currency,
@@ -427,10 +450,11 @@ function toSupplierComparisonAlternative(
     is_stale: isStale,
     catalogue_url: catalogueUrl,
     product_designation: productDesignation,
+    is_selected: isSelected,
   };
 }
 
-function parseSupplierComparisonResult(payload: unknown, fallbackItemId: string) {
+export function parseSupplierComparisonResult(payload: unknown, fallbackItemId: string) {
   const envelopeRecord = toObjectRecord(payload);
   const dataRecord = toObjectRecord(envelopeRecord?.data);
   const directComparisonRecord =
@@ -459,8 +483,7 @@ function parseSupplierComparisonResult(payload: unknown, fallbackItemId: string)
 
   const alternatives = alternativesSource
     .map((entry) => toSupplierComparisonAlternative(entry))
-    .filter((entry): entry is SupplierComparisonAlternative => entry !== null)
-    .slice(0, 3);
+    .filter((entry): entry is SupplierComparisonAlternative => entry !== null);
 
   return {
     item_id:
@@ -809,7 +832,6 @@ export function EstimateEditorTable({
   scrollToItemId,
   onScrollToItemHandled,
   virtualization,
-  highlightedItemIds,
   headerRight,
   onOpenSettings,
 }: EstimateEditorTableProps) {

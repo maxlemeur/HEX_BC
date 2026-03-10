@@ -2,8 +2,16 @@
 
 import { formatEUR } from "@/lib/money";
 
+export type SupplierComparisonAlternativeKind =
+  | "best_price"
+  | "most_recent"
+  | "preferred_supplier"
+  | "selected_current";
+
 export type SupplierComparisonAlternative = {
+  kind: SupplierComparisonAlternativeKind;
   supplier_price_id: string;
+  supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
   currency: string | null;
@@ -12,6 +20,7 @@ export type SupplierComparisonAlternative = {
   is_stale: boolean;
   catalogue_url: string | null;
   product_designation: string | null;
+  is_selected: boolean;
 };
 
 type SupplierComparisonPanelProps = {
@@ -37,6 +46,31 @@ function formatCompactDate(value: string | null | undefined) {
   return date.toLocaleDateString("fr-FR");
 }
 
+function getAlternativeBadgeLabels(input: {
+  alternative: SupplierComparisonAlternative;
+  isBestPrice: boolean;
+}) {
+  const labels: string[] = [];
+
+  if (input.isBestPrice) {
+    labels.push("Meilleur prix");
+  }
+  if (input.alternative.kind === "most_recent") {
+    labels.push("Prix le plus recent");
+  }
+  if (input.alternative.kind === "preferred_supplier") {
+    labels.push("Fournisseur prefere");
+  }
+  if (input.alternative.is_selected || input.alternative.kind === "selected_current") {
+    labels.push("Selection actuelle");
+  }
+  if (input.alternative.is_stale) {
+    labels.push("Prix ancien");
+  }
+
+  return labels;
+}
+
 export function SupplierComparisonPanel({
   isOpen,
   itemTitle,
@@ -49,8 +83,6 @@ export function SupplierComparisonPanel({
   onSelectAlternative,
 }: SupplierComparisonPanelProps) {
   if (!isOpen) return null;
-
-  const visibleAlternatives = alternatives.slice(0, 3);
 
   return (
     <div className="estimate-supplier-comparison-backdrop">
@@ -96,17 +128,21 @@ export function SupplierComparisonPanel({
             </div>
           ) : null}
 
-          {!isLoading && !error && visibleAlternatives.length === 0 ? (
+          {!isLoading && !error && alternatives.length === 0 ? (
             <div className="estimate-supplier-comparison-state">
               Aucune alternative fournisseur.
             </div>
           ) : null}
 
           {!isLoading && !error
-            ? visibleAlternatives.map((alternative) => {
+            ? alternatives.map((alternative) => {
                 const isBestPrice =
                   bestSupplierPriceId !== null &&
                   alternative.supplier_price_id === bestSupplierPriceId;
+                const badgeLabels = getAlternativeBadgeLabels({
+                  alternative,
+                  isBestPrice,
+                });
 
                 return (
                   <article
@@ -134,16 +170,20 @@ export function SupplierComparisonPanel({
 
                     <div className="estimate-supplier-comparison-option__meta">
                       <span>Date: {formatCompactDate(alternative.updated_at)}</span>
-                      {isBestPrice ? (
-                        <span className="estimate-supplier-comparison-option__badge estimate-supplier-comparison-option__badge--best">
-                          Meilleur prix
+                      {badgeLabels.map((label) => (
+                        <span
+                          key={`${alternative.supplier_price_id}-${label}`}
+                          className={`estimate-supplier-comparison-option__badge${
+                            label === "Meilleur prix"
+                              ? " estimate-supplier-comparison-option__badge--best"
+                              : label === "Prix ancien"
+                                ? " estimate-supplier-comparison-option__badge--stale"
+                                : ""
+                          }`}
+                        >
+                          {label}
                         </span>
-                      ) : null}
-                      {alternative.is_stale ? (
-                        <span className="estimate-supplier-comparison-option__badge estimate-supplier-comparison-option__badge--stale">
-                          Prix ancien
-                        </span>
-                      ) : null}
+                      ))}
                     </div>
 
                     <div className="estimate-supplier-comparison-option__footer">
@@ -165,9 +205,9 @@ export function SupplierComparisonPanel({
                         type="button"
                         className="btn btn-primary btn-sm"
                         onClick={() => onSelectAlternative(alternative)}
-                        disabled={isReadOnly}
+                        disabled={isReadOnly || alternative.is_selected}
                       >
-                        Selectionner
+                        {alternative.is_selected ? "Deja selectionne" : "Selectionner"}
                       </button>
                     </div>
                   </article>
