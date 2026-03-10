@@ -82,7 +82,11 @@ import {
   patchTakeoffItems,
   previewTakeoffConversion,
 } from "@/lib/takeoff/client";
-import type { TakeoffJobDetailResponse, TakeoffJobItem } from "@/lib/takeoff/types";
+import type {
+  TakeoffDpgfComparisonResponse,
+  TakeoffJobDetailResponse,
+  TakeoffJobItem,
+} from "@/lib/takeoff/types";
 
 const JOB_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "77777777-7777-4777-8777-777777777777";
@@ -220,6 +224,35 @@ function makeMockResponse(
   };
 }
 
+function makeDpgfComparisonResponse(
+  summaryOverrides: Partial<TakeoffDpgfComparisonResponse["summary"]> = {}
+): TakeoffDpgfComparisonResponse {
+  return {
+    version_id: VERSION_ID,
+    job_id: JOB_ID,
+    view: "all",
+    threshold: 0.8,
+    summary: {
+      reliable_matches: 0,
+      to_confirm: 1,
+      significant_gaps: 1,
+      forced_manual: 1,
+      lines_without_proof: 2,
+      unused_takeoff_items: 1,
+      total_lines: 3,
+      ...summaryOverrides,
+    },
+    rows: [],
+    manual_link_candidates: [],
+    unused_takeoff_items: [],
+    pagination: {
+      page_size: 1,
+      next_cursor: "next",
+      total: 3,
+    },
+  };
+}
+
 describe("TakeoffReviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -266,46 +299,9 @@ describe("TakeoffReviewPage", () => {
       changed: [],
       unchanged: [],
     });
-    vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue({
-      version_id: VERSION_ID,
-      job_id: JOB_ID,
-      view: "all",
-      threshold: 0.8,
-      summary: {
-        reliable_matches: 0,
-        to_confirm: 1,
-        significant_gaps: 1,
-        forced_manual: 1,
-        lines_without_proof: 2,
-        unused_takeoff_items: 1,
-        total_lines: 3,
-      },
-      rows: [],
-      manual_link_candidates: [],
-      unused_takeoff_items: [],
-      pagination: {
-        page_size: 1,
-        next_cursor: "next",
-        total: 3,
-      },
-    });
+    vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue(makeDpgfComparisonResponse());
     vi.mocked(fetchAllTakeoffDpgfComparison).mockResolvedValue({
-      version_id: VERSION_ID,
-      job_id: JOB_ID,
-      view: "all",
-      threshold: 0.8,
-      summary: {
-        reliable_matches: 0,
-        to_confirm: 1,
-        significant_gaps: 1,
-        forced_manual: 1,
-        lines_without_proof: 2,
-        unused_takeoff_items: 1,
-        total_lines: 3,
-      },
-      rows: [],
-      manual_link_candidates: [],
-      unused_takeoff_items: [],
+      ...makeDpgfComparisonResponse(),
       pagination: {
         page_size: 200,
         next_cursor: null,
@@ -877,6 +873,13 @@ describe("TakeoffReviewPage", () => {
 
   it("opens the controlled apply wizard from validation and stays in affaire context after success", async () => {
     vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
+    vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue(
+      makeDpgfComparisonResponse({
+        forced_manual: 0,
+        lines_without_proof: 0,
+        unused_takeoff_items: 0,
+      })
+    );
     vi.mocked(applyTakeoffJob).mockResolvedValue({
       job: makeMockResponse([makeItem()]).job,
       summary: {
@@ -932,6 +935,34 @@ describe("TakeoffReviewPage", () => {
       "href",
       `/dashboard/estimates/${VERSION_ID}`
     );
+  });
+
+  it("blocks controlled apply from validation while DPGF exceptions remain unresolved", async () => {
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
+
+    render(
+      <TakeoffReviewPage
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        projectId="99999999-9999-4999-8999-999999999999"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Ouvrir l'apply controle" })).toBeDefined();
+    });
+
+    const applyButton = screen.getByRole("button", { name: "Ouvrir l'apply controle" });
+    expect(applyButton).toBeDisabled();
+    expect(
+      screen.getAllByText(
+        "Des rapprochements DPGF restent a trancher. Ouvrez la revue detaillee pour finaliser les liens manuels."
+      ).length
+    ).toBeGreaterThan(0);
+
+    fireEvent.click(applyButton);
+
+    expect(screen.queryByText("Cible d'application")).not.toBeInTheDocument();
   });
 
   it("preserves the production tab when switching away and back", async () => {

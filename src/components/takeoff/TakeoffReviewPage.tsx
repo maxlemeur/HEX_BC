@@ -79,6 +79,7 @@ import {
 } from "@/lib/takeoff/guards";
 import type {
   TakeoffDpgfComparisonResponse,
+  TakeoffDpgfComparisonSummary,
   TakeoffDpgfComparisonView,
   TakeoffItemBatchPatchResponse,
   TakeoffItemPatchEntry,
@@ -138,6 +139,15 @@ function parseLowConfidenceThreshold(value: string | null): number {
   if (!Number.isFinite(parsed)) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   if (parsed < 0 || parsed > 1) return DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   return parsed;
+}
+
+function hasPendingDpgfExceptions(summary: TakeoffDpgfComparisonSummary | null): boolean {
+  if (!summary) return false;
+  return (
+    summary.lines_without_proof > 0 ||
+    summary.unused_takeoff_items > 0 ||
+    summary.forced_manual > 0
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,11 +1100,19 @@ export default function TakeoffReviewPage({
     return checkApplyGuard(includedItems, lowConfidenceThreshold);
   }, [includedItems, jobLevel, lowConfidenceThreshold]);
   const hasGuardBlocks = guardResult !== null && !guardResult.passed;
+  const requiresDpgfValidation = currentReviewMode === "validation";
+  const hasDpgfBlocks = hasPendingDpgfExceptions(dpgfCompareData?.summary ?? null);
+  const isDpgfValidationPending =
+    requiresDpgfValidation && (dpgfCompareLoading || dpgfCompareData === null);
+  const hasDpgfValidationError = requiresDpgfValidation && dpgfCompareError !== null;
   const canOpenApplyWizard =
     hasIncluded &&
     !hasDirtyOrSaving &&
     !hasSaveErrors &&
-    !hasBlockingAnomalies;
+    !hasBlockingAnomalies &&
+    !isDpgfValidationPending &&
+    !hasDpgfValidationError &&
+    !hasDpgfBlocks;
   const isApplyReady = canOpenApplyWizard && !hasGuardBlocks;
   const applyReadinessMessage = useMemo(() => {
     if (!hasIncluded) {
@@ -1113,6 +1131,18 @@ export default function TakeoffReviewPage({
       return "Corrigez les anomalies bloquantes avant l'apply.";
     }
 
+    if (isDpgfValidationPending) {
+      return "Attendez le chargement du rapprochement DPGF avant d'ouvrir l'apply controle.";
+    }
+
+    if (hasDpgfValidationError) {
+      return "Impossible de valider le rapprochement DPGF. Rechargez cette revue avant l'apply.";
+    }
+
+    if (hasDpgfBlocks) {
+      return "Des rapprochements DPGF restent a trancher. Ouvrez la revue detaillee pour finaliser les liens manuels.";
+    }
+
     if (hasGuardBlocks) {
       return `${guardResult?.blocked_items.length ?? 0} item(s) a faible confiance doivent etre verifies avant l'apply.`;
     }
@@ -1121,10 +1151,13 @@ export default function TakeoffReviewPage({
   }, [
     guardResult,
     hasBlockingAnomalies,
+    hasDpgfBlocks,
+    hasDpgfValidationError,
     hasDirtyOrSaving,
     hasGuardBlocks,
     hasIncluded,
     hasSaveErrors,
+    isDpgfValidationPending,
   ]);
   const handleOpenApplyWizard = useCallback(() => {
     if (!isApplyReady) return;

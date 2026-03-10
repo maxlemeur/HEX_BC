@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@/lib/estimates/client", () => ({
   fetchEstimateItemsForVersion: vi.fn(),
@@ -62,6 +62,18 @@ const PREVIEW_RESPONSE = {
     },
   ],
 };
+
+function makePreviewResponse(
+  summaryOverrides: Partial<typeof PREVIEW_RESPONSE.summary> = {}
+) {
+  return {
+    ...PREVIEW_RESPONSE,
+    summary: {
+      ...PREVIEW_RESPONSE.summary,
+      ...summaryOverrides,
+    },
+  };
+}
 
 function makeItem(
   id: string,
@@ -239,6 +251,83 @@ describe("TakeoffApplyWizard", () => {
     expect(screen.getAllByText("plans-rdc.pdf").length).toBeGreaterThan(0);
     expect(screen.getByText("page 7")).toBeDefined();
     expect(screen.getAllByText("Hors mapping").length).toBeGreaterThan(0);
+  });
+
+  it("uses the refreshed override count without double-counting manual changes", async () => {
+    vi.mocked(previewTakeoffConversion)
+      .mockResolvedValueOnce(PREVIEW_RESPONSE)
+      .mockResolvedValueOnce(makePreviewResponse({ overridden_count: 1 }));
+
+    render(
+      <TakeoffApplyWizard
+        open
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        includedCount={1}
+        excludedCount={0}
+        isSubmitting={false}
+        submitError={null}
+        onOpenChange={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchEstimateItemsForVersion).toHaveBeenCalledWith(VERSION_ID);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Preview d'impact")).toBeDefined();
+    });
+
+    const select = screen.getByDisplayValue("Regle auto") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "set_price" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Recalculer la preview" }));
+
+    await waitFor(() => {
+      expect(previewTakeoffConversion).toHaveBeenCalledTimes(2);
+    });
+
+    const overrideCard = screen
+      .getByText("ajustements humains avant confirmation")
+      .closest("div");
+    expect(overrideCard).not.toBeNull();
+    expect(within(overrideCard as HTMLElement).getByText("1")).toBeInTheDocument();
+    expect(within(overrideCard as HTMLElement).queryByText("2")).not.toBeInTheDocument();
+  });
+
+  it("includes mapping-based exclusions in the final recap", async () => {
+    vi.mocked(previewTakeoffConversion).mockResolvedValue(
+      makePreviewResponse({ excluded_by_mapping_count: 2 })
+    );
+
+    render(
+      <TakeoffApplyWizard
+        open
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        includedCount={1}
+        excludedCount={1}
+        isSubmitting={false}
+        submitError={null}
+        onOpenChange={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchEstimateItemsForVersion).toHaveBeenCalledWith(VERSION_ID);
+    });
+
+    await advanceToStep4();
+
+    const excludedCard = screen.getByText("laisses hors apply").closest("div");
+    expect(excludedCard).not.toBeNull();
+    expect(within(excludedCard as HTMLElement).getByText("3")).toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------------------

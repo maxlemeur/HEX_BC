@@ -629,6 +629,9 @@ export function TakeoffApplyWizard({
     () => new Map((externalItems ?? []).map((item) => [item.id, item])),
     [externalItems]
   );
+  const overrideCount = previewData?.summary.overridden_count ?? serializedOverrides.length;
+  const totalExcludedCount =
+    excludedCount + (previewData?.summary.excluded_by_mapping_count ?? 0);
 
   const hasPreviewReady =
     previewData !== null && previewError === null && isLoadingPreview === false;
@@ -899,7 +902,7 @@ export function TakeoffApplyWizard({
                     Transformations: <strong>{previewData?.summary.transformed_count ?? 0}</strong>
                   </span>
                   <span>
-                    Overrides: <strong>{serializedOverrides.length}</strong>
+                    Overrides: <strong>{overrideCount}</strong>
                   </span>
                   <span>
                     Hors mapping: <strong>{previewData?.summary.excluded_by_mapping_count ?? 0}</strong>
@@ -930,7 +933,7 @@ export function TakeoffApplyWizard({
                     />
                     <PreviewImpactCard
                       label="Overrides"
-                      value={previewData.summary.overridden_count + serializedOverrides.length}
+                      value={previewData.summary.overridden_count}
                       hint="ajustements humains avant confirmation"
                     />
                     <PreviewImpactCard
@@ -1168,12 +1171,12 @@ export function TakeoffApplyWizard({
                     />
                     <PreviewImpactCard
                       label="Items exclus"
-                      value={excludedCount}
+                      value={totalExcludedCount}
                       hint="laisses hors apply"
                     />
                     <PreviewImpactCard
                       label="Overrides"
-                      value={serializedOverrides.length}
+                      value={overrideCount}
                       hint="ajustements manuels qui seront envoyes"
                     />
                     <PreviewImpactCard
