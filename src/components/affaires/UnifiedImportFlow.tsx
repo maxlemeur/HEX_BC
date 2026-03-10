@@ -13,6 +13,7 @@ import {
 
 import {
   confirmUnifiedImportFlow,
+  getUnifiedImportFlowTakeoffCarryOverPreview,
   type ConfirmUnifiedImportFlowResult,
 } from "@/app/dashboard/affaires/_actions/import-flow";
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
@@ -23,6 +24,7 @@ import type {
   MappingSuggestionConfidence,
   MappingTemplateExactMatch,
 } from "@/lib/mappings/server";
+import type { TakeoffCarryOverSummary } from "@/lib/takeoff/types";
 
 /* ------------------------------------------------------------------ */
 /*  Dynamic imports for heavy sub-components (bundle-conditional)      */
@@ -158,6 +160,75 @@ function getFileExtension(name: string): string | null {
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function getTakeoffCarryOverSourceLabel(summary: TakeoffCarryOverSummary): string | null {
+  if (summary.sourceVersionNumber !== null) {
+    return `V${summary.sourceVersionNumber}`;
+  }
+
+  if (summary.sourceVersionId) {
+    return "version precedente";
+  }
+
+  return null;
+}
+
+function getTakeoffCarryOverPreviewCopy(summary: TakeoffCarryOverSummary): {
+  toneClassName: string;
+  title: string;
+  description: string;
+} {
+  const sourceLabel = getTakeoffCarryOverSourceLabel(summary);
+
+  if (summary.state === "not_applicable") {
+    return {
+      toneClassName: "border-[var(--slate-200)] bg-[var(--slate-50)]",
+      title: "Aucun carry-over takeoff a reprendre",
+      description:
+        "Cette creation ne repart d'aucune version takeoff precedente.",
+    };
+  }
+
+  if (summary.state === "empty") {
+    return {
+      toneClassName: "border-[var(--slate-200)] bg-[var(--slate-50)]",
+      title: sourceLabel
+        ? `Aucune analyse takeoff a reprendre depuis ${sourceLabel}`
+        : "Aucune analyse takeoff a reprendre",
+      description:
+        "La version sera creee sans reprise takeoff existante.",
+    };
+  }
+
+  if (summary.state === "unavailable") {
+    return {
+      toneClassName: "border-amber-200 bg-amber-50",
+      title: "Etat de reprise takeoff indisponible",
+      description:
+        "Le carry-over n'est pas prouve ici. La version reste creable, mais la reprise devra etre verifiee apres creation.",
+    };
+  }
+
+  if (summary.state === "ready") {
+    return {
+      toneClassName: "border-emerald-200 bg-emerald-50",
+      title: sourceLabel
+        ? `Carry-over takeoff pret depuis ${sourceLabel}`
+        : "Carry-over takeoff pret",
+      description:
+        "Les analyses deja acquises restent visibles sur la nouvelle version.",
+    };
+  }
+
+  return {
+    toneClassName: "border-amber-200 bg-amber-50",
+    title: sourceLabel
+      ? `Carry-over takeoff a surveiller depuis ${sourceLabel}`
+      : "Carry-over takeoff a surveiller",
+    description:
+      "Certaines analyses suivent, d'autres restent en cours ou devront etre relancees.",
+  };
 }
 
 async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
@@ -914,6 +985,50 @@ function ConfirmationStep({
 }) {
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [carryOverPreview, setCarryOverPreview] =
+    useState<TakeoffCarryOverSummary | null>(null);
+  const [isCarryOverPreviewLoading, setIsCarryOverPreviewLoading] = useState(true);
+  const carryOverPreviewRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const requestId = ++carryOverPreviewRequestIdRef.current;
+
+    setIsCarryOverPreviewLoading(true);
+
+    void getUnifiedImportFlowTakeoffCarryOverPreview({ projectId })
+      .then((result) => {
+        if (cancelled || carryOverPreviewRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setCarryOverPreview(result);
+      })
+      .catch(() => {
+        if (cancelled || carryOverPreviewRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setCarryOverPreview({
+          sourceVersionId: null,
+          sourceVersionNumber: null,
+          state: "unavailable",
+          totalJobs: 0,
+          acquiredJobs: 0,
+          inProgressJobs: 0,
+          actionRequiredJobs: 0,
+        });
+      })
+      .finally(() => {
+        if (!cancelled && carryOverPreviewRequestIdRef.current === requestId) {
+          setIsCarryOverPreviewLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   const handleConfirm = useCallback(
     async (createEstimate: boolean) => {
@@ -941,6 +1056,9 @@ function ConfirmationStep({
     },
     [importId, projectId, mapping, onSuccess],
   );
+
+  const carryOverPreviewCopy =
+    carryOverPreview !== null ? getTakeoffCarryOverPreviewCopy(carryOverPreview) : null;
 
   return (
     <div className="dashboard-card p-6">
@@ -991,6 +1109,54 @@ function ConfirmationStep({
         </div>
       </div>
 
+      <div className="mt-4">
+        {isCarryOverPreviewLoading ? (
+          <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-4 text-sm text-[var(--slate-500)]">
+            Analyse du carry-over takeoff…
+          </div>
+        ) : carryOverPreview ? (
+          <div
+            className={`rounded-xl border px-4 py-4 ${carryOverPreviewCopy?.toneClassName ?? ""}`}
+          >
+            <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+              Carry-over takeoff
+            </p>
+            <p className="mt-1 text-sm font-semibold text-[var(--slate-900)]">
+              {carryOverPreviewCopy?.title}
+            </p>
+            <p className="mt-1 text-sm text-[var(--slate-600)]">
+              {carryOverPreviewCopy?.description}
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+                  Acquis
+                </p>
+                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                  {carryOverPreview.acquiredJobs}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+                  En cours
+                </p>
+                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                  {carryOverPreview.inProgressJobs}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white/60 bg-white/70 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-[var(--slate-500)]">
+                  A relancer
+                </p>
+                <p className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                  {carryOverPreview.actionRequiredJobs}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       {/* Error with retry */}
       {confirmError && (
         <div className="alert alert-error mt-4">
@@ -1031,7 +1197,7 @@ function ConfirmationStep({
           <button
             type="button"
             className="btn btn-primary"
-            disabled={isConfirming}
+            disabled={isConfirming || isCarryOverPreviewLoading}
             onClick={() => void handleConfirm(true)}
           >
             {isConfirming ? (
@@ -1039,6 +1205,8 @@ function ConfirmationStep({
                 <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 Creation…
               </span>
+            ) : isCarryOverPreviewLoading ? (
+              "Analyse du carry-over…"
             ) : (
               "Creer le chiffrage"
             )}

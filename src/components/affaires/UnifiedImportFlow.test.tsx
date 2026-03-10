@@ -4,12 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   confirmUnifiedImportFlowMock,
+  getUnifiedImportFlowTakeoffCarryOverPreviewMock,
   mockPush,
   mockRefresh,
   useImportFlowMock,
   useUiModeMock,
 } = vi.hoisted(() => ({
   confirmUnifiedImportFlowMock: vi.fn(),
+  getUnifiedImportFlowTakeoffCarryOverPreviewMock: vi.fn(),
   mockPush: vi.fn(),
   mockRefresh: vi.fn(),
   useImportFlowMock: vi.fn(),
@@ -63,6 +65,8 @@ vi.mock("@/hooks/useUiMode", () => ({
 
 vi.mock("@/app/dashboard/affaires/_actions/import-flow", () => ({
   confirmUnifiedImportFlow: confirmUnifiedImportFlowMock,
+  getUnifiedImportFlowTakeoffCarryOverPreview:
+    getUnifiedImportFlowTakeoffCarryOverPreviewMock,
 }));
 
 vi.mock("@/components/mappings/ColumnMapper", () => ({
@@ -105,6 +109,18 @@ function jsonResponse(payload: unknown, status = 200) {
   });
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 async function advanceToConfirmation(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: /Suivant : Apercu/i }));
   await user.click(
@@ -117,6 +133,15 @@ describe("UnifiedImportFlow", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    getUnifiedImportFlowTakeoffCarryOverPreviewMock.mockResolvedValue({
+      sourceVersionId: null,
+      sourceVersionNumber: null,
+      state: "not_applicable",
+      totalJobs: 0,
+      acquiredJobs: 0,
+      inProgressJobs: 0,
+      actionRequiredJobs: 0,
+    });
     currentLastImportId = "11111111-1111-4111-8111-111111111111";
     const imports = [
       {
@@ -435,5 +460,88 @@ describe("UnifiedImportFlow", () => {
 
     expect(screen.queryByText("Plans")).not.toBeInTheDocument();
     expect(screen.queryByText("optionnel")).not.toBeInTheDocument();
+  });
+
+  it("shows the carry-over summary before confirming version creation", async () => {
+    const user = userEvent.setup();
+
+    getUnifiedImportFlowTakeoffCarryOverPreviewMock.mockResolvedValue({
+      sourceVersionId: "33333333-3333-4333-8333-333333333333",
+      sourceVersionNumber: 4,
+      state: "attention_required",
+      totalJobs: 5,
+      acquiredJobs: 3,
+      inProgressJobs: 1,
+      actionRequiredJobs: 1,
+    });
+
+    render(
+      <UnifiedImportFlow projectId="22222222-2222-4222-8222-222222222222" />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Suivant : Apercu/i })
+      ).toBeInTheDocument();
+    });
+
+    await advanceToConfirmation(user);
+
+    expect(
+      await screen.findByText("Carry-over takeoff a surveiller depuis V4")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Acquis")).toBeInTheDocument();
+    expect(screen.getByText("En cours")).toBeInTheDocument();
+    expect(screen.getByText("A relancer")).toBeInTheDocument();
+  });
+
+  it("waits for the carry-over preview before enabling version creation", async () => {
+    const user = userEvent.setup();
+    const deferredPreview = createDeferred({
+      sourceVersionId: null,
+      sourceVersionNumber: null,
+      state: "not_applicable" as const,
+      totalJobs: 0,
+      acquiredJobs: 0,
+      inProgressJobs: 0,
+      actionRequiredJobs: 0,
+    });
+
+    getUnifiedImportFlowTakeoffCarryOverPreviewMock.mockReturnValue(
+      deferredPreview.promise
+    );
+
+    render(
+      <UnifiedImportFlow projectId="22222222-2222-4222-8222-222222222222" />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Suivant : Apercu/i })
+      ).toBeInTheDocument();
+    });
+
+    await advanceToConfirmation(user);
+
+    const createButton = await screen.findByRole("button", {
+      name: /Analyse du carry-over/i,
+    });
+    expect(createButton).toBeDisabled();
+
+    deferredPreview.resolve({
+      sourceVersionId: null,
+      sourceVersionNumber: null,
+      state: "not_applicable",
+      totalJobs: 0,
+      acquiredJobs: 0,
+      inProgressJobs: 0,
+      actionRequiredJobs: 0,
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Creer le chiffrage/i })
+      ).toBeEnabled();
+    });
   });
 });

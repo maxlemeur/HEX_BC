@@ -14,7 +14,10 @@ vi.mock("@/lib/mappings/server", () => ({
 
 import { revalidatePath } from "next/cache";
 
-import { confirmUnifiedImportFlow } from "@/app/dashboard/affaires/_actions/import-flow";
+import {
+  confirmUnifiedImportFlow,
+  getUnifiedImportFlowTakeoffCarryOverPreview,
+} from "@/app/dashboard/affaires/_actions/import-flow";
 import { createMapping } from "@/lib/mappings/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -128,6 +131,7 @@ function createMappedRowsBuilder(rows: unknown[]) {
 }
 
 function createVersionContextBuilder(
+  sourceVersionId: string | null = null,
   marginMultiplier = 1.2,
   taxRateBp = 2000
 ) {
@@ -145,6 +149,7 @@ function createVersionContextBuilder(
   builder.limit.mockReturnValue(builder);
   builder.maybeSingle.mockResolvedValue({
     data: {
+      id: sourceVersionId,
       margin_multiplier: marginMultiplier,
       tax_rate_bp: taxRateBp,
     },
@@ -286,7 +291,7 @@ describe("confirmUnifiedImportFlow", () => {
           },
         },
       ]),
-      versionContextBuilder: createVersionContextBuilder(1.1, 2000),
+      versionContextBuilder: createVersionContextBuilder(null, 1.1, 2000),
       rpcResult: {
         data: [
           {
@@ -325,6 +330,7 @@ describe("confirmUnifiedImportFlow", () => {
         insertedRows: 1,
         skippedRows: 0,
       },
+      takeoffCarryOver: null,
     });
     expect(supabase.rpc).toHaveBeenCalledWith("create_estimate_version_from_import_lines", {
       p_project_id: PROJECT_ID,
@@ -367,7 +373,7 @@ describe("confirmUnifiedImportFlow", () => {
           },
         },
       ]),
-      versionContextBuilder: createVersionContextBuilder(1, 2000),
+      versionContextBuilder: createVersionContextBuilder(null, 1, 2000),
       rpcResult: {
         data: [
           {
@@ -394,6 +400,67 @@ describe("confirmUnifiedImportFlow", () => {
     const rpcCall = vi.mocked(supabase.rpc).mock.calls[0];
     const payload = rpcCall?.[1] as { p_lines: Array<{ row_index: number }> } | undefined;
     expect(payload?.p_lines.map((line) => line.row_index)).toEqual([1, 2]);
+  });
+
+  it("keeps version creation non-blocking when takeoff carry-over cannot be resolved", async () => {
+    const sourceVersionId = "77777777-7777-4777-8777-777777777777";
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      importBuilder: createImportSelectBuilder(PROJECT_ID),
+      projectBuilder: createProjectSelectBuilder(true),
+      latestMappingBuilder: createLatestMappingBuilder("mapping-latest"),
+      mappedRowsBuilder: createMappedRowsBuilder([
+        {
+          id: "mapped-1",
+          payload: {
+            row_index: 1,
+            mapped_row: {
+              designation: "Poste A",
+              quantity: "1",
+              unit_price_ht: "100",
+            },
+          },
+        },
+      ]),
+      versionContextBuilder: createVersionContextBuilder(sourceVersionId, 1, 2000),
+      rpcResult: {
+        data: [
+          {
+            version_id: VERSION_ID,
+            section_id: "77777777-7777-4777-8777-777777777777",
+            inserted_count: 1,
+            total_ht_cents: 10000,
+            total_tax_cents: 2000,
+            total_ttc_cents: 12000,
+          },
+        ],
+        error: null,
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await confirmUnifiedImportFlow({
+      importId: IMPORT_ID,
+      projectId: PROJECT_ID,
+      createEstimate: true,
+    });
+
+    expect(result.versionId).toBe(VERSION_ID);
+    expect(result.takeoffCarryOver).toEqual({
+      summary: {
+        sourceVersionId,
+        sourceVersionNumber: null,
+        state: "unavailable",
+        totalJobs: 0,
+        acquiredJobs: 0,
+        inProgressJobs: 0,
+        actionRequiredJobs: 0,
+      },
+      linkState: "failed",
+      linkedJobs: 0,
+      unlinkedJobs: 0,
+    });
   });
 
   it("rejects import linked to another project", async () => {
@@ -429,7 +496,7 @@ describe("confirmUnifiedImportFlow", () => {
           },
         },
       ]),
-      versionContextBuilder: createVersionContextBuilder(1, 2000),
+      versionContextBuilder: createVersionContextBuilder(null, 1, 2000),
     });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
 
@@ -442,5 +509,29 @@ describe("confirmUnifiedImportFlow", () => {
     ).rejects.toThrow("Aucune ligne valide a inserer pour creer le chiffrage.");
 
     expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("returns a not_applicable carry-over preview when the project has no source version", async () => {
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      projectBuilder: createProjectSelectBuilder(true),
+      versionContextBuilder: createVersionContextBuilder(null, 1, 2000),
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await getUnifiedImportFlowTakeoffCarryOverPreview({
+      projectId: PROJECT_ID,
+    });
+
+    expect(result).toEqual({
+      sourceVersionId: null,
+      sourceVersionNumber: null,
+      state: "not_applicable",
+      totalJobs: 0,
+      acquiredJobs: 0,
+      inProgressJobs: 0,
+      actionRequiredJobs: 0,
+    });
   });
 });

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { linkTakeoffJobsFromSourceVersionToTargetVersion } from "@/lib/takeoff/version-links";
+import {
+  linkTakeoffJobsFromSourceVersionToTargetVersion,
+  summarizeTakeoffCarryOverSourceVersion,
+} from "@/lib/takeoff/version-links";
 
 const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
@@ -86,6 +89,145 @@ function createCarryOverSupabaseMock(input: CarryOverMockInput) {
     takeoffVersionLinksUpsert,
     takeoffVersionLinksUpsertSelect,
   };
+}
+
+type CarryOverSummaryMockInput = {
+  directJobs: Array<{
+    id: string;
+    status: string;
+    level?: string;
+    created_at?: string;
+    updated_at?: string;
+  }>;
+  linkedJobs?: Array<{
+    id: string;
+    status: string;
+    source_version_id: string;
+    level?: string;
+    created_at?: string;
+    updated_at?: string;
+  }>;
+  sourceVersionNumber?: number;
+};
+
+function createTakeoffJobRow(input: {
+  id: string;
+  versionId: string;
+  status: string;
+  level?: string;
+  created_at?: string;
+  updated_at?: string;
+}) {
+  return {
+    id: input.id,
+    estimate_version_id: input.versionId,
+    status: input.status,
+    level: input.level ?? "B",
+    source_file_name: `${input.id}.pdf`,
+    source_file_type: "application/pdf",
+    source_file_size_bytes: 2048,
+    created_at: input.created_at ?? "2026-03-01T10:00:00.000Z",
+    updated_at: input.updated_at ?? "2026-03-01T11:00:00.000Z",
+  };
+}
+
+function createCarryOverSummarySupabaseMock(input: CarryOverSummaryMockInput) {
+  const directJobsBuilder = {
+    eq: vi.fn(),
+  };
+  directJobsBuilder.eq.mockReturnValueOnce(directJobsBuilder);
+  directJobsBuilder.eq.mockResolvedValueOnce({
+    data: input.directJobs.map((job) =>
+      createTakeoffJobRow({
+        id: job.id,
+        versionId: SOURCE_VERSION_ID,
+        status: job.status,
+        level: job.level,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+      })
+    ),
+    error: null,
+  });
+
+  const linkedJobRows = input.linkedJobs ?? [];
+  const linksBuilder = {
+    eq: vi.fn(),
+  };
+  linksBuilder.eq.mockReturnValueOnce(linksBuilder);
+  linksBuilder.eq.mockResolvedValueOnce({
+    data: linkedJobRows.map((job) => ({
+      takeoff_job_id: job.id,
+      source_version_id: job.source_version_id,
+      target_version_id: SOURCE_VERSION_ID,
+      linked_at: "2026-03-02T09:00:00.000Z",
+    })),
+    error: null,
+  });
+
+  const linkedJobsBuilder = {
+    eq: vi.fn(),
+    in: vi.fn(),
+  };
+  linkedJobsBuilder.eq.mockReturnValue(linkedJobsBuilder);
+  linkedJobsBuilder.in.mockResolvedValue({
+    data: linkedJobRows.map((job) =>
+      createTakeoffJobRow({
+        id: job.id,
+        versionId: job.source_version_id,
+        status: job.status,
+        level: job.level,
+        created_at: job.created_at,
+        updated_at: job.updated_at,
+      })
+    ),
+    error: null,
+  });
+
+  const versionNumberBuilder = {
+    select: vi.fn(),
+    eq: vi.fn(),
+    in: vi.fn(),
+  };
+  versionNumberBuilder.select.mockReturnValue(versionNumberBuilder);
+  versionNumberBuilder.eq.mockReturnValue(versionNumberBuilder);
+  versionNumberBuilder.in.mockResolvedValue({
+    data: [
+      {
+        id: SOURCE_VERSION_ID,
+        version_number: input.sourceVersionNumber ?? 3,
+      },
+    ],
+    error: null,
+  });
+
+  let takeoffJobsCallCount = 0;
+  const supabase = {
+    from: vi.fn((table: string) => {
+      if (table === "takeoff_jobs") {
+        takeoffJobsCallCount += 1;
+        return {
+          select: vi.fn(() =>
+            takeoffJobsCallCount === 1 ? directJobsBuilder : linkedJobsBuilder
+          ),
+        };
+      }
+
+      if (table === "takeoff_version_links") {
+        return {
+          select: vi.fn(() => linksBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return versionNumberBuilder;
+      }
+
+      throw new Error(`Unexpected table: ${table}`);
+    }),
+  };
+
+  return supabase as never;
 }
 
 describe("linkTakeoffJobsFromSourceVersionToTargetVersion", () => {
@@ -201,5 +343,98 @@ describe("linkTakeoffJobsFromSourceVersionToTargetVersion", () => {
         },
       ])
     );
+  });
+});
+
+describe("summarizeTakeoffCarryOverSourceVersion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns not_applicable when there is no source version", async () => {
+    const summary = await summarizeTakeoffCarryOverSourceVersion({
+      supabase: {} as never,
+      tenantId: TENANT_ID,
+      sourceVersionId: null,
+    });
+
+    expect(summary).toEqual({
+      sourceVersionId: null,
+      sourceVersionNumber: null,
+      state: "not_applicable",
+      totalJobs: 0,
+      acquiredJobs: 0,
+      inProgressJobs: 0,
+      actionRequiredJobs: 0,
+    });
+  });
+
+  it("summarizes acquired, in-progress and action-required jobs for the source version", async () => {
+    const supabase = createCarryOverSummarySupabaseMock({
+      directJobs: [
+        { id: "77777777-7777-4777-8777-777777777777", status: "completed" },
+        { id: "88888888-8888-4888-8888-888888888888", status: "processing" },
+      ],
+      linkedJobs: [
+        {
+          id: "99999999-9999-4999-8999-999999999999",
+          status: "failed",
+          source_version_id: ORIGINAL_VERSION_ID,
+        },
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          status: "applied",
+          source_version_id: ORIGINAL_VERSION_ID,
+        },
+      ],
+      sourceVersionNumber: 7,
+    });
+
+    const summary = await summarizeTakeoffCarryOverSourceVersion({
+      supabase,
+      tenantId: TENANT_ID,
+      sourceVersionId: SOURCE_VERSION_ID,
+    });
+
+    expect(summary).toEqual({
+      sourceVersionId: SOURCE_VERSION_ID,
+      sourceVersionNumber: 7,
+      state: "attention_required",
+      totalJobs: 4,
+      acquiredJobs: 2,
+      inProgressJobs: 1,
+      actionRequiredJobs: 1,
+    });
+  });
+
+  it("returns ready when all carried jobs are already acquired", async () => {
+    const supabase = createCarryOverSummarySupabaseMock({
+      directJobs: [
+        { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", status: "completed" },
+      ],
+      linkedJobs: [
+        {
+          id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          status: "applied",
+          source_version_id: ORIGINAL_VERSION_ID,
+        },
+      ],
+    });
+
+    const summary = await summarizeTakeoffCarryOverSourceVersion({
+      supabase,
+      tenantId: TENANT_ID,
+      sourceVersionId: SOURCE_VERSION_ID,
+    });
+
+    expect(summary).toEqual({
+      sourceVersionId: SOURCE_VERSION_ID,
+      sourceVersionNumber: 3,
+      state: "ready",
+      totalJobs: 2,
+      acquiredJobs: 2,
+      inProgressJobs: 0,
+      actionRequiredJobs: 0,
+    });
   });
 });

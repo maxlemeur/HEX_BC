@@ -26,7 +26,16 @@ import {
 import { createMapping } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { linkTakeoffJobsFromSourceVersionToTargetVersion } from "@/lib/takeoff/version-links";
+import type {
+  TakeoffCarryOverStatus,
+  TakeoffCarryOverSummary,
+} from "@/lib/takeoff/types";
+import {
+  createTakeoffCarryOverStatus,
+  createTakeoffCarryOverSummary,
+  linkTakeoffJobsFromSourceVersionToTargetVersion,
+  summarizeTakeoffCarryOverSourceVersion,
+} from "@/lib/takeoff/version-links";
 
 export type ConfirmUnifiedImportFlowMode = "mapping_only" | "version_created";
 
@@ -37,6 +46,7 @@ export type ConfirmUnifiedImportFlowResult = {
   mappingId: string | null;
   versionId: string | null;
   redirectTo: string | null;
+  takeoffCarryOver: TakeoffCarryOverStatus | null;
   stats: {
     totalRows: number;
     validRows: number;
@@ -64,6 +74,14 @@ const confirmUnifiedImportFlowSchema = z.object({
   sectionTitle: z.string().trim().max(200).nullable().optional(),
 });
 export type ConfirmUnifiedImportFlowInput = z.infer<typeof confirmUnifiedImportFlowSchema>;
+
+const getUnifiedImportFlowTakeoffCarryOverPreviewSchema = z.object({
+  projectId: z.string().uuid("projectId invalide."),
+});
+
+export type GetUnifiedImportFlowTakeoffCarryOverPreviewInput = z.infer<
+  typeof getUnifiedImportFlowTakeoffCarryOverPreviewSchema
+>;
 
 async function createVersionFromMappedRows(input: {
   supabase: Supabase;
@@ -106,6 +124,72 @@ function revalidateImportFlowPaths(projectId: string | null, versionId: string |
   if (versionId) {
     revalidatePath(`/dashboard/estimates/${versionId}/edit`);
   }
+}
+
+async function loadTakeoffCarryOverSummary(input: {
+  supabase: Supabase;
+  tenantId: string;
+  sourceVersionId: string | null;
+}): Promise<TakeoffCarryOverSummary> {
+  try {
+    return await summarizeTakeoffCarryOverSourceVersion({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      sourceVersionId: input.sourceVersionId,
+    });
+  } catch (error) {
+    console.warn("takeoff carry-over summary unavailable for import flow", {
+      sourceVersionId: input.sourceVersionId,
+      error,
+    });
+
+    return createTakeoffCarryOverSummary({
+      sourceVersionId: input.sourceVersionId,
+      state: "unavailable",
+    });
+  }
+}
+
+export async function getUnifiedImportFlowTakeoffCarryOverPreview(
+  input: GetUnifiedImportFlowTakeoffCarryOverPreviewInput
+): Promise<TakeoffCarryOverSummary> {
+  const parsed = getUnifiedImportFlowTakeoffCarryOverPreviewSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error("Payload de preview carry-over invalide.");
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    throw new Error("Authentification requise.");
+  }
+
+  const membership = await getCurrentMembershipOrThrow(supabase, user.id);
+  const isTenantAdmin = membership.role === "admin";
+
+  await assertProjectAccessOrThrow({
+    supabase,
+    projectId: parsed.data.projectId,
+    tenantId: membership.tenant_id,
+    userId: user.id,
+    isTenantAdmin,
+  });
+
+  const versionContext = await fetchVersionComputationContext(
+    supabase,
+    parsed.data.projectId,
+    membership.tenant_id
+  );
+
+  return loadTakeoffCarryOverSummary({
+    supabase,
+    tenantId: membership.tenant_id,
+    sourceVersionId: versionContext.version_id,
+  });
 }
 
 export async function confirmUnifiedImportFlow(
@@ -230,6 +314,7 @@ export async function confirmUnifiedImportFlow(
       mappingId,
       versionId: null,
       redirectTo: null,
+      takeoffCarryOver: null,
       stats,
     };
   }
@@ -238,6 +323,12 @@ export async function confirmUnifiedImportFlow(
   if (!projectId) {
     throw new Error("projectId est requis pour creer un chiffrage.");
   }
+
+  const takeoffCarryOverSummary = await loadTakeoffCarryOverSummary({
+    supabase,
+    tenantId: membership.tenant_id,
+    sourceVersionId: versionContext.version_id,
+  });
 
   const createdVersion = await createVersionFromMappedRows({
     supabase,
@@ -250,20 +341,42 @@ export async function confirmUnifiedImportFlow(
     ),
   });
 
+  let takeoffCarryOver: TakeoffCarryOverStatus | null =
+    versionContext.version_id !== null
+      ? createTakeoffCarryOverStatus({
+          summary: takeoffCarryOverSummary,
+          linkState: "not_requested",
+        })
+      : null;
+
   if (versionContext.version_id) {
     try {
-      await linkTakeoffJobsFromSourceVersionToTargetVersion({
+      const carryOverResult = await linkTakeoffJobsFromSourceVersionToTargetVersion({
         supabase,
         tenantId: membership.tenant_id,
         userId: user.id,
         sourceVersionId: versionContext.version_id,
         targetVersionId: createdVersion.version_id,
       });
+
+      takeoffCarryOver = createTakeoffCarryOverStatus({
+        summary: takeoffCarryOverSummary,
+        linkState:
+          carryOverResult.linked_count === carryOverResult.source_job_count
+            ? "linked"
+            : "partial",
+        linkedJobs: carryOverResult.linked_count,
+      });
     } catch (error) {
       console.warn("takeoff carry-over skipped for import flow", {
         sourceVersionId: versionContext.version_id,
         targetVersionId: createdVersion.version_id,
         error,
+      });
+
+      takeoffCarryOver = createTakeoffCarryOverStatus({
+        summary: takeoffCarryOverSummary,
+        linkState: "failed",
       });
     }
   }
@@ -280,6 +393,7 @@ export async function confirmUnifiedImportFlow(
     mappingId,
     versionId: createdVersion.version_id,
     redirectTo,
+    takeoffCarryOver,
     stats,
   };
 }

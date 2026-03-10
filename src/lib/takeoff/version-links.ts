@@ -2,7 +2,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import { mapSupabaseError, unprocessableEntity } from "@/lib/estimates/errors";
-import type { TakeoffLinkedJobSummary } from "@/lib/takeoff/types";
+import type {
+  TakeoffCarryOverLinkState,
+  TakeoffCarryOverStatus,
+  TakeoffCarryOverSummary,
+  TakeoffLinkedJobSummary,
+} from "@/lib/takeoff/types";
 import type { Database } from "@/types/database";
 
 type Supabase = SupabaseClient<Database>;
@@ -39,6 +44,10 @@ const estimateVersionNumberRowSchema = z
     version_number: z.number().int().positive(),
   })
   .strict();
+
+const ACQUIRED_TAKEOFF_JOB_STATUSES = new Set(["completed", "applied"]);
+const IN_PROGRESS_TAKEOFF_JOB_STATUSES = new Set(["pending", "processing"]);
+const ACTION_REQUIRED_TAKEOFF_JOB_STATUSES = new Set(["failed", "canceled"]);
 
 function parseVersionId(versionId: string): string {
   const parsed = uuidSchema.safeParse(versionId);
@@ -265,6 +274,113 @@ async function getVersionNumberById(input: {
 
   const rows = normalizeEstimateVersionNumberRows((data ?? []) as unknown[]);
   return new Map(rows.map((row) => [row.id, row.version_number]));
+}
+
+export function createTakeoffCarryOverSummary(input: {
+  sourceVersionId: string | null;
+  sourceVersionNumber?: number | null;
+  state: TakeoffCarryOverSummary["state"];
+  totalJobs?: number;
+  acquiredJobs?: number;
+  inProgressJobs?: number;
+  actionRequiredJobs?: number;
+}): TakeoffCarryOverSummary {
+  return {
+    sourceVersionId: input.sourceVersionId,
+    sourceVersionNumber: input.sourceVersionNumber ?? null,
+    state: input.state,
+    totalJobs: Math.max(input.totalJobs ?? 0, 0),
+    acquiredJobs: Math.max(input.acquiredJobs ?? 0, 0),
+    inProgressJobs: Math.max(input.inProgressJobs ?? 0, 0),
+    actionRequiredJobs: Math.max(input.actionRequiredJobs ?? 0, 0),
+  };
+}
+
+export function createTakeoffCarryOverStatus(input: {
+  summary: TakeoffCarryOverSummary;
+  linkState: TakeoffCarryOverLinkState;
+  linkedJobs?: number;
+}): TakeoffCarryOverStatus {
+  const linkedJobs = Math.max(input.linkedJobs ?? 0, 0);
+  const unlinkedJobs = Math.max(input.summary.totalJobs - linkedJobs, 0);
+
+  return {
+    summary: input.summary,
+    linkState: input.linkState,
+    linkedJobs,
+    unlinkedJobs,
+  };
+}
+
+export async function summarizeTakeoffCarryOverSourceVersion(input: {
+  supabase: Supabase;
+  tenantId: string;
+  sourceVersionId: string | null | undefined;
+}): Promise<TakeoffCarryOverSummary> {
+  if (!input.sourceVersionId) {
+    return createTakeoffCarryOverSummary({
+      sourceVersionId: null,
+      state: "not_applicable",
+    });
+  }
+
+  const sourceVersionId = parseVersionId(input.sourceVersionId);
+  const [jobs, versionNumberById] = await Promise.all([
+    listAccessibleTakeoffJobsForVersion({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      versionId: sourceVersionId,
+    }),
+    getVersionNumberById({
+      supabase: input.supabase,
+      tenantId: input.tenantId,
+      versionIds: [sourceVersionId],
+    }),
+  ]);
+
+  if (jobs.length === 0) {
+    return createTakeoffCarryOverSummary({
+      sourceVersionId,
+      sourceVersionNumber: versionNumberById.get(sourceVersionId) ?? null,
+      state: "empty",
+    });
+  }
+
+  let acquiredJobs = 0;
+  let inProgressJobs = 0;
+  let actionRequiredJobs = 0;
+
+  for (const job of jobs) {
+    const normalizedStatus = job.status.trim().toLowerCase();
+
+    if (ACQUIRED_TAKEOFF_JOB_STATUSES.has(normalizedStatus)) {
+      acquiredJobs += 1;
+      continue;
+    }
+
+    if (IN_PROGRESS_TAKEOFF_JOB_STATUSES.has(normalizedStatus)) {
+      inProgressJobs += 1;
+      continue;
+    }
+
+    if (ACTION_REQUIRED_TAKEOFF_JOB_STATUSES.has(normalizedStatus)) {
+      actionRequiredJobs += 1;
+      continue;
+    }
+
+    inProgressJobs += 1;
+  }
+
+  return createTakeoffCarryOverSummary({
+    sourceVersionId,
+    sourceVersionNumber: versionNumberById.get(sourceVersionId) ?? null,
+    state:
+      inProgressJobs > 0 || actionRequiredJobs > 0 ? "attention_required" : "ready",
+    totalJobs: jobs.length,
+    acquiredJobs,
+    inProgressJobs,
+    actionRequiredJobs,
+  });
 }
 
 export async function getTakeoffLinkedSourceVersionByJobId(input: {

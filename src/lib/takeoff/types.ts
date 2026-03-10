@@ -148,6 +148,42 @@ export type TakeoffLinkedJobSummary = {
   is_linked: boolean;
 };
 
+export const TAKEOFF_CARRY_OVER_SUMMARY_STATES = [
+  "not_applicable",
+  "unavailable",
+  "empty",
+  "ready",
+  "attention_required",
+] as const;
+export type TakeoffCarryOverSummaryState =
+  (typeof TAKEOFF_CARRY_OVER_SUMMARY_STATES)[number];
+
+export const TAKEOFF_CARRY_OVER_LINK_STATES = [
+  "not_requested",
+  "linked",
+  "partial",
+  "failed",
+] as const;
+export type TakeoffCarryOverLinkState =
+  (typeof TAKEOFF_CARRY_OVER_LINK_STATES)[number];
+
+export type TakeoffCarryOverSummary = {
+  sourceVersionId: string | null;
+  sourceVersionNumber: number | null;
+  state: TakeoffCarryOverSummaryState;
+  totalJobs: number;
+  acquiredJobs: number;
+  inProgressJobs: number;
+  actionRequiredJobs: number;
+};
+
+export type TakeoffCarryOverStatus = {
+  summary: TakeoffCarryOverSummary;
+  linkState: TakeoffCarryOverLinkState;
+  linkedJobs: number;
+  unlinkedJobs: number;
+};
+
 export type TakeoffJobStatusCounters = {
   total: number;
   processing: number;
