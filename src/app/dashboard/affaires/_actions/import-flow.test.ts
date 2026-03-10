@@ -246,6 +246,7 @@ describe("confirmUnifiedImportFlow", () => {
     expect(result.projectId).toBeNull();
     expect(result.mappingId).toBe("mapping-latest");
     expect(result.versionId).toBeNull();
+    expect(result.totals).toBeNull();
     expect(result.stats).toEqual({
       totalRows: 1,
       validRows: 1,
@@ -323,6 +324,11 @@ describe("confirmUnifiedImportFlow", () => {
       projectId: PROJECT_ID,
       versionId: VERSION_ID,
       redirectTo: `/dashboard/estimates/${VERSION_ID}/edit`,
+      totals: {
+        totalHtCents: 22000,
+        totalTaxCents: 4400,
+        totalTtcCents: 26400,
+      },
       stats: {
         totalRows: 1,
         validRows: 1,
@@ -402,6 +408,46 @@ describe("confirmUnifiedImportFlow", () => {
     expect(payload?.p_lines.map((line) => line.row_index)).toEqual([1, 2]);
   });
 
+  it("rejects version creation when the previewed carry-over source version changed", async () => {
+    const currentSourceVersionId = "77777777-7777-4777-8777-777777777777";
+    const previewSourceVersionId = "88888888-8888-4888-8888-888888888888";
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      importBuilder: createImportSelectBuilder(PROJECT_ID),
+      projectBuilder: createProjectSelectBuilder(true),
+      latestMappingBuilder: createLatestMappingBuilder("mapping-latest"),
+      mappedRowsBuilder: createMappedRowsBuilder([
+        {
+          id: "mapped-1",
+          payload: {
+            row_index: 1,
+            mapped_row: {
+              designation: "Poste A",
+              quantity: "1",
+              unit_price_ht: "100",
+            },
+          },
+        },
+      ]),
+      versionContextBuilder: createVersionContextBuilder(currentSourceVersionId, 1, 2000),
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      confirmUnifiedImportFlow({
+        importId: IMPORT_ID,
+        projectId: PROJECT_ID,
+        createEstimate: true,
+        previewSourceVersionId,
+      })
+    ).rejects.toThrow(
+      "La version source du carry-over takeoff a change. Rechargez la confirmation avant de creer le chiffrage."
+    );
+
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
   it("keeps version creation non-blocking when takeoff carry-over cannot be resolved", async () => {
     const sourceVersionId = "77777777-7777-4777-8777-777777777777";
     const supabase = createSupabaseStub({
@@ -444,9 +490,15 @@ describe("confirmUnifiedImportFlow", () => {
       importId: IMPORT_ID,
       projectId: PROJECT_ID,
       createEstimate: true,
+      previewSourceVersionId: sourceVersionId,
     });
 
     expect(result.versionId).toBe(VERSION_ID);
+    expect(result.totals).toEqual({
+      totalHtCents: 10000,
+      totalTaxCents: 2000,
+      totalTtcCents: 12000,
+    });
     expect(result.takeoffCarryOver).toEqual({
       summary: {
         sourceVersionId,

@@ -39,6 +39,12 @@ import {
 
 export type ConfirmUnifiedImportFlowMode = "mapping_only" | "version_created";
 
+export type ImportFlowCreationTotals = {
+  totalHtCents: number;
+  totalTaxCents: number;
+  totalTtcCents: number;
+};
+
 export type ConfirmUnifiedImportFlowResult = {
   mode: ConfirmUnifiedImportFlowMode;
   importId: string;
@@ -47,6 +53,7 @@ export type ConfirmUnifiedImportFlowResult = {
   versionId: string | null;
   redirectTo: string | null;
   takeoffCarryOver: TakeoffCarryOverStatus | null;
+  totals: ImportFlowCreationTotals | null;
   stats: {
     totalRows: number;
     validRows: number;
@@ -70,6 +77,11 @@ const confirmUnifiedImportFlowSchema = z.object({
   projectId: z.string().uuid("projectId invalide.").nullable().optional(),
   mapping: z.record(z.string(), z.union([z.string(), z.null()])).optional(),
   createEstimate: z.boolean(),
+  previewSourceVersionId: z
+    .string()
+    .uuid("previewSourceVersionId invalide.")
+    .nullable()
+    .optional(),
   versionTitle: z.string().trim().max(200).nullable().optional(),
   sectionTitle: z.string().trim().max(200).nullable().optional(),
 });
@@ -294,6 +306,16 @@ export async function confirmUnifiedImportFlow(
         tax_rate_bp: DEFAULT_TAX_RATE_BP,
       };
 
+  if (
+    parsed.data.createEstimate &&
+    parsed.data.previewSourceVersionId !== undefined &&
+    parsed.data.previewSourceVersionId !== versionContext.version_id
+  ) {
+    throw new Error(
+      "La version source du carry-over takeoff a change. Rechargez la confirmation avant de creer le chiffrage."
+    );
+  }
+
   const normalizedRows = normalizeMappedRowsForEstimateCreation(mappedRows, {
     marginMultiplier: versionContext.margin_multiplier,
     defaultTaxRateBp: versionContext.tax_rate_bp,
@@ -315,6 +337,7 @@ export async function confirmUnifiedImportFlow(
       versionId: null,
       redirectTo: null,
       takeoffCarryOver: null,
+      totals: null,
       stats,
     };
   }
@@ -366,6 +389,7 @@ export async function confirmUnifiedImportFlow(
             ? "linked"
             : "partial",
         linkedJobs: carryOverResult.linked_count,
+        sourceJobs: carryOverResult.source_job_count,
       });
     } catch (error) {
       console.warn("takeoff carry-over skipped for import flow", {
@@ -394,6 +418,11 @@ export async function confirmUnifiedImportFlow(
     versionId: createdVersion.version_id,
     redirectTo,
     takeoffCarryOver,
+    totals: {
+      totalHtCents: createdVersion.total_ht_cents,
+      totalTaxCents: createdVersion.total_tax_cents,
+      totalTtcCents: createdVersion.total_ttc_cents,
+    },
     stats,
   };
 }

@@ -269,6 +269,9 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
     importId,
     insertedRows: String(stats.insertedRows),
     skippedRows: String(stats.skippedRows),
+    totalHtCents: String(created.total_ht_cents ?? 0),
+    totalTaxCents: String(created.total_tax_cents ?? 0),
+    totalTtcCents: String(created.total_ttc_cents ?? 0),
     mappingId: mappingId ?? "",
   });
 

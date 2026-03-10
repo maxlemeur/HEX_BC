@@ -290,6 +290,11 @@ describe("UnifiedImportFlow", () => {
       mappingId: "33333333-3333-4333-8333-333333333333",
       versionId: "44444444-4444-4444-8444-444444444444",
       redirectTo: "/dashboard/estimates/44444444-4444-4444-8444-444444444444/edit",
+      totals: {
+        totalHtCents: 10000,
+        totalTaxCents: 2000,
+        totalTtcCents: 12000,
+      },
       stats: {
         totalRows: 1,
         validRows: 1,
@@ -344,6 +349,11 @@ describe("UnifiedImportFlow", () => {
       mappingId: "33333333-3333-4333-8333-333333333333",
       versionId: "44444444-4444-4444-8444-444444444444",
       redirectTo: "/dashboard/estimates/44444444-4444-4444-8444-444444444444/edit",
+      totals: {
+        totalHtCents: 10000,
+        totalTaxCents: 2000,
+        totalTtcCents: 12000,
+      },
       stats: {
         totalRows: 1,
         validRows: 1,
@@ -394,6 +404,11 @@ describe("UnifiedImportFlow", () => {
       mappingId: "33333333-3333-4333-8333-333333333333",
       versionId: "44444444-4444-4444-8444-444444444444",
       redirectTo: "/dashboard/affaires/22222222-2222-4222-8222-222222222222",
+      totals: {
+        totalHtCents: 10000,
+        totalTaxCents: 2000,
+        totalTtcCents: 12000,
+      },
       stats: {
         totalRows: 1,
         validRows: 1,
@@ -493,6 +508,63 @@ describe("UnifiedImportFlow", () => {
     expect(screen.getByText("Acquis")).toBeInTheDocument();
     expect(screen.getByText("En cours")).toBeInTheDocument();
     expect(screen.getByText("A relancer")).toBeInTheDocument();
+  });
+
+  it("pins confirmation to the previewed carry-over source version", async () => {
+    const user = userEvent.setup();
+
+    getUnifiedImportFlowTakeoffCarryOverPreviewMock.mockResolvedValue({
+      sourceVersionId: "33333333-3333-4333-8333-333333333333",
+      sourceVersionNumber: 4,
+      state: "ready",
+      totalJobs: 2,
+      acquiredJobs: 2,
+      inProgressJobs: 0,
+      actionRequiredJobs: 0,
+    });
+    confirmUnifiedImportFlowMock.mockResolvedValue({
+      mode: "version_created",
+      importId: "11111111-1111-4111-8111-111111111111",
+      projectId: "22222222-2222-4222-8222-222222222222",
+      mappingId: "33333333-3333-4333-8333-333333333333",
+      versionId: "44444444-4444-4444-8444-444444444444",
+      redirectTo: "/dashboard/affaires/22222222-2222-4222-8222-222222222222",
+      totals: {
+        totalHtCents: 10000,
+        totalTaxCents: 2000,
+        totalTtcCents: 12000,
+      },
+      stats: {
+        totalRows: 1,
+        validRows: 1,
+        invalidRows: 0,
+        insertedRows: 1,
+        skippedRows: 0,
+      },
+    });
+
+    render(
+      <UnifiedImportFlow projectId="22222222-2222-4222-8222-222222222222" />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Suivant : Apercu/i })
+      ).toBeInTheDocument();
+    });
+
+    await advanceToConfirmation(user);
+    await user.click(
+      await screen.findByRole("button", { name: /Creer le chiffrage/i })
+    );
+
+    await waitFor(() => {
+      expect(confirmUnifiedImportFlowMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          previewSourceVersionId: "33333333-3333-4333-8333-333333333333",
+        })
+      );
+    });
   });
 
   it("waits for the carry-over preview before enabling version creation", async () => {

@@ -353,7 +353,7 @@ describe("quickCreateAffaire", () => {
         },
       })
     ).rejects.toThrow(
-      `NEXT_REDIRECT:/dashboard/estimates/${CREATED_VERSION_ID}/edit?fromQuickCreate=1&projectId=${CREATED_PROJECT_ID}&importId=${IMPORT_ID}&insertedRows=1&skippedRows=0&mappingId=mapping-created`
+      `NEXT_REDIRECT:/dashboard/estimates/${CREATED_VERSION_ID}/edit?fromQuickCreate=1&projectId=${CREATED_PROJECT_ID}&importId=${IMPORT_ID}&insertedRows=1&skippedRows=0&totalHtCents=2000&totalTaxCents=400&totalTtcCents=2400&mappingId=mapping-created`
     );
 
     expect(createMapping).toHaveBeenCalledWith({
