@@ -35,6 +35,7 @@ type TenantMembershipRow = Pick<
 >;
 type JsonRecord = Record<string, unknown>;
 type ImportSourceKind = "tabular" | "tabular_pdf";
+type PersistedImportSourceFormat = ImportSourceFormat | "pdf";
 type AuthenticatedContext = {
   supabase: Supabase;
   userId: string;
@@ -332,13 +333,57 @@ function resolveSourceFormatInput(input: JsonRecord): ImportSourceFormat {
   return normalizeSourceFormat(direct, "json");
 }
 
-function resolveSourceKindInput(input: JsonRecord): ImportSourceKind {
-  const direct = input.sourceKind ?? input.source_kind ?? null;
-  if (typeof direct !== "string") {
-    return "tabular";
+function isTabularPdfRowEnvelope(value: unknown) {
+  const record = asRecord(value);
+  if (!record) {
+    return false;
   }
 
-  return direct.trim().toLowerCase() === "tabular_pdf" ? "tabular_pdf" : "tabular";
+  const cellsRecord = asRecord(record.cells ?? record.row ?? record.payload);
+  if (!cellsRecord) {
+    return false;
+  }
+
+  return (
+    asRecord(record.provenance ?? record[IMPORT_ROW_PROVENANCE_KEY] ?? record.source) !== null
+  );
+}
+
+function hasTabularPdfMarkers(input: JsonRecord, rows: unknown[]) {
+  const validation = asRecord(input.validation);
+
+  if (
+    input.approvedTables !== undefined ||
+    input.approved_tables !== undefined ||
+    input.provenanceDefaults !== undefined ||
+    input.provenance_defaults !== undefined ||
+    validation?.approvedTables !== undefined ||
+    validation?.approved_tables !== undefined ||
+    validation?.provenanceDefaults !== undefined ||
+    validation?.provenance_defaults !== undefined
+  ) {
+    return true;
+  }
+
+  return rows.some((row) => isTabularPdfRowEnvelope(row));
+}
+
+function resolveSourceKindInput(input: JsonRecord, rows: unknown[]): ImportSourceKind {
+  const direct = input.sourceKind ?? input.source_kind ?? null;
+  if (typeof direct === "string") {
+    const normalized = direct.trim().toLowerCase();
+    if (normalized === "tabular" || normalized === "tabular_pdf") {
+      return normalized;
+    }
+
+    throw badRequest("sourceKind invalide. Utiliser 'tabular' ou 'tabular_pdf'.");
+  }
+
+  if (hasTabularPdfMarkers(input, rows)) {
+    throw badRequest("Le payload DPGF PDF doit definir sourceKind=\"tabular_pdf\".");
+  }
+
+  return "tabular";
 }
 
 function parseInteger(value: unknown): number | null {
@@ -411,6 +456,61 @@ function parsePdfProvenanceDefaults(value: unknown) {
     source_document_id: toOptionalNonEmptyString(
       record?.sourceDocumentId ?? record?.source_document_id
     ),
+  };
+}
+
+function resolvePdfImportFilename(input: JsonRecord, rows: unknown[]) {
+  const validation = asRecord(input.validation);
+  const provenanceDefaults = parsePdfProvenanceDefaults(
+    input.provenanceDefaults ??
+      input.provenance_defaults ??
+      validation?.provenanceDefaults ??
+      validation?.provenance_defaults
+  );
+
+  if (provenanceDefaults.source_file_name) {
+    return sanitizeFilename(provenanceDefaults.source_file_name);
+  }
+
+  for (const row of rows) {
+    const rowRecord = asRecord(row);
+    if (!rowRecord) {
+      continue;
+    }
+
+    const provenance = asRecord(
+      rowRecord.provenance ?? rowRecord[IMPORT_ROW_PROVENANCE_KEY] ?? rowRecord.source
+    );
+    const sourceFileName = toOptionalNonEmptyString(
+      provenance?.sourceFileName ?? provenance?.source_file_name
+    );
+    if (sourceFileName) {
+      return sanitizeFilename(sourceFileName);
+    }
+  }
+
+  return null;
+}
+
+function resolveJsonImportRecordMetadata(
+  input: JsonRecord,
+  rows: unknown[],
+  sourceKind: ImportSourceKind,
+  fallback: {
+    filename: string;
+    sourceFormat: PersistedImportSourceFormat;
+  }
+): {
+  filename: string;
+  sourceFormat: PersistedImportSourceFormat;
+} {
+  if (sourceKind !== "tabular_pdf") {
+    return fallback;
+  }
+
+  return {
+    filename: resolvePdfImportFilename(input, rows) ?? fallback.filename,
+    sourceFormat: "pdf",
   };
 }
 
@@ -754,7 +854,11 @@ export async function createImportFromJsonBody(body: unknown) {
       "import.json"
   );
   const sourceFormat = resolveSourceFormatInput(input);
-  const sourceKind = resolveSourceKindInput(input);
+  const sourceKind = resolveSourceKindInput(input, rawRows);
+  const importMetadata = resolveJsonImportRecordMetadata(input, rawRows, sourceKind, {
+    filename,
+    sourceFormat,
+  });
   const storagePath = toOptionalNonEmptyString(input.storagePath);
   const fileSizeBytes = parseFileSizeBytes(input.fileSizeBytes);
   const projectId = parseOptionalProjectId(input.projectId ?? input.project_id ?? null);
@@ -776,8 +880,8 @@ export async function createImportFromJsonBody(body: unknown) {
     importRecord = await createImportRecord(supabase, {
       tenant_id: tenantId,
       user_id: userId,
-      filename,
-      source_format: sourceFormat,
+      filename: importMetadata.filename,
+      source_format: importMetadata.sourceFormat,
       status: "parsing",
       row_count: 0,
       parse_mode: "worker",

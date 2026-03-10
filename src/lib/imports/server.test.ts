@@ -237,8 +237,8 @@ describe("createImportFromJsonBody", () => {
     });
 
     expect(state.importInsertPayloads[0]).toMatchObject({
-      filename: "dpgf-tabular-pdf.json",
-      source_format: "json",
+      filename: "lot-cvc-dpgf.pdf",
+      source_format: "pdf",
       parse_mode: "worker",
       status: "parsing",
     });
@@ -277,7 +277,8 @@ describe("createImportFromJsonBody", () => {
       id: "import-created",
       status: "completed",
       row_count: 2,
-      source_format: "json",
+      filename: "lot-cvc-dpgf.pdf",
+      source_format: "pdf",
     });
   });
 
@@ -303,6 +304,70 @@ describe("createImportFromJsonBody", () => {
     ).rejects.toMatchObject({
       status: 400,
       code: "BAD_REQUEST",
+    });
+
+    expect(state.importInsertPayloads).toEqual([]);
+    expect(state.rawRowBatches).toEqual([]);
+  });
+
+  it("rejects PDF row envelopes when sourceKind is missing", async () => {
+    const { supabase, state } = createImportCreationSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createImportFromJsonBody({
+        validation: {
+          approvedTables: [{ sourcePage: 2, tableIndex: 0 }],
+        },
+        rows: [
+          {
+            cells: {
+              Code: "A-001",
+            },
+            provenance: {
+              sourcePage: 2,
+              tableIndex: 0,
+              sourceFileName: "lot-cvc-dpgf.pdf",
+            },
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: 'Le payload DPGF PDF doit definir sourceKind="tabular_pdf".',
+    });
+
+    expect(state.importInsertPayloads).toEqual([]);
+    expect(state.rawRowBatches).toEqual([]);
+  });
+
+  it("rejects invalid sourceKind values instead of falling back to tabular", async () => {
+    const { supabase, state } = createImportCreationSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createImportFromJsonBody({
+        sourceKind: "tabular-pdf",
+        validation: {
+          approvedTables: [{ sourcePage: 2, tableIndex: 0 }],
+        },
+        rows: [
+          {
+            cells: {
+              Code: "A-001",
+            },
+            provenance: {
+              sourcePage: 2,
+              tableIndex: 0,
+            },
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "sourceKind invalide. Utiliser 'tabular' ou 'tabular_pdf'.",
     });
 
     expect(state.importInsertPayloads).toEqual([]);
