@@ -531,6 +531,34 @@ describe("mapping server workflows", () => {
     });
   });
 
+  it("keeps import provenance metadata out of mapping suggestions", async () => {
+    const supabase = createSupabaseMock({
+      rawRows: [
+        {
+          row_index: 1,
+          payload: {
+            "Code article": "A-001",
+            Description: "Cable cuivre",
+            _timax_provenance: {
+              source_page: 3,
+              table_index: 1,
+              source_file_name: "lot-cvc-dpgf.pdf",
+            },
+          },
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await suggestMapping({
+      import_id: IMPORT_ID,
+    });
+
+    expect(result.source_columns).toEqual(["Code article", "Description"]);
+    expect(result.sample_values._timax_provenance).toBeUndefined();
+    expect(result.suggestions["Code article"]).toBe("hex_code");
+  });
+
   it("applies an exact template match with full confidence", async () => {
     const supabase = createSupabaseMock({
       rawRows: [

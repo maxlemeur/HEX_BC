@@ -5,6 +5,7 @@ import { ZodError } from "zod";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/types/database";
+import { isImportReservedKey } from "@/lib/imports/payload";
 
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
@@ -569,7 +570,7 @@ function toSourceColumns(rows: Array<{ payload: unknown }>) {
 
     for (const key of Object.keys(payload)) {
       const trimmed = key.trim();
-      if (trimmed) columns.add(trimmed);
+      if (trimmed && !isImportReservedKey(trimmed)) columns.add(trimmed);
     }
   }
 
@@ -588,7 +589,7 @@ function extractSampleValues(
 
     for (const [key, value] of Object.entries(payload)) {
       const trimmedKey = key.trim();
-      if (!trimmedKey) continue;
+      if (!trimmedKey || isImportReservedKey(trimmedKey)) continue;
 
       const text = normalizeText(value);
       if (!text) continue;

@@ -13,6 +13,11 @@ import {
   type ImportSourceFormat,
   type NormalizedImportRow,
 } from "./parser";
+import {
+  attachImportRowProvenance,
+  IMPORT_ROW_PROVENANCE_KEY,
+  type ImportRowProvenance,
+} from "./payload";
 import { normalizeHeaderRowNumber } from "./header-row";
 
 const DPGF_IMPORTS_BUCKET = "dpgf-imports";
@@ -29,6 +34,7 @@ type TenantMembershipRow = Pick<
   "tenant_id" | "role"
 >;
 type JsonRecord = Record<string, unknown>;
+type ImportSourceKind = "tabular" | "tabular_pdf";
 type AuthenticatedContext = {
   supabase: Supabase;
   userId: string;
@@ -326,6 +332,196 @@ function resolveSourceFormatInput(input: JsonRecord): ImportSourceFormat {
   return normalizeSourceFormat(direct, "json");
 }
 
+function resolveSourceKindInput(input: JsonRecord): ImportSourceKind {
+  const direct = input.sourceKind ?? input.source_kind ?? null;
+  if (typeof direct !== "string") {
+    return "tabular";
+  }
+
+  return direct.trim().toLowerCase() === "tabular_pdf" ? "tabular_pdf" : "tabular";
+}
+
+function parseInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function parsePositiveInteger(
+  value: unknown,
+  fieldPath: string,
+  minimum = 1
+) {
+  const parsed = parseInteger(value);
+  if (parsed === null || parsed < minimum) {
+    const comparator = minimum === 0 ? ">= 0" : ">= 1";
+    throw badRequest(`${fieldPath} invalide. Utiliser un entier ${comparator}.`);
+  }
+
+  return parsed;
+}
+
+function buildApprovedPdfTableKey(sourcePage: number, tableIndex: number) {
+  return `${sourcePage}:${tableIndex}`;
+}
+
+function parseApprovedPdfTables(value: unknown) {
+  const tables = Array.isArray(value) ? value : [];
+  const approvedTables = new Set<string>();
+
+  tables.forEach((entry, index) => {
+    const record = asRecord(entry);
+    if (!record) {
+      throw badRequest(
+        `validation.approvedTables[${index}] invalide. Utiliser un objet { sourcePage, tableIndex }.`
+      );
+    }
+
+    const sourcePage = parsePositiveInteger(
+      record.sourcePage ?? record.source_page ?? record.pageNumber ?? record.page_number,
+      `validation.approvedTables[${index}].sourcePage`
+    );
+    const tableIndex = parsePositiveInteger(
+      record.tableIndex ?? record.table_index,
+      `validation.approvedTables[${index}].tableIndex`,
+      0
+    );
+
+    approvedTables.add(buildApprovedPdfTableKey(sourcePage, tableIndex));
+  });
+
+  return approvedTables;
+}
+
+function parsePdfProvenanceDefaults(value: unknown) {
+  const record = asRecord(value);
+  return {
+    source_file_name: toOptionalNonEmptyString(
+      record?.sourceFileName ?? record?.source_file_name
+    ),
+    source_document_id: toOptionalNonEmptyString(
+      record?.sourceDocumentId ?? record?.source_document_id
+    ),
+  };
+}
+
+function parsePdfRowProvenance(
+  value: unknown,
+  rowIndex: number,
+  defaults: {
+    source_file_name: string | null;
+    source_document_id: string | null;
+  }
+): ImportRowProvenance {
+  const record = asRecord(value);
+  if (!record) {
+    throw badRequest(
+      `rows[${rowIndex}].provenance invalide. Utiliser un objet { sourcePage, tableIndex }.`
+    );
+  }
+
+  return {
+    source_page: parsePositiveInteger(
+      record.sourcePage ?? record.source_page ?? record.pageNumber ?? record.page_number,
+      `rows[${rowIndex}].provenance.sourcePage`
+    ),
+    table_index: parsePositiveInteger(
+      record.tableIndex ?? record.table_index,
+      `rows[${rowIndex}].provenance.tableIndex`,
+      0
+    ),
+    source_file_name:
+      toOptionalNonEmptyString(record.sourceFileName ?? record.source_file_name) ??
+      defaults.source_file_name ??
+      null,
+    source_document_id:
+      toOptionalNonEmptyString(record.sourceDocumentId ?? record.source_document_id) ??
+      defaults.source_document_id ??
+      null,
+  };
+}
+
+function normalizeJsonRowsFromInput(
+  rows: unknown[],
+  input: JsonRecord,
+  sourceKind: ImportSourceKind
+) {
+  if (sourceKind !== "tabular_pdf") {
+    return normalizeRowsFromJson(rows);
+  }
+
+  const validation = asRecord(input.validation);
+  const approvedTables = parseApprovedPdfTables(
+    validation?.approvedTables ??
+      validation?.approved_tables ??
+      input.approvedTables ??
+      input.approved_tables
+  );
+
+  if (approvedTables.size === 0) {
+    throw badRequest(
+      "Le payload DPGF PDF doit inclure validation.approvedTables avec au moins un tableau retenu."
+    );
+  }
+
+  const provenanceDefaults = parsePdfProvenanceDefaults(
+    input.provenanceDefaults ??
+      input.provenance_defaults ??
+      validation?.provenanceDefaults ??
+      validation?.provenance_defaults
+  );
+
+  const normalizedRows: NormalizedImportRow[] = [];
+
+  rows.forEach((row, index) => {
+    const rowRecord = asRecord(row);
+    if (!rowRecord) {
+      throw badRequest(`La ligne ${index + 1} n'est pas un objet JSON valide.`);
+    }
+
+    const cellsRecord = asRecord(rowRecord.cells ?? rowRecord.row ?? rowRecord.payload);
+    if (!cellsRecord) {
+      throw badRequest(
+        `La ligne ${index + 1} du DPGF PDF doit fournir un objet cells distinct de la provenance.`
+      );
+    }
+
+    const [normalizedCells] = normalizeRowsFromJson([cellsRecord]);
+    if (!normalizedCells) {
+      return;
+    }
+
+    const provenance = parsePdfRowProvenance(
+      rowRecord.provenance ?? rowRecord[IMPORT_ROW_PROVENANCE_KEY] ?? rowRecord.source,
+      index,
+      provenanceDefaults
+    );
+
+    const approvedKey = buildApprovedPdfTableKey(
+      provenance.source_page,
+      provenance.table_index
+    );
+    if (!approvedTables.has(approvedKey)) {
+      throw badRequest(
+        `La ligne ${index + 1} reference un tableau PDF non approuve (${approvedKey}).`
+      );
+    }
+
+    normalizedRows.push(attachImportRowProvenance(normalizedCells, provenance));
+  });
+
+  return normalizedRows;
+}
+
 function getUploadContentType(file: File) {
   const trimmedType = file.type ? file.type.trim() : "";
   return trimmedType.length > 0 ? trimmedType : undefined;
@@ -558,6 +754,7 @@ export async function createImportFromJsonBody(body: unknown) {
       "import.json"
   );
   const sourceFormat = resolveSourceFormatInput(input);
+  const sourceKind = resolveSourceKindInput(input);
   const storagePath = toOptionalNonEmptyString(input.storagePath);
   const fileSizeBytes = parseFileSizeBytes(input.fileSizeBytes);
   const projectId = parseOptionalProjectId(input.projectId ?? input.project_id ?? null);
@@ -574,7 +771,7 @@ export async function createImportFromJsonBody(body: unknown) {
       isTenantAdmin,
     });
 
-    const normalizedRows = normalizeRowsFromJson(rawRows);
+    const normalizedRows = normalizeJsonRowsFromInput(rawRows, input, sourceKind);
 
     importRecord = await createImportRecord(supabase, {
       tenant_id: tenantId,
