@@ -951,10 +951,23 @@ export async function ensureMapping(
   sourceColumn: string,
   targetField: string
 ) {
-  const row = page
-    .locator("table.data-table tbody tr")
-    .filter({ hasText: sourceColumn })
-    .first();
+  const rows = page.locator("table.data-table tbody tr");
+  const rowCount = await rows.count();
+  let row: Locator | null = null;
+
+  for (let index = 0; index < rowCount; index += 1) {
+    const candidate = rows.nth(index);
+    const sourceCellText = (await candidate.locator("td").first().textContent())?.trim();
+
+    if (sourceCellText?.endsWith(sourceColumn)) {
+      row = candidate;
+      break;
+    }
+  }
+
+  if (!row) {
+    row = rows.filter({ hasText: sourceColumn }).first();
+  }
 
   await expect(row).toBeVisible();
   await row.locator("select").selectOption(targetField);
