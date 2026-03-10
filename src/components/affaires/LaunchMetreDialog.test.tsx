@@ -5,15 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
-const duplicateEstimateVersionMock = vi.hoisted(() => vi.fn());
+const launchTakeoffFromSourceVersionPlanSetMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchTakeoffFromPlanSet: launchTakeoffFromPlanSetMock,
-}));
-
-vi.mock("@/lib/estimates/client", () => ({
-  duplicateEstimateVersion: duplicateEstimateVersionMock,
+  launchTakeoffFromSourceVersionPlanSet: launchTakeoffFromSourceVersionPlanSetMock,
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
@@ -70,7 +67,7 @@ describe("LaunchMetreDialog", () => {
     expect(screen.getByText("Analyser les plans")).toBeInTheDocument();
     expect(screen.getByText("Plans import")).toBeInTheDocument();
     expect(screen.getByText("V3 (brouillon)")).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Rapide" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Rapide" })).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Standard" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Detaille" })).toBeInTheDocument();
   });
@@ -106,29 +103,12 @@ describe("LaunchMetreDialog", () => {
     expect(screen.getByText("Analyse lancee avec succes")).toBeInTheDocument();
   });
 
-  it("allows launching in Rapid mode", async () => {
-    const user = userEvent.setup();
-    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: "job-1" });
-
-    render(<LaunchMetreDialog {...defaultProps} />);
-
-    await user.click(screen.getByRole("radio", { name: "Rapide" }));
-    await user.click(screen.getByRole("button", { name: "Analyser maintenant" }));
-
-    await waitFor(() => {
-      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
-        projectId: "proj-1",
-        planSetId: "plan-set-1",
-        versionId: "draft-v1",
-        level: "A",
-      });
-    });
-  });
-
   it("creates a draft first when the current version is not a draft", async () => {
     const user = userEvent.setup();
-    duplicateEstimateVersionMock.mockResolvedValue("draft-v2");
-    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: "job-1" });
+    launchTakeoffFromSourceVersionPlanSetMock.mockResolvedValue({
+      jobId: "job-1",
+      versionId: "draft-v2",
+    });
 
     render(
       <LaunchMetreDialog
@@ -146,11 +126,10 @@ describe("LaunchMetreDialog", () => {
     );
 
     await waitFor(() => {
-      expect(duplicateEstimateVersionMock).toHaveBeenCalledWith("version-sent");
-      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
+      expect(launchTakeoffFromSourceVersionPlanSetMock).toHaveBeenCalledWith({
         projectId: "proj-1",
         planSetId: "plan-set-1",
-        versionId: "draft-v2",
+        sourceVersionId: "version-sent",
         level: "B",
       });
     });

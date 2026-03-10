@@ -2,14 +2,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
-const duplicateEstimateVersionMock = vi.hoisted(() => vi.fn());
+const launchTakeoffFromSourceVersionPlanSetMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchTakeoffFromPlanSet: launchTakeoffFromPlanSetMock,
-}));
-
-vi.mock("@/lib/estimates/client", () => ({
-  duplicateEstimateVersion: duplicateEstimateVersionMock,
+  launchTakeoffFromSourceVersionPlanSet: launchTakeoffFromSourceVersionPlanSetMock,
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
@@ -118,6 +115,26 @@ describe("shouldShowTakeoffPrompt", () => {
       }),
     ).toBe(true);
   });
+
+  it("returns true when the latest job used another source version", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-10T12:00:00.000Z"));
+
+    expect(
+      shouldShowTakeoffPrompt({
+        ...BASE,
+        targetVersionId: "99999999-9999-4999-8999-999999999999",
+        latestJob: {
+          status: "completed",
+          planSetId: PLAN_SET_ID,
+          estimateVersionId: VERSION_ID,
+          createdAt: "2026-03-10T10:00:00.000Z",
+        },
+      }),
+    ).toBe(true);
+
+    vi.useRealTimers();
+  });
 });
 
 describe("TakeoffLaunchPrompt", () => {
@@ -193,8 +210,10 @@ describe("TakeoffLaunchPrompt", () => {
   });
 
   it("creates a draft before launching when only a source version is available", async () => {
-    duplicateEstimateVersionMock.mockResolvedValue(DUPLICATED_VERSION_ID);
-    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: JOB_ID });
+    launchTakeoffFromSourceVersionPlanSetMock.mockResolvedValue({
+      jobId: JOB_ID,
+      versionId: DUPLICATED_VERSION_ID,
+    });
 
     render(
       <TakeoffLaunchPrompt
@@ -211,11 +230,10 @@ describe("TakeoffLaunchPrompt", () => {
     );
 
     await waitFor(() => {
-      expect(duplicateEstimateVersionMock).toHaveBeenCalledWith(VERSION_ID);
-      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
+      expect(launchTakeoffFromSourceVersionPlanSetMock).toHaveBeenCalledWith({
         projectId: PROJECT_ID,
         planSetId: PLAN_SET_ID,
-        versionId: DUPLICATED_VERSION_ID,
+        sourceVersionId: VERSION_ID,
         level: "B",
       });
     });

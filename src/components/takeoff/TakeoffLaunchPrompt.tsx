@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { launchTakeoffFromPlanSet } from "@/app/dashboard/affaires/_actions/takeoff";
+import {
+  launchTakeoffFromPlanSet,
+  launchTakeoffFromSourceVersionPlanSet,
+} from "@/app/dashboard/affaires/_actions/takeoff";
 import { useToast } from "@/components/ui/Toast";
-import { duplicateEstimateVersion } from "@/lib/estimates/client";
 import {
   TAKEOFF_LEVEL_BUSINESS_LABELS,
   getTakeoffSelectionWarning,
@@ -190,35 +192,48 @@ export function TakeoffLaunchPrompt({
     try {
       let resolvedVersionId = versionId ?? null;
       let resolvedVersionLabelForLaunch = resolvedVersionLabel;
+      let createdJobIdForLaunch: string | null = null;
 
       if (launchMode === "create_draft_from_current") {
         if (!sourceVersionId) {
           throw new Error("Impossible de creer un brouillon cible.");
         }
 
-        resolvedVersionId = await duplicateEstimateVersion(sourceVersionId);
+        const result = await launchTakeoffFromSourceVersionPlanSet({
+          projectId,
+          planSetId,
+          sourceVersionId,
+          level: selectedLevel,
+        });
+        resolvedVersionId = result.versionId;
+        createdJobIdForLaunch = result.jobId;
         resolvedVersionLabelForLaunch = resolvedVersionLabel;
+      } else {
+        if (!resolvedVersionId) {
+          throw new Error("Aucune version cible n'est disponible.");
+        }
+
+        const result = await launchTakeoffFromPlanSet({
+          projectId,
+          planSetId,
+          versionId: resolvedVersionId,
+          level: selectedLevel,
+        });
+        createdJobIdForLaunch = result.jobId;
       }
 
-      if (!resolvedVersionId) {
-        throw new Error("Aucune version cible n'est disponible.");
+      if (!resolvedVersionId || !createdJobIdForLaunch) {
+        throw new Error("Impossible de lancer l'analyse.");
       }
 
-      const result = await launchTakeoffFromPlanSet({
-        projectId,
-        planSetId,
-        versionId: resolvedVersionId,
-        level: selectedLevel,
-      });
-
-      setCreatedJobId(result.jobId);
+      setCreatedJobId(createdJobIdForLaunch);
       setLaunchedVersionLabel(resolvedVersionLabelForLaunch);
       setState("success");
       toast.success({
         title: "Analyse lancee",
         description: `${resolvedVersionLabelForLaunch} — ${planFileCount} plan${planFileCount > 1 ? "s" : ""} pris en compte. Prochaine etape : suivre l'analyse dans le centre d'activite metres.`,
       });
-      onLaunched?.(result.jobId, resolvedVersionId);
+      onLaunched?.(createdJobIdForLaunch, resolvedVersionId);
     } catch (err) {
       setState("error");
       setErrorMessage(
