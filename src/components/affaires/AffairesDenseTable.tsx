@@ -8,6 +8,7 @@ import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
+import { AffaireFavoriteButton } from "./AffaireFavoriteButton";
 import { useDeleteAffaire } from "./useDeleteAffaire";
 import {
   fetchAffaireDenseExpandData,
@@ -28,6 +29,8 @@ type Props = {
   items: AffaireListItem[];
   emptyVariant: AffairesEmptyVariant;
   onCreateAffaire?: () => void;
+  onToggleFavorite: (projectId: string, nextIsFavorite: boolean) => void;
+  favoritePendingIds: string[];
 };
 
 function formatDate(iso: string): string {
@@ -150,6 +153,8 @@ export function AffairesDenseTable({
   items,
   emptyVariant,
   onCreateAffaire,
+  onToggleFavorite,
+  favoritePendingIds,
 }: Readonly<Props>) {
   const router = useRouter();
   const { requestDelete, modalProps } = useDeleteAffaire();
@@ -353,6 +358,13 @@ export function AffairesDenseTable({
                     </td>
                     <td className="px-2 py-3 text-center">
                       <div className="inline-flex items-center gap-1">
+                        <AffaireFavoriteButton
+                          isFavorite={item.isFavorite}
+                          isPending={favoritePendingIds.includes(item.projectId)}
+                          onToggle={() =>
+                            onToggleFavorite(item.projectId, !item.isFavorite)
+                          }
+                        />
                         {/* Hub affaire – toujours visible */}
                         <button
                           type="button"

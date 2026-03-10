@@ -12,6 +12,8 @@ import {
 } from "react";
 
 import { useUiMode } from "@/hooks/useUiMode";
+import { useToast } from "@/components/ui/Toast";
+import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
 import { QuickCreateAffaireDialog } from "./QuickCreateAffaireDialog";
 import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
@@ -78,6 +80,7 @@ type Props = {
   initialData: AffairePageDataResult;
   initialQ: string;
   initialStatuses: AffaireStatus[];
+  initialFavoritesOnly: boolean;
   initialCursor: string | null;
   initialSize: AffairePageSize;
   initialDir: AffaireSortDirection;
@@ -87,6 +90,7 @@ export function AffairesPageClient({
   initialData,
   initialQ,
   initialStatuses,
+  initialFavoritesOnly,
   initialCursor,
   initialSize,
   initialDir,
@@ -95,6 +99,7 @@ export function AffairesPageClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isExpert } = useUiMode();
+  const toast = useToast();
 
   // -- State --
 
@@ -104,6 +109,7 @@ export function AffairesPageClient({
 
   const [selectedStatuses, setSelectedStatuses] =
     useState<AffaireStatus[]>(initialStatuses);
+  const [favoritesOnly, setFavoritesOnly] = useState(initialFavoritesOnly);
 
   const [pageSize, setPageSize] = useState<AffairePageSize>(initialSize);
   const [cursorStack, setCursorStack] = useState<string[]>(
@@ -118,9 +124,29 @@ export function AffairesPageClient({
     direction: initialDir,
   });
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [favoriteOverrides, setFavoriteOverrides] = useState<
+    Record<string, boolean>
+  >({});
+  const [favoritePendingIds, setFavoritePendingIds] = useState<string[]>([]);
 
   // Use server-passed data directly (page.tsx refetches on navigation)
-  const data = initialData;
+  const data = useMemo<AffairePageDataResult>(
+    () => ({
+      ...initialData,
+      list: {
+        ...initialData.list,
+        items: initialData.list.items.map((item) => ({
+          ...item,
+          isFavorite: favoriteOverrides[item.projectId] ?? item.isFavorite,
+        })),
+      },
+    }),
+    [favoriteOverrides, initialData]
+  );
+
+  useEffect(() => {
+    setFavoriteOverrides({});
+  }, [initialData]);
 
   // Hydrate page size from localStorage on mount
   useEffect(() => {
@@ -137,6 +163,7 @@ export function AffairesPageClient({
 
   const prevSearchRef = useRef(deferredSearch);
   const prevStatusRef = useRef(selectedStatuses);
+  const prevFavoritesRef = useRef(favoritesOnly);
   const prevSortRef = useRef(sortState);
   const prevSizeRef = useRef(pageSize);
   const prevCursorRef = useRef(currentCursor);
@@ -144,12 +171,14 @@ export function AffairesPageClient({
   useEffect(() => {
     const searchChanged = prevSearchRef.current !== deferredSearch;
     const statusChanged = prevStatusRef.current !== selectedStatuses;
+    const favoritesChanged = prevFavoritesRef.current !== favoritesOnly;
     const sortChanged = prevSortRef.current !== sortState;
     const sizeChanged = prevSizeRef.current !== pageSize;
     const cursorChanged = prevCursorRef.current !== currentCursor;
 
     prevSearchRef.current = deferredSearch;
     prevStatusRef.current = selectedStatuses;
+    prevFavoritesRef.current = favoritesOnly;
     prevSortRef.current = sortState;
     prevSizeRef.current = pageSize;
     prevCursorRef.current = currentCursor;
@@ -157,6 +186,7 @@ export function AffairesPageClient({
     if (
       !searchChanged &&
       !statusChanged &&
+      !favoritesChanged &&
       !sortChanged &&
       !sizeChanged &&
       !cursorChanged
@@ -165,7 +195,7 @@ export function AffairesPageClient({
     }
 
     // Reset cursor when filters change
-    if (searchChanged || statusChanged || sizeChanged) {
+    if (searchChanged || statusChanged || favoritesChanged || sizeChanged) {
       setCursorStack([]);
       setCurrentCursor(null);
     }
@@ -174,13 +204,16 @@ export function AffairesPageClient({
     if (deferredSearch) params.set("q", deferredSearch);
     if (selectedStatuses.length > 0)
       params.set("status", selectedStatuses.join(","));
+    if (favoritesOnly) params.set("favorites", "1");
     if (sortState && sortState.direction !== "desc")
       params.set("dir", sortState.direction);
     if (pageSize !== DEFAULT_PAGE_SIZE) params.set("size", String(pageSize));
 
     // Only set cursor if not resetting
     const effectiveCursor =
-      searchChanged || statusChanged || sizeChanged ? null : currentCursor;
+      searchChanged || statusChanged || favoritesChanged || sizeChanged
+        ? null
+        : currentCursor;
     if (effectiveCursor) params.set("cursor", effectiveCursor);
 
     const qs = params.toString();
@@ -192,6 +225,7 @@ export function AffairesPageClient({
   }, [
     deferredSearch,
     selectedStatuses,
+    favoritesOnly,
     sortState,
     pageSize,
     currentCursor,
@@ -237,8 +271,13 @@ export function AffairesPageClient({
   const handleClearAll = useCallback(() => {
     setSearchValue("");
     setSelectedStatuses([]);
+    setFavoritesOnly(false);
     setCursorStack([]);
     setCurrentCursor(null);
+  }, []);
+
+  const handleToggleFavoritesOnly = useCallback(() => {
+    setFavoritesOnly((current) => !current);
   }, []);
 
   const handleSortChange = useCallback(
@@ -256,13 +295,54 @@ export function AffairesPageClient({
     );
   }, []);
 
+  const handleToggleFavorite = useCallback(
+    async (projectId: string, nextIsFavorite: boolean) => {
+      if (favoritePendingIds.includes(projectId)) {
+        return;
+      }
+
+      setFavoritePendingIds((current) => [...current, projectId]);
+      setFavoriteOverrides((current) => ({
+        ...current,
+        [projectId]: nextIsFavorite,
+      }));
+
+      try {
+        await toggleAffaireFavoriteAction({
+          projectId,
+          isFavorite: nextIsFavorite,
+        });
+        router.refresh();
+      } catch (error) {
+        setFavoriteOverrides((current) => {
+          const next = { ...current };
+          delete next[projectId];
+          return next;
+        });
+        toast.error({
+          title: "Favori non enregistre",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Impossible de mettre a jour le favori.",
+        });
+      } finally {
+        setFavoritePendingIds((current) =>
+          current.filter((pendingId) => pendingId !== projectId)
+        );
+      }
+    },
+    [favoritePendingIds, router, toast]
+  );
+
   // -- Computed --
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (selectedStatuses.length > 0) count += selectedStatuses.length;
+    if (favoritesOnly) count += 1;
     return count;
-  }, [selectedStatuses]);
+  }, [favoritesOnly, selectedStatuses]);
 
   const hasPrevPage = cursorStack.length > 0;
   const hasNextPage = data.list.hasNextPage;
@@ -302,6 +382,31 @@ export function AffairesPageClient({
           selected={selectedStatuses as EstimateStatus[]}
           onChange={handleStatusChange}
         />
+        <button
+          type="button"
+          onClick={handleToggleFavoritesOnly}
+          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+            favoritesOnly
+              ? "border-amber-300 bg-amber-50 text-amber-800"
+              : "border-[var(--slate-200)] bg-white text-[var(--slate-600)] hover:border-[var(--slate-300)] hover:bg-[var(--slate-50)]"
+          }`}
+          aria-pressed={favoritesOnly}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill={favoritesOnly ? "currentColor" : "none"}
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m12 17.27-5.18 3.05 1.4-5.89L3 9.76l6.03-.52L12 3.75l2.97 5.49 6.03.52-5.22 4.67 1.4 5.89z" />
+          </svg>
+          Favoris
+        </button>
         <div className="flex items-center gap-2">
           <SortControl
             options={SORT_OPTIONS}
@@ -341,12 +446,16 @@ export function AffairesPageClient({
             items={data.list.items}
             emptyVariant={emptyVariant}
             onCreateAffaire={() => setShowCreateDialog(true)}
+            onToggleFavorite={handleToggleFavorite}
+            favoritePendingIds={favoritePendingIds}
           />
         ) : (
           <AffairesCardList
             items={data.list.items}
             emptyVariant={emptyVariant}
             onCreateAffaire={() => setShowCreateDialog(true)}
+            onToggleFavorite={handleToggleFavorite}
+            favoritePendingIds={favoritePendingIds}
           />
         )}
       </div>

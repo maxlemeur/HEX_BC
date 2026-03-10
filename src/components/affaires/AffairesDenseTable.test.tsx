@@ -62,6 +62,7 @@ const baseItem: AffaireListItem = {
   projectName: "Affaire Alpha",
   projectReference: "REF-001",
   projectClient: "Client Demo",
+  isFavorite: false,
   versionCount: 3,
   hasCurrentVersion: true,
   currentVersionId: "version-1",
@@ -97,6 +98,8 @@ describe("AffairesDenseTable", () => {
       <AffairesDenseTable
         items={[baseItem]}
         emptyVariant="filtered"
+        onToggleFavorite={vi.fn()}
+        favoritePendingIds={[]}
       />
     );
 
@@ -110,6 +113,8 @@ describe("AffairesDenseTable", () => {
       <AffairesDenseTable
         items={[baseItem]}
         emptyVariant="filtered"
+        onToggleFavorite={vi.fn()}
+        favoritePendingIds={[]}
       />
     );
 
@@ -124,6 +129,8 @@ describe("AffairesDenseTable", () => {
       <AffairesDenseTable
         items={[baseItem]}
         emptyVariant="filtered"
+        onToggleFavorite={vi.fn()}
+        favoritePendingIds={[]}
       />
     );
 
@@ -131,5 +138,23 @@ describe("AffairesDenseTable", () => {
 
     expect(pushMock).not.toHaveBeenCalled();
     expect(fetchExpandDataMock).toHaveBeenCalledWith("project-1");
+  });
+
+  it("does not trigger row navigation when the favorite toggle is clicked", () => {
+    const onToggleFavorite = vi.fn();
+
+    render(
+      <AffairesDenseTable
+        items={[baseItem]}
+        emptyVariant="filtered"
+        onToggleFavorite={onToggleFavorite}
+        favoritePendingIds={[]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /ajouter aux favoris/i }));
+
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(onToggleFavorite).toHaveBeenCalledWith("project-1", true);
   });
 });

@@ -7,6 +7,7 @@ import { formatCurrency, normalizeEstimateCurrency } from "@/lib/money";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { AffaireStatusBadges } from "./AffaireStatusBadges";
+import { AffaireFavoriteButton } from "./AffaireFavoriteButton";
 import { motion } from "motion/react";
 import { useDeleteAffaire } from "./useDeleteAffaire";
 import type { AffaireListItem } from "./types";
@@ -29,6 +30,8 @@ type Props = {
   items: AffaireListItem[];
   emptyVariant: AffairesEmptyVariant;
   onCreateAffaire?: () => void;
+  onToggleFavorite: (projectId: string, nextIsFavorite: boolean) => void;
+  favoritePendingIds: string[];
 };
 
 function formatDate(iso: string): string {
@@ -48,6 +51,8 @@ export function AffairesCardList({
   items,
   emptyVariant,
   onCreateAffaire,
+  onToggleFavorite,
+  favoritePendingIds,
 }: Readonly<Props>) {
   const router = useRouter();
   const { requestDelete, modalProps } = useDeleteAffaire();
@@ -196,6 +201,13 @@ export function AffairesCardList({
 
             {/* Actions */}
             <div className="flex items-center gap-1 px-4 pb-4 pt-3 border-t border-[var(--slate-100)]">
+              <AffaireFavoriteButton
+                isFavorite={item.isFavorite}
+                isPending={favoritePendingIds.includes(item.projectId)}
+                onToggle={() =>
+                  onToggleFavorite(item.projectId, !item.isFavorite)
+                }
+              />
               {/* Hub affaire – toujours visible */}
               <button
                 type="button"

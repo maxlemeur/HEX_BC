@@ -861,6 +861,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_favorite_projects: {
+        Row: {
+          id: string;
+          created_at: string;
+          updated_at: string;
+          tenant_id: string;
+          user_id: string;
+          project_id: string;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id: string;
+          project_id: string;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          tenant_id?: string;
+          user_id?: string;
+          project_id?: string;
+        };
+        Relationships: [];
+      };
       estimate_versions: {
         Row: {
           id: string;
@@ -2579,6 +2606,7 @@ export type Database = {
             | "accepted"
             | "archived"
           )[] | null;
+          p_favorites_only?: boolean | null;
         };
         Returns: {
           total_count: number;
@@ -2827,6 +2855,7 @@ export type Database = {
           p_cursor_updated_at?: string | null;
           p_cursor_project_id?: string | null;
           p_sort_dir?: string | null;
+          p_favorites_only?: boolean | null;
         };
         Returns: {
           project_id: string;
@@ -2843,6 +2872,14 @@ export type Database = {
           accepted_version_id: string | null;
           accepted_version_number: number | null;
           has_dpgf: boolean;
+          current_approval_status:
+            | "not_required"
+            | "required"
+            | "in_review"
+            | "approved"
+            | "changes_requested"
+            | null;
+          is_favorite: boolean;
         }[];
       };
       get_chiffreur_analytics_kpis: {

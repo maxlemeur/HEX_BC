@@ -21,6 +21,7 @@ export default async function AffairesPage({ searchParams }: Props) {
         initialData={data}
         initialQ={query.q ?? ""}
         initialStatuses={query.status ?? []}
+        initialFavoritesOnly={query.favoritesOnly}
         initialCursor={query.cursor}
         initialSize={query.size}
         initialDir={query.dir}

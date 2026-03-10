@@ -51,6 +51,7 @@ export type AffaireListItem = {
   projectName: string;
   projectReference: string | null;
   projectClient: string | null;
+  isFavorite: boolean;
   versionCount: number;
   hasCurrentVersion: boolean;
   currentVersionId: string | null;
@@ -303,6 +304,7 @@ function toAffaireListItem(row: ListAffairesPageRow): AffaireListItem {
     projectName: row.project_name,
     projectReference: row.project_reference,
     projectClient: row.project_client,
+    isFavorite: (row as Record<string, unknown>).is_favorite === true,
     versionCount: toSafeInteger(row.version_count),
     hasCurrentVersion,
     currentVersionId: row.current_version_id ?? null,
@@ -908,10 +910,11 @@ async function fetchAffaireListWithContext(
     p_limit: fetchLimit,
     p_search: query.q,
     p_statuses: query.status,
+    p_favorites_only: query.favoritesOnly,
     p_cursor_updated_at: decodedCursor?.updatedAt ?? null,
     p_cursor_project_id: decodedCursor?.projectId ?? null,
     p_sort_dir: query.dir,
-  });
+  } as never);
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger la liste des affaires.");
@@ -940,14 +943,15 @@ async function fetchAffaireListWithContext(
 
 async function fetchAffaireCountersWithContext(
   context: AffaireContext,
-  query: Pick<NormalizedAffaireListQuery, "q" | "status">
+  query: Pick<NormalizedAffaireListQuery, "q" | "status" | "favoritesOnly">
 ): Promise<AffaireCountersResult> {
   const { data, error } = await context.supabase.rpc("get_affaires_counters", {
     p_tenant_id: context.tenantId,
     p_owner_user_id: getOwnerScopeUserId(context),
     p_search: query.q,
     p_statuses: query.status,
-  });
+    p_favorites_only: query.favoritesOnly,
+  } as never);
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les compteurs affaires.");
@@ -983,7 +987,7 @@ export async function fetchAffaireList(
 }
 
 export async function fetchAffaireCounters(
-  input: Pick<AffaireListQuery, "q" | "status"> = {}
+  input: Pick<AffaireListQuery, "q" | "status" | "favorites"> = {}
 ): Promise<AffaireCountersResult> {
   const context = await getAuthenticatedContext();
   const query = normalizeAffaireListQuery(input);

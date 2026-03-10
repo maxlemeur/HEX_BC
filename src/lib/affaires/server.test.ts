@@ -156,6 +156,7 @@ function buildAffaireRow(
     project_name: `Projet ${index}`,
     project_reference: `REF-${index}`,
     project_client: `Client ${index}`,
+    is_favorite: false,
     version_count: 1,
     has_current_version: true,
     current_version_id: `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
@@ -177,6 +178,7 @@ describe("affaires query schemas", () => {
     params.set("sort", "amount");
     params.set("dir", "asc");
     params.set("cursor", "  cursor-value  ");
+    params.set("favorites", "1");
     params.append("status", "draft,accepted");
     params.append("status", " sent ");
     params.append("status", "INVALID");
@@ -186,6 +188,7 @@ describe("affaires query schemas", () => {
     expect(query).toEqual({
       q: "chantier alpha",
       status: ["draft", "accepted", "sent"],
+      favoritesOnly: true,
       size: 50,
       cursor: "cursor-value",
       sort: "updatedAt",
@@ -196,6 +199,7 @@ describe("affaires query schemas", () => {
   it("falls back to defaults on invalid inputs", () => {
     const query = normalizeAffaireListQuery({
       q: "   ",
+      favorites: "not-true",
       size: "999",
       sort: "other-sort",
       dir: "upward",
@@ -206,6 +210,7 @@ describe("affaires query schemas", () => {
     expect(query).toEqual({
       q: null,
       status: ["draft", "archived"],
+      favoritesOnly: false,
       size: 20,
       cursor: null,
       sort: "updatedAt",
@@ -246,6 +251,7 @@ describe("affaires server (list + counters)", () => {
       p_limit: 21,
       p_search: "Projet",
       p_statuses: ["draft"],
+      p_favorites_only: false,
       p_cursor_updated_at: null,
       p_cursor_project_id: null,
       p_sort_dir: "asc",
@@ -255,6 +261,7 @@ describe("affaires server (list + counters)", () => {
     expect(result.items[0]).toMatchObject({
       projectId: row.project_id,
       projectName: row.project_name,
+      isFavorite: false,
       hasCurrentVersion: true,
       currentVersionId: row.current_version_id,
       currentStatus: "draft",
@@ -312,6 +319,7 @@ describe("affaires server (list + counters)", () => {
       "list_affaires_page",
       expect.objectContaining({
         p_owner_user_id: null,
+        p_favorites_only: false,
         p_sort_dir: "desc",
       })
     );
@@ -397,6 +405,7 @@ describe("affaires server (list + counters)", () => {
       p_owner_user_id: USER_ID,
       p_search: "projet",
       p_statuses: ["draft", "accepted"],
+      p_favorites_only: false,
     });
 
     expect(counters).toEqual({
@@ -451,6 +460,61 @@ describe("affaires server (list + counters)", () => {
     expect(context.supabase.rpc).toHaveBeenCalledTimes(2);
     expect(result.list.items).toHaveLength(1);
     expect(result.counters.totalCount).toBe(1);
+  });
+
+  it("passes favorites filter to list and counters and maps favorite rows", async () => {
+    const context = createContext({
+      role: "engineer",
+      rpcResult: {
+        data: [buildAffaireRow(1, { is_favorite: true })],
+        error: null,
+      },
+    });
+
+    context.supabase.rpc.mockImplementation(async (fnName: string) => {
+      if (fnName === "list_affaires_page") {
+        return {
+          data: [buildAffaireRow(1, { is_favorite: true })],
+          error: null,
+        };
+      }
+
+      if (fnName === "get_affaires_counters") {
+        return {
+          data: [
+            {
+              total_count: 5,
+              filtered_count: 1,
+              draft_count: 1,
+              sent_count: 0,
+              accepted_count: 0,
+              archived_count: 0,
+            },
+          ],
+          error: null,
+        };
+      }
+
+      return { data: [], error: null };
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const result = await fetchAffairePageData({ favorites: true });
+
+    expect(context.supabase.rpc).toHaveBeenCalledWith(
+      "list_affaires_page",
+      expect.objectContaining({
+        p_favorites_only: true,
+      })
+    );
+    expect(context.supabase.rpc).toHaveBeenCalledWith(
+      "get_affaires_counters",
+      expect.objectContaining({
+        p_favorites_only: true,
+      })
+    );
+    expect(result.list.items[0]?.isFavorite).toBe(true);
   });
 });
 

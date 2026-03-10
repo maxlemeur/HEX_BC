@@ -31,6 +31,7 @@ export type AffaireCursorPayload = {
 export type AffaireListQuery = {
   q?: string | null;
   status?: AffaireStatus[] | null;
+  favorites?: boolean | string | null;
   size?: number | string | null;
   cursor?: string | null;
   sort?: string | null;
@@ -40,6 +41,7 @@ export type AffaireListQuery = {
 export type NormalizedAffaireListQuery = {
   q: string | null;
   status: AffaireStatus[] | null;
+  favoritesOnly: boolean;
   size: AffairePageSize;
   cursor: string | null;
   sort: AffaireSort;
@@ -213,12 +215,28 @@ function parseSortDirection(
   return sortDirectionSchema.parse(candidate);
 }
 
+function parseFavoritesOnly(
+  value: boolean | string | string[] | null | undefined
+): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const candidate = toNullableFirstString(value);
+  if (!candidate) {
+    return false;
+  }
+
+  return candidate === "1" || candidate.toLowerCase() === "true";
+}
+
 export function normalizeAffaireListQuery(
   input: AffaireListQuery | undefined
 ): NormalizedAffaireListQuery {
   return {
     q: parseSearch(input?.q),
     status: normalizeStatusList(toStatusTokens(input?.status)),
+    favoritesOnly: parseFavoritesOnly(input?.favorites),
     size: parseSize(input?.size),
     cursor: parseCursor(input?.cursor),
     sort: parseSort(input?.sort),
@@ -233,6 +251,7 @@ export function parseAffaireListQuery(
     return {
       q: parseSearch(input.get("q")),
       status: normalizeStatusList(toStatusTokens(input.getAll("status"))),
+      favoritesOnly: parseFavoritesOnly(input.get("favorites")),
       size: parseSize(input.get("size")),
       cursor: parseCursor(input.get("cursor")),
       sort: parseSort(input.get("sort")),
@@ -243,6 +262,7 @@ export function parseAffaireListQuery(
   return {
     q: parseSearch(input.q),
     status: normalizeStatusList(toStatusTokens(input.status)),
+    favoritesOnly: parseFavoritesOnly(input.favorites),
     size: parseSize(input.size),
     cursor: parseCursor(input.cursor),
     sort: parseSort(input.sort),
