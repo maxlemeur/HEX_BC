@@ -44,6 +44,11 @@ import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { PlansMetresCard } from "./PlansMetresCard";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import {
+  buildAffaireWorkflowSteps,
+  type WorkflowStep,
+  shouldRenderPlansSection,
+} from "./affaire-workflow";
+import {
   TakeoffLaunchPrompt,
   shouldShowTakeoffPrompt,
 } from "@/components/takeoff/TakeoffLaunchPrompt";
@@ -490,14 +495,6 @@ function AffaireProgressStrip({
 /*  Section: Workflow Stepper (Recommendation #1)                      */
 /* ------------------------------------------------------------------ */
 
-type WorkflowStepStatus = "done" | "current" | "upcoming";
-
-type WorkflowStep = {
-  key: string;
-  label: string;
-  status: WorkflowStepStatus;
-};
-
 const STEPPER_ANCHOR_MAP: Record<string, string> = {
   dossier: "intake",
   brief: "brief",
@@ -535,30 +532,15 @@ function AffaireWorkflowStepper({
     const hasDpgf = dpgfSource !== null;
     const hasLines = lineCount > 0;
     const versionStatus = summary.currentVersion?.status ?? "draft";
-    const isSubmitted =
-      approvalSummary !== null &&
-      approvalSummary !== undefined &&
-      approvalSummary.approvalStatus !== "not_required" &&
-      approvalSummary.approvalStatus !== "required";
     const isSent = versionStatus === "sent" || versionStatus === "accepted";
 
-    const raw: { key: string; label: string; done: boolean }[] = [
-      { key: "dossier", label: "Dossier", done: hasDocs },
-      { key: "brief", label: "Brief", done: briefConfirmed },
-      { key: "dpgf", label: "DPGF", done: hasDpgf },
-      { key: "devis", label: "Devis", done: hasLines },
-      { key: "validation", label: "Validation", done: isSubmitted },
-      { key: "envoi", label: "Envoi", done: isSent },
-    ];
-
-    let foundCurrent = false;
-    return raw.map((step) => {
-      if (step.done) return { key: step.key, label: step.label, status: "done" as const };
-      if (!foundCurrent) {
-        foundCurrent = true;
-        return { key: step.key, label: step.label, status: "current" as const };
-      }
-      return { key: step.key, label: step.label, status: "upcoming" as const };
+    return buildAffaireWorkflowSteps({
+      hasDocs,
+      briefConfirmed,
+      hasDpgf,
+      hasLines,
+      approvalStatus: approvalSummary?.approvalStatus,
+      isSent,
     });
   }, [summary, dpgfSource, intakeWorkspace, approvalSummary, lineCount]);
 
@@ -1737,7 +1719,11 @@ export function AffaireHub({
                 />
               ) : null}
               {/* Plans: moved up in sidebar (Recommendation #23) */}
-              {takeoffEnabled && (plansSummary?.planSetCount ?? 0) > 0 ? (
+              {shouldRenderPlansSection({
+                takeoffEnabled,
+                planSetCount: plansSummary?.planSetCount,
+                plansErrorMessage: sectionErrors?.plansSummary,
+              }) ? (
                 <div id="plans" className="scroll-mt-24">
                   <PlansMetresCard
                     plans={plansSummary ?? null}

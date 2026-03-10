@@ -190,7 +190,6 @@ export function IntakeCategoryCard({
               document={doc}
               projectId={projectId}
               onReclassified={onReclassified}
-              compact
             />
           ))}
         </div>
