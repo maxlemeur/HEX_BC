@@ -65,16 +65,44 @@ function createRawRowsBuilder(rows: Array<{ row_index: number; payload: unknown 
     eq: vi.fn(),
     order: vi.fn(),
     limit: vi.fn(),
+    range: vi.fn(),
   };
 
   builder.eq.mockReturnValue(builder);
   builder.order.mockReturnValue(builder);
-  builder.limit.mockResolvedValue({
-    data: rows,
-    error: null,
-  });
+  builder.limit.mockImplementation((limit: number) =>
+    Promise.resolve({
+      data: rows.slice(0, limit),
+      error: null,
+    })
+  );
+  builder.range.mockImplementation((from: number, to: number) =>
+    Promise.resolve({
+      data: rows.slice(from, to + 1),
+      error: null,
+    })
+  );
 
   return builder;
+}
+
+function buildSparseSuggestionRows() {
+  return Array.from({ length: 101 }, (_, index) => {
+    const rowIndex = index + 1;
+    const payload: Record<string, unknown> = {
+      "Code article": `A-${String(rowIndex).padStart(3, "0")}`,
+      Description: `Ligne ${rowIndex}`,
+    };
+
+    if (rowIndex === 101) {
+      payload["Champ tardif"] = "hors echantillon";
+    }
+
+    return {
+      row_index: rowIndex,
+      payload,
+    };
+  });
 }
 
 function createMappingsBuilder(mappings: unknown[]) {
@@ -484,6 +512,55 @@ describe("mapping server workflows", () => {
     expect(result.validation.duplicate_target_assignments).toEqual([]);
   });
 
+  it("computes preview import stats from the full import when late columns are outside the limit", async () => {
+    const supabase = createSupabaseMock({
+      rawRows: [
+        {
+          row_index: 1,
+          payload: {
+            Code: "A-001",
+            Libelle: "Cable cuivre",
+          },
+        },
+        {
+          row_index: 2,
+          payload: {
+            Code: "A-002",
+            Libelle: "Disjoncteur",
+          },
+        },
+        {
+          row_index: 3,
+          payload: {
+            Code: "A-003",
+            Libelle: "Coffret",
+            "Champ tardif": "present apres preview",
+          },
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await previewMapping({
+      import_id: IMPORT_ID,
+      mapping: {
+        Code: "hex_code",
+        Libelle: "designation",
+        "Champ tardif": "notes",
+      },
+      limit: 2,
+    });
+
+    expect(result.source_columns).toEqual(["Champ tardif", "Code", "Libelle"]);
+    expect(result.import_stats).toEqual({
+      total_rows: 12,
+      source_columns_count: 3,
+      mapped_source_columns_count: 3,
+      unresolved_source_columns_count: 0,
+    });
+    expect(result.rows).toHaveLength(2);
+  });
+
   it("merges mapping memory with heuristic suggestions", async () => {
     const supabase = createSupabaseMock({
       rawRows: [
@@ -541,6 +618,34 @@ describe("mapping server workflows", () => {
       missing_required_fields: [],
       low_confidence_required_fields: ["designation"],
     });
+  });
+
+  it("computes suggestion import stats from the full import when late columns are outside the sample", async () => {
+    const supabase = createSupabaseMock({
+      rawRows: buildSparseSuggestionRows(),
+      templates: [{ id: "tpl-1" }],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await suggestMapping({
+      import_id: IMPORT_ID,
+    });
+
+    expect(result.source_columns).toEqual([
+      "Champ tardif",
+      "Code article",
+      "Description",
+    ]);
+    expect(result.import_stats).toEqual({
+      total_rows: 12,
+      source_columns_count: 3,
+      mapped_source_columns_count: 2,
+      unresolved_source_columns_count: 1,
+    });
+    expect(result.sample_values["Champ tardif"]).toBeUndefined();
+    expect(result.suggestions["Code article"]).toBe("hex_code");
+    expect(result.suggestions.Description).toBe("designation");
+    expect(result.suggestions["Champ tardif"]).toBeUndefined();
   });
 
   it("keeps import provenance metadata out of mapping suggestions", async () => {

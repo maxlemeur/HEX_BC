@@ -569,9 +569,10 @@ function buildAutoValidationSummary(
   };
 }
 
-function toSourceColumns(rows: Array<{ payload: unknown }>) {
-  const columns = new Set<string>();
-
+function appendSourceColumns(
+  rows: Array<{ payload: unknown }>,
+  columns: Set<string>
+) {
   for (const row of rows) {
     const payload = asRecord(row.payload);
     if (!payload) continue;
@@ -581,7 +582,11 @@ function toSourceColumns(rows: Array<{ payload: unknown }>) {
       if (trimmed && !isImportReservedKey(trimmed)) columns.add(trimmed);
     }
   }
+}
 
+function toSourceColumns(rows: Array<{ payload: unknown }>) {
+  const columns = new Set<string>();
+  appendSourceColumns(rows, columns);
   return Array.from(columns).sort((a, b) => a.localeCompare(b));
 }
 
@@ -1018,6 +1023,41 @@ async function loadAllImportRows(
   return rows;
 }
 
+async function loadAllImportSourceColumns(
+  supabase: Supabase,
+  importId: string,
+  tenantId: string
+): Promise<string[]> {
+  const pageSize = 1000;
+  let offset = 0;
+  const columns = new Set<string>();
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("dpgf_rows_raw")
+      .select("payload")
+      .eq("import_id", importId)
+      .eq("tenant_id", tenantId)
+      .order("row_index", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) {
+      throw mapSupabaseError(error, "Impossible de charger les lignes source.");
+    }
+
+    const batch = (data ?? []) as Array<{ payload: unknown }>;
+    appendSourceColumns(batch, columns);
+
+    if (batch.length < pageSize) {
+      break;
+    }
+
+    offset += pageSize;
+  }
+
+  return Array.from(columns).sort((left, right) => left.localeCompare(right));
+}
+
 const loadMappingTemplatesForSuggest = cache(
   async (
     supabase: Supabase,
@@ -1296,8 +1336,10 @@ export async function previewMapping(input: {
     isTenantAdmin,
   });
 
-  const rows = await loadImportRows(supabase, input.import_id, tenantId, input.limit);
-  const sourceColumns = toSourceColumns(rows);
+  const [rows, sourceColumns] = await Promise.all([
+    loadImportRows(supabase, input.import_id, tenantId, input.limit),
+    loadAllImportSourceColumns(supabase, input.import_id, tenantId),
+  ]);
   const scopedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
   const previewRows = buildPreviewRows(rows, scopedMapping);
   const duplicateGroups = computeDuplicateGroupsFromPreview(previewRows);
@@ -1328,8 +1370,10 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
     isTenantAdmin,
   });
 
-  const sampleRows = await loadImportRows(supabase, input.import_id, tenantId, 100);
-  const sourceColumns = toSourceColumns(sampleRows);
+  const [sampleRows, sourceColumns] = await Promise.all([
+    loadImportRows(supabase, input.import_id, tenantId, 100),
+    loadAllImportSourceColumns(supabase, input.import_id, tenantId),
+  ]);
   const sourceColumnsCacheKey = JSON.stringify(
     [...sourceColumns].sort((left, right) => left.localeCompare(right))
   );
