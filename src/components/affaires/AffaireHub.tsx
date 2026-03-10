@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -164,6 +164,32 @@ function applyCockpitPreferenceUpdate(
         : suggestion,
     ),
   );
+}
+
+function getCockpitPreferenceSnapshot(
+  suggestions: CockpitSuggestion[],
+  actionId: string,
+): { isHidden: boolean; isPinned: boolean } | null {
+  const suggestion = suggestions.find((candidate) => candidate.actionId === actionId);
+  if (!suggestion) {
+    return null;
+  }
+
+  return {
+    isHidden: suggestion.isHidden,
+    isPinned: suggestion.isPinned,
+  };
+}
+
+function isSameCockpitPreference(
+  left: { isHidden: boolean; isPinned: boolean } | null,
+  right: { isHidden: boolean; isPinned: boolean } | null,
+) {
+  if (!left || !right) {
+    return left === right;
+  }
+
+  return left.isHidden === right.isHidden && left.isPinned === right.isPinned;
 }
 
 /* ------------------------------------------------------------------ */
@@ -989,6 +1015,9 @@ export function AffaireHub({
   const [cockpitState, setCockpitState] = useState<CockpitSuggestion[]>(
     cockpitSuggestions ?? [],
   );
+  const cockpitStateRef = useRef(cockpitSuggestions ?? []);
+  const cockpitPreferenceQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const cockpitProjectIdRef = useRef(summary.project.id);
   const [previewSuggestion, setPreviewSuggestion] = useState<CockpitSuggestion | null>(null);
   const visibleCockpitSuggestions = useMemo(
     () => cockpitState.filter((suggestion) => !suggestion.isHidden),
@@ -996,8 +1025,18 @@ export function AffaireHub({
   );
 
   useEffect(() => {
+    cockpitStateRef.current = cockpitState;
+  }, [cockpitState]);
+
+  useEffect(() => {
+    cockpitStateRef.current = cockpitSuggestions ?? [];
     setCockpitState(cockpitSuggestions ?? []);
   }, [cockpitSuggestions]);
+
+  useEffect(() => {
+    cockpitPreferenceQueueRef.current = Promise.resolve();
+    cockpitProjectIdRef.current = summary.project.id;
+  }, [summary.project.id]);
 
   const handleOpenCockpitSurface = useCallback(
     (suggestion: CockpitSuggestion) => {
@@ -1062,39 +1101,64 @@ export function AffaireHub({
 
   const handleToggleCockpitPreference = useCallback(
     (input: { actionId: string; isHidden?: boolean; isPinned?: boolean }) => {
-      const previousState = cockpitState;
-      setCockpitState((current) => applyCockpitPreferenceUpdate(current, input));
-      const source = previousState.find(
-        (suggestion) => suggestion.actionId === input.actionId,
+      const projectId = summary.project.id;
+      const previousState = cockpitStateRef.current;
+      const previousPreference = getCockpitPreferenceSnapshot(
+        previousState,
+        input.actionId,
       );
-      if (!source) {
+      if (!previousPreference) {
         return;
       }
 
-      const isHidden =
-        typeof input.isHidden === "boolean" ? input.isHidden : source.isHidden;
-      const isPinned =
-        typeof input.isPinned === "boolean" ? input.isPinned : source.isPinned;
+      const nextState = applyCockpitPreferenceUpdate(previousState, input);
+      const nextPreference = getCockpitPreferenceSnapshot(nextState, input.actionId);
+      if (!nextPreference || isSameCockpitPreference(previousPreference, nextPreference)) {
+        return;
+      }
 
-      void Promise.resolve(
-        updateCockpitCommandPreferenceAction({
-          projectId: summary.project.id,
-          actionId: input.actionId,
-          isHidden,
-          isPinned,
-        }),
-      ).catch((error) => {
-        setCockpitState(previousState);
-        toast.error({
-          title: "Preference cockpit non enregistree",
-          description:
-            error instanceof Error
-              ? error.message
-              : "Impossible de sauvegarder la preference.",
-        });
+      cockpitStateRef.current = nextState;
+      setCockpitState(nextState);
+
+      cockpitPreferenceQueueRef.current = cockpitPreferenceQueueRef.current.then(async () => {
+        try {
+          await updateCockpitCommandPreferenceAction({
+            projectId,
+            actionId: input.actionId,
+            isHidden: nextPreference.isHidden,
+            isPinned: nextPreference.isPinned,
+          });
+        } catch (error) {
+          if (cockpitProjectIdRef.current !== projectId) {
+            return;
+          }
+
+          const currentPreference = getCockpitPreferenceSnapshot(
+            cockpitStateRef.current,
+            input.actionId,
+          );
+          if (!isSameCockpitPreference(currentPreference, nextPreference)) {
+            return;
+          }
+
+          const rolledBackState = applyCockpitPreferenceUpdate(cockpitStateRef.current, {
+            actionId: input.actionId,
+            isHidden: previousPreference.isHidden,
+            isPinned: previousPreference.isPinned,
+          });
+          cockpitStateRef.current = rolledBackState;
+          setCockpitState(rolledBackState);
+          toast.error({
+            title: "Preference cockpit non enregistree",
+            description:
+              error instanceof Error
+                ? error.message
+                : "Impossible de sauvegarder la preference.",
+          });
+        }
       });
     },
-    [cockpitState, summary.project.id, toast],
+    [summary.project.id, toast],
   );
 
   // Push cockpit suggestions to store for Ctrl+K bridge
@@ -1124,6 +1188,7 @@ export function AffaireHub({
   }, [handleExecuteCockpitSuggestion, summary.project.id]);
   const draftVersionId =
     summary.currentVersion?.status === "draft" ? summary.currentVersion.id : null;
+  const takeoffPromptComparisonVersionId = summary.currentVersion?.id ?? null;
   const hasLaunchableVersionTarget = summary.currentVersion !== null;
 
   const showTakeoffPrompt =
@@ -1141,7 +1206,7 @@ export function AffaireHub({
             createdAt: plansSummary.latestJob.createdAt ?? "",
           }
         : null,
-      targetVersionId: draftVersionId,
+      targetVersionId: takeoffPromptComparisonVersionId,
       hasLaunchableVersionTarget,
       permanentlyDismissed: promptPermanentlyDismissed,
       temporarilyDismissed: promptTemporarilyDismissed,

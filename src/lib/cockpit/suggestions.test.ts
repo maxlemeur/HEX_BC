@@ -176,6 +176,28 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
+  it("keeps intake suggestions hidden when the workspace failed to load", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        hasIntakeWorkspaceError: true,
+        intakeWorkspace: null,
+        approvalSummary: makeApprovalSummary(true),
+      }),
+    );
+
+    expect(result.find((suggestion) => suggestion.intent === "add_files")).toBeUndefined();
+    expect(result.find((suggestion) => suggestion.intent === "review_intake")).toBeUndefined();
+    expect(
+      result.find((suggestion) => suggestion.intent === "add_missing_pieces"),
+    ).toBeUndefined();
+    expect(result.find((suggestion) => suggestion.intent === "confirm_brief")).toBeUndefined();
+    expect(result.find((suggestion) => suggestion.intent === "prepare_validation")).toEqual(
+      expect.objectContaining({
+        target: { kind: "open_surface", surfaceId: "approval-submit" },
+      }),
+    );
+  });
+
   it("suggests confirming the brief when it is pending confirmation", () => {
     const result = computeCockpitSuggestions(
       makeInput({

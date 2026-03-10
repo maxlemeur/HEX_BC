@@ -232,6 +232,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     intakeWorkspaceResult.status === "fulfilled"
       ? intakeWorkspaceResult.value
       : null;
+  const hasIntakeWorkspaceError = intakeWorkspaceResult.status === "rejected";
 
   if (takeoffEnabled) {
     const plansSummaryResult = await Promise.allSettled([
@@ -253,6 +254,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     plansSummary,
     registerSummary,
     approvalSummary,
+    hasIntakeWorkspaceError,
     intakeWorkspace,
     versionZeroSummary,
     currentVersion: summary.currentVersion

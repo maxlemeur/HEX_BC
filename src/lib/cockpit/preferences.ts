@@ -9,6 +9,15 @@ type CockpitPreferenceRow = {
   is_pinned: boolean;
 };
 
+function isMissingCockpitPreferencesTableError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "42P01"
+  );
+}
+
 export async function fetchCockpitCommandPreferences(
   projectId: string,
 ): Promise<CockpitCommandPreference[]> {
@@ -26,12 +35,7 @@ export async function fetchCockpitCommandPreferences(
     .eq("project_id", projectId);
 
   if (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as { code?: string }).code === "42P01"
-    ) {
+    if (isMissingCockpitPreferencesTableError(error)) {
       return [];
     }
     throw error;
@@ -73,6 +77,9 @@ export async function upsertCockpitCommandPreference(input: {
     );
 
   if (error) {
+    if (isMissingCockpitPreferencesTableError(error)) {
+      return;
+    }
     throw error;
   }
 }

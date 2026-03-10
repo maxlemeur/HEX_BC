@@ -52,6 +52,7 @@ export type ComputeCockpitSuggestionsInput = {
   plansSummary: AffaireHubPlansSummaryData | null;
   registerSummary: AffaireRegisterSummary | null;
   approvalSummary: EstimateApprovalSummary | null;
+  hasIntakeWorkspaceError?: boolean;
   intakeWorkspace: Pick<
     AffaireIntakeWorkspace,
     "uploadId" | "documents" | "missingPieces" | "briefDraft"
@@ -144,6 +145,7 @@ export function computeCockpitSuggestions(
     plansSummary,
     registerSummary,
     approvalSummary,
+    hasIntakeWorkspaceError = false,
     intakeWorkspace,
     versionZeroSummary,
     currentVersion,
@@ -154,7 +156,7 @@ export function computeCockpitSuggestions(
   const hasDocuments = (intakeWorkspace?.documents.length ?? 0) > 0;
   const briefDraft = intakeWorkspace?.briefDraft ?? null;
 
-  if (!hasDocuments && !isReadOnlyReview) {
+  if (!hasIntakeWorkspaceError && !hasDocuments && !isReadOnlyReview) {
     suggestions.push(
       createSuggestion({
         actionId: "add-files",
@@ -169,7 +171,7 @@ export function computeCockpitSuggestions(
     );
   }
 
-  if (reviewDocumentsCount > 0 && !isReadOnlyReview) {
+  if (!hasIntakeWorkspaceError && reviewDocumentsCount > 0 && !isReadOnlyReview) {
     suggestions.push(
       createSuggestion({
         actionId: "review-intake",
@@ -188,7 +190,7 @@ export function computeCockpitSuggestions(
     );
   }
 
-  if (missingPiecesCount > 0 && !isReadOnlyReview) {
+  if (!hasIntakeWorkspaceError && missingPiecesCount > 0 && !isReadOnlyReview) {
     suggestions.push(
       createSuggestion({
         actionId: "add-missing-pieces",
@@ -203,7 +205,11 @@ export function computeCockpitSuggestions(
     );
   }
 
-  if (briefDraft?.status === "a_confirmer" && !isReadOnlyReview) {
+  if (
+    !hasIntakeWorkspaceError &&
+    briefDraft?.status === "a_confirmer" &&
+    !isReadOnlyReview
+  ) {
     suggestions.push(
       createSuggestion({
         actionId: "confirm-brief",
