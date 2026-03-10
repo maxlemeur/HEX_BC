@@ -53,7 +53,7 @@ function createImportAccessBuilder(importId: string) {
 
   builder.eq.mockReturnValue(builder);
   builder.single.mockResolvedValue({
-    data: { id: importId },
+    data: { id: importId, row_count: 12 },
     error: null,
   });
 
@@ -444,6 +444,12 @@ describe("mapping server workflows", () => {
     });
 
     expect(result.source_columns).toEqual(["Code", "Libelle", "Qte"]);
+    expect(result.import_stats).toEqual({
+      total_rows: 12,
+      source_columns_count: 3,
+      mapped_source_columns_count: 3,
+      unresolved_source_columns_count: 0,
+    });
     expect(result.validation.is_valid).toBe(true);
     expect(result.duplicates.total_groups).toBe(1);
     expect(result.duplicates.total_rows_impacted).toBe(2);
@@ -508,6 +514,12 @@ describe("mapping server workflows", () => {
     });
 
     expect(result.source_columns).toEqual(["Champ libre", "Code article", "Description"]);
+    expect(result.import_stats).toEqual({
+      total_rows: 12,
+      source_columns_count: 3,
+      mapped_source_columns_count: 2,
+      unresolved_source_columns_count: 1,
+    });
     expect(result.suggestions["Code article"]).toBe("hex_code");
     expect(result.suggestions.Description).toBe("designation");
     expect(result.templates).toEqual([{ id: "tpl-1" }]);

@@ -82,6 +82,13 @@ export type MappingDuplicateGroup = {
   count: number;
 };
 
+export type MappingImportStats = {
+  total_rows: number;
+  source_columns_count: number;
+  mapped_source_columns_count: number;
+  unresolved_source_columns_count: number;
+};
+
 export type MappingSuggestion = {
   suggestions: SourceToTargetMapping;
   source_columns: string[];
@@ -90,6 +97,7 @@ export type MappingSuggestion = {
   confidence_by_source: Record<string, MappingSuggestionConfidence>;
   template_exact_match: MappingTemplateExactMatch | null;
   auto_validation: MappingAutoValidation;
+  import_stats: MappingImportStats;
 };
 
 export type MappingConfidenceBand = "high" | "medium" | "low";
@@ -751,6 +759,32 @@ function computeDuplicateGroupsFromPreview(rows: MappingPreviewRow[]) {
   return duplicates;
 }
 
+function buildMappingImportStats(input: {
+  totalRows: number | null;
+  sourceColumnsCount: number;
+  mappedSourceColumnsCount: number;
+}): MappingImportStats {
+  const totalRows =
+    typeof input.totalRows === "number" && Number.isFinite(input.totalRows)
+      ? Math.max(0, Math.trunc(input.totalRows))
+      : 0;
+  const sourceColumnsCount = Math.max(0, input.sourceColumnsCount);
+  const mappedSourceColumnsCount = Math.min(
+    sourceColumnsCount,
+    Math.max(0, input.mappedSourceColumnsCount)
+  );
+
+  return {
+    total_rows: totalRows,
+    source_columns_count: sourceColumnsCount,
+    mapped_source_columns_count: mappedSourceColumnsCount,
+    unresolved_source_columns_count: Math.max(
+      sourceColumnsCount - mappedSourceColumnsCount,
+      0
+    ),
+  };
+}
+
 function guessTargetFieldWithScore(
   sourceColumn: string
 ): { target: MappingTargetField; score: number } | null {
@@ -904,10 +938,10 @@ async function ensureImportAccess(
   supabase: Supabase,
   importId: string,
   context: Pick<AuthenticatedContext, "userId" | "tenantId" | "isTenantAdmin">
-): Promise<void> {
+): Promise<{ row_count: number | null }> {
   let query = supabase
     .from("dpgf_imports")
-    .select("id")
+    .select("id, row_count")
     .eq("id", importId)
     .eq("tenant_id", context.tenantId);
 
@@ -924,6 +958,10 @@ async function ensureImportAccess(
   if (!data) {
     throw notFound("Import introuvable.");
   }
+
+  return {
+    row_count: typeof data.row_count === "number" ? data.row_count : null,
+  };
 }
 
 async function loadImportRows(
@@ -1252,7 +1290,7 @@ export async function previewMapping(input: {
   limit: number;
 }) {
   const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
-  await ensureImportAccess(supabase, input.import_id, {
+  const importSummary = await ensureImportAccess(supabase, input.import_id, {
     userId,
     tenantId,
     isTenantAdmin,
@@ -1263,9 +1301,15 @@ export async function previewMapping(input: {
   const scopedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
   const previewRows = buildPreviewRows(rows, scopedMapping);
   const duplicateGroups = computeDuplicateGroupsFromPreview(previewRows);
+  const importStats = buildMappingImportStats({
+    totalRows: importSummary.row_count,
+    sourceColumnsCount: sourceColumns.length,
+    mappedSourceColumnsCount: Object.keys(scopedMapping).length,
+  });
 
   return {
     source_columns: sourceColumns,
+    import_stats: importStats,
     validation: computeValidation(scopedMapping),
     rows: previewRows,
     duplicates: {
@@ -1278,7 +1322,7 @@ export async function previewMapping(input: {
 
 export async function suggestMapping(input: { import_id: string }): Promise<MappingSuggestion> {
   const { supabase, userId, tenantId, isTenantAdmin } = await getAuthenticatedContext();
-  await ensureImportAccess(supabase, input.import_id, {
+  const importSummary = await ensureImportAccess(supabase, input.import_id, {
     userId,
     tenantId,
     isTenantAdmin,
@@ -1395,6 +1439,11 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
   }
 
   const autoValidation = buildAutoValidationSummary(suggestions, confidenceBySource);
+  const importStats = buildMappingImportStats({
+    totalRows: importSummary.row_count,
+    sourceColumnsCount: sourceColumns.length,
+    mappedSourceColumnsCount: Object.keys(suggestions).length,
+  });
 
   return {
     suggestions,
@@ -1411,6 +1460,7 @@ export async function suggestMapping(input: { import_id: string }): Promise<Mapp
         }
       : null,
     auto_validation: autoValidation,
+    import_stats: importStats,
   };
 }
 
