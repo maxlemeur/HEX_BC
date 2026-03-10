@@ -947,6 +947,91 @@ function buildPromptSources(
     }));
 }
 
+const ESTIMATE_STRUCTURE_STRONG_SIGNAL_SOURCE_KINDS = new Set<
+  EstimateStructureDraftSourceKind
+>([
+  "linked_dpgf",
+  "historical_versions",
+  "template_library",
+  "project_notes",
+  "confirmed_brief",
+]);
+
+const ESTIMATE_STRUCTURE_WEAK_SIGNAL_HYPOTHESIS =
+  "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'assemblages, a confirmer humainement.";
+const ESTIMATE_STRUCTURE_WEAK_SIGNAL_INFERENCE =
+  "Aucune source metier forte ne rend ce lot defendable par defaut dans cette preview.";
+
+export function isAssemblyOnlyWeakSignalMode(
+  sourceSummaries: EstimateStructureDraftSourceSummary[]
+) {
+  const usedKinds = sourceSummaries
+    .filter((source) => source.used)
+    .map((source) => source.kind);
+
+  if (usedKinds.length === 0) {
+    return false;
+  }
+
+  const hasStrongUsedSource = usedKinds.some((kind) =>
+    ESTIMATE_STRUCTURE_STRONG_SIGNAL_SOURCE_KINDS.has(kind)
+  );
+
+  return !hasStrongUsedSource && usedKinds.every((kind) => kind === "assembly_library");
+}
+
+function appendDistinctEntry(entries: string[], entry: string) {
+  if (entries.includes(entry)) {
+    return entries.slice(0, 4);
+  }
+
+  return [...entries, entry].slice(0, 4);
+}
+
+function isAssemblyOnlyDraftNode(node: EstimateStructureDraftNodePayload) {
+  return (
+    node.provenance.length > 0 &&
+    node.provenance.every((entry) => entry.type === "assembly")
+  );
+}
+
+export function deprioritizeAssemblyOnlyWeakSignalNodes(
+  nodes: EstimateStructureDraftNodePayload[]
+) {
+  const visit = (
+    node: EstimateStructureDraftNodePayload
+  ): EstimateStructureDraftNodePayload => {
+    const children = node.children.map((child) => visit(child));
+    const shouldDeprioritize =
+      isAssemblyOnlyDraftNode(node) &&
+      node.default_action === "create" &&
+      node.duplicate_match_item_id === null;
+    const confidence = shouldDeprioritize
+      ? clampConfidence(Math.min(node.confidence, 0.49))
+      : node.confidence;
+
+    return {
+      ...node,
+      confidence,
+      confidence_label: getConfidenceLabel(confidence),
+      default_action: shouldDeprioritize ? "skip" : node.default_action,
+      hypotheses: shouldDeprioritize
+        ? appendDistinctEntry(node.hypotheses, ESTIMATE_STRUCTURE_WEAK_SIGNAL_HYPOTHESIS)
+        : node.hypotheses,
+      inferences: shouldDeprioritize
+        ? appendDistinctEntry(node.inferences, ESTIMATE_STRUCTURE_WEAK_SIGNAL_INFERENCE)
+        : node.inferences,
+      children,
+    };
+  };
+
+  return nodes.map((node) => visit(node));
+}
+
+function hasDefendableRootSuggestions(nodes: EstimateStructureDraftNodePayload[]) {
+  return nodes.some((node) => node.default_action !== "skip");
+}
+
 function buildHeuristicNodes(
   sourceEntries: EstimateStructureSourceEntry[]
 ): EstimateStructureDraftNodePayload[] {
@@ -1902,11 +1987,22 @@ function buildDraftNodesFromSources(input: {
 }) {
   const heuristicNodes = dedupeSiblingNodes(buildHeuristicNodes(input.sourceEntries));
   if (heuristicNodes.length === 0) {
-    throw badRequest(
-      "Aucune source exploitable pour generer une structure IA explicable.",
-      undefined,
-      "ESTIMATE_STRUCTURE_DRAFT_NO_SOURCES"
-    );
+    return Promise.resolve({
+      nodes: [],
+      metadata: {
+        model: null,
+        prompt_version: ESTIMATE_STRUCTURE_PROMPT_VERSION,
+        used_fallback: true,
+        token_count: null,
+        cost_cents: null,
+        duration_ms: null,
+        source_entry_count: input.sourceEntries.length,
+        generation_summary:
+          "Aucune suggestion defendable a partir des sources disponibles.",
+        failure_code: "ESTIMATE_STRUCTURE_DRAFT_NO_SOURCES",
+        failure_message: null,
+      } satisfies EstimateStructureDraftGenerationMetadata,
+    });
   }
 
   const heuristicLookup = buildHeuristicLookup(heuristicNodes);
@@ -1925,9 +2021,16 @@ function buildDraftNodesFromSources(input: {
         nodes: geminiNodes,
         existingSectionsByParent: buildExistingSectionsByParent(input.existingSections),
       });
+      const weakSignalMode = isAssemblyOnlyWeakSignalMode(input.sourceSummaries);
+      const tunedNodes = weakSignalMode
+        ? deprioritizeAssemblyOnlyWeakSignalNodes(annotated)
+        : annotated;
+      const defendableNodes = weakSignalMode || hasDefendableRootSuggestions(tunedNodes)
+        ? tunedNodes
+        : [];
 
       return {
-        nodes: annotated,
+        nodes: defendableNodes,
         metadata: {
           model: geminiResult.model,
           prompt_version: geminiResult.promptVersion,
@@ -1936,7 +2039,10 @@ function buildDraftNodesFromSources(input: {
           cost_cents: geminiResult.costCents,
           duration_ms: geminiResult.durationMs,
           source_entry_count: input.sourceEntries.length,
-          generation_summary: geminiResult.data.summary ?? null,
+          generation_summary:
+            defendableNodes.length > 0
+              ? geminiResult.data.summary ?? null
+              : "Aucune suggestion defendable a partir des sources disponibles.",
           failure_code: null,
           failure_message: null,
         } satisfies EstimateStructureDraftGenerationMetadata,
@@ -1947,9 +2053,16 @@ function buildDraftNodesFromSources(input: {
         nodes: heuristicNodes,
         existingSectionsByParent: buildExistingSectionsByParent(input.existingSections),
       });
+      const weakSignalMode = isAssemblyOnlyWeakSignalMode(input.sourceSummaries);
+      const tunedNodes = weakSignalMode
+        ? deprioritizeAssemblyOnlyWeakSignalNodes(annotated)
+        : annotated;
+      const defendableNodes = weakSignalMode || hasDefendableRootSuggestions(tunedNodes)
+        ? tunedNodes
+        : [];
 
       return {
-        nodes: annotated,
+        nodes: defendableNodes,
         metadata: {
           model: null,
           prompt_version: ESTIMATE_STRUCTURE_PROMPT_VERSION,
@@ -1958,7 +2071,10 @@ function buildDraftNodesFromSources(input: {
           cost_cents: null,
           duration_ms: null,
           source_entry_count: input.sourceEntries.length,
-          generation_summary: "Fallback heuristique utilise.",
+          generation_summary:
+            defendableNodes.length > 0
+              ? "Fallback heuristique utilise."
+              : "Aucune suggestion defendable a partir des sources disponibles.",
           failure_code:
             error instanceof Error && "code" in error && typeof error.code === "string"
               ? error.code
@@ -2164,17 +2280,22 @@ export async function generateEstimateStructureDraft(
     inferences: toJson(node.inferences),
   }));
 
-  const { error: insertNodesError } = await supabase
-    .from("estimate_structure_draft_nodes")
-    .insert(nodesInsert);
+  if (nodesInsert.length > 0) {
+    const { error: insertNodesError } = await supabase
+      .from("estimate_structure_draft_nodes")
+      .insert(nodesInsert);
 
-  if (insertNodesError) {
-    await supabase
-      .from("estimate_structure_drafts")
-      .delete()
-      .eq("tenant_id", tenantId)
-      .eq("id", draftData.id);
-    throw mapSupabaseError(insertNodesError, "Impossible d'enregistrer les noeuds de structure.");
+    if (insertNodesError) {
+      await supabase
+        .from("estimate_structure_drafts")
+        .delete()
+        .eq("tenant_id", tenantId)
+        .eq("id", draftData.id);
+      throw mapSupabaseError(
+        insertNodesError,
+        "Impossible d'enregistrer les noeuds de structure."
+      );
+    }
   }
 
   const persistedNodes = rebuildDraftNodes(

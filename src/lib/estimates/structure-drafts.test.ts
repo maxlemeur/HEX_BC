@@ -3,13 +3,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
+vi.mock("@/lib/affaires/import-flow-server", () => ({
+  fetchMappedRowsForImport: vi.fn(),
+}));
+vi.mock("@/lib/takeoff/gemini-client", () => ({
+  callGeminiStructured: vi.fn(),
+}));
 
+import { fetchMappedRowsForImport } from "@/lib/affaires/import-flow-server";
 import {
   applyEstimateStructureDraft,
+  deprioritizeAssemblyOnlyWeakSignalNodes,
   enrichEstimateItemsWithAiStructureProvenance,
+  generateEstimateStructureDraft,
   inferDpgfPath,
+  isAssemblyOnlyWeakSignalMode,
 } from "@/lib/estimates/structure-drafts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { callGeminiStructured } from "@/lib/takeoff/gemini-client";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -21,6 +32,124 @@ const CHILD_NODE_ID = "77777777-7777-4777-8777-777777777777";
 const EXISTING_SECTION_ID = "88888888-8888-4888-8888-888888888888";
 const OTHER_ROOT_SECTION_ID = "99999999-9999-4999-8999-999999999999";
 const OTHER_CHILD_SECTION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+describe("assembly-only weak signal mode", () => {
+  it("detects when the draft is powered only by assembly suggestions", () => {
+    expect(
+      isAssemblyOnlyWeakSignalMode([
+        {
+          kind: "assembly_library",
+          label: "Bibliotheque assemblages",
+          available: true,
+          used: true,
+          detail: "4 assemblages explores",
+        },
+        {
+          kind: "confirmed_brief",
+          label: "Brief confirme",
+          available: false,
+          used: false,
+          detail: "Aucun brief confirme disponible.",
+        },
+      ])
+    ).toBe(true);
+
+    expect(
+      isAssemblyOnlyWeakSignalMode([
+        {
+          kind: "assembly_library",
+          label: "Bibliotheque assemblages",
+          available: true,
+          used: true,
+          detail: "4 assemblages explores",
+        },
+        {
+          kind: "project_notes",
+          label: "Notes affaire",
+          available: true,
+          used: true,
+          detail: "Contexte local disponible",
+        },
+      ])
+    ).toBe(false);
+  });
+
+  it("downgrades assembly-only create nodes to low-confidence skipped suggestions", () => {
+    const [result] = deprioritizeAssemblyOnlyWeakSignalNodes([
+      {
+        id: "root-node",
+        parent_id: null,
+        order_index: 0,
+        hierarchy_level: 1,
+        label: "Electricite",
+        normalized_label: "electricite",
+        confidence: 0.82,
+        confidence_label: "elevee",
+        default_action: "create",
+        duplicate_match_item_id: null,
+        duplicate_match_path: null,
+        provenance: [
+          {
+            type: "assembly",
+            label: "Assemblage type",
+            excerpt: "Bloc standard",
+          },
+        ],
+        facts: ["Assemblage disponible: Electricite"],
+        hypotheses: [],
+        inferences: ["Regroupement propose a partir du catalogue d'assemblages."],
+        children: [],
+      },
+    ]);
+
+    expect(result).toMatchObject({
+      default_action: "skip",
+      confidence_label: "faible",
+    });
+    expect(result.confidence).toBeLessThanOrEqual(0.49);
+    expect(result.hypotheses).toContain(
+      "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'assemblages, a confirmer humainement."
+    );
+    expect(result.inferences).toContain(
+      "Aucune source metier forte ne rend ce lot defendable par defaut dans cette preview."
+    );
+  });
+
+  it("keeps defensible merge nodes unchanged in assembly-only mode", () => {
+    const [result] = deprioritizeAssemblyOnlyWeakSignalNodes([
+      {
+        id: "root-node",
+        parent_id: null,
+        order_index: 0,
+        hierarchy_level: 1,
+        label: "Electricite",
+        normalized_label: "electricite",
+        confidence: 0.82,
+        confidence_label: "elevee",
+        default_action: "merge",
+        duplicate_match_item_id: "section-existing",
+        duplicate_match_path: "Electricite",
+        provenance: [
+          {
+            type: "assembly",
+            label: "Assemblage type",
+            excerpt: "Bloc standard",
+          },
+        ],
+        facts: ["Assemblage disponible: Electricite"],
+        hypotheses: [],
+        inferences: ["Regroupement propose a partir du catalogue d'assemblages."],
+        children: [],
+      },
+    ]);
+
+    expect(result).toMatchObject({
+      default_action: "merge",
+      confidence_label: "elevee",
+      duplicate_match_item_id: "section-existing",
+    });
+  });
+});
 
 function createMembershipBuilder() {
   const builder = {
@@ -408,6 +537,256 @@ function createApplySupabaseMock(options?: {
   };
 }
 
+function createGenerateEstimateItemsBuilder(
+  rows: ReturnType<typeof buildEstimateSectionRow>[] = []
+) {
+  const builder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+  };
+
+  const ordered = vi.fn().mockResolvedValue({
+    data: rows,
+    error: null,
+  });
+
+  builder.eq.mockReturnValue(builder);
+  builder.order
+    .mockReturnValueOnce({
+      order: ordered,
+    })
+    .mockReturnValueOnce({
+      order: ordered,
+    });
+
+  return builder;
+}
+
+function createListBuilder<T>(rows: T[]) {
+  const builder = {
+    eq: vi.fn(),
+    neq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+  };
+
+  builder.eq.mockReturnValue(builder);
+  builder.neq.mockReturnValue(builder);
+  builder.order.mockReturnValue(builder);
+  builder.limit.mockResolvedValue({
+    data: rows,
+    error: null,
+  });
+
+  return builder;
+}
+
+function createMaybeSingleBuilder<T>(row: T | null) {
+  const builder = {
+    eq: vi.fn(),
+    order: vi.fn(),
+    limit: vi.fn(),
+    maybeSingle: vi.fn(),
+  };
+
+  builder.eq.mockReturnValue(builder);
+  builder.order.mockReturnValue(builder);
+  builder.limit.mockReturnValue(builder);
+  builder.maybeSingle.mockResolvedValue({
+    data: row,
+    error: null,
+  });
+
+  return builder;
+}
+
+function createEqChainBuilder() {
+  const builder = {
+    eq: vi.fn(),
+  };
+
+  builder.eq.mockReturnValue(builder);
+  return builder;
+}
+
+function createGenerateStructureSupabaseMock(options?: {
+  assemblies?: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+  }>;
+  projectNotes?: string | null;
+  existingItems?: ReturnType<typeof buildEstimateSectionRow>[];
+}) {
+  const membershipBuilder = createMembershipBuilder();
+  const versionAccessBuilder = {
+    eq: vi.fn(),
+    single: vi.fn().mockResolvedValue({
+      data: {
+        id: VERSION_ID,
+        project_id: PROJECT_ID,
+        status: "draft",
+        margin_multiplier: 1,
+        tax_rate_bp: 2000,
+        updated_at: "2026-03-06T09:00:00.000Z",
+        estimate_projects: {
+          id: PROJECT_ID,
+          tenant_id: TENANT_ID,
+          user_id: USER_ID,
+          name: "Projet test",
+          reference: null,
+          client_name: null,
+          notes: options?.projectNotes ?? null,
+          is_archived: false,
+        },
+      },
+      error: null,
+    }),
+  };
+  versionAccessBuilder.eq.mockReturnValue(versionAccessBuilder);
+
+  const historyVersionsBuilder = createListBuilder<
+    { id: string; version_number: number; title: string | null }
+  >([]);
+  const draftLockBuilder = createDraftLockBuilder();
+  const estimateItemsBuilder = createGenerateEstimateItemsBuilder(
+    options?.existingItems ?? []
+  );
+  const dpgfImportsBuilder = createMaybeSingleBuilder<{
+    id: string;
+    filename: string;
+    status: string;
+    created_at: string;
+    parse_mode: string;
+    row_count: number | null;
+  }>(null);
+  const templatesBuilder = createListBuilder<
+    { id: string; name: string; description: string | null; updated_at: string | null }
+  >([]);
+  const assembliesBuilder = createListBuilder(
+    (options?.assemblies ?? []).map((assembly) => ({
+      ...assembly,
+      updated_at: "2026-03-06T09:00:00.000Z",
+    }))
+  );
+  const affaireBriefsBuilder = createMaybeSingleBuilder<{
+    id: string;
+    project_id: string;
+    status: string;
+    summary: string;
+    project_object: string;
+    scope: unknown;
+    lots: unknown;
+    received_pieces: unknown;
+    assumptions: unknown;
+    vigilance_points: unknown;
+    missing_elements: unknown;
+  }>(null);
+  const discardPendingBuilder = createEqChainBuilder();
+  const draftStatusUpdate = vi.fn().mockReturnValue(discardPendingBuilder);
+  const draftInsertSingle = vi.fn().mockResolvedValue({
+    data: {
+      id: DRAFT_ID,
+      created_at: "2026-03-06T09:01:00.000Z",
+    },
+    error: null,
+  });
+  const draftInsertSelectBuilder = {
+    single: draftInsertSingle,
+  };
+  const draftInsertBuilder = {
+    select: vi.fn().mockReturnValue(draftInsertSelectBuilder),
+  };
+  const draftInsert = vi.fn().mockReturnValue(draftInsertBuilder);
+  const draftNodesInsert = vi.fn().mockResolvedValue({ data: null, error: null });
+  const estimateVersionsSelect = vi
+    .fn()
+    .mockReturnValueOnce(versionAccessBuilder)
+    .mockReturnValueOnce(historyVersionsBuilder);
+
+  const supabase = {
+    auth: {
+      getUser: vi.fn().mockResolvedValue({
+        data: {
+          user: {
+            id: USER_ID,
+          },
+        },
+        error: null,
+      }),
+    },
+    from: vi.fn((table: string) => {
+      if (table === "tenant_memberships") {
+        return {
+          select: vi.fn(() => membershipBuilder),
+        };
+      }
+
+      if (table === "estimate_versions") {
+        return {
+          select: estimateVersionsSelect,
+        };
+      }
+
+      if (table === "draft_locks") {
+        return {
+          select: vi.fn(() => draftLockBuilder),
+        };
+      }
+
+      if (table === "estimate_items") {
+        return {
+          select: vi.fn(() => estimateItemsBuilder),
+        };
+      }
+
+      if (table === "dpgf_imports") {
+        return {
+          select: vi.fn(() => dpgfImportsBuilder),
+        };
+      }
+
+      if (table === "estimate_templates") {
+        return {
+          select: vi.fn(() => templatesBuilder),
+        };
+      }
+
+      if (table === "estimate_assemblies") {
+        return {
+          select: vi.fn(() => assembliesBuilder),
+        };
+      }
+
+      if (table === "affaire_briefs") {
+        return {
+          select: vi.fn(() => affaireBriefsBuilder),
+        };
+      }
+
+      if (table === "estimate_structure_drafts") {
+        return {
+          update: draftStatusUpdate,
+          insert: draftInsert,
+        };
+      }
+
+      if (table === "estimate_structure_draft_nodes") {
+        return {
+          insert: draftNodesInsert,
+        };
+      }
+
+      throw new Error(`Unexpected table ${table}`);
+    }),
+  };
+
+  return {
+    supabase,
+    draftNodesInsert,
+  };
+}
+
 describe("inferDpgfPath", () => {
   it("keeps the supported fourth hierarchy segment", () => {
     expect(inferDpgfPath("Clos couvert > Charpente > Couverture > Etancheite")).toEqual([
@@ -416,6 +795,53 @@ describe("inferDpgfPath", () => {
       "Couverture",
       "Etancheite",
     ]);
+  });
+});
+
+describe("generateEstimateStructureDraft", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(fetchMappedRowsForImport).mockResolvedValue([]);
+  });
+
+  it("returns a low-confidence skipped preview when assemblies are the only available signal", async () => {
+    const { supabase, draftNodesInsert } = createGenerateStructureSupabaseMock({
+      assemblies: [
+        {
+          id: "assembly-1",
+          name: "Electricite",
+          description: "Bloc standard",
+        },
+      ],
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(callGeminiStructured).mockRejectedValueOnce(
+      new Error("Generation Gemini indisponible.")
+    );
+
+    const result = await generateEstimateStructureDraft(VERSION_ID, {
+      strategy: "hybrid",
+    });
+
+    expect(result.nodes).toHaveLength(1);
+    expect(result.nodes[0]).toMatchObject({
+      label: "Electricite",
+      confidence_label: "faible",
+      default_action: "skip",
+    });
+    expect(result.summary).toEqual({
+      root_count: 1,
+      new_count: 0,
+      merge_count: 0,
+      duplicate_count: 0,
+      low_confidence_count: 1,
+    });
+    expect(result.sources.find((source) => source.kind === "assembly_library")).toMatchObject({
+      available: true,
+      used: true,
+    });
+    expect(draftNodesInsert).toHaveBeenCalledTimes(1);
   });
 });
 

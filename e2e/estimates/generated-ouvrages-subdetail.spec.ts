@@ -133,12 +133,21 @@ async function loadEstimateItems(page: Page, versionId: string) {
         id: string;
         item_type: string;
         title: string | null;
+        h_mo?: number | null;
+        labor_role_id?: string | null;
         source_provider?: string | null;
         source_metadata?: {
           kind?: string | null;
+          estimate_item_mapping?: {
+            mode?: string | null;
+            hMo?: number | null;
+            laborRoleId?: string | null;
+          } | null;
           subdetail_summary?: {
             ds_cents?: number | null;
+            dsCents?: number | null;
             indicative_target_price_cents?: number | null;
+            indicativeTargetPriceCents?: number | null;
           } | null;
         } | null;
       }>;
@@ -177,18 +186,28 @@ test.describe("EST-383 - generated ouvrage subdetail review", () => {
 
     await expect(firstCard).toBeVisible();
 
-    await activateButton(firstCard.getByRole("button", { name: /^Sous-detail$/i }));
-    await expect(
-      dialog.getByRole("button", { name: /Valider le sous-detail/i })
-    ).toBeVisible({ timeout: 60_000 });
+    await activateButton(
+      firstCard.getByRole("button", {
+        name: /^(Sous-detail|Valider le sous-detail)$/i,
+      })
+    );
+    await expect(dialog.getByText(/Sous-detail compose/i)).toBeVisible({
+      timeout: 60_000,
+    });
 
-    await activateButton(dialog.getByRole("button", { name: /Valider le sous-detail/i }));
+    await dialog
+      .getByRole("button", { name: /^Valider le sous-detail$/i })
+      .nth(1)
+      .click();
     await expect(dialog.getByText(/Sous-detail valide/i)).toBeVisible({
       timeout: 60_000,
     });
 
-    await activateButton(firstCard.getByRole("button", { name: /^Selectionner$/i }));
-    await expect(dialog.getByText(/1\/1 ouvrage\(s\) selectionne\(s\) avec sous-detail valide/i)).toBeVisible();
+    await activateButton(
+      firstCard.getByRole("button", { name: /^Selectionner(?: pour insertion)?$/i })
+    );
+    await expect(firstCard.getByRole("checkbox")).toBeChecked();
+    await expect(dialog.getByTestId("generated-ouvrage-insert-button")).toBeEnabled();
 
     await activateButton(dialog.getByTestId("generated-ouvrage-insert-button"));
     await expect(dialog).toBeHidden({ timeout: 120_000 });
@@ -216,12 +235,21 @@ test.describe("EST-383 - generated ouvrage subdetail review", () => {
         item.source_metadata?.kind === "generated_ouvrage"
     );
 
-    expect(insertedLine?.source_metadata?.subdetail_summary?.ds_cents).toBeGreaterThan(0);
-    expect(
-      insertedLine?.source_metadata?.subdetail_summary?.indicative_target_price_cents
-    ).toBeGreaterThan(
-      insertedLine?.source_metadata?.subdetail_summary?.ds_cents ?? 0
-    );
+    const subdetailSummary = insertedLine?.source_metadata?.subdetail_summary;
+    const dsCents =
+      subdetailSummary?.ds_cents ?? subdetailSummary?.dsCents ?? null;
+    const indicativeTargetPriceCents =
+      subdetailSummary?.indicative_target_price_cents ??
+      subdetailSummary?.indicativeTargetPriceCents ??
+      null;
+
+    expect(dsCents ?? 0).toBeGreaterThan(0);
+    expect(indicativeTargetPriceCents ?? 0).toBeGreaterThanOrEqual(dsCents ?? 0);
+    expect(insertedLine?.h_mo ?? 0).toBeGreaterThan(0);
+    expect(insertedLine?.labor_role_id).toBeTruthy();
+    expect(insertedLine?.source_metadata?.estimate_item_mapping?.mode).toBeTruthy();
+    expect(insertedLine?.source_metadata?.estimate_item_mapping?.hMo ?? 0).toBeGreaterThan(0);
+    expect(insertedLine?.source_metadata?.estimate_item_mapping?.laborRoleId).toBeTruthy();
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(page.getByRole("button", { name: /Afficher la provenance IA/i }).first()).toBeVisible();

@@ -94,6 +94,86 @@ const draftFixture = {
   ],
 };
 
+const weakAssemblyOnlyDraftFixture = {
+  draftId: "draft-weak",
+  versionId: "version-1",
+  strategy: "hybrid" as const,
+  generatedAt: "2026-03-10T09:00:00.000Z",
+  sources: [
+    {
+      kind: "assembly_library" as const,
+      label: "Bibliotheque assemblages",
+      available: true,
+      used: true,
+      detail: "4 assemblages explores",
+    },
+    {
+      kind: "confirmed_brief" as const,
+      label: "Brief confirme",
+      available: false,
+      used: false,
+      detail: "Aucun brief confirme disponible.",
+    },
+    {
+      kind: "project_notes" as const,
+      label: "Notes affaire",
+      available: false,
+      used: false,
+      detail: "Aucune note affaire exploitable.",
+    },
+  ],
+  summary: {
+    rootCount: 1,
+    newCount: 0,
+    mergeCount: 0,
+    duplicateCount: 0,
+    lowConfidenceCount: 1,
+  },
+  nodes: [
+    {
+      id: "weak-root-node",
+      parentId: null,
+      orderIndex: 0,
+      hierarchyLevel: 1,
+      label: "Electricite",
+      normalizedLabel: "electricite",
+      confidence: 0.34,
+      confidenceLabel: "faible" as const,
+      defaultAction: "skip" as const,
+      duplicateMatchItemId: null,
+      duplicateMatchPath: null,
+      provenance: [
+        {
+          type: "assembly" as const,
+          label: "Assemblage CFO",
+          excerpt: "Bloc standard",
+        },
+      ],
+      facts: ["Assemblage disponible: Electricite"],
+      hypotheses: [
+        "Contexte pauvre: suggestion derivee surtout de la bibliotheque d'assemblages, a confirmer humainement.",
+      ],
+      inferences: [
+        "Aucune source metier forte ne rend ce lot defendable par defaut dans cette preview.",
+      ],
+      children: [],
+    },
+  ],
+};
+
+const emptyAssemblyOnlyDraftFixture = {
+  ...weakAssemblyOnlyDraftFixture,
+  draftId: "draft-empty",
+  summary: {
+    rootCount: 0,
+    newCount: 0,
+    mergeCount: 0,
+    duplicateCount: 0,
+    lowConfidenceCount: 0,
+  },
+  nodes: [],
+};
+
 describe("EstimateStructureDraftDialog", () => {
   beforeEach(() => {
     vi.mocked(generateEstimateStructureDraft).mockResolvedValue(draftFixture);
@@ -216,6 +296,85 @@ describe("EstimateStructureDraftDialog", () => {
     ).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Fermer" }));
+  });
+
+  it("shows an explicit empty state when no suggestion is defensible", async () => {
+    vi.mocked(generateEstimateStructureDraft).mockResolvedValueOnce(
+      emptyAssemblyOnlyDraftFixture
+    );
+    vi.mocked(fetchEstimateStructureDraft).mockResolvedValueOnce(
+      emptyAssemblyOnlyDraftFixture
+    );
+
+    render(
+      <EstimateStructureDraftDialog
+        isOpen
+        targetVersionId="version-1"
+        hasExistingItems={false}
+        existingSections={[]}
+        onClose={vi.fn()}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await screen.findByText(/Aucune suggestion defendable/i);
+    expect(
+      screen.getByText(
+        /aucun lot n'est propose sans corroboration affaire plus solide/i
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Continuer" })
+    ).toBeDisabled();
+  });
+
+  it("deprioritizes assembly-only suggestions when the context is poor", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(generateEstimateStructureDraft).mockResolvedValueOnce(
+      weakAssemblyOnlyDraftFixture
+    );
+    vi.mocked(fetchEstimateStructureDraft).mockResolvedValueOnce(
+      weakAssemblyOnlyDraftFixture
+    );
+
+    render(
+      <EstimateStructureDraftDialog
+        isOpen
+        targetVersionId="version-1"
+        hasExistingItems={false}
+        existingSections={[]}
+        onClose={vi.fn()}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    await screen.findByText(/Contexte pauvre detecte/i);
+    expect(
+      screen.getByText(/les suggestions faibles sont de-priorisees et non preselectionnees/i)
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Continuer" }));
+    await screen.findByText("Lots a retenir");
+
+    expect(
+      screen.getByText(/Aucune suggestion defendable n'est preselectionnee/i)
+    ).toBeInTheDocument();
+
+    const weakCheckbox = screen.getByRole("checkbox");
+    expect(weakCheckbox).not.toBeChecked();
+    expect(
+      screen.getByText(/Suggestion issue des assemblages seuls, non preselectionnee par defaut/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Continuer" })
+    ).toBeDisabled();
+
+    await user.click(weakCheckbox);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Continuer" })).toBeEnabled();
+    });
   });
 
   it("limits merge targets to sections that stay under the resolved parent", async () => {

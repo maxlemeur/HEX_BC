@@ -267,6 +267,13 @@ type EstimateAssemblySummaryRow = {
   updated_at: string;
 };
 
+type LaborRoleSummaryRow = {
+  id: string;
+  name: string;
+  hourly_rate_cents: number;
+  position: number;
+};
+
 type HistoricalLineRow = {
   id: string;
   version_id: string;
@@ -613,6 +620,46 @@ export type GeneratedOuvrageSubdetailSummary = {
   facts: string[];
   hypotheses: string[];
   inferences: string[];
+};
+
+type GeneratedOuvrageEstimateItemMappingMode =
+  | "no_labor"
+  | "legacy_labor_allocated"
+  | "labor_hours_only"
+  | "labor_hours_role_without_rate";
+
+type GeneratedOuvrageEstimateItemCostBreakdown = {
+  costType: GeneratedOuvrageSubdetailCostType;
+  componentCount: number;
+  quantity: number;
+  dsCents: number;
+};
+
+type GeneratedOuvrageEstimateItemLaborTrace = {
+  componentId: string;
+  designation: string;
+  unit: string | null;
+  quantity: number;
+  derivedHours: number;
+  hoursSource: "quantity" | "yield";
+  dsCents: number;
+};
+
+type GeneratedOuvrageEstimateItemMapping = {
+  source: "generated_ouvrage_subdetail_review";
+  mode: GeneratedOuvrageEstimateItemMappingMode;
+  unitPriceHtCents: number;
+  hMo: number;
+  kFo: number;
+  kMo: number;
+  laborRoleId: string | null;
+  laborRoleName: string | null;
+  laborRoleHourlyRateCents: number | null;
+  totalDsCents: number;
+  nonLaborDsCents: number;
+  laborDsCents: number;
+  costBreakdown: GeneratedOuvrageEstimateItemCostBreakdown[];
+  laborTrace: GeneratedOuvrageEstimateItemLaborTrace[];
 };
 
 export type GeneratedOuvrageSubdetailResult = {
@@ -1611,6 +1658,188 @@ function roundQuantity(value: number | null | undefined) {
   }
 
   return Number(Number(value).toFixed(3));
+}
+
+async function loadPreferredGeneratedOuvrageLaborRole(input: {
+  supabase: Supabase;
+  tenantId: string;
+  ownerUserId: string;
+}): Promise<{
+  id: string;
+  name: string;
+  hourlyRateCents: number;
+} | null> {
+  const { data, error } = await input.supabase
+    .from("labor_roles")
+    .select("id, name, hourly_rate_cents, position")
+    .eq("tenant_id", input.tenantId)
+    .eq("user_id", input.ownerUserId)
+    .eq("is_active", true)
+    .order("position", { ascending: true })
+    .limit(1);
+
+  if (error || !Array.isArray(data) || data.length === 0) {
+    return null;
+  }
+
+  const role = data[0] as LaborRoleSummaryRow;
+  return {
+    id: role.id,
+    name: role.name,
+    hourlyRateCents: role.hourly_rate_cents,
+  };
+}
+
+function deriveGeneratedOuvrageLaborHours(input: {
+  component: GeneratedOuvrageSubdetailComponent;
+  parentQuantity: number;
+}): {
+  derivedHours: number;
+  hoursSource: "quantity" | "yield";
+} {
+  const normalizedUnit = toNullableText(input.component.unit)?.toLowerCase();
+  const normalizedYieldUnit = toNullableText(input.component.yieldUnit)?.toLowerCase();
+
+  if (
+    typeof input.component.yieldValue === "number" &&
+    input.component.yieldValue > 0 &&
+    normalizedYieldUnit?.startsWith("h/")
+  ) {
+    return {
+      derivedHours: roundQuantity(input.parentQuantity * input.component.yieldValue),
+      hoursSource: "yield",
+    };
+  }
+
+  if (!normalizedUnit || normalizedUnit === "h" || normalizedUnit.startsWith("h/")) {
+    return {
+      derivedHours: roundQuantity(input.component.quantity),
+      hoursSource: "quantity",
+    };
+  }
+
+  return {
+    derivedHours: roundQuantity(input.component.quantity),
+    hoursSource: "quantity",
+  };
+}
+
+function buildGeneratedOuvrageEstimateItemMapping(input: {
+  components: GeneratedOuvrageSubdetailComponent[];
+  parentQuantity: number;
+  laborRole: {
+    id: string;
+    name: string;
+    hourlyRateCents: number;
+  } | null;
+}): GeneratedOuvrageEstimateItemMapping {
+  const breakdownByType = new Map<
+    GeneratedOuvrageSubdetailCostType,
+    GeneratedOuvrageEstimateItemCostBreakdown
+  >();
+  const laborTrace: GeneratedOuvrageEstimateItemLaborTrace[] = [];
+
+  for (const component of input.components) {
+    const current = breakdownByType.get(component.costType);
+    const nextEntry: GeneratedOuvrageEstimateItemCostBreakdown = {
+      costType: component.costType,
+      componentCount: (current?.componentCount ?? 0) + 1,
+      quantity: roundQuantity((current?.quantity ?? 0) + Math.max(component.quantity, 0)),
+      dsCents: (current?.dsCents ?? 0) + Math.max(component.dsCents, 0),
+    };
+    breakdownByType.set(component.costType, nextEntry);
+
+    if (component.costType !== "labor") {
+      continue;
+    }
+
+    const { derivedHours, hoursSource } = deriveGeneratedOuvrageLaborHours({
+      component,
+      parentQuantity: input.parentQuantity,
+    });
+
+    laborTrace.push({
+      componentId: component.componentId,
+      designation: component.designation,
+      unit: component.unit,
+      quantity: roundQuantity(component.quantity),
+      derivedHours,
+      hoursSource,
+      dsCents: Math.max(component.dsCents, 0),
+    });
+  }
+
+  const costBreakdown = Array.from(breakdownByType.values());
+  const totalDsCents = costBreakdown.reduce((total, entry) => total + entry.dsCents, 0);
+  const laborDsCents =
+    costBreakdown.find((entry) => entry.costType === "labor")?.dsCents ?? 0;
+  const nonLaborDsCents = Math.max(totalDsCents - laborDsCents, 0);
+  const hMo = roundQuantity(
+    laborTrace.reduce((total, entry) => total + entry.derivedHours, 0)
+  );
+  const unitPriceHtCents =
+    input.parentQuantity > 0
+      ? Math.round(totalDsCents / input.parentQuantity)
+      : totalDsCents;
+
+  if (laborDsCents <= 0 || hMo <= 0) {
+    return {
+      source: "generated_ouvrage_subdetail_review",
+      mode: "no_labor",
+      unitPriceHtCents,
+      hMo: 0,
+      kFo: 1,
+      kMo: 1,
+      laborRoleId: null,
+      laborRoleName: null,
+      laborRoleHourlyRateCents: null,
+      totalDsCents,
+      nonLaborDsCents,
+      laborDsCents,
+      costBreakdown,
+      laborTrace,
+    };
+  }
+
+  if (input.laborRole && input.laborRole.hourlyRateCents > 0) {
+    const foBaseCents =
+      input.parentQuantity > 0 ? input.parentQuantity * unitPriceHtCents : unitPriceHtCents;
+    const moBaseCents = hMo * input.laborRole.hourlyRateCents;
+
+    return {
+      source: "generated_ouvrage_subdetail_review",
+      mode: "legacy_labor_allocated",
+      unitPriceHtCents,
+      hMo,
+      kFo: foBaseCents > 0 ? nonLaborDsCents / foBaseCents : 0,
+      kMo: moBaseCents > 0 ? laborDsCents / moBaseCents : 0,
+      laborRoleId: input.laborRole.id,
+      laborRoleName: input.laborRole.name,
+      laborRoleHourlyRateCents: input.laborRole.hourlyRateCents,
+      totalDsCents,
+      nonLaborDsCents,
+      laborDsCents,
+      costBreakdown,
+      laborTrace,
+    };
+  }
+
+  return {
+    source: "generated_ouvrage_subdetail_review",
+    mode: input.laborRole ? "labor_hours_role_without_rate" : "labor_hours_only",
+    unitPriceHtCents,
+    hMo,
+    kFo: 1,
+    kMo: 0,
+    laborRoleId: input.laborRole?.id ?? null,
+    laborRoleName: input.laborRole?.name ?? null,
+    laborRoleHourlyRateCents: input.laborRole?.hourlyRateCents ?? null,
+    totalDsCents,
+    nonLaborDsCents,
+    laborDsCents,
+    costBreakdown,
+    laborTrace,
+  };
 }
 
 function readJsonStringArray(value: Json | unknown) {
@@ -3308,7 +3537,11 @@ export async function insertGeneratedOuvrages(
   const parsed = generatedOuvrageInsertInputSchema.parse(input);
   const context = await getAuthenticatedContext();
   const { supabase, tenantId, userId } = context;
-  const { version } = await getVersionAccessOrThrow(supabase, parsed.versionId, context);
+  const { version, project } = await getVersionAccessOrThrow(
+    supabase,
+    parsed.versionId,
+    context
+  );
 
   assertDraftStatus(version.status);
   await assertDraftLockOwnedByCurrentUser({
@@ -3497,6 +3730,11 @@ export async function insertGeneratedOuvrages(
         createdFallbackSection: boolean;
       }
     | null = null;
+  const preferredLaborRole = await loadPreferredGeneratedOuvrageLaborRole({
+    supabase,
+    tenantId,
+    ownerUserId: project.user_id,
+  });
 
   try {
     for (const preparedCandidate of preparedAcceptedSubdetails) {
@@ -3543,6 +3781,18 @@ export async function insertGeneratedOuvrages(
         };
       }
 
+      const subdetailResult = mapSubdetailRowsToResult({
+        draft: subdetailDraft,
+        items: subdetailItems,
+        itemSources: subdetailItemSources,
+        fragments: loaded.fragments,
+      });
+      const estimateItemMapping = buildGeneratedOuvrageEstimateItemMapping({
+        components: subdetailResult.components,
+        parentQuantity: quantity,
+        laborRole: preferredLaborRole,
+      });
+
       const nextAppliedPayload = {
         ...appliedPayload,
         lot_id: resolvedTargetSection.parentId,
@@ -3551,14 +3801,8 @@ export async function insertGeneratedOuvrages(
         resolved_lot_label: resolvedTargetSection.lotLabel,
         placement_mode: resolvedTargetSection.placementMode,
         fallback_section_created: resolvedTargetSection.createdFallbackSection,
+        estimate_item_mapping: estimateItemMapping,
       } satisfies JsonRecord;
-
-      const subdetailResult = mapSubdetailRowsToResult({
-        draft: subdetailDraft,
-        items: subdetailItems,
-        itemSources: subdetailItemSources,
-        fragments: loaded.fragments,
-      });
 
       const assemblyName = `${designation} · ${candidate.id.slice(0, 8)}`;
       const assemblySourceMetadata = {
@@ -3567,6 +3811,7 @@ export async function insertGeneratedOuvrages(
         candidate_id: candidate.id,
         source_fragment_ids: appliedPayload.source_fragment_ids,
         summary: subdetailResult.summary,
+        estimate_item_mapping: estimateItemMapping,
       } satisfies JsonRecord;
 
       const { data: assemblyData, error: assemblyError } = await supabase
@@ -3645,10 +3890,11 @@ export async function insertGeneratedOuvrages(
         parent_id: resolvedTargetSection.parentId,
         title: designation,
         quantity,
-        unit_price_ht_cents:
-          quantity > 0
-            ? Math.round(subdetailResult.summary.dsCents / quantity)
-            : subdetailResult.summary.dsCents,
+        unit_price_ht_cents: estimateItemMapping.unitPriceHtCents,
+        h_mo: estimateItemMapping.hMo,
+        k_fo: estimateItemMapping.kFo,
+        k_mo: estimateItemMapping.kMo,
+        labor_role_id: estimateItemMapping.laborRoleId,
         source_provider: "generated_ouvrage",
         source_file_name: primaryFragment?.sourceFileName ?? null,
         source_page: primaryFragment?.sourcePageFrom ?? null,
@@ -3696,6 +3942,7 @@ export async function insertGeneratedOuvrages(
           components: subdetailResult.components,
           metadata: {
             applied_values: nextAppliedPayload,
+            estimate_item_mapping: estimateItemMapping,
             ai_status: candidate.ai_status,
             confidence: clampConfidence(candidate.confidence),
           },
@@ -4110,6 +4357,10 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
         ? (application.applied_payload as JsonRecord)
         : {};
     const snapshot = snapshotByItemId.get(item.id);
+    const snapshotMetadata =
+      snapshot?.metadata && typeof snapshot.metadata === "object"
+        ? (snapshot.metadata as JsonRecord)
+        : {};
     const snapshotSummary =
       snapshot?.summary && typeof snapshot.summary === "object"
         ? (snapshot.summary as JsonRecord)
@@ -4117,6 +4368,15 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
     const snapshotComponents = Array.isArray(snapshot?.components)
       ? (snapshot?.components as unknown[])
       : [];
+    const estimateItemMapping =
+      (typeof snapshotMetadata.estimate_item_mapping === "object" &&
+      snapshotMetadata.estimate_item_mapping !== null
+        ? (snapshotMetadata.estimate_item_mapping as JsonRecord)
+        : null) ??
+      (typeof appliedPayload.estimate_item_mapping === "object" &&
+      appliedPayload.estimate_item_mapping !== null
+        ? (appliedPayload.estimate_item_mapping as JsonRecord)
+        : null);
     const facts = Array.from(
       new Set([
         ...readJsonStringArray(snapshotSummary.facts),
@@ -4190,6 +4450,7 @@ export async function enrichEstimateItemsWithGeneratedOuvrageProvenance(input: {
         prompt_version: toNullableText(generationMetadata.prompt_version),
         used_fallback: Boolean(generationMetadata.used_fallback),
         subdetail_summary: snapshotSummary,
+        estimate_item_mapping: estimateItemMapping,
         components: snapshotComponents,
         facts,
         hypotheses,

@@ -95,9 +95,10 @@ function createSupabaseStub(config: Record<string, Partial<Record<string, unknow
     table: string;
     operation: string;
     builder: ReturnType<typeof createQueryBuilder<unknown>>;
+    payload?: unknown;
   }> = [];
 
-  function next(table: string, operation: string) {
+  function next(table: string, operation: string, payload?: unknown) {
     const key = `${table}:${operation}`;
     const index = counters.get(key) ?? 0;
     counters.set(key, index + 1);
@@ -109,6 +110,7 @@ function createSupabaseStub(config: Record<string, Partial<Record<string, unknow
       table,
       operation,
       builder: entry as ReturnType<typeof createQueryBuilder<unknown>>,
+      payload,
     });
     return entry;
   }
@@ -116,10 +118,10 @@ function createSupabaseStub(config: Record<string, Partial<Record<string, unknow
   return {
     __history: history,
     from: vi.fn((table: string) => ({
-      select: vi.fn(() => next(table, "select")),
-      insert: vi.fn(() => next(table, "insert")),
-      update: vi.fn(() => next(table, "update")),
-      delete: vi.fn(() => next(table, "delete")),
+      select: vi.fn((payload?: unknown) => next(table, "select", payload)),
+      insert: vi.fn((payload?: unknown) => next(table, "insert", payload)),
+      update: vi.fn((payload?: unknown) => next(table, "update", payload)),
+      delete: vi.fn((payload?: unknown) => next(table, "delete", payload)),
     })),
   };
 }
@@ -193,6 +195,15 @@ function createFragmentRow() {
     selection_label: null,
     cctp_section_ref: null,
     metadata: {},
+  };
+}
+
+function createLaborRoleRow() {
+  return {
+    id: "10101010-1010-4010-8010-101010101010",
+    name: "Poseur faux plafond",
+    hourly_rate_cents: 1500,
+    position: 1,
   };
 }
 
@@ -367,7 +378,47 @@ function createSnapshotRow() {
         facts: ["Ouvrage parent: Pose de faux plafond"],
       },
     ],
-    metadata: {},
+    metadata: {
+      estimate_item_mapping: {
+        source: "generated_ouvrage_subdetail_review",
+        mode: "legacy_labor_allocated",
+        unitPriceHtCents: 39,
+        hMo: 54,
+        kFo: 3150 / (120 * 39),
+        kMo: 1500 / (54 * 1500),
+        laborRoleId: createLaborRoleRow().id,
+        laborRoleName: createLaborRoleRow().name,
+        laborRoleHourlyRateCents: createLaborRoleRow().hourly_rate_cents,
+        totalDsCents: 4650,
+        nonLaborDsCents: 3150,
+        laborDsCents: 1500,
+        costBreakdown: [
+          {
+            costType: "material",
+            componentCount: 1,
+            quantity: 1,
+            dsCents: 3150,
+          },
+          {
+            costType: "labor",
+            componentCount: 1,
+            quantity: 1,
+            dsCents: 1500,
+          },
+        ],
+        laborTrace: [
+          {
+            componentId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+            designation: "Main d'oeuvre - Pose de faux plafond",
+            unit: "h",
+            quantity: 1,
+            derivedHours: 54,
+            hoursSource: "yield",
+            dsCents: 1500,
+          },
+        ],
+      },
+    },
   };
 }
 
@@ -554,6 +605,9 @@ describe("insertGeneratedOuvrages", () => {
           }),
         ],
       },
+      labor_roles: {
+        select: [createQueryBuilder({ data: [createLaborRoleRow()], error: null })],
+      },
       estimate_generated_ouvrage_drafts: {
         select: [createQueryBuilder({ data: createDraftRow(), error: null })],
         update: [
@@ -684,18 +738,39 @@ describe("insertGeneratedOuvrages", () => {
         source_provider: "generated_ouvrage",
       })
     );
-    expect(vi.mocked(createEstimateItem)).toHaveBeenNthCalledWith(
-      2,
-      VERSION_ID,
-      expect.objectContaining({
-        item_type: "line",
-        parent_id: FALLBACK_SECTION_ID,
-        title: "Pose de faux plafond",
-        quantity: 120,
-        unit_price_ht_cents: 38,
-        source_provider: "generated_ouvrage",
-      })
+    const insertedLinePayload = vi.mocked(createEstimateItem).mock.calls[1]?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(insertedLinePayload).toMatchObject({
+      item_type: "line",
+      parent_id: FALLBACK_SECTION_ID,
+      title: "Pose de faux plafond",
+      quantity: 120,
+      unit_price_ht_cents: 39,
+      h_mo: 54,
+      labor_role_id: createLaborRoleRow().id,
+      source_provider: "generated_ouvrage",
+    });
+    expect(insertedLinePayload?.["k_fo"]).toBeCloseTo(3150 / (120 * 39), 8);
+    expect(insertedLinePayload?.["k_mo"]).toBeCloseTo(1500 / (54 * 1500), 8);
+
+    const applicationInsertHistory = supabase.__history.find(
+      (entry) =>
+        entry.table === "estimate_generated_ouvrage_applications" &&
+        entry.operation === "insert"
     );
+    expect(applicationInsertHistory?.payload).toMatchObject({
+      applied_payload: expect.objectContaining({
+        estimate_item_mapping: expect.objectContaining({
+          mode: "legacy_labor_allocated",
+          hMo: 54,
+          laborRoleId: createLaborRoleRow().id,
+          laborDsCents: 1500,
+          nonLaborDsCents: 3150,
+        }),
+      }),
+    });
+
     expect(result).toMatchObject({
       ok: true,
       insertedCount: 1,
@@ -723,6 +798,9 @@ describe("insertGeneratedOuvrages", () => {
             error: null,
           }),
         ],
+      },
+      labor_roles: {
+        select: [createQueryBuilder({ data: [createLaborRoleRow()], error: null })],
       },
       estimate_generated_ouvrage_drafts: {
         select: [createQueryBuilder({ data: createDraftRow(), error: null })],
@@ -872,6 +950,9 @@ describe("insertGeneratedOuvrages", () => {
             error: null,
           }),
         ],
+      },
+      labor_roles: {
+        select: [createQueryBuilder({ data: [createLaborRoleRow()], error: null })],
       },
       estimate_generated_ouvrage_drafts: {
         select: [createQueryBuilder({ data: createDraftRow(), error: null })],
@@ -1378,6 +1459,11 @@ describe("enrichEstimateItemsWithGeneratedOuvrageProvenance", () => {
         designation: "Pose de faux plafond",
         unit: "m2",
         quantity: 120,
+      },
+      estimate_item_mapping: {
+        mode: "legacy_labor_allocated",
+        hMo: 54,
+        laborRoleId: createLaborRoleRow().id,
       },
       sources: [
         {

@@ -2,7 +2,7 @@
 
 Milestone: M7  
 Priorité: P0  
-Statut: Proposé
+Statut: En cours (parcours EST-381, EST-382 et EST-383 livres, correctifs QA encore ouverts)
 
 ## Objectif
 
@@ -12,6 +12,13 @@ Supprimer la page blanche du chiffreur en permettant au produit de proposer une 
 
 - EST-E21 - Intake IA & Brief Affaire
 - EST-E16 / EST-E17 pour les briques de prix et de quantités
+
+## Etat produit au 2026-03-10
+
+- `EST-381` est livre sur le parcours principal de génération et de revue d'ouvrages.
+- `EST-382` est livre sur le parcours principal `Structure IA`; le tuning de pertinence en contexte pauvre reste suivi dans [EST-431](./tickets/bug/EST-431.md).
+- `EST-383` est livre sur le parcours principal de sous-detail compose; le correctif d'alignement metier post-QA reste suivi dans [EST-430](./tickets/bug/EST-430.md).
+- `EST-384` reste a venir.
 
 ---
 
@@ -59,6 +66,7 @@ Supprimer la page blanche du chiffreur en permettant au produit de proposer une 
 **Priorité:** P0  
 **Effort:** L  
 **Couches:** `[AI] [Back] [Front]`
+**Etat produit au 2026-03-10:** Livre sur le parcours principal. Correctif de tuning documentaire/metier suivi dans [EST-431](./tickets/bug/EST-431.md).
 
 ### User Story
 
@@ -96,6 +104,7 @@ Supprimer la page blanche du chiffreur en permettant au produit de proposer une 
 **Priorité:** P1  
 **Effort:** L  
 **Couches:** `[AI] [Back] [Front]`
+**Etat produit au 2026-03-10:** Livre sur le parcours principal. Correctif d'alignement metier post-QA suivi dans [EST-430](./tickets/bug/EST-430.md).
 
 ### User Story
 

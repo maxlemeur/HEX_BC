@@ -207,6 +207,76 @@ function normalizeSectionTitleKey(value: string | null | undefined) {
     .toLowerCase();
 }
 
+const STRONG_SIGNAL_SOURCE_KINDS = new Set<
+  EstimateStructureDraft["sources"][number]["kind"]
+>([
+  "linked_dpgf",
+  "historical_versions",
+  "template_library",
+  "project_notes",
+  "confirmed_brief",
+]);
+
+function isAssemblyOnlyWeakSignalMode(
+  sources: EstimateStructureDraft["sources"]
+) {
+  const usedKinds = sources.filter((source) => source.used).map((source) => source.kind);
+
+  if (usedKinds.length === 0) {
+    return false;
+  }
+
+  const hasStrongUsedSource = usedKinds.some((kind) =>
+    STRONG_SIGNAL_SOURCE_KINDS.has(kind)
+  );
+
+  return !hasStrongUsedSource && usedKinds.every((kind) => kind === "assembly_library");
+}
+
+function getDefaultSelectedRootIds(draft: EstimateStructureDraft) {
+  const suggestedRootIds = draft.nodes
+    .filter((node) => node.defaultAction !== "skip")
+    .map((node) => node.id);
+
+  if (suggestedRootIds.length > 0) {
+    return suggestedRootIds;
+  }
+
+  return isAssemblyOnlyWeakSignalMode(draft.sources) ? [] : draft.nodes.map((node) => node.id);
+}
+
+function isWeakSignalNode(node: EstimateStructureDraftNode) {
+  return (
+    node.defaultAction === "skip" &&
+    node.confidenceLabel === "faible" &&
+    node.provenance.length > 0 &&
+    node.provenance.every((entry) => entry.type === "assembly")
+  );
+}
+
+function evidenceTypeLabel(type: EstimateStructureDraftNode["provenance"][number]["type"]) {
+  switch (type) {
+    case "dpgf":
+      return "DPGF";
+    case "history":
+      return "Historique";
+    case "template":
+      return "Template";
+    case "assembly":
+      return "Assemblage";
+    case "brief":
+      return "Brief";
+    default:
+      return type;
+  }
+}
+
+function summarizeNodeProvenance(node: EstimateStructureDraftNode) {
+  return node.provenance
+    .map((entry) => `${evidenceTypeLabel(entry.type)}: ${entry.label}`)
+    .join(" · ");
+}
+
 function buildSourceCoverageSummary(
   sources: EstimateStructureDraft["sources"]
 ) {
@@ -218,6 +288,7 @@ function buildSourceCoverageSummary(
   const statements = [
     `Fait: ${usedSources.length} source(s) alimente(nt) cette preview.`,
   ];
+  const assemblyOnlyWeakSignalMode = isAssemblyOnlyWeakSignalMode(sources);
 
   if (confirmedBrief?.available) {
     statements.push("Fait: un brief confirme est disponible pour cette affaire.");
@@ -228,6 +299,15 @@ function buildSourceCoverageSummary(
   if (availableNotUsedSources.length > 0) {
     statements.push(
       `Fait: ${availableNotUsedSources.length} source(s) supplementaire(s) reste(nt) disponible(s) sans etre retenue(s).`
+    );
+  }
+
+  if (assemblyOnlyWeakSignalMode) {
+    statements.push(
+      "Fait: la preview repose uniquement sur la bibliotheque d'assemblages disponible."
+    );
+    statements.push(
+      "Inference: les suggestions faibles sont de-priorisees et non preselectionnees jusqu'a validation humaine."
     );
   }
 
@@ -413,7 +493,7 @@ export function EstimateStructureDraftDialog({
         );
         if (!isActive) return;
         setDraft(persisted);
-        setSelectedRootIds(persisted.nodes.map((node) => node.id));
+        setSelectedRootIds(getDefaultSelectedRootIds(persisted));
       } catch (error) {
         if (!isActive) return;
         setDraftError(
@@ -454,6 +534,10 @@ export function EstimateStructureDraftDialog({
   }, [draft, flatNodes, rootIdSet]);
   const sourceCoverageSummary = useMemo(
     () => (draft ? buildSourceCoverageSummary(draft.sources) : null),
+    [draft]
+  );
+  const isAssemblyOnlyWeakMode = useMemo(
+    () => (draft ? isAssemblyOnlyWeakSignalMode(draft.sources) : false),
     [draft]
   );
   const nodeMergeStates = useMemo(
@@ -797,6 +881,23 @@ export function EstimateStructureDraftDialog({
                         ) : null}
                       </div>
                     </div>
+                    {isAssemblyOnlyWeakMode ? (
+                      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                        Contexte pauvre detecte: aucune source metier forte n&apos;alimente la preview.
+                        Les suggestions issues uniquement des assemblages sont marquees en faible confiance
+                        et ne sont pas preselectionnees.
+                      </div>
+                    ) : null}
+                    {draft.nodes.length === 0 ? (
+                      <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+                        <p className="font-semibold">Aucune suggestion defendable</p>
+                        <p className="mt-1">
+                          {isAssemblyOnlyWeakMode
+                            ? "Les assemblages disponibles restent visibles comme contexte, mais aucun lot n'est propose sans corroboration affaire plus solide."
+                            : "Les sources disponibles ne permettent pas de proposer une structure IA suffisamment explicable pour cette version."}
+                        </p>
+                      </div>
+                    ) : null}
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       {draft.sources.map((source) => (
                         <div
@@ -847,6 +948,13 @@ export function EstimateStructureDraftDialog({
                   <p className="mt-1 text-sm text-[var(--slate-500)]">
                     Chaque lot coche sera inclus avec son sous-arbre.
                   </p>
+                  {isAssemblyOnlyWeakMode && selectedRootIds.length === 0 ? (
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      Aucune suggestion defendable n&apos;est preselectionnee dans ce contexte.
+                      Selectionnez manuellement un lot faible confiance si vous souhaitez poursuivre,
+                      ou enrichissez d&apos;abord les sources affaire.
+                    </div>
+                  ) : null}
                   <div className="mt-4 space-y-2">
                     {draft.nodes.map((node) => (
                       <label
@@ -866,9 +974,19 @@ export function EstimateStructureDraftDialog({
                           <p className="mt-1 text-xs text-[var(--slate-500)]">
                             {confidenceText(node)}
                           </p>
+                          {node.provenance.length > 0 ? (
+                            <p className="mt-1 text-xs text-[var(--slate-500)]">
+                              Provenance: {summarizeNodeProvenance(node)}
+                            </p>
+                          ) : null}
                           {node.duplicateMatchPath ? (
                             <p className="mt-1 text-xs text-[var(--amber-700)]">
                               Doublon potentiel: {node.duplicateMatchPath}
+                            </p>
+                          ) : null}
+                          {isWeakSignalNode(node) ? (
+                            <p className="mt-1 text-xs text-[var(--rose-700)]">
+                              Suggestion issue des assemblages seuls, non preselectionnee par defaut.
                             </p>
                           ) : null}
                         </div>
@@ -995,10 +1113,16 @@ export function EstimateStructureDraftDialog({
                                 ))}
                               </ul>
                               {node.provenance.length > 0 ? (
-                                <p className="mt-3 text-xs text-[var(--slate-500)]">
-                                  Provenance:{" "}
-                                  {node.provenance.map((entry) => entry.label).join(", ")}
-                                </p>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {node.provenance.map((entry) => (
+                                    <span
+                                      key={`${node.id}-${entry.type}-${entry.label}`}
+                                      className="inline-flex items-center rounded-full border border-[var(--slate-200)] bg-[var(--slate-50)] px-2 py-0.5 text-[11px] text-[var(--slate-600)]"
+                                    >
+                                      {evidenceTypeLabel(entry.type)} · {entry.label}
+                                    </span>
+                                  ))}
+                                </div>
                               ) : null}
                             </div>
                           </div>
