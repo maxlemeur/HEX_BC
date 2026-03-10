@@ -63,8 +63,8 @@ const BLOCK_ORDER: AffaireIntakeBriefBlockKey[] = [
 ];
 
 const PROVENANCE_LABELS: Partial<Record<AffaireIntakeBriefBlockKey, { label: string; variant: BadgeVariant }>> = {
-  scope: { label: "Detecte", variant: "info" },
-  assumptions: { label: "Hypothese", variant: "warning" },
+  scope: { label: "Détecté", variant: "info" },
+  assumptions: { label: "Hypothèse", variant: "warning" },
   vigilance_points: { label: "Vigilance", variant: "warning" },
   missing_elements: { label: "Manquant", variant: "error" },
 };
@@ -132,9 +132,9 @@ function hasEditableBriefChanges(
 
 function BriefStatusBadge({ status }: { status: "a_confirmer" | "confirme" }) {
   if (status === "confirme") {
-    return <Badge variant="success" size="sm">Confirme</Badge>;
+    return <Badge variant="success" size="sm">Confirmé</Badge>;
   }
-  return <Badge variant="warning" size="sm">A confirmer</Badge>;
+  return <Badge variant="warning" size="sm">À confirmer</Badge>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -314,7 +314,7 @@ function BriefBlockSection({
           })}
         </ul>
       ) : items && items.length === 0 && !isEditing ? (
-        <p className="text-sm italic text-[var(--slate-400)]">Aucun element detecte</p>
+        <p className="text-sm italic text-[var(--slate-400)]">Aucun élément détecté</p>
       ) : null}
     </div>
   );
@@ -406,8 +406,8 @@ export function BriefDraftCard({
           ...nextPayload,
         });
         setIsEditing(false);
-        setAnnouncement("Brief mis a jour.");
-        toast.success({ title: "Brief mis a jour." });
+        setAnnouncement("Brief mis à jour.");
+        toast.success({ title: "Brief mis à jour." });
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur lors de la sauvegarde.");
@@ -428,8 +428,8 @@ export function BriefDraftCard({
     startTransition(async () => {
       try {
         await confirmAffaireBrief({ projectId });
-        setAnnouncement("Brief confirme.");
-        toast.success({ title: "Brief confirme." });
+        setAnnouncement("Brief confirmé.");
+        toast.success({ title: "Brief confirmé." });
         router.refresh();
       } catch (err) {
         toast.error({
@@ -494,7 +494,7 @@ export function BriefDraftCard({
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-semibold text-[var(--slate-800)]">Brief affaire</h2>
+          <h2 className="text-sm font-semibold text-[var(--slate-800)]">Brief affaire</h2>
           {briefDraft && <BriefStatusBadge status={briefDraft.status} />}
           {generationDate && (
             <span className="text-xs text-[var(--slate-400)]">{generationDate}</span>
@@ -530,8 +530,8 @@ export function BriefDraftCard({
       {/* Executive summary banner */}
       {briefDraft && !isEditing && !showConfirmDialog && (
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[var(--slate-50)] px-4 py-2.5 text-sm">
-          <span className="font-medium text-[var(--slate-700)]">{briefDraft.receivedPieces.length} pieces</span>
-          <span className="font-medium text-[var(--slate-700)]">{briefDraft.assumptions.length} hypotheses</span>
+          <span className="font-medium text-[var(--slate-700)]">{briefDraft.receivedPieces.length} pièces</span>
+          <span className="font-medium text-[var(--slate-700)]">{briefDraft.assumptions.length} hypothèses</span>
           <span className="font-medium text-[var(--slate-700)]">{briefDraft.vigilancePoints.length} vigilance</span>
           {briefDraft.missingElements.length > 0 ? (
             <span className="font-medium text-danger">{briefDraft.missingElements.length} manquant(s)</span>
@@ -546,7 +546,7 @@ export function BriefDraftCard({
         <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3">
           <p className="text-sm font-medium text-[var(--slate-800)]">Confirmer ce brief ?</p>
           <p className="mt-1 text-xs text-[var(--slate-600)]">
-            {briefDraft.assumptions.length} hypothese(s) ouverte(s), {briefDraft.missingElements.length} element(s) manquant(s), {briefDraft.vigilancePoints.length} point(s) de vigilance.
+            {briefDraft.assumptions.length} hypothèse(s) ouverte(s), {briefDraft.missingElements.length} élément(s) manquant(s), {briefDraft.vigilancePoints.length} point(s) de vigilance.
           </p>
           <div className="mt-2 flex items-center gap-2">
             <button type="button" onClick={() => { setShowConfirmDialog(false); handleConfirm(); }} disabled={isPending} className="btn btn-primary btn-sm text-xs">
@@ -568,8 +568,8 @@ export function BriefDraftCard({
                 <polyline points="14 2 14 8 20 8" />
               </svg>
             }
-            title="Aucun brief genere"
-            description="Le brief sera genere automatiquement apres le traitement des documents."
+            title="Aucun brief généré"
+            description="Le brief sera généré automatiquement après le traitement des documents."
           />
         </div>
       )}

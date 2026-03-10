@@ -23,20 +23,20 @@ Cette epic vise un portail léger, traçable, orienté questions, partage de ver
 
 ### Critères d'acceptation
 
-- [ ] Une version validée peut être publiée via un lien sécurisé
-- [ ] Le partage peut être limité par :
+- Une version validée peut être publiée via un lien sécurisé
+- Le partage peut être limité par :
   - durée
   - mot de passe
   - accès nominatif si email connu
-- [ ] Le portail affiche :
+- Le portail affiche :
   - version
   - date
   - PDF
   - résumé
   - messages éventuels
-- [ ] Le lien peut être révoqué
-- [ ] Toute ouverture du lien est tracée
-- [ ] Une nouvelle version publiée n'écrase pas l'historique des précédentes
+- Le lien peut être révoqué
+- Toute ouverture du lien est tracée
+- Une nouvelle version publiée n'écrase pas l'historique des précédentes
 
 ### Pourquoi cette story
 
@@ -58,19 +58,19 @@ Cette epic vise un portail léger, traçable, orienté questions, partage de ver
 
 ### Critères d'acceptation
 
-- [ ] Depuis le portail, une question peut être créée :
+- Depuis le portail, une question peut être créée :
   - au niveau version
   - au niveau lot
   - au niveau ligne
-- [ ] La question arrive côté interne comme une tâche ou un point à traiter
-- [ ] Les statuts existent :
+- La question arrive côté interne comme une tâche ou un point à traiter
+- Les statuts existent :
   - `nouveau`
   - `en cours`
   - `répondu`
   - `clos`
-- [ ] La réponse interne peut être rédigée et publiée au client depuis le même thread
-- [ ] Chaque question reste rattachée à la version concernée
-- [ ] Une question client peut être convertie en hypothèse, correction ou demande de V2
+- La réponse interne peut être rédigée et publiée au client depuis le même thread
+- Chaque question reste rattachée à la version concernée
+- Une question client peut être convertie en hypothèse, correction ou demande de V2
 
 ### Pourquoi cette story
 
@@ -92,20 +92,21 @@ Cette epic vise un portail léger, traçable, orienté questions, partage de ver
 
 ### Critères d'acceptation
 
-- [ ] Le portail permet au client de choisir :
+- Le portail permet au client de choisir :
   - `J'accepte cette version`
   - `Je demande une modification`
   - `Je souhaite échanger`
-- [ ] Une acceptation génère un event daté côté affaire
-- [ ] Une demande de modification ouvre automatiquement un cycle interne :
+- Une acceptation génère un event daté côté affaire
+- Une demande de modification ouvre automatiquement un cycle interne :
   - tâche
   - commentaire
   - invitation à créer V2
-- [ ] L'acceptation ne contourne pas les règles internes déjà requises
-- [ ] L'état de publication côté interne reflète la réponse client
+- L'acceptation ne contourne pas les règles internes déjà requises
+- L'état de publication côté interne reflète la réponse client
 
 ### Pourquoi cette story
 
 - **Marie** voit plus vite où en est son affaire.
 - **Laurent** déclenche une V2 sur une demande propre.
 - **Nadia** suit le passage revue interne -> retour client -> décision.
+

@@ -59,6 +59,7 @@ export type ComputeCockpitSuggestionsInput = {
   > | null;
   versionZeroSummary: Pick<VersionZeroDraftSummary, "canGenerate" | "activeDraft"> | null;
   currentVersion: { id: string; status: string } | null;
+  lineCount?: number;
   preferences?: CockpitCommandPreference[];
 };
 
@@ -156,13 +157,14 @@ export function computeCockpitSuggestions(
   const hasDocuments = (intakeWorkspace?.documents.length ?? 0) > 0;
   const briefDraft = intakeWorkspace?.briefDraft ?? null;
 
-  if (!hasIntakeWorkspaceError && !hasDocuments && !isReadOnlyReview) {
+  // Only show "add files" when documents already exist (dropzone handles the empty state)
+  if (!hasIntakeWorkspaceError && hasDocuments && !isReadOnlyReview) {
     suggestions.push(
       createSuggestion({
         actionId: "add-files",
-        label: "Ajouter des fichiers au dossier",
+        label: "Ajouter des fichiers",
         intent: "add_files",
-        preview: "Importer les pieces du dossier pour lancer le triage IA de l'affaire.",
+        preview: "Ajouter des pieces supplementaires au dossier de consultation.",
         target: { kind: "open_surface", surfaceId: "intake-upload" },
         requiresConfirmation: false,
         confirmTone: "info",
@@ -331,7 +333,10 @@ export function computeCockpitSuggestions(
     );
   }
 
-  if (approvalSummary?.permissions.canPrepareRequest) {
+  if (
+    approvalSummary?.permissions.canPrepareRequest &&
+    (input.lineCount ?? 0) > 0
+  ) {
     suggestions.push(
       createSuggestion({
         actionId: "prepare-validation",

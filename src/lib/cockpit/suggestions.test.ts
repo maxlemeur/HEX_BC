@@ -123,7 +123,7 @@ function makeInput(
 }
 
 describe("computeCockpitSuggestions", () => {
-  it("suggests adding files when the dossier is empty", () => {
+  it("does not suggest adding files when the dossier is empty (dropzone handles that)", () => {
     const result = computeCockpitSuggestions(
       makeInput({
         intakeWorkspace: makeIntakeWorkspace({
@@ -133,7 +133,17 @@ describe("computeCockpitSuggestions", () => {
       }),
     );
 
-    expect(result[0]).toEqual(
+    expect(result.find((s) => s.intent === "add_files")).toBeUndefined();
+  });
+
+  it("suggests adding files when documents already exist", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace(),
+      }),
+    );
+
+    expect(result.find((s) => s.intent === "add_files")).toEqual(
       expect.objectContaining({
         intent: "add_files",
         target: { kind: "open_surface", surfaceId: "intake-upload" },
@@ -182,6 +192,7 @@ describe("computeCockpitSuggestions", () => {
         hasIntakeWorkspaceError: true,
         intakeWorkspace: null,
         approvalSummary: makeApprovalSummary(true),
+        lineCount: 5,
       }),
     );
 
@@ -259,7 +270,7 @@ describe("computeCockpitSuggestions", () => {
       }),
     );
 
-    expect(result[0]).toEqual(
+    expect(result.find((s) => s.intent === "list_hypotheses")).toEqual(
       expect.objectContaining({
         intent: "list_hypotheses",
         label: "Traiter 2 hypotheses critiques",
@@ -276,6 +287,7 @@ describe("computeCockpitSuggestions", () => {
       makeInput({
         plansSummary: makePlansSummary({ latestJob: null }),
         approvalSummary: makeApprovalSummary(true),
+        lineCount: 10,
       }),
     );
 
@@ -292,14 +304,23 @@ describe("computeCockpitSuggestions", () => {
     );
   });
 
+  it("does not suggest prepare-validation when lineCount is 0", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        approvalSummary: makeApprovalSummary(true),
+        lineCount: 0,
+      }),
+    );
+
+    expect(result.find((s) => s.intent === "prepare_validation")).toBeUndefined();
+  });
+
   it("applies hidden and pinned preferences after computing suggestions", () => {
     const suggestions = computeCockpitSuggestions(
       makeInput({
-        intakeWorkspace: makeIntakeWorkspace({
-          uploadId: null,
-          documents: [],
-        }),
+        intakeWorkspace: makeIntakeWorkspace(),
         approvalSummary: makeApprovalSummary(true),
+        lineCount: 5,
       }),
     );
 

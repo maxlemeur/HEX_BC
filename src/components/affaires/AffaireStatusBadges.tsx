@@ -15,9 +15,9 @@ const STATUS_BADGE_VARIANT: Record<
 
 const STATUS_LABEL: Record<AffaireStatus, string> = {
   draft: "Brouillon",
-  sent: "Envoye",
-  accepted: "Accepte",
-  archived: "Archive",
+  sent: "Envoyé",
+  accepted: "Accepté",
+  archived: "Archivé",
 };
 
 type Props = {
@@ -38,7 +38,7 @@ export function AffaireStatusBadges({
       </Badge>
       {acceptedVersionNumber !== null && (
         <Badge variant="success" size="sm">
-          V{acceptedVersionNumber} acceptee
+          V{acceptedVersionNumber} acceptée
         </Badge>
       )}
     </div>

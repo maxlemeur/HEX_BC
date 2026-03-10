@@ -136,6 +136,7 @@ export function AffaireRegisterCard({
     scopeLabel: "",
     sourceFileName: "",
   });
+  const [isFormExpanded, setIsFormExpanded] = useState(false);
 
   const items = registerPage?.items ?? [];
   const isLoading = !errorMessage && registerPage === null;
@@ -162,31 +163,31 @@ export function AffaireRegisterCard({
     switch (status) {
       case "validated":
         return {
-          title: "Valider cette entree",
+          title: "Valider cette entrée",
           description:
-            "Expliquez si besoin pourquoi ce point est considere comme traite ou acceptable.",
+            "Expliquez si besoin pourquoi ce point est considéré comme traité ou acceptable.",
           actionLabel: "Confirmer la validation",
         };
       case "rejected":
         return {
-          title: "Rejeter cette entree",
+          title: "Rejeter cette entrée",
           description:
-            "Expliquez pourquoi ce point est ecarte du workflow afin de garder une trace lisible.",
+            "Expliquez pourquoi ce point est écarté du workflow afin de garder une trace lisible.",
           actionLabel: "Confirmer le rejet",
         };
       case "clarify_with_client":
         return {
-          title: "Marquer a clarifier avec le client",
+          title: "Marquer à clarifier avec le client",
           description:
-            "Ajoutez le contexte a transmettre. Ce statut alertera la validation interne et bloquera l'envoi client.",
+            "Ajoutez le contexte à transmettre. Ce statut alertera la validation interne et bloquera l'envoi client.",
           actionLabel: "Confirmer la clarification client",
         };
       case "open":
         return {
-          title: "Rouvrir cette entree",
+          title: "Rouvrir cette entrée",
           description:
-            "Ajoutez si besoin la raison de reouverture pour maintenir un historique clair.",
-          actionLabel: "Confirmer la reouverture",
+            "Ajoutez si besoin la raison de réouverture pour maintenir un historique clair.",
+          actionLabel: "Confirmer la réouverture",
         };
     }
   }
@@ -252,10 +253,10 @@ export function AffaireRegisterCard({
     form.scopeType === "project"
       ? "Le point concernera toute l'affaire."
       : form.scopeType === "lot"
-        ? "Selectionnez le lot precis concerne pour eviter une ambiguite de traitement."
+        ? "Sélectionnez le lot précis concerné pour éviter une ambiguïté de traitement."
         : form.scopeType === "line"
-          ? "Selectionnez la ligne exacte impactee sur la version courante."
-          : "Renseignez une reference et un libelle lisibles pour tracer l'exception.";
+          ? "Sélectionnez la ligne exacte impactée sur la version courante."
+          : "Renseignez une référence et un libellé lisibles pour tracer l'exception.";
   const formReadinessMessage =
     form.text.trim().length === 0
       ? "Ajoutez une formulation courte, factuelle et actionnable."
@@ -263,11 +264,11 @@ export function AffaireRegisterCard({
         ? scopeHelpMessage
         : form.scopeType === "exception" &&
             (form.scopeRef.trim().length === 0 || form.scopeLabel.trim().length === 0)
-          ? "La reference et le libelle de l'exception sont requis."
+          ? "La référence et le libellé de l'exception sont requis."
           : (form.scopeType === "lot" || form.scopeType === "line") &&
               form.scopeId.trim().length === 0
-            ? "Selectionnez un scope cible pour activer l'ajout."
-            : "Pret a ajouter. Le point sera cree en statut ouvert et historise.";
+            ? "Sélectionnez un scope cible pour activer l'ajout."
+            : "Prêt à ajouter. Le point sera créé en statut ouvert et historisé.";
 
   async function handleCreateEntry() {
     startMutationTransition(() => {
@@ -298,19 +299,20 @@ export function AffaireRegisterCard({
             scopeLabel: "",
             sourceFileName: "",
           }));
+          setIsFormExpanded(false);
           setInlineFeedback({
             tone: "success",
             message:
-              "Entree ajoutee. Elle apparaitra aussi dans l'historique recent du registre.",
+              "Entrée ajoutée. Elle apparaîtra aussi dans l'historique récent du registre.",
           });
           toast.success({
-            title: "Entree ajoutee",
-            description: `${AFFAIRE_REGISTER_KIND_LABELS[result.entry.kind]} enregistree dans le registre.`,
+            title: "Entrée ajoutée",
+            description: `${AFFAIRE_REGISTER_KIND_LABELS[result.entry.kind]} enregistrée dans le registre.`,
           });
           router.refresh();
         } catch (error) {
           toast.error({
-            title: "Creation impossible",
+            title: "Création impossible",
             description: getErrorMessage(error),
           });
         }
@@ -337,16 +339,16 @@ export function AffaireRegisterCard({
           setInlineFeedback({
             tone: "info",
             message:
-              "Statut mis a jour. Le commentaire est conserve dans l'historique du registre.",
+              "Statut mis à jour. Le commentaire est conservé dans l'historique du registre.",
           });
           toast.success({
-            title: "Statut mis a jour",
-            description: `Entree passe en ${AFFAIRE_REGISTER_STATUS_LABELS[result.entry.status].toLowerCase()}.`,
+            title: "Statut mis à jour",
+            description: `Entrée passée en ${AFFAIRE_REGISTER_STATUS_LABELS[result.entry.status].toLowerCase()}.`,
           });
           router.refresh();
         } catch (error) {
           toast.error({
-            title: "Mise a jour impossible",
+            title: "Mise à jour impossible",
             description: getErrorMessage(error),
           });
         } finally {
@@ -466,7 +468,7 @@ export function AffaireRegisterCard({
           disabled={isPendingEntry}
           onClick={() => openTransitionDialog(entry, "clarify_with_client")}
         >
-          A clarifier avec client
+          À clarifier avec client
         </button>
       </div>
     );
@@ -476,7 +478,7 @@ export function AffaireRegisterCard({
     return (
       <section className="dashboard-card p-5">
         <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-          Registre hypotheses & pieces manquantes
+          Registre hypothèses & pièces manquantes
         </h2>
         <div className="mt-3 rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
           {errorMessage}
@@ -490,16 +492,16 @@ export function AffaireRegisterCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-            Registre hypotheses & pieces manquantes
+            Registre hypothèses & pièces manquantes
           </h2>
-          <p className="mt-1 text-xs text-[var(--slate-500)]">
-            Zones grises persistantes du dossier, historisees et actionnables.
+          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+            Hypothèses & pièces manquantes du dossier.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {hasActiveFilters ? (
             <div className="rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-1 text-xs text-[var(--brand-blue)]">
-              Vue filtree{activeFiltersLabel ? ` · ${activeFiltersLabel}` : ""}
+              Vue filtrée{activeFiltersLabel ? ` · ${activeFiltersLabel}` : ""}
             </div>
           ) : null}
           {isFilterPending ? (
@@ -507,7 +509,7 @@ export function AffaireRegisterCard({
               className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs text-[var(--slate-600)]"
               aria-live="polite"
             >
-              Mise a jour des filtres…
+              Mise à jour des filtres…
             </div>
           ) : null}
           {isReadOnly ? (
@@ -518,22 +520,21 @@ export function AffaireRegisterCard({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
+      <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-4">
+        <article className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--slate-500)]">
             Points ouverts
           </p>
-          <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-xl font-semibold text-[var(--slate-900)]">
             {effectiveSummary.openQuestionsCount}
           </p>
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
-            {items.length} point{items.length > 1 ? "s" : ""} visible
-            {items.length > 1 ? "s" : ""} sur cette vue.
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            {items.length} visible{items.length > 1 ? "s" : ""}
           </p>
         </article>
         <button
           type="button"
-          className="rounded-2xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-4 py-3 text-left transition-colors hover:bg-[var(--danger)]/10"
+          className="rounded-xl border border-[var(--danger)]/20 bg-[var(--danger)]/5 px-3 py-2 text-left transition-colors hover:bg-[var(--danger)]/10"
           onClick={() =>
             applyFilters({
               status: "open",
@@ -544,29 +545,29 @@ export function AffaireRegisterCard({
           }
         >
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--danger)]">
-            Critiques ouvertes
+            Critiques
           </p>
-          <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-xl font-semibold text-[var(--slate-900)]">
             {effectiveSummary.criticalOpenCount}
           </p>
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
-            A traiter avant toute validation ou envoi.
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            Bloquant validation
           </p>
         </button>
-        <article className="rounded-2xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-4 py-3">
+        <article className="rounded-xl border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--warning)]">
-            Ouverts hors critiques
+            Non-critiques
           </p>
-          <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-xl font-semibold text-[var(--slate-900)]">
             {effectiveSummary.nonCriticalOpenCount}
           </p>
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
-            Points encore actifs mais sans blocage critique.
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            Actifs, non bloquants
           </p>
         </article>
         <button
           type="button"
-          className="rounded-2xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-4 py-3 text-left transition-colors hover:bg-[var(--brand-blue)]/10"
+          className="rounded-xl border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-3 py-2 text-left transition-colors hover:bg-[var(--brand-blue)]/10"
           onClick={() =>
             applyFilters({
               status: "clarify_with_client",
@@ -577,23 +578,20 @@ export function AffaireRegisterCard({
           }
         >
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-blue)]">
-            A clarifier client
+            Clarif. client
           </p>
-          <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">
+          <p className="mt-1 text-xl font-semibold text-[var(--slate-900)]">
             {effectiveSummary.clarifyWithClientCount}
           </p>
-          <p className="mt-2 text-xs text-[var(--slate-500)]">
-            Alerte la validation interne et bloque avant envoi client.
+          <p className="mt-1 text-xs text-[var(--slate-500)]">
+            Bloque envoi client
           </p>
         </button>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-[var(--slate-500)]">
-          Filtrez pour isoler les points a traiter, puis utilisez les actions de statut pour garder une trace explicite.
-        </p>
+      <div className="mt-3 flex items-center justify-end">
         <div className="rounded-full bg-[var(--slate-100)] px-2.5 py-1 text-xs text-[var(--slate-600)]">
-          {items.length} resultat{items.length > 1 ? "s" : ""}
+          {items.length} résultat{items.length > 1 ? "s" : ""}
         </div>
       </div>
 
@@ -604,15 +602,16 @@ export function AffaireRegisterCard({
         >
           <p className="text-sm font-medium text-[var(--slate-700)]">Chargement du registre…</p>
           <p className="mt-2 text-sm text-[var(--slate-500)]">
-            Recuperation des points ouverts, avec historique recent et filtres disponibles.
+            Récupération des points ouverts, avec historique récent et filtres disponibles.
           </p>
         </div>
       ) : null}
 
+      {(effectiveSummary.openQuestionsCount > 0 || items.length > 0 || hasActiveFilters) && (
       <div className="mt-4 flex flex-wrap gap-2">
         <select
           aria-label="Filtrer par statut"
-          className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+          className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
           value={filterStatus}
           onChange={(event) =>
             applyFilters({
@@ -629,8 +628,8 @@ export function AffaireRegisterCard({
           ))}
         </select>
         <select
-          aria-label="Filtrer par severite"
-          className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+          aria-label="Filtrer par sévérité"
+          className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
           value={filterSeverity}
           onChange={(event) =>
             applyFilters({
@@ -639,7 +638,7 @@ export function AffaireRegisterCard({
             })
           }
         >
-          <option value="">Toutes les severites</option>
+          <option value="">Toutes les sévérités</option>
           {Object.entries(AFFAIRE_REGISTER_SEVERITY_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -648,7 +647,7 @@ export function AffaireRegisterCard({
         </select>
         <select
           aria-label="Filtrer par type"
-          className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+          className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
           value={filterKind}
           onChange={(event) =>
             applyFilters({
@@ -670,220 +669,241 @@ export function AffaireRegisterCard({
             className="btn btn-secondary btn-sm"
             onClick={resetFilters}
           >
-            Reinitialiser
+            Réinitialiser
           </button>
         ) : null}
       </div>
+      )}
 
       {!isReadOnly ? (
-        <div className="mt-4 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-[var(--slate-800)]">
-                Ajouter un point manuel
-              </h3>
-              <p className="mt-1 text-xs text-[var(--slate-500)]">
-                Utilisez ce formulaire pour tracer une hypothese metier ou une piece manquante non detectee automatiquement.
-              </p>
+        isFormExpanded ? (
+          <div className="mt-4 rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/80 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--slate-800)]">
+                  Ajouter un point manuel
+                </h3>
+                <p className="mt-1 text-xs text-[var(--slate-500)]">
+                  Utilisez ce formulaire pour tracer une hypothèse métier ou une pièce manquante non détectée automatiquement.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="rounded-full bg-white px-2.5 py-1 text-xs text-[var(--slate-600)]">
+                  Création historisée
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-1 text-xs font-medium text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)]"
+                  onClick={() => setIsFormExpanded(false)}
+                >
+                  Fermer
+                </button>
+              </div>
             </div>
-            <div className="rounded-full bg-white px-2.5 py-1 text-xs text-[var(--slate-600)]">
-              Creation historisee
-            </div>
-          </div>
-          <p className="mt-3 text-xs text-[var(--slate-500)]">{formHint}</p>
-          <div className="mt-3 grid gap-3 lg:grid-cols-6">
-            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
-              Type
-              <select
-                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
-                name="register-kind"
-                autoComplete="off"
-                value={form.kind}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    kind: event.target.value as AffaireRegisterEntryKind,
-                  }))
-                }
-              >
-                {Object.entries(AFFAIRE_REGISTER_KIND_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
-              Severite
-              <select
-                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
-                name="register-severity"
-                autoComplete="off"
-                value={form.severity}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    severity: event.target.value as AffaireRegisterEntrySeverity,
-                  }))
-                }
-              >
-                {Object.entries(AFFAIRE_REGISTER_SEVERITY_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
-              Scope
-              <select
-                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
-                name="register-scope"
-                autoComplete="off"
-                value={form.scopeType}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    scopeType: event.target.value as "project" | "lot" | "line" | "exception",
-                    scopeId: "",
-                    scopeRef: "",
-                    scopeLabel: "",
-                  }))
-                }
-              >
-                {Object.entries(AFFAIRE_REGISTER_SCOPE_LABELS).map(([value, label]) => (
-                  <option
-                    key={value}
-                    value={value}
-                    disabled={value === "exception" && !versionId}
-                  >
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {form.scopeType === "lot" || form.scopeType === "line" ? (
-              <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-3">
-                {form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
+            <p className="mt-3 text-xs text-[var(--slate-500)]">{formHint}</p>
+            <div className="mt-3 grid gap-3 lg:grid-cols-6">
+              <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
+                Type
                 <select
-                  aria-label={form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
-                  className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
-                  name={form.scopeType === "lot" ? "register-lot" : "register-line"}
+                  className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                  name="register-kind"
                   autoComplete="off"
-                  value={form.scopeId}
+                  value={form.kind}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      scopeId: event.target.value,
+                      kind: event.target.value as AffaireRegisterEntryKind,
                     }))
                   }
                 >
-                  <option value="">
-                    {form.scopeType === "lot" ? "Selectionner un lot" : "Selectionner une ligne"}
-                  </option>
-                  {activeScopeOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
+                  {Object.entries(AFFAIRE_REGISTER_KIND_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
                     </option>
                   ))}
                 </select>
               </label>
-            ) : null}
-            {form.scopeType === "exception" ? (
-              <>
-                <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-2">
-                  Reference exception
-                  <input
-                    className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
-                    name="register-exception-ref"
+              <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
+                Sévérité
+                <select
+                  className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                  name="register-severity"
+                  autoComplete="off"
+                  value={form.severity}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      severity: event.target.value as AffaireRegisterEntrySeverity,
+                    }))
+                  }
+                >
+                  {Object.entries(AFFAIRE_REGISTER_SEVERITY_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-1">
+                Scope
+                <select
+                  className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                  name="register-scope"
+                  autoComplete="off"
+                  value={form.scopeType}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      scopeType: event.target.value as "project" | "lot" | "line" | "exception",
+                      scopeId: "",
+                      scopeRef: "",
+                      scopeLabel: "",
+                    }))
+                  }
+                >
+                  {Object.entries(AFFAIRE_REGISTER_SCOPE_LABELS).map(([value, label]) => (
+                    <option
+                      key={value}
+                      value={value}
+                      disabled={value === "exception" && !versionId}
+                    >
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {form.scopeType === "lot" || form.scopeType === "line" ? (
+                <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-3">
+                  {form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
+                  <select
+                    aria-label={form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
+                    className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                    name={form.scopeType === "lot" ? "register-lot" : "register-line"}
                     autoComplete="off"
-                    spellCheck={false}
-                    placeholder="Ex. EXC-12..."
-                    value={form.scopeRef}
+                    value={form.scopeId}
                     onChange={(event) =>
                       setForm((current) => ({
                         ...current,
-                        scopeRef: event.target.value,
+                        scopeId: event.target.value,
                       }))
                     }
-                  />
+                  >
+                    <option value="">
+                      {form.scopeType === "lot" ? "Sélectionner un lot" : "Sélectionner une ligne"}
+                    </option>
+                    {activeScopeOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </label>
-                <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-2">
-                  Libelle exception
-                  <input
-                    className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
-                    name="register-exception-label"
-                    autoComplete="off"
-                    placeholder="Ex. Reserve acoustique hall..."
-                    value={form.scopeLabel}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        scopeLabel: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              </>
-            ) : null}
-          </div>
-          <div className="mt-3 grid gap-3 lg:grid-cols-6">
-            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-4">
-              Texte
-              <textarea
-                rows={3}
-                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
-                name="register-text"
-                placeholder="Decrivez le point a arbitrer, a confirmer ou la piece attendue..."
-                value={form.text}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    text: event.target.value,
-                  }))
-                }
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-2">
-              Source documentaire (facultatif)
-              <input
-                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
-                name="register-source"
-                autoComplete="off"
-                placeholder="Ex. note-client-v3.pdf..."
-                value={form.sourceFileName}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    sourceFileName: event.target.value,
-                  }))
-                }
-              />
-            </label>
-          </div>
-          <p
-            className={`mt-3 text-xs ${
-              canCreateEntry
-                ? "text-[var(--success)]"
-                : scopeHelpMessage || form.text.trim().length > 0
-                  ? "text-[var(--warning)]"
-                  : "text-[var(--slate-500)]"
-            }`}
-            aria-live="polite"
-          >
-            {formReadinessMessage}
-          </p>
-          <div className="mt-3 flex justify-end">
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={!canCreateEntry || isMutationPending}
-              onClick={() => void handleCreateEntry()}
+              ) : null}
+              {form.scopeType === "exception" ? (
+                <>
+                  <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-2">
+                    Référence exception
+                    <input
+                      className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                      name="register-exception-ref"
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder="Ex. EXC-12..."
+                      value={form.scopeRef}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          scopeRef: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-2">
+                    Libellé exception
+                    <input
+                      className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                      name="register-exception-label"
+                      autoComplete="off"
+                      placeholder="Ex. Reserve acoustique hall..."
+                      value={form.scopeLabel}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          scopeLabel: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                </>
+              ) : null}
+            </div>
+            <div className="mt-3 grid gap-3 lg:grid-cols-6">
+              <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-4">
+                Texte
+                <textarea
+                  rows={3}
+                  className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                  name="register-text"
+                  placeholder="Décrivez le point à arbitrer, à confirmer ou la pièce attendue..."
+                  value={form.text}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      text: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-[var(--slate-600)] lg:col-span-2">
+                Source documentaire (facultatif)
+                <input
+                  className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
+                  name="register-source"
+                  autoComplete="off"
+                  placeholder="Ex. note-client-v3.pdf..."
+                  value={form.sourceFileName}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      sourceFileName: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <p
+              className={`mt-3 text-xs ${
+                canCreateEntry
+                  ? "text-[var(--success)]"
+                  : scopeHelpMessage || form.text.trim().length > 0
+                    ? "text-[var(--warning)]"
+                    : "text-[var(--slate-500)]"
+              }`}
+              aria-live="polite"
             >
-              Ajouter au registre
-            </button>
+              {formReadinessMessage}
+            </p>
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!canCreateEntry || isMutationPending}
+                onClick={() => void handleCreateEntry()}
+              >
+                Ajouter au registre
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <button
+            type="button"
+            className="mt-4 flex w-full items-center gap-2 rounded-2xl border border-dashed border-[var(--slate-300)] bg-[var(--slate-50)]/60 px-4 py-3 text-sm font-medium text-[var(--slate-600)] transition-colors hover:border-[var(--slate-400)] hover:bg-[var(--slate-100)]/80 hover:text-[var(--slate-800)]"
+            onClick={() => setIsFormExpanded(true)}
+          >
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--slate-200)] text-xs font-bold text-[var(--slate-600)]">+</span>
+            Ajouter un point
+          </button>
+        )
       ) : null}
 
       {inlineFeedback ? (
@@ -904,15 +924,15 @@ export function AffaireRegisterCard({
           <div className="rounded-2xl border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-4 py-8 text-center">
             <p className="text-sm font-medium text-[var(--slate-700)]">
               {hasActiveFilters
-                ? "Aucun point ne correspond a ces filtres."
+                ? "Aucun point ne correspond à ces filtres."
                 : "Aucun point du registre sur cette vue pour le moment."}
             </p>
             <p className="mt-2 text-sm text-[var(--slate-500)]">
               {hasActiveFilters
-                ? "Reinitialisez les filtres pour revenir a l'ensemble du registre."
+                ? "Réinitialisez les filtres pour revenir à l'ensemble du registre."
                 : isReadOnly
-                  ? "Les futures hypotheses, pieces manquantes et transitions apparaitront ici."
-                  : "Ajoutez une hypothese ou une piece manquante pour demarrer une trace exploitable."}
+                  ? "Les futures hypothèses, pièces manquantes et transitions apparaîtront ici."
+                  : "Ajoutez une hypothèse ou une pièce manquante pour démarrer une trace exploitable."}
             </p>
           </div>
         ) : (
@@ -974,23 +994,23 @@ export function AffaireRegisterCard({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-[var(--slate-800)]">
-              Historique recent du registre
+              Historique récent du registre
             </h3>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              Actions historisees pour expliciter qui a fait quoi sur les points du dossier.
+              Actions historisées pour expliciter qui a fait quoi sur les points du dossier.
             </p>
           </div>
           <div className="rounded-full bg-white px-2.5 py-1 text-xs text-[var(--slate-600)]">
-            {timelineEvents.length} evenement{timelineEvents.length > 1 ? "s" : ""}
+            {timelineEvents.length} événement{timelineEvents.length > 1 ? "s" : ""}
           </div>
         </div>
         {timelineEvents.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-[var(--slate-200)] bg-white px-4 py-6 text-center">
             <p className="text-sm font-medium text-[var(--slate-700)]">
-              Aucun evenement recent pour cette vue du registre.
+              Aucun événement récent pour cette vue du registre.
             </p>
             <p className="mt-2 text-sm text-[var(--slate-500)]">
-              Les creations, changements de statut et commentaires de trace remonteront ici.
+              Les créations, changements de statut et commentaires de trace remonteront ici.
             </p>
           </div>
         ) : (
@@ -1015,7 +1035,7 @@ export function AffaireRegisterCard({
                     </p>
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--slate-500)]">
                       <span>
-                        {event.actorUserName || "Systeme"} · {formatDateTime(event.createdAt)}
+                        {event.actorUserName || "Système"} · {formatDateTime(event.createdAt)}
                       </span>
                       {event.beforeStatus &&
                       event.afterStatus &&
@@ -1043,13 +1063,13 @@ export function AffaireRegisterCard({
         <div>
           <p className="text-sm font-medium text-[var(--slate-700)]">
             {registerPage?.filters.cursor
-              ? "Vue paginee sur une tranche du registre"
-              : "Debut du registre pour cette vue"}
+              ? "Vue paginée sur une tranche du registre"
+              : "Début du registre pour cette vue"}
           </p>
           <p className="mt-1 text-xs text-[var(--slate-500)]">
             {registerPage?.nextCursor
               ? "D'autres points sont disponibles. Chargez la suite pour poursuivre la revue."
-              : "Vous etes sur la derniere tranche disponible pour ces filtres."}
+              : "Vous êtes sur la dernière tranche disponible pour ces filtres."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1059,7 +1079,7 @@ export function AffaireRegisterCard({
             disabled={!registerPage?.filters.cursor || isFilterPending}
             onClick={() => applyFilters({ cursor: null })}
           >
-            Revenir au debut
+            Revenir au début
           </button>
           <button
             type="button"
@@ -1123,7 +1143,7 @@ export function AffaireRegisterCard({
               Commentaire de trace (facultatif)
               <textarea
                 rows={4}
-                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2 text-sm text-[var(--slate-700)]"
+                className="min-h-[44px] rounded-lg border border-[var(--slate-200)] bg-white px-2.5 py-1.5 text-xs text-[var(--slate-700)] sm:min-h-0"
                 value={transitionComment}
                 onChange={(event) => setTransitionComment(event.target.value)}
                 placeholder="Expliquez le contexte ou la prochaine action attendue."

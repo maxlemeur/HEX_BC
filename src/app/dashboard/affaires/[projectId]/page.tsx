@@ -263,6 +263,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
           status: summary.currentVersion.status,
         }
       : null,
+    lineCount: summary.lineCount,
     preferences: cockpitPreferences,
   });
 

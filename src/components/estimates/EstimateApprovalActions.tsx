@@ -55,7 +55,7 @@ const SCOPE_LABELS: Record<EstimateReviewCommentScope, string> = {
   lot: "Lot",
   line: "Ligne",
   exception: "Exception",
-  hypothesis: "Hypothese",
+  hypothesis: "Hypothèse",
   approval_rule: "Exception",
 };
 
@@ -67,15 +67,15 @@ const CORRECTION_STATUS_META: Record<
   }
 > = {
   pending: {
-    label: "A traiter",
+    label: "À traiter",
     className: "bg-[var(--warning-light)] text-[var(--warning)]",
   },
   corrected: {
-    label: "Corrige",
+    label: "Corrigé",
     className: "bg-[var(--success)]/10 text-[var(--success)]",
   },
   to_discuss: {
-    label: "A discuter",
+    label: "À discuter",
     className: "bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]",
   },
 };
@@ -355,11 +355,13 @@ export function EstimateApprovalActions({
   projectId,
   summary,
   submissionOverview,
+  isEmpty = false,
 }: Readonly<{
   versionId: string;
   projectId: string;
   summary: EstimateApprovalSummary;
   submissionOverview: EstimateApprovalSubmissionOverview;
+  isEmpty?: boolean;
 }>) {
   const router = useRouter();
   const toast = useToast();
@@ -780,9 +782,10 @@ export function EstimateApprovalActions({
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              disabled={isPending || summary.activeCycle !== null}
+              disabled={isPending || isEmpty || summary.activeCycle !== null}
               aria-expanded={showSubmitPanel}
               aria-controls={submitPanelId}
+              title={isEmpty ? "Le devis doit contenir au moins une ligne pour être soumis." : undefined}
               onClick={() => {
                 setFormError(null);
                 setShowSubmitPanel((current) => {
@@ -799,6 +802,12 @@ export function EstimateApprovalActions({
                   : "Soumettre a validation"}
             </button>
           </div>
+
+          {isEmpty ? (
+            <p className="mt-2 text-xs text-[var(--warning)]">
+              Le devis doit contenir au moins une ligne pour être soumis.
+            </p>
+          ) : null}
 
           {showSubmitPanel ? (
             <div
@@ -848,7 +857,7 @@ export function EstimateApprovalActions({
                 </article>
                 <article className="rounded-xl border border-[var(--slate-200)] bg-white px-3 py-3">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
-                    Hypotheses ouvertes
+                    Hypothèses ouvertes
                   </p>
                   <p className="mt-2 text-lg font-semibold text-[var(--slate-900)]">
                     {formatCount(submissionOverview.openAssumptionCount)}
@@ -1094,6 +1103,7 @@ export function EstimateApprovalActions({
                   className="btn btn-primary btn-sm"
                   disabled={
                     isPending ||
+                    isEmpty ||
                     (isResubmission
                       ? !Boolean(correctionChecklist?.canResubmit)
                       : requestableReasons.length === 0 ||
@@ -1108,6 +1118,11 @@ export function EstimateApprovalActions({
                       ? "Confirmer la resoumission"
                       : "Confirmer la soumission"}
                 </button>
+                {isEmpty ? (
+                  <p className="text-xs text-[var(--warning)]">
+                    Le devis doit contenir au moins une ligne pour être soumis.
+                  </p>
+                ) : null}
                 {!isResubmission && requestableReasons.length === 0 ? (
                   <p className="text-xs text-[var(--slate-500)]">
                     Aucune regle de validation n&apos;est actuellement declenchee sur cette version.
@@ -1120,12 +1135,12 @@ export function EstimateApprovalActions({
                 ) : null}
                 {summary.submissionReadiness.blockers.length > 0 ? (
                   <p className="text-xs text-[var(--danger)]">
-                    Corrigez les blocants avant d&apos;envoyer a la validation.
+                    Corrigez les blocants avant d&apos;envoyer à la validation.
                   </p>
                 ) : null}
                 {summary.activeCycle !== null ? (
                   <p className="text-xs text-[var(--brand-blue)]">
-                    Cette version est deja en revue.
+                    Cette version est déjà en revue.
                   </p>
                 ) : null}
               </div>
@@ -1172,7 +1187,7 @@ export function EstimateApprovalActions({
                 <option value="lot">Lot</option>
                 <option value="line">Ligne</option>
                 <option value="exception">Exception</option>
-                <option value="hypothesis">Hypothese</option>
+                <option value="hypothesis">Hypothèse</option>
               </select>
             </label>
 

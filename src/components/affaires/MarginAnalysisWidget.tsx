@@ -322,6 +322,9 @@ export function MarginAnalysisWidget({
   data: AffaireHubMarginAnalysisResult | null;
   errorMessage?: string;
 }) {
+  // Don't render an empty card — it wastes vertical space
+  if (!data && !errorMessage) return null;
+
   return (
     <section className="dashboard-card p-5">
       <h2 className="mb-4 text-sm font-semibold text-[var(--slate-800)]">
@@ -332,11 +335,7 @@ export function MarginAnalysisWidget({
         <div className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
           {errorMessage}
         </div>
-      ) : !data ? (
-        <p className="text-sm text-[var(--slate-500)]">
-          Aucune donnee de marge disponible.
-        </p>
-      ) : (
+      ) : !data ? null : (
         <div className="space-y-5">
           <MarginGlobalSummary global={data.global} />
           <MarginSectionTable

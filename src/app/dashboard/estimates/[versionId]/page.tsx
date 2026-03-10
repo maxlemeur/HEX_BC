@@ -408,6 +408,7 @@ export default async function EstimateDetailPage({
                   versionId={versionId}
                   projectId={version.project_id}
                   summary={approvalSummary}
+                  isEmpty={items.filter((i) => i.item_type === "line").length === 0}
                   submissionOverview={{
                     coveragePercent: plansSummary?.coveragePercent ?? null,
                     exceptionCount: plansSummary?.exceptionCount ?? null,
