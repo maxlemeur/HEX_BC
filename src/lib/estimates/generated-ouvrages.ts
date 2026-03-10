@@ -1699,6 +1699,16 @@ function deriveGeneratedOuvrageLaborHours(input: {
 } {
   const normalizedUnit = toNullableText(input.component.unit)?.toLowerCase();
   const normalizedYieldUnit = toNullableText(input.component.yieldUnit)?.toLowerCase();
+  const prefersExplicitQuantity =
+    input.component.status === "manual" &&
+    (!normalizedUnit || normalizedUnit === "h" || normalizedUnit.startsWith("h/"));
+
+  if (prefersExplicitQuantity) {
+    return {
+      derivedHours: roundQuantity(input.component.quantity),
+      hoursSource: "quantity",
+    };
+  }
 
   if (
     typeof input.component.yieldValue === "number" &&

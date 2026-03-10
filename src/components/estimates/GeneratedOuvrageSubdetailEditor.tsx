@@ -134,7 +134,21 @@ export function GeneratedOuvrageSubdetailEditor({
   ) {
     setComponents((prev) =>
       prev.map((component, componentIndex) =>
-        componentIndex === index ? { ...component, ...patch } : component
+        componentIndex === index
+          ? {
+              ...component,
+              ...patch,
+              status:
+                component.status === "manual" ||
+                Object.entries(patch).some(([key, value]) => {
+                  const currentValue =
+                    component[key as keyof GeneratedOuvrageSubdetailEditorComponent];
+                  return !Object.is(currentValue, value);
+                })
+                  ? "manual"
+                  : component.status,
+            }
+          : component
       )
     );
   }
@@ -408,7 +422,7 @@ export function GeneratedOuvrageSubdetailEditor({
                         }
                       >
                         <option value="material">Materiau</option>
-                        <option value="labor">Main d'oeuvre</option>
+                        <option value="labor">Main d&apos;oeuvre</option>
                         <option value="equipment">Materiel</option>
                         <option value="subcontract">Sous-traitance</option>
                       </select>

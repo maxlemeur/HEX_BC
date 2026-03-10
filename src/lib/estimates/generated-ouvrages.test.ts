@@ -780,6 +780,190 @@ describe("insertGeneratedOuvrages", () => {
     });
   });
 
+  it("derives inserted labor hours from a manual reviewed quantity even when yield metadata is still present", async () => {
+    const reviewedItems = createSubdetailItemRows().map((item) =>
+      item.cost_type === "labor"
+        ? {
+            ...item,
+            status: "manual",
+            quantity: 36,
+          }
+        : item
+    );
+    const supabase = createSupabaseStub({
+      estimate_versions: {
+        select: [createQueryBuilder({ data: createVersionAccessRow(), error: null })],
+      },
+      draft_locks: {
+        select: [
+          createQueryBuilder({
+            data: {
+              id: "lock-1",
+              version_id: VERSION_ID,
+              user_id: USER_ID,
+              locked_at: "2026-03-07T09:00:00.000Z",
+              expires_at: "2099-03-07T09:30:00.000Z",
+            },
+            error: null,
+          }),
+        ],
+      },
+      labor_roles: {
+        select: [createQueryBuilder({ data: [createLaborRoleRow()], error: null })],
+      },
+      estimate_generated_ouvrage_drafts: {
+        select: [createQueryBuilder({ data: createDraftRow(), error: null })],
+        update: [
+          createQueryBuilder({
+            data: { ...createDraftRow("applied"), summary: {}, generation_metadata: {} },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_source_fragments: {
+        select: [createQueryBuilder({ data: [createFragmentRow()], error: null })],
+      },
+      estimate_generated_ouvrage_candidates: {
+        select: [createQueryBuilder({ data: [createCandidateRow()], error: null })],
+        update: [
+          createQueryBuilder({
+            data: { ...createCandidateRow("inserted"), metadata: {} },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_candidate_sources: {
+        select: [
+          createQueryBuilder({
+            data: [
+              {
+                id: "link-1",
+                created_at: "2026-03-07T09:02:00.000Z",
+                tenant_id: TENANT_ID,
+                draft_id: DRAFT_ID,
+                candidate_id: CANDIDATE_ID,
+                source_fragment_id: FRAGMENT_ID,
+                source_rank: 0,
+                rationale: null,
+                metadata: {},
+              },
+            ],
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_applications: {
+        select: [createQueryBuilder({ data: [], error: null })],
+        insert: [
+          createQueryBuilder({
+            data: {
+              id: APPLICATION_ID,
+              created_at: "2026-03-07T09:05:00.000Z",
+              tenant_id: TENANT_ID,
+              draft_id: DRAFT_ID,
+              candidate_id: CANDIDATE_ID,
+              target_version_id: VERSION_ID,
+              estimate_item_id: ITEM_ID,
+              applied_by: USER_ID,
+              applied_payload: {},
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_generated_ouvrage_subdetail_drafts: {
+        select: [createQueryBuilder({ data: createSubdetailDraftRow(), error: null })],
+        update: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_items: {
+        select: [createQueryBuilder({ data: reviewedItems, error: null })],
+      },
+      estimate_generated_ouvrage_subdetail_item_sources: {
+        select: [createQueryBuilder({ data: createSubdetailItemSourceRows(), error: null })],
+      },
+      estimate_generated_ouvrage_work_snapshots: {
+        insert: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_assemblies: {
+        insert: [
+          createQueryBuilder({
+            data: {
+              id: ASSEMBLY_ID,
+              name: "Pose de faux plafond · 66666666",
+              reference_code: "EST383-66666666",
+            },
+            error: null,
+          }),
+        ],
+      },
+      estimate_assembly_items: {
+        insert: [createQueryBuilder({ data: [], error: null })],
+      },
+      estimate_items: {
+        select: [
+          createQueryBuilder({
+            data: [{ id: FALLBACK_SECTION_ID, title: "A classer" }],
+            error: null,
+          }),
+        ],
+      },
+    });
+
+    createAuthenticatedContext(supabase);
+    vi.mocked(createEstimateItem).mockResolvedValueOnce({
+      item: {
+        id: ITEM_ID,
+      },
+    } as never);
+
+    await insertGeneratedOuvrages({
+      versionId: VERSION_ID,
+      draftId: DRAFT_ID,
+      acceptedCandidates: [
+        {
+          candidateId: CANDIDATE_ID,
+          designation: "Pose de faux plafond",
+          unit: "m2",
+          quantity: 120,
+          lotId: null,
+        },
+      ],
+    });
+
+    const insertedLinePayload = vi.mocked(createEstimateItem).mock.calls[0]?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(insertedLinePayload).toMatchObject({
+      item_type: "line",
+      h_mo: 36,
+      labor_role_id: createLaborRoleRow().id,
+      unit_price_ht_cents: 476,
+    });
+    expect(insertedLinePayload?.["k_fo"]).toBeCloseTo(3150 / (120 * 476), 8);
+    expect(insertedLinePayload?.["k_mo"]).toBeCloseTo(1, 8);
+
+    const applicationInsertHistory = supabase.__history.find(
+      (entry) =>
+        entry.table === "estimate_generated_ouvrage_applications" &&
+        entry.operation === "insert"
+    );
+    expect(applicationInsertHistory?.payload).toMatchObject({
+      applied_payload: expect.objectContaining({
+        estimate_item_mapping: expect.objectContaining({
+          hMo: 36,
+          laborDsCents: 54_000,
+          laborTrace: [
+            expect.objectContaining({
+              quantity: 36,
+              derivedHours: 36,
+              hoursSource: "quantity",
+            }),
+          ],
+        }),
+      }),
+    });
+  });
+
   it("reuses the explicit 'A classer' section when it already exists", async () => {
     const supabase = createSupabaseStub({
       estimate_versions: {
