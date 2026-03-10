@@ -948,6 +948,12 @@ describe("affaires hub server", () => {
               error: null,
             },
           },
+          {
+            maybeSingle: {
+              data: null,
+              error: null,
+            },
+          },
         ],
         estimate_versions: [
           {
@@ -998,6 +1004,150 @@ describe("affaires hub server", () => {
       documentClass: "tabular_pdf",
       recommendedLevel: "B",
       compatibleLevels: ["B", "C"],
+    });
+  });
+
+  it("keeps the auto-prompt job scoped to the default plan set", async () => {
+    const context = createHubContext({
+      tableScenarios: {
+        estimate_projects: [
+          {
+            maybeSingle: {
+              data: {
+                id: PROJECT_ID,
+                tenant_id: TENANT_ID,
+                user_id: USER_ID,
+                name: "Affaire Multi Jeux",
+                reference: null,
+                client_name: null,
+                is_archived: false,
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_sets: [
+          {
+            limit: {
+              data: [
+                {
+                  id: "set-a",
+                  name: "Set A",
+                  metadata: {
+                    source: "affaire-intake",
+                    default_import_plan_set: true,
+                  },
+                  estimate_version_id: "ver-current",
+                  created_at: "2026-03-05T09:00:00+00:00",
+                },
+                {
+                  id: "set-b",
+                  name: "Set B",
+                  metadata: {},
+                  estimate_version_id: "ver-current",
+                  created_at: "2026-03-06T09:00:00+00:00",
+                },
+              ],
+              count: 2,
+              error: null,
+            },
+          },
+        ],
+        takeoff_jobs: [
+          {
+            maybeSingle: {
+              data: {
+                id: "job-set-b",
+                status: "completed",
+                level: "B",
+                processing_strategy: "sync",
+                provider_batch_state: null,
+                source_file_name: "set-b.pdf",
+                created_at: "2026-03-07T10:00:00+00:00",
+                error_code: null,
+                error_message: null,
+                estimate_version_id: "ver-current",
+                plan_set_id: "set-b",
+              },
+              error: null,
+            },
+          },
+          {
+            maybeSingle: {
+              data: {
+                status: "completed",
+                created_at: "2026-03-06T10:00:00+00:00",
+                estimate_version_id: "ver-current",
+                plan_set_id: "set-a",
+              },
+              error: null,
+            },
+          },
+        ],
+        estimate_versions: [
+          {
+            maybeSingle: {
+              data: {
+                id: "ver-current",
+              },
+              error: null,
+            },
+          },
+        ],
+        plan_files: [
+          {
+            limit: {
+              data: null,
+              count: 1,
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [{ file_size_bytes: 1200 }],
+              error: null,
+            },
+          },
+          {
+            limit: {
+              data: [
+                {
+                  file_name: "lot-cvc-dpgf.pdf",
+                  file_type: "application/pdf",
+                  page_count: 2,
+                  created_at: "2026-03-05T09:30:00+00:00",
+                },
+              ],
+              error: null,
+            },
+          },
+        ],
+      },
+    });
+
+    vi.mocked(fetchTakeoffDpgfSummaryForHub).mockResolvedValue({
+      reliable_matches: 10,
+      to_confirm: 0,
+      significant_gaps: 0,
+      forced_manual: 0,
+      lines_without_proof: 0,
+      unused_takeoff_items: 0,
+      total_lines: 10,
+    });
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
+
+    const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
+
+    expect(summary.latestJob).toMatchObject({
+      jobId: "job-set-b",
+      planSetId: "set-b",
+    });
+    expect(summary.defaultPlanSetLatestJob).toEqual({
+      status: "completed",
+      createdAt: "2026-03-06T10:00:00+00:00",
+      estimateVersionId: "ver-current",
+      planSetId: "set-a",
     });
   });
 

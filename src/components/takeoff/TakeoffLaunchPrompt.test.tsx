@@ -2,15 +2,18 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
-const launchTakeoffFromSourceVersionPlanSetMock = vi.hoisted(() => vi.fn());
+const duplicateEstimateVersionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchTakeoffFromPlanSet: launchTakeoffFromPlanSetMock,
-  launchTakeoffFromSourceVersionPlanSet: launchTakeoffFromSourceVersionPlanSetMock,
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+}));
+
+vi.mock("@/lib/estimates/client", () => ({
+  duplicateEstimateVersion: duplicateEstimateVersionMock,
 }));
 
 import {
@@ -210,10 +213,8 @@ describe("TakeoffLaunchPrompt", () => {
   });
 
   it("creates a draft before launching when only a source version is available", async () => {
-    launchTakeoffFromSourceVersionPlanSetMock.mockResolvedValue({
-      jobId: JOB_ID,
-      versionId: DUPLICATED_VERSION_ID,
-    });
+    duplicateEstimateVersionMock.mockResolvedValue(DUPLICATED_VERSION_ID);
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: JOB_ID });
 
     render(
       <TakeoffLaunchPrompt
@@ -230,13 +231,52 @@ describe("TakeoffLaunchPrompt", () => {
     );
 
     await waitFor(() => {
-      expect(launchTakeoffFromSourceVersionPlanSetMock).toHaveBeenCalledWith({
+      expect(duplicateEstimateVersionMock).toHaveBeenCalledWith(VERSION_ID);
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
         projectId: PROJECT_ID,
         planSetId: PLAN_SET_ID,
-        sourceVersionId: VERSION_ID,
+        versionId: DUPLICATED_VERSION_ID,
         level: "B",
       });
     });
+  });
+
+  it("reuses the duplicated draft when retrying after launch creation fails", async () => {
+    duplicateEstimateVersionMock.mockResolvedValue(DUPLICATED_VERSION_ID);
+    launchTakeoffFromPlanSetMock
+      .mockRejectedValueOnce(new Error("Network error"))
+      .mockResolvedValueOnce({ jobId: JOB_ID });
+
+    render(
+      <TakeoffLaunchPrompt
+        {...DEFAULT_PROPS}
+        versionId={null}
+        versionLabel={undefined}
+        sourceVersionId={VERSION_ID}
+        sourceVersionLabel="V3"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Creer un brouillon et analyser" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Network error")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reessayer" }));
+
+    await waitFor(() => {
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenNthCalledWith(2, {
+        projectId: PROJECT_ID,
+        planSetId: PLAN_SET_ID,
+        versionId: DUPLICATED_VERSION_ID,
+        level: "B",
+      });
+    });
+
+    expect(duplicateEstimateVersionMock).toHaveBeenCalledTimes(1);
   });
 
   it('"Me rappeler plus tard" calls onDismissTemporary', () => {

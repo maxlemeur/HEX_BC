@@ -13,7 +13,7 @@ const launchTakeoffFromPlanSetSchema = z.object({
   projectId: z.string().uuid(),
   planSetId: z.string().uuid(),
   versionId: z.string().uuid(),
-  level: z.enum(["A", "B", "C"]).default("B"),
+  level: z.enum(["B", "C"]).default("B"),
 });
 
 export type LaunchTakeoffFromPlanSetInput = z.infer<
@@ -24,7 +24,7 @@ const launchTakeoffFromSourceVersionPlanSetSchema = z.object({
   projectId: z.string().uuid(),
   planSetId: z.string().uuid(),
   sourceVersionId: z.string().uuid(),
-  level: z.enum(["A", "B", "C"]).default("B"),
+  level: z.enum(["B", "C"]).default("B"),
 });
 
 export type LaunchTakeoffFromSourceVersionPlanSetInput = z.infer<

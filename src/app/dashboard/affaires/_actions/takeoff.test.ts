@@ -134,23 +134,15 @@ describe("launchTakeoffFromPlanSet", () => {
     });
   });
 
-  it("passes through level A when requested", async () => {
-    createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
-    triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true });
-
-    await launchTakeoffFromPlanSet({
-      projectId: PROJECT_ID,
-      planSetId: PLAN_SET_ID,
-      versionId: VERSION_ID,
-      level: "A",
-    });
-
-    expect(createTakeoffJobFromPlanSetMock).toHaveBeenCalledWith({
-      projectId: PROJECT_ID,
-      planSetId: PLAN_SET_ID,
-      estimateVersionId: VERSION_ID,
-      level: "A",
-    });
+  it("rejects level A for plan-set launches", async () => {
+    await expect(
+      launchTakeoffFromPlanSet({
+        projectId: PROJECT_ID,
+        planSetId: PLAN_SET_ID,
+        versionId: VERSION_ID,
+        level: "A" as "B",
+      }),
+    ).rejects.toThrow();
   });
 });
 
@@ -209,5 +201,18 @@ describe("launchTakeoffFromSourceVersionPlanSet", () => {
       "parent_version_id",
       "55555555-5555-4555-8555-555555555555",
     );
+  });
+
+  it("rejects level A before duplicating a source version", async () => {
+    await expect(
+      launchTakeoffFromSourceVersionPlanSet({
+        projectId: PROJECT_ID,
+        planSetId: PLAN_SET_ID,
+        sourceVersionId: "55555555-5555-4555-8555-555555555555",
+        level: "A" as "B",
+      }),
+    ).rejects.toThrow();
+
+    expect(duplicateEstimateVersionMock).not.toHaveBeenCalled();
   });
 });

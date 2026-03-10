@@ -8187,6 +8187,17 @@ export async function createTakeoffJobFromPlanSet(input: {
     await getAuthenticatedContext();
   const level = input.level ?? TAKEOFF_PLAN_SET_LEVEL;
 
+  if (level === "A") {
+    throw new TakeoffError({
+      status: 422,
+      code: TakeoffErrorCode.BAD_REQUEST,
+      message:
+        "Le niveau Rapide n'est pas disponible pour les jeux de plans. Utilisez Standard ou Detaille.",
+      retryable: false,
+      level,
+    });
+  }
+
   await assertTakeoffEnabled(tenantId, { supabase });
   await assertEstimateVersionAccessibleAsDraft({
     supabase,

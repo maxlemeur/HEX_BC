@@ -5,12 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 
 const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
-const launchTakeoffFromSourceVersionPlanSetMock = vi.hoisted(() => vi.fn());
+const duplicateEstimateVersionMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
   launchTakeoffFromPlanSet: launchTakeoffFromPlanSetMock,
-  launchTakeoffFromSourceVersionPlanSet: launchTakeoffFromSourceVersionPlanSetMock,
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
@@ -18,6 +17,10 @@ vi.mock("@/components/ui/Toast", () => ({
     success: toastSuccessMock,
     error: vi.fn(),
   }),
+}));
+
+vi.mock("@/lib/estimates/client", () => ({
+  duplicateEstimateVersion: duplicateEstimateVersionMock,
 }));
 
 const defaultProps = {
@@ -105,10 +108,8 @@ describe("LaunchMetreDialog", () => {
 
   it("creates a draft first when the current version is not a draft", async () => {
     const user = userEvent.setup();
-    launchTakeoffFromSourceVersionPlanSetMock.mockResolvedValue({
-      jobId: "job-1",
-      versionId: "draft-v2",
-    });
+    duplicateEstimateVersionMock.mockResolvedValue("draft-v2");
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: "job-1" });
 
     render(
       <LaunchMetreDialog
@@ -126,13 +127,56 @@ describe("LaunchMetreDialog", () => {
     );
 
     await waitFor(() => {
-      expect(launchTakeoffFromSourceVersionPlanSetMock).toHaveBeenCalledWith({
+      expect(duplicateEstimateVersionMock).toHaveBeenCalledWith("version-sent");
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
         projectId: "proj-1",
         planSetId: "plan-set-1",
-        sourceVersionId: "version-sent",
+        versionId: "draft-v2",
         level: "B",
       });
     });
+  });
+
+  it("reuses the duplicated draft when retrying after a launch failure", async () => {
+    const user = userEvent.setup();
+    duplicateEstimateVersionMock.mockResolvedValue("draft-v2");
+    launchTakeoffFromPlanSetMock
+      .mockRejectedValueOnce(new Error("launch failed"))
+      .mockResolvedValueOnce({ jobId: "job-2" });
+
+    render(
+      <LaunchMetreDialog
+        {...defaultProps}
+        currentVersion={{
+          id: "version-sent",
+          status: "sent",
+          versionNumber: 4,
+        }}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Creer un brouillon et analyser" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("launch failed")).toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Creer un brouillon et analyser" }),
+    );
+
+    await waitFor(() => {
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenNthCalledWith(2, {
+        projectId: "proj-1",
+        planSetId: "plan-set-1",
+        versionId: "draft-v2",
+        level: "B",
+      });
+    });
+
+    expect(duplicateEstimateVersionMock).toHaveBeenCalledTimes(1);
   });
 
   it("shows a create-version CTA when no version exists", () => {

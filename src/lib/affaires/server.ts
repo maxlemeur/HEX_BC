@@ -164,6 +164,12 @@ export type AffaireHubPlansSummaryResult = {
   defaultPlanSetFileCount: number;
   defaultPlanSetUpdatedAt: string | null;
   launchRecommendation?: TakeoffDocumentRecommendation | null;
+  defaultPlanSetLatestJob?: {
+    status: string;
+    planSetId: string | null;
+    estimateVersionId: string | null;
+    createdAt: string;
+  } | null;
   latestJob: {
     jobId: string;
     status: TakeoffVisibleJobStatus;
@@ -746,20 +752,44 @@ async function fetchAffaireHubPlansSummaryWithContext(
   let launchRecommendation: TakeoffDocumentRecommendation | null = null;
   let defaultPlanSetFileCount = 0;
   let defaultPlanSetUpdatedAt: string | null = null;
+  let defaultPlanSetLatestJob: AffaireHubPlansSummaryResult["defaultPlanSetLatestJob"] =
+    null;
 
   if (defaultPlanSetId) {
+    const [defaultPlanFilesResult, defaultPlanSetLatestJobResult] =
+      await Promise.all([
+        context.supabase
+          .from("plan_files" as never)
+          .select("file_name, file_type, page_count, created_at" as never)
+          .eq("tenant_id" as never, context.tenantId as never)
+          .eq("plan_set_id" as never, defaultPlanSetId as never)
+          .order("created_at" as never, { ascending: true }),
+        context.supabase
+          .from("takeoff_jobs" as never)
+          .select(
+            "status, created_at, estimate_version_id, plan_set_id" as never,
+          )
+          .eq("tenant_id" as never, context.tenantId as never)
+          .eq("plan_set_id" as never, defaultPlanSetId as never)
+          .order("created_at" as never, { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
     const { data: defaultPlanFilesData, error: defaultPlanFilesError } =
-      await context.supabase
-        .from("plan_files" as never)
-        .select("file_name, file_type, page_count, created_at" as never)
-        .eq("tenant_id" as never, context.tenantId as never)
-        .eq("plan_set_id" as never, defaultPlanSetId as never)
-        .order("created_at" as never, { ascending: true });
+      defaultPlanFilesResult;
 
     if (defaultPlanFilesError) {
       throw mapSupabaseError(
         defaultPlanFilesError,
         "Impossible de charger les fichiers du jeu de plans recommande."
+      );
+    }
+
+    if (defaultPlanSetLatestJobResult.error) {
+      throw mapSupabaseError(
+        defaultPlanSetLatestJobResult.error,
+        "Impossible de charger le dernier job du jeu de plans recommande.",
       );
     }
 
@@ -783,6 +813,21 @@ async function fetchAffaireHubPlansSummaryWithContext(
       },
       null,
     );
+    const defaultPlanSetLatestJobRow =
+      (defaultPlanSetLatestJobResult.data ?? null) as {
+        status: string;
+        created_at: string;
+        estimate_version_id: string | null;
+        plan_set_id: string | null;
+      } | null;
+    if (defaultPlanSetLatestJobRow) {
+      defaultPlanSetLatestJob = {
+        status: defaultPlanSetLatestJobRow.status,
+        planSetId: defaultPlanSetLatestJobRow.plan_set_id,
+        estimateVersionId: defaultPlanSetLatestJobRow.estimate_version_id,
+        createdAt: defaultPlanSetLatestJobRow.created_at,
+      };
+    }
 
     launchRecommendation = classifyTakeoffPlanSetSource({
       files: defaultPlanFiles.map((file) => ({
@@ -889,6 +934,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
     defaultPlanSetFileCount,
     defaultPlanSetUpdatedAt,
     ...(launchRecommendation ? { launchRecommendation } : {}),
+    ...(defaultPlanSetLatestJob ? { defaultPlanSetLatestJob } : {}),
     latestJob,
     coveragePercent,
     exceptionCount,

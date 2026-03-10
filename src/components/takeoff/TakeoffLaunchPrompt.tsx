@@ -5,9 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   launchTakeoffFromPlanSet,
-  launchTakeoffFromSourceVersionPlanSet,
 } from "@/app/dashboard/affaires/_actions/takeoff";
 import { useToast } from "@/components/ui/Toast";
+import { duplicateEstimateVersion } from "@/lib/estimates/client";
 import {
   TAKEOFF_LEVEL_BUSINESS_LABELS,
   getTakeoffSelectionWarning,
@@ -15,6 +15,12 @@ import {
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
 import type { TakeoffLevel } from "@/lib/takeoff/types";
+
+type PlanSetTakeoffLevel = Extract<TakeoffLevel, "B" | "C">;
+
+function isPlanSetTakeoffLevel(level: TakeoffLevel | null | undefined): level is PlanSetTakeoffLevel {
+  return level === "B" || level === "C";
+}
 
 const RECENT_PROMPT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -113,7 +119,7 @@ function resolveLaunchMode(input: {
 
 function getLaunchableLevels(recommendation: TakeoffDocumentRecommendation) {
   return recommendation.compatibleLevels.filter(
-    (level): level is TakeoffLevel => level === "A" || level === "B" || level === "C",
+    (level): level is PlanSetTakeoffLevel => level === "B" || level === "C",
   );
 }
 
@@ -140,12 +146,13 @@ export function TakeoffLaunchPrompt({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdJobId, setCreatedJobId] = useState<string | null>(null);
   const [launchedVersionLabel, setLaunchedVersionLabel] = useState<string | null>(null);
+  const [pendingDraftVersionId, setPendingDraftVersionId] = useState<string | null>(null);
   const launchableLevels = useMemo(
     () => getLaunchableLevels(launchRecommendation),
     [launchRecommendation],
   );
-  const [selectedLevel, setSelectedLevel] = useState<TakeoffLevel | null>(
-    launchRecommendation.recommendedLevel &&
+  const [selectedLevel, setSelectedLevel] = useState<PlanSetTakeoffLevel | null>(
+    isPlanSetTakeoffLevel(launchRecommendation.recommendedLevel) &&
       launchableLevels.includes(launchRecommendation.recommendedLevel)
       ? launchRecommendation.recommendedLevel
       : launchableLevels[0] ?? null,
@@ -167,7 +174,7 @@ export function TakeoffLaunchPrompt({
 
   useEffect(() => {
     if (
-      launchRecommendation.recommendedLevel &&
+      isPlanSetTakeoffLevel(launchRecommendation.recommendedLevel) &&
       launchableLevels.includes(launchRecommendation.recommendedLevel)
     ) {
       setSelectedLevel(launchRecommendation.recommendedLevel);
@@ -176,6 +183,10 @@ export function TakeoffLaunchPrompt({
 
     setSelectedLevel(launchableLevels[0] ?? null);
   }, [launchRecommendation, launchableLevels]);
+
+  useEffect(() => {
+    setPendingDraftVersionId(null);
+  }, [planSetId, projectId, sourceVersionId, versionId]);
 
   const handleLaunch = useCallback(async () => {
     if (!selectedLevel || !launchMode) {
@@ -190,7 +201,7 @@ export function TakeoffLaunchPrompt({
     setErrorMessage(null);
 
     try {
-      let resolvedVersionId = versionId ?? null;
+      let resolvedVersionId = versionId ?? pendingDraftVersionId ?? null;
       let resolvedVersionLabelForLaunch = resolvedVersionLabel;
       let createdJobIdForLaunch: string | null = null;
 
@@ -199,28 +210,24 @@ export function TakeoffLaunchPrompt({
           throw new Error("Impossible de creer un brouillon cible.");
         }
 
-        const result = await launchTakeoffFromSourceVersionPlanSet({
-          projectId,
-          planSetId,
-          sourceVersionId,
-          level: selectedLevel,
-        });
-        resolvedVersionId = result.versionId;
-        createdJobIdForLaunch = result.jobId;
-        resolvedVersionLabelForLaunch = resolvedVersionLabel;
-      } else {
         if (!resolvedVersionId) {
-          throw new Error("Aucune version cible n'est disponible.");
+          resolvedVersionId = await duplicateEstimateVersion(sourceVersionId);
+          setPendingDraftVersionId(resolvedVersionId);
         }
-
-        const result = await launchTakeoffFromPlanSet({
-          projectId,
-          planSetId,
-          versionId: resolvedVersionId,
-          level: selectedLevel,
-        });
-        createdJobIdForLaunch = result.jobId;
+        resolvedVersionLabelForLaunch = resolvedVersionLabel;
       }
+
+      if (!resolvedVersionId) {
+        throw new Error("Aucune version cible n'est disponible.");
+      }
+
+      const result = await launchTakeoffFromPlanSet({
+        projectId,
+        planSetId,
+        versionId: resolvedVersionId,
+        level: selectedLevel,
+      });
+      createdJobIdForLaunch = result.jobId;
 
       if (!resolvedVersionId || !createdJobIdForLaunch) {
         throw new Error("Impossible de lancer l'analyse.");
@@ -252,6 +259,7 @@ export function TakeoffLaunchPrompt({
     sourceVersionId,
     toast,
     versionId,
+    pendingDraftVersionId,
   ]);
 
   const handleRetry = useCallback(() => {

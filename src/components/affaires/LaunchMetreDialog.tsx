@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   launchTakeoffFromPlanSet,
-  launchTakeoffFromSourceVersionPlanSet,
 } from "@/app/dashboard/affaires/_actions/takeoff";
+import { duplicateEstimateVersion } from "@/lib/estimates/client";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -18,12 +18,17 @@ import {
 } from "@/lib/takeoff/document-classifier";
 import type { TakeoffLevel } from "@/lib/takeoff/client";
 
+type PlanSetTakeoffLevel = Extract<TakeoffLevel, "B" | "C">;
+
+function isPlanSetTakeoffLevel(level: TakeoffLevel | null | undefined): level is PlanSetTakeoffLevel {
+  return level === "B" || level === "C";
+}
+
 const ANALYSIS_LEVELS: Array<{
-  level: TakeoffLevel;
+  level: PlanSetTakeoffLevel;
   label: string;
   description: string;
 }> = [
-  { level: "A", label: "Rapide", description: "Premiere lecture rapide pour valider le contexte." },
   { level: "B", label: "Standard", description: "Analyse standard avec recoupements." },
   { level: "C", label: "Detaille", description: "Analyse approfondie poste par poste." },
 ];
@@ -35,7 +40,11 @@ function getCompatibleAnalysisLevels(
     return ANALYSIS_LEVELS;
   }
 
-  const compatibleLevels = new Set(recommendation.compatibleLevels);
+  const compatibleLevels = new Set(
+    recommendation.compatibleLevels.filter(
+      (level): level is PlanSetTakeoffLevel => level === "B" || level === "C",
+    ),
+  );
   return ANALYSIS_LEVELS.filter(({ level }) => compatibleLevels.has(level));
 }
 
@@ -82,12 +91,13 @@ function LaunchMetreDialogContent({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [launchSuccess, setLaunchSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pendingDraftVersionId, setPendingDraftVersionId] = useState<string | null>(null);
   const compatibleAnalysisLevels = useMemo(
     () => getCompatibleAnalysisLevels(plansContext?.launchRecommendation),
     [plansContext?.launchRecommendation],
   );
-  const [selectedLevel, setSelectedLevel] = useState<TakeoffLevel>(
-    plansContext?.launchRecommendation?.recommendedLevel &&
+  const [selectedLevel, setSelectedLevel] = useState<PlanSetTakeoffLevel>(
+    isPlanSetTakeoffLevel(plansContext?.launchRecommendation?.recommendedLevel) &&
       compatibleAnalysisLevels.some(
         ({ level }) => level === plansContext.launchRecommendation?.recommendedLevel,
       )
@@ -119,7 +129,7 @@ function LaunchMetreDialogContent({
   useEffect(() => {
     const recommendedLevel = plansContext?.launchRecommendation?.recommendedLevel;
     if (
-      recommendedLevel &&
+      isPlanSetTakeoffLevel(recommendedLevel) &&
       compatibleAnalysisLevels.some(({ level }) => level === recommendedLevel)
     ) {
       setSelectedLevel(recommendedLevel);
@@ -128,6 +138,10 @@ function LaunchMetreDialogContent({
 
     setSelectedLevel(compatibleAnalysisLevels[0]?.level ?? "B");
   }, [compatibleAnalysisLevels, plansContext?.launchRecommendation?.recommendedLevel]);
+
+  useEffect(() => {
+    setPendingDraftVersionId(null);
+  }, [currentVersion?.id, plansContext?.defaultPlanSetId, projectId]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -155,7 +169,10 @@ function LaunchMetreDialogContent({
     setErrorMessage(null);
 
     try {
-      let versionId = currentVersion?.status === "draft" ? currentVersion.id : null;
+      let versionId =
+        currentVersion?.status === "draft"
+          ? currentVersion.id
+          : pendingDraftVersionId;
       let resolvedVersionLabel = versionLabel ?? "Brouillon";
       let createdJobId: string | null = null;
 
@@ -164,24 +181,18 @@ function LaunchMetreDialogContent({
           throw new Error("Aucune version cible n'est disponible.");
         }
 
-        const result = await launchTakeoffFromSourceVersionPlanSet({
-          projectId,
-          planSetId: plansContext.defaultPlanSetId,
-          sourceVersionId: currentVersion.id,
-          level: selectedLevel,
-        });
-        versionId = result.versionId;
-        createdJobId = result.jobId;
+        versionId = await duplicateEstimateVersion(currentVersion.id);
+        setPendingDraftVersionId(versionId);
         resolvedVersionLabel = `Nouveau brouillon depuis V${currentVersion.versionNumber}`;
-      } else {
-        const result = await launchTakeoffFromPlanSet({
-          projectId,
-          planSetId: plansContext.defaultPlanSetId,
-          versionId,
-          level: selectedLevel,
-        });
-        createdJobId = result.jobId;
       }
+
+      const result = await launchTakeoffFromPlanSet({
+        projectId,
+        planSetId: plansContext.defaultPlanSetId,
+        versionId,
+        level: selectedLevel,
+      });
+      createdJobId = result.jobId;
 
       if (!createdJobId) {
         throw new Error("Impossible de lancer l'analyse.");
@@ -207,6 +218,7 @@ function LaunchMetreDialogContent({
     selectedLevel,
     toast,
     versionLabel,
+    pendingDraftVersionId,
   ]);
 
   return (

@@ -1198,14 +1198,24 @@ export function AffaireHub({
       planFileCount: plansSummary?.defaultPlanSetFileCount ?? plansSummary?.planFileCount ?? 0,
       defaultPlanSetId: plansSummary?.defaultPlanSetId ?? null,
       defaultPlanSetUpdatedAt: plansSummary?.defaultPlanSetUpdatedAt ?? null,
-      latestJob: plansSummary?.latestJob
-        ? {
-            status: plansSummary.latestJob.status,
-            planSetId: plansSummary.latestJob.planSetId ?? null,
-            estimateVersionId: plansSummary.latestJob.estimateVersionId ?? null,
-            createdAt: plansSummary.latestJob.createdAt ?? "",
-          }
-        : null,
+      latestJob: plansSummary?.defaultPlanSetId
+        ? plansSummary.defaultPlanSetLatestJob
+          ? {
+              status: plansSummary.defaultPlanSetLatestJob.status,
+              planSetId: plansSummary.defaultPlanSetLatestJob.planSetId ?? null,
+              estimateVersionId:
+                plansSummary.defaultPlanSetLatestJob.estimateVersionId ?? null,
+              createdAt: plansSummary.defaultPlanSetLatestJob.createdAt ?? "",
+            }
+          : null
+        : plansSummary?.latestJob
+          ? {
+              status: plansSummary.latestJob.status,
+              planSetId: plansSummary.latestJob.planSetId ?? null,
+              estimateVersionId: plansSummary.latestJob.estimateVersionId ?? null,
+              createdAt: plansSummary.latestJob.createdAt ?? "",
+            }
+          : null,
       targetVersionId: takeoffPromptComparisonVersionId,
       hasLaunchableVersionTarget,
       permanentlyDismissed: promptPermanentlyDismissed,
