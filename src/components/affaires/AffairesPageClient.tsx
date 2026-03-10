@@ -145,8 +145,33 @@ export function AffairesPageClient({
   );
 
   useEffect(() => {
-    setFavoriteOverrides({});
-  }, [initialData]);
+    setFavoritesOnly(initialFavoritesOnly);
+  }, [initialFavoritesOnly]);
+
+  useEffect(() => {
+    setFavoriteOverrides((current) => {
+      const serverFavorites = new Map(
+        initialData.list.items.map((item) => [item.projectId, item.isFavorite])
+      );
+
+      let changed = false;
+      const next = { ...current };
+
+      Object.entries(current).forEach(([projectId, override]) => {
+        if (favoritePendingIds.includes(projectId)) {
+          return;
+        }
+
+        const serverValue = serverFavorites.get(projectId);
+        if (serverValue === undefined || serverValue === override) {
+          delete next[projectId];
+          changed = true;
+        }
+      });
+
+      return changed ? next : current;
+    });
+  }, [favoritePendingIds, initialData]);
 
   // Hydrate page size from localStorage on mount
   useEffect(() => {

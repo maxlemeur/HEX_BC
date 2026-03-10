@@ -1,5 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { AffairePageDataResult } from "./types";
 
 const replaceMock = vi.fn();
 const refreshMock = vi.fn();
@@ -41,12 +49,40 @@ vi.mock("./QuickCreateAffaireDialog", () => ({
 }));
 
 vi.mock("./AffairesCardList", () => ({
-  AffairesCardList: () => <div data-testid="card-list" />,
+  AffairesCardList: ({
+    items,
+    onToggleFavorite,
+    favoritePendingIds,
+  }: {
+    items: Array<{
+      projectId: string;
+      projectName: string;
+      isFavorite: boolean;
+    }>;
+    onToggleFavorite: (projectId: string, nextIsFavorite: boolean) => void;
+    favoritePendingIds: string[];
+  }) => (
+    <div data-testid="card-list">
+      {items.map((item) => (
+        <div key={item.projectId}>
+          <span>{`${item.projectName}:${item.isFavorite ? "favorite" : "not-favorite"}`}</span>
+          <span>{favoritePendingIds.includes(item.projectId) ? "pending" : "idle"}</span>
+          <button
+            type="button"
+            onClick={() => onToggleFavorite(item.projectId, !item.isFavorite)}
+          >
+            {`toggle-${item.projectName}`}
+          </button>
+        </div>
+      ))}
+    </div>
+  ),
 }));
 
 import { AffairesPageClient } from "./AffairesPageClient";
+import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
 
-const initialData = {
+const initialData: AffairePageDataResult = {
   list: {
     items: [
       {
@@ -84,11 +120,25 @@ const initialData = {
   },
 };
 
+function createDeferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("AffairesPageClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     searchParamsValue = new URLSearchParams();
     window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("syncs the favorites filter to the URL", async () => {
@@ -111,6 +161,136 @@ describe("AffairesPageClient", () => {
         "/dashboard/affaires?favorites=1",
         { scroll: false }
       );
+    });
+  });
+
+  it("updates the favorites filter when navigation changes incoming props", async () => {
+    searchParamsValue = new URLSearchParams("favorites=1");
+
+    const { rerender } = render(
+      <AffairesPageClient
+        initialData={initialData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={true}
+        initialCursor={null}
+        initialSize={20}
+        initialDir="desc"
+      />
+    );
+
+    const favoritesButton = screen.getByRole("button", { name: /favoris/i });
+    expect(favoritesButton.getAttribute("aria-pressed")).toBe("true");
+
+    replaceMock.mockClear();
+    searchParamsValue = new URLSearchParams();
+
+    rerender(
+      <AffairesPageClient
+        initialData={initialData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialCursor={null}
+        initialSize={20}
+        initialDir="desc"
+      />
+    );
+
+    await waitFor(() => {
+      expect(favoritesButton.getAttribute("aria-pressed")).toBe("false");
+    });
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps optimistic favorite overrides for rows still pending across refreshes", async () => {
+    const firstToggle = createDeferred<{ ok: boolean }>();
+    const secondToggle = createDeferred<{ ok: boolean }>();
+    vi.mocked(toggleAffaireFavoriteAction)
+      .mockReturnValueOnce(firstToggle.promise)
+      .mockReturnValueOnce(secondToggle.promise);
+
+    const twoAffairesData: AffairePageDataResult = {
+      ...initialData,
+      list: {
+        ...initialData.list,
+        items: [
+          initialData.list.items[0],
+          {
+            ...initialData.list.items[0],
+            projectId: "33333333-3333-4333-8333-333333333333",
+            projectName: "Affaire Beta",
+            projectReference: "REF-002",
+          },
+        ],
+      },
+      counters: {
+        ...initialData.counters,
+        totalCount: 2,
+        filteredCount: 2,
+        statusCounts: {
+          ...initialData.counters.statusCounts,
+          draft: 2,
+        },
+      },
+    };
+
+    const { rerender } = render(
+      <AffairesPageClient
+        initialData={twoAffairesData}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialCursor={null}
+        initialSize={20}
+        initialDir="desc"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "toggle-Affaire Alpha" }));
+    fireEvent.click(screen.getByRole("button", { name: "toggle-Affaire Beta" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Affaire Alpha:favorite")).toBeTruthy();
+      expect(screen.getByText("Affaire Beta:favorite")).toBeTruthy();
+      expect(screen.getAllByText("pending")).toHaveLength(2);
+    });
+
+    firstToggle.resolve({ ok: true });
+
+    await waitFor(() => {
+      expect(refreshMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("Affaire Beta:favorite")).toBeTruthy();
+      expect(screen.getByText("pending")).toBeTruthy();
+    });
+
+    rerender(
+      <AffairesPageClient
+        initialData={{
+          ...twoAffairesData,
+          list: {
+            ...twoAffairesData.list,
+            items: twoAffairesData.list.items.map((item) =>
+              item.projectId === "11111111-1111-4111-8111-111111111111"
+                ? { ...item, isFavorite: true }
+                : item
+            ),
+          },
+        }}
+        initialQ=""
+        initialStatuses={[]}
+        initialFavoritesOnly={false}
+        initialCursor={null}
+        initialSize={20}
+        initialDir="desc"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Affaire Alpha:favorite")).toBeTruthy();
+      expect(screen.getByText("Affaire Beta:favorite")).toBeTruthy();
+      expect(screen.getByText("pending")).toBeTruthy();
+      expect(screen.getByText("idle")).toBeTruthy();
     });
   });
 });
