@@ -704,6 +704,9 @@ type EstimateTotalsInvariantViolation = {
 };
 
 type SupplierAlternativeKind = "best_price" | "most_recent" | "preferred_supplier";
+export type SupplierComparisonAlternativeKind =
+  | SupplierAlternativeKind
+  | "selected_current";
 
 type SuggestedSupplierAlternative = {
   kind: SupplierAlternativeKind;
@@ -743,8 +746,9 @@ type SuggestedCataloguePrice = {
   alternatives: SuggestedSupplierAlternative[];
 };
 
-type EstimateSupplierComparisonAlternative = {
+type EstimateSupplierComparisonSourceAlternative = {
   supplier_price_id: string;
+  supplier_id: string;
   supplier_name: string;
   adjusted_unit_price_cents: number;
   supplier_reference: string | null;
@@ -754,12 +758,360 @@ type EstimateSupplierComparisonAlternative = {
   product_designation: string;
 };
 
+export type EstimateSupplierComparisonAlternative = {
+  kind: SupplierComparisonAlternativeKind;
+  supplier_price_id: string;
+  supplier_id: string;
+  supplier_name: string;
+  adjusted_unit_price_cents: number;
+  supplier_reference: string | null;
+  catalogue_url: string | null;
+  updated_at: string | null;
+  is_stale: boolean;
+  product_designation: string;
+  is_selected: boolean;
+};
+
+export type EstimateSupplierComparisonCoverageStatus =
+  | "covered"
+  | "ambiguous"
+  | "no_price"
+  | "stale";
+
+export type EstimateSupplierComparisonRiskFlag =
+  | "multiple_alternatives"
+  | "selection_missing"
+  | "selected_stale"
+  | "selected_not_best_price";
+
 type EstimateSupplierComparison = {
   item_id: string;
   selected_supplier_price_id: string | null;
   best_supplier_price_id: string | null;
+  coverage_status: EstimateSupplierComparisonCoverageStatus;
+  risk_flags: EstimateSupplierComparisonRiskFlag[];
+  selected_alternative: EstimateSupplierComparisonAlternative | null;
   alternatives: EstimateSupplierComparisonAlternative[];
 };
+
+export type EstimateSupplierComparisonCoverageSummary = {
+  total_items: number;
+  covered_items: number;
+  ambiguous_items: number;
+  no_price_items: number;
+  stale_items: number;
+};
+
+export type EstimateSupplierComparisonCandidate = {
+  supplier_price_id: string;
+  supplier_id: string;
+  supplier_name: string;
+  adjusted_unit_price_cents: number;
+  supplier_reference: string | null;
+  catalogue_url: string | null;
+  updated_at: string | null;
+  is_stale: boolean;
+  product_designation: string;
+  alternatives: SuggestedSupplierAlternative[];
+};
+
+const SUPPLIER_COMPARISON_ALTERNATIVE_KIND_ORDER: SupplierComparisonAlternativeKind[] = [
+  "best_price",
+  "most_recent",
+  "preferred_supplier",
+  "selected_current",
+];
+
+function toEstimateSupplierComparisonSourceAlternative(input: {
+  supplier_price_id: string;
+  supplier_id: string;
+  supplier_name: string;
+  adjusted_unit_price_cents: number;
+  supplier_reference: string | null;
+  catalogue_url: string | null;
+  updated_at: string | null;
+  is_stale: boolean;
+  product_designation: string;
+}): EstimateSupplierComparisonSourceAlternative {
+  return {
+    supplier_price_id: input.supplier_price_id,
+    supplier_id: input.supplier_id,
+    supplier_name: input.supplier_name,
+    adjusted_unit_price_cents: input.adjusted_unit_price_cents,
+    supplier_reference: input.supplier_reference,
+    catalogue_url: input.catalogue_url,
+    updated_at: input.updated_at,
+    is_stale: input.is_stale,
+    product_designation: input.product_designation,
+  };
+}
+
+function toEstimateSupplierComparisonAlternative(input: {
+  kind: SupplierComparisonAlternativeKind;
+  alternative: EstimateSupplierComparisonSourceAlternative;
+  selectedSupplierPriceId: string | null;
+}): EstimateSupplierComparisonAlternative {
+  return {
+    kind: input.kind,
+    supplier_price_id: input.alternative.supplier_price_id,
+    supplier_id: input.alternative.supplier_id,
+    supplier_name: input.alternative.supplier_name,
+    adjusted_unit_price_cents: input.alternative.adjusted_unit_price_cents,
+    supplier_reference: input.alternative.supplier_reference,
+    catalogue_url: input.alternative.catalogue_url,
+    updated_at: input.alternative.updated_at,
+    is_stale: input.alternative.is_stale,
+    product_designation: input.alternative.product_designation,
+    is_selected:
+      input.selectedSupplierPriceId !== null &&
+      input.alternative.supplier_price_id === input.selectedSupplierPriceId,
+  };
+}
+
+function findSuggestedAlternativeByKind(
+  alternatives: SuggestedSupplierAlternative[],
+  kind: SupplierAlternativeKind
+) {
+  return alternatives.find((alternative) => alternative.kind === kind) ?? null;
+}
+
+export function buildEstimateSupplierComparisonAlternatives(input: {
+  candidate: EstimateSupplierComparisonCandidate;
+  selectedSupplierPriceId: string | null;
+}): EstimateSupplierComparisonAlternative[] {
+  const alternativesByKind = new Map<
+    SupplierComparisonAlternativeKind,
+    EstimateSupplierComparisonAlternative
+  >();
+
+  const registerAlternative = (
+    kind: SupplierComparisonAlternativeKind,
+    alternative: EstimateSupplierComparisonSourceAlternative | null
+  ) => {
+    if (!alternative) {
+      return;
+    }
+
+    const existingEntry = Array.from(alternativesByKind.values()).find(
+      (entry) => entry.supplier_price_id === alternative.supplier_price_id
+    );
+    if (existingEntry) {
+      if (
+        input.selectedSupplierPriceId !== null &&
+        existingEntry.supplier_price_id === input.selectedSupplierPriceId
+      ) {
+        existingEntry.is_selected = true;
+      }
+      return;
+    }
+
+    const normalized = toEstimateSupplierComparisonAlternative({
+      kind,
+      alternative,
+      selectedSupplierPriceId: input.selectedSupplierPriceId,
+    });
+
+    alternativesByKind.set(kind, normalized);
+  };
+
+  const bestPrice = findSuggestedAlternativeByKind(input.candidate.alternatives, "best_price");
+  const mostRecent = findSuggestedAlternativeByKind(input.candidate.alternatives, "most_recent");
+  const preferredSupplier = findSuggestedAlternativeByKind(
+    input.candidate.alternatives,
+    "preferred_supplier"
+  );
+
+  registerAlternative(
+    "best_price",
+    bestPrice
+      ? toEstimateSupplierComparisonSourceAlternative({
+          supplier_price_id: bestPrice.supplier_price_id,
+          supplier_id: bestPrice.supplier_id,
+          supplier_name: bestPrice.supplier_name,
+          adjusted_unit_price_cents: bestPrice.adjusted_unit_price_cents,
+          supplier_reference: bestPrice.supplier_reference,
+          catalogue_url: bestPrice.catalogue_url,
+          updated_at: bestPrice.updated_at,
+          is_stale: bestPrice.is_stale,
+          product_designation: input.candidate.product_designation,
+        })
+      : null
+  );
+  registerAlternative(
+    "most_recent",
+    mostRecent
+      ? toEstimateSupplierComparisonSourceAlternative({
+          supplier_price_id: mostRecent.supplier_price_id,
+          supplier_id: mostRecent.supplier_id,
+          supplier_name: mostRecent.supplier_name,
+          adjusted_unit_price_cents: mostRecent.adjusted_unit_price_cents,
+          supplier_reference: mostRecent.supplier_reference,
+          catalogue_url: mostRecent.catalogue_url,
+          updated_at: mostRecent.updated_at,
+          is_stale: mostRecent.is_stale,
+          product_designation: input.candidate.product_designation,
+        })
+      : null
+  );
+  registerAlternative(
+    "preferred_supplier",
+    preferredSupplier
+      ? toEstimateSupplierComparisonSourceAlternative({
+          supplier_price_id: preferredSupplier.supplier_price_id,
+          supplier_id: preferredSupplier.supplier_id,
+          supplier_name: preferredSupplier.supplier_name,
+          adjusted_unit_price_cents: preferredSupplier.adjusted_unit_price_cents,
+          supplier_reference: preferredSupplier.supplier_reference,
+          catalogue_url: preferredSupplier.catalogue_url,
+          updated_at: preferredSupplier.updated_at,
+          is_stale: preferredSupplier.is_stale,
+          product_designation: input.candidate.product_designation,
+        })
+      : null
+  );
+
+  const selectedAlternative =
+    input.selectedSupplierPriceId === null
+      ? null
+      : input.candidate.supplier_price_id === input.selectedSupplierPriceId
+        ? toEstimateSupplierComparisonSourceAlternative({
+            supplier_price_id: input.candidate.supplier_price_id,
+            supplier_id: input.candidate.supplier_id,
+            supplier_name: input.candidate.supplier_name,
+            adjusted_unit_price_cents: input.candidate.adjusted_unit_price_cents,
+            supplier_reference: input.candidate.supplier_reference,
+            catalogue_url: input.candidate.catalogue_url,
+            updated_at: input.candidate.updated_at,
+            is_stale: input.candidate.is_stale,
+            product_designation: input.candidate.product_designation,
+          })
+        : (() => {
+            const selected = input.candidate.alternatives.find(
+              (alternative) =>
+                alternative.supplier_price_id === input.selectedSupplierPriceId
+            );
+            if (!selected) {
+              return null;
+            }
+
+            return toEstimateSupplierComparisonSourceAlternative({
+              supplier_price_id: selected.supplier_price_id,
+              supplier_id: selected.supplier_id,
+              supplier_name: selected.supplier_name,
+              adjusted_unit_price_cents: selected.adjusted_unit_price_cents,
+              supplier_reference: selected.supplier_reference,
+              catalogue_url: selected.catalogue_url,
+              updated_at: selected.updated_at,
+              is_stale: selected.is_stale,
+              product_designation: input.candidate.product_designation,
+            });
+          })();
+
+  registerAlternative("selected_current", selectedAlternative);
+
+  return SUPPLIER_COMPARISON_ALTERNATIVE_KIND_ORDER.map((kind) =>
+    alternativesByKind.get(kind)
+  ).filter((alternative): alternative is EstimateSupplierComparisonAlternative =>
+    Boolean(alternative)
+  );
+}
+
+function findSelectedSupplierComparisonAlternative(
+  alternatives: EstimateSupplierComparisonAlternative[],
+  selectedSupplierPriceId: string | null
+) {
+  if (!selectedSupplierPriceId) {
+    return null;
+  }
+
+  return (
+    alternatives.find(
+      (alternative) => alternative.supplier_price_id === selectedSupplierPriceId
+    ) ?? null
+  );
+}
+
+function computeEstimateSupplierComparisonRiskFlags(input: {
+  alternatives: EstimateSupplierComparisonAlternative[];
+  selectedSupplierPriceId: string | null;
+  bestSupplierPriceId: string | null;
+  selectedAlternative: EstimateSupplierComparisonAlternative | null;
+}) {
+  const riskFlags: EstimateSupplierComparisonRiskFlag[] = [];
+
+  if (input.alternatives.length > 1) {
+    riskFlags.push("multiple_alternatives");
+  }
+
+  if (input.alternatives.length > 0 && input.selectedSupplierPriceId === null) {
+    riskFlags.push("selection_missing");
+  }
+
+  if (input.selectedAlternative?.is_stale === true) {
+    riskFlags.push("selected_stale");
+  }
+
+  if (
+    input.selectedSupplierPriceId !== null &&
+    input.bestSupplierPriceId !== null &&
+    input.selectedSupplierPriceId !== input.bestSupplierPriceId
+  ) {
+    riskFlags.push("selected_not_best_price");
+  }
+
+  return riskFlags;
+}
+
+function computeEstimateSupplierComparisonCoverageStatus(input: {
+  alternatives: EstimateSupplierComparisonAlternative[];
+  selectedAlternative: EstimateSupplierComparisonAlternative | null;
+  riskFlags: EstimateSupplierComparisonRiskFlag[];
+}) {
+  if (input.alternatives.length === 0) {
+    return "no_price" satisfies EstimateSupplierComparisonCoverageStatus;
+  }
+
+  if (input.selectedAlternative?.is_stale === true) {
+    return "stale" satisfies EstimateSupplierComparisonCoverageStatus;
+  }
+
+  if (input.riskFlags.includes("selection_missing")) {
+    return "ambiguous" satisfies EstimateSupplierComparisonCoverageStatus;
+  }
+
+  return "covered" satisfies EstimateSupplierComparisonCoverageStatus;
+}
+
+function summarizeEstimateSupplierComparisonCoverage(
+  comparisons: EstimateSupplierComparison[]
+): EstimateSupplierComparisonCoverageSummary {
+  const summary: EstimateSupplierComparisonCoverageSummary = {
+    total_items: comparisons.length,
+    covered_items: 0,
+    ambiguous_items: 0,
+    no_price_items: 0,
+    stale_items: 0,
+  };
+
+  comparisons.forEach((comparison) => {
+    if (comparison.coverage_status === "covered") {
+      summary.covered_items += 1;
+      return;
+    }
+    if (comparison.coverage_status === "ambiguous") {
+      summary.ambiguous_items += 1;
+      return;
+    }
+    if (comparison.coverage_status === "stale") {
+      summary.stale_items += 1;
+      return;
+    }
+
+    summary.no_price_items += 1;
+  });
+
+  return summary;
+}
 
 const DEFAULT_ESTIMATE_CATEGORIES = [
   { name: "Materiaux", position: 1 },
@@ -6281,12 +6633,6 @@ export async function getEstimateSupplierComparisons(
     suggestionsEntries[0]?.[1]?.stale_price_days ??
     (await getStalePriceDaysForTenant(tenantId, { supabase }));
 
-  const alternativeKindOrder: SupplierAlternativeKind[] = [
-    "best_price",
-    "most_recent",
-    "preferred_supplier",
-  ];
-
   const comparisons = normalizedItemIds.map((itemId) => {
     const item = itemById.get(itemId);
     if (!item) {
@@ -6294,6 +6640,9 @@ export async function getEstimateSupplierComparisons(
         item_id: itemId,
         selected_supplier_price_id: null,
         best_supplier_price_id: null,
+        coverage_status: "no_price",
+        risk_flags: [],
+        selected_alternative: null,
         alternatives: [],
       } satisfies EstimateSupplierComparison;
     }
@@ -6317,37 +6666,60 @@ export async function getEstimateSupplierComparisons(
         item_id: item.id,
         selected_supplier_price_id: selectedSupplierPriceId,
         best_supplier_price_id: null,
+        coverage_status: "no_price",
+        risk_flags: [],
+        selected_alternative: null,
         alternatives: [],
       } satisfies EstimateSupplierComparison;
     }
 
     const bestAlternative =
       candidate.alternatives.find((alternative) => alternative.kind === "best_price") ?? null;
-    const alternatives = alternativeKindOrder
-      .map((kind) => candidate.alternatives.find((alternative) => alternative.kind === kind))
-      .filter((alternative): alternative is SuggestedSupplierAlternative => Boolean(alternative))
-      .slice(0, 3)
-      .map((alternative) => ({
-        supplier_price_id: alternative.supplier_price_id,
-        supplier_name: alternative.supplier_name,
-        adjusted_unit_price_cents: alternative.adjusted_unit_price_cents,
-        supplier_reference: alternative.supplier_reference,
-        catalogue_url: alternative.catalogue_url,
-        updated_at: alternative.updated_at,
-        is_stale: alternative.is_stale,
+    const alternatives = buildEstimateSupplierComparisonAlternatives({
+      candidate: {
+        supplier_price_id: candidate.supplier_price_id,
+        supplier_id: candidate.supplier_id,
+        supplier_name: candidate.supplier_name,
+        adjusted_unit_price_cents: candidate.adjusted_unit_price_cents,
+        supplier_reference: candidate.supplier_reference,
+        catalogue_url: candidate.catalogue_url,
+        updated_at: candidate.updated_at,
+        is_stale: candidate.is_stale,
         product_designation: candidate.product_designation,
-      }));
+        alternatives: candidate.alternatives,
+      },
+      selectedSupplierPriceId,
+    });
+    const selectedAlternative = findSelectedSupplierComparisonAlternative(
+      alternatives,
+      selectedSupplierPriceId
+    );
+    const riskFlags = computeEstimateSupplierComparisonRiskFlags({
+      alternatives,
+      selectedSupplierPriceId,
+      bestSupplierPriceId: bestAlternative?.supplier_price_id ?? null,
+      selectedAlternative,
+    });
+    const coverageStatus = computeEstimateSupplierComparisonCoverageStatus({
+      alternatives,
+      selectedAlternative,
+      riskFlags,
+    });
 
     return {
       item_id: item.id,
       selected_supplier_price_id: selectedSupplierPriceId,
       best_supplier_price_id: bestAlternative?.supplier_price_id ?? null,
+      coverage_status: coverageStatus,
+      risk_flags: riskFlags,
+      selected_alternative: selectedAlternative,
       alternatives,
     } satisfies EstimateSupplierComparison;
   });
 
   return {
     stale_price_days: stalePriceDays,
+    coverage_summary: summarizeEstimateSupplierComparisonCoverage(comparisons),
     comparisons,
   };
 }

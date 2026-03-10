@@ -122,7 +122,9 @@ describe("POST /api/estimates/[versionId]/supplier-comparisons", () => {
           best_supplier_price_id: "55555555-5555-4555-8555-555555555555",
           alternatives: [
             {
+              kind: "best_price",
               supplier_price_id: "55555555-5555-4555-8555-555555555555",
+              supplier_id: "66666666-6666-4666-8666-666666666666",
               supplier_name: "Supplier",
               adjusted_unit_price_cents: 1200,
               supplier_reference: "REF-1",
@@ -130,6 +132,7 @@ describe("POST /api/estimates/[versionId]/supplier-comparisons", () => {
               updated_at: "2026-02-20T10:00:00.000Z",
               is_stale: false,
               product_designation: "Tube acier",
+              is_selected: false,
             },
           ],
         },
