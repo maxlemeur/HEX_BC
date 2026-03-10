@@ -101,12 +101,12 @@ un pont DPGF ↔ Takeoff pour comparer quantites client vs quantites mesurees.
 | V3-006 | Page Plan Center affaire | E02 | P0 | L | Back Front | A faire |
 | V3-007 | Page Takeoff Jobs affaire | E02 | P1 | L | Back Front | A faire |
 | V3-008 | Sidebar nav affaire-centric | E02 | P1 | S | Front | A faire |
-| V3-009 | Action rapide metre | E03 | P1 | S | Front | A faire |
+| V3-009 | Action rapide metre | E03 | P1 | S | Front | Clos |
 | V3-010 | Comparaison DPGF vs Takeoff | E03 | P1 | L | Back Front | A faire |
 | V3-011 | Carry-over versions | E03 | P1 | M | DB Back | A faire |
 | V3-012 | UX Junior/Senior review | E03 | P1 | M | Front | A faire |
 | V3-013 | Plans dans flow import | E03 | P2 | M | Front | A faire |
-| V3-014 | Auto-trigger metre | E03 | P2 | M | Back Front | A faire |
+| V3-014 | Auto-trigger metre | E03 | P2 | M | Back Front | Clos |
 
 ---
 

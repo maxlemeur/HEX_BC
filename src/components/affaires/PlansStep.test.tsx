@@ -92,7 +92,9 @@ describe("PlansStep", () => {
     fetchPlanFilesMock.mockResolvedValue([]);
     useTakeoffAutoProposeDismissedMock.mockReturnValue({
       dismissed: false,
+      temporarilyDismissed: false,
       dismissPermanently: vi.fn(),
+      dismissTemporarily: vi.fn(),
     });
   });
 
@@ -452,15 +454,17 @@ describe("PlansStep", () => {
 
     expect(screen.getByText(/2 fichiers uploades/i)).toBeInTheDocument();
     expect(screen.getByText(/Lancer une premiere analyse/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Lancer maintenant" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Plus tard" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Ne plus proposer/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Analyser maintenant" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Me rappeler plus tard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ne pas proposer/i })).toBeInTheDocument();
   });
 
   it("shows static fallback text when permanently dismissed", async () => {
     useTakeoffAutoProposeDismissedMock.mockReturnValue({
       dismissed: true,
+      temporarilyDismissed: false,
       dismissPermanently: vi.fn(),
+      dismissTemporarily: vi.fn(),
     });
 
     fetchPlanSetsForProjectMock.mockResolvedValue([EXISTING_PLAN_SET]);

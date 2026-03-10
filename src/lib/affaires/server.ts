@@ -159,12 +159,18 @@ export type AffaireHubPlansSummaryResult = {
   planFileCount: number;
   totalSizeBytes: number;
   defaultPlanSetId: string | null;
+  defaultPlanSetName: string | null;
+  defaultPlanSetFileCount: number;
+  defaultPlanSetUpdatedAt: string | null;
   launchRecommendation?: TakeoffDocumentRecommendation | null;
   latestJob: {
     jobId: string;
     status: TakeoffVisibleJobStatus;
     label: string;
     reviewVersionId: string;
+    planSetId: string | null;
+    estimateVersionId: string;
+    createdAt: string;
   } | null;
   coveragePercent: number | null;
   exceptionCount: number | null;
@@ -580,13 +586,13 @@ async function fetchAffaireHubPlansSummaryWithContext(
   const [planSetsResult, latestJobResult, currentVersionResult] = await Promise.all([
     context.supabase
       .from("plan_sets" as never)
-      .select("id, metadata, estimate_version_id, created_at" as never, { count: "exact" })
+      .select("id, name, metadata, estimate_version_id, created_at" as never, { count: "exact" })
       .eq("tenant_id" as never, context.tenantId as never)
       .eq("project_id" as never, project.id as never),
     context.supabase
       .from("takeoff_jobs" as never)
       .select(
-        "id, status, level, processing_strategy, provider_batch_state, source_file_name, created_at, error_code, error_message, estimate_version_id, estimate_versions!inner(project_id)" as never
+        "id, status, level, processing_strategy, provider_batch_state, source_file_name, created_at, error_code, error_message, estimate_version_id, plan_set_id, estimate_versions!inner(project_id)" as never
       )
       .eq("tenant_id" as never, context.tenantId as never)
       .eq("estimate_versions.project_id" as never, project.id as never)
@@ -629,6 +635,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
 
   const planSetRows = (planSetsResult.data ?? []) as Array<{
     id: string;
+    name: string | null;
     metadata: unknown;
     estimate_version_id: string | null;
     created_at: string | null;
@@ -655,11 +662,14 @@ async function fetchAffaireHubPlansSummaryWithContext(
 
   // Find best plan set for auto-propose (import marker or latest draft row)
   let defaultPlanSetId: string | null = null;
+  let defaultPlanSetName: string | null = null;
   if (autoProposePlanSetRows.length > 0) {
     const markedSet = autoProposePlanSetRows.find((ps) =>
       hasDefaultImportPlanSetMarker(ps.metadata),
     );
-    defaultPlanSetId = markedSet?.id ?? autoProposePlanSetRows[0].id;
+    const defaultPlanSet = markedSet ?? autoProposePlanSetRows[0];
+    defaultPlanSetId = defaultPlanSet.id;
+    defaultPlanSetName = defaultPlanSet.name?.trim() || null;
   }
 
   let planFileCount = 0;
@@ -724,6 +734,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
     error_code: string | null;
     error_message: string | null;
     estimate_version_id: string;
+    plan_set_id: string | null;
   } | null;
 
   let latestJob: AffaireHubPlansSummaryResult["latestJob"] = null;
@@ -731,12 +742,14 @@ async function fetchAffaireHubPlansSummaryWithContext(
   let exceptionCount: number | null = null;
   let failureReasonLabel: string | null = null;
   let launchRecommendation: TakeoffDocumentRecommendation | null = null;
+  let defaultPlanSetFileCount = 0;
+  let defaultPlanSetUpdatedAt: string | null = null;
 
   if (defaultPlanSetId) {
     const { data: defaultPlanFilesData, error: defaultPlanFilesError } =
       await context.supabase
         .from("plan_files" as never)
-        .select("file_name, file_type, page_count" as never)
+        .select("file_name, file_type, page_count, created_at" as never)
         .eq("tenant_id" as never, context.tenantId as never)
         .eq("plan_set_id" as never, defaultPlanSetId as never)
         .order("created_at" as never, { ascending: true });
@@ -752,7 +765,22 @@ async function fetchAffaireHubPlansSummaryWithContext(
       file_name?: string | null;
       file_type?: string | null;
       page_count?: number | null;
+      created_at?: string | null;
     }>;
+    defaultPlanSetFileCount = defaultPlanFiles.length;
+    defaultPlanSetUpdatedAt = defaultPlanFiles.reduce<string | null>(
+      (latest, file) => {
+        const createdAt = file.created_at ?? null;
+        if (!createdAt) {
+          return latest;
+        }
+        if (!latest || createdAt.localeCompare(latest) > 0) {
+          return createdAt;
+        }
+        return latest;
+      },
+      null,
+    );
 
     launchRecommendation = classifyTakeoffPlanSetSource({
       files: defaultPlanFiles.map((file) => ({
@@ -838,6 +866,9 @@ async function fetchAffaireHubPlansSummaryWithContext(
       status: mapped.status,
       label: mapped.label,
       reviewVersionId,
+      planSetId: latestJobRow.plan_set_id ?? null,
+      estimateVersionId: latestJobRow.estimate_version_id,
+      createdAt: latestJobRow.created_at,
     };
   }
 
@@ -852,6 +883,9 @@ async function fetchAffaireHubPlansSummaryWithContext(
     planFileCount,
     totalSizeBytes,
     defaultPlanSetId,
+    defaultPlanSetName,
+    defaultPlanSetFileCount,
+    defaultPlanSetUpdatedAt,
     ...(launchRecommendation ? { launchRecommendation } : {}),
     latestJob,
     coveragePercent,

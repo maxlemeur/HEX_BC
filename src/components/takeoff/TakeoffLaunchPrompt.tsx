@@ -1,89 +1,163 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { useToast } from "@/components/ui/Toast";
 import { launchTakeoffFromPlanSet } from "@/app/dashboard/affaires/_actions/takeoff";
+import { useToast } from "@/components/ui/Toast";
+import { duplicateEstimateVersion } from "@/lib/estimates/client";
 import {
   TAKEOFF_LEVEL_BUSINESS_LABELS,
   getTakeoffSelectionWarning,
   isTakeoffLevelCompatible,
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
+import type { TakeoffLevel } from "@/lib/takeoff/types";
 
-/* ------------------------------------------------------------------ */
-/*  Visibility logic (pure, testable)                                  */
-/* ------------------------------------------------------------------ */
+const RECENT_PROMPT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+type PromptLaunchMode = "existing_draft" | "create_draft_from_current";
 
 export function shouldShowTakeoffPrompt(input: {
   takeoffEnabled: boolean;
-  planSetCount: number;
-  latestJob: { status: string } | null;
-  draftVersionId: string | null;
+  planFileCount: number;
+  defaultPlanSetId: string | null;
+  defaultPlanSetUpdatedAt: string | null;
+  latestJob:
+    | {
+        status: string;
+        planSetId: string | null;
+        estimateVersionId?: string | null;
+        createdAt: string;
+      }
+    | null;
+  targetVersionId: string | null;
+  hasLaunchableVersionTarget: boolean;
   permanentlyDismissed: boolean;
   temporarilyDismissed: boolean;
 }): boolean {
   if (!input.takeoffEnabled) return false;
-  if (input.planSetCount === 0) return false;
-  if (!input.draftVersionId) return false;
-  if (input.latestJob !== null) return false;
+  if (input.planFileCount === 0) return false;
+  if (!input.defaultPlanSetId) return false;
+  if (!input.hasLaunchableVersionTarget) return false;
   if (input.permanentlyDismissed) return false;
   if (input.temporarilyDismissed) return false;
-  return true;
-}
+  if (!input.latestJob) return true;
+  if (input.latestJob.planSetId !== input.defaultPlanSetId) return true;
+  if (
+    input.latestJob.status === "action_required" ||
+    input.latestJob.status === "failed" ||
+    input.latestJob.status === "canceled"
+  ) {
+    return true;
+  }
 
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
+  const createdAt = new Date(input.latestJob.createdAt);
+  if (Number.isNaN(createdAt.getTime())) return true;
+
+  const planSetWasUpdatedAfterJob =
+    typeof input.defaultPlanSetUpdatedAt === "string" &&
+    input.defaultPlanSetUpdatedAt.localeCompare(input.latestJob.createdAt) > 0;
+  if (planSetWasUpdatedAfterJob) {
+    return true;
+  }
+
+  if (
+    input.targetVersionId &&
+    input.latestJob.estimateVersionId &&
+    input.latestJob.estimateVersionId !== input.targetVersionId
+  ) {
+    return true;
+  }
+
+  const ageMs = Date.now() - createdAt.getTime();
+  return ageMs > RECENT_PROMPT_WINDOW_MS;
+}
 
 type TakeoffLaunchPromptProps = {
   projectId: string;
-  versionId: string;
+  versionId?: string | null;
   versionLabel?: string;
+  sourceVersionId?: string | null;
+  sourceVersionLabel?: string;
   planSetId: string;
+  planSetName?: string | null;
   planFileCount: number;
   launchRecommendation: TakeoffDocumentRecommendation;
-  onLaunched?: (jobId: string) => void;
+  onLaunched?: (jobId: string, versionId: string) => void;
   onDismissTemporary?: () => void;
   onDismissPermanent?: () => void;
   compact?: boolean;
+  resultsHref?: string;
+  title?: string;
 };
 
 type PromptState = "idle" | "launching" | "success" | "error";
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
+function resolveLaunchMode(input: {
+  versionId?: string | null;
+  sourceVersionId?: string | null;
+}): PromptLaunchMode | null {
+  if (input.versionId) {
+    return "existing_draft";
+  }
+
+  if (input.sourceVersionId) {
+    return "create_draft_from_current";
+  }
+
+  return null;
+}
+
+function getLaunchableLevels(recommendation: TakeoffDocumentRecommendation) {
+  return recommendation.compatibleLevels.filter(
+    (level): level is TakeoffLevel => level === "A" || level === "B" || level === "C",
+  );
+}
 
 export function TakeoffLaunchPrompt({
   projectId,
   versionId,
   versionLabel,
+  sourceVersionId,
+  sourceVersionLabel,
   planSetId,
+  planSetName,
   planFileCount,
   launchRecommendation,
   onLaunched,
   onDismissTemporary,
   onDismissPermanent,
   compact,
+  resultsHref,
+  title,
 }: TakeoffLaunchPromptProps) {
   const toast = useToast();
+  const launchMode = resolveLaunchMode({ versionId, sourceVersionId });
   const [state, setState] = useState<PromptState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdJobId, setCreatedJobId] = useState<string | null>(null);
-  const [selectedLevel, setSelectedLevel] = useState<
-    "B" | "C" | null
-  >(
-    launchRecommendation.recommendedLevel === "B" ||
-      launchRecommendation.recommendedLevel === "C"
-      ? launchRecommendation.recommendedLevel
-      : null
+  const [launchedVersionLabel, setLaunchedVersionLabel] = useState<string | null>(null);
+  const launchableLevels = useMemo(
+    () => getLaunchableLevels(launchRecommendation),
+    [launchRecommendation],
   );
+  const [selectedLevel, setSelectedLevel] = useState<TakeoffLevel | null>(
+    launchRecommendation.recommendedLevel &&
+      launchableLevels.includes(launchRecommendation.recommendedLevel)
+      ? launchRecommendation.recommendedLevel
+      : launchableLevels[0] ?? null,
+  );
+
   const resolvedVersionLabel =
     typeof versionLabel === "string" && versionLabel.trim().length > 0
       ? versionLabel.trim()
-      : "Brouillon en cours";
+      : launchMode === "create_draft_from_current" &&
+          typeof sourceVersionLabel === "string" &&
+          sourceVersionLabel.trim().length > 0
+        ? `Nouveau brouillon depuis ${sourceVersionLabel.trim()}`
+        : "Brouillon en cours";
+
   const levelWarning = getTakeoffSelectionWarning({
     recommendation: launchRecommendation,
     selectedLevel,
@@ -91,18 +165,22 @@ export function TakeoffLaunchPrompt({
 
   useEffect(() => {
     if (
-      launchRecommendation.recommendedLevel === "B" ||
-      launchRecommendation.recommendedLevel === "C"
+      launchRecommendation.recommendedLevel &&
+      launchableLevels.includes(launchRecommendation.recommendedLevel)
     ) {
       setSelectedLevel(launchRecommendation.recommendedLevel);
       return;
     }
 
-    setSelectedLevel(null);
-  }, [launchRecommendation]);
+    setSelectedLevel(launchableLevels[0] ?? null);
+  }, [launchRecommendation, launchableLevels]);
 
   const handleLaunch = useCallback(async () => {
-    if (!selectedLevel || !isTakeoffLevelCompatible(launchRecommendation, selectedLevel)) {
+    if (!selectedLevel || !launchMode) {
+      return;
+    }
+
+    if (!isTakeoffLevelCompatible(launchRecommendation, selectedLevel)) {
       return;
     }
 
@@ -110,20 +188,37 @@ export function TakeoffLaunchPrompt({
     setErrorMessage(null);
 
     try {
+      let resolvedVersionId = versionId ?? null;
+      let resolvedVersionLabelForLaunch = resolvedVersionLabel;
+
+      if (launchMode === "create_draft_from_current") {
+        if (!sourceVersionId) {
+          throw new Error("Impossible de creer un brouillon cible.");
+        }
+
+        resolvedVersionId = await duplicateEstimateVersion(sourceVersionId);
+        resolvedVersionLabelForLaunch = resolvedVersionLabel;
+      }
+
+      if (!resolvedVersionId) {
+        throw new Error("Aucune version cible n'est disponible.");
+      }
+
       const result = await launchTakeoffFromPlanSet({
         projectId,
         planSetId,
-        versionId,
+        versionId: resolvedVersionId,
         level: selectedLevel,
       });
 
       setCreatedJobId(result.jobId);
+      setLaunchedVersionLabel(resolvedVersionLabelForLaunch);
       setState("success");
       toast.success({
         title: "Analyse lancee",
-        description: `${resolvedVersionLabel} — ${planFileCount} plan${planFileCount > 1 ? "s" : ""} pris en compte.`,
+        description: `${resolvedVersionLabelForLaunch} — ${planFileCount} plan${planFileCount > 1 ? "s" : ""} pris en compte. Prochaine etape : suivre l'analyse dans le centre d'activite metres.`,
       });
-      onLaunched?.(result.jobId);
+      onLaunched?.(result.jobId, resolvedVersionId);
     } catch (err) {
       setState("error");
       setErrorMessage(
@@ -131,6 +226,7 @@ export function TakeoffLaunchPrompt({
       );
     }
   }, [
+    launchMode,
     launchRecommendation,
     onLaunched,
     planFileCount,
@@ -138,6 +234,7 @@ export function TakeoffLaunchPrompt({
     projectId,
     resolvedVersionLabel,
     selectedLevel,
+    sourceVersionId,
     toast,
     versionId,
   ]);
@@ -146,13 +243,21 @@ export function TakeoffLaunchPrompt({
     void handleLaunch();
   }, [handleLaunch]);
 
+  const primaryActionLabel =
+    launchMode === "create_draft_from_current"
+      ? "Creer un brouillon et analyser"
+      : "Analyser maintenant";
+
+  const promptTitle = title ?? "Lancer une premiere analyse";
+  const resolvedResultsHref =
+    resultsHref ?? `/dashboard/affaires/${projectId}/takeoff`;
+
   return (
     <div
       role="region"
       aria-label="Proposition d'analyse automatique"
       className={`rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 ${compact ? "px-4 py-3" : "px-5 py-4"}`}
     >
-      {/* Status area */}
       <div aria-live="polite">
         {state === "launching" && (
           <div className="flex items-center gap-2">
@@ -177,7 +282,9 @@ export function TakeoffLaunchPrompt({
               />
             </svg>
             <span className="text-xs font-medium text-[var(--brand-blue)]">
-              Lancement de l&apos;analyse...
+              {launchMode === "create_draft_from_current"
+                ? "Creation du brouillon et lancement de l'analyse..."
+                : "Lancement de l'analyse..."}
             </span>
           </div>
         )}
@@ -203,9 +310,14 @@ export function TakeoffLaunchPrompt({
                 Analyse lancee
               </span>
             </div>
+            <p className="text-xs text-[var(--slate-600)]">
+              {launchedVersionLabel ?? resolvedVersionLabel} — {planFileCount} fichier
+              {planFileCount > 1 ? "s" : ""} concerne
+              {planFileCount > 1 ? "s" : ""}.
+            </p>
             {createdJobId && (
               <Link
-                href={`/dashboard/affaires/${projectId}/takeoff`}
+                href={resolvedResultsHref}
                 className="inline-flex rounded-sm text-xs text-[var(--brand-blue)] underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
               >
                 Suivre l&apos;avancement
@@ -234,7 +346,6 @@ export function TakeoffLaunchPrompt({
 
       {state === "idle" && (
         <>
-          {/* Header */}
           <div className="flex items-center gap-2">
             <svg
               width="16"
@@ -255,12 +366,24 @@ export function TakeoffLaunchPrompt({
               <polyline points="10 9 9 9 8 9" />
             </svg>
             <span className="text-sm font-semibold text-[var(--slate-800)]">
-              Lancer une premiere analyse
+              {promptTitle}
             </span>
           </div>
 
-          {/* Explanation */}
           <div className="mt-2 space-y-1">
+            {planSetName ? (
+              <p className="text-xs text-[var(--slate-600)]">
+                Jeu de plans :{" "}
+                <span className="font-medium text-[var(--slate-800)]">
+                  {planSetName}
+                </span>{" "}
+                ({planFileCount} fichier{planFileCount > 1 ? "s" : ""})
+              </p>
+            ) : (
+              <p className="text-xs text-[var(--slate-600)]">
+                {planFileCount} fichier{planFileCount > 1 ? "s" : ""} seront analyses.
+              </p>
+            )}
             <p className="text-xs text-[var(--slate-600)]">
               Niveau recommande :{" "}
               <span className="inline-flex items-center rounded-full bg-[var(--brand-blue)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--brand-blue)]">
@@ -269,9 +392,6 @@ export function TakeoffLaunchPrompt({
                   : "Choix manuel"}
               </span>
             </p>
-            <p className="text-xs text-[var(--slate-500)]">
-              Document detecte : {launchRecommendation.documentClass.replaceAll("_", " ")}
-            </p>
             <p className="text-xs text-[var(--slate-600)]">
               Version cible :{" "}
               <span className="inline-flex items-center rounded-full bg-[var(--slate-100)] px-2 py-0.5 text-[10px] font-medium text-[var(--slate-700)]">
@@ -279,37 +399,34 @@ export function TakeoffLaunchPrompt({
               </span>
             </p>
             <p className="text-xs text-[var(--slate-500)]">
-              Benefice attendu : Les quantites seront extraites de vos{" "}
-              {planFileCount} plan{planFileCount > 1 ? "s" : ""} pour alimenter
-              le chiffrage.
+              Resultats disponibles dans le centre d&apos;activite metres apres lancement.
+            </p>
+            <p className="text-xs text-[var(--slate-500)]">
+              Benefice attendu : les quantites seront extraites de vos plans pour alimenter le chiffrage.
             </p>
             <fieldset className="pt-1">
               <legend className="text-xs font-medium text-[var(--slate-600)]">
                 Niveau a lancer
               </legend>
               <div className="mt-2 flex flex-wrap gap-2" role="radiogroup">
-                {launchRecommendation.compatibleLevels
-                  .filter(
-                    (level): level is "B" | "C" => level === "B" || level === "C"
-                  )
-                  .map((level) => (
-                    <label
-                      key={level}
-                      className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
-                        selectedLevel === level
-                          ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]"
-                          : "border-[var(--slate-200)] bg-white text-[var(--slate-700)]"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name={`takeoff-prompt-level-${planSetId}`}
-                        checked={selectedLevel === level}
-                        onChange={() => setSelectedLevel(level)}
-                      />
-                      {TAKEOFF_LEVEL_BUSINESS_LABELS[level]}
-                    </label>
-                  ))}
+                {launchableLevels.map((level) => (
+                  <label
+                    key={level}
+                    className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
+                      selectedLevel === level
+                        ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/10 text-[var(--brand-blue)]"
+                        : "border-[var(--slate-200)] bg-white text-[var(--slate-700)]"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name={`takeoff-prompt-level-${planSetId}`}
+                      checked={selectedLevel === level}
+                      onChange={() => setSelectedLevel(level)}
+                    />
+                    {TAKEOFF_LEVEL_BUSINESS_LABELS[level]}
+                  </label>
+                ))}
               </div>
             </fieldset>
             {levelWarning ? (
@@ -326,15 +443,14 @@ export function TakeoffLaunchPrompt({
             ) : null}
           </div>
 
-          {/* Actions */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
               className="btn btn-primary text-xs"
               onClick={() => void handleLaunch()}
-              disabled={!selectedLevel}
+              disabled={!selectedLevel || !launchMode}
             >
-              Lancer maintenant
+              {primaryActionLabel}
             </button>
             {onDismissTemporary && (
               <button
@@ -342,7 +458,7 @@ export function TakeoffLaunchPrompt({
                 className="btn btn-secondary text-xs"
                 onClick={onDismissTemporary}
               >
-                Plus tard
+                Me rappeler plus tard
               </button>
             )}
             {onDismissPermanent && (
@@ -351,7 +467,7 @@ export function TakeoffLaunchPrompt({
                 className="rounded-sm text-xs text-[var(--slate-400)] underline underline-offset-2 hover:text-[var(--slate-600)] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-blue)] focus-visible:ring-offset-2"
                 onClick={onDismissPermanent}
               >
-                Ne plus proposer sur cette affaire
+                Ne pas proposer pour cette affaire
               </button>
             )}
           </div>

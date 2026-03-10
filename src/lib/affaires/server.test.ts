@@ -800,22 +800,28 @@ describe("affaires hub server", () => {
 
     const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
 
-    expect(summary).toEqual({
+    expect(summary).toMatchObject({
       planSetCount: 2,
       planFileCount: 2,
       totalSizeBytes: 4600,
       defaultPlanSetId: null,
+      defaultPlanSetName: null,
+      defaultPlanSetFileCount: 0,
+      defaultPlanSetUpdatedAt: null,
       latestJob: {
         jobId: "job-1",
         status: "review_required",
         label: "Revue requise",
         reviewVersionId: "ver-1",
+        planSetId: null,
+        estimateVersionId: "ver-1",
       },
       coveragePercent: 70,
       exceptionCount: 2,
       openQuestionsCount: 0,
       failureReasonLabel: null,
     });
+    expect(summary.latestJob?.createdAt).toEqual(expect.any(String));
   });
 
   it("prefers the current draft default-import plan set for auto-propose", async () => {
@@ -979,6 +985,9 @@ describe("affaires hub server", () => {
       planFileCount: 0,
       totalSizeBytes: 0,
       defaultPlanSetId: null,
+      defaultPlanSetName: null,
+      defaultPlanSetFileCount: 0,
+      defaultPlanSetUpdatedAt: null,
       latestJob: null,
       coveragePercent: null,
       exceptionCount: null,
@@ -1125,6 +1134,9 @@ describe("affaires hub server", () => {
       planFileCount: 3,
       totalSizeBytes: 600,
       defaultPlanSetId: null,
+      defaultPlanSetName: null,
+      defaultPlanSetFileCount: 0,
+      defaultPlanSetUpdatedAt: null,
       latestJob: null,
       coveragePercent: null,
       exceptionCount: null,
@@ -1211,6 +1223,9 @@ describe("affaires hub server", () => {
       planFileCount: 1001,
       totalSizeBytes: 15030,
       defaultPlanSetId: null,
+      defaultPlanSetName: null,
+      defaultPlanSetFileCount: 0,
+      defaultPlanSetUpdatedAt: null,
       latestJob: null,
       coveragePercent: null,
       exceptionCount: null,
@@ -1271,11 +1286,13 @@ describe("affaires hub server", () => {
 
     const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
 
-    expect(summary.latestJob).toEqual({
+    expect(summary.latestJob).toMatchObject({
       jobId: "job-2",
       status: "queued",
       label: "En file",
       reviewVersionId: "ver-2",
+      planSetId: null,
+      estimateVersionId: "ver-2",
     });
     expect(summary.coveragePercent).toBeNull();
     expect(summary.exceptionCount).toBeNull();
@@ -1336,11 +1353,13 @@ describe("affaires hub server", () => {
 
     const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
 
-    expect(summary.latestJob).toEqual({
+    expect(summary.latestJob).toMatchObject({
       jobId: "job-provider",
       status: "provider_pending",
       label: "En attente provider",
       reviewVersionId: "ver-provider",
+      planSetId: null,
+      estimateVersionId: "ver-provider",
     });
   });
 
@@ -1396,11 +1415,13 @@ describe("affaires hub server", () => {
 
     const summary = await fetchAffaireHubPlansSummary(PROJECT_ID);
 
-    expect(summary.latestJob).toEqual({
+    expect(summary.latestJob).toMatchObject({
       jobId: "job-3",
       status: "action_required",
       label: "Echec a corriger",
       reviewVersionId: "ver-3",
+      planSetId: null,
+      estimateVersionId: "ver-3",
     });
     expect(summary.failureReasonLabel).toBe(
       "Delai depasse. Relancez l'analyse ou essayez un niveau plus rapide."

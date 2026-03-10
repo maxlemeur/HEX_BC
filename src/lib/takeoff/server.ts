@@ -8181,21 +8181,11 @@ export async function createTakeoffJobFromPlanSet(input: {
   projectId: string;
   planSetId: string;
   estimateVersionId: string;
-  level?: Extract<TakeoffLevel, "B" | "C">;
+  level?: TakeoffLevel;
 }): Promise<TakeoffJobCreateResponse> {
   const { supabase, tenantId, userId, tenantRole } =
     await getAuthenticatedContext();
   const level = input.level ?? TAKEOFF_PLAN_SET_LEVEL;
-
-  if (level !== "B" && level !== "C") {
-    throw new TakeoffError({
-      status: 422,
-      code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED,
-      message: "Le lancement depuis un jeu de plans supporte uniquement les niveaux B et C.",
-      retryable: false,
-      level,
-    });
-  }
 
   await assertTakeoffEnabled(tenantId, { supabase });
   await assertEstimateVersionAccessibleAsDraft({

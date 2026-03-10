@@ -117,8 +117,19 @@ export function PlansStep({
     useState<TakeoffDocumentRecommendation | null>(null);
   const {
     dismissed: permanentlyDismissed,
+    temporarilyDismissed,
     dismissPermanently,
-  } = useTakeoffAutoProposeDismissed(projectId);
+    dismissTemporarily,
+  } = useTakeoffAutoProposeDismissed(projectId, {
+    context: "import",
+    scopeKey: [
+      planSet?.id ?? "none",
+      versionId,
+      String(planSet?.file_count ?? 0),
+      String(uploadedCount),
+      String(uploadedSizeBytes),
+    ].join(":"),
+  });
   const headingRef = useRef<HTMLHeadingElement>(null);
   const initialCountsRef = useRef<{ fileCount: number; totalSizeBytes: number } | null>(
     null
@@ -396,16 +407,23 @@ export function PlansStep({
                 </div>
               )}
 
-              {!permanentlyDismissed && planSet && launchRecommendation ? (
+              {!permanentlyDismissed &&
+              !temporarilyDismissed &&
+              planSet &&
+              launchRecommendation ? (
                 <TakeoffLaunchPrompt
                   projectId={projectId}
                   versionId={versionId}
                   versionLabel="Brouillon en cours"
                   planSetId={planSet.id}
+                  planSetName={planSet.name}
                   planFileCount={uploadedCount + (initialCountsRef.current?.fileCount ?? 0)}
                   launchRecommendation={launchRecommendation}
                   compact
-                  onDismissTemporary={handleFinish}
+                  onDismissTemporary={() => {
+                    dismissTemporarily();
+                    handleFinish();
+                  }}
                   onDismissPermanent={() => {
                     dismissPermanently();
                     handleFinish();

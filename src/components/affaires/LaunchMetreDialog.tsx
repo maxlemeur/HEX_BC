@@ -1,32 +1,49 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
+import { launchTakeoffFromPlanSet } from "@/app/dashboard/affaires/_actions/takeoff";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import { TakeoffUploadForm } from "@/components/takeoff/TakeoffUploadForm";
-import type { TakeoffLevel } from "@/lib/takeoff/client";
+import { duplicateEstimateVersion } from "@/lib/estimates/client";
 import {
   TAKEOFF_LEVEL_BUSINESS_LABELS,
   getTakeoffSelectionWarning,
   type TakeoffDocumentRecommendation,
 } from "@/lib/takeoff/document-classifier";
+import type { TakeoffLevel } from "@/lib/takeoff/client";
 
-const ANALYSIS_LEVELS = [
-  { level: "B" as const, label: "Standard", description: "Analyse standard avec recoupements" },
-  { level: "C" as const, label: "Detaille", description: "Analyse approfondie poste par poste" },
-] as const;
+const ANALYSIS_LEVELS: Array<{
+  level: TakeoffLevel;
+  label: string;
+  description: string;
+}> = [
+  { level: "A", label: "Rapide", description: "Premiere lecture rapide pour valider le contexte." },
+  { level: "B", label: "Standard", description: "Analyse standard avec recoupements." },
+  { level: "C", label: "Detaille", description: "Analyse approfondie poste par poste." },
+];
 
 type LaunchMetreDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectId: string;
-  draftVersionId: string | null;
-  hasAnyVersion: boolean;
-  plansSummary?: { planSetCount: number; planFileCount: number } | null;
-  versionLabel?: string;
+  currentVersion:
+    | {
+        id: string;
+        status: string;
+        versionNumber: number;
+      }
+    | null;
+  plansContext:
+    | {
+        defaultPlanSetId: string | null;
+        defaultPlanSetName?: string | null;
+        defaultPlanSetFileCount?: number;
+        launchRecommendation?: TakeoffDocumentRecommendation | null;
+      }
+    | null;
 };
 
 export function LaunchMetreDialog({
@@ -44,68 +61,107 @@ function LaunchMetreDialogContent({
   open,
   onOpenChange,
   projectId,
-  draftVersionId,
-  hasAnyVersion,
-  plansSummary,
-  versionLabel,
+  currentVersion,
+  plansContext,
 }: LaunchMetreDialogProps) {
   const toast = useToast();
-  const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [launchSuccess, setLaunchSuccess] = useState(false);
-  const [selectedLevel, setSelectedLevel] = useState<TakeoffLevel>("B");
-  const [classification, setClassification] =
-    useState<TakeoffDocumentRecommendation | null>(null);
-  const [manuallySelectedLevel, setManuallySelectedLevel] = useState(false);
-  const classifiedFileFingerprintRef = useRef("");
-  const focusStayButton = useCallback((button: HTMLButtonElement | null) => {
-    button?.focus();
-  }, []);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [selectedLevel, setSelectedLevel] = useState<TakeoffLevel>(
+    plansContext?.launchRecommendation?.recommendedLevel ?? "B",
+  );
+
+  const versionMode =
+    currentVersion?.status === "draft"
+      ? "existing_draft"
+      : currentVersion
+        ? "create_draft_from_current"
+        : "missing";
+  const versionLabel =
+    currentVersion?.status === "draft"
+      ? `V${currentVersion.versionNumber} (brouillon)`
+      : currentVersion
+        ? `Nouveau brouillon depuis V${currentVersion.versionNumber}`
+        : null;
   const selectionWarning = useMemo(
     () =>
       getTakeoffSelectionWarning({
-        recommendation: classification,
+        recommendation: plansContext?.launchRecommendation ?? null,
         selectedLevel,
       }),
-    [classification, selectedLevel]
+    [plansContext?.launchRecommendation, selectedLevel],
   );
-
-  const handleSuccess = useCallback(() => {
-    setIsUploading(false);
-    setLaunchSuccess(true);
-
-    const planInfo = plansSummary
-      ? ` — ${plansSummary.planFileCount} fichier(s)`
-      : "";
-    const versionInfo = versionLabel ? `Version cible : ${versionLabel}` : "";
-
-    toast.success({
-      title: "Analyse lancee",
-      description: `${versionInfo}${planInfo}. Resultats disponibles sous peu.`,
-      durationMs: 6000,
-    });
-  }, [toast, plansSummary, versionLabel]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (!nextOpen && isUploading) {
+      if (!nextOpen && isSubmitting) {
         return;
       }
       onOpenChange(nextOpen);
     },
-    [isUploading, onOpenChange],
+    [isSubmitting, onOpenChange],
   );
 
-  const noDraft = !draftVersionId;
+  const handleLaunch = useCallback(async () => {
+    if (!plansContext?.defaultPlanSetId) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
+    try {
+      let versionId = currentVersion?.status === "draft" ? currentVersion.id : null;
+      let resolvedVersionLabel = versionLabel ?? "Brouillon";
+
+      if (!versionId) {
+        if (!currentVersion?.id) {
+          throw new Error("Aucune version cible n'est disponible.");
+        }
+
+        versionId = await duplicateEstimateVersion(currentVersion.id);
+        resolvedVersionLabel = `Nouveau brouillon depuis V${currentVersion.versionNumber}`;
+      }
+
+      await launchTakeoffFromPlanSet({
+        projectId,
+        planSetId: plansContext.defaultPlanSetId,
+        versionId,
+        level: selectedLevel,
+      });
+
+      toast.success({
+        title: "Analyse lancee",
+        description: `${resolvedVersionLabel} — ${plansContext.defaultPlanSetFileCount ?? 0} fichier(s) concernes. Prochaine etape : suivre l'analyse dans le centre d'activite metres.`,
+        durationMs: 6000,
+      });
+      setLaunchSuccess(true);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Impossible de lancer l'analyse.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [
+    currentVersion,
+    plansContext,
+    projectId,
+    selectedLevel,
+    toast,
+    versionLabel,
+  ]);
 
   return (
     <Modal.Root open={open} onOpenChange={handleOpenChange}>
       <Modal.Content
-        closeOnOverlayClick={!isUploading}
-        closeOnEscapeKey={!isUploading}
+        closeOnOverlayClick={!isSubmitting}
+        closeOnEscapeKey={!isSubmitting}
       >
         <Modal.Header>
           <Modal.Title>Analyser les plans</Modal.Title>
-          <Modal.Close disabled={isUploading} />
+          <Modal.Close disabled={isSubmitting} />
         </Modal.Header>
         <Modal.Body>
           {launchSuccess ? (
@@ -128,17 +184,12 @@ function LaunchMetreDialogContent({
               <p className="text-sm font-semibold text-[var(--slate-800)]">
                 Analyse lancee avec succes
               </p>
-              {versionLabel && (
-                <p className="text-xs text-[var(--slate-500)]">
-                  Version cible : {versionLabel}
-                  {plansSummary
-                    ? ` — ${plansSummary.planFileCount} fichier(s)`
-                    : ""}
-                </p>
-              )}
+              <p className="text-xs text-[var(--slate-500)]">
+                {versionLabel ?? "Brouillon"} — {plansContext?.defaultPlanSetFileCount ?? 0} fichier
+                {(plansContext?.defaultPlanSetFileCount ?? 0) > 1 ? "s" : ""}.
+              </p>
               <div className="flex items-center justify-center gap-3 pt-2">
                 <button
-                  ref={focusStayButton}
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() => onOpenChange(false)}
@@ -155,173 +206,170 @@ function LaunchMetreDialogContent({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Version target */}
-              <div className={noDraft ? "opacity-50" : ""}>
-                <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
-                  Version cible
-                </p>
-                {versionLabel ? (
-                  <div className="flex items-center gap-2">
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="var(--success)"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
-                    <Badge variant="info" size="sm">
-                      {versionLabel}
-                    </Badge>
-                  </div>
-                ) : (
-                  <p className="text-sm text-[var(--slate-400)]">
-                    Aucune version
-                  </p>
-                )}
-              </div>
-
-              {/* Plans summary */}
-              {plansSummary && (
-                <div className={noDraft ? "opacity-50" : ""}>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
-                    Plans disponibles
-                  </p>
-                  <p className="text-sm text-[var(--slate-700)]">
-                    {plansSummary.planFileCount} fichier(s) dans{" "}
-                    {plansSummary.planSetCount} jeu(x)
-                  </p>
-                </div>
-              )}
-
-              {/* Analysis level */}
-              <fieldset className={noDraft ? "opacity-50" : ""}>
-                <legend className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
-                  Niveau d&apos;analyse
-                </legend>
-                <div className="space-y-2" role="radiogroup">
-                  {ANALYSIS_LEVELS.map((level) => (
-                    <label
-                      key={level.level}
-                      aria-label={level.label}
-                      className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${
-                        selectedLevel === level.level
-                          ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 cursor-pointer"
-                          : "border-[var(--slate-200)] bg-white cursor-pointer"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="analysis-level"
-                        value={level.level}
-                        checked={selectedLevel === level.level}
-                        onChange={() => {
-                          setManuallySelectedLevel(true);
-                          setSelectedLevel(level.level);
-                        }}
-                        className="mt-0.5"
-                      />
-                      <div>
-                        <span className="text-sm font-medium text-[var(--slate-800)]">
-                          {level.label}
-                        </span>
-                        <p className="text-xs text-[var(--slate-500)]">
-                          {level.description}
-                        </p>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-                {classification ? (
-                  <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-3 py-2">
-                    <p className="text-xs text-[var(--slate-700)]">
-                      Niveau recommande :{" "}
-                      {classification.recommendedLevel ? (
-                        <span className="font-semibold text-[var(--brand-blue)]">
-                          {TAKEOFF_LEVEL_BUSINESS_LABELS[classification.recommendedLevel]}
-                        </span>
-                      ) : (
-                        <span className="font-semibold text-[var(--warning)]">
-                          Choix manuel requis
-                        </span>
-                      )}
+              {plansContext?.defaultPlanSetId ? (
+                <>
+                  <div>
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                      Jeu de plans retenu
                     </p>
-                    {selectionWarning ? (
-                      <p
-                        className={`mt-1 text-xs ${
-                          selectionWarning.severity === "critical"
-                            ? "text-[var(--warning)]"
-                            : "text-[var(--slate-600)]"
-                        }`}
-                      >
-                        {selectionWarning.message}
-                      </p>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                      <Badge variant="info" size="sm">
+                        {plansContext.defaultPlanSetName ?? "Plans de l'affaire"}
+                      </Badge>
+                      <span className="text-xs text-[var(--slate-500)]">
+                        {plansContext.defaultPlanSetFileCount ?? 0} fichier
+                        {(plansContext.defaultPlanSetFileCount ?? 0) > 1 ? "s" : ""}
+                      </span>
+                    </div>
                   </div>
-                ) : null}
-              </fieldset>
 
-              {/* Upload form / fallback */}
-              {draftVersionId ? (
-                <TakeoffUploadForm
-                  versionId={draftVersionId}
-                  level={selectedLevel}
-                  allowedLevels={["B", "C"]}
-                  compact
-                  onSubmittingChange={setIsUploading}
-                  onSuccess={handleSuccess}
-                  onClassificationChange={(nextClassification, context) => {
-                    const isNewFileSelection =
-                      context.fileFingerprint !==
-                      classifiedFileFingerprintRef.current;
+                  <div className={versionMode === "missing" ? "opacity-50" : ""}>
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                      Version cible
+                    </p>
+                    {versionLabel ? (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="info" size="sm">
+                          {versionLabel}
+                        </Badge>
+                        {versionMode === "create_draft_from_current" ? (
+                          <span className="text-xs text-[var(--slate-500)]">
+                            Le brouillon sera cree avant lancement.
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-[var(--slate-400)]">
+                        Aucune version cible disponible.
+                      </p>
+                    )}
+                  </div>
 
-                    classifiedFileFingerprintRef.current =
-                      context.fileFingerprint;
-                    setClassification(nextClassification);
+                  <fieldset className={versionMode === "missing" ? "opacity-50" : ""}>
+                    <legend className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
+                      Niveau d&apos;analyse
+                    </legend>
+                    <div className="space-y-2" role="radiogroup">
+                      {ANALYSIS_LEVELS.map((level) => (
+                        <label
+                          key={level.level}
+                          aria-label={level.label}
+                          className={`flex items-start gap-3 rounded-lg border px-3 py-2 ${
+                            selectedLevel === level.level
+                              ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 cursor-pointer"
+                              : "border-[var(--slate-200)] bg-white cursor-pointer"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="analysis-level"
+                            value={level.level}
+                            checked={selectedLevel === level.level}
+                            onChange={() => setSelectedLevel(level.level)}
+                            className="mt-0.5"
+                          />
+                          <div>
+                            <span className="text-sm font-medium text-[var(--slate-800)]">
+                              {level.label}
+                            </span>
+                            <p className="text-xs text-[var(--slate-500)]">
+                              {level.description}
+                            </p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    {plansContext.launchRecommendation ? (
+                      <div className="mt-3 rounded-lg border border-[var(--brand-blue)]/20 bg-[var(--brand-blue)]/5 px-3 py-2">
+                        <p className="text-xs text-[var(--slate-700)]">
+                          Niveau recommande :{" "}
+                          {plansContext.launchRecommendation.recommendedLevel ? (
+                            <span className="font-semibold text-[var(--brand-blue)]">
+                              {TAKEOFF_LEVEL_BUSINESS_LABELS[
+                                plansContext.launchRecommendation.recommendedLevel
+                              ]}
+                            </span>
+                          ) : (
+                            <span className="font-semibold text-[var(--warning)]">
+                              Choix manuel requis
+                            </span>
+                          )}
+                        </p>
+                        {selectionWarning ? (
+                          <p
+                            className={`mt-1 text-xs ${
+                              selectionWarning.severity === "critical"
+                                ? "text-[var(--warning)]"
+                                : "text-[var(--slate-600)]"
+                            }`}
+                          >
+                            {selectionWarning.message}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </fieldset>
 
-                    if (isNewFileSelection) {
-                      setManuallySelectedLevel(false);
-                    }
+                  <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] px-3 py-2">
+                    <p className="text-xs text-[var(--slate-600)]">
+                      Resultats disponibles dans le centre d&apos;activite metres apres lancement.
+                    </p>
+                  </div>
 
-                    if (
-                      (isNewFileSelection || !manuallySelectedLevel) &&
-                      (nextClassification?.recommendedLevel === "B" ||
-                        nextClassification?.recommendedLevel === "C")
-                    ) {
-                      setSelectedLevel(nextClassification.recommendedLevel);
-                    }
-                  }}
-                />
-              ) : hasAnyVersion ? (
-                <div className="py-4 text-center">
-                  <p className="text-sm text-[var(--slate-600)]">
-                    La version courante n&apos;est pas un brouillon.
-                  </p>
-                  <Link
-                    href={`/dashboard/estimates/new?projectId=${projectId}`}
-                    className="btn btn-secondary btn-sm mt-4 inline-flex"
-                  >
-                    Creer une nouvelle version
-                  </Link>
-                </div>
+                  {errorMessage ? (
+                    <div className="rounded-lg border border-[var(--error)]/20 bg-[var(--error)]/5 px-3 py-2 text-sm text-[var(--error)]">
+                      {errorMessage}
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => onOpenChange(false)}
+                      disabled={isSubmitting}
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => void handleLaunch()}
+                      disabled={isSubmitting || versionMode === "missing"}
+                    >
+                      {versionMode === "create_draft_from_current"
+                        ? "Creer un brouillon et analyser"
+                        : "Analyser maintenant"}
+                    </button>
+                  </div>
+                </>
               ) : (
                 <div className="py-4 text-center">
                   <p className="text-sm text-[var(--slate-600)]">
-                    Aucune version trouvee.
+                    Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.
                   </p>
                   <Link
-                    href={`/dashboard/estimates/new?projectId=${projectId}`}
+                    href={`/dashboard/affaires/${projectId}/plans`}
                     className="btn btn-secondary btn-sm mt-4 inline-flex"
                   >
-                    Creer une premiere version
+                    Voir les plans
                   </Link>
                 </div>
               )}
+
+              {versionMode === "missing" ? (
+                <div className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
+                  Creez d&apos;abord une premiere version pour lancer l&apos;analyse sur une cible de chiffrage.
+                  <div className="mt-3">
+                    <Link
+                      href={`/dashboard/estimates/new?projectId=${projectId}`}
+                      className="btn btn-secondary btn-sm inline-flex"
+                    >
+                      Creer une premiere version
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </Modal.Body>

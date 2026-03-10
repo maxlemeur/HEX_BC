@@ -1,16 +1,19 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 
-const pushMock = vi.fn();
-const toastSuccessMock = vi.fn();
+const launchTakeoffFromPlanSetMock = vi.hoisted(() => vi.fn());
+const duplicateEstimateVersionMock = vi.hoisted(() => vi.fn());
+const toastSuccessMock = vi.hoisted(() => vi.fn());
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: pushMock,
-  }),
+vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
+  launchTakeoffFromPlanSet: launchTakeoffFromPlanSetMock,
+}));
+
+vi.mock("@/lib/estimates/client", () => ({
+  duplicateEstimateVersion: duplicateEstimateVersionMock,
 }));
 
 vi.mock("@/components/ui/Toast", () => ({
@@ -20,104 +23,36 @@ vi.mock("@/components/ui/Toast", () => ({
   }),
 }));
 
-vi.mock("@/components/takeoff/TakeoffUploadForm", () => ({
-  TakeoffUploadForm: (props: Record<string, unknown>) => {
-    const versionId = typeof props.versionId === "string" ? props.versionId : "";
-    const level = typeof props.level === "string" ? props.level : "";
-    const onSubmittingChange =
-      typeof props.onSubmittingChange === "function"
-        ? (props.onSubmittingChange as (isSubmitting: boolean) => void)
-        : null;
-    const onSuccess =
-      typeof props.onSuccess === "function" ? (props.onSuccess as () => void) : null;
-    const onClassificationChange =
-      typeof props.onClassificationChange === "function"
-        ? (props.onClassificationChange as (
-            classification: {
-              recommendedLevel: "B" | "C" | null;
-              compatibleLevels: Array<"B" | "C">;
-              documentClass: "tabular_pdf" | "complex_plan";
-              recommendationStrength: "high";
-              warningCode: null;
-              warningMessage: null;
-              signals: {
-                mimeType: string | null;
-                extension: string;
-                fileCount: number;
-                totalPageCount: number | null;
-                matchedTableHints: string[];
-                matchedPlanHints: string[];
-              };
-            } | null,
-            context: { fileFingerprint: string }
-          ) => void)
-        : null;
-
-    function emitClassification(
-      recommendedLevel: "B" | "C",
-      fileFingerprint: string
-    ) {
-      onClassificationChange?.(
-        {
-          documentClass: recommendedLevel === "B" ? "tabular_pdf" : "complex_plan",
-          recommendedLevel,
-          compatibleLevels: ["B", "C"],
-          recommendationStrength: "high",
-          warningCode: null,
-          warningMessage: null,
-          signals: {
-            mimeType: "application/pdf",
-            extension: "pdf",
-            fileCount: 1,
-            totalPageCount: null,
-            matchedTableHints: recommendedLevel === "B" ? ["dpgf"] : [],
-            matchedPlanHints: recommendedLevel === "C" ? ["plan"] : [],
-          },
-        },
-        { fileFingerprint }
-      );
-    }
-
-    return (
-      <div
-        data-testid="takeoff-upload-form"
-        data-version-id={versionId}
-        data-level={level}
-      >
-        <button type="button" onClick={() => onSubmittingChange?.(true)}>
-          Start Upload
-        </button>
-        <button type="button" onClick={() => onSubmittingChange?.(false)}>
-          Stop Upload
-        </button>
-        <button type="button" onClick={() => onSuccess?.()}>
-          Trigger Success
-        </button>
-        <button
-          type="button"
-          onClick={() => emitClassification("B", "file-1")}
-        >
-          Classify File 1 B
-        </button>
-        <button
-          type="button"
-          onClick={() => emitClassification("B", "file-2")}
-        >
-          Classify File 2 B
-        </button>
-      </div>
-    );
-  },
-}));
-
 const defaultProps = {
   open: true,
   onOpenChange: vi.fn(),
   projectId: "proj-1",
-  draftVersionId: "draft-v1" as string | null,
-  hasAnyVersion: true,
-  plansSummary: { planSetCount: 2, planFileCount: 5 },
-  versionLabel: "V3 (brouillon)",
+  currentVersion: {
+    id: "draft-v1",
+    status: "draft",
+    versionNumber: 3,
+  },
+  plansContext: {
+    defaultPlanSetId: "plan-set-1",
+    defaultPlanSetName: "Plans import",
+    defaultPlanSetFileCount: 5,
+    launchRecommendation: {
+      documentClass: "tabular_pdf" as const,
+      recommendedLevel: "B" as const,
+      compatibleLevels: ["B", "C"] as Array<"B" | "C">,
+      recommendationStrength: "high" as const,
+      warningCode: null,
+      warningMessage: null,
+      signals: {
+        mimeType: "application/pdf",
+        extension: "pdf",
+        fileCount: 5,
+        totalPageCount: 2,
+        matchedTableHints: ["dpgf"],
+        matchedPlanHints: [],
+      },
+    },
+  },
 };
 
 describe("LaunchMetreDialog", () => {
@@ -129,56 +64,15 @@ describe("LaunchMetreDialog", () => {
     cleanup();
   });
 
-  it("renders dialog with title 'Analyser les plans'", () => {
+  it("renders contextual launch information", () => {
     render(<LaunchMetreDialog {...defaultProps} />);
+
     expect(screen.getByText("Analyser les plans")).toBeInTheDocument();
-  });
-
-  it("renders TakeoffUploadForm when draftVersionId is provided", () => {
-    render(<LaunchMetreDialog {...defaultProps} />);
-
-    expect(screen.getByTestId("takeoff-upload-form")).toBeInTheDocument();
-    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
-      "data-version-id",
-      "draft-v1"
-    );
-    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
-      "data-level",
-      "B"
-    );
-  });
-
-  it("shows non-draft message when draftVersionId is null but versions exist", () => {
-    render(
-      <LaunchMetreDialog
-        {...defaultProps}
-        draftVersionId={null}
-      />
-    );
-
-    expect(
-      screen.getByText("La version courante n'est pas un brouillon.")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /Creer une nouvelle version/i })
-    ).toHaveAttribute("href", "/dashboard/estimates/new?projectId=proj-1");
-  });
-
-  it("shows no-version message when no versions exist", () => {
-    render(
-      <LaunchMetreDialog
-        {...defaultProps}
-        draftVersionId={null}
-        hasAnyVersion={false}
-      />
-    );
-
-    expect(
-      screen.getByText("Aucune version trouvee.")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /Creer une premiere version/i })
-    ).toHaveAttribute("href", "/dashboard/estimates/new?projectId=proj-1");
+    expect(screen.getByText("Plans import")).toBeInTheDocument();
+    expect(screen.getByText("V3 (brouillon)")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Rapide" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Standard" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Detaille" })).toBeInTheDocument();
   });
 
   it("does not render content when closed", () => {
@@ -186,187 +80,93 @@ describe("LaunchMetreDialog", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("prevents closing while upload is in progress", async () => {
+  it("launches directly on the draft version", async () => {
     const user = userEvent.setup();
-    const onOpenChange = vi.fn();
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: "job-1" });
 
-    render(
-      <LaunchMetreDialog
-        {...defaultProps}
-        onOpenChange={onOpenChange}
-      />
-    );
+    render(<LaunchMetreDialog {...defaultProps} />);
 
-    await user.click(screen.getByRole("button", { name: "Start Upload" }));
+    await user.click(screen.getByRole("button", { name: "Analyser maintenant" }));
 
-    const closeButton = screen.getByRole("button", { name: /fermer/i });
-    expect(closeButton).toBeDisabled();
-
-    fireEvent.keyDown(screen.getByRole("dialog"), {
-      key: "Escape",
-      preventDefault: () => undefined,
+    await waitFor(() => {
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
+        projectId: "proj-1",
+        planSetId: "plan-set-1",
+        versionId: "draft-v1",
+        level: "B",
+      });
     });
 
-    expect(onOpenChange).not.toHaveBeenCalled();
-  });
-
-  it("shows success state with navigation buttons after a successful launch", async () => {
-    const user = userEvent.setup();
-    const onOpenChange = vi.fn();
-
-    render(
-      <LaunchMetreDialog
-        {...defaultProps}
-        onOpenChange={onOpenChange}
-      />
-    );
-
-    await user.click(screen.getByRole("button", { name: "Trigger Success" }));
-
-    // Should NOT auto-close the dialog
-    expect(onOpenChange).not.toHaveBeenCalled();
-
-    // Should show success state
-    expect(screen.getByText("Analyse lancee avec succes")).toBeInTheDocument();
-
-    // Should show enriched toast
     expect(toastSuccessMock).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Analyse lancee",
         durationMs: 6000,
-      })
+      }),
     );
-    expect(toastSuccessMock.mock.calls[0][0].description).toContain("V3 (brouillon)");
-    expect(toastSuccessMock.mock.calls[0][0].description).toContain("5 fichier(s)");
-
-    // Should show two navigation buttons
-    expect(
-      screen.getByRole("button", { name: "Rester sur le hub" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /Centre d'activite/i })
-    ).toHaveAttribute("href", "/dashboard/affaires/proj-1/takeoff");
+    expect(screen.getByText("Analyse lancee avec succes")).toBeInTheDocument();
   });
 
-  it("closes dialog when 'Rester sur le hub' is clicked", async () => {
+  it("allows launching in Rapid mode", async () => {
     const user = userEvent.setup();
-    const onOpenChange = vi.fn();
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: "job-1" });
+
+    render(<LaunchMetreDialog {...defaultProps} />);
+
+    await user.click(screen.getByRole("radio", { name: "Rapide" }));
+    await user.click(screen.getByRole("button", { name: "Analyser maintenant" }));
+
+    await waitFor(() => {
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
+        projectId: "proj-1",
+        planSetId: "plan-set-1",
+        versionId: "draft-v1",
+        level: "A",
+      });
+    });
+  });
+
+  it("creates a draft first when the current version is not a draft", async () => {
+    const user = userEvent.setup();
+    duplicateEstimateVersionMock.mockResolvedValue("draft-v2");
+    launchTakeoffFromPlanSetMock.mockResolvedValue({ jobId: "job-1" });
 
     render(
       <LaunchMetreDialog
         {...defaultProps}
-        onOpenChange={onOpenChange}
-      />
+        currentVersion={{
+          id: "version-sent",
+          status: "sent",
+          versionNumber: 4,
+        }}
+      />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Trigger Success" }));
-    await user.click(screen.getByRole("button", { name: "Rester sur le hub" }));
+    await user.click(
+      screen.getByRole("button", { name: "Creer un brouillon et analyser" }),
+    );
 
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await waitFor(() => {
+      expect(duplicateEstimateVersionMock).toHaveBeenCalledWith("version-sent");
+      expect(launchTakeoffFromPlanSetMock).toHaveBeenCalledWith({
+        projectId: "proj-1",
+        planSetId: "plan-set-1",
+        versionId: "draft-v2",
+        level: "B",
+      });
+    });
   });
 
-  it("resets the success state when the parent reopens the dialog", async () => {
-    const user = userEvent.setup();
-    const onOpenChange = vi.fn();
-    const { rerender } = render(
+  it("shows a create-version CTA when no version exists", () => {
+    render(
       <LaunchMetreDialog
         {...defaultProps}
-        onOpenChange={onOpenChange}
-      />
+        currentVersion={null}
+      />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Trigger Success" }));
-    expect(screen.getByText("Analyse lancee avec succes")).toBeInTheDocument();
-
-    rerender(
-      <LaunchMetreDialog
-        {...defaultProps}
-        open={false}
-        onOpenChange={onOpenChange}
-      />
-    );
-
-    rerender(
-      <LaunchMetreDialog
-        {...defaultProps}
-        open
-        onOpenChange={onOpenChange}
-      />
-    );
-
-    expect(screen.queryByText("Analyse lancee avec succes")).not.toBeInTheDocument();
-    expect(screen.getByTestId("takeoff-upload-form")).toBeInTheDocument();
-  });
-
-  it("renders business-friendly analysis level labels", () => {
-    render(<LaunchMetreDialog {...defaultProps} />);
-
-    expect(screen.getByText("Standard")).toBeInTheDocument();
-    expect(screen.getByText("Detaille")).toBeInTheDocument();
-  });
-
-  it("allows selecting Standard and Detaille levels", async () => {
-    const user = userEvent.setup();
-
-    render(<LaunchMetreDialog {...defaultProps} />);
-
-    const radios = screen.getAllByRole("radio");
-    expect(radios[0]).toBeChecked();
-    expect(radios[0]).not.toBeDisabled();
-    expect(radios[1]).not.toBeDisabled();
-
-    await user.click(radios[1]);
-    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
-      "data-level",
-      "C"
-    );
-  });
-
-  it("resets a manual override when classification arrives for a different file", async () => {
-    const user = userEvent.setup();
-
-    render(<LaunchMetreDialog {...defaultProps} />);
-
-    await user.click(screen.getByRole("button", { name: "Classify File 1 B" }));
-    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
-      "data-level",
-      "B"
-    );
-
-    await user.click(screen.getByRole("radio", { name: /detaille/i }));
-    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
-      "data-level",
-      "C"
-    );
-
-    await user.click(screen.getByRole("button", { name: "Classify File 2 B" }));
-
-    expect(screen.getByTestId("takeoff-upload-form")).toHaveAttribute(
-      "data-level",
-      "B"
-    );
-  });
-
-  it("displays plan summary info when provided", () => {
-    render(<LaunchMetreDialog {...defaultProps} />);
-
-    expect(screen.getByText(/5 fichier\(s\) dans 2 jeu\(x\)/)).toBeInTheDocument();
-  });
-
-  it("displays version label with check icon", () => {
-    render(<LaunchMetreDialog {...defaultProps} />);
-
-    expect(screen.getByText("V3 (brouillon)")).toBeInTheDocument();
-    expect(screen.getByText("Version cible")).toBeInTheDocument();
-  });
-
-  it("success state has aria-live region for screen readers", async () => {
-    const user = userEvent.setup();
-
-    render(<LaunchMetreDialog {...defaultProps} />);
-    await user.click(screen.getByRole("button", { name: "Trigger Success" }));
-
-    const liveRegion = screen.getByText("Analyse lancee avec succes").closest("[aria-live]");
-    expect(liveRegion).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByText(/Creez d'abord une premiere version/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Creer une premiere version/i }),
+    ).toHaveAttribute("href", "/dashboard/estimates/new?projectId=proj-1");
   });
 });

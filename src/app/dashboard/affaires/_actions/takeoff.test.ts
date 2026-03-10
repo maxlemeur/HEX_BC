@@ -113,4 +113,23 @@ describe("launchTakeoffFromPlanSet", () => {
       level: "C",
     });
   });
+
+  it("passes through level A when requested", async () => {
+    createTakeoffJobFromPlanSetMock.mockResolvedValue({ id: JOB_ID });
+    triggerTakeoffJobProcessingMock.mockResolvedValue({ triggered: true });
+
+    await launchTakeoffFromPlanSet({
+      projectId: PROJECT_ID,
+      planSetId: PLAN_SET_ID,
+      versionId: VERSION_ID,
+      level: "A",
+    });
+
+    expect(createTakeoffJobFromPlanSetMock).toHaveBeenCalledWith({
+      projectId: PROJECT_ID,
+      planSetId: PLAN_SET_ID,
+      estimateVersionId: VERSION_ID,
+      level: "A",
+    });
+  });
 });

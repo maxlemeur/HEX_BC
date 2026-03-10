@@ -21,12 +21,18 @@ export type AffaireHubPlansSummaryData = {
   planFileCount: number;
   totalSizeBytes: number;
   defaultPlanSetId: string | null;
+  defaultPlanSetName?: string | null;
+  defaultPlanSetFileCount?: number;
+  defaultPlanSetUpdatedAt?: string | null;
   launchRecommendation?: TakeoffDocumentRecommendation | null;
   latestJob: {
     jobId: string;
     status: TakeoffVisibleJobStatus;
     label: string;
     reviewVersionId: string;
+    planSetId?: string | null;
+    estimateVersionId?: string;
+    createdAt?: string;
   } | null;
   coveragePercent: number | null;
   exceptionCount: number | null;
