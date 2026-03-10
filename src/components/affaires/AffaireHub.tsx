@@ -93,6 +93,10 @@ type AffaireHubProps = {
   isReadOnlyReview?: boolean;
   plansSummary?: AffaireHubPlansSummaryData | null;
   takeoffEnabled?: boolean;
+  projectVersions?: Array<{
+    id: string;
+    versionNumber: number;
+  }>;
   sectionErrors?: {
     timeline?: string;
     dpgfSource?: string;
@@ -1030,6 +1034,7 @@ export function AffaireHub({
   isReadOnlyReview = false,
   plansSummary,
   takeoffEnabled = false,
+  projectVersions = [],
   sectionErrors,
   justCreated,
   intakeWorkspace,
@@ -1793,6 +1798,7 @@ export function AffaireHub({
               : null
           }
           plansContext={plansSummary ?? null}
+          availableVersions={projectVersions}
         />
       ) : null}
     </div>

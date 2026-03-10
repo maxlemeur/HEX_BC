@@ -161,6 +161,7 @@ export type AffaireHubPlansSummaryResult = {
   totalSizeBytes: number;
   defaultPlanSetId: string | null;
   defaultPlanSetName: string | null;
+  defaultPlanSetSource: string | null;
   defaultPlanSetFileCount: number;
   defaultPlanSetUpdatedAt: string | null;
   launchRecommendation?: TakeoffDocumentRecommendation | null;
@@ -671,6 +672,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
   // Find best plan set for auto-propose (import marker or latest draft row)
   let defaultPlanSetId: string | null = null;
   let defaultPlanSetName: string | null = null;
+  let defaultPlanSetSource: string | null = null;
   if (autoProposePlanSetRows.length > 0) {
     const markedSet = autoProposePlanSetRows.find((ps) =>
       hasDefaultImportPlanSetMarker(ps.metadata),
@@ -678,6 +680,12 @@ async function fetchAffaireHubPlansSummaryWithContext(
     const defaultPlanSet = markedSet ?? autoProposePlanSetRows[0];
     defaultPlanSetId = defaultPlanSet.id;
     defaultPlanSetName = defaultPlanSet.name?.trim() || null;
+    const metadata =
+      defaultPlanSet.metadata && typeof defaultPlanSet.metadata === "object"
+        ? (defaultPlanSet.metadata as Record<string, unknown>)
+        : null;
+    defaultPlanSetSource =
+      metadata && typeof metadata.source === "string" ? metadata.source : null;
   }
 
   let planFileCount = 0;
@@ -931,6 +939,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
     totalSizeBytes,
     defaultPlanSetId,
     defaultPlanSetName,
+    defaultPlanSetSource,
     defaultPlanSetFileCount,
     defaultPlanSetUpdatedAt,
     ...(launchRecommendation ? { launchRecommendation } : {}),

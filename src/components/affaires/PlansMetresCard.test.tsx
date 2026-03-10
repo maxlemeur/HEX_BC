@@ -78,6 +78,40 @@ describe("PlansMetresCard", () => {
     );
   });
 
+  it("surfaces intake provenance and confirms that no reupload is needed", () => {
+    render(
+      <PlansMetresCard
+        projectId="project-1"
+        plans={{
+          defaultPlanSetId: "plan-set-1",
+          defaultPlanSetSource: "affaire-intake",
+          defaultPlanSetFileCount: 2,
+          planSetCount: 1,
+          planFileCount: 2,
+          totalSizeBytes: 2048,
+          latestJob: null,
+          coveragePercent: null,
+          exceptionCount: null,
+          openQuestionsCount: 0,
+          failureReasonLabel: null,
+        }}
+      />
+    );
+
+    expect(
+      screen.getByText("Synchronise depuis le dossier")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("2 plans confirmes repris depuis l'intake affaire.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Aucun reupload n'est necessaire pour lancer le metre sur ces plans.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Analyser les plans" })
+    ).toBeInTheDocument();
+  });
+
   it("exposes retry and remediation CTAs when the latest job needs action", () => {
     render(
       <PlansMetresCard
@@ -111,7 +145,7 @@ describe("PlansMetresCard", () => {
       screen.getByRole("button", { name: "Changer de niveau" })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Importer un autre document" })
+      screen.getByRole("link", { name: "Verifier les plans" })
     ).toHaveAttribute("href", "/dashboard/affaires/project-1/plans");
     expect(
       screen.queryByRole("button", { name: "Analyser les plans" })

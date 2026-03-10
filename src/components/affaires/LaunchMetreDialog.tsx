@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   launchTakeoffFromPlanSet,
+  launchTakeoffFromSourceVersionPlanSet,
 } from "@/app/dashboard/affaires/_actions/takeoff";
-import { duplicateEstimateVersion } from "@/lib/estimates/client";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -63,11 +63,88 @@ type LaunchMetreDialogProps = {
     | {
         defaultPlanSetId: string | null;
         defaultPlanSetName?: string | null;
+        defaultPlanSetSource?: string | null;
         defaultPlanSetFileCount?: number;
         launchRecommendation?: TakeoffDocumentRecommendation | null;
       }
     | null;
+  availableVersions?: Array<{
+    id: string;
+    versionNumber: number;
+  }>;
 };
+
+type LaunchVersionOption = {
+  id: string;
+  versionNumber: number;
+  mode: "existing_draft" | "create_draft_from_source";
+  label: string;
+  helper: string;
+};
+
+type LaunchVersionMode = LaunchVersionOption["mode"] | "missing";
+
+function isIntakeSyncedPlanSet(source: string | null | undefined) {
+  return source === "affaire-intake";
+}
+
+function buildVersionOptions(input: {
+  currentVersion: LaunchMetreDialogProps["currentVersion"];
+  availableVersions: NonNullable<LaunchMetreDialogProps["availableVersions"]>;
+}) {
+  const seen = new Set<string>();
+  const sortedVersions = [...input.availableVersions].sort(
+    (left, right) => right.versionNumber - left.versionNumber,
+  );
+  const options: LaunchVersionOption[] = [];
+
+  if (input.currentVersion?.status === "draft") {
+    options.push({
+      id: input.currentVersion.id,
+      versionNumber: input.currentVersion.versionNumber,
+      mode: "existing_draft",
+      label: `Utiliser V${input.currentVersion.versionNumber} (brouillon courant)`,
+      helper: "Le metre sera rattache directement a ce brouillon.",
+    });
+    seen.add(input.currentVersion.id);
+  }
+
+  for (const version of sortedVersions) {
+    if (seen.has(version.id)) {
+      continue;
+    }
+
+    options.push({
+      id: version.id,
+      versionNumber: version.versionNumber,
+      mode: "create_draft_from_source",
+      label: `Creer un brouillon depuis V${version.versionNumber}`,
+      helper: `Un nouveau brouillon sera cree depuis V${version.versionNumber} avant lancement.`,
+    });
+    seen.add(version.id);
+  }
+
+  if (options.length === 0 && input.currentVersion) {
+    options.push({
+      id: input.currentVersion.id,
+      versionNumber: input.currentVersion.versionNumber,
+      mode:
+        input.currentVersion.status === "draft"
+          ? "existing_draft"
+          : "create_draft_from_source",
+      label:
+        input.currentVersion.status === "draft"
+          ? `Utiliser V${input.currentVersion.versionNumber} (brouillon courant)`
+          : `Creer un brouillon depuis V${input.currentVersion.versionNumber}`,
+      helper:
+        input.currentVersion.status === "draft"
+          ? "Le metre sera rattache directement a ce brouillon."
+          : `Un nouveau brouillon sera cree depuis V${input.currentVersion.versionNumber} avant lancement.`,
+    });
+  }
+
+  return options;
+}
 
 export function LaunchMetreDialog({
   open,
@@ -86,15 +163,25 @@ function LaunchMetreDialogContent({
   projectId,
   currentVersion,
   plansContext,
+  availableVersions = [],
 }: LaunchMetreDialogProps) {
   const toast = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [launchSuccess, setLaunchSuccess] = useState(false);
+  const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pendingDraftVersionId, setPendingDraftVersionId] = useState<string | null>(null);
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const compatibleAnalysisLevels = useMemo(
     () => getCompatibleAnalysisLevels(plansContext?.launchRecommendation),
     [plansContext?.launchRecommendation],
+  );
+  const versionOptions = useMemo(
+    () =>
+      buildVersionOptions({
+        currentVersion,
+        availableVersions,
+      }),
+    [availableVersions, currentVersion],
   );
   const [selectedLevel, setSelectedLevel] = useState<PlanSetTakeoffLevel>(
     isPlanSetTakeoffLevel(plansContext?.launchRecommendation?.recommendedLevel) &&
@@ -105,18 +192,22 @@ function LaunchMetreDialogContent({
       : compatibleAnalysisLevels[0]?.level ?? "B",
   );
 
-  const versionMode =
-    currentVersion?.status === "draft"
-      ? "existing_draft"
-      : currentVersion
-        ? "create_draft_from_current"
-        : "missing";
-  const versionLabel =
-    currentVersion?.status === "draft"
-      ? `V${currentVersion.versionNumber} (brouillon)`
-      : currentVersion
-        ? `Nouveau brouillon depuis V${currentVersion.versionNumber}`
-        : null;
+  const selectedVersionOption = useMemo(
+    () =>
+      versionOptions.find((option) => option.id === selectedVersionId) ??
+      versionOptions[0] ??
+      null,
+    [selectedVersionId, versionOptions],
+  );
+  const versionMode: LaunchVersionMode =
+    selectedVersionOption?.mode ??
+    (currentVersion ? "create_draft_from_source" : "missing");
+  const hasTargetVersion = selectedVersionOption !== null;
+  const versionLabel = selectedVersionOption
+    ? selectedVersionOption.mode === "existing_draft"
+      ? `V${selectedVersionOption.versionNumber} (brouillon)`
+      : `Nouveau brouillon depuis V${selectedVersionOption.versionNumber}`
+    : null;
   const selectionWarning = useMemo(
     () =>
       getTakeoffSelectionWarning({
@@ -140,8 +231,8 @@ function LaunchMetreDialogContent({
   }, [compatibleAnalysisLevels, plansContext?.launchRecommendation?.recommendedLevel]);
 
   useEffect(() => {
-    setPendingDraftVersionId(null);
-  }, [currentVersion?.id, plansContext?.defaultPlanSetId, projectId]);
+    setSelectedVersionId(versionOptions[0]?.id ?? null);
+  }, [versionOptions]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -169,30 +260,32 @@ function LaunchMetreDialogContent({
     setErrorMessage(null);
 
     try {
-      let versionId =
-        currentVersion?.status === "draft"
-          ? currentVersion.id
-          : pendingDraftVersionId;
+      const selectedOption = selectedVersionOption;
+      if (!selectedOption) {
+        throw new Error("Aucune version cible n'est disponible.");
+      }
+
       let resolvedVersionLabel = versionLabel ?? "Brouillon";
       let createdJobId: string | null = null;
 
-      if (!versionId) {
-        if (!currentVersion?.id) {
-          throw new Error("Aucune version cible n'est disponible.");
-        }
-
-        versionId = await duplicateEstimateVersion(currentVersion.id);
-        setPendingDraftVersionId(versionId);
-        resolvedVersionLabel = `Nouveau brouillon depuis V${currentVersion.versionNumber}`;
+      if (selectedOption.mode === "existing_draft") {
+        const result = await launchTakeoffFromPlanSet({
+          projectId,
+          planSetId: plansContext.defaultPlanSetId,
+          versionId: selectedOption.id,
+          level: selectedLevel,
+        });
+        createdJobId = result.jobId;
+      } else {
+        const result = await launchTakeoffFromSourceVersionPlanSet({
+          projectId,
+          planSetId: plansContext.defaultPlanSetId,
+          sourceVersionId: selectedOption.id,
+          level: selectedLevel,
+        });
+        createdJobId = result.jobId;
+        resolvedVersionLabel = `Nouveau brouillon depuis V${selectedOption.versionNumber}`;
       }
-
-      const result = await launchTakeoffFromPlanSet({
-        projectId,
-        planSetId: plansContext.defaultPlanSetId,
-        versionId,
-        level: selectedLevel,
-      });
-      createdJobId = result.jobId;
 
       if (!createdJobId) {
         throw new Error("Impossible de lancer l'analyse.");
@@ -203,6 +296,7 @@ function LaunchMetreDialogContent({
         description: `${resolvedVersionLabel} — ${plansContext.defaultPlanSetFileCount ?? 0} fichier(s) concernes. Prochaine etape : suivre l'analyse dans le centre d'activite metres.`,
         durationMs: 6000,
       });
+      setLaunchSuccessVersionLabel(resolvedVersionLabel);
       setLaunchSuccess(true);
     } catch (error) {
       setErrorMessage(
@@ -216,9 +310,9 @@ function LaunchMetreDialogContent({
     plansContext,
     projectId,
     selectedLevel,
+    selectedVersionOption,
     toast,
     versionLabel,
-    pendingDraftVersionId,
   ]);
 
   return (
@@ -253,7 +347,8 @@ function LaunchMetreDialogContent({
                 Analyse lancee avec succes
               </p>
               <p className="text-xs text-[var(--slate-500)]">
-                {versionLabel ?? "Brouillon"} — {plansContext?.defaultPlanSetFileCount ?? 0} fichier
+                {launchSuccessVersionLabel ?? versionLabel ?? "Brouillon"} —{" "}
+                {plansContext?.defaultPlanSetFileCount ?? 0} fichier
                 {(plansContext?.defaultPlanSetFileCount ?? 0) > 1 ? "s" : ""}.
               </p>
               <div className="flex items-center justify-center gap-3 pt-2">
@@ -289,22 +384,43 @@ function LaunchMetreDialogContent({
                         {(plansContext.defaultPlanSetFileCount ?? 0) > 1 ? "s" : ""}
                       </span>
                     </div>
+                    <p className="mt-2 text-xs text-[var(--slate-500)]">
+                      {isIntakeSyncedPlanSet(plansContext.defaultPlanSetSource)
+                        ? "Plans synchronises depuis le dossier affaire. Seuls les plans confirmes sont repris ici."
+                        : "Verifiez que ce jeu contient bien les plans a analyser."}
+                    </p>
                   </div>
 
-                  <div className={versionMode === "missing" ? "opacity-50" : ""}>
+                  <div className={!hasTargetVersion ? "opacity-50" : ""}>
                     <p className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
                       Version cible
                     </p>
-                    {versionLabel ? (
-                      <div className="flex items-center gap-2">
-                        <Badge variant="info" size="sm">
-                          {versionLabel}
-                        </Badge>
-                        {versionMode === "create_draft_from_current" ? (
+                    {selectedVersionOption ? (
+                      <div className="space-y-2">
+                        <label className="sr-only" htmlFor="launch-metre-target-version">
+                          Version cible
+                        </label>
+                        <select
+                          id="launch-metre-target-version"
+                          className="form-select"
+                          value={selectedVersionOption.id}
+                          onChange={(event) => setSelectedVersionId(event.target.value)}
+                          disabled={isSubmitting || !hasTargetVersion}
+                        >
+                          {versionOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="info" size="sm">
+                            {versionLabel}
+                          </Badge>
                           <span className="text-xs text-[var(--slate-500)]">
-                            Le brouillon sera cree avant lancement.
+                            {selectedVersionOption.helper}
                           </span>
-                        ) : null}
+                        </div>
                       </div>
                     ) : (
                       <p className="text-sm text-[var(--slate-400)]">
@@ -313,7 +429,7 @@ function LaunchMetreDialogContent({
                     )}
                   </div>
 
-                  <fieldset className={versionMode === "missing" ? "opacity-50" : ""}>
+                  <fieldset className={!hasTargetVersion ? "opacity-50" : ""}>
                     <legend className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--slate-500)]">
                       Niveau d&apos;analyse
                     </legend>
@@ -403,9 +519,9 @@ function LaunchMetreDialogContent({
                       type="button"
                       className="btn btn-primary btn-sm"
                       onClick={() => void handleLaunch()}
-                      disabled={isSubmitting || versionMode === "missing"}
+                      disabled={isSubmitting || !hasTargetVersion}
                     >
-                      {versionMode === "create_draft_from_current"
+                      {versionMode === "create_draft_from_source"
                         ? "Creer un brouillon et analyser"
                         : "Analyser maintenant"}
                     </button>
@@ -425,7 +541,7 @@ function LaunchMetreDialogContent({
                 </div>
               )}
 
-              {versionMode === "missing" ? (
+              {!hasTargetVersion ? (
                 <div className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 px-3 py-2 text-sm text-[var(--slate-700)]">
                   Creez d&apos;abord une premiere version pour lancer l&apos;analyse sur une cible de chiffrage.
                   <div className="mt-3">

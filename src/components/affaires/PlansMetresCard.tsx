@@ -22,6 +22,7 @@ export type AffaireHubPlansSummaryData = {
   totalSizeBytes: number;
   defaultPlanSetId: string | null;
   defaultPlanSetName?: string | null;
+  defaultPlanSetSource?: string | null;
   defaultPlanSetFileCount?: number;
   defaultPlanSetUpdatedAt?: string | null;
   launchRecommendation?: TakeoffDocumentRecommendation | null;
@@ -114,6 +115,29 @@ function QuestionIcon() {
   );
 }
 
+function isIntakeSyncedPlanSet(source: string | null | undefined) {
+  return source === "affaire-intake";
+}
+
+function getPlanSetContextCopy(input: {
+  source: string | null | undefined;
+  fileCount: number;
+}) {
+  if (isIntakeSyncedPlanSet(input.source)) {
+    return {
+      badge: "Synchronise depuis le dossier",
+      summary: `${input.fileCount} plan${input.fileCount > 1 ? "s" : ""} confirme${input.fileCount > 1 ? "s" : ""} repris depuis l'intake affaire.`,
+      detail: "Aucun reupload n'est necessaire pour lancer le metre sur ces plans.",
+    };
+  }
+
+  return {
+    badge: null,
+    summary: `${input.fileCount} plan${input.fileCount > 1 ? "s" : ""} disponible${input.fileCount > 1 ? "s" : ""} pour le metre.`,
+    detail: "Verifiez le jeu de plans retenu avant de lancer l'analyse.",
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -184,6 +208,10 @@ export function PlansMetresCard({
 
   /* Data state */
   const { latestJob } = plans;
+  const planSetContext = getPlanSetContextCopy({
+    source: plans.defaultPlanSetSource,
+    fileCount: plans.defaultPlanSetFileCount ?? plans.planFileCount,
+  });
   const badgeVariant = latestJob
     ? FE_STATUS_BADGE[latestJob.status] ?? ("neutral" as BadgeVariant)
     : null;
@@ -236,6 +264,22 @@ export function PlansMetresCard({
         {plans.planFileCount} fichier{plans.planFileCount !== 1 ? "s" : ""}{" "}
         &middot; {formatFileSize(plans.totalSizeBytes)}
       </p>
+
+      <div className="mt-3 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {planSetContext.badge ? (
+            <Badge variant="info" size="sm">
+              {planSetContext.badge}
+            </Badge>
+          ) : null}
+          <p className="text-sm font-medium text-[var(--slate-800)]">
+            {planSetContext.summary}
+          </p>
+        </div>
+        <p className="mt-1 text-xs text-[var(--slate-500)]">
+          {planSetContext.detail}
+        </p>
+      </div>
 
       {/* Latest job */}
       {latestJob && badgeVariant && (
@@ -327,7 +371,7 @@ export function PlansMetresCard({
               href={`/dashboard/affaires/${projectId}/plans`}
               className="btn btn-secondary btn-sm inline-flex"
             >
-              Importer un autre document
+              Verifier les plans
             </Link>
           </>
         ) : null}

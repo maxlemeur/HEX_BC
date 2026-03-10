@@ -22,6 +22,7 @@ import {
   fetchAffaireHubPlansSummary,
   fetchAffaireHubSummary,
   fetchAffaireHubTimeline,
+  fetchProjectVersionList,
 } from "@/lib/affaires/server";
 import {
   APPROVAL_DECISION_JOURNAL_AUTHOR_QUERY_PARAM,
@@ -181,6 +182,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
 
   let plansSummary: Awaited<ReturnType<typeof fetchAffaireHubPlansSummary>> | null =
     null;
+  let projectVersions: Array<{ id: string; version_number: number }> = [];
   const registerPage =
     registerPageResult.status === "fulfilled" ? registerPageResult.value : null;
   const registerScopeOptions =
@@ -235,15 +237,20 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
   const hasIntakeWorkspaceError = intakeWorkspaceResult.status === "rejected";
 
   if (takeoffEnabled) {
-    const plansSummaryResult = await Promise.allSettled([
+    const [plansSummaryResult, projectVersionsResult] = await Promise.allSettled([
       fetchAffaireHubPlansSummary(projectId),
+      fetchProjectVersionList(projectId),
     ]);
 
-    if (plansSummaryResult[0].status === "fulfilled") {
-      plansSummary = plansSummaryResult[0].value;
+    if (plansSummaryResult.status === "fulfilled") {
+      plansSummary = plansSummaryResult.value;
     } else {
       sectionErrors.plansSummary =
         "Impossible de charger le resume plans & metres pour le moment.";
+    }
+
+    if (projectVersionsResult.status === "fulfilled") {
+      projectVersions = projectVersionsResult.value;
     }
   }
 
@@ -279,6 +286,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       isReadOnlyReview={isReadOnlyReview}
       plansSummary={plansSummary}
       takeoffEnabled={takeoffEnabled}
+      projectVersions={projectVersions.map((version) => ({
+        id: version.id,
+        versionNumber: version.version_number,
+      }))}
       sectionErrors={sectionErrors}
       justCreated={justCreated}
       intakeWorkspace={intakeWorkspace}

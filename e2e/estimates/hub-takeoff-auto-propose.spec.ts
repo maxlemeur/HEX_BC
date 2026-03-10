@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -8,9 +7,12 @@ import { expect, test, type Page } from "@playwright/test";
 
 loadEnvConfig(path.resolve(__dirname, "../.."));
 
-import { buildEstimateName, createEstimateViaWizard, loginWithUi } from "./helpers";
-
-const SAMPLE_PLAN_PDF = path.join(__dirname, "../fixtures/sample-plan.pdf");
+import {
+  buildEstimateName,
+  createEstimateViaWizard,
+  duplicateEstimateViaApi,
+  loginWithUi,
+} from "./helpers";
 
 function envOrThrow(name: string): string {
   const value = process.env[name]?.trim();
@@ -24,7 +26,9 @@ async function getAuthenticatedSupabaseClient(): Promise<SupabaseClient> {
   if (supabaseClient) return supabaseClient;
 
   const url = envOrThrow("NEXT_PUBLIC_SUPABASE_URL");
-  const serviceRoleKey = process.env.E2E_SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const serviceRoleKey =
+    process.env.E2E_SUPABASE_SERVICE_ROLE_KEY?.trim() ??
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
   if (serviceRoleKey) {
     supabaseClient = createClient(url, serviceRoleKey, {
@@ -90,136 +94,49 @@ async function getTenantIdForVersion(versionId: string) {
   return tenantId;
 }
 
-function hasDefaultImportPlanSetMarker(metadata: unknown) {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-    return false;
-  }
-
-  const record = metadata as Record<string, unknown>;
-  return record.default_import_plan_set === true;
-}
-
-async function resolveAutoPromptPlanSetId(input: {
+async function seedIntakeSyncedPlanSet(input: {
   projectId: string;
-  versionId: string;
   tenantId: string;
 }) {
   const sb = await getAuthenticatedSupabaseClient();
-  const { data, error } = await sb
-    .from("plan_sets")
-    .select("id, name, metadata, estimate_version_id, updated_at")
-    .eq("tenant_id", input.tenantId)
-    .eq("project_id", input.projectId)
-    .order("updated_at", { ascending: false });
-
-  if (error) {
-    throw new Error(`Cannot load plan sets: ${error.message}`);
-  }
-
-  const planSets = (data ?? []) as Array<{
-    id: string;
-    name: string;
-    metadata: unknown;
-    estimate_version_id: string | null;
-    updated_at: string;
-  }>;
-
-  const versionScopedMarked =
-    planSets.find(
-      (planSet) =>
-        planSet.estimate_version_id === input.versionId &&
-        hasDefaultImportPlanSetMarker(planSet.metadata),
-    ) ?? null;
-  if (versionScopedMarked) {
-    return versionScopedMarked.id;
-  }
-
-  const projectScopedMarked =
-    planSets.find(
-      (planSet) =>
-        planSet.estimate_version_id === null &&
-        hasDefaultImportPlanSetMarker(planSet.metadata),
-    ) ?? null;
-  if (projectScopedMarked) {
-    return projectScopedMarked.id;
-  }
-
-  if (planSets.length > 0) {
-    return planSets[0].id;
-  }
-
   const planSetId = randomUUID();
-  const { error: insertError } = await sb.from("plan_sets").insert({
+  const planFileId = randomUUID();
+
+  const { error: setError } = await sb.from("plan_sets").insert({
     id: planSetId,
     tenant_id: input.tenantId,
     project_id: input.projectId,
-    estimate_version_id: input.versionId,
-    name: "Plans import",
+    estimate_version_id: null,
+    name: "Plans synchronises dossier",
+    description: "Jeu de plans cree automatiquement depuis le dossier affaire",
     metadata: {
-      source: "import-flow",
+      source: "affaire-intake",
       default_import_plan_set: true,
+      intake_document_id: randomUUID(),
     },
   });
-
-  if (insertError) {
-    throw new Error(`Cannot create fallback plan set: ${insertError.message}`);
+  if (setError) {
+    throw new Error(`Cannot create intake-synced plan set: ${setError.message}`);
   }
 
-  return planSetId;
-}
-
-async function seedAutoPromptPlanFile(input: {
-  page: Page;
-  projectId: string;
-  versionId: string;
-  tenantId: string;
-}) {
-  const planSetId = await resolveAutoPromptPlanSetId(input);
-  const fileBuffer = fs.readFileSync(SAMPLE_PLAN_PDF);
-  const registerResponse = await input.page.request.post(
-    `/api/takeoff/plan-sets/${planSetId}/files`,
-    {
-      failOnStatusCode: false,
-      headers: {
-        "Content-Type": "application/json",
-      },
-      data: {
-        file_name: "sample-plan.pdf",
-        file_type: "application/pdf",
-        file_size_bytes: fileBuffer.byteLength,
-      },
+  const { error: fileError } = await sb.from("plan_files").insert({
+    id: planFileId,
+    tenant_id: input.tenantId,
+    plan_set_id: planSetId,
+    file_path: `e2e/${planSetId}/plan-synchronise.pdf`,
+    file_name: "plan-synchronise.pdf",
+    file_type: "application/pdf",
+    file_size_bytes: 245_760,
+    page_count: 2,
+    metadata: {
+      source: "affaire-intake",
+      intake_document_id: randomUUID(),
+      intake_storage_path: `e2e/intake/${planFileId}.pdf`,
     },
-  );
-  const registerBody = await registerResponse.text();
-  expect(
-    registerResponse.status(),
-    `Plan file registration failed. status=${registerResponse.status()} body=${registerBody}`,
-  ).toBe(201);
-
-  const registerPayload = JSON.parse(registerBody) as {
-    data?: {
-      signed_upload?: {
-        url?: string;
-      };
-    };
-  };
-  const signedUploadUrl = registerPayload.data?.signed_upload?.url ?? null;
-  if (!signedUploadUrl) {
-    throw new Error(`Missing signed upload URL in response: ${registerBody}`);
-  }
-
-  const uploadResponse = await input.page.request.fetch(signedUploadUrl, {
-    method: "PUT",
-    failOnStatusCode: false,
-    headers: {
-      "Content-Type": "application/pdf",
-    },
-    data: fileBuffer,
   });
-  expect(
-    uploadResponse.status(),
-    `Plan file upload failed. status=${uploadResponse.status()} body=${await uploadResponse.text()}`,
-  ).toBe(200);
+  if (fileError) {
+    throw new Error(`Cannot create intake-synced plan file: ${fileError.message}`);
+  }
 
   return { planSetId };
 }
@@ -232,10 +149,8 @@ async function openHubWithPrompt(page: Page) {
   const projectId = await extractProjectId(page, versionId);
   const tenantId = await getTenantIdForVersion(versionId);
 
-  await seedAutoPromptPlanFile({
-    page,
+  await seedIntakeSyncedPlanSet({
     projectId,
-    versionId,
     tenantId,
   });
 
@@ -257,6 +172,26 @@ async function openHubWithPrompt(page: Page) {
   ).toBeVisible();
 
   return { projectId, versionId, prompt, plansSection };
+}
+
+async function openLaunchDialog(page: Page) {
+  const dialog = page.getByRole("dialog");
+  const promptLaunchButton = page
+    .getByRole("region", { name: "Proposition d'analyse automatique" })
+    .getByRole("button", { name: "Lancer maintenant" });
+  const manualLaunchButton = page
+    .locator("section")
+    .filter({ hasText: "Plans, preuves & exceptions" })
+    .getByRole("button", { name: "Analyser les plans" });
+
+  if (await promptLaunchButton.isVisible().catch(() => false)) {
+    await promptLaunchButton.click();
+  } else {
+    await manualLaunchButton.click();
+  }
+
+  await expect(dialog).toBeVisible({ timeout: 15_000 });
+  return dialog;
 }
 
 test.describe("V3-014 — Auto-proposition metre", () => {
@@ -334,5 +269,90 @@ test.describe("V3-014 — Auto-proposition metre", () => {
     await expect(page.getByText(/Jobs|Centre d'activite|Activite/i)).toBeVisible({
       timeout: 15_000,
     });
+  });
+
+  test("hub and launch dialog keep an intake-synced plan set understandable for affaire-first launch", async ({
+    page,
+  }) => {
+    const { plansSection } = await openHubWithPrompt(page);
+
+    await expect(plansSection.getByRole("button", { name: "Analyser les plans" })).toBeVisible();
+
+    const provenanceSignals = [
+      /synchronis/i,
+      /depuis le dossier/i,
+      /sans reupload/i,
+      /affaire-intake/i,
+    ];
+    const hasHubProvenanceSignal = await Promise.any(
+      provenanceSignals.map(async (pattern) => {
+        const locator = plansSection.getByText(pattern);
+        await expect(locator.first()).toBeVisible({ timeout: 1_500 });
+        return true;
+      }),
+    ).catch(() => false);
+
+    expect(
+      hasHubProvenanceSignal,
+      "The hub should explain provenance or no-reupload behavior for an intake-synced plan set."
+    ).toBe(true);
+
+    const dialog = await openLaunchDialog(page);
+    await expect(dialog.getByText("Jeu de plans retenu")).toBeVisible();
+    await expect(dialog.getByText(/Plans synchronises dossier|plan-synchronise\.pdf/i)).toBeVisible();
+
+    const hasDialogProvenanceSignal = await Promise.any(
+      provenanceSignals.map(async (pattern) => {
+        const locator = dialog.getByText(pattern);
+        await expect(locator.first()).toBeVisible({ timeout: 1_500 });
+        return true;
+      }),
+    ).catch(() => false);
+
+    expect(
+      hasDialogProvenanceSignal,
+      "The launch dialog should keep provenance or eligibility messaging visible."
+    ).toBe(true);
+
+    await expect(dialog.getByRole("combobox", { name: /Version cible/i })).toBeVisible();
+    await expect(dialog.getByText("Niveau d'analyse")).toBeVisible();
+    await expect(dialog.getByRole("radio", { name: "Standard" })).toBeVisible();
+    await expect(dialog.getByRole("radio", { name: "Detaille" })).toBeVisible();
+  });
+
+  test("launch dialog supports explicit target-version selection when the shell exposes it", async ({
+    page,
+  }) => {
+    const { versionId } = await openHubWithPrompt(page);
+    await duplicateEstimateViaApi(page, versionId);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+
+    const dialog = await openLaunchDialog(page);
+    const versionSelector = dialog.getByRole("combobox", { name: /Version cible/i });
+    await expect(versionSelector).toBeVisible();
+    if (await versionSelector.isVisible().catch(() => false)) {
+      const options = await versionSelector.locator("option").allTextContents();
+      expect(
+        options.length,
+        "The version selector should expose at least two candidate targets once another version exists."
+      ).toBeGreaterThan(1);
+
+      const nonDraftOption =
+        options.find((label) => /^V\d+$/i.test(label.trim())) ??
+        options.find((label) => /nouveau brouillon/i.test(label)) ??
+        null;
+
+      if (nonDraftOption) {
+        await versionSelector.selectOption({ label: nonDraftOption });
+        await expect(
+          dialog.getByRole("button", { name: /Creer un brouillon et analyser/i })
+        ).toBeVisible();
+      }
+    } else {
+      await expect(
+        dialog.getByText(/V\d+ \(brouillon\)|Nouveau brouillon depuis V\d+/i)
+      ).toBeVisible();
+    }
   });
 });
