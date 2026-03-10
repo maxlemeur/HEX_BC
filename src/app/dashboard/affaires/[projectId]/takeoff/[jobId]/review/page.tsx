@@ -10,7 +10,7 @@ type Props = {
 };
 
 export default async function AffaireTakeoffReviewPage({ params, searchParams }: Props) {
-  const [{ jobId }, { versionId }] = await Promise.all([params, searchParams]);
+  const [{ projectId, jobId }, { versionId }] = await Promise.all([params, searchParams]);
   const { tenantId } = await getUserContext();
 
   if (!tenantId || !versionId) notFound();
@@ -18,5 +18,11 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
   const enabled = await isTakeoffEnabled(tenantId);
   if (!enabled) notFound();
 
-  return <TakeoffReviewPage jobId={jobId} versionId={versionId} />;
+  return (
+    <TakeoffReviewPage
+      jobId={jobId}
+      versionId={versionId}
+      projectId={projectId}
+    />
+  );
 }

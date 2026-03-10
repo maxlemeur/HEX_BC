@@ -22,6 +22,7 @@ vi.mock("@/hooks/useUiMode", () => ({
 vi.mock("@/lib/takeoff/client", () => ({
   fetchTakeoffJob: vi.fn(),
   fetchTakeoffJobCompare: vi.fn(),
+  fetchAllTakeoffDpgfComparison: vi.fn(),
   listTakeoffJobs: vi.fn(),
   patchTakeoffItems: vi.fn(),
   applyTakeoffJob: vi.fn(),
@@ -66,6 +67,7 @@ vi.mock("@/hooks/useFeatureFlag", () => ({
 
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
 import {
+  fetchAllTakeoffDpgfComparison,
   fetchTakeoffJob,
   fetchTakeoffJobCompare,
   listTakeoffJobs,
@@ -201,6 +203,29 @@ describe("TakeoffReviewPage", () => {
       removed: [],
       changed: [],
       unchanged: [],
+    });
+    vi.mocked(fetchAllTakeoffDpgfComparison).mockResolvedValue({
+      version_id: VERSION_ID,
+      job_id: JOB_ID,
+      view: "all",
+      threshold: 0.8,
+      summary: {
+        reliable_matches: 0,
+        to_confirm: 1,
+        significant_gaps: 1,
+        forced_manual: 1,
+        lines_without_proof: 2,
+        unused_takeoff_items: 1,
+        total_lines: 3,
+      },
+      rows: [],
+      manual_link_candidates: [],
+      unused_takeoff_items: [],
+      pagination: {
+        page_size: 200,
+        next_cursor: null,
+        total: 0,
+      },
     });
   });
 
@@ -723,6 +748,35 @@ describe("TakeoffReviewPage", () => {
     expect(mockReplace).toHaveBeenCalledWith(
       expect.stringContaining("reviewMode=production"),
       { scroll: false }
+    );
+  });
+
+  it("defaults to the validation review in affaire context and links back to the activity center", async () => {
+    mockUiMode("simplified");
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
+
+    render(
+      <TakeoffReviewPage
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        projectId="99999999-9999-4999-8999-999999999999"
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Traitez d'abord les exceptions qui peuvent biaiser le chiffrage")
+      ).toBeDefined();
+    });
+
+    expect(
+      screen.getByRole("radio", { name: /Validation/ }).getAttribute("aria-checked")
+    ).toBe("true");
+    expect(
+      screen.getByRole("link", { name: "Centre d'activite metres" })
+    ).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/99999999-9999-4999-8999-999999999999/takeoff"
     );
   });
 

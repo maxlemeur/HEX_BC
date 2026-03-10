@@ -105,6 +105,7 @@ export type ReviewItem = TakeoffJobItem & {
 type TakeoffReviewPageProps = {
   jobId: string;
   versionId: string;
+  projectId?: string;
 };
 
 type ViewTab = "tables" | "items" | "compare" | "dpgf";
@@ -203,6 +204,7 @@ function ExclusionReasonModal({
 export default function TakeoffReviewPage({
   jobId,
   versionId,
+  projectId,
 }: TakeoffReviewPageProps) {
   const toast = useToast();
   const router = useRouter();
@@ -227,11 +229,13 @@ export default function TakeoffReviewPage({
   // ---- Review mode from URL (V3-012: Assiste / Production / Validation)
   const reviewModeParam = searchParams.get("reviewMode");
   const fromParam = searchParams.get("from");
+  const isAffaireContext = typeof projectId === "string" && projectId.length > 0;
 
   const defaultReviewMode: ReviewMode = useMemo(() => {
     if (fromParam === "approval") return "validation";
+    if (isAffaireContext) return "validation";
     return isSimplified ? "assisted" : "production";
-  }, [fromParam, isSimplified]);
+  }, [fromParam, isAffaireContext, isSimplified]);
 
   const currentReviewMode: ReviewMode = useMemo(() => {
     if (
@@ -258,6 +262,24 @@ export default function TakeoffReviewPage({
     },
     [defaultReviewMode, router, searchParams]
   );
+
+  const openProductionReview = useCallback(
+    (tab: ViewTab) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("reviewMode", "production");
+      params.set("view", tab);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const openDpgfExceptions = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("reviewMode", "production");
+    params.set("view", "dpgf");
+    params.set("dpgfView", "exceptions_only");
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
 
   // ---- Tab state from URL
   const viewParam = searchParams.get("view");
@@ -618,7 +640,7 @@ export default function TakeoffReviewPage({
   }, [dpgfCompareView]);
 
   useEffect(() => {
-    if (activeTab !== "dpgf") return;
+    if (activeTab !== "dpgf" && currentReviewMode !== "validation") return;
     if (
       dpgfCompareFetchedRef.current &&
       dpgfCompareData?.view === dpgfCompareView
@@ -632,7 +654,7 @@ export default function TakeoffReviewPage({
     return () => {
       abortController.abort();
     };
-  }, [activeTab, dpgfCompareData, dpgfCompareView, loadDpgfComparison]);
+  }, [activeTab, currentReviewMode, dpgfCompareData, dpgfCompareView, loadDpgfComparison]);
 
   const refreshDpgfCompare = useCallback(() => {
     dpgfCompareFetchedRef.current = false;
@@ -1167,11 +1189,19 @@ export default function TakeoffReviewPage({
       {/* ---- Page header ---- */}
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="page-title">Revue d&apos;extraction</h1>
+          <h1 className="page-title">
+            {isAffaireContext ? "Revue des exceptions & preuves" : "Revue d&apos;extraction"}
+          </h1>
           <p className="page-description">
             {jobFileName ?? "Extraction"} &mdash;{" "}
-            {tables.length > 0 && <>{tables.length} tables, </>}
-            {items.length} item(s) extraits
+            {currentReviewMode === "validation" && isAffaireContext
+              ? "commencez par les preuves manquantes, la faible confiance et les rapprochements DPGF a trancher."
+              : (
+                <>
+                  {tables.length > 0 && <>{tables.length} tables, </>}
+                  {items.length} item(s) extraits
+                </>
+              )}
             {jobLevel && (
               <Badge variant="neutral" size="sm" className="ml-2">
                 {getBusinessLevelLabel(jobLevel)}
@@ -1185,10 +1215,16 @@ export default function TakeoffReviewPage({
             onModeChange={setReviewMode}
           />
           <Link
-            href={`/dashboard/estimates/${versionId}/takeoff/${jobId}`}
+            href={
+              isAffaireContext
+                ? `/dashboard/affaires/${projectId}/takeoff`
+                : `/dashboard/estimates/${versionId}/takeoff/${jobId}`
+            }
             className="btn btn-secondary btn-sm"
           >
-            Retour à l&apos;extraction
+            {isAffaireContext
+              ? "Centre d'activite metres"
+              : "Retour a l'extraction"}
           </Link>
         </div>
       </div>
@@ -1214,6 +1250,17 @@ export default function TakeoffReviewPage({
       ) : currentReviewMode === "validation" ? (
         <LazyValidationReviewPanel
           items={items}
+          dpgfSummary={dpgfCompareData?.summary ?? null}
+          dpgfLoading={dpgfCompareLoading}
+          dpgfError={dpgfCompareError}
+          hasDirtyOrSaving={hasDirtyOrSaving}
+          hasSaveErrors={hasSaveErrors}
+          onOpenEvidencePanel={handleOpenEvidencePanel}
+          onVerifyItem={handleMarkVerified}
+          onExcludeItem={(itemId) => handleExcludeItems([itemId])}
+          onIncludeItem={(itemId) => handleIncludeItems([itemId])}
+          onOpenDpgfExceptions={openDpgfExceptions}
+          onOpenDetailedReview={() => openProductionReview("items")}
         />
       ) : (
         <LazyTakeoffReviewExpert

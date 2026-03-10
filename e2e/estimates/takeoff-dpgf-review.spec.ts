@@ -643,6 +643,82 @@ test.describe("V3-010 — DPGF review page", () => {
     await loginWithUi(page);
   });
 
+  test("defaults to the affaire-first validation review with clear next steps", async ({
+    page,
+  }) => {
+    const dpgfFileName = `dpgf-validation-${Date.now()}.xlsx`;
+    const takeoffFileName = `plans-validation-${Date.now()}.pdf`;
+    const { versionId } = await createEstimateViaApi(page, {
+      projectName: buildEstimateName("V3010-VALIDATION"),
+      title: "V3-010 validation review affaire-first",
+    });
+    const projectId = await extractProjectId(page, versionId);
+    const tenantId = await getTenantIdForVersion(versionId);
+    const userId = await getAuthenticatedUserId(page);
+
+    const cloisonLine: SeededEstimateLine = {
+      id: randomUUID(),
+      title: "Cloison BA13",
+      quantity: 10,
+      position: 1,
+      sourcePage: 13,
+      sourceFileName: dpgfFileName,
+    };
+
+    await seedDpgfImport({
+      tenantId,
+      projectId,
+      userId,
+      filename: dpgfFileName,
+      rows: [{ rowIndex: cloisonLine.sourcePage, unit: "m2" }],
+    });
+
+    await seedEstimateLines({
+      tenantId,
+      versionId,
+      lines: [cloisonLine],
+    });
+
+    const seededJob = await seedCompletedTakeoffJob({
+      tenantId,
+      versionId,
+      sourceFileName: takeoffFileName,
+      items: [
+        {
+          designation: "Cloison BA13",
+          quantity: 8,
+          unit: "m2",
+          confidence: 0.42,
+          evidence: null,
+          sourcePage: null,
+          sourceFileName: takeoffFileName,
+        },
+      ],
+    });
+
+    await page.goto(
+      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${versionId}`
+    );
+
+    await expect(
+      page.getByRole("heading", { name: "Revue des exceptions & preuves" })
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Centre d'activite metres" })
+    ).toHaveAttribute("href", `/dashboard/affaires/${projectId}/takeoff`);
+    await expect(
+      page.getByRole("radio", { name: /Validation/ })
+    ).toHaveAttribute("aria-checked", "true");
+    await expect(
+      page.getByText("Traitez d'abord les exceptions qui peuvent biaiser le chiffrage")
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Revue detaillee" }).first()).toBeVisible();
+    await expect(page.getByText("Cloison BA13")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Ouvrir les preuves|Ajouter une preuve/i })
+    ).toBeVisible();
+  });
+
   test("supports exceptions export, manual multi-linking, and manual hypothesis capture", async ({
     page,
   }, testInfo) => {
