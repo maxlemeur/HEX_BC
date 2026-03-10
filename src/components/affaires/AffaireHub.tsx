@@ -41,6 +41,7 @@ import { BriefDraftCard } from "./BriefDraftCard";
 import { IntakeWorkspace } from "./IntakeWorkspace";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
+import { AffairePilotagePanel } from "./AffairePilotagePanel";
 import { PlansMetresCard } from "./PlansMetresCard";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import {
@@ -56,6 +57,7 @@ import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDis
 import { UnifiedImportFlow } from "./UnifiedImportFlow";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { sortCockpitSuggestions } from "@/lib/cockpit/suggestions";
+import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
 import { CockpitCommandBar } from "@/components/cockpit/CockpitCommandBar";
 import { CockpitCommandPreview } from "@/components/cockpit/CockpitCommandPreview";
 import {
@@ -1157,13 +1159,8 @@ export function AffaireHub({
     cockpitProjectIdRef.current = summary.project.id;
   }, [summary.project.id]);
 
-  const handleOpenCockpitSurface = useCallback(
-    (suggestion: CockpitSuggestion) => {
-      if (suggestion.target.kind === "navigate") {
-        router.push(suggestion.target.href);
-        return;
-      }
-
+  const openHubSurface = useCallback(
+    (surfaceId: CockpitSurfaceId, actionId = "pilotage-panel") => {
       const sectionBySurface = {
         "intake-upload": "intake",
         "brief-confirm": "brief",
@@ -1171,24 +1168,36 @@ export function AffaireHub({
         "approval-submit": "approval",
       } as const;
 
-      const sectionId = sectionBySurface[suggestion.target.surfaceId];
+      const sectionId = sectionBySurface[surfaceId];
       document.getElementById(sectionId)?.scrollIntoView({
         block: "start",
         behavior: "smooth",
       });
 
-      if (suggestion.target.surfaceId === "launch-metre") {
+      if (surfaceId === "launch-metre") {
         setShowLaunchMetreDialog(true);
         return;
       }
 
       dispatchCockpitOpenSurface({
         projectId: summary.project.id,
-        actionId: suggestion.actionId,
-        surfaceId: suggestion.target.surfaceId,
+        actionId,
+        surfaceId,
       });
     },
-    [router, summary.project.id],
+    [summary.project.id],
+  );
+
+  const handleOpenCockpitSurface = useCallback(
+    (suggestion: CockpitSuggestion) => {
+      if (suggestion.target.kind === "navigate") {
+        router.push(suggestion.target.href);
+        return;
+      }
+
+      openHubSurface(suggestion.target.surfaceId, suggestion.actionId);
+    },
+    [openHubSurface, router],
   );
 
   const commitCockpitExecution = useCallback(
@@ -1602,6 +1611,29 @@ export function AffaireHub({
               />
             </div>
           )}
+
+          <div className="mt-4">
+            <AffairePilotagePanel
+              projectId={summary.project.id}
+              intakeWorkspace={intakeWorkspace ?? null}
+              dpgfSource={dpgfSource}
+              plansSummary={plansSummary ?? null}
+              registerSummary={registerSummary ?? null}
+              approvalSummary={approvalSummary ?? null}
+              currentVersion={
+                summary.currentVersion
+                  ? {
+                      id: summary.currentVersion.id,
+                      status: summary.currentVersion.status,
+                      versionNumber: summary.currentVersion.versionNumber,
+                    }
+                  : null
+              }
+              lineCount={summary.lineCount}
+              takeoffEnabled={takeoffEnabled}
+              onOpenSurface={(surfaceId) => openHubSurface(surfaceId)}
+            />
+          </div>
 
           <AffaireProgressStrip summary={summary} dpgfSource={dpgfSource} />
 
