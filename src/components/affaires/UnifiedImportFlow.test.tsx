@@ -497,15 +497,15 @@ describe("UnifiedImportFlow", () => {
 
   it("waits for the carry-over preview before enabling version creation", async () => {
     const user = userEvent.setup();
-    const deferredPreview = createDeferred({
-      sourceVersionId: null,
-      sourceVersionNumber: null,
-      state: "not_applicable" as const,
-      totalJobs: 0,
-      acquiredJobs: 0,
-      inProgressJobs: 0,
-      actionRequiredJobs: 0,
-    });
+    const deferredPreview = createDeferred<{
+      sourceVersionId: string | null;
+      sourceVersionNumber: number | null;
+      state: "not_applicable";
+      totalJobs: number;
+      acquiredJobs: number;
+      inProgressJobs: number;
+      actionRequiredJobs: number;
+    }>();
 
     getUnifiedImportFlowTakeoffCarryOverPreviewMock.mockReturnValue(
       deferredPreview.promise
