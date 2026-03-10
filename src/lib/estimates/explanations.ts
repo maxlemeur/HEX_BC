@@ -385,15 +385,14 @@ function buildConfidence(input: {
 }
 
 function buildFingerprint(payload: NormalizedExplanationPayload) {
-  const narrativeStrategyVersion =
-    payload.kind === "delta"
-      ? ESTIMATE_DELTA_NARRATIVE_STRATEGY_VERSION
-      : ESTIMATE_EXPLANATION_PROMPT_VERSION;
+  if (payload.kind === "price") {
+    return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  }
 
   return createHash("sha256")
     .update(
       JSON.stringify({
-        narrative_strategy_version: narrativeStrategyVersion,
+        narrative_strategy_version: ESTIMATE_DELTA_NARRATIVE_STRATEGY_VERSION,
         payload,
       })
     )
@@ -458,23 +457,48 @@ function getDeltaDirection(deltaHtCents: number | null | undefined) {
   return deltaHtCents > 0 ? "increase" as const : "decrease" as const;
 }
 
+function buildDirectionalDeltaAmountFragment(
+  deltaCents: number,
+  amountLabel: "HT" | "TTC"
+) {
+  const direction = getDeltaDirection(deltaCents);
+
+  if (direction === "stable") {
+    return `${amountLabel} stable a ${formatEUR(0)}`;
+  }
+
+  const trendLabel = direction === "increase" ? "hausse" : "baisse";
+  return `${amountLabel} en ${trendLabel} de ${formatEUR(Math.abs(deltaCents))}`;
+}
+
 function buildDeltaAmountFragment(impactSummary: EstimateExplanationImpactSummary) {
   const deltaHt = impactSummary.delta_ht_cents;
   const deltaTtc = impactSummary.delta_ttc_cents;
-  const direction = getDeltaDirection(deltaHt);
+  const htDirection = getDeltaDirection(deltaHt);
+  const ttcDirection = getDeltaDirection(deltaTtc);
 
   if (typeof deltaHt !== "number" || typeof deltaTtc !== "number") {
     return "Delta montant non renseigne";
   }
 
-  if (direction === "stable") {
+  if (htDirection === "stable" && ttcDirection === "stable") {
     return `Delta stable a ${formatEUR(0)} HT et ${formatEUR(0)} TTC`;
   }
 
-  const trendLabel = direction === "increase" ? "Hausse globale" : "Baisse globale";
-  return `${trendLabel} de ${formatEUR(Math.abs(deltaHt))} HT et ${formatEUR(
-    Math.abs(deltaTtc)
-  )} TTC`;
+  if (
+    htDirection !== "stable" &&
+    htDirection === ttcDirection
+  ) {
+    const trendLabel =
+      htDirection === "increase" ? "Hausse globale" : "Baisse globale";
+    return `${trendLabel} de ${formatEUR(Math.abs(deltaHt))} HT et ${formatEUR(
+      Math.abs(deltaTtc)
+    )} TTC`;
+  }
+
+  const htFragment = buildDirectionalDeltaAmountFragment(deltaHt, "HT");
+  const ttcFragment = buildDirectionalDeltaAmountFragment(deltaTtc, "TTC");
+  return `Delta mixte: ${htFragment} et ${ttcFragment}`;
 }
 
 function buildDeltaSummaryShort(input: {

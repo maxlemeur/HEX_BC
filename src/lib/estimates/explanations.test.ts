@@ -1,4 +1,8 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { formatEUR } from "@/lib/money";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
@@ -305,6 +309,73 @@ function createSupabaseMock(options?: {
   };
 }
 
+function buildLegacyPriceFingerprint() {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        kind: "price",
+        version_id: VERSION_ID,
+        line_id: LINE_ID,
+        compare_version_id: null,
+        summary_context: {
+          line_label: "Mur beton",
+          version_label: "V2 - Variante",
+        },
+        statements: {
+          facts: [
+            {
+              label: `Prix unitaire actuel ${formatEUR(4500)} HT`,
+              source_label: "Mur beton",
+              confidence_score: 1,
+            },
+            {
+              label: `Montant ligne ${formatEUR(9000)} HT / ${formatEUR(10800)} TTC`,
+              source_label: "Mur beton",
+              confidence_score: 1,
+            },
+            {
+              label: "Marge configuree 12%",
+              source_label: "V2 - Variante",
+              confidence_score: 1,
+            },
+            {
+              label: "Origine document plans.pdf · page 3",
+              source_label: "takeoff_gemini",
+              confidence_score: 0.9,
+            },
+          ],
+          hypotheses: [],
+          inferences: [],
+        },
+        provenance: [
+          {
+            source_kind: "estimate_item",
+            label: "Mur beton",
+            source_ref: "V2 - Variante",
+            confidence_score: 1,
+            source_record_table: "estimate_items",
+            source_record_id: LINE_ID,
+            metadata_json: {
+              item_type: "line",
+            },
+            rank: 0,
+          },
+        ],
+        risk_signals: [],
+        impact_summary: {
+          current_amount_ht_cents: 9000,
+          current_amount_ttc_cents: 10800,
+          current_margin_bp: 1200,
+          current_margin_multiplier: 1.12,
+          top_drivers: [],
+        },
+        confidence_label: "high",
+        confidence_score: 0.88,
+      })
+    )
+    .digest("hex");
+}
+
 describe("estimate explanations service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -561,6 +632,133 @@ describe("estimate explanations service", () => {
     expect(supabase.__spies.explanationInsert).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps TTC-only delta fallbacks directional when HT is stable", async () => {
+    const baseDetails = buildVersionDetails();
+    const baseItem = baseDetails.items[0];
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      createSupabaseMock() as never
+    );
+    vi.mocked(getEstimateVersionDetails)
+      .mockResolvedValueOnce(
+        buildVersionDetails({
+          version: {
+            ...baseDetails.version,
+            id: VERSION_ID,
+            version_number: 2,
+            title: "Variante",
+            total_ht_cents: 9000,
+            total_tax_cents: 1799,
+            total_ttc_cents: 10799,
+          },
+          items: [
+            {
+              ...baseItem,
+              line_total_ht_cents: 9000,
+              line_tax_cents: 1799,
+              line_total_ttc_cents: 10799,
+            },
+          ],
+        }) as never
+      )
+      .mockResolvedValueOnce(
+        buildVersionDetails({
+          version: {
+            ...baseDetails.version,
+            id: COMPARE_VERSION_ID,
+            version_number: 1,
+            title: "Source",
+            total_ht_cents: 9000,
+            total_tax_cents: 1800,
+            total_ttc_cents: 10800,
+          },
+          items: [
+            {
+              ...baseItem,
+              line_total_ht_cents: 9000,
+              line_tax_cents: 1800,
+              line_total_ttc_cents: 10800,
+            },
+          ],
+        }) as never
+      );
+    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+
+    const explanation = await getEstimateDeltaExplanation({
+      versionId: VERSION_ID,
+      compareVersionId: COMPARE_VERSION_ID,
+      includeDetail: true,
+    });
+
+    expect(explanation.used_fallback).toBe(true);
+    expect(explanation.summary_short).toContain(`HT stable a ${formatEUR(0)}`);
+    expect(explanation.summary_short).toContain(`TTC en baisse de ${formatEUR(1)}`);
+    expect(explanation.summary_short).not.toContain("Delta stable");
+  });
+
+  it("keeps HT and TTC signs independent in mixed-direction delta fallbacks", async () => {
+    const baseDetails = buildVersionDetails();
+    const baseItem = baseDetails.items[0];
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(
+      createSupabaseMock() as never
+    );
+    vi.mocked(getEstimateVersionDetails)
+      .mockResolvedValueOnce(
+        buildVersionDetails({
+          version: {
+            ...baseDetails.version,
+            id: VERSION_ID,
+            version_number: 2,
+            title: "Variante",
+            total_ht_cents: 9100,
+            total_tax_cents: 1690,
+            total_ttc_cents: 10790,
+          },
+          items: [
+            {
+              ...baseItem,
+              line_total_ht_cents: 9100,
+              line_tax_cents: 1690,
+              line_total_ttc_cents: 10790,
+            },
+          ],
+        }) as never
+      )
+      .mockResolvedValueOnce(
+        buildVersionDetails({
+          version: {
+            ...baseDetails.version,
+            id: COMPARE_VERSION_ID,
+            version_number: 1,
+            title: "Source",
+            total_ht_cents: 9000,
+            total_tax_cents: 1800,
+            total_ttc_cents: 10800,
+          },
+          items: [
+            {
+              ...baseItem,
+              line_total_ht_cents: 9000,
+              line_tax_cents: 1800,
+              line_total_ttc_cents: 10800,
+            },
+          ],
+        }) as never
+      );
+    vi.mocked(callGeminiStructured).mockRejectedValue(new Error("Gemini down"));
+
+    const explanation = await getEstimateDeltaExplanation({
+      versionId: VERSION_ID,
+      compareVersionId: COMPARE_VERSION_ID,
+      includeDetail: true,
+    });
+
+    expect(explanation.used_fallback).toBe(true);
+    expect(explanation.summary_short).toContain(`HT en hausse de ${formatEUR(100)}`);
+    expect(explanation.summary_short).toContain(`TTC en baisse de ${formatEUR(10)}`);
+  });
+
   it("reuses the winning active snapshot after a duplicate insert race", async () => {
     const concurrentRow = {
       id: ACTIVE_EXPLANATION_ID,
@@ -723,5 +921,78 @@ describe("estimate explanations service", () => {
       label: "Mur beton",
       source_ref: "V2 - Variante",
     });
+  });
+
+  it("reuses legacy price fingerprints without regenerating the snapshot", async () => {
+    const activeRow = {
+      id: ACTIVE_EXPLANATION_ID,
+      created_at: "2026-03-07T10:00:01.000Z",
+      updated_at: "2026-03-07T10:00:01.000Z",
+      tenant_id: TENANT_ID,
+      project_id: PROJECT_ID,
+      version_id: VERSION_ID,
+      line_id: LINE_ID,
+      compare_version_id: null,
+      requested_by: USER_ID,
+      explanation_kind: "price",
+      snapshot_fingerprint: buildLegacyPriceFingerprint(),
+      summary_short: "Resume historique.",
+      summary_detail: "Detail historique.",
+      confidence_label: "high",
+      confidence_score: 0.88,
+      used_fallback: true,
+      provider: "fallback",
+      model: null,
+      statements_json: {
+        facts: [],
+        hypotheses: [],
+        inferences: [],
+      },
+      risk_signals_json: [],
+      impact_summary_json: {
+        current_amount_ht_cents: 9000,
+        current_amount_ttc_cents: 10800,
+        top_drivers: [],
+      },
+      metadata_json: {},
+      generated_at: "2026-03-07T10:00:01.000Z",
+      superseded_at: null,
+      superseded_by_explanation_id: null,
+    };
+
+    const supabase = createSupabaseMock({
+      activeExplanationRows: [activeRow],
+      sourceRowsByExplanationId: {
+        [ACTIVE_EXPLANATION_ID]: [
+          {
+            id: ACTIVE_SOURCE_ID,
+            explanation_id: ACTIVE_EXPLANATION_ID,
+            source_kind: "estimate_item",
+            label: "Mur beton",
+            source_ref: "V2 - Variante",
+            confidence_score: 1,
+            rank: 0,
+            source_record_table: "estimate_items",
+            source_record_id: LINE_ID,
+            metadata_json: {},
+          },
+        ],
+      },
+    });
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    vi.mocked(getEstimateVersionDetails).mockResolvedValue(buildVersionDetails() as never);
+    vi.mocked(callGeminiStructured).mockClear();
+
+    const explanation = await getEstimateLineExplanation({
+      versionId: VERSION_ID,
+      lineId: LINE_ID,
+      includeDetail: true,
+    });
+
+    expect(vi.mocked(callGeminiStructured)).not.toHaveBeenCalled();
+    expect(supabase.__spies.explanationInsert).not.toHaveBeenCalled();
+    expect(explanation.explanation_id).toBe(ACTIVE_EXPLANATION_ID);
+    expect(explanation.summary_short).toBe("Resume historique.");
   });
 });
