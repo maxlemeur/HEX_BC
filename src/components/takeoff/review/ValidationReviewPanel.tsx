@@ -82,7 +82,7 @@ type FlaggedItem = {
 };
 
 function hasMissingSourceContext(item: ReviewItem) {
-  return !item.source_file_name || item.source_page === null;
+  return !item.source_file_name && item.source_page === null;
 }
 
 function computePriorityScore(input: { issues: string[]; item: ReviewItem }) {
@@ -220,6 +220,7 @@ export function ValidationReviewPanel({
   const [filter, setFilter] = useState<ValidationFilter>("priority");
 
   const includedItems = useMemo(() => items.filter((item) => !item.is_excluded), [items]);
+  const excludedItems = useMemo(() => items.filter((item) => item.is_excluded), [items]);
   const flaggedItems = useMemo(
     () =>
       [...flagItems(items)].sort((left, right) => {
@@ -548,6 +549,38 @@ export function ValidationReviewPanel({
         </div>
       ) : null}
 
+      {excludedItems.length > 0 && (
+        <section className="rounded-lg border border-[var(--border)] bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-[var(--slate-800)]">
+                Items exclus
+              </h2>
+              <p className="mt-1 text-sm text-[var(--slate-600)]">
+                Gardez les exclusions visibles ici pour pouvoir les reintegrer sans quitter la revue validation.
+              </p>
+            </div>
+            <Badge variant="neutral" size="sm">
+              {excludedItems.length} exclu{excludedItems.length > 1 ? "s" : ""}
+            </Badge>
+          </div>
+
+          <div className="mt-4 space-y-2" aria-live="polite">
+            {excludedItems.map((item) => (
+              <ValidationItemRow
+                key={item.id}
+                item={item}
+                issues={[]}
+                onOpenEvidencePanel={onOpenEvidencePanel}
+                onVerifyItem={onVerifyItem}
+                onExcludeItem={onExcludeItem}
+                onIncludeItem={onIncludeItem}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="rounded-lg border border-[var(--border)] bg-white px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-[var(--slate-600)]">
@@ -648,6 +681,11 @@ function ValidationItemRow({
             <Badge variant={getConfidenceBadgeVariant(item.confidence)} size="sm">
               {formatConfidenceLabel(item.confidence)}
             </Badge>
+            {item.is_excluded ? (
+              <Badge variant="neutral" size="sm">
+                Exclu
+              </Badge>
+            ) : null}
             {!item.is_verified ? (
               <Badge variant="warning" size="sm">
                 Verification requise

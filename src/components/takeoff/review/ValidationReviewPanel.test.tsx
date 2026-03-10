@@ -140,4 +140,44 @@ describe("ValidationReviewPanel", () => {
     expect(excludeItem).toHaveBeenCalledWith("action-1");
     expect(screen.getByText("Sauvegarde en cours...")).toBeDefined();
   });
+
+  it("does not flag file-backed items as missing source context when the page anchor is absent", () => {
+    render(
+      <ValidationReviewPanel
+        items={[
+          makeItem({
+            id: "file-only-source",
+            confidence: 0.42,
+            source_page: null,
+            is_verified: false,
+          }),
+        ]}
+      />
+    );
+
+    expect(screen.getByText("file.csv")).toBeDefined();
+    expect(screen.queryByText("Source ou page manquante")).toBeNull();
+  });
+
+  it("keeps excluded items visible so they can be reintegrated immediately", () => {
+    const includeItem = vi.fn();
+
+    render(
+      <ValidationReviewPanel
+        items={[
+          makeItem({
+            id: "excluded-1",
+            designation: "Gaine technique",
+            is_excluded: true,
+            exclusion_reason: "doublon",
+          }),
+        ]}
+        onIncludeItem={includeItem}
+      />
+    );
+
+    expect(screen.getByText("Items exclus")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Reintegrer" }));
+    expect(includeItem).toHaveBeenCalledWith("excluded-1");
+  });
 });

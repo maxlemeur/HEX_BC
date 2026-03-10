@@ -64,6 +64,7 @@ const LazyValidationReviewPanel = dynamic(
 );
 import {
   applyTakeoffJob,
+  fetchTakeoffDpgfComparison,
   fetchAllTakeoffDpgfComparison,
   fetchTakeoffJobCompare,
   fetchTakeoffJob,
@@ -109,6 +110,7 @@ type TakeoffReviewPageProps = {
 };
 
 type ViewTab = "tables" | "items" | "compare" | "dpgf";
+type DpgfFetchMode = "summary" | "detail";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -382,7 +384,10 @@ export default function TakeoffReviewPage({
   const [dpgfCompareData, setDpgfCompareData] = useState<TakeoffDpgfComparisonResponse | null>(null);
   const [dpgfCompareLoading, setDpgfCompareLoading] = useState(false);
   const [dpgfCompareError, setDpgfCompareError] = useState<string | null>(null);
-  const dpgfCompareFetchedRef = useRef(false);
+  const dpgfCompareFetchedRef = useRef<{
+    mode: DpgfFetchMode;
+    view: TakeoffDpgfComparisonView;
+  } | null>(null);
 
   // ---- Assisted review state
   const [assistedReviewedIds, setAssistedReviewedIds] = useState<Set<string>>(
@@ -602,24 +607,39 @@ export default function TakeoffReviewPage({
 
   // ---- DPGF comparison lazy loading
   const loadDpgfComparison = useCallback(
-    async (signal?: AbortSignal) => {
+    async (mode: DpgfFetchMode, signal?: AbortSignal) => {
       try {
         setDpgfCompareLoading(true);
         setDpgfCompareError(null);
-        const response = await fetchAllTakeoffDpgfComparison(
-          jobId,
-          {
-            version_id: versionId,
-            page_size: DPGF_COMPARE_PAGE_SIZE,
-            view: dpgfCompareView,
-          },
-          { signal }
-        );
+        const response =
+          mode === "detail"
+            ? await fetchAllTakeoffDpgfComparison(
+                jobId,
+                {
+                  version_id: versionId,
+                  page_size: DPGF_COMPARE_PAGE_SIZE,
+                  view: dpgfCompareView,
+                },
+                { signal }
+              )
+            : await fetchTakeoffDpgfComparison(
+                jobId,
+                {
+                  version_id: versionId,
+                  page_size: 1,
+                  view: dpgfCompareView,
+                },
+                { signal }
+              );
         setDpgfCompareData(response);
-        dpgfCompareFetchedRef.current = true;
+        dpgfCompareFetchedRef.current = {
+          mode,
+          view: dpgfCompareView,
+        };
       } catch (error) {
         if (signal?.aborted) return;
         setDpgfCompareData(null);
+        dpgfCompareFetchedRef.current = null;
         setDpgfCompareError(
           isTakeoffApiError(error)
             ? error.message
@@ -633,23 +653,35 @@ export default function TakeoffReviewPage({
   );
 
   useEffect(() => {
-    dpgfCompareFetchedRef.current = false;
+    dpgfCompareFetchedRef.current = null;
     setDpgfCompareData((current) =>
       current?.view === dpgfCompareView ? current : null
     );
   }, [dpgfCompareView]);
 
   useEffect(() => {
-    if (activeTab !== "dpgf" && currentReviewMode !== "validation") return;
-    if (
-      dpgfCompareFetchedRef.current &&
-      dpgfCompareData?.view === dpgfCompareView
-    ) {
+    const nextMode: DpgfFetchMode | null =
+      activeTab === "dpgf"
+        ? "detail"
+        : currentReviewMode === "validation"
+          ? "summary"
+          : null;
+
+    if (!nextMode) return;
+
+    const hasMatchingPayload = dpgfCompareData?.view === dpgfCompareView;
+    const fetchedState = dpgfCompareFetchedRef.current;
+    const hasRequiredData =
+      hasMatchingPayload &&
+      fetchedState?.view === dpgfCompareView &&
+      (fetchedState.mode === "detail" || fetchedState.mode === nextMode);
+
+    if (hasRequiredData) {
       return;
     }
 
     const abortController = new AbortController();
-    void loadDpgfComparison(abortController.signal);
+    void loadDpgfComparison(nextMode, abortController.signal);
 
     return () => {
       abortController.abort();
@@ -657,9 +689,9 @@ export default function TakeoffReviewPage({
   }, [activeTab, currentReviewMode, dpgfCompareData, dpgfCompareView, loadDpgfComparison]);
 
   const refreshDpgfCompare = useCallback(() => {
-    dpgfCompareFetchedRef.current = false;
+    dpgfCompareFetchedRef.current = null;
     setDpgfCompareData(null);
-    void loadDpgfComparison();
+    void loadDpgfComparison("detail");
   }, [loadDpgfComparison]);
 
   // ---- Item update helpers

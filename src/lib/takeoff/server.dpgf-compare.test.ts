@@ -1111,6 +1111,48 @@ describe("takeoff DPGF comparison server helpers", () => {
     });
   });
 
+  it("keeps the DPGF summary global when the response rows are paginated", async () => {
+    const mock = createSupabaseMock();
+    mock.state.estimateItems = [
+      ...mock.state.estimateItems,
+      {
+        id: "88888888-8888-4888-8888-888888888888",
+        tenant_id: TENANT_ID,
+        version_id: VERSION_ID,
+        position: 2,
+        title: "Doublage isolant",
+        description: null,
+        quantity: 42,
+        selected_supplier_price_id: null,
+        source_file_name: "dpgf.xlsx",
+        source_page: 13,
+        source_provider: "dpgf",
+        item_type: "line",
+        updated_at: "2026-03-06T09:01:00.000Z",
+      },
+    ];
+
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: mock.supabase,
+      tenantId: TENANT_ID,
+      userId: USER_ID,
+      tenantRole: "admin",
+    } as never);
+
+    const response = await fetchDpgfTakeoffComparison(
+      JOB_ID,
+      parseTakeoffDpgfComparisonQuery({
+        version_id: VERSION_ID,
+        view: "all",
+        page_size: "1",
+      })
+    );
+
+    expect(response.rows).toHaveLength(1);
+    expect(response.summary.total_lines).toBe(2);
+    expect(response.pagination.total).toBe(2);
+  });
+
   it("recomputes lines_without_proof from hydrated persisted evidence", async () => {
     const mock = createSupabaseMock();
     mock.state.takeoffItems = [];

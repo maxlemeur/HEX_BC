@@ -66,7 +66,6 @@ import {
   TAKEOFF_DPGF_COMPARE_MAX_PAGE_SIZE,
   buildTakeoffDpgfReviewReference,
   buildTakeoffDpgfComparison,
-  buildTakeoffDpgfComparisonSummary,
 } from "@/lib/takeoff/dpgf-compare";
 import {
   listSupplierPriceEvidenceRows,
@@ -4851,13 +4850,24 @@ export async function fetchDpgfTakeoffComparison(
     rows: comparison.rows,
     supplierPriceByEstimateItemId,
   });
+  const hydratedLinesWithoutProof = hydratedRows.filter((row) =>
+    row.proofs.every((proof) => proof.type === "dpgf")
+  ).length;
+  const baseLinesWithoutProof = comparison.rows.filter((row) =>
+    row.proofs.every((proof) => proof.type === "dpgf")
+  ).length;
+  const summary = {
+    ...comparison.summary,
+    lines_without_proof: Math.max(
+      0,
+      comparison.summary.lines_without_proof +
+        (hydratedLinesWithoutProof - baseLinesWithoutProof)
+    ),
+  };
 
   return {
     ...comparison,
-    summary: buildTakeoffDpgfComparisonSummary({
-      rows: hydratedRows,
-      unusedTakeoffItems: comparison.unused_takeoff_items,
-    }),
+    summary,
     rows: hydratedRows,
   };
 }

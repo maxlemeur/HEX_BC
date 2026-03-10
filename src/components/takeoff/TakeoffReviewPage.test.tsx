@@ -21,6 +21,7 @@ vi.mock("@/hooks/useUiMode", () => ({
 // Mock client functions
 vi.mock("@/lib/takeoff/client", () => ({
   fetchTakeoffJob: vi.fn(),
+  fetchTakeoffDpgfComparison: vi.fn(),
   fetchTakeoffJobCompare: vi.fn(),
   fetchAllTakeoffDpgfComparison: vi.fn(),
   listTakeoffJobs: vi.fn(),
@@ -68,6 +69,7 @@ vi.mock("@/hooks/useFeatureFlag", () => ({
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
 import {
   fetchAllTakeoffDpgfComparison,
+  fetchTakeoffDpgfComparison,
   fetchTakeoffJob,
   fetchTakeoffJobCompare,
   listTakeoffJobs,
@@ -203,6 +205,29 @@ describe("TakeoffReviewPage", () => {
       removed: [],
       changed: [],
       unchanged: [],
+    });
+    vi.mocked(fetchTakeoffDpgfComparison).mockResolvedValue({
+      version_id: VERSION_ID,
+      job_id: JOB_ID,
+      view: "all",
+      threshold: 0.8,
+      summary: {
+        reliable_matches: 0,
+        to_confirm: 1,
+        significant_gaps: 1,
+        forced_manual: 1,
+        lines_without_proof: 2,
+        unused_takeoff_items: 1,
+        total_lines: 3,
+      },
+      rows: [],
+      manual_link_candidates: [],
+      unused_takeoff_items: [],
+      pagination: {
+        page_size: 1,
+        next_cursor: "next",
+        total: 3,
+      },
     });
     vi.mocked(fetchAllTakeoffDpgfComparison).mockResolvedValue({
       version_id: VERSION_ID,
@@ -778,6 +803,15 @@ describe("TakeoffReviewPage", () => {
       "href",
       "/dashboard/affaires/99999999-9999-4999-8999-999999999999/takeoff"
     );
+    expect(fetchTakeoffDpgfComparison).toHaveBeenCalledWith(
+      JOB_ID,
+      expect.objectContaining({
+        version_id: VERSION_ID,
+        page_size: 1,
+      }),
+      expect.anything()
+    );
+    expect(fetchAllTakeoffDpgfComparison).not.toHaveBeenCalled();
   });
 
   it("preserves the production tab when switching away and back", async () => {
