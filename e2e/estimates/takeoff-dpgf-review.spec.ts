@@ -719,6 +719,57 @@ test.describe("V3-010 — DPGF review page", () => {
     ).toBeVisible();
   });
 
+  test("opens the controlled apply wizard with explicit strategy and provenance preview", async ({
+    page,
+  }) => {
+    const takeoffFileName = `plans-apply-${Date.now()}.pdf`;
+    const { versionId } = await createEstimateViaApi(page, {
+      projectName: buildEstimateName("V3010-APPLY"),
+      title: "V3-010 apply wizard affaire-first",
+    });
+    const projectId = await extractProjectId(page, versionId);
+    const tenantId = await getTenantIdForVersion(versionId);
+
+    const seededJob = await seedCompletedTakeoffJob({
+      tenantId,
+      versionId,
+      sourceFileName: takeoffFileName,
+      items: [
+        {
+          designation: "Cloison BA13",
+          quantity: 8,
+          unit: "m2",
+          confidence: 0.92,
+          evidence: "Zone cloison",
+          sourcePage: 7,
+          sourceFileName: takeoffFileName,
+        },
+      ],
+    });
+
+    await page.goto(
+      `/dashboard/affaires/${projectId}/takeoff/${seededJob.jobId}/review?versionId=${versionId}`
+    );
+
+    await expect(
+      page.getByRole("button", { name: "Ouvrir l'apply controle" })
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Ouvrir l'apply controle" }).click();
+    await expect(page.getByText("Cible d'application")).toBeVisible();
+
+    await page.getByRole("button", { name: "Suivant" }).click();
+    await expect(page.getByRole("radio", { name: /Fusionner avec l'existant/i })).toBeVisible();
+    await page.getByRole("radio", { name: /Fusionner avec l'existant/i }).click();
+    await page.getByRole("button", { name: "Suivant" }).click();
+
+    await expect(page.getByText("Preview d'impact")).toBeVisible();
+    await expect(page.getByText("Source du metre :")).toBeVisible();
+    await expect(page.getByText(takeoffFileName).first()).toBeVisible();
+    await expect(page.getByText("page 7")).toBeVisible();
+    await expect(page.getByText("Hors mapping").first()).toBeVisible();
+  });
+
   test("supports exceptions export, manual multi-linking, and manual hypothesis capture", async ({
     page,
   }, testInfo) => {

@@ -18,12 +18,15 @@ type ValidationReviewPanelProps = {
   dpgfError?: string | null;
   hasDirtyOrSaving?: boolean;
   hasSaveErrors?: boolean;
+  canOpenApplyWizard?: boolean;
+  applyReadinessMessage?: string | null;
   onOpenEvidencePanel?: (itemId: string) => void;
   onVerifyItem?: (itemId: string) => void;
   onExcludeItem?: (itemId: string) => void;
   onIncludeItem?: (itemId: string) => void;
   onOpenDpgfExceptions?: () => void;
   onOpenDetailedReview?: () => void;
+  onOpenApplyWizard?: () => void;
 };
 
 type ValidationFilter =
@@ -210,12 +213,15 @@ export function ValidationReviewPanel({
   dpgfError = null,
   hasDirtyOrSaving = false,
   hasSaveErrors = false,
+  canOpenApplyWizard = false,
+  applyReadinessMessage = null,
   onOpenEvidencePanel,
   onVerifyItem,
   onExcludeItem,
   onIncludeItem,
   onOpenDpgfExceptions,
   onOpenDetailedReview,
+  onOpenApplyWizard,
 }: ValidationReviewPanelProps) {
   const [filter, setFilter] = useState<ValidationFilter>("priority");
 
@@ -585,9 +591,24 @@ export function ValidationReviewPanel({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-[var(--slate-600)]">
             Prochaine etape :{" "}
-            <span className="font-medium text-[var(--slate-800)]">{statusMessage}</span>
+            <span className="font-medium text-[var(--slate-800)]">
+              {canOpenApplyWizard
+                ? "L'apply controle est pret. Verifiez l'impact puis confirmez."
+                : (applyReadinessMessage ?? statusMessage)}
+            </span>
           </p>
           <div className="flex flex-wrap gap-2">
+            {onOpenApplyWizard ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={onOpenApplyWizard}
+                disabled={!canOpenApplyWizard}
+                title={canOpenApplyWizard ? "Ouvrir l'apply controle" : (applyReadinessMessage ?? statusMessage)}
+              >
+                Ouvrir l&apos;apply controle
+              </Button>
+            ) : null}
             {onOpenDpgfExceptions ? (
               <Button variant="secondary" size="sm" onClick={onOpenDpgfExceptions}>
                 Ecarts DPGF

@@ -50,6 +50,7 @@ type TakeoffApplyWizardProps = {
   onOpenChange: (open: boolean) => void;
   onConfirm: (payload: TakeoffApplyWizardSubmitPayload) => Promise<void>;
   items?: TakeoffJobItem[];
+  sourceFileName?: string | null;
   jobLevel?: string | null;
   confidenceThreshold?: number;
   isAdmin?: boolean;
@@ -66,21 +67,29 @@ const STRATEGY_OPTIONS: Array<{
   value: TakeoffApplyStrategy;
   label: string;
   description: string;
+  impactLabel: string;
+  caution: string;
 }> = [
   {
     value: "append",
-    label: "Append",
-    description: "Ajoute les lignes extraites a la fin de la section cible.",
+    label: "Ajouter sans effacer",
+    description: "Ajoute les lignes extraites dans la zone cible sans toucher au contenu deja en place.",
+    impactLabel: "Le plus sur pour enrichir un devis existant.",
+    caution: "Aucune ligne existante n'est supprimee.",
   },
   {
     value: "replace",
-    label: "Replace",
-    description: "Remplace le contenu existant de la section cible.",
+    label: "Remplacer la zone cible",
+    description: "Remplace le contenu actuel de la zone cible par les lignes issues du metre retenu.",
+    impactLabel: "Impact fort sur la zone choisie.",
+    caution: "Le contenu existant de la zone cible sera remplace.",
   },
   {
     value: "merge",
-    label: "Merge",
-    description: "Fusionne avec les lignes existantes selon les regles serveur.",
+    label: "Fusionner avec l'existant",
+    description: "Tente de rapprocher les lignes existantes et les lignes extraites selon les regles serveur.",
+    impactLabel: "Bon compromis quand la zone est deja structuree.",
+    caution: "Relisez l'impact avant confirmation.",
   },
 ];
 
@@ -175,6 +184,14 @@ function buildSectionOptions(items: EstimateItem[]): SectionOption[] {
 
 function strategyDescription(strategy: TakeoffApplyStrategy) {
   return STRATEGY_OPTIONS.find((option) => option.value === strategy)?.description ?? "-";
+}
+
+function strategyLabel(strategy: TakeoffApplyStrategy) {
+  return STRATEGY_OPTIONS.find((option) => option.value === strategy)?.label ?? strategy;
+}
+
+function strategyCaution(strategy: TakeoffApplyStrategy) {
+  return STRATEGY_OPTIONS.find((option) => option.value === strategy)?.caution ?? "";
 }
 
 function toOverrideList(overridesByItemId: Record<string, TakeoffMappingOverride>) {
@@ -464,6 +481,7 @@ export function TakeoffApplyWizard({
   onOpenChange,
   onConfirm,
   items: externalItems,
+  sourceFileName,
   jobLevel,
   confidenceThreshold,
   isAdmin = false,
@@ -607,6 +625,10 @@ export function TakeoffApplyWizard({
     () => toOverrideList(overridesByItemId),
     [overridesByItemId]
   );
+  const sourceByItemId = useMemo(
+    () => new Map((externalItems ?? []).map((item) => [item.id, item])),
+    [externalItems]
+  );
 
   const hasPreviewReady =
     previewData !== null && previewError === null && isLoadingPreview === false;
@@ -743,14 +765,20 @@ export function TakeoffApplyWizard({
 
           {step === 1 && (
             <div className="space-y-4">
-              <label className="block text-xs font-semibold text-[var(--slate-700)]">
-                Version cible
-                <input
-                  className="form-input mt-1 w-full bg-[var(--slate-50)]"
-                  value={versionId}
-                  readOnly
-                />
-              </label>
+              <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+                  Cible d&apos;application
+                </p>
+                <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+                  Brouillon actuellement ouvert
+                </p>
+                <p className="mt-1 text-sm text-[var(--slate-600)]">
+                  Les quantites seront injectees dans ce devis brouillon apres confirmation finale.
+                </p>
+                <code className="mt-3 block rounded-lg bg-white px-3 py-2 text-xs text-[var(--slate-700)]">
+                  {versionId}
+                </code>
+              </div>
 
               <div>
                 <label className="block text-xs font-semibold text-[var(--slate-700)]">
@@ -785,10 +813,22 @@ export function TakeoffApplyWizard({
 
           {step === 2 && !isPreset && (
             <div className="space-y-3">
+              <div className="rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--info)]">
+                  Strategie d&apos;application
+                </p>
+                <p className="mt-2 text-sm text-[var(--slate-700)]">
+                  Choisissez comment enrichir le devis. Le wizard vous montre l&apos;impact avant confirmation.
+                </p>
+              </div>
               {STRATEGY_OPTIONS.map((option) => (
                 <label
                   key={option.value}
-                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--slate-200)] p-3"
+                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${
+                    strategy === option.value
+                      ? "border-[var(--info)] bg-[var(--info)]/5"
+                      : "border-[var(--slate-200)]"
+                  }`}
                 >
                   <input
                     type="radio"
@@ -809,6 +849,12 @@ export function TakeoffApplyWizard({
                     <span className="mt-1 block text-sm text-[var(--slate-600)]">
                       {option.description}
                     </span>
+                    <span className="mt-2 block text-xs font-medium text-[var(--slate-700)]">
+                      {option.impactLabel}
+                    </span>
+                    <span className="mt-1 block text-xs text-[var(--slate-500)]">
+                      {option.caution}
+                    </span>
                   </span>
                 </label>
               ))}
@@ -817,26 +863,48 @@ export function TakeoffApplyWizard({
 
           {step === 3 && !isPreset && (
             <div className="space-y-4">
+              <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+                      Preview d&apos;impact
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+                      {strategyLabel(strategy)}
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--slate-600)]">
+                      {strategyDescription(strategy)}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--slate-500)]">
+                      {strategyCaution(strategy)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => void refreshPreview(overridesByItemId)}
+                    disabled={isLoadingPreview || isSubmitting}
+                  >
+                    {isLoadingPreview ? "Calcul..." : "Recalculer la preview"}
+                  </button>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-3 text-xs text-[var(--slate-700)]">
                 <div className="flex flex-wrap items-center gap-4">
                   <span>
-                    Items total: <strong>{previewData?.summary.total_count ?? 0}</strong>
+                    Items retenus: <strong>{previewData?.summary.included_count ?? includedCount}</strong>
                   </span>
                   <span>
-                    Transformes: <strong>{previewData?.summary.transformed_count ?? 0}</strong>
+                    Transformations: <strong>{previewData?.summary.transformed_count ?? 0}</strong>
                   </span>
                   <span>
                     Overrides: <strong>{serializedOverrides.length}</strong>
                   </span>
+                  <span>
+                    Hors mapping: <strong>{previewData?.summary.excluded_by_mapping_count ?? 0}</strong>
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => void refreshPreview(overridesByItemId)}
-                  disabled={isLoadingPreview || isSubmitting}
-                >
-                  {isLoadingPreview ? "Calcul..." : "Recalculer preview"}
-                </button>
               </div>
 
               {isLoadingPreview && (
@@ -848,12 +916,52 @@ export function TakeoffApplyWizard({
               )}
 
               {previewData && (
-                <div className="max-h-[380px] overflow-auto rounded-xl border border-[var(--slate-200)]">
+                <div className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <PreviewImpactCard
+                      label="Items retenus"
+                      value={previewData.summary.included_count}
+                      hint="lignes candidates pour l'application"
+                    />
+                    <PreviewImpactCard
+                      label="Transformations"
+                      value={previewData.summary.transformed_count}
+                      hint="regles ou mappings proposes"
+                    />
+                    <PreviewImpactCard
+                      label="Overrides"
+                      value={previewData.summary.overridden_count + serializedOverrides.length}
+                      hint="ajustements humains avant confirmation"
+                    />
+                    <PreviewImpactCard
+                      label="Hors mapping"
+                      value={previewData.summary.excluded_by_mapping_count}
+                      hint="lignes qui ne seront pas injectees en l'etat"
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-[var(--slate-200)] bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+                      Provenance visible avant confirmation
+                    </p>
+                    <p className="mt-2 text-sm text-[var(--slate-700)]">
+                      Source du metre :{" "}
+                      <span className="font-medium text-[var(--slate-800)]">
+                        {sourceFileName ?? "job takeoff"}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--slate-600)]">
+                      Chaque ligne garde sa reference takeoff quand elle est disponible.
+                    </p>
+                  </div>
+
+                  <div className="max-h-[380px] overflow-auto rounded-xl border border-[var(--slate-200)]">
                   <table className="min-w-full text-sm">
                     <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-600)]">
                       <tr>
                         <th className="px-3 py-2">Item</th>
-                        <th className="px-3 py-2">Regle</th>
+                        <th className="px-3 py-2">Impact</th>
+                        <th className="px-3 py-2">Provenance</th>
                         <th className="px-3 py-2">Override</th>
                         <th className="px-3 py-2">Parametre</th>
                       </tr>
@@ -862,6 +970,7 @@ export function TakeoffApplyWizard({
                       {previewData.items.map((item) => {
                         const override = overridesByItemId[item.item_id];
                         const selectedAction = override?.action ?? AUTO_OVERRIDE_VALUE;
+                        const source = sourceByItemId.get(item.item_id);
 
                         return (
                           <tr key={item.item_id} className="border-t border-[var(--slate-200)] align-top">
@@ -872,7 +981,30 @@ export function TakeoffApplyWizard({
                               </p>
                             </td>
                             <td className="px-3 py-2 text-xs text-[var(--slate-700)]">
-                              {summarizeAction(item)}
+                              <p className="font-medium text-[var(--slate-800)]">
+                                {summarizeAction(item)}
+                              </p>
+                              <p className="mt-1 text-[var(--slate-500)]">
+                                {item.transformed.quantity} {item.transformed.unit}
+                              </p>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-[var(--slate-700)]">
+                              {source ? (
+                                <>
+                                  <p className="font-medium text-[var(--slate-800)]">
+                                    {source.source_file_name ?? "Source takeoff"}
+                                  </p>
+                                  <p className="mt-1 text-[var(--slate-500)]">
+                                    {source.source_page !== null
+                                      ? `page ${source.source_page}`
+                                      : "page non renseignee"}
+                                  </p>
+                                </>
+                              ) : (
+                                <span className="text-[var(--slate-500)]">
+                                  Provenance non remontee
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-2">
                               <select
@@ -974,6 +1106,7 @@ export function TakeoffApplyWizard({
                     </tbody>
                   </table>
                 </div>
+                </div>
               )}
             </div>
           )}
@@ -1014,22 +1147,56 @@ export function TakeoffApplyWizard({
 
               {/* Standard recap — shown when no guard blocking */}
               {!guardBlocking && (
-                <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm">
-                  <p className="font-semibold text-[var(--slate-800)]">Recapitulatif</p>
-                  <p className="mt-2 text-[var(--slate-700)]">Version: {versionId}</p>
-                  <p className="mt-1 text-[var(--slate-700)]">Section: {selectedSectionLabel}</p>
-                  <p className="mt-1 text-[var(--slate-700)]">
-                    Strategie: {strategy} - {strategyDescription(strategy)}
-                  </p>
-                  <p className="mt-1 text-[var(--slate-700)]">
-                    Items inclus: <strong>{includedCount}</strong>
-                  </p>
-                  <p className="mt-1 text-[var(--slate-700)]">
-                    Items exclus: <strong>{excludedCount}</strong>
-                  </p>
-                  <p className="mt-1 text-[var(--slate-700)]">
-                    Overrides envoyes: <strong>{serializedOverrides.length}</strong>
-                  </p>
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-[var(--success)]/20 bg-[var(--success)]/5 p-4 text-sm">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--success)]">
+                      Confirmation finale
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+                      Verifiez une derniere fois l&apos;impact avant d&apos;ecrire dans le devis.
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--slate-600)]">
+                      L&apos;application reste manuelle. Rien n&apos;est injecte tant que vous ne confirmez pas.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <PreviewImpactCard
+                      label="Items retenus"
+                      value={previewData?.summary.included_count ?? includedCount}
+                      hint="lignes pretes a partir dans le devis"
+                    />
+                    <PreviewImpactCard
+                      label="Items exclus"
+                      value={excludedCount}
+                      hint="laisses hors apply"
+                    />
+                    <PreviewImpactCard
+                      label="Overrides"
+                      value={serializedOverrides.length}
+                      hint="ajustements manuels qui seront envoyes"
+                    />
+                    <PreviewImpactCard
+                      label="Assemblages"
+                      value={previewData?.summary.assembly_insertions_count ?? 0}
+                      hint="insertions d'assemblage detectees"
+                    />
+                  </div>
+
+                  <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm">
+                    <p className="font-semibold text-[var(--slate-800)]">Recapitulatif</p>
+                    <p className="mt-2 text-[var(--slate-700)]">Version cible: {versionId}</p>
+                    <p className="mt-1 text-[var(--slate-700)]">Section cible: {selectedSectionLabel}</p>
+                    <p className="mt-1 text-[var(--slate-700)]">
+                      Strategie: {strategyLabel(strategy)} - {strategyDescription(strategy)}
+                    </p>
+                    <p className="mt-1 text-[var(--slate-700)]">
+                      Source du metre: <strong>{sourceFileName ?? "job takeoff"}</strong>
+                    </p>
+                    <p className="mt-1 text-[var(--slate-700)]">
+                      Provenance visible: fichier source et page takeoff quand ils sont disponibles.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -1096,5 +1263,25 @@ export function TakeoffApplyWizard({
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>
+  );
+}
+
+function PreviewImpactCard({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)]">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">{value}</p>
+      <p className="mt-1 text-xs text-[var(--slate-500)]">{hint}</p>
+    </div>
   );
 }

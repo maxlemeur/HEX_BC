@@ -18,6 +18,10 @@ vi.mock("@/hooks/useUiMode", () => ({
   useUiMode: useUiModeMock,
 }));
 
+vi.mock("@/lib/estimates/client", () => ({
+  fetchEstimateItemsForVersion: vi.fn(),
+}));
+
 // Mock client functions
 vi.mock("@/lib/takeoff/client", () => ({
   fetchTakeoffJob: vi.fn(),
@@ -67,13 +71,16 @@ vi.mock("@/hooks/useFeatureFlag", () => ({
 }));
 
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
+import { fetchEstimateItemsForVersion } from "@/lib/estimates/client";
 import {
+  applyTakeoffJob,
   fetchAllTakeoffDpgfComparison,
   fetchTakeoffDpgfComparison,
   fetchTakeoffJob,
   fetchTakeoffJobCompare,
   listTakeoffJobs,
   patchTakeoffItems,
+  previewTakeoffConversion,
 } from "@/lib/takeoff/client";
 import type { TakeoffJobDetailResponse, TakeoffJobItem } from "@/lib/takeoff/types";
 
@@ -81,6 +88,50 @@ const JOB_ID = "33333333-3333-4333-8333-333333333333";
 const VERSION_ID = "77777777-7777-4777-8777-777777777777";
 const ITEM_ID_1 = "44444444-4444-4444-8444-444444444444";
 const ITEM_ID_2 = "55555555-5555-4555-8555-555555555555";
+const PREVIEW_RESPONSE = {
+  job_id: JOB_ID,
+  strategy: "append" as const,
+  target_section_id: null,
+  summary: {
+    total_count: 1,
+    included_count: 1,
+    transformed_count: 1,
+    overridden_count: 0,
+    excluded_by_mapping_count: 0,
+    assembly_insertions_count: 0,
+  },
+  items: [
+    {
+      item_id: ITEM_ID_1,
+      source_order: 0,
+      rule_id: "88888888-8888-4888-8888-888888888888",
+      rule_name: "Rule set_price",
+      action: "set_price" as const,
+      action_params: {
+        unit_price_cents: 420,
+      },
+      applied_by: "rule" as const,
+      original: {
+        designation: "Tube PVC 100mm",
+        quantity: 12,
+        unit: "ml",
+        is_excluded: false,
+        category_id: null,
+        unit_price_cents: null,
+        assembly_id: null,
+      },
+      transformed: {
+        designation: "Tube PVC 100mm",
+        quantity: 12,
+        unit: "ml",
+        is_excluded: false,
+        category_id: null,
+        unit_price_cents: 420,
+        assembly_id: null,
+      },
+    },
+  ],
+};
 
 function mockUiMode(mode: "expert" | "simplified") {
   useUiModeMock.mockReturnValue({
@@ -174,6 +225,15 @@ describe("TakeoffReviewPage", () => {
     vi.clearAllMocks();
     mockSearchParams = new URLSearchParams();
     mockUiMode("expert");
+    vi.mocked(fetchEstimateItemsForVersion).mockResolvedValue([
+      {
+        id: "99999999-9999-4999-8999-111111111111",
+        parent_id: null,
+        item_type: "section",
+        position: 1,
+        title: "Section A",
+      },
+    ] as never);
     vi.mocked(listTakeoffJobs).mockResolvedValue({
       jobs: [],
       counters: {
@@ -252,6 +312,7 @@ describe("TakeoffReviewPage", () => {
         total: 0,
       },
     });
+    vi.mocked(previewTakeoffConversion).mockResolvedValue(PREVIEW_RESPONSE);
   });
 
   afterEach(() => {
@@ -812,6 +873,65 @@ describe("TakeoffReviewPage", () => {
       expect.anything()
     );
     expect(fetchAllTakeoffDpgfComparison).not.toHaveBeenCalled();
+  });
+
+  it("opens the controlled apply wizard from validation and stays in affaire context after success", async () => {
+    vi.mocked(fetchTakeoffJob).mockResolvedValue(makeMockResponse([makeItem()]));
+    vi.mocked(applyTakeoffJob).mockResolvedValue({
+      job: makeMockResponse([makeItem()]).job,
+      summary: {
+        scope: "section",
+        created_count: 1,
+        updated_count: 0,
+        ignored_count: 0,
+        created_ids: ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+      },
+    });
+
+    render(
+      <TakeoffReviewPage
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        projectId="99999999-9999-4999-8999-999999999999"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Ouvrir l'apply controle" })).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Ouvrir l'apply controle" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Cible d'application")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+    fireEvent.click(screen.getByRole("radio", { name: /Fusionner avec l'existant/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Provenance visible avant confirmation")).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirmer l'application" }));
+
+    await waitFor(() => {
+      expect(applyTakeoffJob).toHaveBeenCalledWith(
+        JOB_ID,
+        expect.objectContaining({
+          strategy: "merge",
+        })
+      );
+    });
+
+    expect(mockPush).not.toHaveBeenCalledWith(`/dashboard/estimates/${VERSION_ID}/takeoff/${JOB_ID}`);
+    expect(screen.getByText("Apply controle confirme")).toBeDefined();
+    expect(screen.getByRole("link", { name: "Ouvrir le chiffrage" })).toHaveAttribute(
+      "href",
+      `/dashboard/estimates/${VERSION_ID}`
+    );
   });
 
   it("preserves the production tab when switching away and back", async () => {

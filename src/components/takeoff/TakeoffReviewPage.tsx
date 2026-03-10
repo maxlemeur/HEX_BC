@@ -111,6 +111,14 @@ type TakeoffReviewPageProps = {
 
 type ViewTab = "tables" | "items" | "compare" | "dpgf";
 type DpgfFetchMode = "summary" | "detail";
+type ApplySuccessSummary = {
+  appliedAt: string;
+  targetSectionLabel: string;
+  strategy: TakeoffApplyWizardSubmitPayload["strategy"];
+  createdCount: number;
+  updatedCount: number;
+  ignoredCount: number;
+};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -408,6 +416,7 @@ export default function TakeoffReviewPage({
   const [applyWizardOpen, setApplyWizardOpen] = useState(false);
   const [applySubmitting, setApplySubmitting] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [applySuccess, setApplySuccess] = useState<ApplySuccessSummary | null>(null);
 
   // ---- Auto-save
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1087,9 +1096,40 @@ export default function TakeoffReviewPage({
     !hasSaveErrors &&
     !hasBlockingAnomalies;
   const isApplyReady = canOpenApplyWizard && !hasGuardBlocks;
+  const applyReadinessMessage = useMemo(() => {
+    if (!hasIncluded) {
+      return "Aucun item retenu. Reintegrez au moins une ligne avant l'apply.";
+    }
+
+    if (hasDirtyOrSaving) {
+      return "Attendez la fin des sauvegardes avant d'ouvrir l'apply controle.";
+    }
+
+    if (hasSaveErrors) {
+      return "Corrigez les lignes en erreur avant l'apply.";
+    }
+
+    if (hasBlockingAnomalies) {
+      return "Corrigez les anomalies bloquantes avant l'apply.";
+    }
+
+    if (hasGuardBlocks) {
+      return `${guardResult?.blocked_items.length ?? 0} item(s) a faible confiance doivent etre verifies avant l'apply.`;
+    }
+
+    return "L'apply controle est pret. Choisissez une strategie et verifiez l'impact avant confirmation.";
+  }, [
+    guardResult,
+    hasBlockingAnomalies,
+    hasDirtyOrSaving,
+    hasGuardBlocks,
+    hasIncluded,
+    hasSaveErrors,
+  ]);
   const handleOpenApplyWizard = useCallback(() => {
     if (!isApplyReady) return;
     setApplyWizardOpen(true);
+    setApplyError(null);
   }, [isApplyReady]);
 
   // ---- Apply handler
@@ -1098,7 +1138,7 @@ export default function TakeoffReviewPage({
       setApplySubmitting(true);
       setApplyError(null);
       try {
-        await applyTakeoffJob(jobId, {
+        const response = await applyTakeoffJob(jobId, {
           strategy: payload.strategy,
           target_section_id: payload.targetSectionId,
           overrides: payload.overrides.length > 0 ? payload.overrides : undefined,
@@ -1106,11 +1146,21 @@ export default function TakeoffReviewPage({
           override_justification: payload.overrideJustification,
         });
         setApplyWizardOpen(false);
-        toast.success({
-          title: "Extraction appliquee au devis",
-          description: `${includedItems.length} item(s) appliques avec la strategie "${payload.strategy}".`,
+        setApplySuccess({
+          appliedAt: new Date().toISOString(),
+          targetSectionLabel: payload.targetSectionLabel,
+          strategy: payload.strategy,
+          createdCount: response.summary.created_count,
+          updatedCount: response.summary.updated_count,
+          ignoredCount: response.summary.ignored_count,
         });
-        router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
+        toast.success({
+          title: "Apply controle termine",
+          description: `${response.summary.created_count} cree(s), ${response.summary.updated_count} mis a jour, ${response.summary.ignored_count} ignore(s).`,
+        });
+        if (!isAffaireContext) {
+          router.push(`/dashboard/estimates/${versionId}/takeoff/${jobId}`);
+        }
       } catch (err) {
         setApplyError(
           isTakeoffApiError(err) ? err.message : "Erreur lors de l'application."
@@ -1119,7 +1169,7 @@ export default function TakeoffReviewPage({
         setApplySubmitting(false);
       }
     },
-    [jobId, versionId, includedItems.length, toast, router]
+    [jobId, isAffaireContext, router, toast, versionId]
   );
 
   // ---- Batch verify handler for guard panel
@@ -1266,6 +1316,38 @@ export default function TakeoffReviewPage({
         <ConfidenceHeader globalConfidence={globalConfidence} items={items} />
       )}
 
+      {applySuccess && isAffaireContext ? (
+        <section className="rounded-2xl border border-[var(--success)]/20 bg-[var(--success)]/5 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--success)]">
+                Apply controle confirme
+              </p>
+              <h2 className="mt-1 text-lg font-semibold text-[var(--slate-900)]">
+                Le devis a ete enrichi depuis le metre source
+              </h2>
+              <p className="mt-2 text-sm text-[var(--slate-700)]">
+                Source: {jobFileName ?? "job takeoff"} · Section: {applySuccess.targetSectionLabel}
+              </p>
+              <p className="mt-1 text-sm text-[var(--slate-700)]">
+                Strategie: {applySuccess.strategy} · crees {applySuccess.createdCount} · mis a jour {applySuccess.updatedCount} · ignores {applySuccess.ignoredCount}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href={`/dashboard/estimates/${versionId}`} className="btn btn-primary btn-sm">
+                Ouvrir le chiffrage
+              </Link>
+              <Link
+                href={`/dashboard/affaires/${projectId}/takeoff`}
+                className="btn btn-secondary btn-sm"
+              >
+                Centre d&apos;activite metres
+              </Link>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {/* ---- Mode-conditional content ---- */}
       {currentReviewMode === "assisted" ? (
         <AssistedReviewPanel
@@ -1293,6 +1375,9 @@ export default function TakeoffReviewPage({
           onIncludeItem={(itemId) => handleIncludeItems([itemId])}
           onOpenDpgfExceptions={openDpgfExceptions}
           onOpenDetailedReview={() => openProductionReview("items")}
+          canOpenApplyWizard={isApplyReady}
+          applyReadinessMessage={applyReadinessMessage}
+          onOpenApplyWizard={handleOpenApplyWizard}
         />
       ) : (
         <LazyTakeoffReviewExpert
@@ -1338,22 +1423,7 @@ export default function TakeoffReviewPage({
             </span>
           ) : (
             <span className="flex items-center gap-2 text-[var(--slate-500)]">
-              {!hasIncluded && "Aucun item inclus."}
-              {hasIncluded && hasDirtyOrSaving && "Sauvegarde en cours..."}
-              {hasIncluded &&
-                !hasDirtyOrSaving &&
-                !hasBlockingAnomalies &&
-                hasSaveErrors &&
-                "Des erreurs de sauvegarde persistent. Corrigez les lignes en erreur puis modifiez-les pour relancer la sauvegarde."}
-              {hasIncluded &&
-                !hasDirtyOrSaving &&
-                !hasBlockingAnomalies &&
-                !hasSaveErrors &&
-                hasGuardBlocks &&
-                `${guardResult?.blocked_items.length ?? 0} item(s) faible confiance non verifies bloquent l'application. Revenez sur la revue pour les verifier.`}
-              {hasIncluded && !hasDirtyOrSaving && hasBlockingAnomalies && (
-                "Anomalies bloquantes sur les items inclus (designation vide ou quantite invalide)."
-              )}
+              {applyReadinessMessage}
             </span>
           )}
         </div>
@@ -1394,12 +1464,12 @@ export default function TakeoffReviewPage({
         onOpenChange={setApplyWizardOpen}
         onConfirm={handleApplyConfirm}
         items={items}
+        sourceFileName={jobFileName}
         jobLevel={jobLevel}
         confidenceThreshold={lowConfidenceThreshold}
         isAdmin={isAdmin}
         onVerifyItems={handleWizardVerifyItems}
         onReturnToReview={() => setApplyWizardOpen(false)}
-        presetStrategy={currentReviewMode !== "production" ? "append" : undefined}
       />
 
       {/* ---- Evidence panel ---- */}

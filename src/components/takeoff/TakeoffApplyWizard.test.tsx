@@ -164,7 +164,7 @@ describe("TakeoffApplyWizard", () => {
     const priceInput = screen.getByDisplayValue("420") as HTMLInputElement;
     fireEvent.change(priceInput, { target: { value: "990" } });
 
-    fireEvent.click(screen.getByRole("button", { name: "Recalculer preview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Recalculer la preview" }));
 
     await waitFor(() => {
       expect(previewTakeoffConversion).toHaveBeenLastCalledWith(
@@ -203,6 +203,42 @@ describe("TakeoffApplyWizard", () => {
         })
       );
     });
+  });
+
+  it("shows explicit strategy impact and provenance before confirmation", async () => {
+    render(
+      <TakeoffApplyWizard
+        open
+        jobId={JOB_ID}
+        versionId={VERSION_ID}
+        includedCount={1}
+        excludedCount={0}
+        isSubmitting={false}
+        submitError={null}
+        onOpenChange={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+        items={[makeItem(ITEM_ID, "Tube PVC", { source_file_name: "plans-rdc.pdf", source_page: 7 })]}
+        sourceFileName="plans-rdc.pdf"
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchEstimateItemsForVersion).toHaveBeenCalledWith(VERSION_ID);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+    fireEvent.click(screen.getByRole("radio", { name: /Fusionner avec l'existant/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Suivant" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Preview d'impact")).toBeDefined();
+    });
+
+    expect(screen.getByText("Fusionner avec l'existant")).toBeDefined();
+    expect(screen.getByText("Source du metre :")).toBeDefined();
+    expect(screen.getAllByText("plans-rdc.pdf").length).toBeGreaterThan(0);
+    expect(screen.getByText("page 7")).toBeDefined();
+    expect(screen.getAllByText("Hors mapping").length).toBeGreaterThan(0);
   });
 
   // ---------------------------------------------------------------------------
