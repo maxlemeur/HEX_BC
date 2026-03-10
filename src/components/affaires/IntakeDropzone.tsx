@@ -285,11 +285,16 @@ export function IntakeDropzone({
                 ? "Deposez les fichiers ici"
                 : compact
                   ? "Deposer d'autres fichiers"
-                  : "Glissez votre dossier d'affaire ici ou cliquez pour parcourir"}
+                  : "Déposez votre dossier d'appel d'offres ici"}
             </p>
             <p className="mt-1 text-xs text-[var(--slate-500)]">
-              PDF, images, Excel, Word, emails — {AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL} max par fichier
+              PDF, images, Excel, Word — {AFFAIRE_INTAKE_MAX_FILE_SIZE_LABEL} max par fichier
             </p>
+            {!compact && (
+              <p className="mt-1.5 text-xs font-medium text-[var(--brand-blue)]">
+                Chaque pièce sera classée et orientée automatiquement
+              </p>
+            )}
           </div>
         )}
       </div>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type { AffaireIntakeWorkspace as WorkspaceData } from "@/lib/affaires/intake-server";
+import type { AffaireIntakeDocumentKind } from "@/lib/affaires/intake";
 import { Badge } from "@/components/ui/Badge";
 import {
   COCKPIT_OPEN_SURFACE_EVENT,
@@ -11,11 +12,16 @@ import {
 } from "@/lib/cockpit/events";
 import { IntakeDropzone } from "./IntakeDropzone";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
+import type { IntakeDocumentData } from "./IntakeDocumentCard";
+import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeMissingPieces } from "./IntakeMissingPieces";
 
 type IntakeWorkspaceProps = {
   projectId: string;
   workspace: WorkspaceData | null;
+  onBridgeDpgfImport?: () => void;
+  dpgfAlreadyImported?: boolean;
+  plansSynced?: boolean;
 };
 
 const FILTER_PARAM = "intakeFilter";
@@ -36,7 +42,7 @@ function isDocumentNeedsReview(doc: WorkspaceData["documents"][number]) {
   );
 }
 
-export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) {
+export function IntakeWorkspace({ projectId, workspace, onBridgeDpgfImport, dpgfAlreadyImported, plansSynced }: IntakeWorkspaceProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -46,7 +52,6 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
     searchParams.get(FILTER_PARAM)
   );
   const [pendingUploadId, setPendingUploadId] = useState<string | null>(null);
-  const [classifiedExpanded, setClassifiedExpanded] = useState(false);
 
   const isFilterActive = activeFilter === FILTER_A_REVOIR;
 
@@ -155,6 +160,22 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
   );
   const classifiedCount = classifiedDocs.length;
 
+  // Group classified docs by category for the category cards grid
+  const docsByCategory = useMemo(() => {
+    const grouped = new Map<AffaireIntakeDocumentKind, IntakeDocumentData[]>();
+    for (const doc of classifiedDocs) {
+      const list = grouped.get(doc.detectedCategory) ?? [];
+      list.push(doc);
+      grouped.set(doc.detectedCategory, list);
+    }
+    return grouped;
+  }, [classifiedDocs]);
+
+  const sortedCategories = useMemo(
+    () => [...docsByCategory.keys()].sort(categorySort),
+    [docsByCategory],
+  );
+
   // For filter mode, only show reviewDocs (same behaviour as before)
   const filteredDocuments = isFilterActive ? reviewDocs : documents;
 
@@ -206,13 +227,13 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-            Triage du dossier
+            Dossier de consultation
           </h2>
-          {hasDocuments && (
-            <p className="mt-0.5 text-xs text-[var(--slate-500)]">
-              {documents.length} document{documents.length > 1 ? "s" : ""}
-            </p>
-          )}
+          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
+            {hasDocuments
+              ? `${documents.length} document${documents.length > 1 ? "s" : ""} — classés automatiquement`
+              : "Déposez vos pièces (CCTP, DPGF, plans, courriers) pour lancer l'analyse"}
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -355,43 +376,28 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
             </section>
           )}
 
-          {/* Classes — collapsible, compact by default */}
+          {/* Category cards grid */}
           {classifiedDocs.length > 0 && (
-            <section aria-label="Documents valides" className="mt-4">
-              <button
-                type="button"
-                onClick={() => setClassifiedExpanded((v) => !v)}
-                className="flex w-full items-center gap-2 rounded-lg bg-emerald-100 border border-emerald-400 px-3 py-2 mb-2 text-left"
-              >
+            <section aria-label="Documents classes par categorie" className="mt-4">
+              <div className="flex items-center gap-2 mb-2">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-emerald-700" aria-hidden="true">
                   <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                   <polyline points="22 4 12 14.01 9 11.01" />
                 </svg>
-                <h3 className="flex-1 text-xs font-semibold text-emerald-900">Valides</h3>
-                <Badge variant="success" size="sm">{classifiedDocs.length}</Badge>
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={`shrink-0 text-emerald-700 transition-transform ${classifiedExpanded ? "rotate-180" : ""}`}
-                  aria-hidden="true"
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-              <div className={classifiedExpanded ? "space-y-2" : "space-y-1"}>
-                {classifiedDocs.map((doc) => (
-                  <IntakeDocumentCard
-                    key={doc.documentId}
-                    document={doc}
+                <h3 className="text-xs font-semibold text-emerald-900">Valides</h3>
+                <Badge variant="success" size="sm">{classifiedCount}</Badge>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {sortedCategories.map((cat) => (
+                  <IntakeCategoryCard
+                    key={cat}
+                    category={cat}
+                    documents={docsByCategory.get(cat)!}
                     projectId={projectId}
                     onReclassified={handleReclassified}
-                    compact={!classifiedExpanded}
+                    onBridgeDpgfImport={cat === "dpgf" ? onBridgeDpgfImport : undefined}
+                    dpgfAlreadyImported={cat === "dpgf" ? dpgfAlreadyImported : undefined}
+                    plansSynced={cat === "plans" ? plansSynced : undefined}
                   />
                 ))}
               </div>

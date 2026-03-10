@@ -51,7 +51,6 @@ type PlansMetresCardProps = {
   projectId: string;
   errorMessage?: string;
   onLaunchMetre?: () => void;
-  onDismissEmpty?: () => void;
 };
 
 /* ------------------------------------------------------------------ */
@@ -124,7 +123,6 @@ export function PlansMetresCard({
   projectId,
   errorMessage,
   onLaunchMetre,
-  onDismissEmpty,
 }: PlansMetresCardProps) {
   /* Error state */
   if (errorMessage) {
@@ -178,15 +176,6 @@ export function PlansMetresCard({
             >
               Ajouter les plans
             </Link>
-            {onDismissEmpty ? (
-              <button
-                type="button"
-                className="text-sm text-[var(--slate-500)] underline underline-offset-2 hover:text-[var(--slate-700)]"
-                onClick={onDismissEmpty}
-              >
-                Continuer sans plans
-              </button>
-            ) : null}
           </div>
         </div>
       </section>

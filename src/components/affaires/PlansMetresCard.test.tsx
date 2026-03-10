@@ -40,23 +40,7 @@ describe("PlansMetresCard", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("calls onDismissEmpty from the empty state CTA", () => {
-    const onDismissEmpty = vi.fn();
-
-    render(
-      <PlansMetresCard
-        projectId="project-1"
-        plans={null}
-        onDismissEmpty={onDismissEmpty}
-      />
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Continuer sans plans" }));
-
-    expect(onDismissEmpty).toHaveBeenCalledTimes(1);
-  });
-
-  it("hides the empty state dismiss CTA when no handler is provided", () => {
+  it("does not show dismiss CTA in empty state", () => {
     render(<PlansMetresCard projectId="project-1" plans={null} />);
 
     expect(

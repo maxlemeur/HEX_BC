@@ -36,7 +36,6 @@ import type {
   AffaireRegisterSummary,
   AffaireRegisterTimelineEvent,
 } from "@/lib/affaires/register";
-import { AffaireStatusBadges } from "./AffaireStatusBadges";
 import { AffaireRegisterCard } from "./AffaireRegisterCard";
 import { BriefDraftCard } from "./BriefDraftCard";
 import { IntakeWorkspace } from "./IntakeWorkspace";
@@ -126,9 +125,9 @@ function fmtDate(iso: string) {
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Brouillon",
-  sent: "Envoye",
-  accepted: "Accepte",
-  archived: "Archive",
+  sent: "Envoyé",
+  accepted: "Accepté",
+  archived: "Archivé",
 };
 
 const STATUS_CSS: Record<string, string> = {
@@ -214,7 +213,7 @@ function BackToListLink() {
       >
         <path d="m15 18-6-6 6-6" />
       </svg>
-      Retour a la liste
+      Retour à la liste
     </Link>
   );
 }
@@ -264,7 +263,7 @@ function ActionBar({
         >
           <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
         </svg>
-        Editer V{currentVersion.versionNumber}
+        Éditer V{currentVersion.versionNumber}
       </Link>
 
       {currentVersion.status === "draft" &&
@@ -273,7 +272,7 @@ function ActionBar({
           href={`/dashboard/estimates/${currentVersion.id}/edit?openVersionZero=1`}
           className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
         >
-          {versionZeroSummary?.activeDraft ? "Revoir V0 IA" : "Generer V0"}
+          {versionZeroSummary?.activeDraft ? "Revoir V0 IA" : "Générer V0"}
         </Link>
       ) : null}
 
@@ -347,7 +346,7 @@ function ActionBar({
           <path d="m15 9 6-6" />
         </svg>
         {pendingAction === "variant"
-          ? "Creation variante..."
+          ? "Création variante..."
           : "Dupliquer (variante)"}
       </button>
 
@@ -426,7 +425,7 @@ function FirstVersionActionBar({ projectId }: { projectId: string }) {
           <line x1="12" x2="12" y1="5" y2="19" />
           <line x1="5" x2="19" y1="12" y2="12" />
         </svg>
-        Creer une premiere version
+        Créer une première version
       </Link>
     </div>
   );
@@ -450,7 +449,7 @@ function AffaireProgressStrip({
 
   // DPGF status
   if (dpgfSource !== null) {
-    items.push({ color: "bg-[var(--success)]", label: "DPGF importe" });
+    items.push({ color: "bg-[var(--success)]", label: "DPGF importé" });
   } else {
     items.push({ color: "bg-[var(--brand-orange)]", label: "Pas de DPGF" });
   }
@@ -465,12 +464,12 @@ function AffaireProgressStrip({
   if (acceptedVersion) {
     items.push({
       color: "bg-[var(--success)]",
-      label: `V${acceptedVersion.versionNumber} acceptee`,
+      label: `V${acceptedVersion.versionNumber} acceptée`,
     });
   } else {
     items.push({
       color: "bg-[var(--slate-300)]",
-      label: "Aucune version acceptee",
+      label: "Aucune version acceptée",
     });
   }
 
@@ -484,6 +483,138 @@ function AffaireProgressStrip({
         </span>
       ))}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Section: Workflow Stepper (Recommendation #1)                      */
+/* ------------------------------------------------------------------ */
+
+type WorkflowStepStatus = "done" | "current" | "upcoming";
+
+type WorkflowStep = {
+  key: string;
+  label: string;
+  status: WorkflowStepStatus;
+};
+
+const STEPPER_ANCHOR_MAP: Record<string, string> = {
+  dossier: "intake",
+  brief: "brief",
+  dpgf: "dpgf",
+  devis: "financial",
+  validation: "approval",
+  envoi: "approval",
+};
+
+const STEPPER_SHORT_LABELS: Record<string, string> = {
+  dossier: "Dos.",
+  brief: "Bri.",
+  dpgf: "DPG",
+  devis: "Dev.",
+  validation: "Val.",
+  envoi: "Env.",
+};
+
+function AffaireWorkflowStepper({
+  summary,
+  dpgfSource,
+  intakeWorkspace,
+  approvalSummary,
+  lineCount,
+}: {
+  summary: AffaireHubSummaryResult;
+  dpgfSource: AffaireHubDpgfSourceResult;
+  intakeWorkspace?: AffaireIntakeWorkspace | null;
+  approvalSummary?: EstimateApprovalSummary | null;
+  lineCount: number;
+}) {
+  const steps: WorkflowStep[] = useMemo(() => {
+    const hasDocs = (intakeWorkspace?.documents?.length ?? 0) > 0;
+    const briefConfirmed = intakeWorkspace?.briefDraft?.status === "confirme";
+    const hasDpgf = dpgfSource !== null;
+    const hasLines = lineCount > 0;
+    const versionStatus = summary.currentVersion?.status ?? "draft";
+    const isSubmitted =
+      approvalSummary !== null &&
+      approvalSummary !== undefined &&
+      approvalSummary.approvalStatus !== "not_required" &&
+      approvalSummary.approvalStatus !== "required";
+    const isSent = versionStatus === "sent" || versionStatus === "accepted";
+
+    const raw: { key: string; label: string; done: boolean }[] = [
+      { key: "dossier", label: "Dossier", done: hasDocs },
+      { key: "brief", label: "Brief", done: briefConfirmed },
+      { key: "dpgf", label: "DPGF", done: hasDpgf },
+      { key: "devis", label: "Devis", done: hasLines },
+      { key: "validation", label: "Validation", done: isSubmitted },
+      { key: "envoi", label: "Envoi", done: isSent },
+    ];
+
+    let foundCurrent = false;
+    return raw.map((step) => {
+      if (step.done) return { key: step.key, label: step.label, status: "done" as const };
+      if (!foundCurrent) {
+        foundCurrent = true;
+        return { key: step.key, label: step.label, status: "current" as const };
+      }
+      return { key: step.key, label: step.label, status: "upcoming" as const };
+    });
+  }, [summary, dpgfSource, intakeWorkspace, approvalSummary, lineCount]);
+
+  return (
+    <nav aria-label="Avancement de l'affaire" className="mb-4 animate-fade-in">
+      <ol className="flex w-full items-center justify-between">
+        {steps.map((step, i) => (
+          <li key={step.key} className="flex items-center">
+            {i > 0 && (
+              <div
+                aria-hidden="true"
+                className={`h-px min-w-4 flex-1 sm:min-w-6 ${
+                  step.status === "done"
+                    ? "bg-[var(--success)]"
+                    : "bg-[var(--slate-200)]"
+                }`}
+              />
+            )}
+            <a
+              href={`#${STEPPER_ANCHOR_MAP[step.key] ?? step.key}`}
+              className="flex items-center gap-1.5"
+            >
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:h-6 sm:w-6 ${
+                  step.status === "done"
+                    ? "bg-[var(--success)] text-white"
+                    : step.status === "current"
+                      ? "border-2 border-[var(--brand-blue)] bg-white text-[var(--brand-blue)]"
+                      : "border border-[var(--slate-200)] bg-[var(--slate-50)] text-[var(--slate-400)]"
+                }`}
+              >
+                {step.status === "done" ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                ) : (
+                  i + 1
+                )}
+              </span>
+              <span
+                className={`text-xs font-medium ${
+                  step.status === "done"
+                    ? "text-[var(--success)]"
+                    : step.status === "current"
+                      ? "text-[var(--brand-blue)]"
+                      : "text-[var(--slate-400)]"
+                }`}
+              >
+                <span className="sm:hidden">{STEPPER_SHORT_LABELS[step.key] ?? step.label}</span>
+                <span className="hidden sm:inline">{step.label}</span>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
   );
 }
 
@@ -502,10 +633,21 @@ function FinancialSummaryCard({
 
   const hasAccepted = !!acceptedVersion;
 
+  const marginPct = currentVersion.marginPercent;
+  const marginColorClass =
+    marginPct >= 25
+      ? "text-[var(--success)]"
+      : marginPct >= 15
+        ? "text-[var(--slate-900)]"
+        : lineCount > 0
+          ? "text-[var(--danger)]"
+          : "text-[var(--slate-400)]";
+  const isEmptyEstimate = currentVersion.totalHtCents === 0 && lineCount === 0;
+
   return (
-    <section className="dashboard-card p-5 animate-fade-in stagger-3">
+    <section id="financial" className="dashboard-card p-5 animate-fade-in stagger-3 scroll-mt-24">
       <h2 className="mb-4 text-sm font-semibold text-[var(--slate-800)]">
-        Resume financier
+        Résumé financier
       </h2>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -514,19 +656,15 @@ function FinancialSummaryCard({
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--brand-blue)]" />
             HT version courante
           </p>
-          <p className="mt-1 text-2xl font-bold text-[var(--slate-900)]">
+          <p className={`mt-1 font-bold ${isEmptyEstimate ? "text-lg text-[var(--slate-400)]" : "text-2xl text-[var(--slate-900)]"}`}>
             {formatEUR(currentVersion.totalHtCents)}
-          </p>
-          <p className="mt-0.5 text-xs text-[var(--slate-500)]">
-            V{currentVersion.versionNumber} -{" "}
-            {STATUS_LABEL[currentVersion.status] ?? currentVersion.status}
           </p>
         </div>
 
         <div className={hasAccepted ? "rounded-lg bg-[var(--success)]/5 p-2 -m-2" : ""}>
           <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--success)]" />
-            HT derniere acceptee
+            HT dernière acceptée
           </p>
           {acceptedVersion ? (
             <>
@@ -545,9 +683,9 @@ function FinancialSummaryCard({
         <div>
           <p className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-[var(--slate-500)]">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--brand-orange)]" />
-            Marge appliquee
+            Marge appliquée
           </p>
-          <p className="mt-1 text-2xl font-bold text-[var(--slate-900)]">
+          <p className={`mt-1 font-bold ${isEmptyEstimate ? "text-lg" : "text-2xl"} ${marginColorClass}`}>
             {currentVersion.marginPercent.toFixed(1)}%
           </p>
           <p className="mt-0.5 text-xs text-[var(--slate-500)]">
@@ -560,9 +698,10 @@ function FinancialSummaryCard({
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--slate-400)]" />
             Nombre de lignes
           </p>
-          <p className="mt-1 text-2xl font-bold text-[var(--slate-900)]">
+          <p className={`mt-1 font-bold ${lineCount === 0 ? "text-lg text-[var(--slate-400)]" : "text-2xl text-[var(--slate-900)]"}`}>
             {lineCount}
           </p>
+          {/* Duplicate "Éditer le devis" link removed: ActionBar "Éditer V1" serves same purpose */}
         </div>
       </div>
     </section>
@@ -637,8 +776,8 @@ function VersionTimelineCard({
             </svg>
           }
           title="Aucune version encore"
-          description="Creez une premiere version pour demarrer le chiffrage."
-          actionLabel="Demarrer"
+          description="Créez une première version pour démarrer le chiffrage."
+          actionLabel="Démarrer"
           actionHref={`/dashboard/estimates/new?projectId=${projectId}`}
           className="py-10"
         />
@@ -696,7 +835,7 @@ function VersionTimelineCard({
                           )}
                           {isAccepted && (
                             <span className="status-badge status-accepted">
-                              Derniere acceptee
+                              Dernière acceptée
                             </span>
                           )}
                         </div>
@@ -783,15 +922,15 @@ function VersionTimelineCard({
 const IMPORT_STATUS_LABEL: Record<string, string> = {
   pending: "En attente",
   parsing: "En cours",
-  completed: "Termine",
+  completed: "Terminé",
   failed: "Erreur",
 };
 
 const MAPPING_STATUS_LABEL: Record<string, string> = {
   draft: "Brouillon",
-  validated: "Valide",
-  applied: "Applique",
-  archived: "Archive",
+  validated: "Validé",
+  applied: "Appliqué",
+  archived: "Archivé",
 };
 
 function DpgfSourceCard({
@@ -804,7 +943,7 @@ function DpgfSourceCard({
   onStartImport?: () => void;
 }) {
   return (
-    <section className="dashboard-card p-5">
+    <section id="dpgf" className="dashboard-card p-5 scroll-mt-24">
       <h2 className="mb-3 text-sm font-semibold text-[var(--slate-800)]">
         Source DPGF
       </h2>
@@ -830,12 +969,12 @@ function DpgfSourceCard({
             <polyline points="14 2 14 8 20 8" />
           </svg>
           <p className="text-sm text-[var(--slate-500)]">
-            Aucun import DPGF lie a cette affaire.
+            Importez le bordereau de prix (DPGF) pour pré-remplir les lignes du devis.
           </p>
           {onStartImport ? (
             <button
               type="button"
-              className="btn btn-secondary btn-sm mt-3 inline-flex"
+              className="btn btn-primary btn-sm mt-3 inline-flex"
               onClick={onStartImport}
             >
               Importer un DPGF
@@ -854,7 +993,7 @@ function DpgfSourceCard({
               </p>
               <p className="mt-0.5 text-xs text-[var(--slate-500)]">
                 {dpgfSource.sourceFormat.toUpperCase()} &middot;{" "}
-                {dpgfSource.rowCount} lignes &middot; Importe le{" "}
+                {dpgfSource.rowCount} lignes &middot; Importé le{" "}
                 {fmtDate(dpgfSource.importedAt)}
               </p>
             </div>
@@ -923,7 +1062,6 @@ export function AffaireHub({
   const { isExpert } = useUiMode();
   const currentVersionId = summary.currentVersion?.id ?? null;
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
-  const [isEmptyPlansCardDismissed, setIsEmptyPlansCardDismissed] = useState(false);
   const {
     dismissed: promptPermanentlyDismissed,
     temporarilyDismissed: promptTemporarilyDismissed,
@@ -999,15 +1137,14 @@ export function AffaireHub({
 
     shownCreatedToastProjectIds.add(projectId);
     toast.success({
-      title: "Affaire creee !",
+      title: "Affaire créée !",
       description: dpgfSource
-        ? "DPGF lie — importez les lignes depuis l'editeur."
+        ? "DPGF lié — importez les lignes depuis l'éditeur."
         : undefined,
     });
   }, [justCreated, router, summary.project.id, toast, dpgfSource]);
 
   useEffect(() => {
-    setIsEmptyPlansCardDismissed(false);
     clearPromptTemporaryDismissal();
   }, [clearPromptTemporaryDismissal, summary.project.id, plansSummary?.planSetCount]);
 
@@ -1149,11 +1286,11 @@ export function AffaireHub({
           cockpitStateRef.current = rolledBackState;
           setCockpitState(rolledBackState);
           toast.error({
-            title: "Preference cockpit non enregistree",
+            title: "Préférence cockpit non enregistrée",
             description:
               error instanceof Error
                 ? error.message
-                : "Impossible de sauvegarder la preference.",
+                : "Impossible de sauvegarder la préférence.",
           });
         }
       });
@@ -1222,6 +1359,18 @@ export function AffaireHub({
       temporarilyDismissed: promptTemporarilyDismissed,
     });
 
+  // Extract earliest deadline from intake documents (Recommendation #5)
+  const earliestDeadline = useMemo(() => {
+    if (!intakeWorkspace?.documents?.length) return null;
+    const deadlines = intakeWorkspace.documents
+      .map((doc) => doc.extractedMetadata?.deadlineAt)
+      .filter((d): d is string => d !== null && d !== undefined)
+      .map((d) => new Date(d))
+      .filter((d) => !Number.isNaN(d.getTime()))
+      .sort((a, b) => a.getTime() - b.getTime());
+    return deadlines[0] ?? null;
+  }, [intakeWorkspace]);
+
   const [showImportFlow, setShowImportFlow] = useState(false);
   const [importResult, setImportResult] =
     useState<ConfirmUnifiedImportFlowResult | null>(null);
@@ -1237,10 +1386,18 @@ export function AffaireHub({
 
   return (
     <div className="animate-fade-in">
-      {/* Back link */}
-      <div className="mb-4">
-        <BackToListLink />
-      </div>
+      {/* Breadcrumb (Recommendation #9) */}
+      <nav aria-label="Fil d'Ariane" className="mb-4">
+        <ol className="flex items-center gap-1.5 text-sm text-[var(--slate-500)]">
+          <li>
+            <BackToListLink />
+          </li>
+          <li aria-hidden="true" className="text-[var(--slate-300)]">/</li>
+          <li className="truncate font-medium text-[var(--slate-700)]">
+            {summary.project.name}
+          </li>
+        </ol>
+      </nav>
 
       {/* Read-only review banner for director */}
       {isReadOnlyReview && (
@@ -1261,68 +1418,117 @@ export function AffaireHub({
           </svg>
           <span className="font-medium">Mode revue</span>
           <span className="text-[var(--brand-blue)]/70">
-            — Consultation uniquement, les actions d&apos;edition sont reservees aux ingenieurs.
+            — Consultation uniquement, les actions d&apos;édition sont réservées aux ingénieurs.
           </span>
         </div>
       )}
 
-      {/* Header */}
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      {/* Header with metadata (Recommendation #5) */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="page-title truncate">{summary.project.name}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--slate-500)]">
             {summary.project.clientName && (
-              <span>{summary.project.clientName}</span>
+              <span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1 inline-block align-[-2px]" aria-hidden="true">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+                {summary.project.clientName}
+              </span>
             )}
             {summary.project.reference && (
               <>
                 {summary.project.clientName && (
                   <span className="text-[var(--slate-300)]">&middot;</span>
                 )}
-                <span>Ref. {summary.project.reference}</span>
+                <span>Réf. {summary.project.reference}</span>
+              </>
+            )}
+            {earliestDeadline && (
+              <>
+                <span className="text-[var(--slate-300)]">&middot;</span>
+                <span className={`inline-flex items-center gap-1 ${
+                  earliestDeadline.getTime() < Date.now()
+                    ? "font-semibold text-[var(--danger)]"
+                    : earliestDeadline.getTime() < Date.now() + 7 * 24 * 60 * 60 * 1000
+                      ? "text-[var(--warning)]"
+                      : ""
+                }`}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                  Échéance {DATE_FMT.format(earliestDeadline)}
+                </span>
               </>
             )}
           </div>
-          {summary.currentVersion && (
-            <div className="mt-2">
-              <AffaireStatusBadges
-                currentVersionNumber={summary.currentVersion.versionNumber}
-                currentStatus={summary.currentVersion.status}
-                acceptedVersionNumber={
-                  summary.acceptedVersion?.versionNumber ?? null
-                }
-              />
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Cockpit command bar */}
-      {cockpitState.length > 0 && (
-        <CockpitCommandBar
-          suggestions={cockpitState}
-          onExecute={handleExecuteCockpitSuggestion}
-          onToggleHidden={(actionId, isHidden) => {
-            handleToggleCockpitPreference({ actionId, isHidden });
-          }}
-          onTogglePinned={(actionId, isPinned) => {
-            handleToggleCockpitPreference({ actionId, isPinned });
-          }}
-        />
-      )}
-      {previewSuggestion ? (
-        <CockpitCommandPreview
-          suggestion={previewSuggestion}
-          onConfirm={() => {
-            const suggestion = previewSuggestion;
-            setPreviewSuggestion(null);
-            if (suggestion) {
-              commitCockpitExecution(suggestion);
-            }
-          }}
-          onCancel={() => setPreviewSuggestion(null)}
-        />
-      ) : null}
+      {/* Workflow stepper (Recommendation #1) */}
+      <AffaireWorkflowStepper
+        summary={summary}
+        dpgfSource={dpgfSource}
+        intakeWorkspace={intakeWorkspace}
+        approvalSummary={approvalSummary}
+        lineCount={summary.lineCount}
+      />
+
+      {/* Primary CTAs + Cockpit — merged into single visual block */}
+      <div className="mb-2 space-y-0">
+        {!showImportFlow && !isReadOnlyReview && (
+          <>
+            {summary.versionsCount === 0 ? (
+              <FirstVersionActionBar projectId={summary.project.id} />
+            ) : summary.versionsCount > 0 ? (
+              <ActionBar
+                summary={summary}
+                versionZeroSummary={versionZeroSummary}
+                takeoffEnabled={takeoffEnabled}
+                plansSummary={plansSummary}
+                pendingAction={pendingAction}
+                onDuplicate={() => void handleDuplicate()}
+                onCreateVariant={() => void handleCreateVariant()}
+                onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+              />
+            ) : null}
+            {actionError && (
+              <div className="alert alert-error px-3 py-2 text-xs">
+                {actionError}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Cockpit command bar */}
+        {cockpitState.length > 0 && (
+          <CockpitCommandBar
+            suggestions={cockpitState}
+            onExecute={handleExecuteCockpitSuggestion}
+            onToggleHidden={(actionId, isHidden) => {
+              handleToggleCockpitPreference({ actionId, isHidden });
+            }}
+            onTogglePinned={(actionId, isPinned) => {
+              handleToggleCockpitPreference({ actionId, isPinned });
+            }}
+          />
+        )}
+        {previewSuggestion ? (
+          <CockpitCommandPreview
+            suggestion={previewSuggestion}
+            onConfirm={() => {
+              const suggestion = previewSuggestion;
+              setPreviewSuggestion(null);
+              if (suggestion) {
+                commitCockpitExecution(suggestion);
+              }
+            }}
+            onCancel={() => setPreviewSuggestion(null)}
+          />
+        ) : null}
+      </div>
 
       {/* Import result summary banner */}
       {importResult && (
@@ -1345,16 +1551,16 @@ export function AffaireHub({
               </div>
               <div>
                 <p className="text-sm font-semibold text-[var(--slate-800)]">
-                  Import termine
+                  Import terminé
                 </p>
                 <p className="mt-0.5 text-xs text-[var(--slate-600)]">
                   {importResult.stats.insertedRows} ligne
-                  {importResult.stats.insertedRows > 1 ? "s" : ""} inseree
+                  {importResult.stats.insertedRows > 1 ? "s" : ""} insérée
                   {importResult.stats.insertedRows > 1 ? "s" : ""}
                   {importResult.stats.skippedRows > 0 && (
                     <>
                       {" — "}
-                      {importResult.stats.skippedRows} ignoree
+                      {importResult.stats.skippedRows} ignorée
                       {importResult.stats.skippedRows > 1 ? "s" : ""}
                     </>
                   )}
@@ -1372,37 +1578,6 @@ export function AffaireHub({
         </div>
       )}
 
-      {/* Intake workspace: document upload, classification triage, missing pieces */}
-      {intakeWorkspace !== undefined && (
-        <div id="intake" className="mb-4 scroll-mt-24">
-          <IntakeWorkspace
-            projectId={summary.project.id}
-            workspace={intakeWorkspace}
-          />
-        </div>
-      )}
-      {intakeWorkspace !== undefined && (
-        <div id="brief" className="mb-4 scroll-mt-24">
-          <BriefDraftCard
-            projectId={summary.project.id}
-            briefDraft={intakeWorkspace?.briefDraft ?? null}
-            isReadOnly={isReadOnlyReview}
-          />
-        </div>
-      )}
-      <div id="register" className="mb-4 scroll-mt-24">
-        <AffaireRegisterCard
-          projectId={summary.project.id}
-          versionId={summary.currentVersion?.id ?? null}
-          registerPage={registerPage ?? null}
-          scopeOptions={registerScopeOptions ?? { lots: [], lines: [] }}
-          summary={registerSummary ?? null}
-          timelineEvents={registerTimeline ?? []}
-          isReadOnly={isReadOnlyReview}
-          errorMessage={sectionErrors?.register}
-        />
-      </div>
-
       {/* Unified Import Flow (full-width, replaces grid when active) */}
       {showImportFlow ? (
         <UnifiedImportFlow
@@ -1413,27 +1588,6 @@ export function AffaireHub({
         />
       ) : (
         <>
-          {summary.versionsCount === 0 && !isReadOnlyReview ? (
-            <FirstVersionActionBar projectId={summary.project.id} />
-          ) : summary.versionsCount > 0 && !isReadOnlyReview ? (
-            <ActionBar
-              summary={summary}
-              versionZeroSummary={versionZeroSummary}
-              takeoffEnabled={takeoffEnabled}
-              plansSummary={plansSummary}
-              pendingAction={pendingAction}
-              onDuplicate={() => void handleDuplicate()}
-              onCreateVariant={() => void handleCreateVariant()}
-              onLaunchMetre={() => setShowLaunchMetreDialog(true)}
-            />
-          ) : null}
-
-          {actionError && (
-            <div className="alert alert-error mb-4 px-3 py-2 text-xs">
-              {actionError}
-            </div>
-          )}
-
           {showTakeoffPrompt &&
             plansSummary?.defaultPlanSetId &&
             plansSummary.launchRecommendation && (
@@ -1475,13 +1629,58 @@ export function AffaireHub({
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="space-y-4 lg:col-span-2">
+          {/* Two-column layout (Recommendation #3)
+              Left: operational flow (intake, brief, financial, DPGF, timeline)
+              Right: control (register, approval, journal, plans) */}
+          <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-5">
+            <div className="space-y-4 lg:col-span-3">
+              {/* Intake workspace: document upload, classification triage */}
+              {intakeWorkspace !== undefined && (
+                <div id="intake" className="scroll-mt-24">
+                  <IntakeWorkspace
+                    projectId={summary.project.id}
+                    workspace={intakeWorkspace}
+                    onBridgeDpgfImport={
+                      isReadOnlyReview
+                        ? undefined
+                        : () => {
+                            setImportResult(null);
+                            setShowImportFlow(true);
+                          }
+                    }
+                    dpgfAlreadyImported={dpgfSource !== null}
+                    plansSynced={(plansSummary?.planSetCount ?? 0) > 0}
+                  />
+                </div>
+              )}
+              {intakeWorkspace !== undefined && (
+                <div id="brief" className="scroll-mt-24">
+                  <BriefDraftCard
+                    projectId={summary.project.id}
+                    briefDraft={intakeWorkspace?.briefDraft ?? null}
+                    isReadOnly={isReadOnlyReview}
+                  />
+                </div>
+              )}
               <FinancialSummaryCard summary={summary} />
               {isExpert && (
                 <MarginAnalysisWidget
                   data={marginAnalysis ?? null}
                   errorMessage={sectionErrors?.marginAnalysis}
+                />
+              )}
+              {(dpgfSource !== null || sectionErrors?.dpgfSource) && (
+                <DpgfSourceCard
+                  dpgfSource={dpgfSource}
+                  errorMessage={sectionErrors?.dpgfSource}
+                  onStartImport={
+                    isReadOnlyReview
+                      ? undefined
+                      : () => {
+                          setImportResult(null);
+                          setShowImportFlow(true);
+                        }
+                  }
                 />
               )}
               <VersionTimelineCard
@@ -1494,7 +1693,20 @@ export function AffaireHub({
               />
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 lg:col-span-2">
+              {/* Register: moved to sidebar (Recommendation #3) */}
+              <div id="register" className="scroll-mt-24">
+                <AffaireRegisterCard
+                  projectId={summary.project.id}
+                  versionId={summary.currentVersion?.id ?? null}
+                  registerPage={registerPage ?? null}
+                  scopeOptions={registerScopeOptions ?? { lots: [], lines: [] }}
+                  summary={registerSummary ?? null}
+                  timelineEvents={registerTimeline ?? []}
+                  isReadOnly={isReadOnlyReview}
+                  errorMessage={sectionErrors?.register}
+                />
+              </div>
               {approvalSummary ? (
                 <div id="approval" className="scroll-mt-24">
                   <EstimateApprovalSummaryCard summary={approvalSummary}>
@@ -1503,6 +1715,7 @@ export function AffaireHub({
                       versionId={summary.currentVersion.id}
                       projectId={summary.project.id}
                       summary={approvalSummary}
+                      isEmpty={summary.lineCount === 0}
                       submissionOverview={{
                         coveragePercent: plansSummary?.coveragePercent ?? null,
                         exceptionCount: plansSummary?.exceptionCount ?? null,
@@ -1523,20 +1736,8 @@ export function AffaireHub({
                   initialJournal={approvalJournal}
                 />
               ) : null}
-              <DpgfSourceCard
-                dpgfSource={dpgfSource}
-                errorMessage={sectionErrors?.dpgfSource}
-                onStartImport={
-                  isReadOnlyReview
-                    ? undefined
-                    : () => {
-                        setImportResult(null);
-                        setShowImportFlow(true);
-                      }
-                }
-              />
-              {takeoffEnabled &&
-              !(isEmptyPlansCardDismissed && (plansSummary?.planSetCount ?? 0) === 0) ? (
+              {/* Plans: moved up in sidebar (Recommendation #23) */}
+              {takeoffEnabled && (plansSummary?.planSetCount ?? 0) > 0 ? (
                 <div id="plans" className="scroll-mt-24">
                   <PlansMetresCard
                     plans={plansSummary ?? null}
@@ -1544,13 +1745,6 @@ export function AffaireHub({
                     errorMessage={sectionErrors?.plansSummary}
                     onLaunchMetre={
                       isReadOnlyReview ? undefined : () => setShowLaunchMetreDialog(true)
-                    }
-                    onDismissEmpty={
-                      isReadOnlyReview
-                        ? undefined
-                        : () => {
-                            setIsEmptyPlansCardDismissed(true);
-                          }
                     }
                   />
                 </div>
