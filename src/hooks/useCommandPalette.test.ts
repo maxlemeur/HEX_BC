@@ -1,8 +1,7 @@
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { renderHook, act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPush = vi.fn();
-const mockRecordCockpitCommandAction = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -36,17 +35,13 @@ vi.mock("@/hooks/useLastAffaireContext", () => ({
   useLastAffaireId: () => "11111111-1111-1111-1111-111111111111",
 }));
 
-vi.mock("@/app/dashboard/affaires/_actions/cockpit", () => ({
-  recordCockpitCommandAction: (...args: unknown[]) =>
-    mockRecordCockpitCommandAction(...args),
-}));
-
 import {
   buildNavigationItems,
   fuzzyMatch,
   type CommandItem,
   useCommandPalette,
 } from "@/hooks/useCommandPalette";
+import { COCKPIT_EXECUTE_ACTION_EVENT } from "@/lib/cockpit/events";
 import {
   _resetForTest as resetCockpitSuggestionsStore,
   setCockpitSuggestions,
@@ -166,7 +161,9 @@ describe("buildNavigationItems", () => {
     expect(items.find((i) => i.id === "nav-takeoff")).toBeDefined();
   });
 
-  it("records cockpit history when executing a contextual command", async () => {
+  it("dispatches cockpit execution events for contextual commands", () => {
+    const handler = vi.fn();
+    document.addEventListener(COCKPIT_EXECUTE_ACTION_EVENT, handler as EventListener);
     setCockpitSuggestions({
       projectId: "11111111-1111-1111-1111-111111111111",
       suggestions: [
@@ -175,9 +172,12 @@ describe("buildNavigationItems", () => {
           label: "Preparer la validation",
           intent: "prepare_validation",
           preview: "Soumettre le chiffrage pour validation.",
-          target: { kind: "open_dialog", dialogId: "approval-submit" },
+          target: { kind: "open_surface", surfaceId: "approval-submit" },
           requiresConfirmation: false,
           confirmTone: "info",
+          priority: 100,
+          isPinned: false,
+          isHidden: false,
         },
       ],
     });
@@ -193,12 +193,14 @@ describe("buildNavigationItems", () => {
       result.current.execute(cockpitItem!);
     });
 
-    await waitFor(() => {
-      expect(mockRecordCockpitCommandAction).toHaveBeenCalledWith({
-        projectId: "11111111-1111-1111-1111-111111111111",
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect((handler.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+      projectId: "11111111-1111-1111-1111-111111111111",
+      suggestion: expect.objectContaining({
         actionId: "prepare-validation",
         intent: "prepare_validation",
-      });
+      }),
     });
+    document.removeEventListener(COCKPIT_EXECUTE_ACTION_EVENT, handler as EventListener);
   });
 });

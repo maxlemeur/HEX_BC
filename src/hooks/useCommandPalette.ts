@@ -8,13 +8,12 @@ import {
   getSnapshot as getCockpitSnapshot,
   getServerSnapshot as getCockpitServerSnapshot,
 } from "@/lib/stores/cockpit-suggestions-store";
-import type { CockpitIntent } from "@/lib/cockpit/suggestions";
 
 import { useUserContext } from "@/components/UserContext";
 import { useLastAffaireId } from "@/hooks/useLastAffaireContext";
 import { useTakeoffEnabled } from "@/hooks/useTakeoffEnabled";
 import { useUiMode } from "@/hooks/useUiMode";
-import { recordCockpitCommandAction } from "@/app/dashboard/affaires/_actions/cockpit";
+import { dispatchCockpitExecuteAction } from "@/lib/cockpit/events";
 import {
   buildNavGroups,
   type BuildNavGroupsInput,
@@ -33,11 +32,6 @@ export type CommandItem = {
   keywords?: string[];
   href?: string;
   action?: () => void;
-  cockpitTracking?: {
-    projectId: string;
-    actionId: string;
-    intent: CockpitIntent;
-  };
 };
 
 export type CommandGroup = {
@@ -231,26 +225,20 @@ export function useCommandPalette() {
       label: s.label,
       description: s.preview,
       keywords: ["cockpit", s.intent.replace(/_/g, " ")],
-      ...(cockpitSuggestions.projectId
-        ? {
-            cockpitTracking: {
-              projectId: cockpitSuggestions.projectId,
-              actionId: s.actionId,
-              intent: s.intent,
-            },
-          }
-        : {}),
       ...(s.target.kind === "navigate"
-        ? { href: s.target.href }
+        ? {
+            action: () =>
+              dispatchCockpitExecuteAction({
+                projectId: cockpitSuggestions.projectId,
+                suggestion: s,
+              }),
+          }
         : {
             action: () =>
-              document.dispatchEvent(
-                new CustomEvent("cockpit-open-dialog", {
-                  detail: s.target.kind === "open_dialog"
-                    ? s.target.dialogId
-                    : undefined,
-                })
-              ),
+              dispatchCockpitExecuteAction({
+                projectId: cockpitSuggestions.projectId,
+                suggestion: s,
+              }),
           }),
     }));
     return [...ACTION_ITEMS, ...contextualActions, ...navigationItems];
@@ -318,12 +306,6 @@ export function useCommandPalette() {
     (item: CommandItem) => {
       closePalette();
       saveRecent(item.id);
-
-      if (item.cockpitTracking) {
-        void Promise.resolve(recordCockpitCommandAction(item.cockpitTracking)).catch(() => {
-          // Ignore tracking failures: command execution should still complete.
-        });
-      }
 
       if (item.action) {
         item.action();

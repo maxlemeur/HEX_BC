@@ -225,6 +225,7 @@ export function IntakeDropzone({
 
       {/* Drop zone */}
       <div
+        data-intake-dropzone-trigger={projectId}
         className={`rounded-xl border-2 border-dashed transition-colors ${
           dragActive
             ? "border-[var(--brand-blue)] bg-[var(--brand-blue)]/5"

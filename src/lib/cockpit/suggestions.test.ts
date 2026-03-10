@@ -1,17 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { AffaireHubPlansSummaryData } from "@/components/affaires/PlansMetresCard";
 import type { AffaireRegisterSummary } from "@/lib/affaires/register";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
+import type { VersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
 
 import {
+  applyCockpitSuggestionPreferences,
   computeCockpitSuggestions,
   type ComputeCockpitSuggestionsInput,
 } from "./suggestions";
-
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
 
 function makePlansSummary(
   overrides: Partial<AffaireHubPlansSummaryData> = {},
@@ -61,6 +60,50 @@ function makeApprovalSummary(
   } as EstimateApprovalSummary;
 }
 
+function makeIntakeWorkspace(
+  overrides: Partial<AffaireIntakeWorkspace> = {},
+): AffaireIntakeWorkspace {
+  return {
+    projectId: "proj-42",
+    uploadId: "upload-1",
+    documents: [
+      {
+        documentId: "doc-1",
+        fileName: "plans.pdf",
+        detectedCategory: "plans",
+        confidence: 0.95,
+        extractedMetadata: {
+          projectName: null,
+          clientName: null,
+          deadlineAt: null,
+          detectedLots: [],
+          detectedVariants: [],
+        },
+        issues: [],
+      },
+    ],
+    missingPieces: [],
+    briefDraft: null,
+    ...overrides,
+  };
+}
+
+function makeVersionZeroSummary(
+  overrides: Partial<VersionZeroDraftSummary> = {},
+): VersionZeroDraftSummary {
+  return {
+    versionId: "version-1",
+    projectId: "proj-42",
+    hasConfirmedBrief: true,
+    confirmedBriefId: "brief-1",
+    isVersionEmpty: true,
+    canGenerate: true,
+    availableLots: [],
+    activeDraft: null,
+    ...overrides,
+  };
+}
+
 function makeInput(
   overrides: Partial<ComputeCockpitSuggestionsInput> = {},
 ): ComputeCockpitSuggestionsInput {
@@ -71,329 +114,197 @@ function makeInput(
     plansSummary: null,
     registerSummary: null,
     approvalSummary: null,
+    intakeWorkspace: null,
+    versionZeroSummary: null,
+    currentVersion: null,
+    preferences: [],
     ...overrides,
   };
 }
 
-/* ------------------------------------------------------------------ */
-/*  Tests                                                              */
-/* ------------------------------------------------------------------ */
-
 describe("computeCockpitSuggestions", () => {
-  it("returns empty array when no conditions match", () => {
-    const result = computeCockpitSuggestions(makeInput());
-    expect(result).toEqual([]);
+  it("suggests adding files when the dossier is empty", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace({
+          uploadId: null,
+          documents: [],
+        }),
+      }),
+    );
+
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        intent: "add_files",
+        target: { kind: "open_surface", surfaceId: "intake-upload" },
+      }),
+    );
   });
 
-  // -- analyze_plans --------------------------------------------------
-
-  describe("analyze_plans", () => {
-    it("appears when takeoffEnabled + planSetCount > 0 + not readOnly", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          takeoffEnabled: true,
-          isReadOnlyReview: false,
-          plansSummary: makePlansSummary({ planSetCount: 1, latestJob: null }),
-        }),
-      );
-      const s = result.find((s) => s.intent === "analyze_plans");
-      expect(s).toBeDefined();
-      expect(s!.actionId).toBe("analyze-plans");
-      expect(s!.target).toEqual({
-        kind: "open_dialog",
-        dialogId: "launch-metre",
-      });
-    });
-
-    it("is absent when isReadOnlyReview is true", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          takeoffEnabled: true,
-          isReadOnlyReview: true,
-          plansSummary: makePlansSummary(),
-        }),
-      );
-      expect(result.find((s) => s.intent === "analyze_plans")).toBeUndefined();
-    });
-
-    it("is absent when takeoffEnabled is false", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          takeoffEnabled: false,
-          plansSummary: makePlansSummary(),
-        }),
-      );
-      expect(result.find((s) => s.intent === "analyze_plans")).toBeUndefined();
-    });
-
-    it("is absent when an analysis is already running", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          plansSummary: makePlansSummary({
-            latestJob: {
-              jobId: "j-1",
-              status: "provider_pending",
-              label: "En attente provider",
-              reviewVersionId: "rv-1",
+  it("suggests reviewing intake documents needing confirmation", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace({
+          documents: [
+            {
+              documentId: "doc-1",
+              fileName: "piece.pdf",
+              detectedCategory: "annexes",
+              confidence: 0.4,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: ["Faible confiance"],
             },
-          }),
+          ],
         }),
-      );
+      }),
+    );
 
-      expect(result.find((s) => s.intent === "analyze_plans")).toBeUndefined();
-    });
-
-    it("is absent when the latest job requires review", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          plansSummary: makePlansSummary({
-            latestJob: {
-              jobId: "j-1",
-              status: "review_required",
-              label: "Revue requise",
-              reviewVersionId: "rv-1",
-            },
-          }),
-        }),
-      );
-
-      expect(result.find((s) => s.intent === "analyze_plans")).toBeUndefined();
-    });
+    expect(result.find((suggestion) => suggestion.intent === "review_intake")).toEqual(
+      expect.objectContaining({
+        label: "Confirmer 1 piece a revoir",
+        target: {
+          kind: "navigate",
+          href: "/dashboard/affaires/proj-42?intakeFilter=a_revoir#intake",
+        },
+      }),
+    );
   });
 
-  // -- view_exceptions ------------------------------------------------
-
-  describe("view_exceptions", () => {
-    it("appears with correct deep-link URL when exceptionCount > 0 and latestJob completed", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          plansSummary: makePlansSummary({
-            exceptionCount: 5,
-            latestJob: {
-              jobId: "j-99",
-              status: "completed",
-              label: "Job",
-              reviewVersionId: "rv-99",
-            },
-          }),
+  it("suggests confirming the brief when it is pending confirmation", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace({
+          briefDraft: {
+            status: "a_confirmer",
+            summary: "Resume",
+            projectObject: "Objet",
+            scope: ["GO"],
+            lots: ["GO"],
+            receivedPieces: ["DPGF.pdf"],
+            assumptions: ["Hypothese"],
+            vigilancePoints: [],
+            missingElements: [],
+            sources: [],
+            uploadId: "upload-1",
+            lastGeneratedAt: null,
+            confirmedAt: null,
+          },
         }),
-      );
-      const s = result.find((s) => s.intent === "view_exceptions");
-      expect(s).toBeDefined();
-      expect(s!.label).toBe("Voir les 5 exceptions");
-      expect(s!.target).toEqual({
-        kind: "navigate",
-        href: "/dashboard/affaires/proj-42/takeoff/j-99/review?versionId=rv-99&view=dpgf&dpgfView=exceptions_only",
-      });
-    });
+      }),
+    );
 
-    it("appears when latestJob status is review_required", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          plansSummary: makePlansSummary({
-            exceptionCount: 1,
-            latestJob: {
-              jobId: "j-1",
-              status: "review_required",
-              label: "Job",
-              reviewVersionId: "rv-1",
-            },
-          }),
-        }),
-      );
-      const s = result.find((s) => s.intent === "view_exceptions");
-      expect(s).toBeDefined();
-      expect(s!.label).toBe("Voir les 1 exception");
-    });
-
-    it("is absent when no latestJob", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          plansSummary: makePlansSummary({
-            exceptionCount: 3,
-            latestJob: null,
-          }),
-        }),
-      );
-      expect(
-        result.find((s) => s.intent === "view_exceptions"),
-      ).toBeUndefined();
-    });
-
-    it("is absent when latestJob status is queued", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          plansSummary: makePlansSummary({
-            exceptionCount: 3,
-            latestJob: {
-              jobId: "j-1",
-              status: "queued",
-              label: "Job",
-              reviewVersionId: "rv-1",
-            },
-          }),
-        }),
-      );
-      expect(
-        result.find((s) => s.intent === "view_exceptions"),
-      ).toBeUndefined();
-    });
-
-    it("is absent when latestJob status is action_required", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          plansSummary: makePlansSummary({
-            exceptionCount: 3,
-            latestJob: {
-              jobId: "j-1",
-              status: "action_required",
-              label: "Job",
-              reviewVersionId: "rv-1",
-            },
-          }),
-        }),
-      );
-      expect(
-        result.find((s) => s.intent === "view_exceptions"),
-      ).toBeUndefined();
-    });
+    expect(result.find((suggestion) => suggestion.intent === "confirm_brief")).toEqual(
+      expect.objectContaining({
+        target: { kind: "open_surface", surfaceId: "brief-confirm" },
+        requiresConfirmation: true,
+      }),
+    );
   });
 
-  // -- list_hypotheses ------------------------------------------------
+  it("suggests generating the estimate structure when V0 can be generated", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        currentVersion: { id: "version-1", status: "draft" },
+        versionZeroSummary: makeVersionZeroSummary({ canGenerate: true }),
+      }),
+    );
 
-  describe("list_hypotheses", () => {
-    it("appears with correct count interpolation", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          registerSummary: makeRegisterSummary({ openQuestionsCount: 7 }),
-        }),
-      );
-      const s = result.find((s) => s.intent === "list_hypotheses");
-      expect(s).toBeDefined();
-      expect(s!.label).toBe("7 hypotheses ouvertes");
-      expect(s!.preview).toBe(
-        "7 points du registre necessitent une decision.",
-      );
-      expect(s!.target).toEqual({
-        kind: "navigate",
-        href: "/dashboard/affaires/proj-42?registerStatus=open",
-      });
-    });
-
-    it("uses singular form for count of 1", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          registerSummary: makeRegisterSummary({ openQuestionsCount: 1 }),
-        }),
-      );
-      const s = result.find((s) => s.intent === "list_hypotheses");
-      expect(s).toBeDefined();
-      expect(s!.label).toBe("1 hypothese ouverte");
-      expect(s!.preview).toBe(
-        "1 point du registre necessitent une decision.",
-      );
-    });
-
-    it("is absent when openQuestionsCount is 0", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          registerSummary: makeRegisterSummary({ openQuestionsCount: 0 }),
-        }),
-      );
-      expect(
-        result.find((s) => s.intent === "list_hypotheses"),
-      ).toBeUndefined();
-    });
+    expect(result.find((suggestion) => suggestion.intent === "generate_structure")).toEqual(
+      expect.objectContaining({
+        label: "Generer la structure du devis",
+        target: {
+          kind: "navigate",
+          href: "/dashboard/estimates/version-1/edit?openVersionZero=1",
+        },
+      }),
+    );
   });
 
-  // -- prepare_validation ---------------------------------------------
-
-  describe("prepare_validation", () => {
-    it("appears when canPrepareRequest is true", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          approvalSummary: makeApprovalSummary(true),
+  it("surfaces critical hypotheses before takeoff follow-up", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace(),
+        registerSummary: makeRegisterSummary({
+          openQuestionsCount: 4,
+          criticalOpenCount: 2,
         }),
-      );
-      const s = result.find((s) => s.intent === "prepare_validation");
-      expect(s).toBeDefined();
-      expect(s!.actionId).toBe("prepare-validation");
-      expect(s!.target).toEqual({
-        kind: "open_dialog",
-        dialogId: "approval-submit",
-      });
-    });
+      }),
+    );
 
-    it("has requiresConfirmation: true", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          approvalSummary: makeApprovalSummary(true),
-        }),
-      );
-      const s = result.find((s) => s.intent === "prepare_validation");
-      expect(s!.requiresConfirmation).toBe(true);
-    });
-
-    it("is absent when canPrepareRequest is false", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          approvalSummary: makeApprovalSummary(false),
-        }),
-      );
-      expect(
-        result.find((s) => s.intent === "prepare_validation"),
-      ).toBeUndefined();
-    });
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        intent: "list_hypotheses",
+        label: "Traiter 2 hypotheses critiques",
+        target: {
+          kind: "navigate",
+          href: "/dashboard/affaires/proj-42?registerStatus=open&registerSeverity=critical#register",
+        },
+      }),
+    );
   });
 
-  // -- Ordering -------------------------------------------------------
+  it("keeps analyze plans and prepare validation on open surfaces", () => {
+    const result = computeCockpitSuggestions(
+      makeInput({
+        plansSummary: makePlansSummary({ latestJob: null }),
+        approvalSummary: makeApprovalSummary(true),
+      }),
+    );
 
-  describe("ordering", () => {
-    it("returns suggestions in order once the latest job requires review", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          takeoffEnabled: true,
-          isReadOnlyReview: false,
-          plansSummary: makePlansSummary({
-            planSetCount: 2,
-            exceptionCount: 3,
-            latestJob: {
-              jobId: "j-1",
-              status: "completed",
-              label: "Job",
-              reviewVersionId: "rv-1",
-            },
-          }),
-          registerSummary: makeRegisterSummary({ openQuestionsCount: 2 }),
-          approvalSummary: makeApprovalSummary(true),
+    expect(result.find((suggestion) => suggestion.intent === "analyze_plans")).toEqual(
+      expect.objectContaining({
+        target: { kind: "open_surface", surfaceId: "launch-metre" },
+      }),
+    );
+    expect(result.find((suggestion) => suggestion.intent === "prepare_validation")).toEqual(
+      expect.objectContaining({
+        target: { kind: "open_surface", surfaceId: "approval-submit" },
+        requiresConfirmation: true,
+      }),
+    );
+  });
+
+  it("applies hidden and pinned preferences after computing suggestions", () => {
+    const suggestions = computeCockpitSuggestions(
+      makeInput({
+        intakeWorkspace: makeIntakeWorkspace({
+          uploadId: null,
+          documents: [],
         }),
-      );
-      expect(result).toHaveLength(3);
-      expect(result[0].intent).toBe("view_exceptions");
-      expect(result[1].intent).toBe("list_hypotheses");
-      expect(result[2].intent).toBe("prepare_validation");
+        approvalSummary: makeApprovalSummary(true),
+      }),
+    );
+
+    const result = applyCockpitSuggestionPreferences({
+      suggestions,
+      preferences: [
+        {
+          actionId: "prepare-validation",
+          isHidden: false,
+          isPinned: true,
+        },
+        {
+          actionId: "add-files",
+          isHidden: true,
+          isPinned: false,
+        },
+      ],
     });
 
-    it("surfaces analyze_plans only when there is no latest job to follow up", () => {
-      const result = computeCockpitSuggestions(
-        makeInput({
-          takeoffEnabled: true,
-          isReadOnlyReview: false,
-          plansSummary: makePlansSummary({
-            planSetCount: 1,
-            exceptionCount: 0,
-            latestJob: null,
-          }),
-          registerSummary: makeRegisterSummary({ openQuestionsCount: 1 }),
-          approvalSummary: makeApprovalSummary(true),
-        }),
-      );
-      const intents = result.map((s) => s.intent);
-      expect(intents).toContain("analyze_plans");
-      expect(intents).toContain("list_hypotheses");
-      expect(intents).toContain("prepare_validation");
-      expect(intents).not.toContain("view_exceptions");
-      expect(result).toHaveLength(3);
-    });
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        actionId: "prepare-validation",
+        isPinned: true,
+      }),
+    );
+    expect(
+      result.find((suggestion) => suggestion.actionId === "add-files"),
+    ).toEqual(expect.objectContaining({ isHidden: true }));
   });
 });

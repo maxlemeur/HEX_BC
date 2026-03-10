@@ -34,6 +34,7 @@ import {
   listEstimateApprovalDecisionJournal,
 } from "@/lib/estimates/rules-engine";
 import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-drafts";
+import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
 
@@ -127,6 +128,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     registerPageResult,
     registerScopeOptionsResult,
     versionZeroSummaryResult,
+    cockpitPreferencesResult,
   ] = await Promise.allSettled([
     currentVersionId ? getEstimateApprovalSummary(currentVersionId) : Promise.resolve(null),
     currentVersionId
@@ -155,6 +157,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     currentVersionId && summary.currentVersion?.status === "draft"
       ? fetchVersionZeroDraftSummary({ versionId: currentVersionId })
       : Promise.resolve(null),
+    fetchCockpitCommandPreferences(projectId),
   ]);
   const approvalSummary =
     approvalSummaryResult.status === "fulfilled" ? approvalSummaryResult.value : null;
@@ -188,6 +191,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     versionZeroSummaryResult.status === "fulfilled"
       ? versionZeroSummaryResult.value
       : null;
+  const cockpitPreferences =
+    cockpitPreferencesResult.status === "fulfilled"
+      ? cockpitPreferencesResult.value
+      : [];
   const registerSummary = registerPage?.summary ?? null;
   const registerTimeline = registerPage?.timeline ?? [];
 
@@ -246,6 +253,15 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     plansSummary,
     registerSummary,
     approvalSummary,
+    intakeWorkspace,
+    versionZeroSummary,
+    currentVersion: summary.currentVersion
+      ? {
+          id: summary.currentVersion.id,
+          status: summary.currentVersion.status,
+        }
+      : null,
+    preferences: cockpitPreferences,
   });
 
   return (
@@ -269,6 +285,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       registerTimeline={registerTimeline}
       versionZeroSummary={versionZeroSummary}
       cockpitSuggestions={cockpitSuggestions}
+      viewerProfileId={profile?.id ?? null}
     />
   );
 }

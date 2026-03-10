@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { Badge } from "@/components/ui/Badge";
@@ -19,6 +19,10 @@ import {
   updateAffaireBrief,
   confirmAffaireBrief,
 } from "@/app/dashboard/affaires/_actions/intake";
+import {
+  COCKPIT_OPEN_SURFACE_EVENT,
+  type CockpitOpenSurfaceEventDetail,
+} from "@/lib/cockpit/events";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -340,6 +344,29 @@ export function BriefDraftCard({
   const [editAssumptions, setEditAssumptions] = useState<string[]>([]);
 
   const sourceLookup = briefDraft ? buildSourceLookup(briefDraft.sources) : new Map<string, AffaireIntakeBriefSource[]>();
+
+  useEffect(() => {
+    const handleOpenSurface = (event: Event) => {
+      const detail = (event as CustomEvent<CockpitOpenSurfaceEventDetail>).detail;
+      if (
+        !detail ||
+        detail.projectId !== projectId ||
+        detail.surfaceId !== "brief-confirm" ||
+        !briefDraft ||
+        briefDraft.status !== "a_confirmer" ||
+        isReadOnly
+      ) {
+        return;
+      }
+
+      setShowConfirmDialog(true);
+      setError(null);
+    };
+
+    document.addEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleOpenSurface);
+    return () =>
+      document.removeEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleOpenSurface);
+  }, [briefDraft, isReadOnly, projectId]);
 
   const handleStartEdit = useCallback(() => {
     if (!briefDraft) return;

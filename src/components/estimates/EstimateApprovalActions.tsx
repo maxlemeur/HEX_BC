@@ -10,6 +10,10 @@ import {
   updateEstimateReviewCorrectionItemStatusAction,
 } from "@/app/dashboard/_actions/estimate-approval";
 import { useToast } from "@/components/ui/Toast";
+import {
+  COCKPIT_OPEN_SURFACE_EVENT,
+  type CockpitOpenSurfaceEventDetail,
+} from "@/lib/cockpit/events";
 import { buildAffaireRegisterSearchHref } from "@/lib/affaires/register";
 import type {
   EstimateApprovalChangesSinceLastCycle,
@@ -422,6 +426,27 @@ export function EstimateApprovalActions({
 
     document.addEventListener("cockpit-open-dialog", handleCockpitDialog);
     return () => document.removeEventListener("cockpit-open-dialog", handleCockpitDialog);
+  }, [summary.permissions.canPrepareRequest]);
+
+  useEffect(() => {
+    if (typeof document === "undefined" || !summary.permissions.canPrepareRequest) {
+      return;
+    }
+
+    const handleCockpitSurface = (event: Event) => {
+      const detail = (event as CustomEvent<CockpitOpenSurfaceEventDetail>).detail;
+      if (!detail || detail.surfaceId !== "approval-submit") {
+        return;
+      }
+
+      setFormError(null);
+      setShowSubmitPanel(true);
+      setSubmitPanelUrlState(true);
+    };
+
+    document.addEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleCockpitSurface);
+    return () =>
+      document.removeEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleCockpitSurface);
   }, [summary.permissions.canPrepareRequest]);
 
   function resetDraftForm() {

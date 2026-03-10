@@ -5,6 +5,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type { AffaireIntakeWorkspace as WorkspaceData } from "@/lib/affaires/intake-server";
 import { Badge } from "@/components/ui/Badge";
+import {
+  COCKPIT_OPEN_SURFACE_EVENT,
+  type CockpitOpenSurfaceEventDetail,
+} from "@/lib/cockpit/events";
 import { IntakeDropzone } from "./IntakeDropzone";
 import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import { IntakeMissingPieces } from "./IntakeMissingPieces";
@@ -115,6 +119,27 @@ export function IntakeWorkspace({ projectId, workspace }: IntakeWorkspaceProps) 
 
     return () => clearInterval(interval);
   }, [pendingUploadId, router, workspace?.uploadId]);
+
+  useEffect(() => {
+    const handleOpenSurface = (event: Event) => {
+      const detail = (event as CustomEvent<CockpitOpenSurfaceEventDetail>).detail;
+      if (!detail || detail.projectId !== projectId || detail.surfaceId !== "intake-upload") {
+        return;
+      }
+
+      setShowDropzone(true);
+      requestAnimationFrame(() => {
+        const trigger = document.querySelector<HTMLElement>(
+          `[data-intake-dropzone-trigger="${projectId}"]`,
+        );
+        trigger?.focus();
+      });
+    };
+
+    document.addEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleOpenSurface);
+    return () =>
+      document.removeEventListener(COCKPIT_OPEN_SURFACE_EVENT, handleOpenSurface);
+  }, [projectId]);
 
   const documents = useMemo(() => workspace?.documents ?? [], [workspace?.documents]);
   const needsReviewCount = documents.filter(isDocumentNeedsReview).length;

@@ -1,6 +1,8 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { COCKPIT_OPEN_SURFACE_EVENT } from "@/lib/cockpit/events";
 
 const { mockReplace, mockRefresh, mockSearchParams } = vi.hoisted(() => ({
   mockReplace: vi.fn(),
@@ -135,6 +137,60 @@ describe("IntakeWorkspace", () => {
     const progressBar = screen.getByRole("progressbar");
     expect(progressBar).toBeInTheDocument();
     expect(screen.getByText("1 valide, 1 a confirmer, 1 en cours")).toBeInTheDocument();
+  });
+
+  it("opens the dropzone when the cockpit requests intake upload", async () => {
+    render(
+      <IntakeWorkspace
+        projectId="project-1"
+        workspace={{
+          projectId: "project-1",
+          uploadId: "upload-1",
+          documents: [
+            {
+              documentId: "doc-1",
+              fileName: "plans.pdf",
+              detectedCategory: "plans",
+              confidence: 0.95,
+              extractedMetadata: {
+                projectName: null,
+                clientName: null,
+                deadlineAt: null,
+                detectedLots: [],
+                detectedVariants: [],
+              },
+              issues: [],
+            },
+          ],
+          missingPieces: [],
+          briefDraft: null,
+        }}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", {
+        name: /Zone de depot multi-documents/i,
+      }),
+    ).not.toBeInTheDocument();
+
+    document.dispatchEvent(
+      new CustomEvent(COCKPIT_OPEN_SURFACE_EVENT, {
+        detail: {
+          projectId: "project-1",
+          actionId: "add-files",
+          surfaceId: "intake-upload",
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: /Zone de depot multi-documents/i,
+        }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("shows section headers for grouped documents", () => {

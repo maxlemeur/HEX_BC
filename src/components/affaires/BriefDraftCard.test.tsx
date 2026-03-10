@@ -1,8 +1,9 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 
 import type { AffaireIntakeBriefDraft } from "@/lib/affaires/intake";
+import { COCKPIT_OPEN_SURFACE_EVENT } from "@/lib/cockpit/events";
 
 const mockRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -236,6 +237,24 @@ describe("BriefDraftCard", () => {
     expect(await screen.findByText("Erreur serveur")).toBeInTheDocument();
     // Still in edit mode
     expect(screen.getByDisplayValue("Resume en erreur")).toBeInTheDocument();
+  });
+
+  it("opens the confirmation panel when the cockpit requests brief-confirm", async () => {
+    render(<BriefDraftCard projectId={PROJECT_ID} briefDraft={makeBriefDraft()} />);
+
+    document.dispatchEvent(
+      new CustomEvent(COCKPIT_OPEN_SURFACE_EVENT, {
+        detail: {
+          projectId: PROJECT_ID,
+          actionId: "confirm-brief",
+          surfaceId: "brief-confirm",
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Confirmer ce brief ?")).toBeInTheDocument();
+    });
   });
 
   it("confirms brief via confirmation dialog and shows toast", async () => {

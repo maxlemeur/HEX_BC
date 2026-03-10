@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -51,13 +51,23 @@ import {
 import { useTakeoffAutoProposeDismissed } from "@/hooks/useTakeoffAutoProposeDismissed";
 import { UnifiedImportFlow } from "./UnifiedImportFlow";
 import type { CockpitSuggestion } from "@/lib/cockpit/suggestions";
+import { sortCockpitSuggestions } from "@/lib/cockpit/suggestions";
 import { CockpitCommandBar } from "@/components/cockpit/CockpitCommandBar";
+import { CockpitCommandPreview } from "@/components/cockpit/CockpitCommandPreview";
 import {
   setCockpitSuggestions,
   clearCockpitSuggestions,
 } from "@/lib/stores/cockpit-suggestions-store";
-import { recordCockpitCommandAction } from "@/app/dashboard/affaires/_actions/cockpit";
+import {
+  recordCockpitCommandAction,
+  updateCockpitCommandPreferenceAction,
+} from "@/app/dashboard/affaires/_actions/cockpit";
 import { canLaunchNewTakeoffAnalysis } from "@/lib/takeoff/visible-status";
+import {
+  COCKPIT_EXECUTE_ACTION_EVENT,
+  dispatchCockpitOpenSurface,
+  type CockpitExecuteActionEventDetail,
+} from "@/lib/cockpit/events";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -92,6 +102,7 @@ type AffaireHubProps = {
   registerTimeline?: AffaireRegisterTimelineEvent[];
   versionZeroSummary?: VersionZeroDraftSummary | null;
   cockpitSuggestions?: CockpitSuggestion[];
+  viewerProfileId?: string | null;
 };
 
 /* ------------------------------------------------------------------ */
@@ -129,6 +140,31 @@ const STATUS_CSS: Record<string, string> = {
 
 // Prevent duplicate "created" toast when React remounts in development Strict Mode.
 const shownCreatedToastProjectIds = new Set<string>();
+
+function applyCockpitPreferenceUpdate(
+  suggestions: CockpitSuggestion[],
+  input: {
+    actionId: string;
+    isHidden?: boolean;
+    isPinned?: boolean;
+  },
+) {
+  return sortCockpitSuggestions(
+    suggestions.map((suggestion) =>
+      suggestion.actionId === input.actionId
+        ? {
+            ...suggestion,
+            ...(typeof input.isHidden === "boolean"
+              ? { isHidden: input.isHidden }
+              : {}),
+            ...(typeof input.isPinned === "boolean"
+              ? { isPinned: input.isPinned }
+              : {}),
+          }
+        : suggestion,
+    ),
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /*  Section: Back to list                                              */
@@ -854,6 +890,7 @@ export function AffaireHub({
   registerTimeline,
   versionZeroSummary,
   cockpitSuggestions,
+  viewerProfileId,
 }: AffaireHubProps) {
   const router = useRouter();
   const toast = useToast();
@@ -861,11 +898,23 @@ export function AffaireHub({
   const currentVersionId = summary.currentVersion?.id ?? null;
   const acceptedVersionId = summary.acceptedVersion?.id ?? null;
   const [isEmptyPlansCardDismissed, setIsEmptyPlansCardDismissed] = useState(false);
-  const [promptTemporarilyDismissed, setPromptTemporarilyDismissed] = useState(false);
   const {
     dismissed: promptPermanentlyDismissed,
+    temporarilyDismissed: promptTemporarilyDismissed,
     dismissPermanently: dismissPromptPermanently,
-  } = useTakeoffAutoProposeDismissed(summary.project.id);
+    dismissTemporarily: dismissPromptTemporarily,
+    clearTemporaryDismissal: clearPromptTemporaryDismissal,
+  } = useTakeoffAutoProposeDismissed(summary.project.id, {
+    context: "hub",
+    profileId: viewerProfileId ?? null,
+    scopeKey: [
+      plansSummary?.defaultPlanSetId ?? "none",
+      summary.currentVersion?.status === "draft"
+        ? summary.currentVersion.id
+        : `current:${summary.currentVersion?.id ?? "none"}`,
+      plansSummary?.defaultPlanSetUpdatedAt ?? "none",
+    ].join(":"),
+  });
 
   // --- Hoisted state from former QuickActionsCard ---
   const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(null);
@@ -933,42 +982,167 @@ export function AffaireHub({
 
   useEffect(() => {
     setIsEmptyPlansCardDismissed(false);
-    setPromptTemporarilyDismissed(false);
-  }, [summary.project.id, plansSummary?.planSetCount]);
+    clearPromptTemporaryDismissal();
+  }, [clearPromptTemporaryDismissal, summary.project.id, plansSummary?.planSetCount]);
 
   const [showLaunchMetreDialog, setShowLaunchMetreDialog] = useState(false);
+  const [cockpitState, setCockpitState] = useState<CockpitSuggestion[]>(
+    cockpitSuggestions ?? [],
+  );
+  const [previewSuggestion, setPreviewSuggestion] = useState<CockpitSuggestion | null>(null);
+  const visibleCockpitSuggestions = useMemo(
+    () => cockpitState.filter((suggestion) => !suggestion.isHidden),
+    [cockpitState],
+  );
+
+  useEffect(() => {
+    setCockpitState(cockpitSuggestions ?? []);
+  }, [cockpitSuggestions]);
+
+  const handleOpenCockpitSurface = useCallback(
+    (suggestion: CockpitSuggestion) => {
+      if (suggestion.target.kind === "navigate") {
+        router.push(suggestion.target.href);
+        return;
+      }
+
+      const sectionBySurface = {
+        "intake-upload": "intake",
+        "brief-confirm": "brief",
+        "launch-metre": "plans",
+        "approval-submit": "approval",
+      } as const;
+
+      const sectionId = sectionBySurface[suggestion.target.surfaceId];
+      document.getElementById(sectionId)?.scrollIntoView({
+        block: "start",
+        behavior: "smooth",
+      });
+
+      if (suggestion.target.surfaceId === "launch-metre") {
+        setShowLaunchMetreDialog(true);
+        return;
+      }
+
+      dispatchCockpitOpenSurface({
+        projectId: summary.project.id,
+        actionId: suggestion.actionId,
+        surfaceId: suggestion.target.surfaceId,
+      });
+    },
+    [router, summary.project.id],
+  );
+
+  const commitCockpitExecution = useCallback(
+    (suggestion: CockpitSuggestion) => {
+      handleOpenCockpitSurface(suggestion);
+      void Promise.resolve(
+        recordCockpitCommandAction({
+          projectId: summary.project.id,
+          actionId: suggestion.actionId,
+          intent: suggestion.intent,
+        }),
+      ).catch(() => {
+        // Ignore tracking failures: the user action already ran.
+      });
+    },
+    [handleOpenCockpitSurface, summary.project.id],
+  );
+
+  const handleExecuteCockpitSuggestion = useCallback(
+    (suggestion: CockpitSuggestion) => {
+      if (suggestion.requiresConfirmation) {
+        setPreviewSuggestion(suggestion);
+        return;
+      }
+      commitCockpitExecution(suggestion);
+    },
+    [commitCockpitExecution],
+  );
+
+  const handleToggleCockpitPreference = useCallback(
+    (input: { actionId: string; isHidden?: boolean; isPinned?: boolean }) => {
+      const previousState = cockpitState;
+      setCockpitState((current) => applyCockpitPreferenceUpdate(current, input));
+      const source = previousState.find(
+        (suggestion) => suggestion.actionId === input.actionId,
+      );
+      if (!source) {
+        return;
+      }
+
+      const isHidden =
+        typeof input.isHidden === "boolean" ? input.isHidden : source.isHidden;
+      const isPinned =
+        typeof input.isPinned === "boolean" ? input.isPinned : source.isPinned;
+
+      void Promise.resolve(
+        updateCockpitCommandPreferenceAction({
+          projectId: summary.project.id,
+          actionId: input.actionId,
+          isHidden,
+          isPinned,
+        }),
+      ).catch((error) => {
+        setCockpitState(previousState);
+        toast.error({
+          title: "Preference cockpit non enregistree",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Impossible de sauvegarder la preference.",
+        });
+      });
+    },
+    [cockpitState, summary.project.id, toast],
+  );
 
   // Push cockpit suggestions to store for Ctrl+K bridge
   useEffect(() => {
-    if (cockpitSuggestions?.length) {
+    if (visibleCockpitSuggestions.length > 0) {
       setCockpitSuggestions({
         projectId: summary.project.id,
-        suggestions: cockpitSuggestions,
+        suggestions: visibleCockpitSuggestions,
       });
+      return () => clearCockpitSuggestions();
     }
+    clearCockpitSuggestions();
     return () => clearCockpitSuggestions();
-  }, [cockpitSuggestions, summary.project.id]);
+  }, [visibleCockpitSuggestions, summary.project.id]);
 
-  // Bridge: command palette dispatches "cockpit-open-dialog" custom event
   useEffect(() => {
-    const handler = (e: Event) => {
-      const dialogId = (e as CustomEvent<string>).detail;
-      if (dialogId === "launch-metre") setShowLaunchMetreDialog(true);
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<CockpitExecuteActionEventDetail>).detail;
+      if (!detail || detail.projectId !== summary.project.id) {
+        return;
+      }
+      handleExecuteCockpitSuggestion(detail.suggestion);
     };
-    document.addEventListener("cockpit-open-dialog", handler);
-    return () => document.removeEventListener("cockpit-open-dialog", handler);
-  }, []);
+
+    document.addEventListener(COCKPIT_EXECUTE_ACTION_EVENT, handler);
+    return () => document.removeEventListener(COCKPIT_EXECUTE_ACTION_EVENT, handler);
+  }, [handleExecuteCockpitSuggestion, summary.project.id]);
   const draftVersionId =
     summary.currentVersion?.status === "draft" ? summary.currentVersion.id : null;
-  const hasAnyVersion = summary.versionsCount > 0;
+  const hasLaunchableVersionTarget = summary.currentVersion !== null;
 
   const showTakeoffPrompt =
     !isReadOnlyReview &&
     shouldShowTakeoffPrompt({
       takeoffEnabled,
-      planSetCount: plansSummary?.planSetCount ?? 0,
-      latestJob: plansSummary?.latestJob ?? null,
-      draftVersionId,
+      planFileCount: plansSummary?.defaultPlanSetFileCount ?? plansSummary?.planFileCount ?? 0,
+      defaultPlanSetId: plansSummary?.defaultPlanSetId ?? null,
+      defaultPlanSetUpdatedAt: plansSummary?.defaultPlanSetUpdatedAt ?? null,
+      latestJob: plansSummary?.latestJob
+        ? {
+            status: plansSummary.latestJob.status,
+            planSetId: plansSummary.latestJob.planSetId ?? null,
+            estimateVersionId: plansSummary.latestJob.estimateVersionId ?? null,
+            createdAt: plansSummary.latestJob.createdAt ?? "",
+          }
+        : null,
+      targetVersionId: draftVersionId,
+      hasLaunchableVersionTarget,
       permanentlyDismissed: promptPermanentlyDismissed,
       temporarilyDismissed: promptTemporarilyDismissed,
     });
@@ -1049,27 +1223,31 @@ export function AffaireHub({
       </div>
 
       {/* Cockpit command bar */}
-      {cockpitSuggestions && cockpitSuggestions.length > 0 && (
+      {cockpitState.length > 0 && (
         <CockpitCommandBar
-          suggestions={cockpitSuggestions}
-          projectId={summary.project.id}
-          onOpenDialog={(dialogId) => {
-            if (dialogId === "launch-metre") setShowLaunchMetreDialog(true);
-            if (dialogId === "approval-submit") {
-              document.dispatchEvent(
-                new CustomEvent("cockpit-open-dialog", { detail: dialogId }),
-              );
-            }
+          suggestions={cockpitState}
+          onExecute={handleExecuteCockpitSuggestion}
+          onToggleHidden={(actionId, isHidden) => {
+            handleToggleCockpitPreference({ actionId, isHidden });
           }}
-          onExecute={(s) => {
-            recordCockpitCommandAction({
-              projectId: summary.project.id,
-              actionId: s.actionId,
-              intent: s.intent,
-            });
+          onTogglePinned={(actionId, isPinned) => {
+            handleToggleCockpitPreference({ actionId, isPinned });
           }}
         />
       )}
+      {previewSuggestion ? (
+        <CockpitCommandPreview
+          suggestion={previewSuggestion}
+          onConfirm={() => {
+            const suggestion = previewSuggestion;
+            setPreviewSuggestion(null);
+            if (suggestion) {
+              commitCockpitExecution(suggestion);
+            }
+          }}
+          onCancel={() => setPreviewSuggestion(null)}
+        />
+      ) : null}
 
       {/* Import result summary banner */}
       {importResult && (
@@ -1121,7 +1299,7 @@ export function AffaireHub({
 
       {/* Intake workspace: document upload, classification triage, missing pieces */}
       {intakeWorkspace !== undefined && (
-        <div className="mb-4">
+        <div id="intake" className="mb-4 scroll-mt-24">
           <IntakeWorkspace
             projectId={summary.project.id}
             workspace={intakeWorkspace}
@@ -1129,7 +1307,7 @@ export function AffaireHub({
         </div>
       )}
       {intakeWorkspace !== undefined && (
-        <div className="mb-4">
+        <div id="brief" className="mb-4 scroll-mt-24">
           <BriefDraftCard
             projectId={summary.project.id}
             briefDraft={intakeWorkspace?.briefDraft ?? null}
@@ -1137,7 +1315,7 @@ export function AffaireHub({
           />
         </div>
       )}
-      <div className="mb-4">
+      <div id="register" className="mb-4 scroll-mt-24">
         <AffaireRegisterCard
           projectId={summary.project.id}
           versionId={summary.currentVersion?.id ?? null}
@@ -1182,19 +1360,33 @@ export function AffaireHub({
           )}
 
           {showTakeoffPrompt &&
-            draftVersionId &&
             plansSummary?.defaultPlanSetId &&
             plansSummary.launchRecommendation && (
             <div className="mb-4 animate-fade-in">
               <TakeoffLaunchPrompt
                 projectId={summary.project.id}
                 versionId={draftVersionId}
-                versionLabel={`V${summary.currentVersion!.versionNumber} (brouillon)`}
+                versionLabel={
+                  summary.currentVersion?.status === "draft"
+                    ? `V${summary.currentVersion.versionNumber} (brouillon)`
+                    : undefined
+                }
+                sourceVersionId={
+                  summary.currentVersion?.status === "draft"
+                    ? null
+                    : summary.currentVersion?.id ?? null
+                }
+                sourceVersionLabel={
+                  summary.currentVersion
+                    ? `V${summary.currentVersion.versionNumber}`
+                    : undefined
+                }
                 planSetId={plansSummary.defaultPlanSetId}
-                planFileCount={plansSummary.planFileCount}
+                planSetName={plansSummary.defaultPlanSetName ?? null}
+                planFileCount={plansSummary.defaultPlanSetFileCount ?? plansSummary.planFileCount}
                 launchRecommendation={plansSummary.launchRecommendation}
                 onLaunched={() => router.refresh()}
-                onDismissTemporary={() => setPromptTemporarilyDismissed(true)}
+                onDismissTemporary={dismissPromptTemporarily}
                 onDismissPermanent={dismissPromptPermanently}
               />
             </div>
@@ -1229,7 +1421,8 @@ export function AffaireHub({
 
             <div className="space-y-4">
               {approvalSummary ? (
-                <EstimateApprovalSummaryCard summary={approvalSummary}>
+                <div id="approval" className="scroll-mt-24">
+                  <EstimateApprovalSummaryCard summary={approvalSummary}>
                   {summary.currentVersion ? (
                     <EstimateApprovalActions
                       versionId={summary.currentVersion.id}
@@ -1246,7 +1439,8 @@ export function AffaireHub({
                       }}
                     />
                   ) : null}
-                </EstimateApprovalSummaryCard>
+                  </EstimateApprovalSummaryCard>
+                </div>
               ) : null}
               {summary.currentVersion && approvalJournal ? (
                 <EstimateApprovalDecisionJournalCard
@@ -1268,21 +1462,23 @@ export function AffaireHub({
               />
               {takeoffEnabled &&
               !(isEmptyPlansCardDismissed && (plansSummary?.planSetCount ?? 0) === 0) ? (
-                <PlansMetresCard
-                  plans={plansSummary ?? null}
-                  projectId={summary.project.id}
-                  errorMessage={sectionErrors?.plansSummary}
-                  onLaunchMetre={
-                    isReadOnlyReview ? undefined : () => setShowLaunchMetreDialog(true)
-                  }
-                  onDismissEmpty={
-                    isReadOnlyReview
-                      ? undefined
-                      : () => {
-                          setIsEmptyPlansCardDismissed(true);
-                        }
-                  }
-                />
+                <div id="plans" className="scroll-mt-24">
+                  <PlansMetresCard
+                    plans={plansSummary ?? null}
+                    projectId={summary.project.id}
+                    errorMessage={sectionErrors?.plansSummary}
+                    onLaunchMetre={
+                      isReadOnlyReview ? undefined : () => setShowLaunchMetreDialog(true)
+                    }
+                    onDismissEmpty={
+                      isReadOnlyReview
+                        ? undefined
+                        : () => {
+                            setIsEmptyPlansCardDismissed(true);
+                          }
+                    }
+                  />
+                </div>
               ) : null}
             </div>
           </div>
@@ -1294,14 +1490,16 @@ export function AffaireHub({
           open={showLaunchMetreDialog}
           onOpenChange={setShowLaunchMetreDialog}
           projectId={summary.project.id}
-          draftVersionId={draftVersionId}
-          hasAnyVersion={hasAnyVersion}
-          plansSummary={plansSummary}
-          versionLabel={
+          currentVersion={
             summary.currentVersion
-              ? `V${summary.currentVersion.versionNumber}${summary.currentVersion.status === "draft" ? " (brouillon)" : ""}`
-              : undefined
+              ? {
+                  id: summary.currentVersion.id,
+                  status: summary.currentVersion.status,
+                  versionNumber: summary.currentVersion.versionNumber,
+                }
+              : null
           }
+          plansContext={plansSummary ?? null}
         />
       ) : null}
     </div>
