@@ -140,11 +140,12 @@ export function AffaireProjectDetailsCard({
       <div className="flex items-stretch gap-4">
         {iconSlot ?? defaultIcon}
         <div className="grid min-w-0 flex-1 gap-x-6 gap-y-4 lg:grid-cols-[7fr_3fr]">
-          {/* Project name — left column, flex to align bottom border */}
-          <div className="flex flex-col justify-end lg:row-span-2">
-            <p className="w-full border-b-2 border-transparent pb-2 text-3xl font-semibold text-[var(--slate-900)]">
+          {/* Project name + toolbar — left column */}
+          <div className="flex flex-col lg:row-span-2">
+            <p className="w-full text-3xl font-semibold text-[var(--slate-900)]">
               {renderValue(values.projectName, "Non renseigne")}
             </p>
+            {footer ? <div className="mt-3">{footer}</div> : null}
           </div>
 
           {/* Client — right column, top */}
@@ -174,8 +175,6 @@ export function AffaireProjectDetailsCard({
           {errorMessage}
         </div>
       ) : null}
-
-      {footer ? <div className="mt-4">{footer}</div> : null}
     </section>
   );
 }
