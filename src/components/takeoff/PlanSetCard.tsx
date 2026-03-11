@@ -14,6 +14,7 @@ import {
   fetchPlanFiles,
   isTakeoffApiError,
 } from "@/lib/takeoff/client";
+import { resolvePlanSetFlowDescriptor } from "@/lib/takeoff/flow-hierarchy";
 import type { PlanFileListItem, PlanSetListItem } from "@/lib/takeoff/types";
 
 type PlanSetCardProps = {
@@ -101,6 +102,7 @@ export function PlanSetCard({
   onFilesChanged,
   onUpdated,
 }: PlanSetCardProps) {
+  const flowDescriptor = resolvePlanSetFlowDescriptor(planSet);
   const regionId = useId();
   const [expanded, setExpanded] = useState(false);
   const [deleteSetModalOpen, setDeleteSetModalOpen] = useState(false);
@@ -248,9 +250,16 @@ export function PlanSetCard({
 
           {/* Set info */}
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-sm font-semibold text-[var(--slate-800)]">
-              {planSet.name}
-            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                {planSet.name}
+              </h3>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${flowDescriptor.badgeClassName}`}
+              >
+                {flowDescriptor.label}
+              </span>
+            </div>
             {planSet.description && (
               <p className="mt-0.5 truncate text-xs text-[var(--slate-500)]">
                 {planSet.description}
@@ -332,6 +341,16 @@ export function PlanSetCard({
       >
         {expanded && (
           <div className="border-t border-[var(--slate-200)] px-5 pb-5 pt-4">
+            <div
+              className={`mb-4 rounded-lg border px-3 py-2 text-sm ${
+                flowDescriptor.kind === "legacy"
+                  ? "border-[var(--warning)]/20 bg-[var(--warning)]/5 text-[var(--slate-700)]"
+                  : "border-[var(--success)]/15 bg-[var(--success)]/5 text-[var(--slate-700)]"
+              }`}
+            >
+              {flowDescriptor.summary}
+            </div>
+
             {/* Set edit form */}
             {editingSet && (
               <div className="mb-4 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">

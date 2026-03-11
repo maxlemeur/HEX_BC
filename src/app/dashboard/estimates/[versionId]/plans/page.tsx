@@ -2,8 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PlanCenter } from "@/components/takeoff/PlanCenter";
+import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import {
+  buildTakeoffRouteHierarchy,
+  fetchTakeoffVersionProjectContext,
+} from "@/lib/takeoff/route-hierarchy";
 
 export default async function PlanCenterPage({
   params,
@@ -22,6 +27,11 @@ export default async function PlanCenterPage({
     notFound();
   }
 
+  const routeDescriptor = buildTakeoffRouteHierarchy({
+    kind: "estimate_plans_legacy",
+    ...(await fetchTakeoffVersionProjectContext(versionId)),
+  });
+
   return (
     <div className="animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
@@ -38,6 +48,8 @@ export default async function PlanCenterPage({
           Retour au chiffrage
         </Link>
       </div>
+
+      <TakeoffDeprecationBanner descriptor={routeDescriptor} />
 
       <PlanCenter versionId={versionId} />
     </div>

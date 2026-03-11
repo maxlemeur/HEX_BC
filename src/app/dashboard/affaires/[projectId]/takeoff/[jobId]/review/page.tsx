@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 
+import { TakeoffRouteHierarchyBanner } from "@/components/takeoff/TakeoffRouteHierarchyBanner";
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { buildTakeoffRouteHierarchy } from "@/lib/takeoff/route-hierarchy";
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
 
 type Props = {
@@ -19,10 +21,15 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
   if (!enabled) notFound();
 
   return (
-    <TakeoffReviewPage
-      jobId={jobId}
-      versionId={versionId}
-      projectId={projectId}
-    />
+    <div className="space-y-4">
+      <TakeoffRouteHierarchyBanner
+        descriptor={buildTakeoffRouteHierarchy({ kind: "affaire_review" })}
+      />
+      <TakeoffReviewPage
+        jobId={jobId}
+        versionId={versionId}
+        projectId={projectId}
+      />
+    </div>
   );
 }

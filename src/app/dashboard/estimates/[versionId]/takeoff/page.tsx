@@ -5,6 +5,10 @@ import TakeoffJobList from "@/components/takeoff/TakeoffJobList";
 import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import {
+  buildTakeoffRouteHierarchy,
+  fetchTakeoffVersionProjectContext,
+} from "@/lib/takeoff/route-hierarchy";
 
 export default async function TakeoffJobsPage({
   params,
@@ -22,6 +26,12 @@ export default async function TakeoffJobsPage({
   if (!enabled) {
     notFound();
   }
+
+  const routeDescriptor = buildTakeoffRouteHierarchy({
+    kind: "estimate_takeoff_legacy",
+    versionId,
+    ...(await fetchTakeoffVersionProjectContext(versionId)),
+  });
 
   return (
     <div className="animate-fade-in">
@@ -48,7 +58,7 @@ export default async function TakeoffJobsPage({
         </div>
       </div>
 
-      <TakeoffDeprecationBanner />
+      <TakeoffDeprecationBanner descriptor={routeDescriptor} />
 
       <TakeoffJobList versionId={versionId} />
     </div>

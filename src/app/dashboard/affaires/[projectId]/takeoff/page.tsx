@@ -2,13 +2,17 @@ import { notFound } from "next/navigation";
 
 import { HubBreadcrumb } from "@/components/HubBreadcrumb";
 import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
+import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHierarchyPanel";
+import { TakeoffRouteHierarchyBanner } from "@/components/takeoff/TakeoffRouteHierarchyBanner";
 import { getUserContext } from "@/lib/auth/server";
 import {
   fetchAffaireProjectBasic,
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { countLegacyPlanSets } from "@/lib/takeoff/flow-hierarchy";
 import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
+import { buildTakeoffRouteHierarchy } from "@/lib/takeoff/route-hierarchy";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -73,6 +77,15 @@ export default async function AffaireTakeoffPage({ params }: Props) {
           d&apos;application.
         </p>
       </div>
+
+      <TakeoffRouteHierarchyBanner
+        descriptor={buildTakeoffRouteHierarchy({ kind: "affaire_takeoff" })}
+      />
+
+      <TakeoffFlowHierarchyPanel
+        currentKind="adjacent"
+        legacyPlanSetCount={countLegacyPlanSets(planSets)}
+      />
 
       <TakeoffActivityCenter
         projectId={projectId}

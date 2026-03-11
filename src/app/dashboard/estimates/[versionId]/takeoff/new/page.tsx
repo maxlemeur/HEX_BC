@@ -1,9 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { TakeoffUploadForm } from "@/components/takeoff/TakeoffUploadForm";
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import {
+  buildTakeoffRouteHierarchy,
+  fetchTakeoffVersionProjectContext,
+} from "@/lib/takeoff/route-hierarchy";
 
 export default async function TakeoffNewPage({
   params,
@@ -22,6 +27,12 @@ export default async function TakeoffNewPage({
     notFound();
   }
 
+  const routeDescriptor = buildTakeoffRouteHierarchy({
+    kind: "estimate_launch_legacy",
+    versionId,
+    ...(await fetchTakeoffVersionProjectContext(versionId)),
+  });
+
   return (
     <div className="animate-fade-in">
       <div className="page-header flex flex-wrap items-start justify-between gap-4">
@@ -38,6 +49,8 @@ export default async function TakeoffNewPage({
           Retour au chiffrage
         </Link>
       </div>
+
+      <TakeoffDeprecationBanner descriptor={routeDescriptor} />
 
       <TakeoffUploadForm versionId={versionId} />
     </div>

@@ -1,8 +1,13 @@
 import { notFound } from "next/navigation";
 
+import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { getUserContext } from "@/lib/auth/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
+import {
+  buildTakeoffRouteHierarchy,
+  fetchTakeoffVersionProjectContext,
+} from "@/lib/takeoff/route-hierarchy";
 
 export default async function TakeoffReviewServerPage({
   params,
@@ -21,5 +26,17 @@ export default async function TakeoffReviewServerPage({
     notFound();
   }
 
-  return <TakeoffReviewPage jobId={jobId} versionId={versionId} />;
+  const routeDescriptor = buildTakeoffRouteHierarchy({
+    kind: "estimate_review_legacy",
+    versionId,
+    jobId,
+    ...(await fetchTakeoffVersionProjectContext(versionId)),
+  });
+
+  return (
+    <div className="space-y-4">
+      <TakeoffDeprecationBanner descriptor={routeDescriptor} />
+      <TakeoffReviewPage jobId={jobId} versionId={versionId} />
+    </div>
+  );
 }

@@ -10,6 +10,7 @@ import {
 } from "@/lib/money";
 import { TakeoffDeprecationBanner } from "@/components/takeoff/TakeoffDeprecationBanner";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { buildTakeoffRouteHierarchy } from "@/lib/takeoff/route-hierarchy";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Brouillon",
@@ -70,7 +71,9 @@ export default async function TakeoffPage() {
         </div>
       </div>
 
-      <TakeoffDeprecationBanner />
+      <TakeoffDeprecationBanner
+        descriptor={buildTakeoffRouteHierarchy({ kind: "dashboard_takeoff_legacy" })}
+      />
 
       {items.length === 0 ? (
         <div className="dashboard-card mt-6 p-6">
