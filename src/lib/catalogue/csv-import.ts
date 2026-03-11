@@ -114,6 +114,7 @@ export type ValidatePriceBookRowsOptions = {
   rowLineNumbers?: number[];
   lookups?: PriceBookLookups;
   profile?: PriceBookProfile;
+  sourceImportId?: string | null;
   includeSupplierAlternatives?: boolean;
   autoFillSingleSupplier?: boolean;
   onProgress?: (progress: PriceBookValidationProgress) => void;
@@ -959,7 +960,7 @@ export async function validatePriceBookRows(
         currency: rowCurrency,
         valid_from: null,
         valid_to: null,
-        source_import_id: null,
+        source_import_id: options.sourceImportId ?? null,
         source_mapped_row_id: null,
         source: null,
         notes: null,

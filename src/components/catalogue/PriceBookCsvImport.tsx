@@ -23,6 +23,12 @@ type BulkCreatePricesResponse = {
   mode: string;
 };
 
+type CreateImportResponse = {
+  id: string;
+  filename: string;
+  project_id?: string | null;
+};
+
 type ResolveSuggestion = {
   type: "supplier" | "product";
   input: string;
@@ -120,14 +126,30 @@ function buildTargetSources(mapping: PriceBookColumnMapping) {
   return targetToSource;
 }
 
+async function createCanonicalPriceImport(file: File, projectId?: string | null) {
+  const formData = new FormData();
+  formData.set("file", file);
+
+  if (projectId) {
+    formData.set("projectId", projectId);
+  }
+
+  return fetchApi<CreateImportResponse>("/api/imports", {
+    method: "POST",
+    body: formData,
+  });
+}
+
 export function PriceBookCsvImport({
   onImported,
   onLookupsUpdated,
   lookups,
+  projectId,
 }: {
   onImported: () => Promise<void> | void;
   onLookupsUpdated?: () => Promise<PriceBookLookups | void> | PriceBookLookups | void;
   lookups: PriceBookLookups;
+  projectId?: string | null;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { parseFile } = useFileParser();
@@ -140,6 +162,7 @@ export function PriceBookCsvImport({
   const [validation, setValidation] = useState<PriceBookValidationResult | null>(null);
   const [detectedProfile, setDetectedProfile] = useState<PriceBookProfile | null>(null);
   const [detectedEncoding, setDetectedEncoding] = useState<string | null>(null);
+  const [sourceImportId, setSourceImportId] = useState<string | null>(null);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
 
   const [isParsing, setIsParsing] = useState(false);
@@ -157,6 +180,7 @@ export function PriceBookCsvImport({
   const canSubmit =
     !!validation &&
     validation.acceptedRows > 0 &&
+    !!sourceImportId &&
     !isParsing &&
     !isValidating &&
     !isSubmitting;
@@ -208,6 +232,7 @@ export function PriceBookCsvImport({
     setSuccess(null);
     setDetectedProfile(null);
     setDetectedEncoding(null);
+    setSourceImportId(null);
     setImportSummary(null);
   }
 
@@ -216,7 +241,8 @@ export function PriceBookCsvImport({
     nextMapping: PriceBookColumnMapping,
     nextProfile: PriceBookProfile,
     nextRowLineNumbers?: number[],
-    nextLookups?: PriceBookLookups
+    nextLookups?: PriceBookLookups,
+    nextSourceImportId?: string | null
   ) {
     if (nextRows.length === 0) {
       setValidation(null);
@@ -235,6 +261,7 @@ export function PriceBookCsvImport({
         chunkSize: 200,
         rowLineNumbers: nextRowLineNumbers,
         lookups: nextLookups ?? lookups,
+        sourceImportId: nextSourceImportId ?? sourceImportId,
         onProgress: (nextProgress) => {
           setProgress(nextProgress);
         },
@@ -281,6 +308,10 @@ export function PriceBookCsvImport({
         throw new Error("Aucune colonne exploitable n'a ete detectee.");
       }
 
+      const importRecord = sourceImportId
+        ? { id: sourceImportId, filename: selectedFile.name, project_id: projectId ?? null }
+        : await createCanonicalPriceImport(selectedFile, projectId);
+
       const nextProfile = detectPriceBookProfile(nextSourceColumns);
       const nextMapping = suggestPriceBookColumnMappingForProfile(nextSourceColumns, nextProfile);
 
@@ -289,9 +320,17 @@ export function PriceBookCsvImport({
       setSourceColumns(nextSourceColumns);
       setDetectedProfile(nextProfile);
       setDetectedEncoding(parsed.detectedEncoding ?? null);
+      setSourceImportId(importRecord.id);
       setMapping(nextMapping);
 
-      await runValidation(nextRows, nextMapping, nextProfile, nextRowLineNumbers);
+      await runValidation(
+        nextRows,
+        nextMapping,
+        nextProfile,
+        nextRowLineNumbers,
+        undefined,
+        importRecord.id
+      );
     } catch (parseError) {
       setError(
         parseError instanceof Error
@@ -313,6 +352,11 @@ export function PriceBookCsvImport({
 
     if (!detectedProfile) {
       setError("Le profil du fichier n'a pas ete detecte.");
+      return;
+    }
+
+    if (!sourceImportId) {
+      setError("Le fichier source n'est pas encore rattache au pipeline canonique.");
       return;
     }
 
@@ -496,6 +540,11 @@ export function PriceBookCsvImport({
       return;
     }
 
+    if (!sourceImportId) {
+      setError("Le fichier source n'est pas encore rattache au pipeline canonique.");
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
     setSuccess(null);
@@ -661,6 +710,11 @@ export function PriceBookCsvImport({
 
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--slate-500)]">
           {selectedFile ? <p>{selectedFile.name}</p> : null}
+          {sourceImportId ? (
+            <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-emerald-700">
+              Trace canonique liee
+            </span>
+          ) : null}
           {detectedEncoding ? <p>Encodage: {detectedEncoding}</p> : null}
           {detectedProfile ? (
             <span className="rounded-full border border-[var(--brand-blue)] bg-[var(--brand-blue)]/10 px-2 py-0.5 text-[var(--brand-blue)]">

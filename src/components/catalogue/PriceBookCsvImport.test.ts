@@ -27,6 +27,10 @@ const TEST_LOOKUPS = {
   suppliers: [{ id: "supplier-1", name: "CEDEO" }],
   products: [{ id: "product-1", reference: "TUBE-INOX-28", designation: "Tube inox 28" }],
 };
+const TEST_IMPORT_RESPONSE = {
+  id: "import-1",
+  filename: "mm.csv",
+};
 
 function extractText(node: ReactTestInstance | string): string {
   if (typeof node === "string") return node;
@@ -135,6 +139,7 @@ describe("PriceBookCsvImport", () => {
   });
 
   it("displays detected profile and encoding after CSV analysis", async () => {
+    fetchApiMock.mockResolvedValueOnce(TEST_IMPORT_RESPONSE);
     parseFileMock.mockResolvedValue({
       mode: "worker",
       parser: "csv",
@@ -184,6 +189,7 @@ describe("PriceBookCsvImport", () => {
   });
 
   it("exports correction CSV with expected columns for rows to fix", async () => {
+    fetchApiMock.mockResolvedValueOnce(TEST_IMPORT_RESPONSE);
     parseFileMock.mockResolvedValue({
       mode: "worker",
       parser: "csv",
@@ -289,6 +295,13 @@ describe("PriceBookCsvImport", () => {
   });
 
   it("sends unknown products even when supplier issue appears first", async () => {
+    fetchApiMock
+      .mockResolvedValueOnce(TEST_IMPORT_RESPONSE)
+      .mockResolvedValueOnce({
+        createdSuppliers: [],
+        createdProducts: [],
+      });
+
     parseFileMock.mockResolvedValue({
       mode: "worker",
       parser: "csv",
@@ -302,11 +315,6 @@ describe("PriceBookCsvImport", () => {
         },
       ],
       rowLineNumbers: [2],
-    });
-
-    fetchApiMock.mockResolvedValue({
-      createdSuppliers: [],
-      createdProducts: [],
     });
 
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -356,8 +364,9 @@ describe("PriceBookCsvImport", () => {
       await createMissingButton!.props.onClick();
     });
 
-    expect(fetchApiMock).toHaveBeenCalledTimes(1);
-    expect(fetchApiMock).toHaveBeenCalledWith(
+    expect(fetchApiMock).toHaveBeenCalledTimes(2);
+    expect(fetchApiMock).toHaveBeenNthCalledWith(
+      2,
       "/api/prices/import/create-missing",
       expect.objectContaining({
         method: "POST",
@@ -365,12 +374,76 @@ describe("PriceBookCsvImport", () => {
     );
 
     const body = JSON.parse(
-      String((fetchApiMock.mock.calls[0]?.[1] as { body?: string } | undefined)?.body ?? "{}")
+      String((fetchApiMock.mock.calls[1]?.[1] as { body?: string } | undefined)?.body ?? "{}")
     );
 
     expect(body).toEqual({
       suppliersToCreate: ["SUPPLIER-NEW"],
       productsToCreate: ["PRODUCT-NEW"],
     });
+  });
+
+  it("creates a canonical import for the selected file and links it to the affaire project", async () => {
+    fetchApiMock.mockResolvedValueOnce(TEST_IMPORT_RESPONSE);
+
+    parseFileMock.mockResolvedValue({
+      mode: "worker",
+      parser: "csv",
+      detectedEncoding: "utf-8",
+      rows: [
+        {
+          fournisseur: "CEDEO",
+          reference_produit: "TUBE-INOX-28",
+          prix_unitaire: "10,00",
+          devise: "EUR",
+        },
+      ],
+      rowLineNumbers: [2],
+    });
+
+    const onImported = vi.fn();
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        createElement(PriceBookCsvImport, {
+          onImported,
+          lookups: TEST_LOOKUPS,
+          projectId: "project-1",
+        })
+      );
+    });
+
+    const fileInput = renderer!.root.findByProps({ id: "price-book-csv-input" });
+    const file = new File(["header"], "mm.csv", { type: "text/csv" });
+
+    await act(async () => {
+      fileInput.props.onChange({
+        target: {
+          files: [file],
+        },
+      });
+    });
+
+    const analyzeButton = renderer!.root
+      .findAllByType("button")
+      .find((button) => extractText(button).includes("Analyser"));
+
+    expect(analyzeButton).toBeDefined();
+
+    await act(async () => {
+      await analyzeButton!.props.onClick();
+    });
+
+    const importCall = fetchApiMock.mock.calls[0];
+    expect(importCall?.[0]).toBe("/api/imports");
+    const importRequest = importCall?.[1] as { body?: FormData; method?: string } | undefined;
+    expect(importRequest?.method).toBe("POST");
+    expect(importRequest?.body).toBeInstanceOf(FormData);
+    expect(importRequest?.body?.get("projectId")).toBe("project-1");
+    expect(importRequest?.body?.get("file")).toBe(file);
+
+    expect(fetchApiMock).toHaveBeenCalledTimes(1);
+    expect(onImported).not.toHaveBeenCalled();
   });
 });

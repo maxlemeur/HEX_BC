@@ -16,6 +16,7 @@ const SUPPLIER_ID_1 = "11111111-1111-4111-8111-111111111111";
 const SUPPLIER_ID_2 = "22222222-2222-4222-8222-222222222222";
 const PRODUCT_ID_1 = "33333333-3333-4333-8333-333333333333";
 const PRODUCT_ID_2 = "44444444-4444-4444-8444-444444444444";
+const IMPORT_ID = "55555555-5555-4555-8555-555555555555";
 
 const TEST_LOOKUPS: PriceBookLookups = {
   suppliers: [
@@ -152,6 +153,27 @@ describe("price book csv import validation with lookups", () => {
     });
     expect(result.previewRows[0]?.status).toBe("valid");
     expect(result.previewRows[1]?.status).toBe("valid");
+  });
+
+  it("propagates the canonical source import id into accepted items", async () => {
+    const rows: CsvImportRow[] = [
+      { fournisseur: "CEDEO", ref: "TUBE-INOX-28", prix: "12,50", devise: "EUR" },
+    ];
+
+    const mapping: PriceBookColumnMapping = {
+      fournisseur: "supplier_name",
+      ref: "product_reference",
+      prix: "unit_price",
+      devise: "currency",
+    };
+
+    const result = await validatePriceBookRows(rows, mapping, {
+      lookups: TEST_LOOKUPS,
+      sourceImportId: IMPORT_ID,
+    });
+
+    expect(result.acceptedItems).toHaveLength(1);
+    expect(result.acceptedItems[0]?.source_import_id).toBe(IMPORT_ID);
   });
 
   it("resolves products by designation when no reference mapped", async () => {

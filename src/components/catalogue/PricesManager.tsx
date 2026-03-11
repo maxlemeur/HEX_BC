@@ -118,7 +118,13 @@ function FreshnessBadge({ level, ageDays }: { level: "fresh" | "aging" | "stale"
 
 // --- Component ---
 
-export function PricesManager() {
+export function PricesManager({
+  projectId = null,
+  embedded = false,
+}: {
+  projectId?: string | null;
+  embedded?: boolean;
+}) {
   const toast = useToast();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
@@ -244,7 +250,7 @@ export function PricesManager() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   // --- CSV import collapsible ---
-  const [isCsvOpen, setIsCsvOpen] = useState(false);
+  const [isCsvOpen, setIsCsvOpen] = useState(embedded);
 
   // --- Bulk JSON ---
   const [showBulkJson, setShowBulkJson] = useState(false);
@@ -440,36 +446,37 @@ export function PricesManager() {
 
   return (
     <div className="space-y-6">
-      {/* Page header */}
-      <div className="page-header flex items-start justify-between gap-6">
-        <div>
-          <h1 className="page-title">Prix fournisseurs</h1>
-          <p className="page-description">
-            Gérez les tarifs de vos fournisseurs. Ajoutez-les un par un ou importez-les en masse depuis un fichier CSV.
-          </p>
-        </div>
-        <button
-          className="btn btn-primary btn-lg"
-          type="button"
-          onClick={openCreateForm}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+      {!embedded ? (
+        <div className="page-header flex items-start justify-between gap-6">
+          <div>
+            <h1 className="page-title">Prix fournisseurs</h1>
+            <p className="page-description">
+              Gérez les tarifs de vos fournisseurs. Ajoutez-les un par un ou importez-les en masse depuis un fichier CSV.
+            </p>
+          </div>
+          <button
+            className="btn btn-primary btn-lg"
+            type="button"
+            onClick={openCreateForm}
           >
-            <path d="M5 12h14" />
-            <path d="M12 5v14" />
-          </svg>
-          Ajouter un prix
-        </button>
-      </div>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M5 12h14" />
+              <path d="M12 5v14" />
+            </svg>
+            Ajouter un prix
+          </button>
+        </div>
+      ) : null}
 
       {/* CSV Import - collapsible */}
       <section className="dashboard-card overflow-hidden">
@@ -515,6 +522,7 @@ export function PricesManager() {
               onImported={() => void mutate()}
               onLookupsUpdated={loadLookups}
               lookups={{ suppliers, products }}
+              projectId={projectId}
             />
           </div>
         ) : null}
