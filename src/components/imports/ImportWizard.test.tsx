@@ -10,6 +10,8 @@ const { useImportFlowMock } = vi.hoisted(() => ({
 }));
 
 const importFileMock = vi.fn();
+const importReviewedPdfFileMock = vi.fn();
+const reviewTabularPdfFileMock = vi.fn();
 const refreshImportsMock = vi.fn();
 
 vi.mock("next/link", () => ({
@@ -71,6 +73,8 @@ function createFlowState(overrides?: Partial<{
     lastMode: null,
     lastImportId: null,
     importFile: importFileMock,
+    importReviewedPdfFile: importReviewedPdfFileMock,
+    reviewTabularPdfFile: reviewTabularPdfFileMock,
     refreshImports: refreshImportsMock,
     ...overrides,
   };
@@ -80,6 +84,13 @@ describe("ImportWizard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     importFileMock.mockResolvedValue(true);
+    importReviewedPdfFileMock.mockResolvedValue(true);
+    reviewTabularPdfFileMock.mockResolvedValue({
+      source_file_name: "devis.pdf",
+      source_document_id: null,
+      tables: [],
+      review: { suggested_approved_tables: [] },
+    });
     refreshImportsMock.mockResolvedValue(undefined);
     useImportFlowMock.mockReturnValue(createFlowState());
   });
