@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SWRConfig } from "swr";
@@ -418,5 +418,182 @@ describe("PlansMetresCard", () => {
       "href",
       "/dashboard/affaires/project-1/takeoff"
     );
+  });
+
+  it("does not keep a recovery CTA once the latest continuity job is completed", async () => {
+    vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
+      counters: {
+        technicalJobs: 1,
+        usableJobs: 2,
+        blockingExceptionsJobs: 1,
+      },
+      jobs: [
+        {
+          jobId: "job-2",
+          estimateVersionId: "version-target",
+          versionLabel: "V4",
+          lotLabel: null,
+          planSetLabel: "Plans principaux",
+          levelLabel: "Standard",
+          processingStrategy: "sync",
+          providerBatchState: null,
+          providerBatchUpdatedAt: null,
+          providerReconcileDueAt: null,
+          providerReconcileLeaseExpiresAt: null,
+          statusLabel: "Analyse terminee",
+          statusRaw: "completed",
+          technicalStatusRaw: "completed",
+          operatorState: "none",
+          operatorStateLabel: null,
+          canReconcile: false,
+          canCancel: false,
+          canResubmit: false,
+          itemCount: 12,
+          coveragePercent: 92,
+          exceptionCount: 0,
+          confidenceLabel: "Elevee",
+          appliedCount: 1,
+          createdAt: "2026-03-11T12:00:00.000Z",
+          carriedOverFrom: "V3",
+          neverApplied: false,
+          retryCount: 0,
+        },
+        {
+          jobId: "job-1",
+          estimateVersionId: "version-previous",
+          versionLabel: "V3",
+          lotLabel: null,
+          planSetLabel: "Plans principaux",
+          levelLabel: "Standard",
+          processingStrategy: "sync",
+          providerBatchState: null,
+          providerBatchUpdatedAt: null,
+          providerReconcileDueAt: null,
+          providerReconcileLeaseExpiresAt: null,
+          statusLabel: "En attente provider",
+          statusRaw: "provider_pending",
+          technicalStatusRaw: "processing",
+          operatorState: "none",
+          operatorStateLabel: null,
+          canReconcile: false,
+          canCancel: false,
+          canResubmit: false,
+          itemCount: 0,
+          coveragePercent: 0,
+          exceptionCount: 0,
+          confidenceLabel: "Moyenne",
+          appliedCount: 0,
+          createdAt: "2026-03-11T11:00:00.000Z",
+          carriedOverFrom: null,
+          neverApplied: true,
+          retryCount: 1,
+        },
+        {
+          jobId: "job-0",
+          estimateVersionId: "version-old",
+          versionLabel: "V2",
+          lotLabel: null,
+          planSetLabel: "Plans principaux",
+          levelLabel: "Standard",
+          processingStrategy: "sync",
+          providerBatchState: null,
+          providerBatchUpdatedAt: null,
+          providerReconcileDueAt: null,
+          providerReconcileLeaseExpiresAt: null,
+          statusLabel: "Echec a corriger",
+          statusRaw: "action_required",
+          technicalStatusRaw: "failed",
+          operatorState: "none",
+          operatorStateLabel: null,
+          canReconcile: false,
+          canCancel: false,
+          canResubmit: true,
+          itemCount: 0,
+          coveragePercent: 0,
+          exceptionCount: 0,
+          confidenceLabel: "Faible",
+          appliedCount: 0,
+          createdAt: "2026-03-11T10:00:00.000Z",
+          carriedOverFrom: null,
+          neverApplied: true,
+          retryCount: 1,
+        },
+      ],
+      pagination: { limit: 6, offset: 0, total: 3 },
+    });
+
+    renderWithSWR(
+      <PlansMetresCard
+        projectId="project-1"
+        plans={{
+          defaultPlanSetId: "plan-set-1",
+          planSetCount: 1,
+          planFileCount: 1,
+          totalSizeBytes: 1024,
+          latestJob: {
+            jobId: "job-2",
+            status: "completed",
+            label: "Analyse terminee",
+            reviewVersionId: "version-target",
+            planSetId: "plan-set-1",
+          },
+          coveragePercent: 92,
+          exceptionCount: 0,
+          openQuestionsCount: 0,
+          failureReasonLabel: null,
+        }}
+      />
+    );
+
+    expect(await screen.findByText("Statuts precedents conserves")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Reprendre l'analyse" })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Suivre la reprise" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("falls back to the default plan set when the latest job omits planSetId", async () => {
+    vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
+      counters: {
+        technicalJobs: 1,
+        usableJobs: 1,
+        blockingExceptionsJobs: 0,
+      },
+      jobs: [],
+      pagination: { limit: 6, offset: 0, total: 0 },
+    });
+
+    renderWithSWR(
+      <PlansMetresCard
+        projectId="project-1"
+        plans={{
+          defaultPlanSetId: "plan-set-default",
+          planSetCount: 2,
+          planFileCount: 3,
+          totalSizeBytes: 4096,
+          latestJob: {
+            jobId: "job-legacy",
+            status: "completed",
+            label: "Analyse terminee",
+            reviewVersionId: "version-target",
+            planSetId: null,
+          },
+          coveragePercent: 80,
+          exceptionCount: 1,
+          openQuestionsCount: 0,
+          failureReasonLabel: null,
+        }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(fetchTakeoffActivityCenter).toHaveBeenCalledWith("project-1", {
+        planSetId: "plan-set-default",
+        limit: 6,
+        offset: 0,
+      });
+    });
   });
 });

@@ -156,7 +156,7 @@ export function PlansMetresCard({
 }: PlansMetresCardProps) {
   const continuityPlanSetId =
     plans?.latestJob !== null && plans?.latestJob !== undefined
-      ? (plans.latestJob.planSetId ?? null)
+      ? (plans.latestJob.planSetId ?? plans.defaultPlanSetId ?? null)
       : (plans?.defaultPlanSetId ?? null);
   const latestJobId = plans?.latestJob?.jobId ?? null;
   const hasPlans = (plans?.planSetCount ?? 0) > 0;
@@ -181,9 +181,12 @@ export function PlansMetresCard({
       })
     : null;
   const continuityActionLabel =
-    continuitySnapshot?.actionRequiredCount
+    continuitySnapshot?.latestStatusRaw === "action_required"
       ? "Reprendre l'analyse"
-      : continuitySnapshot?.waitingCount
+      : continuitySnapshot &&
+          ["queued", "processing", "provider_pending"].includes(
+            continuitySnapshot.latestStatusRaw
+          )
         ? "Suivre la reprise"
         : null;
 

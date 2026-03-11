@@ -72,6 +72,7 @@ describe("buildTakeoffContinuitySnapshot", () => {
 
     expect(snapshot).toMatchObject({
       title: "Reprise apres echec partiel",
+      latestStatusRaw: "action_required",
       acquiredCount: 1,
       waitingCount: 0,
       actionRequiredCount: 1,
@@ -120,6 +121,7 @@ describe("buildTakeoffContinuitySnapshot", () => {
 
     expect(snapshot).toMatchObject({
       title: "Reprise en attente",
+      latestStatusRaw: "provider_pending",
       acquiredCount: 2,
       waitingCount: 1,
       actionRequiredCount: 0,
@@ -129,5 +131,45 @@ describe("buildTakeoffContinuitySnapshot", () => {
       "job-review",
       "job-ok",
     ]);
+  });
+
+  it("keeps the latest status separate from older waiting or failed history", () => {
+    const snapshot = buildTakeoffContinuitySnapshot({
+      jobs: [
+        makeJob({
+          jobId: "job-completed",
+          versionLabel: "V5",
+          statusLabel: "Analyse terminee",
+          statusRaw: "completed",
+          technicalStatusRaw: "completed",
+          createdAt: "2026-03-11T14:00:00.000Z",
+        }),
+        makeJob({
+          jobId: "job-pending",
+          versionLabel: "V4",
+          statusLabel: "En attente provider",
+          statusRaw: "provider_pending",
+          technicalStatusRaw: "processing",
+          createdAt: "2026-03-11T13:00:00.000Z",
+        }),
+        makeJob({
+          jobId: "job-failed",
+          versionLabel: "V3",
+          statusLabel: "Echec a corriger",
+          statusRaw: "action_required",
+          technicalStatusRaw: "failed",
+          createdAt: "2026-03-11T12:00:00.000Z",
+        }),
+      ],
+      latestJobId: "job-completed",
+    });
+
+    expect(snapshot).toMatchObject({
+      title: "Statuts precedents conserves",
+      latestStatusRaw: "completed",
+      acquiredCount: 1,
+      waitingCount: 1,
+      actionRequiredCount: 1,
+    });
   });
 });

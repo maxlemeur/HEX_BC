@@ -16,6 +16,7 @@ export type TakeoffContinuityHistoryEntry = {
 export type TakeoffContinuitySnapshot = {
   title: string;
   description: string;
+  latestStatusRaw: string;
   acquiredCount: number;
   waitingCount: number;
   actionRequiredCount: number;
@@ -117,6 +118,7 @@ export function buildTakeoffContinuitySnapshot(input: {
 
   return {
     ...copy,
+    latestStatusRaw: latestJob.statusRaw,
     acquiredCount: counts.acquiredCount,
     waitingCount: counts.waitingCount,
     actionRequiredCount: counts.actionRequiredCount,
