@@ -13,6 +13,7 @@ import {
 import { SendEstimateModal } from "@/components/estimates/SendEstimateModal";
 import { Badge } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toast";
+import { AffaireOrderDraftsPanel } from "./AffaireOrderDraftsPanel";
 
 type AffaireFinishLineActionsProps = {
   projectId: string;
@@ -460,6 +461,12 @@ export function AffaireFinishLineActions({
               setSendModalOpen(false);
               router.refresh();
             }}
+          />
+
+          <AffaireOrderDraftsPanel
+            projectId={projectId}
+            currentVersion={currentVersion}
+            readyToOrder={finishLineSummary?.readyToOrder ?? null}
           />
         </>
       )}

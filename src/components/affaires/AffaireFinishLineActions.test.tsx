@@ -37,6 +37,12 @@ vi.mock("@/lib/estimates/client", async () => {
   };
 });
 
+vi.mock("./AffaireOrderDraftsPanel", () => ({
+  AffaireOrderDraftsPanel: () => (
+    <div data-testid="affaire-order-drafts-panel">finish-line-orders-panel</div>
+  ),
+}));
+
 function makeFinishLineSummary(
   overrides?: Partial<AffaireHubFinishLineSummaryResult>
 ): AffaireHubFinishLineSummaryResult {
@@ -115,6 +121,7 @@ describe("AffaireFinishLineActions", () => {
     expect(screen.getByText("PDF du devis")).toBeInTheDocument();
     expect(screen.getByText("Email client")).toBeInTheDocument();
     expect(screen.getByText("Export BDC")).toBeInTheDocument();
+    expect(screen.getByTestId("affaire-order-drafts-panel")).toBeInTheDocument();
   });
 
   it("opens the send modal from the finish line", async () => {

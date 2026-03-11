@@ -687,6 +687,117 @@ export type EstimateSendGatingResponse = {
   checkedAt: string;
 };
 
+export type EstimatePurchaseOrderDraftBlockedReason =
+  | "selection_missing"
+  | "stale"
+  | "ambiguous"
+  | "no_price"
+  | "missing_quantity"
+  | "non_integer_quantity"
+  | "missing_unit_price";
+
+export type EstimatePurchaseOrderDraftAlternative = {
+  supplierPriceId: string;
+  supplierId: string | null;
+  supplierName: string | null;
+  adjustedUnitPriceCents: number | null;
+  supplierReference: string | null;
+  productDesignation: string | null;
+  isStale: boolean | null;
+  isSelected: boolean | null;
+};
+
+export type EstimatePurchaseOrderDraftLine = {
+  itemId: string;
+  itemTitle: string;
+  quantity: number;
+  unitPriceHtCents: number;
+  taxRateBp: number;
+  lineTotalHtCents: number;
+  lineTaxCents: number;
+  lineTotalTtcCents: number;
+  selectedSupplierPriceId: string;
+  supplierReference: string | null;
+  productDesignation: string;
+};
+
+export type EstimatePurchaseOrderDraftGroup = {
+  groupKey: string;
+  supplierId: string;
+  supplierName: string;
+  lineCount: number;
+  totalHtCents: number;
+  totalTaxCents: number;
+  totalTtcCents: number;
+  lines: EstimatePurchaseOrderDraftLine[];
+};
+
+export type EstimatePurchaseOrderDraftBlockedLine = {
+  itemId: string;
+  itemTitle: string;
+  quantity: number | null;
+  unitPriceHtCents: number | null;
+  taxRateBp: number | null;
+  selectedSupplierPriceId: string | null;
+  reason: EstimatePurchaseOrderDraftBlockedReason;
+  coverageStatus: string | null;
+  riskFlags: string[];
+  selectedAlternative: EstimatePurchaseOrderDraftAlternative | null;
+  alternatives: EstimatePurchaseOrderDraftAlternative[];
+};
+
+export type EstimatePurchaseOrderDraftPreparation = {
+  versionId: string;
+  stalePriceDays: number;
+  summary: {
+    totalSupplierLines: number;
+    draftableLines: number;
+    blockedLines: number;
+    supplierGroups: number;
+    selectionMissingLines: number;
+    staleLines: number;
+    ambiguousLines: number;
+    noPriceLines: number;
+    missingQuantityLines: number;
+    nonIntegerQuantityLines: number;
+    missingUnitPriceLines: number;
+  };
+  groups: EstimatePurchaseOrderDraftGroup[];
+  blockedLines: EstimatePurchaseOrderDraftBlockedLine[];
+};
+
+export type CreateEstimatePurchaseOrderDraftGroupInput = {
+  supplierId: string;
+  deliverySiteId: string;
+  itemIds: string[];
+  expectedDeliveryDate?: string | null;
+  notes?: string | null;
+};
+
+export type CreateEstimatePurchaseOrderDraftsInput = {
+  groups: CreateEstimatePurchaseOrderDraftGroupInput[];
+};
+
+export type EstimatePurchaseOrderDraftCreationResult = {
+  sourceVersionId: string;
+  summary: {
+    draftOrdersCreated: number;
+    draftLinesCreated: number;
+  };
+  orders: Array<{
+    purchaseOrderId: string;
+    reference: string;
+    supplierId: string;
+    supplierName: string;
+    deliverySiteId: string;
+    itemCount: number;
+    totalHtCents: number;
+    totalTaxCents: number;
+    totalTtcCents: number;
+    orderedSourceItemIds: string[];
+  }>;
+};
+
 export type EstimateDraftLock = {
   versionId: string;
   userId: string | null;
@@ -1357,6 +1468,381 @@ function parseEstimateSendGatingResponse(
     warningFlags: warningRaw
       .map((entry) => parseEstimateSendGatingFlag(entry))
       .filter((entry): entry is EstimateSendGatingFlag => entry !== null),
+  };
+}
+
+function isEstimatePurchaseOrderDraftBlockedReason(
+  value: string
+): value is EstimatePurchaseOrderDraftBlockedReason {
+  return (
+    value === "selection_missing" ||
+    value === "stale" ||
+    value === "ambiguous" ||
+    value === "no_price" ||
+    value === "missing_quantity" ||
+    value === "non_integer_quantity" ||
+    value === "missing_unit_price"
+  );
+}
+
+function parseEstimatePurchaseOrderDraftAlternative(
+  value: unknown
+): EstimatePurchaseOrderDraftAlternative | null {
+  if (!isRecord(value)) return null;
+
+  const supplierPriceId =
+    toStringValue(value.supplier_price_id) ??
+    toStringValue(value.supplierPriceId);
+  if (!supplierPriceId) {
+    return null;
+  }
+
+  return {
+    supplierPriceId,
+    supplierId:
+      toStringValue(value.supplier_id) ??
+      toStringValue(value.supplierId) ??
+      null,
+    supplierName:
+      toStringValue(value.supplier_name) ??
+      toStringValue(value.supplierName) ??
+      null,
+    adjustedUnitPriceCents:
+      toNumber(value.adjusted_unit_price_cents) ??
+      toNumber(value.adjustedUnitPriceCents) ??
+      null,
+    supplierReference:
+      toStringValue(value.supplier_reference) ??
+      toStringValue(value.supplierReference) ??
+      null,
+    productDesignation:
+      toStringValue(value.product_designation) ??
+      toStringValue(value.productDesignation) ??
+      null,
+    isStale: toBooleanValue(value.is_stale) ?? toBooleanValue(value.isStale) ?? null,
+    isSelected:
+      toBooleanValue(value.is_selected) ?? toBooleanValue(value.isSelected) ?? null,
+  };
+}
+
+function parseEstimatePurchaseOrderDraftLine(
+  value: unknown
+): EstimatePurchaseOrderDraftLine | null {
+  if (!isRecord(value)) return null;
+
+  const itemId = toStringValue(value.item_id) ?? toStringValue(value.itemId);
+  const itemTitle = toStringValue(value.item_title) ?? toStringValue(value.itemTitle);
+  const quantity = toNumber(value.quantity);
+  const unitPriceHtCents =
+    toNumber(value.unit_price_ht_cents) ?? toNumber(value.unitPriceHtCents);
+  const taxRateBp = toNumber(value.tax_rate_bp) ?? toNumber(value.taxRateBp);
+  const lineTotalHtCents =
+    toNumber(value.line_total_ht_cents) ?? toNumber(value.lineTotalHtCents);
+  const lineTaxCents =
+    toNumber(value.line_tax_cents) ?? toNumber(value.lineTaxCents);
+  const lineTotalTtcCents =
+    toNumber(value.line_total_ttc_cents) ?? toNumber(value.lineTotalTtcCents);
+  const selectedSupplierPriceId =
+    toStringValue(value.selected_supplier_price_id) ??
+    toStringValue(value.selectedSupplierPriceId);
+  const productDesignation =
+    toStringValue(value.product_designation) ??
+    toStringValue(value.productDesignation);
+
+  if (
+    !itemId ||
+    !itemTitle ||
+    quantity === null ||
+    unitPriceHtCents === null ||
+    taxRateBp === null ||
+    lineTotalHtCents === null ||
+    lineTaxCents === null ||
+    lineTotalTtcCents === null ||
+    !selectedSupplierPriceId ||
+    !productDesignation
+  ) {
+    return null;
+  }
+
+  return {
+    itemId,
+    itemTitle,
+    quantity,
+    unitPriceHtCents,
+    taxRateBp,
+    lineTotalHtCents,
+    lineTaxCents,
+    lineTotalTtcCents,
+    selectedSupplierPriceId,
+    supplierReference:
+      toStringValue(value.supplier_reference) ??
+      toStringValue(value.supplierReference) ??
+      null,
+    productDesignation,
+  };
+}
+
+function parseEstimatePurchaseOrderDraftGroup(
+  value: unknown
+): EstimatePurchaseOrderDraftGroup | null {
+  if (!isRecord(value)) return null;
+
+  const groupKey = toStringValue(value.group_key) ?? toStringValue(value.groupKey);
+  const supplierId =
+    toStringValue(value.supplier_id) ?? toStringValue(value.supplierId);
+  const supplierName =
+    toStringValue(value.supplier_name) ?? toStringValue(value.supplierName);
+  const lineCount = toNumber(value.line_count) ?? toNumber(value.lineCount);
+  const totalHtCents =
+    toNumber(value.total_ht_cents) ?? toNumber(value.totalHtCents);
+  const totalTaxCents =
+    toNumber(value.total_tax_cents) ?? toNumber(value.totalTaxCents);
+  const totalTtcCents =
+    toNumber(value.total_ttc_cents) ?? toNumber(value.totalTtcCents);
+
+  if (
+    !groupKey ||
+    !supplierId ||
+    !supplierName ||
+    lineCount === null ||
+    totalHtCents === null ||
+    totalTaxCents === null ||
+    totalTtcCents === null
+  ) {
+    return null;
+  }
+
+  return {
+    groupKey,
+    supplierId,
+    supplierName,
+    lineCount,
+    totalHtCents,
+    totalTaxCents,
+    totalTtcCents,
+    lines: pickArray(value, ["lines"])
+      .map((entry) => parseEstimatePurchaseOrderDraftLine(entry))
+      .filter((entry): entry is EstimatePurchaseOrderDraftLine => entry !== null),
+  };
+}
+
+function parseEstimatePurchaseOrderDraftBlockedLine(
+  value: unknown
+): EstimatePurchaseOrderDraftBlockedLine | null {
+  if (!isRecord(value)) return null;
+
+  const itemId = toStringValue(value.item_id) ?? toStringValue(value.itemId);
+  const itemTitle = toStringValue(value.item_title) ?? toStringValue(value.itemTitle);
+  const reasonRaw = toStringValue(value.reason);
+
+  if (!itemId || !itemTitle || !reasonRaw || !isEstimatePurchaseOrderDraftBlockedReason(reasonRaw)) {
+    return null;
+  }
+
+  return {
+    itemId,
+    itemTitle,
+    quantity: toNumber(value.quantity),
+    unitPriceHtCents:
+      toNumber(value.unit_price_ht_cents) ?? toNumber(value.unitPriceHtCents),
+    taxRateBp: toNumber(value.tax_rate_bp) ?? toNumber(value.taxRateBp),
+    selectedSupplierPriceId:
+      toStringValue(value.selected_supplier_price_id) ??
+      toStringValue(value.selectedSupplierPriceId) ??
+      null,
+    reason: reasonRaw,
+    coverageStatus:
+      toStringValue(value.coverage_status) ??
+      toStringValue(value.coverageStatus) ??
+      null,
+    riskFlags: pickArray(value, ["risk_flags", "riskFlags"])
+      .map((entry) => toStringValue(entry))
+      .filter((entry): entry is string => entry !== null),
+    selectedAlternative: parseEstimatePurchaseOrderDraftAlternative(
+      value.selected_alternative ?? value.selectedAlternative
+    ),
+    alternatives: pickArray(value, ["alternatives"])
+      .map((entry) => parseEstimatePurchaseOrderDraftAlternative(entry))
+      .filter((entry): entry is EstimatePurchaseOrderDraftAlternative => entry !== null),
+  };
+}
+
+function parseEstimatePurchaseOrderDraftPreparation(
+  payload: unknown
+): EstimatePurchaseOrderDraftPreparation | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const versionId = toStringValue(root.version_id) ?? toStringValue(root.versionId);
+  const stalePriceDays =
+    toNumber(root.stale_price_days) ?? toNumber(root.stalePriceDays);
+  const summary = pickRecord(root, ["summary"]);
+
+  if (!versionId || stalePriceDays === null || !summary) {
+    return null;
+  }
+
+  const totalSupplierLines =
+    toNumber(summary.total_supplier_lines) ?? toNumber(summary.totalSupplierLines);
+  const draftableLines =
+    toNumber(summary.draftable_lines) ?? toNumber(summary.draftableLines);
+  const blockedLines =
+    toNumber(summary.blocked_lines) ?? toNumber(summary.blockedLines);
+  const supplierGroups =
+    toNumber(summary.supplier_groups) ?? toNumber(summary.supplierGroups);
+  const selectionMissingLines =
+    toNumber(summary.selection_missing_lines) ??
+    toNumber(summary.selectionMissingLines);
+  const staleLines = toNumber(summary.stale_lines) ?? toNumber(summary.staleLines);
+  const ambiguousLines =
+    toNumber(summary.ambiguous_lines) ?? toNumber(summary.ambiguousLines);
+  const noPriceLines =
+    toNumber(summary.no_price_lines) ?? toNumber(summary.noPriceLines);
+  const missingQuantityLines =
+    toNumber(summary.missing_quantity_lines) ??
+    toNumber(summary.missingQuantityLines);
+  const nonIntegerQuantityLines =
+    toNumber(summary.non_integer_quantity_lines) ??
+    toNumber(summary.nonIntegerQuantityLines);
+  const missingUnitPriceLines =
+    toNumber(summary.missing_unit_price_lines) ??
+    toNumber(summary.missingUnitPriceLines);
+
+  if (
+    totalSupplierLines === null ||
+    draftableLines === null ||
+    blockedLines === null ||
+    supplierGroups === null ||
+    selectionMissingLines === null ||
+    staleLines === null ||
+    ambiguousLines === null ||
+    noPriceLines === null ||
+    missingQuantityLines === null ||
+    nonIntegerQuantityLines === null ||
+    missingUnitPriceLines === null
+  ) {
+    return null;
+  }
+
+  return {
+    versionId,
+    stalePriceDays,
+    summary: {
+      totalSupplierLines,
+      draftableLines,
+      blockedLines,
+      supplierGroups,
+      selectionMissingLines,
+      staleLines,
+      ambiguousLines,
+      noPriceLines,
+      missingQuantityLines,
+      nonIntegerQuantityLines,
+      missingUnitPriceLines,
+    },
+    groups: pickArray(root, ["groups"])
+      .map((entry) => parseEstimatePurchaseOrderDraftGroup(entry))
+      .filter((entry): entry is EstimatePurchaseOrderDraftGroup => entry !== null),
+    blockedLines: pickArray(root, ["blocked_lines", "blockedLines"])
+      .map((entry) => parseEstimatePurchaseOrderDraftBlockedLine(entry))
+      .filter((entry): entry is EstimatePurchaseOrderDraftBlockedLine => entry !== null),
+  };
+}
+
+function parseEstimatePurchaseOrderDraftCreationResult(
+  payload: unknown
+): EstimatePurchaseOrderDraftCreationResult | null {
+  const root = getRootPayload(payload);
+  if (!isRecord(root)) return null;
+
+  const sourceVersionId =
+    toStringValue(root.source_version_id) ?? toStringValue(root.sourceVersionId);
+  const summary = pickRecord(root, ["summary"]);
+
+  if (!sourceVersionId || !summary) {
+    return null;
+  }
+
+  const draftOrdersCreated =
+    toNumber(summary.draft_orders_created) ??
+    toNumber(summary.draftOrdersCreated);
+  const draftLinesCreated =
+    toNumber(summary.draft_lines_created) ??
+    toNumber(summary.draftLinesCreated);
+
+  if (draftOrdersCreated === null || draftLinesCreated === null) {
+    return null;
+  }
+
+  const orders = pickArray(root, ["orders"])
+    .map((entry) => {
+      if (!isRecord(entry)) return null;
+
+      const purchaseOrderId =
+        toStringValue(entry.purchase_order_id) ??
+        toStringValue(entry.purchaseOrderId);
+      const reference = toStringValue(entry.reference);
+      const supplierId =
+        toStringValue(entry.supplier_id) ?? toStringValue(entry.supplierId);
+      const supplierName =
+        toStringValue(entry.supplier_name) ?? toStringValue(entry.supplierName);
+      const deliverySiteId =
+        toStringValue(entry.delivery_site_id) ??
+        toStringValue(entry.deliverySiteId);
+      const itemCount = toNumber(entry.item_count) ?? toNumber(entry.itemCount);
+      const totalHtCents =
+        toNumber(entry.total_ht_cents) ?? toNumber(entry.totalHtCents);
+      const totalTaxCents =
+        toNumber(entry.total_tax_cents) ?? toNumber(entry.totalTaxCents);
+      const totalTtcCents =
+        toNumber(entry.total_ttc_cents) ?? toNumber(entry.totalTtcCents);
+
+      if (
+        !purchaseOrderId ||
+        !reference ||
+        !supplierId ||
+        !supplierName ||
+        !deliverySiteId ||
+        itemCount === null ||
+        totalHtCents === null ||
+        totalTaxCents === null ||
+        totalTtcCents === null
+      ) {
+        return null;
+      }
+
+      return {
+        purchaseOrderId,
+        reference,
+        supplierId,
+        supplierName,
+        deliverySiteId,
+        itemCount,
+        totalHtCents,
+        totalTaxCents,
+        totalTtcCents,
+        orderedSourceItemIds: pickArray(entry, [
+          "ordered_source_item_ids",
+          "orderedSourceItemIds",
+        ])
+          .map((itemId) => toStringValue(itemId))
+          .filter((itemId): itemId is string => itemId !== null),
+      };
+    })
+    .filter(
+      (
+        entry
+      ): entry is EstimatePurchaseOrderDraftCreationResult["orders"][number] =>
+        entry !== null
+    );
+
+  return {
+    sourceVersionId,
+    summary: {
+      draftOrdersCreated,
+      draftLinesCreated,
+    },
+    orders,
   };
 }
 
@@ -4100,6 +4586,57 @@ export async function fetchEstimatePdfStatus(
 
     throw error;
   }
+}
+
+export async function fetchEstimatePurchaseOrderDraftPreparation(
+  versionId: string
+): Promise<EstimatePurchaseOrderDraftPreparation> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/purchase-order-drafts`,
+    {
+      method: "GET",
+    },
+    "Impossible de preparer les brouillons de commandes."
+  );
+
+  const parsed = parseEstimatePurchaseOrderDraftPreparation(payload);
+  if (!parsed) {
+    throw new Error("Impossible de lire la preparation des brouillons de commandes.");
+  }
+
+  return parsed;
+}
+
+export async function createEstimatePurchaseOrderDrafts(
+  versionId: string,
+  input: CreateEstimatePurchaseOrderDraftsInput
+): Promise<EstimatePurchaseOrderDraftCreationResult> {
+  const payload = await requestJson<unknown>(
+    `/api/estimates/${versionId}/purchase-order-drafts`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        groups: input.groups.map((group) => ({
+          supplier_id: group.supplierId,
+          delivery_site_id: group.deliverySiteId,
+          item_ids: group.itemIds,
+          expected_delivery_date: group.expectedDeliveryDate ?? null,
+          notes: group.notes ?? null,
+        })),
+      }),
+    },
+    "Impossible de creer les brouillons de commandes."
+  );
+
+  const parsed = parseEstimatePurchaseOrderDraftCreationResult(payload);
+  if (!parsed) {
+    throw new Error("Impossible de lire le resultat de creation des brouillons.");
+  }
+
+  return parsed;
 }
 
 export async function acquireEstimateDraftLock(

@@ -17,6 +17,12 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
+vi.mock("./AffaireOrderDraftsPanel", () => ({
+  AffaireOrderDraftsPanel: () => (
+    <div data-testid="affaire-order-drafts-panel">finish-line-orders-panel</div>
+  ),
+}));
+
 function makeIntakeWorkspace(overrides?: Partial<Parameters<typeof buildPilotageSteps>[0]["intakeWorkspace"]>) {
   const baseBriefDraft = {
     status: "confirme" as const,
@@ -349,6 +355,39 @@ describe("AffairePilotagePanel", () => {
     });
   });
 
+  it("opens the commandes finish line directly when supplier groups are ready", () => {
+    const cards = buildFinishLineCards({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: {
+        ...makeFinishLineSummary(),
+        readyToOrder: {
+          status: "ready",
+          orderableLinesCount: 3,
+          coveredLinesCount: 3,
+          ambiguousLinesCount: 0,
+          missingPriceLinesCount: 0,
+          staleLinesCount: 0,
+          errorMessage: null,
+        },
+      },
+    });
+
+    expect(cards[1]).toMatchObject({
+      key: "order",
+      status: "ready",
+      action: {
+        kind: "href",
+        label: "Ouvrir la finish line commandes",
+        href: "#finish-line-orders",
+      },
+    });
+  });
+
   it("renders finish-line cards ahead of the exception queue", () => {
     render(
       <ToastProvider>
@@ -381,6 +420,7 @@ describe("AffairePilotagePanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Preparer l'envoi/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Exporter le BDC/i })).toBeInTheDocument();
+    expect(screen.getByTestId("affaire-order-drafts-panel")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: /Mettre a jour les prix fournisseurs/i })
     ).toHaveAttribute("href", "/dashboard/affaires/project-1/prices");

@@ -338,6 +338,14 @@ function buildReadyToOrderAction(input: {
   }
 
   const order = input.finishLineSummary?.readyToOrder ?? null;
+  if (order?.status === "ready") {
+    return {
+      kind: "href" as const,
+      label: "Ouvrir la finish line commandes",
+      href: "#finish-line-orders",
+    };
+  }
+
   if (
     !order ||
     order.status === "waiting" ||

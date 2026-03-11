@@ -438,10 +438,14 @@ async function seedFinishLineLine(input: {
   supplyTypeId: string;
   unitPriceHtCents?: number;
   puHtCents?: number;
+  title?: string;
+  quantity?: number;
 }) {
   const sb = await getAuthenticatedSupabaseClient();
   const sectionId = randomUUID();
   const lineId = randomUUID();
+  const quantity = input.quantity ?? 12;
+  const puHtCents = input.puHtCents ?? 0;
 
   const { error } = await sb.from("estimate_items").insert(
     [
@@ -482,9 +486,9 @@ async function seedFinishLineLine(input: {
         parent_id: sectionId,
         item_type: "line",
         position: 1,
-        title: "Tube cuivre 18",
+        title: input.title ?? "Tube cuivre 18",
         description: "ml",
-        quantity: 12,
+        quantity,
         unit_price_ht_cents: input.unitPriceHtCents ?? 0,
         tax_rate_bp: 2000,
         k_fo: 1,
@@ -502,11 +506,11 @@ async function seedFinishLineLine(input: {
         category_id: null,
         supply_type_id: input.supplyTypeId,
         selected_supplier_price_id: null,
-        line_total_ht_cents: (input.puHtCents ?? 0) * 12,
-        line_tax_cents: Math.round(((input.puHtCents ?? 0) * 12 * 2000) / 10000),
+        line_total_ht_cents: puHtCents * quantity,
+        line_tax_cents: Math.round((puHtCents * quantity * 2000) / 10000),
         line_total_ttc_cents:
-          (input.puHtCents ?? 0) * 12 +
-          Math.round(((input.puHtCents ?? 0) * 12 * 2000) / 10000),
+          puHtCents * quantity +
+          Math.round((puHtCents * quantity * 2000) / 10000),
       },
     ] as never
   );
@@ -516,6 +520,108 @@ async function seedFinishLineLine(input: {
   }
 
   return { lineId };
+}
+
+async function seedDeliverySite(input: {
+  tenantId: string;
+  name: string;
+  projectCode: string;
+}) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const siteId = randomUUID();
+
+  const { error } = await sb.from("delivery_sites").insert({
+    id: siteId,
+    tenant_id: input.tenantId,
+    name: input.name,
+    project_code: input.projectCode,
+    address: "1 rue du chantier",
+    postal_code: "69000",
+    city: "Lyon",
+    contact_name: "Chef chantier",
+    contact_phone: "0102030405",
+    is_active: true,
+  });
+
+  if (error) {
+    throw new Error(`Seed delivery site failed: ${error.message}`);
+  }
+
+  return { siteId };
+}
+
+async function seedSelectedSupplierPrice(input: {
+  tenantId: string;
+  lineId: string;
+  supplierName: string;
+  productDesignation: string;
+  supplierReference: string;
+  unitPriceCents: number;
+}) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const supplierId = randomUUID();
+  const productId = randomUUID();
+  const supplierPriceId = randomUUID();
+
+  const { error: supplierError } = await sb.from("suppliers").insert({
+    id: supplierId,
+    tenant_id: input.tenantId,
+    name: input.supplierName,
+    is_active: true,
+  });
+
+  if (supplierError) {
+    throw new Error(`Seed supplier failed: ${supplierError.message}`);
+  }
+
+  const { error: productError } = await sb.from("products").insert({
+    id: productId,
+    tenant_id: input.tenantId,
+    designation: input.productDesignation,
+    reference: input.supplierReference,
+    unit_price_cents: input.unitPriceCents,
+    tax_rate_bp: 2000,
+    is_active: true,
+  });
+
+  if (productError) {
+    throw new Error(`Seed product failed: ${productError.message}`);
+  }
+
+  const { error: priceError } = await sb.from("supplier_pricebook").insert({
+    id: supplierPriceId,
+    tenant_id: input.tenantId,
+    supplier_id: supplierId,
+    product_id: productId,
+    supplier_sku: input.supplierReference,
+    unit: "u",
+    min_quantity: 1,
+    unit_price_cents: input.unitPriceCents,
+    currency: "EUR",
+    valid_from: "2026-03-01",
+    valid_to: null,
+    is_active: true,
+    notes: "Seed US-5.3",
+  });
+
+  if (priceError) {
+    throw new Error(`Seed supplier price failed: ${priceError.message}`);
+  }
+
+  const { error: lineError } = await sb
+    .from("estimate_items")
+    .update({
+      selected_supplier_price_id: supplierPriceId,
+      unit_price_ht_cents: input.unitPriceCents,
+      pu_ht_cents: input.unitPriceCents,
+    })
+    .eq("id", input.lineId);
+
+  if (lineError) {
+    throw new Error(`Seed estimate line supplier selection failed: ${lineError.message}`);
+  }
+
+  return { supplierId, productId, supplierPriceId };
 }
 
 async function expectPilotageSection(page: Page) {
@@ -716,5 +822,74 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     await expect(
       page.getByRole("heading", { name: /Envoyer le devis par email/i })
     ).not.toBeVisible();
+  });
+
+  test("prepare des brouillons commandes par fournisseur sans cacher les lignes bloquees", async ({
+    page,
+  }) => {
+    const { versionId, projectId } = await createEstimateViaApi(page, {
+      projectName: buildEstimateName("US53-COMMANDES"),
+      title: "US-5.3 Brouillons commandes",
+    });
+    const tenantId = await getTenantIdForVersion(versionId);
+    const supplyTypeId = await fetchSupplyTypeId();
+
+    const { lineId: selectedLineId } = await seedFinishLineLine({
+      tenantId,
+      versionId,
+      supplyTypeId,
+      title: "Tube cuivre 18",
+      quantity: 12,
+      unitPriceHtCents: 2_100,
+      puHtCents: 2_100,
+    });
+    await seedFinishLineLine({
+      tenantId,
+      versionId,
+      supplyTypeId,
+      title: "Ligne sans prix fournisseur",
+      quantity: 4,
+      unitPriceHtCents: 1_000,
+      puHtCents: 1_000,
+    });
+    await seedSelectedSupplierPrice({
+      tenantId,
+      lineId: selectedLineId,
+      supplierName: "Best Supplier",
+      productDesignation: "Tube cuivre 18",
+      supplierReference: "TC18-LIVE",
+      unitPriceCents: 2_100,
+    });
+    const { siteId } = await seedDeliverySite({
+      tenantId,
+      name: "Chantier Lyon",
+      projectCode: "LY-42",
+    });
+
+    const pilotageSection = await openAffaireHub(page, projectId);
+
+    await expect(
+      pilotageSection.getByText("Brouillons par fournisseur, sans ressaisie")
+    ).toBeVisible();
+    await expect(pilotageSection.getByText("A traiter avant la creation")).toBeVisible();
+    await expect(pilotageSection.getByText("Brouillons proposes")).toBeVisible();
+    await expect(pilotageSection.getByText("Best Supplier")).toBeVisible();
+
+    await pilotageSection
+      .getByRole("combobox", { name: "Chantier de livraison" })
+      .selectOption(siteId);
+    await clickWithin(pilotageSection, "button", "Creer le brouillon");
+
+    await expect(pilotageSection.getByText("Brouillons crees")).toBeVisible();
+    await expect(
+      pilotageSection.getByRole("link", { name: "Ouvrir le brouillon" })
+    ).toHaveAttribute("href", /\/dashboard\/orders\/.+/);
+    await expect(pilotageSection.getByText("A traiter avant la creation")).toBeVisible();
+    await expect(
+      pilotageSection.getByText("Aucun prix fournisseur exploitable")
+    ).toBeVisible();
+    await expect(
+      pilotageSection.getByText("Ligne sans prix fournisseur")
+    ).toBeVisible();
   });
 });
