@@ -11,10 +11,15 @@ import {
 
 export default async function TakeoffReviewServerPage({
   params,
+  searchParams,
 }: Readonly<{
   params: Promise<{ versionId: string; jobId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }>) {
-  const { versionId, jobId } = await params;
+  const [{ versionId, jobId }, reviewSearchParams] = await Promise.all([
+    params,
+    searchParams,
+  ]);
   const { tenantId } = await getUserContext();
 
   if (!tenantId || versionId.trim().length === 0 || jobId.trim().length === 0) {
@@ -30,6 +35,10 @@ export default async function TakeoffReviewServerPage({
     kind: "estimate_review_legacy",
     versionId,
     jobId,
+    searchParams: {
+      ...reviewSearchParams,
+      versionId,
+    },
     ...(await fetchTakeoffVersionProjectContext(versionId)),
   });
 

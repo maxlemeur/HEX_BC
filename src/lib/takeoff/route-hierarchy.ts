@@ -22,11 +22,43 @@ export type TakeoffRouteHierarchyDescriptor = {
   targetLabel: string | null;
 };
 
+type RouteHierarchySearchParams =
+  | URLSearchParams
+  | Record<string, string | string[] | undefined | null>;
+
+function toSearchParamsString(params?: RouteHierarchySearchParams | null) {
+  if (!params) {
+    return "";
+  }
+
+  if (params instanceof URLSearchParams) {
+    return params.toString();
+  }
+
+  const normalized = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === "string") {
+      normalized.set(key, value);
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        normalized.append(key, entry);
+      }
+    }
+  }
+
+  return normalized.toString();
+}
+
 function buildLegacyTargetHref(input: {
   kind: TakeoffRouteHierarchyKind;
   projectId: string | null;
   versionId?: string | null;
   jobId?: string | null;
+  searchParams?: RouteHierarchySearchParams | null;
 }) {
   if (input.kind === "dashboard_takeoff_legacy") {
     return "/dashboard/affaires";
@@ -44,12 +76,17 @@ function buildLegacyTargetHref(input: {
     return `/dashboard/affaires/${input.projectId}/takeoff`;
   }
 
-  if (
-    (input.kind === "estimate_job_legacy" || input.kind === "estimate_review_legacy") &&
-    input.jobId &&
-    input.versionId
-  ) {
-    return `/dashboard/affaires/${input.projectId}/takeoff/${input.jobId}/review?versionId=${input.versionId}&view=dpgf&dpgfView=exceptions_only`;
+  if (input.kind === "estimate_job_legacy" && input.versionId) {
+    return `/dashboard/affaires/${input.projectId}/takeoff?tab=jobs&version=${input.versionId}`;
+  }
+
+  if (input.kind === "estimate_review_legacy" && input.jobId && input.versionId) {
+    const search = toSearchParamsString(input.searchParams);
+    const reviewSearch = search.length > 0
+      ? search
+      : `versionId=${encodeURIComponent(input.versionId)}&view=dpgf&dpgfView=exceptions_only`;
+
+    return `/dashboard/affaires/${input.projectId}/takeoff/${input.jobId}/review?${reviewSearch}`;
   }
 
   return `/dashboard/affaires/${input.projectId}/takeoff`;
@@ -60,6 +97,7 @@ export function buildTakeoffRouteHierarchy(input: {
   projectId?: string | null;
   versionId?: string | null;
   jobId?: string | null;
+  searchParams?: RouteHierarchySearchParams | null;
 }): TakeoffRouteHierarchyDescriptor {
   if (
     input.kind === "affaire_plans" ||
@@ -90,6 +128,7 @@ export function buildTakeoffRouteHierarchy(input: {
     projectId: input.projectId ?? null,
     versionId: input.versionId ?? null,
     jobId: input.jobId ?? null,
+    searchParams: input.searchParams ?? null,
   });
 
   const provenanceLabel =

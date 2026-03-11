@@ -50,6 +50,41 @@ describe("buildTakeoffRouteHierarchy", () => {
     });
   });
 
+  it("routes legacy job monitoring back to the affair activity center", () => {
+    expect(
+      buildTakeoffRouteHierarchy({
+        kind: "estimate_job_legacy",
+        projectId: "project-1",
+        versionId: "version-1",
+        jobId: "job-1",
+      })
+    ).toMatchObject({
+      classification: "legacy",
+      provenanceLabel: "Provenance du chemin : legacy estimate-first / suivi job",
+      targetHref: "/dashboard/affaires/project-1/takeoff?tab=jobs&version=version-1",
+    });
+  });
+
+  it("preserves review query state when redirecting to the affair review flow", () => {
+    expect(
+      buildTakeoffRouteHierarchy({
+        kind: "estimate_review_legacy",
+        projectId: "project-1",
+        versionId: "version-1",
+        jobId: "job-1",
+        searchParams: {
+          versionId: "version-1",
+          view: "compare",
+          compareWith: "job-2",
+          threshold: "0.9",
+        },
+      })
+    ).toMatchObject({
+      targetHref:
+        "/dashboard/affaires/project-1/takeoff/job-1/review?versionId=version-1&view=compare&compareWith=job-2&threshold=0.9",
+    });
+  });
+
   it("keeps the generic takeoff portal as an explicit legacy entrypoint", () => {
     expect(buildTakeoffRouteHierarchy({ kind: "dashboard_takeoff_legacy" })).toMatchObject({
       classification: "legacy",
