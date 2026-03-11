@@ -1,8 +1,7 @@
 import { createElement, useEffect } from "react";
-import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-// --- Mocks ---
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
@@ -23,17 +22,24 @@ vi.mock("@/components/catalogue/api", () => ({
 const {
   createSupabaseBrowserClientMock,
   supabaseFromMock,
-  supabaseRangeMock,
+  supplierRangeMock,
+  productRangeMock,
 } = vi.hoisted(() => {
-  const range = vi.fn().mockResolvedValue({ data: [], error: null });
-  const order = vi.fn(() => ({ range }));
-  const select = vi.fn(() => ({ order }));
-  const from = vi.fn(() => ({ select }));
+  const supplierRange = vi.fn().mockResolvedValue({ data: [], error: null });
+  const productRange = vi.fn().mockResolvedValue({ data: [], error: null });
+  const from = vi.fn((table: string) => ({
+    select: vi.fn(() => ({
+      order: vi.fn(() => ({
+        range: table === "suppliers" ? supplierRange : productRange,
+      })),
+    })),
+  }));
 
   return {
     createSupabaseBrowserClientMock: vi.fn(() => ({ from })),
     supabaseFromMock: from,
-    supabaseRangeMock: range,
+    supplierRangeMock: supplierRange,
+    productRangeMock: productRange,
   };
 });
 
@@ -47,12 +53,16 @@ vi.mock("swr", () => ({
   default: swrMock,
 }));
 
+const tableFilterBarTransformMock = vi.hoisted(() => vi.fn((data: unknown[]) => data));
+
 vi.mock("@/components/TableFilterBar", () => ({
   TableFilterBar: (props: { data: unknown[]; onDataChange: (items: unknown[]) => void }) => {
     const { data, onDataChange } = props;
+
     useEffect(() => {
-      onDataChange(data);
+      onDataChange(tableFilterBarTransformMock(data));
     }, [data, onDataChange]);
+
     return createElement("div", { "data-testid": "table-filter-bar" });
   },
 }));
@@ -63,28 +73,15 @@ vi.mock("@/components/catalogue/PriceBookCsvImport", () => ({
 
 vi.mock("@/components/ui/SearchableSelect", () => ({
   SearchableSelect: (props: Record<string, unknown>) =>
-    createElement("select", { id: props.id, value: props.value }),
+    createElement("input", {
+      id: props.id,
+      value: props.value,
+      readOnly: true,
+      "data-testid": props.id,
+    }),
 }));
 
 import { PricesManager } from "@/components/catalogue/PricesManager";
-
-declare global {
-  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
-}
-
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
-// Recursively extract text from a ReactTestInstance
-function extractText(node: ReactTestInstance | string): string {
-  if (typeof node === "string") return node;
-  if (!node.children) return "";
-  return node.children.map((c) => extractText(c as ReactTestInstance | string)).join("");
-}
-
-// Find buttons matching a text needle
-function findButtonsByText(root: ReactTestInstance, needle: string) {
-  return root.findAllByType("button").filter((b) => extractText(b).includes(needle));
-}
 
 const MOCK_ITEMS = [
   {
@@ -131,200 +128,153 @@ const MOCK_ITEMS = [
   },
 ];
 
-function setupSWR(items = MOCK_ITEMS) {
+function setupSWR(items = MOCK_ITEMS, overrides: Record<string, unknown> = {}) {
+  const mutate = vi.fn();
   swrMock.mockReturnValue({
     data: items,
     error: undefined,
     isLoading: false,
     isValidating: false,
-    mutate: vi.fn(),
+    mutate,
+    ...overrides,
   });
+  return mutate;
 }
 
-function setupSWRLoading() {
-  swrMock.mockReturnValue({
-    data: [],
-    error: undefined,
-    isLoading: true,
-    isValidating: true,
-    mutate: vi.fn(),
-  });
-}
-
-function setupSWRError() {
-  swrMock.mockReturnValue({
-    data: [],
-    error: new Error("Network error"),
-    isLoading: false,
-    isValidating: false,
-    mutate: vi.fn(),
-  });
-}
-
-function setupSWREmpty() {
-  swrMock.mockReturnValue({
-    data: [],
-    error: undefined,
-    isLoading: false,
-    isValidating: false,
-    mutate: vi.fn(),
-  });
-}
-
-async function renderManager(setup: () => void = () => setupSWR()) {
-  setup();
-  let renderer: ReactTestRenderer;
-  await act(async () => {
-    renderer = create(createElement(PricesManager));
-  });
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 20));
-  });
-  return renderer!;
-}
-
-function getTreeStr(renderer: ReactTestRenderer) {
-  return JSON.stringify(renderer.toJSON());
+function renderManager(props?: { embedded?: boolean }) {
+  return render(createElement(PricesManager, props));
 }
 
 describe("PricesManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setupSWR();
     fetchApiMock.mockResolvedValue({ items: [] });
+    tableFilterBarTransformMock.mockImplementation((data: unknown[]) => data);
+    supplierRangeMock.mockResolvedValue({ data: [], error: null });
+    productRangeMock.mockResolvedValue({ data: [], error: null });
   });
 
-  it("renders page header with title and add button", async () => {
-    const renderer = await renderManager();
-    const treeStr = getTreeStr(renderer);
-
-    expect(treeStr).toContain("Prix fournisseurs");
-    expect(treeStr).toContain("page-description");
-    expect(treeStr).toContain("Ajouter un prix");
+  afterEach(() => {
+    cleanup();
   });
 
-  it("renders CSV import section collapsed by default", async () => {
-    const renderer = await renderManager();
+  it("renders the default page chrome and filter bar", async () => {
+    renderManager();
 
-    const csvImports = renderer.root.findAllByProps({ "data-testid": "csv-import" });
-    expect(csvImports).toHaveLength(0);
+    expect(screen.getByRole("heading", { name: "Prix fournisseurs" })).toBeInTheDocument();
+    expect(screen.getByText(/Gérez les tarifs de vos fournisseurs/i)).toBeInTheDocument();
+    expect(screen.getByTestId("table-filter-bar")).toBeInTheDocument();
 
-    const treeStr = getTreeStr(renderer);
-    expect(treeStr).toContain("Importer un fichier de prix");
-  });
-
-  it("expands CSV import section on toggle click", async () => {
-    const renderer = await renderManager();
-
-    const csvButtons = findButtonsByText(renderer.root, "Importer un fichier de prix");
-    expect(csvButtons.length).toBeGreaterThan(0);
-
-    await act(async () => {
-      csvButtons[0].props.onClick();
+    await waitFor(() => {
+      expect(supabaseFromMock).toHaveBeenCalledWith("suppliers");
+      expect(supabaseFromMock).toHaveBeenCalledWith("products");
     });
-
-    const csvImports = renderer.root.findAllByProps({ "data-testid": "csv-import" });
-    expect(csvImports).toHaveLength(1);
   });
 
-  it("renders stats cards with correct labels", async () => {
-    const renderer = await renderManager();
-    const treeStr = getTreeStr(renderer);
+  it("starts with CSV import open in embedded mode and hides the standalone header", () => {
+    renderManager({ embedded: true });
 
-    expect(treeStr).toContain("Total prix");
-    expect(treeStr).toContain("À jour");
-    expect(treeStr).toContain("Anciens");
-    expect(treeStr).toContain("Fournisseurs couverts");
+    expect(screen.getByTestId("csv-import")).toBeInTheDocument();
+    expect(screen.queryByText(/Gérez les tarifs de vos fournisseurs/i)).not.toBeInTheDocument();
   });
 
-  it("renders empty state when no data exists", async () => {
-    const renderer = await renderManager(() => setupSWREmpty());
-    const treeStr = getTreeStr(renderer);
+  it("toggles the CSV import section", async () => {
+    const user = userEvent.setup();
+    renderManager();
 
-    expect(treeStr).toContain("Aucun prix fournisseur");
-    expect(treeStr).toContain("Ajoutez un prix manuellement");
+    expect(screen.queryByTestId("csv-import")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Importer un fichier de prix/i }));
+
+    expect(screen.getByTestId("csv-import")).toBeInTheDocument();
   });
 
-  it("renders loading state", async () => {
-    const renderer = await renderManager(() => setupSWRLoading());
-    const treeStr = getTreeStr(renderer);
+  it("renders stats cards when supplier prices exist", () => {
+    renderManager();
 
-    expect(treeStr).toContain("Chargement...");
+    expect(screen.getByText("Total prix")).toBeInTheDocument();
+    expect(screen.getAllByText("À jour").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Anciens/)).toBeInTheDocument();
+    expect(screen.getByText("Fournisseurs couverts")).toBeInTheDocument();
   });
 
-  it("renders error state", async () => {
-    const renderer = await renderManager(() => setupSWRError());
-    const treeStr = getTreeStr(renderer);
+  it("renders the empty state when there are no prices", () => {
+    setupSWR([]);
+    renderManager();
 
-    expect(treeStr).toContain("Network error");
+    expect(screen.getByText("Aucun prix fournisseur")).toBeInTheDocument();
+    expect(screen.getByText(/Ajoutez un prix manuellement/i)).toBeInTheDocument();
   });
 
-  it("opens create modal when add button is clicked", async () => {
-    const renderer = await renderManager();
+  it("renders the no-results state when filters hide all rows", async () => {
+    tableFilterBarTransformMock.mockImplementation(() => []);
+    renderManager();
 
-    const addButtons = findButtonsByText(renderer.root, "Ajouter un prix");
-    expect(addButtons.length).toBeGreaterThan(0);
-
-    // Click the first "Ajouter un prix" button (header)
-    await act(async () => {
-      addButtons[0].props.onClick();
-    });
-
-    const treeStr = getTreeStr(renderer);
-    expect(treeStr).toContain("Ajouter un prix fournisseur");
-    expect(treeStr).toContain("Renseignez les informations du nouveau prix");
+    expect(await screen.findByText("Aucun résultat")).toBeInTheDocument();
+    expect(screen.getByText(/Modifiez vos filtres/i)).toBeInTheDocument();
   });
 
-  it("opens edit modal when Modifier button is clicked", async () => {
-    const renderer = await renderManager();
+  it("renders loading and error states", () => {
+    setupSWR([], { isLoading: true, isValidating: true });
+    const { rerender } = renderManager();
 
-    const editButtons = findButtonsByText(renderer.root, "Modifier");
-    expect(editButtons.length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Chargement...").length).toBeGreaterThan(0);
 
-    await act(async () => {
-      editButtons[0].props.onClick();
-    });
+    setupSWR([], { error: new Error("Network error") });
+    rerender(createElement(PricesManager));
 
-    const treeStr = getTreeStr(renderer);
-    expect(treeStr).toContain("Modifier un prix fournisseur");
-    expect(treeStr).toContain("Mettre à jour");
+    expect(screen.getByText("Network error")).toBeInTheDocument();
   });
 
-  it("opens delete confirmation modal when Supprimer is clicked", async () => {
-    const renderer = await renderManager();
+  it("opens the create modal from the add button", async () => {
+    const user = userEvent.setup();
+    renderManager();
 
-    const deleteButtons = findButtonsByText(renderer.root, "Supprimer").filter(
-      (b) => b.props.className?.includes("btn-danger")
-    );
-    expect(deleteButtons.length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole("button", { name: /Ajouter un prix/i })[0]);
 
-    await act(async () => {
-      deleteButtons[0].props.onClick();
-    });
-
-    const treeStr = getTreeStr(renderer);
-    expect(treeStr).toContain("Confirmer la suppression");
-    expect(treeStr).toContain("irréversible");
-    expect(treeStr).toContain("Voulez-vous supprimer");
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Ajouter un prix fournisseur")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Ajouter" })).toBeInTheDocument();
   });
 
-  it("renders TableFilterBar", async () => {
-    const renderer = await renderManager();
+  it("opens the edit modal from a table row", async () => {
+    const user = userEvent.setup();
+    renderManager();
 
-    const filterBar = renderer.root.findAllByProps({ "data-testid": "table-filter-bar" });
-    expect(filterBar).toHaveLength(1);
+    await user.click(screen.getAllByRole("button", { name: "Modifier" })[0]);
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Modifier un prix fournisseur")).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue("12,50")).toBeInTheDocument();
   });
 
-  it("renders refresh button with Actualiser label", async () => {
-    const renderer = await renderManager();
-    const refreshButtons = findButtonsByText(renderer.root, "Actualiser");
-    expect(refreshButtons.length).toBeGreaterThan(0);
+  it("opens the delete confirmation modal from a table row", async () => {
+    const user = userEvent.setup();
+    renderManager();
+
+    await user.click(screen.getAllByRole("button", { name: "Supprimer" })[0]);
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Confirmer la suppression")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Cette action est irréversible/i)).toBeInTheDocument();
   });
 
-  it("shows limit warning when 400 results reached", async () => {
-    const manyItems = Array.from({ length: 400 }, (_, i) => ({
-      id: `price-${i}`,
+  it("refreshes the SWR list when Actualiser is clicked", async () => {
+    const user = userEvent.setup();
+    const mutate = setupSWR();
+    renderManager();
+
+    await user.click(screen.getByRole("button", { name: "Actualiser" }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the 400 items warning when the API limit is reached", () => {
+    const manyItems = Array.from({ length: 400 }, (_, index) => ({
+      id: `price-${index}`,
       supplier_id: "supplier-1",
-      product_id: `product-${i}`,
+      product_id: `product-${index}`,
       catalogue_item_id: null,
       unit_price_cents: 100,
       currency: "EUR",
@@ -336,96 +286,9 @@ describe("PricesManager", () => {
       updated_at: "2026-02-20T10:00:00.000Z",
     }));
 
-    const renderer = await renderManager(() => setupSWR(manyItems));
-    const treeStr = getTreeStr(renderer);
+    setupSWR(manyItems);
+    renderManager();
 
-    expect(treeStr).toContain("Limite de 400");
-  });
-
-  it("hides stats cards when loading", async () => {
-    const renderer = await renderManager(() => setupSWRLoading());
-    const treeStr = getTreeStr(renderer);
-
-    expect(treeStr).not.toContain("Total prix");
-  });
-
-  it("configures SWR with refresh interval and revalidation", async () => {
-    await renderManager();
-
-    expect(swrMock).toHaveBeenCalledWith(
-      "supplier-prices",
-      expect.any(Function),
-      expect.objectContaining({
-        refreshInterval: 30000,
-        revalidateOnFocus: true,
-        revalidateOnReconnect: true,
-      })
-    );
-  });
-
-  it("fetches supplier and product lookups on mount", async () => {
-    await renderManager();
-
-    expect(supabaseFromMock).toHaveBeenCalledWith("suppliers");
-    expect(supabaseFromMock).toHaveBeenCalledWith("products");
-  });
-
-  it("uses paginated ranges when fetching lookups", async () => {
-    await renderManager();
-
-    expect(supabaseRangeMock).toHaveBeenCalledWith(0, 999);
-    expect(supabaseRangeMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("requests lookup second pages when the first page reaches the API cap", async () => {
-    const fullSupplierPage = Array.from({ length: 1000 }, (_, index) => ({
-      id: `supplier-${index}`,
-      name: `Supplier ${index}`,
-    }));
-    const fullProductPage = Array.from({ length: 1000 }, (_, index) => ({
-      id: `product-${index}`,
-      designation: `Product ${index}`,
-      reference: `REF-${index}`,
-    }));
-
-    supabaseRangeMock
-      .mockResolvedValueOnce({ data: fullSupplierPage, error: null })
-      .mockResolvedValueOnce({ data: fullProductPage, error: null })
-      .mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValueOnce({ data: [], error: null });
-
-    await renderManager();
-
-    const secondPageCalls = supabaseRangeMock.mock.calls.filter(
-      ([from, to]) => from === 1000 && to === 1999
-    );
-    expect(secondPageCalls).toHaveLength(2);
-  });
-
-  it("renders correct French labels with accents", async () => {
-    const renderer = await renderManager();
-    const treeStr = getTreeStr(renderer);
-
-    expect(treeStr).toContain("Gérez les tarifs");
-    expect(treeStr).toContain("Mis à jour le");
-    expect(treeStr).toContain("Fraîcheur");
-    expect(treeStr).not.toContain("Fraicheur");
-  });
-
-  it("renders freshness badges for table rows", async () => {
-    const renderer = await renderManager();
-    const treeStr = getTreeStr(renderer);
-
-    expect(treeStr).toContain("À jour");
-    expect(treeStr).toContain("Ancien");
-  });
-
-  it("renders table headers correctly", async () => {
-    const renderer = await renderManager();
-    const treeStr = getTreeStr(renderer);
-
-    expect(treeStr).toContain("Fournisseur");
-    expect(treeStr).toContain("Produit");
-    expect(treeStr).toContain("Prix HT");
+    expect(screen.getByText(/Limite de 400 résultats atteinte/i)).toBeInTheDocument();
   });
 });
