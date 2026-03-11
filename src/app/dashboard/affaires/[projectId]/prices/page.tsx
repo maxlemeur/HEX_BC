@@ -60,7 +60,7 @@ export default async function AffairePricesPage({ params }: Props) {
         </p>
       </div>
 
-      <PricesManager projectId={projectId} embedded />
+      <PricesManager embedded />
     </>
   );
 }

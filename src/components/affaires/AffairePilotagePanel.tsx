@@ -269,15 +269,44 @@ function buildReadyToSendAction(input: {
 }
 
 function buildReadyToOrderAction(input: {
+  projectId: string;
   currentVersion: AffairePilotagePanelProps["currentVersion"];
+  finishLineSummary: AffaireHubFinishLineSummaryResult | null | undefined;
 }) {
+  const pricesHref = `/dashboard/affaires/${input.projectId}/prices`;
+
   if (!input.currentVersion) {
-    return null;
+    return {
+      kind: "href" as const,
+      label: "Importer des prix fournisseurs",
+      href: pricesHref,
+    };
+  }
+
+  const order = input.finishLineSummary?.readyToOrder ?? null;
+  if (
+    !order ||
+    order.status === "waiting" ||
+    order.missingPriceLinesCount > 0 ||
+    order.staleLinesCount > 0
+  ) {
+    return {
+      kind: "href" as const,
+      label:
+        order && (order.coveredLinesCount > 0 || order.staleLinesCount > 0)
+          ? "Mettre a jour les prix fournisseurs"
+          : "Importer des prix fournisseurs",
+      href: pricesHref,
+    };
   }
 
   const versionHref = buildEstimateVersionHref(input.currentVersion);
   if (!versionHref) {
-    return null;
+    return {
+      kind: "href" as const,
+      label: "Importer des prix fournisseurs",
+      href: pricesHref,
+    };
   }
 
   return {
@@ -308,7 +337,11 @@ function buildFinishLineCards(input: {
         status: "waiting",
         summary: "La preparation commandes devient lisible quand les lignes fournisseur existent.",
         details: ["Les achats restent prepares manuellement depuis l'affaire."],
-        action: null,
+        action: buildReadyToOrderAction({
+          projectId: input.projectId,
+          currentVersion: input.currentVersion,
+          finishLineSummary: input.finishLineSummary,
+        }),
       },
     ] satisfies FinishLineCard[];
   }
@@ -329,7 +362,11 @@ function buildFinishLineCards(input: {
         status: "unavailable",
         summary: "La verification achats est indisponible pour le moment.",
         details: ["Rechargez la page avant de preparer les commandes."],
-        action: buildReadyToOrderAction(input),
+        action: buildReadyToOrderAction({
+          projectId: input.projectId,
+          currentVersion: input.currentVersion,
+          finishLineSummary: input.finishLineSummary,
+        }),
       },
     ] satisfies FinishLineCard[];
   }
@@ -390,7 +427,11 @@ function buildFinishLineCards(input: {
         : order.status === "ready"
           ? ["Les lignes fournisseur sont couvertes a cette etape."]
           : [order.errorMessage ?? "Les commandes restent preparees manuellement."],
-    action: buildReadyToOrderAction(input),
+    action: buildReadyToOrderAction({
+      projectId: input.projectId,
+      currentVersion: input.currentVersion,
+      finishLineSummary: input.finishLineSummary,
+    }),
   };
 
   return [readyToSendCard, readyToOrderCard] satisfies FinishLineCard[];

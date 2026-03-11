@@ -126,13 +126,10 @@ function buildTargetSources(mapping: PriceBookColumnMapping) {
   return targetToSource;
 }
 
-async function createCanonicalPriceImport(file: File, projectId?: string | null) {
+async function createCanonicalPriceImport(file: File) {
   const formData = new FormData();
+  // Supplier price CSVs stay detached from affaire-linked DPGF imports.
   formData.set("file", file);
-
-  if (projectId) {
-    formData.set("projectId", projectId);
-  }
 
   return fetchApi<CreateImportResponse>("/api/imports", {
     method: "POST",
@@ -144,12 +141,10 @@ export function PriceBookCsvImport({
   onImported,
   onLookupsUpdated,
   lookups,
-  projectId,
 }: {
   onImported: () => Promise<void> | void;
   onLookupsUpdated?: () => Promise<PriceBookLookups | void> | PriceBookLookups | void;
   lookups: PriceBookLookups;
-  projectId?: string | null;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { parseFile } = useFileParser();
@@ -309,8 +304,8 @@ export function PriceBookCsvImport({
       }
 
       const importRecord = sourceImportId
-        ? { id: sourceImportId, filename: selectedFile.name, project_id: projectId ?? null }
-        : await createCanonicalPriceImport(selectedFile, projectId);
+        ? { id: sourceImportId, filename: selectedFile.name, project_id: null }
+        : await createCanonicalPriceImport(selectedFile);
 
       const nextProfile = detectPriceBookProfile(nextSourceColumns);
       const nextMapping = suggestPriceBookColumnMappingForProfile(nextSourceColumns, nextProfile);

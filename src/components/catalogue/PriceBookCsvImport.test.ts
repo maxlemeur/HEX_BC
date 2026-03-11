@@ -383,7 +383,7 @@ describe("PriceBookCsvImport", () => {
     });
   });
 
-  it("creates a canonical import for the selected file and links it to the affaire project", async () => {
+  it("creates a canonical import for the selected file without linking it to the affaire project", async () => {
     fetchApiMock.mockResolvedValueOnce(TEST_IMPORT_RESPONSE);
 
     parseFileMock.mockResolvedValue({
@@ -409,7 +409,6 @@ describe("PriceBookCsvImport", () => {
         createElement(PriceBookCsvImport, {
           onImported,
           lookups: TEST_LOOKUPS,
-          projectId: "project-1",
         })
       );
     });
@@ -440,7 +439,7 @@ describe("PriceBookCsvImport", () => {
     const importRequest = importCall?.[1] as { body?: FormData; method?: string } | undefined;
     expect(importRequest?.method).toBe("POST");
     expect(importRequest?.body).toBeInstanceOf(FormData);
-    expect(importRequest?.body?.get("projectId")).toBe("project-1");
+    expect(importRequest?.body?.get("projectId")).toBeNull();
     expect(importRequest?.body?.get("file")).toBe(file);
 
     expect(fetchApiMock).toHaveBeenCalledTimes(1);

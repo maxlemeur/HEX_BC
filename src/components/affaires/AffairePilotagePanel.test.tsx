@@ -317,11 +317,29 @@ describe("AffairePilotagePanel", () => {
       status: "blocked",
       action: {
         kind: "href",
-        label: "Revoir les fournisseurs",
-        href: "/dashboard/estimates/version-1/edit",
+        label: "Mettre a jour les prix fournisseurs",
+        href: "/dashboard/affaires/project-1/prices",
       },
     });
     expect(cards[1]?.details).toContain("1 ligne sans fournisseur retenu");
+  });
+
+  it("exposes supplier price import from the affaire when no estimate exists yet", () => {
+    const cards = buildFinishLineCards({
+      projectId: "project-1",
+      currentVersion: null,
+      finishLineSummary: null,
+    });
+
+    expect(cards[1]).toMatchObject({
+      key: "order",
+      status: "waiting",
+      action: {
+        kind: "href",
+        label: "Importer des prix fournisseurs",
+        href: "/dashboard/affaires/project-1/prices",
+      },
+    });
   });
 
   it("renders finish-line cards ahead of the exception queue", () => {
@@ -348,6 +366,9 @@ describe("AffairePilotagePanel", () => {
     expect(screen.getByText("Pret a commander")).toBeInTheDocument();
     expect(screen.getByText("PDF absent")).toBeInTheDocument();
     expect(screen.getByText("1 ligne sans fournisseur retenu")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Mettre a jour les prix fournisseurs/i })
+    ).toHaveAttribute("href", "/dashboard/affaires/project-1/prices");
   });
 
   it("opens the intake upload surface from the exception queue", async () => {

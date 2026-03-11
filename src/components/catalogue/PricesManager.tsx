@@ -119,10 +119,8 @@ function FreshnessBadge({ level, ageDays }: { level: "fresh" | "aging" | "stale"
 // --- Component ---
 
 export function PricesManager({
-  projectId = null,
   embedded = false,
 }: {
-  projectId?: string | null;
   embedded?: boolean;
 }) {
   const toast = useToast();
@@ -522,7 +520,6 @@ export function PricesManager({
               onImported={() => void mutate()}
               onLookupsUpdated={loadLookups}
               lookups={{ suppliers, products }}
-              projectId={projectId}
             />
           </div>
         ) : null}
