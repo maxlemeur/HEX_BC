@@ -31,7 +31,6 @@ export type EstimateSupplierComparisonAlternativeContract = {
 };
 
 export type EstimateSupplierPreselectionPatch = {
-  description: string | null;
   unit_price_ht_cents: number;
   selected_supplier_price_id: string;
 };

@@ -590,6 +590,7 @@ type EstimateAssemblyItemInsert =
 const DEFAULT_VALIDITE_JOURS = 30;
 const DEFAULT_MARGIN_MULTIPLIER = 1;
 const DEFAULT_TAX_RATE_BP = 2000;
+const MAX_SUPPLIER_COMPARISON_ITEMS = 200;
 const DEFAULT_ROUNDING_MODE: EstimateVersionRow["rounding_mode"] = "none";
 const DEFAULT_ROUNDING_STEP_CENTS = 1;
 const DEFAULT_MARGIN_MODE: EstimateVersionRow["margin_mode"] = "fixed";
@@ -1564,9 +1565,6 @@ export function buildEstimateSupplierPreselectionReview(input: {
 
     if (proposedAlternative) {
       const patch: EstimateSupplierPreselectionPatch = {
-        description: proposedAlternative.product_designation.trim().length > 0
-          ? proposedAlternative.product_designation
-          : null,
         unit_price_ht_cents: proposedAlternative.adjusted_unit_price_cents,
         selected_supplier_price_id: proposedAlternative.supplier_price_id,
       };
@@ -6844,7 +6842,7 @@ export async function getEstimateSupplierComparisons(
     if (normalizedItemIds.length === 0) {
       throw badRequest("item_ids ne peut pas etre vide.");
     }
-    if (normalizedItemIds.length > 200) {
+    if (normalizedItemIds.length > MAX_SUPPLIER_COMPARISON_ITEMS) {
       throw badRequest("item_ids ne peut pas contenir plus de 200 identifiants.");
     }
   }
@@ -6880,6 +6878,13 @@ export async function getEstimateSupplierComparisons(
   const lineItems = items.filter((item) => item.item_type === "line");
   const itemById = new Map(lineItems.map((item) => [item.id, item]));
   const resolvedItemIds = normalizedItemIds ?? lineItems.map((item) => item.id);
+
+  if (
+    normalizedItemIds === null &&
+    resolvedItemIds.length > MAX_SUPPLIER_COMPARISON_ITEMS
+  ) {
+    throw badRequest("all_items ne peut pas charger plus de 200 lignes.");
+  }
 
   if (normalizedItemIds !== null) {
     normalizedItemIds.forEach((itemId) => {

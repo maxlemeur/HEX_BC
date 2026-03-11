@@ -663,7 +663,6 @@ const estimateSupplierComparisonCoverageSummarySchema = z.object({
 });
 
 const estimateSupplierPreselectionPatchSchema = z.object({
-  description: z.string().nullable(),
   unit_price_ht_cents: z.number().int(),
   selected_supplier_price_id: uuidSchema,
 });

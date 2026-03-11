@@ -1149,7 +1149,6 @@ describe("estimate server coverage additions", () => {
           item_id: "item-proposed",
           reason: "single_clear_option",
           patch: {
-            description: "Tube cuivre",
             unit_price_ht_cents: 1250,
             selected_supplier_price_id: "price-clear",
           },
@@ -1162,6 +1161,51 @@ describe("estimate server coverage additions", () => {
           risk_flags: expect.arrayContaining(["selected_not_best_price"]),
         }),
       ],
+    });
+  });
+
+  it("rejects all_items supplier preselection when the estimate has more than 200 lines", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const estimateItemsBuilder = chainResult({
+      data: Array.from({ length: 201 }, (_, index) => ({
+        id: `item-${index + 1}`,
+        item_type: "line",
+        title: `Ligne ${index + 1}`,
+        selected_supplier_price_id: null,
+      })),
+      error: null,
+    });
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          return {
+            select: vi.fn(() => estimateItemsBuilder),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      getEstimateSupplierComparisons(VERSION_ID, null)
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "all_items ne peut pas charger plus de 200 lignes.",
     });
   });
 
@@ -1262,7 +1306,6 @@ describe("estimate server coverage additions", () => {
           item_id: "item-proposed",
           reason: "single_clear_option",
           patch: {
-            description: "Tube cuivre",
             unit_price_ht_cents: 1250,
             selected_supplier_price_id: "price-clear",
           },

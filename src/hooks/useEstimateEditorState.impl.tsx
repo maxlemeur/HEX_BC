@@ -965,10 +965,6 @@ function normalizeSupplierPreselectionProposal(
     current_alternative: currentAlternative,
     proposed_alternative: proposedAlternative,
     patch: {
-      description:
-        patchRecord.description === null
-          ? null
-          : toNonEmptyString(patchRecord.description),
       unit_price_ht_cents: Math.max(
         0,
         Math.floor(toFiniteNumber(patchRecord.unit_price_ht_cents, 0))
