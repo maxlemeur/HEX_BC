@@ -267,6 +267,104 @@ describe("AffaireOrderDraftsPanel", () => {
     ).toHaveAttribute("href", "/dashboard/orders/po-1");
   });
 
+  it("keeps created draft links visible when the follow-up refresh fails", async () => {
+    const user = userEvent.setup();
+    fetchPreparationMock
+      .mockResolvedValueOnce(makePreparation())
+      .mockRejectedValueOnce(new Error("Recharge preparation indisponible"));
+    createDraftsMock.mockResolvedValueOnce({
+      sourceVersionId: "version-1",
+      summary: {
+        draftOrdersCreated: 1,
+        draftLinesCreated: 2,
+      },
+      orders: [
+        {
+          purchaseOrderId: "po-1",
+          reference: "C-2603-011",
+          supplierId: "supplier-1",
+          supplierName: "Best Supplier",
+          deliverySiteId: "site-1",
+          itemCount: 2,
+          totalHtCents: 25200,
+          totalTaxCents: 5040,
+          totalTtcCents: 30240,
+          orderedSourceItemIds: ["item-1", "item-2"],
+        },
+      ],
+    });
+
+    renderPanel();
+
+    await screen.findAllByText("Best Supplier");
+    await user.selectOptions(
+      screen.getAllByRole("combobox", { name: /Chantier de livraison/i })[0]!,
+      "site-1"
+    );
+    await user.click(
+      screen.getAllByRole("button", { name: /Creer le brouillon/i })[0]!
+    );
+
+    expect(
+      await screen.findByRole("link", { name: /Ouvrir le brouillon/i })
+    ).toHaveAttribute("href", "/dashboard/orders/po-1");
+    expect(
+      screen.getByText("Recharge preparation indisponible")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Brouillons proposes")).toBeInTheDocument();
+  });
+
+  it("submits the explicit TBD delivery-date state", async () => {
+    const user = userEvent.setup();
+    createDraftsMock.mockResolvedValueOnce({
+      sourceVersionId: "version-1",
+      summary: {
+        draftOrdersCreated: 1,
+        draftLinesCreated: 2,
+      },
+      orders: [
+        {
+          purchaseOrderId: "po-1",
+          reference: "C-2603-011",
+          supplierId: "supplier-1",
+          supplierName: "Best Supplier",
+          deliverySiteId: "site-1",
+          itemCount: 2,
+          totalHtCents: 25200,
+          totalTaxCents: 5040,
+          totalTtcCents: 30240,
+          orderedSourceItemIds: ["item-1", "item-2"],
+        },
+      ],
+    });
+
+    renderPanel();
+
+    await screen.findAllByText("Best Supplier");
+    await user.selectOptions(
+      screen.getAllByRole("combobox", { name: /Chantier de livraison/i })[0]!,
+      "site-1"
+    );
+    await user.click(screen.getByRole("checkbox", { name: /À déterminer/i }));
+    await user.click(
+      screen.getAllByRole("button", { name: /Creer le brouillon/i })[0]!
+    );
+
+    await waitFor(() => {
+      expect(createDraftsMock).toHaveBeenCalledWith("version-1", {
+        groups: [
+          {
+            supplierId: "supplier-1",
+            deliverySiteId: "site-1",
+            itemIds: ["item-1", "item-2"],
+            expectedDeliveryDate: "TBD",
+            notes: null,
+          },
+        ],
+      });
+    });
+  });
+
   it("clears an unavailable delivery site after reloading supplier groups", async () => {
     const user = userEvent.setup();
     const { orderMock } = installSiteClient();

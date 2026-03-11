@@ -196,6 +196,7 @@ export function AffaireOrderDraftsPanel({
       setPreparation(null);
       setSites([]);
       setSelectedGroupKeys([]);
+      setLoadError(null);
       return;
     }
 
@@ -388,7 +389,7 @@ export function AffaireOrderDraftsPanel({
               : "La finish line commandes devient actionnable des qu'une preparation fournisseur existe."}
       </div>
 
-      {loadError ? (
+      {loadError && !preparation ? (
         <div className="mt-4 rounded-xl border border-[var(--danger-200)] bg-[var(--danger-50)] px-4 py-4">
           <p className="text-sm font-medium text-[var(--danger-700)]">{loadError}</p>
           <button
@@ -410,6 +411,19 @@ export function AffaireOrderDraftsPanel({
         </div>
       ) : preparation ? (
         <>
+          {loadError ? (
+            <div className="mt-4 rounded-xl border border-[var(--warning-200)] bg-[var(--warning-50)]/70 px-4 py-4">
+              <p className="text-sm font-medium text-[var(--warning-800)]">{loadError}</p>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm mt-3"
+                onClick={() => void refreshPreparation()}
+              >
+                Recharger la preparation
+              </button>
+            </div>
+          ) : null}
+
           {preparation.blockedLines.length > 0 ? (
             <article className="mt-4 rounded-xl border border-[var(--warning-200)] bg-[var(--warning-50)]/70 p-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
@@ -585,12 +599,27 @@ export function AffaireOrderDraftsPanel({
 
                 <label className="flex flex-col gap-2 text-sm text-[var(--slate-700)]">
                   <span className="font-medium">Livraison cible</span>
-                  <input
-                    type="date"
-                    className="rounded-xl border border-[var(--slate-300)] bg-white px-3 py-2"
-                    value={expectedDeliveryDate}
-                    onChange={(event) => setExpectedDeliveryDate(event.target.value)}
-                  />
+                  <div className="rounded-xl border border-[var(--slate-300)] bg-white px-3 py-3">
+                    <label className="flex items-center gap-2 text-sm text-[var(--slate-700)]">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={expectedDeliveryDate === "TBD"}
+                        onChange={(event) => {
+                          setExpectedDeliveryDate(event.target.checked ? "TBD" : "");
+                        }}
+                      />
+                      <span>À déterminer</span>
+                    </label>
+                    {expectedDeliveryDate !== "TBD" ? (
+                      <input
+                        type="date"
+                        className="mt-3 w-full rounded-xl border border-[var(--slate-300)] bg-white px-3 py-2"
+                        value={expectedDeliveryDate}
+                        onChange={(event) => setExpectedDeliveryDate(event.target.value)}
+                      />
+                    ) : null}
+                  </div>
                 </label>
               </div>
 
