@@ -288,7 +288,9 @@ type EstimateEditorTableProps = {
   canRedo: boolean;
   isUndoRedoBusy: boolean;
   bulkSuggestionEligibleCount: number;
+  supplierPreselectionEligibleCount: number;
   onOpenBulkSuggestDialog: () => void;
+  onOpenSupplierPreselectionDialog: () => void;
   onOpenImportFromEstimateDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
   onOpenGeneratedOuvrageDialog?: () => void;
@@ -823,7 +825,9 @@ export function EstimateEditorTable({
   canRedo,
   isUndoRedoBusy,
   bulkSuggestionEligibleCount,
+  supplierPreselectionEligibleCount,
   onOpenBulkSuggestDialog,
+  onOpenSupplierPreselectionDialog,
   onOpenImportFromEstimateDialog,
   onOpenEstimateStructureDraftDialog,
   onOpenGeneratedOuvrageDialog,
@@ -2295,6 +2299,7 @@ export function EstimateEditorTable({
           categories={categories}
           laborRoles={laborRoles}
           bulkSuggestionEligibleCount={bulkSuggestionEligibleCount}
+          supplierPreselectionEligibleCount={supplierPreselectionEligibleCount}
           onQualityFilterChange={onQualityFilterChange}
           onOutlierDetectionMethodChange={onOutlierDetectionMethodChange}
           onOutlierThresholdChange={onOutlierThresholdChange}
@@ -2306,6 +2311,7 @@ export function EstimateEditorTable({
           onApplyBulkCategory={handleApplyBulkCategory}
           onApplyBulkLaborRole={handleApplyBulkLaborRole}
           onOpenBulkSuggestDialog={onOpenBulkSuggestDialog}
+          onOpenSupplierPreselectionDialog={onOpenSupplierPreselectionDialog}
           onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
           onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
           onOpenEstimateStructureDraftDialog={onOpenEstimateStructureDraftDialog}

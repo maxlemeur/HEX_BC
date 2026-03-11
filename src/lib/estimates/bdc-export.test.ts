@@ -384,13 +384,39 @@ describe("streamEstimateVersionBdcV11Xlsx", () => {
       categories: [],
     } as never);
     vi.mocked(getEstimateSupplierComparisons).mockImplementation(
-      async (_versionId: string, itemIds: string[]) =>
+      async (_versionId: string, itemIds: string[] | null) =>
         ({
-          comparisons: itemIds.map((itemId) => ({
+          stale_price_days: 90,
+          coverage_summary: {
+            total_items: (itemIds ?? []).length,
+            covered_items: 0,
+            ambiguous_items: 0,
+            no_price_items: (itemIds ?? []).length,
+            stale_items: 0,
+          },
+          comparisons: (itemIds ?? []).map((itemId) => ({
             item_id: itemId,
             selected_supplier_price_id: null,
+            best_supplier_price_id: null,
+            coverage_status: "no_price",
+            risk_flags: [],
+            selected_alternative: null,
             alternatives: [],
           })),
+          bulk_preselection: {
+            summary: {
+              total_items: (itemIds ?? []).length,
+              proposed_items: 0,
+              exception_items: (itemIds ?? []).length,
+              already_selected_items: 0,
+              divergence_items: 0,
+              stale_items: 0,
+              ambiguous_items: 0,
+              no_price_items: (itemIds ?? []).length,
+            },
+            proposals: [],
+            exceptions: [],
+          },
         }) as never
     );
 

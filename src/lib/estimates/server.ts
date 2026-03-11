@@ -32,6 +32,14 @@ import {
   getTakeoffLinkedSourceVersionByJobId,
   linkTakeoffJobsFromSourceVersionToTargetVersion,
 } from "@/lib/takeoff/version-links";
+import type {
+  EstimateSupplierPreselectionException,
+  EstimateSupplierPreselectionExceptionReason,
+  EstimateSupplierPreselectionPatch,
+  EstimateSupplierPreselectionProposal,
+  EstimateSupplierPreselectionReview,
+  EstimateSupplierPreselectionSummary,
+} from "@/lib/estimates/supplier-preselection";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/types/database";
 
@@ -1483,6 +1491,136 @@ function summarizeEstimateSupplierComparisonCoverage(
   });
 
   return summary;
+}
+
+function createEmptyEstimateSupplierPreselectionSummary(): EstimateSupplierPreselectionSummary {
+  return {
+    total_items: 0,
+    proposed_items: 0,
+    exception_items: 0,
+    already_selected_items: 0,
+    divergence_items: 0,
+    stale_items: 0,
+    ambiguous_items: 0,
+    no_price_items: 0,
+  };
+}
+
+function findEstimateSupplierPreselectionProposalAlternative(
+  comparison: EstimateSupplierComparison
+) {
+  if (comparison.selected_supplier_price_id !== null) {
+    return null;
+  }
+
+  if (comparison.alternatives.length !== 1) {
+    return null;
+  }
+
+  const [proposedAlternative] = comparison.alternatives;
+  if (!proposedAlternative || proposedAlternative.is_stale) {
+    return null;
+  }
+
+  return proposedAlternative;
+}
+
+function resolveEstimateSupplierPreselectionExceptionReason(
+  comparison: EstimateSupplierComparison
+): EstimateSupplierPreselectionExceptionReason | null {
+  if (comparison.alternatives.length === 0) {
+    return "no_price";
+  }
+
+  if (comparison.selected_alternative?.is_stale === true) {
+    return "stale";
+  }
+
+  if (comparison.risk_flags.includes("selected_not_best_price")) {
+    return "divergence";
+  }
+
+  if (comparison.coverage_status === "ambiguous") {
+    return "ambiguous";
+  }
+
+  return null;
+}
+
+export function buildEstimateSupplierPreselectionReview(input: {
+  comparisons: EstimateSupplierComparison[];
+  itemTitleById: Map<string, string>;
+}): EstimateSupplierPreselectionReview {
+  const summary = createEmptyEstimateSupplierPreselectionSummary();
+  const proposals: EstimateSupplierPreselectionProposal[] = [];
+  const exceptions: EstimateSupplierPreselectionException[] = [];
+
+  input.comparisons.forEach((comparison) => {
+    summary.total_items += 1;
+
+    const itemTitle = input.itemTitleById.get(comparison.item_id) ?? "Ligne";
+    const proposedAlternative =
+      findEstimateSupplierPreselectionProposalAlternative(comparison);
+
+    if (proposedAlternative) {
+      const patch: EstimateSupplierPreselectionPatch = {
+        description: proposedAlternative.product_designation.trim().length > 0
+          ? proposedAlternative.product_designation
+          : null,
+        unit_price_ht_cents: proposedAlternative.adjusted_unit_price_cents,
+        selected_supplier_price_id: proposedAlternative.supplier_price_id,
+      };
+
+      proposals.push({
+        item_id: comparison.item_id,
+        item_title: itemTitle,
+        current_alternative: comparison.selected_alternative,
+        proposed_alternative: proposedAlternative,
+        patch,
+        reason: "single_clear_option",
+        explanation:
+          "Une seule option fournisseur non obsolete couvre cette ligne. La preselection reste modifiable avant confirmation.",
+        is_reversible: true,
+      });
+      summary.proposed_items += 1;
+      return;
+    }
+
+    const exceptionReason =
+      resolveEstimateSupplierPreselectionExceptionReason(comparison);
+
+    if (exceptionReason) {
+      exceptions.push({
+        item_id: comparison.item_id,
+        item_title: itemTitle,
+        reason: exceptionReason,
+        coverage_status: comparison.coverage_status,
+        risk_flags: comparison.risk_flags,
+        selected_alternative: comparison.selected_alternative,
+        alternatives: comparison.alternatives,
+      });
+      summary.exception_items += 1;
+
+      if (exceptionReason === "divergence") {
+        summary.divergence_items += 1;
+      } else if (exceptionReason === "stale") {
+        summary.stale_items += 1;
+      } else if (exceptionReason === "ambiguous") {
+        summary.ambiguous_items += 1;
+      } else if (exceptionReason === "no_price") {
+        summary.no_price_items += 1;
+      }
+      return;
+    }
+
+    summary.already_selected_items += 1;
+  });
+
+  return {
+    summary,
+    proposals,
+    exceptions,
+  };
 }
 
 const DEFAULT_ESTIMATE_CATEGORIES = [
@@ -6693,29 +6831,41 @@ export async function suggestEstimateCataloguePrices(
 
 export async function getEstimateSupplierComparisons(
   versionId: string,
-  itemIds: string[]
+  itemIds: string[] | null
 ) {
-  const normalizedItemIds = Array.from(
-    new Set(itemIds.map((itemId) => itemId.trim()).filter((itemId) => itemId.length > 0))
-  );
+  const normalizedItemIds =
+    itemIds === null
+      ? null
+      : Array.from(
+          new Set(itemIds.map((itemId) => itemId.trim()).filter((itemId) => itemId.length > 0))
+        );
 
-  if (normalizedItemIds.length === 0) {
-    throw badRequest("item_ids ne peut pas etre vide.");
-  }
-  if (normalizedItemIds.length > 200) {
-    throw badRequest("item_ids ne peut pas contenir plus de 200 identifiants.");
+  if (normalizedItemIds !== null) {
+    if (normalizedItemIds.length === 0) {
+      throw badRequest("item_ids ne peut pas etre vide.");
+    }
+    if (normalizedItemIds.length > 200) {
+      throw badRequest("item_ids ne peut pas contenir plus de 200 identifiants.");
+    }
   }
 
   const context = await getAuthenticatedContext();
   const { supabase, tenantId } = context;
   await getVersionAccessOrThrow(supabase, versionId, context);
 
-  const { data: rows, error } = await supabase
+  let itemsQuery = supabase
     .from("estimate_items")
     .select("id, item_type, title, selected_supplier_price_id")
     .eq("tenant_id", tenantId)
-    .eq("version_id", versionId)
-    .in("id", normalizedItemIds);
+    .eq("version_id", versionId);
+
+  if (normalizedItemIds === null) {
+    itemsQuery = itemsQuery.eq("item_type", "line");
+  } else {
+    itemsQuery = itemsQuery.in("id", normalizedItemIds);
+  }
+
+  const { data: rows, error } = await itemsQuery;
 
   if (error) {
     throw mapSupabaseError(error, "Impossible de charger les lignes.");
@@ -6727,21 +6877,39 @@ export async function getEstimateSupplierComparisons(
     title: string;
     selected_supplier_price_id: string | null;
   }>;
-  const itemById = new Map(items.map((item) => [item.id, item]));
+  const lineItems = items.filter((item) => item.item_type === "line");
+  const itemById = new Map(lineItems.map((item) => [item.id, item]));
+  const resolvedItemIds = normalizedItemIds ?? lineItems.map((item) => item.id);
 
-  normalizedItemIds.forEach((itemId) => {
-    const item = itemById.get(itemId);
-    if (!item || item.item_type !== "line") {
-      throw badRequest("item_id doit correspondre a une ligne de devis.", {
-        item_id: itemId,
-      });
-    }
-  });
+  if (normalizedItemIds !== null) {
+    normalizedItemIds.forEach((itemId) => {
+      const item = itemById.get(itemId);
+      if (!item) {
+        throw badRequest("item_id doit correspondre a une ligne de devis.", {
+          item_id: itemId,
+        });
+      }
+    });
+  }
+
+  const stalePriceDays = await getStalePriceDaysForTenant(tenantId, { supabase });
+
+  if (resolvedItemIds.length === 0) {
+    return {
+      stale_price_days: stalePriceDays,
+      coverage_summary: summarizeEstimateSupplierComparisonCoverage([]),
+      comparisons: [] as EstimateSupplierComparison[],
+      bulk_preselection: buildEstimateSupplierPreselectionReview({
+        comparisons: [],
+        itemTitleById: new Map(),
+      }),
+    };
+  }
 
   const queryByNormalizedKey = new Map<string, string>();
   const normalizedKeyByItemId = new Map<string, string>();
 
-  normalizedItemIds.forEach((itemId) => {
+  resolvedItemIds.forEach((itemId) => {
     const item = itemById.get(itemId);
     if (!item) return;
 
@@ -6763,11 +6931,7 @@ export async function getEstimateSupplierComparisons(
   );
   const suggestionsByNormalizedQuery = new Map(suggestionsEntries);
 
-  const stalePriceDays =
-    suggestionsEntries[0]?.[1]?.stale_price_days ??
-    (await getStalePriceDaysForTenant(tenantId, { supabase }));
-
-  const comparisons = await Promise.all(normalizedItemIds.map(async (itemId) => {
+  const comparisons = await Promise.all(resolvedItemIds.map(async (itemId) => {
     const item = itemById.get(itemId);
     if (!item) {
       return {
@@ -6862,10 +7026,16 @@ export async function getEstimateSupplierComparisons(
     } satisfies EstimateSupplierComparison;
   }));
 
+  const itemTitleById = new Map(lineItems.map((item) => [item.id, item.title]));
+
   return {
     stale_price_days: stalePriceDays,
     coverage_summary: summarizeEstimateSupplierComparisonCoverage(comparisons),
     comparisons,
+    bulk_preselection: buildEstimateSupplierPreselectionReview({
+      comparisons,
+      itemTitleById,
+    }),
   };
 }
 

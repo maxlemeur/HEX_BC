@@ -73,6 +73,7 @@ function renderToolbar(overrides?: {
         categories={[{ id: "cat-1", name: "Tube" } as never]}
         laborRoles={[{ id: "role-1", name: "Soudeur", is_active: true } as never]}
         bulkSuggestionEligibleCount={0}
+        supplierPreselectionEligibleCount={2}
         onQualityFilterChange={vi.fn()}
         onOutlierDetectionMethodChange={vi.fn()}
         onOutlierThresholdChange={vi.fn()}
@@ -84,6 +85,7 @@ function renderToolbar(overrides?: {
         onApplyBulkCategory={vi.fn().mockResolvedValue(undefined)}
         onApplyBulkLaborRole={vi.fn().mockResolvedValue(undefined)}
         onOpenBulkSuggestDialog={vi.fn()}
+        onOpenSupplierPreselectionDialog={vi.fn()}
         onOpenAssemblyPicker={vi.fn()}
         onAddRootSection={vi.fn()}
         columnPreset="standard"
@@ -132,5 +134,13 @@ describe("EstimateEditorToolbar", () => {
     expect(
       screen.queryByRole("button", { name: "Colonnes avancées" })
     ).not.toBeInTheDocument();
+  });
+
+  it("shows supplier preselection action when lines are available", () => {
+    renderToolbar();
+    fireEvent.click(screen.getByRole("button", { name: "Outils" }));
+    expect(
+      screen.getByRole("button", { name: "Préselection fournisseurs (2)" })
+    ).toBeInTheDocument();
   });
 });

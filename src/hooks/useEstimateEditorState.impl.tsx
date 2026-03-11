@@ -16,6 +16,7 @@ import { BulkSuggestDialog } from "@/components/estimates/BulkSuggestDialog";
 import { EstimateChecklist } from "@/components/estimates/EstimateChecklist";
 import { GeneratedOuvrageDialog } from "@/components/estimates/GeneratedOuvrageDialog";
 import { EstimateStructureDraftDialog } from "@/components/estimates/EstimateStructureDraftDialog";
+import { SupplierPreselectionDialog } from "@/components/estimates/SupplierPreselectionDialog";
 import { VersionZeroDraftDialog } from "@/components/estimates/VersionZeroDraftDialog";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
@@ -62,6 +63,16 @@ import {
   buildBulkSuggestPreview,
   type BulkSuggestPreviewItem,
 } from "@/lib/estimates/bulk-suggest";
+import type {
+  EstimateSupplierComparisonAlternativeContract,
+  EstimateSupplierComparisonAlternativeKind,
+  EstimateSupplierComparisonCoverageStatus,
+  EstimateSupplierPreselectionException,
+  EstimateSupplierPreselectionExceptionReason,
+  EstimateSupplierPreselectionProposal,
+  EstimateSupplierPreselectionReview,
+  EstimateSupplierPreselectionSummary,
+} from "@/lib/estimates/supplier-preselection";
 import {
   computeEstimateChecklist,
   type EstimateChecklistCriterion,
@@ -315,6 +326,7 @@ type BulkSuggestUndoState = {
   previousItems: EstimateItem[];
   appliedItemIds: string[];
 };
+type SupplierPreselectionSelectableProposal = EstimateSupplierPreselectionProposal;
 type EstimateUndoRedoCommand = UndoRedoCommand & {
   label?: string;
 };
@@ -329,6 +341,27 @@ type EstimateEditorTableProps = ComponentProps<typeof EstimateEditorTable>;
 type EstimateEditorVirtualizationConfig = NonNullable<
   EstimateEditorTableProps["virtualization"]
 >;
+
+const SUPPLIER_PRESELECTION_ALTERNATIVE_KINDS = [
+  "best_price",
+  "most_recent",
+  "preferred_supplier",
+  "selected_current",
+] as const satisfies EstimateSupplierComparisonAlternativeKind[];
+
+const SUPPLIER_PRESELECTION_EXCEPTION_REASONS = [
+  "divergence",
+  "stale",
+  "ambiguous",
+  "no_price",
+] as const satisfies EstimateSupplierPreselectionExceptionReason[];
+
+const SUPPLIER_PRESELECTION_COVERAGE_STATUSES = [
+  "covered",
+  "ambiguous",
+  "no_price",
+  "stale",
+] as const satisfies EstimateSupplierComparisonCoverageStatus[];
 type SuggestionLearningOverrides =
   SuggestionLearningState["by_rule_id"][string]["overrides"];
 type SuggestionLearningTrackResult = SuggestionLearningState & {
@@ -366,6 +399,20 @@ const ESTIMATE_EDITOR_VIRTUALIZATION_ENV_CONFIG: EstimateEditorVirtualizationRun
 const EMPTY_SUGGESTION_LEARNING_STATE: SuggestionLearningState = {
   enabled: false,
   by_rule_id: {},
+};
+const EMPTY_SUPPLIER_PRESELECTION_REVIEW: EstimateSupplierPreselectionReview = {
+  summary: {
+    total_items: 0,
+    proposed_items: 0,
+    exception_items: 0,
+    already_selected_items: 0,
+    divergence_items: 0,
+    stale_items: 0,
+    ambiguous_items: 0,
+    no_price_items: 0,
+  },
+  proposals: [],
+  exceptions: [],
 };
 
 function getProjectName(
@@ -815,6 +862,232 @@ function normalizeSupplierComparisonsByItemId(
   }
 
   return map;
+}
+
+function normalizeSupplierPreselectionAlternative(
+  value: unknown
+): EstimateSupplierComparisonAlternativeContract | null {
+  if (!isRecord(value)) return null;
+
+  const supplierPriceId = toNonEmptyString(value.supplier_price_id);
+  const supplierId = toNonEmptyString(value.supplier_id);
+  const supplierName = toNonEmptyString(value.supplier_name);
+  const productDesignation = toNonEmptyString(value.product_designation);
+  const rawKind = toNonEmptyString(value.kind);
+
+  if (
+    !supplierPriceId ||
+    !supplierId ||
+    !supplierName ||
+    !productDesignation ||
+    !rawKind ||
+    !SUPPLIER_PRESELECTION_ALTERNATIVE_KINDS.includes(
+      rawKind as EstimateSupplierComparisonAlternativeKind
+    )
+  ) {
+    return null;
+  }
+
+  const kind = rawKind as EstimateSupplierComparisonAlternativeKind;
+
+  return {
+    kind,
+    supplier_price_id: supplierPriceId,
+    supplier_id: supplierId,
+    supplier_name: supplierName,
+    adjusted_unit_price_cents: toFiniteNumber(
+      value.adjusted_unit_price_cents,
+      0
+    ),
+    supplier_reference: toNonEmptyString(value.supplier_reference),
+    catalogue_url: toNonEmptyString(value.catalogue_url),
+    updated_at: toNonEmptyString(value.updated_at),
+    is_stale: value.is_stale === true,
+    product_designation: productDesignation,
+    is_selected: value.is_selected === true,
+  };
+}
+
+function normalizeSupplierPreselectionSummary(
+  value: unknown
+): EstimateSupplierPreselectionSummary {
+  const record = isRecord(value) ? value : {};
+  return {
+    total_items: Math.max(0, Math.floor(toFiniteNumber(record.total_items, 0))),
+    proposed_items: Math.max(0, Math.floor(toFiniteNumber(record.proposed_items, 0))),
+    exception_items: Math.max(0, Math.floor(toFiniteNumber(record.exception_items, 0))),
+    already_selected_items: Math.max(
+      0,
+      Math.floor(toFiniteNumber(record.already_selected_items, 0))
+    ),
+    divergence_items: Math.max(0, Math.floor(toFiniteNumber(record.divergence_items, 0))),
+    stale_items: Math.max(0, Math.floor(toFiniteNumber(record.stale_items, 0))),
+    ambiguous_items: Math.max(0, Math.floor(toFiniteNumber(record.ambiguous_items, 0))),
+    no_price_items: Math.max(0, Math.floor(toFiniteNumber(record.no_price_items, 0))),
+  };
+}
+
+function normalizeSupplierPreselectionProposal(
+  value: unknown
+): EstimateSupplierPreselectionProposal | null {
+  if (!isRecord(value)) return null;
+
+  const itemId = toNonEmptyString(value.item_id);
+  const itemTitle = toNonEmptyString(value.item_title);
+  const proposedAlternative = normalizeSupplierPreselectionAlternative(
+    value.proposed_alternative
+  );
+  const currentAlternative = normalizeSupplierPreselectionAlternative(
+    value.current_alternative
+  );
+  const patchRecord = isRecord(value.patch) ? value.patch : null;
+  const selectedSupplierPriceId = patchRecord
+    ? toNonEmptyString(patchRecord.selected_supplier_price_id)
+    : null;
+  const reason = toNonEmptyString(value.reason);
+  const explanation = toNonEmptyString(value.explanation);
+
+  if (
+    !itemId ||
+    !itemTitle ||
+    !proposedAlternative ||
+    !patchRecord ||
+    !selectedSupplierPriceId ||
+    reason !== "single_clear_option" ||
+    !explanation
+  ) {
+    return null;
+  }
+
+  return {
+    item_id: itemId,
+    item_title: itemTitle,
+    current_alternative: currentAlternative,
+    proposed_alternative: proposedAlternative,
+    patch: {
+      description:
+        patchRecord.description === null
+          ? null
+          : toNonEmptyString(patchRecord.description),
+      unit_price_ht_cents: Math.max(
+        0,
+        Math.floor(toFiniteNumber(patchRecord.unit_price_ht_cents, 0))
+      ),
+      selected_supplier_price_id: selectedSupplierPriceId,
+    },
+    reason,
+    explanation,
+    is_reversible: true,
+  };
+}
+
+function normalizeSupplierPreselectionException(
+  value: unknown
+): EstimateSupplierPreselectionException | null {
+  if (!isRecord(value)) return null;
+
+  const itemId = toNonEmptyString(value.item_id);
+  const itemTitle = toNonEmptyString(value.item_title);
+  const rawReason = toNonEmptyString(value.reason);
+  const rawCoverageStatus = toNonEmptyString(value.coverage_status);
+
+  if (
+    !itemId ||
+    !itemTitle ||
+    !rawReason ||
+    !rawCoverageStatus ||
+    !SUPPLIER_PRESELECTION_EXCEPTION_REASONS.includes(
+      rawReason as EstimateSupplierPreselectionExceptionReason
+    ) ||
+    !SUPPLIER_PRESELECTION_COVERAGE_STATUSES.includes(
+      rawCoverageStatus as EstimateSupplierComparisonCoverageStatus
+    )
+  ) {
+    return null;
+  }
+
+  const reason = rawReason as EstimateSupplierPreselectionExceptionReason;
+  const coverageStatus =
+    rawCoverageStatus as EstimateSupplierComparisonCoverageStatus;
+
+  const riskFlags = Array.isArray(value.risk_flags)
+    ? value.risk_flags
+        .map((entry) => toNonEmptyString(entry))
+        .filter((entry): entry is string => Boolean(entry))
+        .filter(
+          (entry): entry is EstimateSupplierPreselectionException["risk_flags"][number] =>
+            [
+              "multiple_alternatives",
+              "selection_missing",
+              "selected_stale",
+              "selected_not_best_price",
+            ].includes(entry)
+        )
+    : [];
+
+  const alternatives = Array.isArray(value.alternatives)
+    ? value.alternatives
+        .map((entry) => normalizeSupplierPreselectionAlternative(entry))
+        .filter(
+          (
+            entry
+          ): entry is EstimateSupplierComparisonAlternativeContract => entry !== null
+        )
+    : [];
+
+  return {
+    item_id: itemId,
+    item_title: itemTitle,
+    reason,
+    coverage_status: coverageStatus,
+    risk_flags: riskFlags,
+    selected_alternative: normalizeSupplierPreselectionAlternative(
+      value.selected_alternative
+    ),
+    alternatives,
+  };
+}
+
+function normalizeSupplierPreselectionReview(
+  payload: unknown
+): EstimateSupplierPreselectionReview {
+  const data = isRecord(payload) && isRecord(payload.data) ? payload.data : null;
+  const container =
+    data && isRecord(data.bulk_preselection)
+      ? data.bulk_preselection
+      : isRecord(payload) && isRecord(payload.bulk_preselection)
+        ? payload.bulk_preselection
+        : null;
+
+  if (!container) {
+    return {
+      summary: normalizeSupplierPreselectionSummary(null),
+      proposals: [],
+      exceptions: [],
+    };
+  }
+
+  return {
+    summary: normalizeSupplierPreselectionSummary(container.summary),
+    proposals: Array.isArray(container.proposals)
+      ? container.proposals
+          .map((entry) => normalizeSupplierPreselectionProposal(entry))
+          .filter(
+            (
+              entry
+            ): entry is EstimateSupplierPreselectionProposal => entry !== null
+          )
+      : [],
+    exceptions: Array.isArray(container.exceptions)
+      ? container.exceptions
+          .map((entry) => normalizeSupplierPreselectionException(entry))
+          .filter(
+            (
+              entry
+            ): entry is EstimateSupplierPreselectionException => entry !== null
+          )
+      : [],
+  };
 }
 
 function formatSupplierAlternativeCompact(
@@ -1308,6 +1581,7 @@ export type EstimateEditorStateModel = {
     settings: EstimateSettingsState | null;
     isSettingsDrawerOpen: boolean;
     isBulkSuggestDialogOpen: boolean;
+    isSupplierPreselectionDialogOpen: boolean;
     isImportFromEstimateDialogOpen: boolean;
     isEstimateStructureDraftDialogOpen: boolean;
     isGeneratedOuvrageDialogOpen: boolean;
@@ -1338,6 +1612,9 @@ export type EstimateEditorStateModel = {
         editorTableProps: EstimateEditorTableProps;
         drawerProps: ComponentProps<typeof EstimateEditorDrawer>;
         bulkSuggestDialogProps: ComponentProps<typeof BulkSuggestDialog>;
+        supplierPreselectionDialogProps: ComponentProps<
+          typeof SupplierPreselectionDialog
+        >;
         importFromEstimateDialogProps:
           | ComponentProps<typeof ImportFromEstimateDialog>
           | null;
@@ -1446,6 +1723,18 @@ export function useEstimateEditorState({
   const [bulkSuggestUndoState, setBulkSuggestUndoState] =
     useState<BulkSuggestUndoState | null>(null);
   const [isUndoingBulkSuggest, setIsUndoingBulkSuggest] = useState(false);
+  const [isSupplierPreselectionDialogOpen, setIsSupplierPreselectionDialogOpen] =
+    useState(false);
+  const [supplierPreselectionReview, setSupplierPreselectionReview] =
+    useState<EstimateSupplierPreselectionReview>(EMPTY_SUPPLIER_PRESELECTION_REVIEW);
+  const [selectedSupplierPreselectionItemIds, setSelectedSupplierPreselectionItemIds] =
+    useState<string[]>([]);
+  const [supplierPreselectionDialogError, setSupplierPreselectionDialogError] =
+    useState<string | null>(null);
+  const [isLoadingSupplierPreselection, setIsLoadingSupplierPreselection] =
+    useState(false);
+  const [isApplyingSupplierPreselection, setIsApplyingSupplierPreselection] =
+    useState(false);
   const [isReloadingVersion, setIsReloadingVersion] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [sectionDuplicateTargets, setSectionDuplicateTargets] = useState<
@@ -2421,6 +2710,10 @@ export function useEstimateEditorState({
   );
 
   const bulkSuggestionEligibleCount = bulkSuggestPreview.length;
+  const supplierPreselectionEligibleCount = useMemo(
+    () => items.filter((item) => item.item_type === "line").length,
+    [items]
+  );
 
   const detectedOutlierFlagsByItemId = useMemo(
     () =>
@@ -3252,6 +3545,301 @@ export function useEstimateEditorState({
     isReadOnly,
     readOnlyActionErrorMessage,
     selectedBulkSuggestPreview,
+    settings?.margin_multiplier,
+    settings?.tax_rate_bp,
+  ]);
+
+  const selectedSupplierPreselectionProposals = useMemo(() => {
+    if (selectedSupplierPreselectionItemIds.length === 0) {
+      return [] as SupplierPreselectionSelectableProposal[];
+    }
+
+    const selectedIdSet = new Set(selectedSupplierPreselectionItemIds);
+    return supplierPreselectionReview.proposals.filter((proposal) =>
+      selectedIdSet.has(proposal.item_id)
+    );
+  }, [selectedSupplierPreselectionItemIds, supplierPreselectionReview]);
+
+  useEffect(() => {
+    setSelectedSupplierPreselectionItemIds((previous) => {
+      if (previous.length === 0) return previous;
+
+      const eligibleItemIds = new Set(
+        supplierPreselectionReview.proposals.map((proposal) => proposal.item_id)
+      );
+      const next = previous.filter((itemId) => eligibleItemIds.has(itemId));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [supplierPreselectionReview]);
+
+  const handleOpenSupplierPreselectionDialog = useCallback(async () => {
+    if (isReadOnly) {
+      setActionError(readOnlyActionErrorMessage);
+      return;
+    }
+
+    if (isConflictLocked) {
+      setActionError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+
+    if (!resolvedVersionId) {
+      setActionError("Version introuvable.");
+      return;
+    }
+
+    const lineItems = itemsRef.current.filter(
+      (item): item is EstimateItem => item.item_type === "line"
+    );
+    if (lineItems.length === 0) {
+      setActionError("Aucune ligne de devis disponible.");
+      return;
+    }
+
+    setActionError(null);
+    setSupplierPreselectionDialogError(null);
+    setSupplierPreselectionReview(EMPTY_SUPPLIER_PRESELECTION_REVIEW);
+    setSelectedSupplierPreselectionItemIds([]);
+    setIsSupplierPreselectionDialogOpen(true);
+    setIsLoadingSupplierPreselection(true);
+
+    try {
+      const response = await fetch(
+        `/api/estimates/${resolvedVersionId}/supplier-comparisons`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          cache: "no-store",
+          body: JSON.stringify({
+            all_items: true,
+          }),
+        }
+      );
+
+      const payload = (await response.json().catch(() => null)) as unknown;
+      if (!response.ok) {
+        const apiErrorMessage =
+          isRecord(payload) && isRecord(payload.error)
+            ? toNonEmptyString(payload.error.message)
+            : null;
+        throw new Error(
+          apiErrorMessage ?? "Impossible de charger la preselection fournisseurs."
+        );
+      }
+
+      const review = normalizeSupplierPreselectionReview(payload);
+      setSupplierPreselectionReview(review);
+      setSelectedSupplierPreselectionItemIds(
+        review.proposals.map((proposal) => proposal.item_id)
+      );
+    } catch (error) {
+      setSupplierPreselectionDialogError(
+        resolveEstimateActionError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de charger la preselection fournisseurs."
+        )
+      );
+    } finally {
+      setIsLoadingSupplierPreselection(false);
+    }
+  }, [
+    conflictState?.message,
+    isConflictLocked,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+    resolvedVersionId,
+  ]);
+
+  const handleCloseSupplierPreselectionDialog = useCallback(() => {
+    if (isApplyingSupplierPreselection) return;
+
+    setIsSupplierPreselectionDialogOpen(false);
+    setSupplierPreselectionDialogError(null);
+    setIsLoadingSupplierPreselection(false);
+  }, [isApplyingSupplierPreselection]);
+
+  const handleToggleSupplierPreselectionItem = useCallback(
+    (itemId: string, checked: boolean) => {
+      setSelectedSupplierPreselectionItemIds((previous) => {
+        if (checked) {
+          if (previous.includes(itemId)) return previous;
+          return [...previous, itemId];
+        }
+
+        if (!previous.includes(itemId)) return previous;
+        return previous.filter((id) => id !== itemId);
+      });
+    },
+    []
+  );
+
+  const handleToggleAllSupplierPreselectionItems = useCallback(
+    (checked: boolean) => {
+      if (!checked) {
+        setSelectedSupplierPreselectionItemIds([]);
+        return;
+      }
+
+      setSelectedSupplierPreselectionItemIds(
+        supplierPreselectionReview.proposals.map((proposal) => proposal.item_id)
+      );
+    },
+    [supplierPreselectionReview]
+  );
+
+  const handleApplySupplierPreselection = useCallback(async () => {
+    if (isApplyingSupplierPreselection) return;
+
+    if (isReadOnly) {
+      setSupplierPreselectionDialogError(readOnlyActionErrorMessage);
+      return;
+    }
+
+    if (isConflictLocked) {
+      setSupplierPreselectionDialogError(
+        conflictState?.message ?? "Version modifiee par un autre utilisateur"
+      );
+      return;
+    }
+
+    const versionSnapshot = versionRef.current;
+    if (!versionSnapshot) {
+      setSupplierPreselectionDialogError("Version introuvable.");
+      return;
+    }
+
+    const selectedProposalByItemId = new Map(
+      selectedSupplierPreselectionProposals.map((proposal) => [proposal.item_id, proposal])
+    );
+
+    if (selectedProposalByItemId.size === 0) {
+      setSupplierPreselectionDialogError(
+        "Selectionnez au moins une preselection fournisseur."
+      );
+      return;
+    }
+
+    const snapshot = itemsRef.current;
+    const selectedLines = snapshot.filter(
+      (item): item is EstimateItem =>
+        item.item_type === "line" && selectedProposalByItemId.has(item.id)
+    );
+
+    if (selectedLines.length === 0) {
+      setSupplierPreselectionDialogError("Aucune ligne eligible selectionnee.");
+      return;
+    }
+
+    const marginMultiplier = settings?.margin_multiplier ?? 1;
+    const fallbackTaxRateBp = settings?.tax_rate_bp ?? versionSnapshot.tax_rate_bp ?? 0;
+
+    const updatedLines = selectedLines.map((item) => {
+      const proposal = selectedProposalByItemId.get(item.id);
+      if (!proposal) return item;
+
+      const nextItem: EstimateItem = {
+        ...item,
+        ...proposal.patch,
+      };
+      const taxRate = nextItem.tax_rate_bp ?? fallbackTaxRateBp;
+      const { lineInput, lineValues } = computeLineValuesWithLaborContext(nextItem, {
+        marginMultiplier,
+        taxRateBp: taxRate,
+      });
+
+      return {
+        ...nextItem,
+        tax_rate_bp: lineInput.tax_rate_bp,
+        k_fo: lineInput.k_fo,
+        h_mo: lineInput.h_mo,
+        h_mo_majoration: lineInput.h_mo_majoration,
+        k_mo: lineInput.k_mo,
+        ...(isLaborSplitEnabled || hasLaborSplitFields(lineInput)
+          ? (readLaborSplitFields(lineInput) as LaborSplitItemFields)
+          : {}),
+        pu_ht_cents: lineValues.puHtCents,
+        line_total_ht_cents: lineValues.saleLineCents,
+        line_tax_cents: lineValues.taxLineCents,
+        line_total_ttc_cents: lineValues.ttcLineCents,
+      };
+    });
+
+    const updatesPayload = updatedLines.map((item) => ({
+      id: item.id,
+      updates: buildEstimateItemUpdatePayload(item),
+    }));
+
+    if (updatesPayload.length === 0) {
+      setSupplierPreselectionDialogError("Aucune mise a jour a appliquer.");
+      return;
+    }
+
+    const updatedById = new Map(updatedLines.map((item) => [item.id, item]));
+
+    setSupplierPreselectionDialogError(null);
+    setIsApplyingSupplierPreselection(true);
+    setItems((previous) =>
+      previous.map((item) => updatedById.get(item.id) ?? item)
+    );
+
+    try {
+      const bulkResult = await bulkUpdateEstimateItems(
+        versionSnapshot.id,
+        versionSnapshot.updated_at,
+        updatesPayload
+      );
+      const nextVersionToken = bulkResult.versionToken.updated_at;
+
+      setVersion((previous) =>
+        previous
+          ? {
+              ...previous,
+              updated_at: nextVersionToken,
+            }
+          : previous
+      );
+      if (versionRef.current) {
+        versionRef.current = {
+          ...versionRef.current,
+          updated_at: nextVersionToken,
+        };
+      }
+
+      setTotalsOutOfSync(false);
+      setIsSupplierPreselectionDialogOpen(false);
+      setSelectedSupplierPreselectionItemIds([]);
+      setSupplierPreselectionDialogError(null);
+    } catch (error) {
+      setItems(snapshot);
+      if (!handleVersionConflict(error, { persistDraft: true })) {
+        setSupplierPreselectionDialogError(
+          resolveEstimateActionError(
+            error instanceof Error
+              ? error.message
+              : "Impossible d'appliquer la preselection fournisseurs."
+          )
+        );
+      } else {
+        setIsSupplierPreselectionDialogOpen(false);
+      }
+    } finally {
+      setIsApplyingSupplierPreselection(false);
+    }
+  }, [
+    computeLineValuesWithLaborContext,
+    conflictState?.message,
+    handleVersionConflict,
+    isApplyingSupplierPreselection,
+    isConflictLocked,
+    isLaborSplitEnabled,
+    isReadOnly,
+    readOnlyActionErrorMessage,
+    selectedSupplierPreselectionProposals,
     settings?.margin_multiplier,
     settings?.tax_rate_bp,
   ]);
@@ -7086,7 +7674,9 @@ export function useEstimateEditorState({
       canRedo,
       isUndoRedoBusy,
       bulkSuggestionEligibleCount,
+      supplierPreselectionEligibleCount,
       onOpenBulkSuggestDialog: handleOpenBulkSuggestDialog,
+      onOpenSupplierPreselectionDialog: () => void handleOpenSupplierPreselectionDialog(),
       onReorder: handleReorder,
       onMoveItem: handleMoveItem,
       scrollToItemId: checklistScrollTargetItemId,
@@ -7140,6 +7730,7 @@ export function useEstimateEditorState({
       handleReorder,
       handleMoveItem,
       handleOpenBulkSuggestDialog,
+      handleOpenSupplierPreselectionDialog,
       handleToggleOutlierDismiss,
       canUndo,
       canRedo,
@@ -7161,6 +7752,7 @@ export function useEstimateEditorState({
       suggestionRules,
       suggestionLearningState,
       bulkSuggestionEligibleCount,
+      supplierPreselectionEligibleCount,
       checklistScrollTargetItemId,
       checklist,
       isChecklistCollapsed,
@@ -7420,6 +8012,37 @@ export function useEstimateEditorState({
     ]
   );
 
+  const supplierPreselectionDialogProps = useMemo<
+    ComponentProps<typeof SupplierPreselectionDialog>
+  >(
+    () => ({
+      isOpen: isSupplierPreselectionDialogOpen,
+      review: supplierPreselectionReview,
+      selectedItemIds: selectedSupplierPreselectionItemIds,
+      estimateCurrency: settings?.currency ?? DEFAULT_ESTIMATE_CURRENCY,
+      isLoading: isLoadingSupplierPreselection,
+      isApplying: isApplyingSupplierPreselection,
+      error: supplierPreselectionDialogError,
+      onClose: handleCloseSupplierPreselectionDialog,
+      onConfirm: () => void handleApplySupplierPreselection(),
+      onToggleItem: handleToggleSupplierPreselectionItem,
+      onToggleAll: handleToggleAllSupplierPreselectionItems,
+    }),
+    [
+      handleApplySupplierPreselection,
+      handleCloseSupplierPreselectionDialog,
+      handleToggleAllSupplierPreselectionItems,
+      handleToggleSupplierPreselectionItem,
+      isApplyingSupplierPreselection,
+      isLoadingSupplierPreselection,
+      isSupplierPreselectionDialogOpen,
+      settings?.currency,
+      selectedSupplierPreselectionItemIds,
+      supplierPreselectionDialogError,
+      supplierPreselectionReview,
+    ]
+  );
+
   const importFromEstimateDialogProps = useMemo<
     ComponentProps<typeof ImportFromEstimateDialog> | null
   >(
@@ -7570,6 +8193,7 @@ export function useEstimateEditorState({
     settings,
     isSettingsDrawerOpen,
     isBulkSuggestDialogOpen,
+    isSupplierPreselectionDialogOpen,
     isImportFromEstimateDialogOpen,
     isEstimateStructureDraftDialogOpen,
     isGeneratedOuvrageDialogOpen,
@@ -7625,6 +8249,7 @@ export function useEstimateEditorState({
       editorTableProps,
       drawerProps,
       bulkSuggestDialogProps,
+      supplierPreselectionDialogProps,
       importFromEstimateDialogProps,
       estimateStructureDraftDialogProps,
       generatedOuvrageDialogProps,

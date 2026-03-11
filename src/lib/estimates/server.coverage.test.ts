@@ -10,6 +10,7 @@ vi.mock("@/lib/feature-flags", () => ({
 }));
 
 import {
+  buildEstimateSupplierPreselectionReview,
   createEstimate,
   createEstimateTemplateFromVersion,
   createMarginTier,
@@ -628,6 +629,31 @@ describe("estimate server coverage additions", () => {
       selected_alternative: null,
       alternatives: [],
     });
+    expect(result.bulk_preselection).toEqual({
+      summary: {
+        total_items: 2,
+        proposed_items: 0,
+        exception_items: 2,
+        already_selected_items: 0,
+        divergence_items: 0,
+        stale_items: 1,
+        ambiguous_items: 0,
+        no_price_items: 1,
+      },
+      proposals: [],
+      exceptions: [
+        expect.objectContaining({
+          item_id: "item-stale",
+          reason: "stale",
+          coverage_status: "stale",
+        }),
+        expect.objectContaining({
+          item_id: "item-missing",
+          reason: "no_price",
+          coverage_status: "no_price",
+        }),
+      ],
+    });
   });
 
   it("preserves the selected supplier rationale when the live query no longer returns that price", async () => {
@@ -821,6 +847,435 @@ describe("estimate server coverage additions", () => {
     expect(result.comparisons[0]?.alternatives.slice(0, 3).some((alternative) => alternative.is_selected)).toBe(
       true
     );
+  });
+
+  it("returns live bulk preselection review for all lines", async () => {
+    const base = createAuth("engineer");
+    const versionAccessBuilder = createVersionAccessBuilder();
+    const estimateItemsBuilder = chainResult({
+      data: [
+        {
+          id: "item-proposed",
+          item_type: "line",
+          title: "Clear Supplier",
+          selected_supplier_price_id: null,
+        },
+        {
+          id: "item-divergent",
+          item_type: "line",
+          title: "Cable cuivre",
+          selected_supplier_price_id: "price-old",
+        },
+      ],
+      error: null,
+    });
+    const productsBuilders = [
+      chainResult({
+        data: [
+          {
+            id: "product-proposed",
+            designation: "Tube cuivre",
+            reference: "CUI-001",
+          },
+          {
+            id: "product-divergent",
+            designation: "Cable cuivre",
+            reference: "CAB-001",
+          },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          {
+            id: "product-proposed",
+            designation: "Tube cuivre",
+            reference: "CUI-001",
+          },
+          {
+            id: "product-divergent",
+            designation: "Cable cuivre",
+            reference: "CAB-001",
+          },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          {
+            id: "product-proposed",
+            designation: "Tube cuivre",
+            reference: "CUI-001",
+          },
+          {
+            id: "product-divergent",
+            designation: "Cable cuivre",
+            reference: "CAB-001",
+          },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          {
+            id: "product-proposed",
+            designation: "Tube cuivre",
+            reference: "CUI-001",
+          },
+          {
+            id: "product-divergent",
+            designation: "Cable cuivre",
+            reference: "CAB-001",
+          },
+        ],
+        error: null,
+      }),
+    ];
+    const suppliersBuilders = [
+      chainResult({
+        data: [
+          { id: "supplier-clear", name: "Clear Supplier" },
+          { id: "supplier-old", name: "Old Supplier" },
+          { id: "supplier-best", name: "Best Supplier" },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          { id: "supplier-clear", name: "Clear Supplier" },
+          { id: "supplier-old", name: "Old Supplier" },
+          { id: "supplier-best", name: "Best Supplier" },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          { id: "supplier-clear", name: "Clear Supplier" },
+          { id: "supplier-old", name: "Old Supplier" },
+          { id: "supplier-best", name: "Best Supplier" },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          { id: "supplier-clear", name: "Clear Supplier" },
+          { id: "supplier-old", name: "Old Supplier" },
+          { id: "supplier-best", name: "Best Supplier" },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          { id: "supplier-old", name: "Old Supplier" },
+          { id: "supplier-best", name: "Best Supplier" },
+        ],
+        error: null,
+      }),
+    ];
+    const supplierPricebookBuilders = [
+      chainResult({
+        data: [
+          {
+            id: "price-clear",
+            supplier_id: "supplier-clear",
+            product_id: "product-proposed",
+            supplier_sku: "CLR-1",
+            unit: "u",
+            unit_price_cents: 1250,
+            currency: "EUR",
+            updated_at: "2026-03-01T00:00:00.000Z",
+            created_at: "2026-03-01T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: [
+          {
+            id: "price-old",
+            supplier_id: "supplier-old",
+            product_id: "product-divergent",
+            supplier_sku: "OLD-1",
+            unit: "u",
+            unit_price_cents: 1600,
+            currency: "EUR",
+            updated_at: "2026-03-01T00:00:00.000Z",
+            created_at: "2026-03-01T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-best",
+            supplier_id: "supplier-best",
+            product_id: "product-divergent",
+            supplier_sku: "BEST-1",
+            unit: "u",
+            unit_price_cents: 1400,
+            currency: "EUR",
+            updated_at: "2026-03-02T00:00:00.000Z",
+            created_at: "2026-03-02T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+        ],
+        error: null,
+      }),
+      chainResult({
+        data: {
+          id: "price-old",
+          supplier_id: "supplier-old",
+          product_id: "product-divergent",
+          supplier_sku: "OLD-1",
+          unit: "u",
+          unit_price_cents: 1600,
+          currency: "EUR",
+          updated_at: "2026-03-01T00:00:00.000Z",
+          created_at: "2026-03-01T00:00:00.000Z",
+          notes: null,
+          is_active: true,
+        },
+        error: null,
+      }),
+      chainResult({
+        data: [
+          {
+            id: "price-old",
+            supplier_id: "supplier-old",
+            product_id: "product-divergent",
+            supplier_sku: "OLD-1",
+            unit: "u",
+            unit_price_cents: 1600,
+            currency: "EUR",
+            updated_at: "2026-03-01T00:00:00.000Z",
+            created_at: "2026-03-01T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+          {
+            id: "price-best",
+            supplier_id: "supplier-best",
+            product_id: "product-divergent",
+            supplier_sku: "BEST-1",
+            unit: "u",
+            unit_price_cents: 1400,
+            currency: "EUR",
+            updated_at: "2026-03-02T00:00:00.000Z",
+            created_at: "2026-03-02T00:00:00.000Z",
+            notes: null,
+            is_active: true,
+          },
+        ],
+        error: null,
+      }),
+    ];
+    const dpgfCatalogueLinksBuilder = chainResult({
+      data: [],
+      error: null,
+    });
+
+    const supabase = {
+      ...base,
+      from: vi.fn((table: string) => {
+        if (table === "tenant_memberships") {
+          return {
+            select: vi.fn(() => base.__membershipBuilder),
+          };
+        }
+        if (table === "estimate_versions") {
+          return {
+            select: vi.fn(() => versionAccessBuilder),
+          };
+        }
+        if (table === "estimate_items") {
+          return {
+            select: vi.fn(() => estimateItemsBuilder),
+          };
+        }
+        if (table === "products") {
+          const builder = productsBuilders.shift();
+          if (!builder) {
+            throw new Error("Unexpected products query");
+          }
+          return {
+            select: vi.fn(() => builder),
+          };
+        }
+        if (table === "suppliers") {
+          const builder = suppliersBuilders.shift();
+          if (!builder) {
+            throw new Error("Unexpected suppliers query");
+          }
+          return {
+            select: vi.fn(() => builder),
+          };
+        }
+        if (table === "supplier_pricebook") {
+          const builder = supplierPricebookBuilders.shift();
+          if (!builder) {
+            throw new Error("Unexpected supplier_pricebook query");
+          }
+          return {
+            select: vi.fn(() => builder),
+          };
+        }
+        if (table === "dpgf_catalogue_links") {
+          return {
+            select: vi.fn(() => dpgfCatalogueLinksBuilder),
+          };
+        }
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+    };
+
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await getEstimateSupplierComparisons(VERSION_ID, null);
+
+    expect(result.bulk_preselection).toEqual({
+      summary: {
+        total_items: 2,
+        proposed_items: 1,
+        exception_items: 1,
+        already_selected_items: 0,
+        divergence_items: 1,
+        stale_items: 0,
+        ambiguous_items: 0,
+        no_price_items: 0,
+      },
+      proposals: [
+        expect.objectContaining({
+          item_id: "item-proposed",
+          reason: "single_clear_option",
+          patch: {
+            description: "Tube cuivre",
+            unit_price_ht_cents: 1250,
+            selected_supplier_price_id: "price-clear",
+          },
+        }),
+      ],
+      exceptions: [
+        expect.objectContaining({
+          item_id: "item-divergent",
+          reason: "divergence",
+          risk_flags: expect.arrayContaining(["selected_not_best_price"]),
+        }),
+      ],
+    });
+  });
+
+  it("builds a bulk supplier preselection review for simple proposals and explicit divergences", () => {
+    const result = buildEstimateSupplierPreselectionReview({
+      comparisons: [
+        {
+          item_id: "item-proposed",
+          selected_supplier_price_id: null,
+          best_supplier_price_id: "price-clear",
+          coverage_status: "ambiguous",
+          risk_flags: ["selection_missing"],
+          selected_alternative: null,
+          alternatives: [
+            {
+              kind: "best_price",
+              supplier_price_id: "price-clear",
+              supplier_id: "supplier-clear",
+              supplier_name: "Clear Supplier",
+              adjusted_unit_price_cents: 1250,
+              supplier_reference: "CLR-1",
+              catalogue_url: null,
+              updated_at: "2026-03-01T00:00:00.000Z",
+              is_stale: false,
+              product_designation: "Tube cuivre",
+              is_selected: false,
+            },
+          ],
+        },
+        {
+          item_id: "item-divergent",
+          selected_supplier_price_id: "price-old",
+          best_supplier_price_id: "price-best",
+          coverage_status: "covered",
+          risk_flags: ["multiple_alternatives", "selected_not_best_price"],
+          selected_alternative: {
+            kind: "selected_current",
+            supplier_price_id: "price-old",
+            supplier_id: "supplier-old",
+            supplier_name: "Old Supplier",
+            adjusted_unit_price_cents: 1600,
+            supplier_reference: "OLD-1",
+            catalogue_url: null,
+            updated_at: "2026-03-01T00:00:00.000Z",
+            is_stale: false,
+            product_designation: "Cable cuivre",
+            is_selected: true,
+          },
+          alternatives: [
+            {
+              kind: "best_price",
+              supplier_price_id: "price-best",
+              supplier_id: "supplier-best",
+              supplier_name: "Best Supplier",
+              adjusted_unit_price_cents: 1400,
+              supplier_reference: "BEST-1",
+              catalogue_url: null,
+              updated_at: "2026-03-02T00:00:00.000Z",
+              is_stale: false,
+              product_designation: "Cable cuivre",
+              is_selected: false,
+            },
+            {
+              kind: "selected_current",
+              supplier_price_id: "price-old",
+              supplier_id: "supplier-old",
+              supplier_name: "Old Supplier",
+              adjusted_unit_price_cents: 1600,
+              supplier_reference: "OLD-1",
+              catalogue_url: null,
+              updated_at: "2026-03-01T00:00:00.000Z",
+              is_stale: false,
+              product_designation: "Cable cuivre",
+              is_selected: true,
+            },
+          ],
+        },
+      ],
+      itemTitleById: new Map([
+        ["item-proposed", "Tube cuivre"],
+        ["item-divergent", "Cable cuivre"],
+      ]),
+    });
+
+    expect(result).toEqual({
+      summary: {
+        total_items: 2,
+        proposed_items: 1,
+        exception_items: 1,
+        already_selected_items: 0,
+        divergence_items: 1,
+        stale_items: 0,
+        ambiguous_items: 0,
+        no_price_items: 0,
+      },
+      proposals: [
+        expect.objectContaining({
+          item_id: "item-proposed",
+          reason: "single_clear_option",
+          patch: {
+            description: "Tube cuivre",
+            unit_price_ht_cents: 1250,
+            selected_supplier_price_id: "price-clear",
+          },
+        }),
+      ],
+      exceptions: [
+        expect.objectContaining({
+          item_id: "item-divergent",
+          reason: "divergence",
+          risk_flags: expect.arrayContaining(["selected_not_best_price"]),
+        }),
+      ],
+    });
   });
 
   it("creates an estimate with default version values when optional fields are omitted", async () => {

@@ -244,7 +244,9 @@ function renderEstimateEditorTable(options?: {
         canRedo={false}
         isUndoRedoBusy={false}
         bulkSuggestionEligibleCount={0}
+        supplierPreselectionEligibleCount={lineCount}
         onOpenBulkSuggestDialog={vi.fn()}
+        onOpenSupplierPreselectionDialog={vi.fn()}
         onReorder={vi.fn()}
         onMoveItem={vi.fn()}
       />

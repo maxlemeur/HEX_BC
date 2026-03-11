@@ -662,6 +662,57 @@ const estimateSupplierComparisonCoverageSummarySchema = z.object({
   stale_items: z.number().int(),
 });
 
+const estimateSupplierPreselectionPatchSchema = z.object({
+  description: z.string().nullable(),
+  unit_price_ht_cents: z.number().int(),
+  selected_supplier_price_id: uuidSchema,
+});
+
+const estimateSupplierPreselectionProposalSchema = z.object({
+  item_id: uuidSchema,
+  item_title: z.string(),
+  current_alternative: estimateSupplierComparisonAlternativeSchema.nullable(),
+  proposed_alternative: estimateSupplierComparisonAlternativeSchema,
+  patch: estimateSupplierPreselectionPatchSchema,
+  reason: z.enum(["single_clear_option"]),
+  explanation: z.string(),
+  is_reversible: z.literal(true),
+});
+
+const estimateSupplierPreselectionExceptionSchema = z.object({
+  item_id: uuidSchema,
+  item_title: z.string(),
+  reason: z.enum(["divergence", "stale", "ambiguous", "no_price"]),
+  coverage_status: z.enum(["covered", "ambiguous", "no_price", "stale"]),
+  risk_flags: z.array(
+    z.enum([
+      "multiple_alternatives",
+      "selection_missing",
+      "selected_stale",
+      "selected_not_best_price",
+    ])
+  ),
+  selected_alternative: estimateSupplierComparisonAlternativeSchema.nullable(),
+  alternatives: z.array(estimateSupplierComparisonAlternativeSchema),
+});
+
+const estimateSupplierPreselectionSummarySchema = z.object({
+  total_items: z.number().int(),
+  proposed_items: z.number().int(),
+  exception_items: z.number().int(),
+  already_selected_items: z.number().int(),
+  divergence_items: z.number().int(),
+  stale_items: z.number().int(),
+  ambiguous_items: z.number().int(),
+  no_price_items: z.number().int(),
+});
+
+const estimateSupplierPreselectionReviewSchema = z.object({
+  summary: estimateSupplierPreselectionSummarySchema,
+  proposals: z.array(estimateSupplierPreselectionProposalSchema),
+  exceptions: z.array(estimateSupplierPreselectionExceptionSchema),
+});
+
 const estimateBatchResultSchema = z.object({
   committed: z.boolean(),
   version: estimateVersionTokenSchema,
@@ -912,6 +963,7 @@ const estimateSupplierComparisonsDataSchema = z.object({
   stale_price_days: z.number().int(),
   coverage_summary: estimateSupplierComparisonCoverageSummarySchema,
   comparisons: z.array(estimateSupplierComparisonSchema),
+  bulk_preselection: estimateSupplierPreselectionReviewSchema,
 });
 
 const estimateSuggestPricesDataSchema = z.object({

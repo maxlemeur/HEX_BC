@@ -10,6 +10,20 @@ import { getEstimateSupplierComparisons } from "@/lib/estimates/server";
 const VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const ITEM_ID_1 = "22222222-2222-4222-8222-222222222222";
 const ITEM_ID_2 = "33333333-3333-4333-8333-333333333333";
+const BULK_PRESELECTION = {
+  summary: {
+    total_items: 2,
+    proposed_items: 1,
+    exception_items: 1,
+    already_selected_items: 0,
+    divergence_items: 0,
+    stale_items: 0,
+    ambiguous_items: 0,
+    no_price_items: 1,
+  },
+  proposals: [],
+  exceptions: [],
+};
 
 function makeParams(versionId = VERSION_ID) {
   return { params: Promise.resolve({ versionId }) };
@@ -109,11 +123,21 @@ describe("POST /api/estimates/[versionId]/supplier-comparisons", () => {
   it("deduplicates item_ids and forwards request to service", async () => {
     vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({
       stale_price_days: 90,
+      coverage_summary: {
+        total_items: 2,
+        covered_items: 0,
+        ambiguous_items: 0,
+        no_price_items: 1,
+        stale_items: 0,
+      },
       comparisons: [
         {
           item_id: ITEM_ID_1,
           selected_supplier_price_id: null,
           best_supplier_price_id: null,
+          coverage_status: "no_price",
+          risk_flags: [],
+          selected_alternative: null,
           alternatives: [],
         },
         {
@@ -137,6 +161,7 @@ describe("POST /api/estimates/[versionId]/supplier-comparisons", () => {
           ],
         },
       ],
+      bulk_preselection: BULK_PRESELECTION,
     } as never);
 
     const request = new Request(
@@ -168,6 +193,55 @@ describe("POST /api/estimates/[versionId]/supplier-comparisons", () => {
     expect(vi.mocked(getEstimateSupplierComparisons)).toHaveBeenCalledWith(
       VERSION_ID,
       [ITEM_ID_1, ITEM_ID_2]
+    );
+  });
+
+  it("accepts all_items and forwards a bulk review request to service", async () => {
+    vi.mocked(getEstimateSupplierComparisons).mockResolvedValue({
+      stale_price_days: 90,
+      coverage_summary: {
+        total_items: 0,
+        covered_items: 0,
+        ambiguous_items: 0,
+        no_price_items: 0,
+        stale_items: 0,
+      },
+      comparisons: [],
+      bulk_preselection: {
+        summary: {
+          total_items: 0,
+          proposed_items: 0,
+          exception_items: 0,
+          already_selected_items: 0,
+          divergence_items: 0,
+          stale_items: 0,
+          ambiguous_items: 0,
+          no_price_items: 0,
+        },
+        proposals: [],
+        exceptions: [],
+      },
+    } as never);
+
+    const request = new Request(
+      `http://localhost/api/estimates/${VERSION_ID}/supplier-comparisons`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          all_items: true,
+        }),
+      }
+    );
+
+    const response = await POST(request, makeParams());
+
+    expect(response.status).toBe(200);
+    expect(vi.mocked(getEstimateSupplierComparisons)).toHaveBeenCalledWith(
+      VERSION_ID,
+      null
     );
   });
 });

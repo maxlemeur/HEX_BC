@@ -12,6 +12,7 @@ import { EstimateEditorTable } from "@/components/estimates/EstimateEditorTable"
 import { ImportFromEstimateDialog } from "@/components/estimates/ImportFromEstimateDialog";
 import { EstimateSendGatingDialog } from "@/components/estimates/EstimateSendGatingDialog";
 import { EstimateSettingsSummaryBar } from "@/components/estimates/EstimateSettingsSummaryBar";
+import { SupplierPreselectionDialog } from "@/components/estimates/SupplierPreselectionDialog";
 import { EstimateEditorAlerts } from "@/components/estimates/editor/EstimateEditorAlerts";
 import { EstimateEditorDrawer } from "@/components/estimates/editor/EstimateEditorDrawer";
 import { EstimateEditorToolbar } from "@/components/estimates/editor/EstimateEditorToolbar";
@@ -149,6 +150,9 @@ export function EstimateEditorPage({
       {drawerRegion}
       <div data-testid="estimate-editor-bulk-suggest-dialog-region">
         <BulkSuggestDialog {...readyMeta.bulkSuggestDialogProps} />
+      </div>
+      <div data-testid="estimate-editor-supplier-preselection-dialog-region">
+        <SupplierPreselectionDialog {...readyMeta.supplierPreselectionDialogProps} />
       </div>
       {readyMeta.importFromEstimateDialogProps ? (
         <div data-testid="estimate-editor-import-from-estimate-dialog-region">

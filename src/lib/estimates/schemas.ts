@@ -639,18 +639,44 @@ export const estimateSupplierComparisonsRequestSchema = z
       const record = value as Record<string, unknown>;
       return {
         item_ids: record.item_ids ?? record.itemIds,
+        all_items: record.all_items ?? record.allItems,
       };
     },
     z.object({
       item_ids: z
         .array(uuidSchema)
-        .min(1, "item_ids ne peut pas etre vide."),
+        .optional()
+        .default([]),
+      all_items: z.boolean().optional().default(false),
     })
   )
   .transform((payload) => ({
-    item_ids: Array.from(new Set(payload.item_ids)),
+    item_ids: payload.all_items
+      ? null
+      : Array.from(new Set(payload.item_ids)),
+    all_items: payload.all_items,
   }))
   .superRefine((payload, ctx) => {
+    if (payload.all_items) {
+      if (payload.item_ids === null) return;
+      if (payload.item_ids.length === 0) return;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "all_items ne peut pas etre combine avec item_ids.",
+        path: ["all_items"],
+      });
+      return;
+    }
+
+    if (payload.item_ids === null || payload.item_ids.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "item_ids ne peut pas etre vide.",
+        path: ["item_ids"],
+      });
+      return;
+    }
+
     if (payload.item_ids.length <= 200) return;
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

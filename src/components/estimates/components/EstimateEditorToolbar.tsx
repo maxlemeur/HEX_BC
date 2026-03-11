@@ -49,6 +49,7 @@ type EstimateEditorToolbarProps = {
   categories: EstimateCategory[];
   laborRoles: LaborRole[];
   bulkSuggestionEligibleCount: number;
+  supplierPreselectionEligibleCount: number;
   onQualityFilterChange: (value: EstimateQualityFilter) => void;
   onOutlierDetectionMethodChange: (value: EstimateOutlierMethod) => void;
   onOutlierThresholdChange: (value: number) => void;
@@ -60,6 +61,7 @@ type EstimateEditorToolbarProps = {
   onApplyBulkCategory: () => Promise<void>;
   onApplyBulkLaborRole: () => Promise<void>;
   onOpenBulkSuggestDialog: () => void;
+  onOpenSupplierPreselectionDialog: () => void;
   onOpenAssemblyPicker: () => void;
   onOpenImportFromEstimateDialog?: () => void;
   onOpenEstimateStructureDraftDialog?: () => void;
@@ -126,6 +128,7 @@ export function EstimateEditorToolbar({
   categories,
   laborRoles,
   bulkSuggestionEligibleCount,
+  supplierPreselectionEligibleCount,
   onQualityFilterChange,
   onOutlierDetectionMethodChange,
   onOutlierThresholdChange,
@@ -137,6 +140,7 @@ export function EstimateEditorToolbar({
   onApplyBulkCategory,
   onApplyBulkLaborRole,
   onOpenBulkSuggestDialog,
+  onOpenSupplierPreselectionDialog,
   onOpenAssemblyPicker,
   onOpenImportFromEstimateDialog,
   onOpenEstimateStructureDraftDialog,
@@ -654,6 +658,17 @@ export function EstimateEditorToolbar({
                     data-testid="estimate-editor-bulk-suggestions-button"
                   >
                       Suggestions ({bulkSuggestionEligibleCount})
+                    </button>
+                  ) : null}
+                  {supplierPreselectionEligibleCount > 0 ? (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      type="button"
+                      onClick={onOpenSupplierPreselectionDialog}
+                      disabled={meta.isReadOnly}
+                      data-testid="estimate-editor-supplier-preselection-button"
+                    >
+                      Préselection fournisseurs ({supplierPreselectionEligibleCount})
                     </button>
                   ) : null}
                   <button
