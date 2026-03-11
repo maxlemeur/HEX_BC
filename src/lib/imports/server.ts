@@ -911,6 +911,10 @@ export async function createImportFromJsonBody(body: unknown) {
         input.approved_tables
     );
 
+    if (rawTablesInput && sourceKind !== "tabular_pdf") {
+      throw badRequest('Le payload DPGF PDF doit definir sourceKind="tabular_pdf".');
+    }
+
     if (sourceKind === "tabular_pdf" && rawTablesInput && approvedPdfTables.size === 0) {
       throw badRequest(
         "Le payload DPGF PDF doit inclure validation.approvedTables avec au moins un tableau retenu."

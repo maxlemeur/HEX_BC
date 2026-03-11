@@ -401,6 +401,34 @@ describe("createImportFromJsonBody", () => {
     });
   });
 
+  it("rejects reviewed PDF tables when sourceKind stays on tabular", async () => {
+    const { supabase, state } = createImportCreationSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createImportFromJsonBody({
+        sourceKind: "tabular",
+        validation: {
+          approvedTables: [{ sourcePage: 5, tableIndex: 0 }],
+        },
+        tables: [
+          {
+            page: 5,
+            headers: ["Code article", "Description", "Qt"],
+            rows: [{ cells: ["A-001", "Cable cuivre", "12"] }],
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: 'Le payload DPGF PDF doit definir sourceKind="tabular_pdf".',
+    });
+
+    expect(state.importInsertPayloads).toEqual([]);
+    expect(state.rawRowBatches).toEqual([]);
+  });
+
   it("rejects tabular PDF imports without explicit approved tables", async () => {
     const { supabase, state } = createImportCreationSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);

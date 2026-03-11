@@ -149,6 +149,18 @@ function dedupeHeaders(headers: string[]) {
   });
 }
 
+function normalizeRowCellValue(value: string | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  return value.length > 0 ? value : null;
+}
+
+function hasNonNullValue(row: NormalizedImportRow) {
+  return Object.values(row).some((value) => value !== null);
+}
+
 function buildApprovedTableKey(sourcePage: number, tableIndex: number) {
   return `${sourcePage}:${tableIndex}`;
 }
@@ -407,11 +419,13 @@ function buildRowObjectFromTableRow(
   headers: string[],
   cells: string[]
 ): NormalizedImportRow {
-  const dedupedHeaders = dedupeHeaders(headers);
+  const columnCount = Math.max(headers.length, cells.length);
+  const normalizedHeaders = Array.from({ length: columnCount }, (_, index) => headers[index] ?? "");
+  const dedupedHeaders = dedupeHeaders(normalizedHeaders);
   const record: NormalizedImportRow = {};
 
   dedupedHeaders.forEach((header, index) => {
-    record[header] = cells[index] ?? null;
+    record[header] = normalizeRowCellValue(cells[index]);
   });
 
   return record;
@@ -447,6 +461,11 @@ export function buildApprovedTabularPdfRows(input: {
     }
 
     table.rows.forEach((row) => {
+      const normalizedRow = buildRowObjectFromTableRow(table.headers, row.cells);
+      if (!hasNonNullValue(normalizedRow)) {
+        return;
+      }
+
       const provenance: ImportRowProvenance = {
         source_page: table.source_page,
         table_index: table.table_index,
@@ -456,7 +475,7 @@ export function buildApprovedTabularPdfRows(input: {
 
       normalizedRows.push(
         attachImportRowProvenance(
-          buildRowObjectFromTableRow(table.headers, row.cells),
+          normalizedRow,
           provenance
         )
       );
