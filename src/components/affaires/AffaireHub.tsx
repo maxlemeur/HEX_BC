@@ -980,6 +980,10 @@ export function AffaireHub({
   // --- Onboarding banner (post-creation guidance) ---
   const [showOnboardingBanner, setShowOnboardingBanner] = useState(false);
 
+  // --- Project details edit mode (controlled from breadcrumb) ---
+  const [editingProject, setEditingProject] = useState(false);
+  const [actionsPortalTarget, setActionsPortalTarget] = useState<HTMLDivElement | null>(null);
+
   // --- Hoisted state from former QuickActionsCard ---
   const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1275,17 +1279,6 @@ export function AffaireHub({
       temporarilyDismissed: promptTemporarilyDismissed,
     });
 
-  // Extract earliest deadline from intake documents (Recommendation #5)
-  const earliestDeadline = useMemo(() => {
-    if (!intakeWorkspace?.documents?.length) return null;
-    const deadlines = intakeWorkspace.documents
-      .map((doc) => doc.extractedMetadata?.deadlineAt)
-      .filter((d): d is string => d !== null && d !== undefined)
-      .map((d) => new Date(d))
-      .filter((d) => !Number.isNaN(d.getTime()))
-      .sort((a, b) => a.getTime() - b.getTime());
-    return deadlines[0] ?? null;
-  }, [intakeWorkspace]);
 
   const [showImportFlow, setShowImportFlow] = useState(false);
   const [importResult, setImportResult] =
@@ -1302,18 +1295,34 @@ export function AffaireHub({
 
   return (
     <div className="animate-fade-in">
-      {/* Breadcrumb (Recommendation #9) */}
-      <nav aria-label="Fil d'Ariane" className="mb-4">
-        <ol className="flex items-center gap-1.5 text-sm text-[var(--slate-500)]">
-          <li>
-            <BackToListLink />
-          </li>
-          <li aria-hidden="true" className="text-[var(--slate-300)]">/</li>
-          <li className="truncate font-medium text-[var(--slate-700)]">
-            {summary.project.name}
-          </li>
-        </ol>
-      </nav>
+      {/* Breadcrumb + actions bar */}
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <nav aria-label="Fil d'Ariane">
+          <ol className="flex items-center gap-1.5 text-sm text-[var(--slate-500)]">
+            <li>
+              <BackToListLink />
+            </li>
+            <li aria-hidden="true" className="text-[var(--slate-300)]">/</li>
+            <li className="truncate font-medium text-[var(--slate-700)]">
+              {summary.project.name}
+            </li>
+          </ol>
+        </nav>
+
+        {!isReadOnlyReview && (
+          editingProject ? (
+            <div ref={setActionsPortalTarget} />
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost btn-lg shrink-0"
+              onClick={() => setEditingProject(true)}
+            >
+              Modifier la fiche
+            </button>
+          )
+        )}
+      </div>
 
       {/* Onboarding banner (post-creation, no dossier) */}
       {shouldShowAffaireCreatedOnboardingBanner({
@@ -1358,51 +1367,8 @@ export function AffaireHub({
         </div>
       )}
 
-      {/* Header with metadata (Recommendation #5) */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="page-title truncate">{summary.project.name}</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--slate-500)]">
-            {summary.project.clientName && (
-              <span>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1 inline-block align-[-2px]" aria-hidden="true">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-                {summary.project.clientName}
-              </span>
-            )}
-            {summary.project.reference && (
-              <>
-                {summary.project.clientName && (
-                  <span className="text-[var(--slate-300)]">&middot;</span>
-                )}
-                <span>Réf. {summary.project.reference}</span>
-              </>
-            )}
-            {earliestDeadline && (
-              <>
-                <span className="text-[var(--slate-300)]">&middot;</span>
-                <span className={`inline-flex items-center gap-1 ${
-                  earliestDeadline.getTime() < Date.now()
-                    ? "font-semibold text-[var(--danger)]"
-                    : earliestDeadline.getTime() < Date.now() + 7 * 24 * 60 * 60 * 1000
-                      ? "text-[var(--warning)]"
-                      : ""
-                }`}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <polyline points="12 6 12 12 16 14" />
-                  </svg>
-                  Échéance {DATE_FMT.format(earliestDeadline)}
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {!isReadOnlyReview && (
+      {/* Project details fiche — same style as creation page */}
+      {!isReadOnlyReview ? (
         <div className="mb-4">
           <AffairePersistedProjectDetails
             projectId={summary.project.id}
@@ -1411,72 +1377,66 @@ export function AffaireHub({
               clientName: summary.project.clientName ?? "",
               reference: summary.project.reference ?? "",
             }}
+            editing={editingProject}
+            onEditingChange={setEditingProject}
+            actionsPortalTarget={actionsPortalTarget}
+            toolbar={
+              !showImportFlow ? (
+                <div className="space-y-2">
+                  {summary.versionsCount === 0 ? (
+                    <FirstVersionActionBar projectId={summary.project.id} />
+                  ) : summary.versionsCount > 0 ? (
+                    <ActionBar
+                      summary={summary}
+                      versionZeroSummary={versionZeroSummary}
+                      takeoffEnabled={takeoffEnabled}
+                      plansSummary={plansSummary}
+                      pendingAction={pendingAction}
+                      onDuplicate={() => void handleDuplicate()}
+                      onCreateVariant={() => void handleCreateVariant()}
+                      onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+                    />
+                  ) : null}
+                  {actionError && (
+                    <div className="alert alert-error px-3 py-2 text-xs">
+                      {actionError}
+                    </div>
+                  )}
+                  {cockpitState.length > 0 && (
+                    <CockpitCommandBar
+                      suggestions={cockpitState}
+                      onExecute={handleExecuteCockpitSuggestion}
+                      onToggleHidden={(actionId, isHidden) => {
+                        handleToggleCockpitPreference({ actionId, isHidden });
+                      }}
+                      onTogglePinned={(actionId, isPinned) => {
+                        handleToggleCockpitPreference({ actionId, isPinned });
+                      }}
+                    />
+                  )}
+                  {previewSuggestion ? (
+                    <CockpitCommandPreview
+                      suggestion={previewSuggestion}
+                      onConfirm={() => {
+                        const suggestion = previewSuggestion;
+                        setPreviewSuggestion(null);
+                        if (suggestion) {
+                          commitCockpitExecution(suggestion);
+                        }
+                      }}
+                      onCancel={() => setPreviewSuggestion(null)}
+                    />
+                  ) : null}
+                </div>
+              ) : undefined
+            }
           />
         </div>
+      ) : (
+        <div className="mb-4">
+          <h1 className="page-title truncate">{summary.project.name}</h1>
+        </div>
       )}
-
-      {/* Workflow stepper (Recommendation #1) */}
-      <AffaireWorkflowStepper
-        summary={summary}
-        dpgfSource={dpgfSource}
-        intakeWorkspace={intakeWorkspace}
-        approvalSummary={approvalSummary}
-        lineCount={summary.lineCount}
-      />
-
-      {/* Primary CTAs + Cockpit — merged into single visual block */}
-      <div className="mb-2 space-y-0">
-        {!showImportFlow && !isReadOnlyReview && (
-          <>
-            {summary.versionsCount === 0 ? (
-              <FirstVersionActionBar projectId={summary.project.id} />
-            ) : summary.versionsCount > 0 ? (
-              <ActionBar
-                summary={summary}
-                versionZeroSummary={versionZeroSummary}
-                takeoffEnabled={takeoffEnabled}
-                plansSummary={plansSummary}
-                pendingAction={pendingAction}
-                onDuplicate={() => void handleDuplicate()}
-                onCreateVariant={() => void handleCreateVariant()}
-                onLaunchMetre={() => setShowLaunchMetreDialog(true)}
-              />
-            ) : null}
-            {actionError && (
-              <div className="alert alert-error px-3 py-2 text-xs">
-                {actionError}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Cockpit command bar */}
-        {cockpitState.length > 0 && (
-          <CockpitCommandBar
-            suggestions={cockpitState}
-            onExecute={handleExecuteCockpitSuggestion}
-            onToggleHidden={(actionId, isHidden) => {
-              handleToggleCockpitPreference({ actionId, isHidden });
-            }}
-            onTogglePinned={(actionId, isPinned) => {
-              handleToggleCockpitPreference({ actionId, isPinned });
-            }}
-          />
-        )}
-        {previewSuggestion ? (
-          <CockpitCommandPreview
-            suggestion={previewSuggestion}
-            onConfirm={() => {
-              const suggestion = previewSuggestion;
-              setPreviewSuggestion(null);
-              if (suggestion) {
-                commitCockpitExecution(suggestion);
-              }
-            }}
-            onCancel={() => setPreviewSuggestion(null)}
-          />
-        ) : null}
-      </div>
 
       {/* Import result summary banner */}
       {importResult && (
@@ -1746,6 +1706,17 @@ export function AffaireHub({
           </div>
         </>
       )}
+
+      {/* Workflow stepper — sticky bottom bar */}
+      <div className="sticky bottom-0 z-10 -mx-4 mt-6 border-t border-[var(--slate-200)] bg-white/95 px-4 py-3 backdrop-blur-sm sm:-mx-6 sm:px-6">
+        <AffaireWorkflowStepper
+          summary={summary}
+          dpgfSource={dpgfSource}
+          intakeWorkspace={intakeWorkspace}
+          approvalSummary={approvalSummary}
+          lineCount={summary.lineCount}
+        />
+      </div>
 
       {!isReadOnlyReview ? (
         <LaunchMetreDialog

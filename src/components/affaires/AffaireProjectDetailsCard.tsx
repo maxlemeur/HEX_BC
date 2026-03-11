@@ -1,7 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { ProjectIcon, PROJECT_ICONS, type ProjectIconKey } from "@/components/affaires/ProjectIconPicker";
 
 export type AffaireProjectDetailsValues = {
   projectName: string;
@@ -9,22 +8,16 @@ export type AffaireProjectDetailsValues = {
   reference: string;
 };
 
-type AffaireProjectDetailsAction = {
-  label: string;
-  onClick: () => void;
-  loading?: boolean;
-  disabled?: boolean;
-};
-
 type AffaireProjectDetailsCardProps = {
   mode: "view" | "edit";
   title?: string;
   description?: string;
   values: AffaireProjectDetailsValues;
+  iconKey?: ProjectIconKey;
+  /** Override the default icon with a custom slot (e.g. ProjectIconPicker) */
+  iconSlot?: React.ReactNode;
   projectNameError?: string | null;
   errorMessage?: string | null;
-  primaryAction?: AffaireProjectDetailsAction;
-  secondaryAction?: AffaireProjectDetailsAction;
   onProjectNameChange?: (value: string) => void;
   onClientNameChange?: (value: string) => void;
   onReferenceChange?: (value: string) => void;
@@ -37,128 +30,152 @@ function renderValue(value: string, fallback: string) {
 
 export function AffaireProjectDetailsCard({
   mode,
-  title = "Informations affaire",
-  description,
   values,
+  iconKey = "building",
+  iconSlot,
   projectNameError,
   errorMessage,
-  primaryAction,
-  secondaryAction,
   onProjectNameChange,
   onClientNameChange,
   onReferenceChange,
   footer,
 }: Readonly<AffaireProjectDetailsCardProps>) {
-  return (
-    <section className="dashboard-card p-5 animate-fade-in">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-[var(--slate-800)]">{title}</h2>
-          {description ? (
-            <p className="mt-1 text-sm text-[var(--slate-500)]">{description}</p>
-          ) : null}
-        </div>
-        {mode === "view" && primaryAction ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={primaryAction.onClick}
-            loading={primaryAction.loading}
-            disabled={primaryAction.disabled}
-          >
-            {primaryAction.label}
-          </Button>
-        ) : null}
-      </div>
+  const defaultIcon = (
+    <div className="flex w-24 shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-transparent px-3 py-2">
+      <ProjectIcon iconKey={iconKey} size={44} className="text-[var(--slate-400)]" />
+      <span className="text-[10px] font-medium text-[var(--slate-500)]">
+        {PROJECT_ICONS[iconKey]?.label}
+      </span>
+    </div>
+  );
 
-      {mode === "edit" ? (
-        <div className="mt-4 space-y-4">
-          <Input
-            label="Nom du projet *"
-            placeholder="Ex: Residence Les Jardins"
-            value={values.projectName}
-            onChange={(event) => onProjectNameChange?.(event.target.value)}
-            error={projectNameError ?? undefined}
-            aria-required="true"
-          />
-          <Input
-            label="Client"
-            placeholder="Nom du client (optionnel)"
-            value={values.clientName}
-            onChange={(event) => onClientNameChange?.(event.target.value)}
-          />
-          <Input
-            label="Reference"
-            placeholder="Ref. projet (optionnel)"
-            value={values.reference}
-            onChange={(event) => onReferenceChange?.(event.target.value)}
-          />
-          {errorMessage ? (
-            <div role="alert" className="alert alert-error text-sm">
-              {errorMessage}
+  if (mode === "edit") {
+    return (
+      <section className="animate-fade-in space-y-5">
+        <div className="flex items-stretch gap-4">
+          {iconSlot ?? defaultIcon}
+          <div className="grid min-w-0 flex-1 gap-x-6 gap-y-4 lg:grid-cols-[7fr_3fr]">
+            {/* Project name — left column, flex to align bottom border */}
+            <div className="flex flex-col lg:row-span-2">
+              <label
+                htmlFor="details-project-name"
+                className="text-2xl font-semibold uppercase tracking-wider text-[var(--slate-700)]"
+              >
+                Nom du projet <span className="text-[var(--danger)]">*</span>
+              </label>
+              <div className="relative mt-1 flex flex-1 items-end">
+                <input
+                  id="details-project-name"
+                  type="text"
+                  value={values.projectName}
+                  onChange={(e) => onProjectNameChange?.(e.target.value)}
+                  placeholder="Ex : Residence Les Jardins — Lot CVC"
+                  className={`w-full border-0 border-b-2 bg-transparent pb-2 text-3xl font-semibold text-[var(--slate-900)] placeholder:text-[var(--slate-400)] focus:outline-none transition-colors ${
+                    projectNameError
+                      ? "border-[var(--danger)]"
+                      : "border-[var(--slate-200)] focus:border-[var(--brand-blue)]"
+                  }`}
+                  aria-required="true"
+                />
+              </div>
+              {projectNameError && (
+                <p className="mt-1.5 text-xs font-medium text-[var(--danger)]" role="alert">
+                  {projectNameError}
+                </p>
+              )}
             </div>
-          ) : null}
-          {footer ? <div>{footer}</div> : null}
-          {(secondaryAction || primaryAction) ? (
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              {secondaryAction ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={secondaryAction.onClick}
-                  disabled={secondaryAction.disabled}
-                >
-                  {secondaryAction.label}
-                </Button>
-              ) : null}
-              {primaryAction ? (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={primaryAction.onClick}
-                  loading={primaryAction.loading}
-                  disabled={primaryAction.disabled}
-                >
-                  {primaryAction.label}
-                </Button>
-              ) : null}
+
+            {/* Client — right column, top */}
+            <div>
+              <label
+                htmlFor="details-client"
+                className="block text-xs font-semibold uppercase tracking-wider text-[var(--slate-700)]"
+              >
+                Client
+              </label>
+              <input
+                id="details-client"
+                type="text"
+                value={values.clientName}
+                onChange={(e) => onClientNameChange?.(e.target.value)}
+                placeholder="Nom du client (optionnel)"
+                className="mt-2 w-full border-0 border-b-2 border-[var(--slate-200)] bg-transparent pb-2 text-base font-medium text-[var(--slate-900)] placeholder:text-[var(--slate-400)] transition-colors focus:border-[var(--brand-blue)] focus:outline-none"
+              />
             </div>
-          ) : null}
+
+            {/* Reference — right column, bottom */}
+            <div>
+              <label
+                htmlFor="details-reference"
+                className="block text-xs font-semibold uppercase tracking-wider text-[var(--slate-700)]"
+              >
+                Reference
+              </label>
+              <input
+                id="details-reference"
+                type="text"
+                value={values.reference}
+                onChange={(e) => onReferenceChange?.(e.target.value)}
+                placeholder="Ref. projet (optionnel)"
+                className="mt-2 w-full border-0 border-b-2 border-[var(--slate-200)] bg-transparent pb-2 text-base font-medium text-[var(--slate-900)] placeholder:text-[var(--slate-400)] transition-colors focus:border-[var(--brand-blue)] focus:outline-none"
+              />
+            </div>
+          </div>
         </div>
-      ) : (
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
-              Projet
-            </p>
-            <p className="mt-1 text-sm font-medium text-[var(--slate-800)]">
+
+        {errorMessage ? (
+          <div role="alert" className="alert alert-error text-sm">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        {footer ? <div>{footer}</div> : null}
+      </section>
+    );
+  }
+
+  // View mode — fiche style matching the creation page
+  return (
+    <section className="animate-fade-in">
+      <div className="flex items-stretch gap-4">
+        {iconSlot ?? defaultIcon}
+        <div className="grid min-w-0 flex-1 gap-x-6 gap-y-4 lg:grid-cols-[7fr_3fr]">
+          {/* Project name — left column, flex to align bottom border */}
+          <div className="flex flex-col justify-end lg:row-span-2">
+            <p className="w-full border-b-2 border-transparent pb-2 text-3xl font-semibold text-[var(--slate-900)]">
               {renderValue(values.projectName, "Non renseigne")}
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+
+          {/* Client — right column, top */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
               Client
             </p>
-            <p className="mt-1 text-sm font-medium text-[var(--slate-800)]">
+            <p className="mt-2 border-b-2 border-transparent pb-2 text-base font-medium text-[var(--slate-700)]">
               {renderValue(values.clientName, "Non renseigne")}
             </p>
           </div>
-          <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--slate-500)]">
+
+          {/* Reference — right column, bottom */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
               Reference
             </p>
-            <p className="mt-1 text-sm font-medium text-[var(--slate-800)]">
+            <p className="mt-2 border-b-2 border-transparent pb-2 text-base font-medium text-[var(--slate-700)]">
               {renderValue(values.reference, "Non renseignee")}
             </p>
           </div>
-          {errorMessage ? (
-            <div role="alert" className="alert alert-error md:col-span-3 text-sm">
-              {errorMessage}
-            </div>
-          ) : null}
-          {footer ? <div className="md:col-span-3">{footer}</div> : null}
         </div>
-      )}
+      </div>
+
+      {errorMessage ? (
+        <div role="alert" className="alert alert-error mt-4 text-sm">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      {footer ? <div className="mt-4">{footer}</div> : null}
     </section>
   );
 }

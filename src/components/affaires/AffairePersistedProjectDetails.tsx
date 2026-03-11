@@ -1,17 +1,26 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 
 import { updateAffaireProjectMetadataAction } from "@/app/dashboard/affaires/_actions/project";
 import {
   AffaireProjectDetailsCard,
   type AffaireProjectDetailsValues,
 } from "@/components/affaires/AffaireProjectDetailsCard";
+import { ProjectIconPicker, type ProjectIconKey } from "@/components/affaires/ProjectIconPicker";
 import { useToast } from "@/components/ui/Toast";
 
 type AffairePersistedProjectDetailsProps = {
   projectId: string;
   initialValues: AffaireProjectDetailsValues;
+  /** External control of edit mode */
+  editing?: boolean;
+  onEditingChange?: (editing: boolean) => void;
+  /** DOM element to portal edit action buttons into (e.g. breadcrumb bar) */
+  actionsPortalTarget?: HTMLElement | null;
+  /** Toolbar slot rendered below the project details (e.g. ActionBar) */
+  toolbar?: React.ReactNode;
 };
 
 function validateProjectName(value: string) {
@@ -28,14 +37,26 @@ function validateProjectName(value: string) {
 export function AffairePersistedProjectDetails({
   projectId,
   initialValues,
+  editing,
+  onEditingChange,
+  actionsPortalTarget,
+  toolbar,
 }: Readonly<AffairePersistedProjectDetailsProps>) {
   const toast = useToast();
   const [isPending, startTransition] = useTransition();
-  const [mode, setMode] = useState<"view" | "edit">("view");
+  const [internalMode, setInternalMode] = useState<"view" | "edit">("view");
+
+  // Support controlled and uncontrolled mode
+  const mode = editing !== undefined ? (editing ? "edit" : "view") : internalMode;
+  const setMode = (m: "view" | "edit") => {
+    setInternalMode(m);
+    onEditingChange?.(m === "edit");
+  };
   const [savedValues, setSavedValues] =
     useState<AffaireProjectDetailsValues>(initialValues);
   const [draftValues, setDraftValues] =
     useState<AffaireProjectDetailsValues>(initialValues);
+  const [projectIcon, setProjectIcon] = useState<ProjectIconKey>("building");
   const [projectNameError, setProjectNameError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -82,45 +103,53 @@ export function AffairePersistedProjectDetails({
     });
   };
 
+  const cancel = () => {
+    setDraftValues(savedValues);
+    setProjectNameError(null);
+    setErrorMessage(null);
+    setMode("view");
+  };
+
+  const editButtons = mode === "edit" ? (
+    <div className="flex items-center gap-3">
+      <button
+        type="button"
+        className="btn btn-ghost btn-lg"
+        onClick={cancel}
+        disabled={isPending}
+      >
+        Annuler
+      </button>
+      <button
+        type="button"
+        className="btn btn-primary btn-lg"
+        onClick={save}
+        disabled={isPending}
+      >
+        {isPending ? "Enregistrement…" : "Enregistrer"}
+      </button>
+    </div>
+  ) : null;
+
   return (
-    <AffaireProjectDetailsCard
-      mode={mode}
-      description="Renseignez ou corrigez le contexte projet sans quitter l'affaire."
-      values={mode === "view" ? savedValues : draftValues}
-      projectNameError={projectNameError}
-      errorMessage={errorMessage}
-      primaryAction={
-        mode === "view"
-          ? {
-              label: "Modifier",
-              onClick: () => {
-                setDraftValues(savedValues);
-                setProjectNameError(null);
-                setErrorMessage(null);
-                setMode("edit");
-              },
-            }
-          : {
-              label: "Enregistrer",
-              onClick: save,
-              loading: isPending,
-            }
-      }
-      secondaryAction={
-        mode === "edit"
-          ? {
-              label: "Annuler",
-              onClick: () => {
-                setDraftValues(savedValues);
-                setProjectNameError(null);
-                setErrorMessage(null);
-                setMode("view");
-              },
-              disabled: isPending,
-            }
-          : undefined
-      }
-      onProjectNameChange={(value) => {
+    <>
+      {editButtons && actionsPortalTarget
+        ? createPortal(editButtons, actionsPortalTarget)
+        : editButtons}
+      <AffaireProjectDetailsCard
+        mode={mode}
+        description="Renseignez ou corrigez le contexte projet sans quitter l'affaire."
+        values={mode === "view" ? savedValues : draftValues}
+        iconKey={projectIcon}
+        iconSlot={
+          mode === "edit"
+            ? <ProjectIconPicker value={projectIcon} onChange={setProjectIcon} />
+            : undefined
+        }
+        projectNameError={projectNameError}
+        errorMessage={errorMessage}
+        footer={mode === "view" ? toolbar : undefined}
+        onProjectNameChange={(value) => {
         setDraftValues((current) => ({ ...current, projectName: value }));
         if (projectNameError) {
           setProjectNameError(null);
@@ -139,5 +168,6 @@ export function AffairePersistedProjectDetails({
         }
       }}
     />
+    </>
   );
 }
