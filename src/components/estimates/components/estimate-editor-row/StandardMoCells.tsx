@@ -1,0 +1,257 @@
+"use client";
+/* eslint-disable react-hooks/refs */
+
+import {
+  type EstimateQualityFlagKey,
+} from "@/lib/estimate-quality";
+import { type SpreadsheetCellProps, type SpreadsheetEditorProps } from "@/hooks/useSpreadsheetNavigation";
+import {
+  type ColumnVisibilitySet,
+  type EstimateItem,
+  type ItemPatch,
+  type LaborRole,
+  type SpreadsheetCell,
+  type SpreadsheetNavigationResult,
+  parseMajorationPercentToCoefficient,
+  parseNumberInput,
+  toCellClassName,
+  toCellKeyDownHandler,
+} from "@/components/estimates/components/estimate-editor-row/shared";
+
+type StandardMoCellsProps = {
+  navigation: SpreadsheetNavigationResult;
+  item: EstimateItem;
+  qualityFlags: EstimateQualityFlagKey[];
+  laborRoles: LaborRole[];
+  visibleColumns?: ColumnVisibilitySet;
+  isReadOnly: boolean;
+  hMoValue: number;
+  hMoMajorationPercent: string;
+  kMoValue: number;
+  hMoCell: SpreadsheetCell;
+  hMoCellProps: SpreadsheetCellProps;
+  hMoEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
+  hMoMajorationCell: SpreadsheetCell;
+  hMoMajorationCellProps: SpreadsheetCellProps;
+  hMoMajorationEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
+  laborRoleCell: SpreadsheetCell;
+  laborRoleCellProps: SpreadsheetCellProps;
+  laborRoleEditorProps: SpreadsheetEditorProps<HTMLSelectElement>;
+  kMoCell: SpreadsheetCell;
+  kMoCellProps: SpreadsheetCellProps;
+  kMoEditorProps: SpreadsheetEditorProps<HTMLInputElement>;
+  onPatchItem: (
+    itemId: string,
+    patch: ItemPatch,
+    options?: { persist?: boolean }
+  ) => void;
+};
+
+export function StandardMoCells({
+  navigation,
+  item,
+  qualityFlags,
+  laborRoles,
+  visibleColumns,
+  isReadOnly,
+  hMoValue,
+  hMoMajorationPercent,
+  kMoValue,
+  hMoCell,
+  hMoCellProps,
+  hMoEditorProps,
+  hMoMajorationCell,
+  hMoMajorationCellProps,
+  hMoMajorationEditorProps,
+  laborRoleCell,
+  laborRoleCellProps,
+  laborRoleEditorProps,
+  kMoCell,
+  kMoCellProps,
+  kMoEditorProps,
+  onPatchItem,
+}: StandardMoCellsProps) {
+  return (
+    <>
+      <div
+        {...hMoCellProps}
+        role="gridcell"
+        onKeyDown={toCellKeyDownHandler(hMoCellProps.onKeyDown)}
+        className={toCellClassName(
+          navigation,
+          hMoCell,
+          `estimate-cell estimate-col--mo${
+            qualityFlags.includes("missing_labor_time")
+              ? " estimate-cell--warning-empty"
+              : ""
+          }`
+        )}
+      >
+        <input
+          className="estimate-input"
+          ref={hMoEditorProps.ref}
+          tabIndex={hMoEditorProps.tabIndex}
+          type="number"
+          step="0.1"
+          min={0}
+          value={hMoValue}
+          onFocus={hMoEditorProps.onFocus}
+          onKeyDown={hMoEditorProps.onKeyDown}
+          onChange={(event) =>
+            onPatchItem(
+              item.id,
+              { h_mo: parseNumberInput(event.target.value) },
+              { persist: false }
+            )
+          }
+          onBlur={(event) => {
+            hMoEditorProps.onBlur(event);
+            onPatchItem(
+              item.id,
+              { h_mo: parseNumberInput(event.target.value) },
+              { persist: true }
+            );
+          }}
+          placeholder="0.0"
+          disabled={isReadOnly}
+        />
+      </div>
+      {(!visibleColumns || visibleColumns.has("h_mo_majoration")) ? (
+        <div
+          {...hMoMajorationCellProps}
+          role="gridcell"
+          onKeyDown={toCellKeyDownHandler(hMoMajorationCellProps.onKeyDown)}
+          className={toCellClassName(
+            navigation,
+            hMoMajorationCell,
+            "estimate-cell estimate-col--mo"
+          )}
+        >
+          <input
+            className="estimate-input"
+            ref={hMoMajorationEditorProps.ref}
+            tabIndex={hMoMajorationEditorProps.tabIndex}
+            type="number"
+            step="0.1"
+            min={0}
+            value={hMoMajorationPercent}
+            onFocus={hMoMajorationEditorProps.onFocus}
+            onKeyDown={hMoMajorationEditorProps.onKeyDown}
+            onChange={(event) =>
+              onPatchItem(
+                item.id,
+                {
+                  h_mo_majoration: parseMajorationPercentToCoefficient(
+                    event.target.value
+                  ),
+                },
+                { persist: false }
+              )
+            }
+            onBlur={(event) => {
+              hMoMajorationEditorProps.onBlur(event);
+              onPatchItem(
+                item.id,
+                {
+                  h_mo_majoration: parseMajorationPercentToCoefficient(
+                    event.target.value
+                  ),
+                },
+                { persist: true }
+              );
+            }}
+            placeholder="100"
+            disabled={isReadOnly}
+          />
+        </div>
+      ) : null}
+      {(!visibleColumns || visibleColumns.has("labor_role")) ? (
+        <div
+          {...laborRoleCellProps}
+          role="gridcell"
+          onKeyDown={toCellKeyDownHandler(laborRoleCellProps.onKeyDown)}
+          className={toCellClassName(
+            navigation,
+            laborRoleCell,
+            `estimate-cell estimate-col--mo${
+              qualityFlags.includes("missing_labor_role")
+                ? " estimate-cell--warning-empty"
+                : ""
+            }`
+          )}
+        >
+          <select
+            className="estimate-input estimate-select"
+            ref={laborRoleEditorProps.ref}
+            tabIndex={laborRoleEditorProps.tabIndex}
+            value={item.labor_role_id ?? ""}
+            onFocus={laborRoleEditorProps.onFocus}
+            onBlur={laborRoleEditorProps.onBlur}
+            onKeyDown={laborRoleEditorProps.onKeyDown}
+            onChange={(event) =>
+              onPatchItem(
+                item.id,
+                { labor_role_id: event.target.value || null },
+                { persist: true }
+              )
+            }
+            disabled={isReadOnly}
+          >
+            <option value="">-</option>
+            {laborRoles.map((role) => (
+              <option
+                key={role.id}
+                value={role.id}
+                disabled={!role.is_active}
+              >
+                {role.name}
+                {!role.is_active ? " (inactif)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+      {(!visibleColumns || visibleColumns.has("k_mo")) ? (
+        <div
+          {...kMoCellProps}
+          role="gridcell"
+          onKeyDown={toCellKeyDownHandler(kMoCellProps.onKeyDown)}
+          className={toCellClassName(
+            navigation,
+            kMoCell,
+            "estimate-cell estimate-col--mo"
+          )}
+        >
+          <input
+            className="estimate-input"
+            ref={kMoEditorProps.ref}
+            tabIndex={kMoEditorProps.tabIndex}
+            type="number"
+            step="0.01"
+            min={0}
+            value={kMoValue}
+            onFocus={kMoEditorProps.onFocus}
+            onKeyDown={kMoEditorProps.onKeyDown}
+            onChange={(event) =>
+              onPatchItem(
+                item.id,
+                { k_mo: parseNumberInput(event.target.value) },
+                { persist: false }
+              )
+            }
+            onBlur={(event) => {
+              kMoEditorProps.onBlur(event);
+              onPatchItem(
+                item.id,
+                { k_mo: parseNumberInput(event.target.value) },
+                { persist: true }
+              );
+            }}
+            placeholder="1.00"
+            disabled={isReadOnly}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
