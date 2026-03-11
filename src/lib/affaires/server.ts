@@ -162,6 +162,7 @@ export type AffaireHubPlansSummaryResult = {
   planSetCount: number;
   planFileCount: number;
   totalSizeBytes: number;
+  hasLegacyFallback?: boolean;
   defaultPlanSetId: string | null;
   defaultPlanSetName: string | null;
   defaultPlanSetSource: string | null;
@@ -677,6 +678,9 @@ async function fetchAffaireHubPlansSummaryWithContext(
     created_at: string | null;
   }>;
   const planSetCount = planSetsResult.count ?? planSetRows.length;
+  const hasLegacyFallback = planSetRows.some(
+    (planSet) => typeof planSet.estimate_version_id === "string"
+  );
   const sortedPlanSetRows = [...planSetRows].sort((a, b) => {
     const aCreatedAt = a.created_at ?? "";
     const bCreatedAt = b.created_at ?? "";
@@ -964,6 +968,7 @@ async function fetchAffaireHubPlansSummaryWithContext(
     planSetCount,
     planFileCount,
     totalSizeBytes,
+    hasLegacyFallback,
     defaultPlanSetId,
     defaultPlanSetName,
     defaultPlanSetSource,

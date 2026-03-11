@@ -34,34 +34,44 @@ type FlowCard = {
 function buildCards(
   input: Readonly<AffaireFlowHierarchyPanelProps>
 ): FlowCard[] {
-  const principalCard: FlowCard = {
-    key: "principal",
-    label: "Flux principal",
-    summary:
-      "L'affaire reste la voie par defaut pour avancer, corriger les exceptions et finir le dossier sans dispersion.",
-    badgeLabel: "Ici",
-    badgeVariant: "success",
-    highlights: [
-      "Dossier, brief, DPGF, devis, validation et sortie restent alignes ici.",
-      "Les prochaines actions prioritaires restent visibles dans le pilotage.",
-    ],
-    links: [],
-    footnote: "Restez d'abord dans l'affaire, puis ouvrez une aide seulement si elle sert le dossier.",
-  };
-
-  const adjacentLinks: FlowCard["links"] = [];
+  const principalLinks: FlowCard["links"] = [];
   if (input.takeoffEnabled) {
-    adjacentLinks.push({
+    principalLinks.push({
       href: `/dashboard/affaires/${input.projectId}/plans`,
       label: "Ouvrir les plans",
       variant: "secondary",
     });
-    adjacentLinks.push({
+    principalLinks.push({
       href: `/dashboard/affaires/${input.projectId}/takeoff`,
       label: "Ouvrir le centre metres",
       variant: "ghost",
     });
   }
+
+  const principalHighlights = [
+    "Dossier, plans, analyse metres, revue/apply et sortie restent alignes ici.",
+    "Les prochaines actions prioritaires et exceptions restent visibles dans le pilotage affaire.",
+  ];
+  if ((input.plansSummary?.planSetCount ?? 0) > 0) {
+    principalHighlights.push(
+      `${input.plansSummary?.planSetCount ?? 0} jeu${(input.plansSummary?.planSetCount ?? 0) > 1 ? "x" : ""} de plans reste${(input.plansSummary?.planSetCount ?? 0) > 1 ? "nt" : ""} pilotable${(input.plansSummary?.planSetCount ?? 0) > 1 ? "s" : ""} sans sortir du parcours affaire-first.`
+    );
+  }
+
+  const principalCard: FlowCard = {
+    key: "principal",
+    label: "Flux principal",
+    summary:
+      "L'affaire, les plans et le metre restent la voie par defaut pour avancer, corriger les exceptions et finir le dossier sans dispersion.",
+    badgeLabel: "Ici",
+    badgeVariant: "success",
+    highlights: principalHighlights,
+    links: principalLinks,
+    footnote:
+      "Ouvrez les plans ou le centre metres depuis l'affaire: cela reste le flux principal, pas une sortie annexe.",
+  };
+
+  const adjacentLinks: FlowCard["links"] = [];
   if (
     input.currentVersion?.status === "draft" &&
     (input.versionZeroSummary?.activeDraft || input.versionZeroSummary?.canGenerate)
@@ -73,29 +83,32 @@ function buildCards(
     });
   }
 
-  const adjacentHighlights = [
-    "Plans, centre metres et aides IA servent a accelerer ou completer le flux principal.",
-  ];
-  if ((input.plansSummary?.planSetCount ?? 0) > 0) {
-    adjacentHighlights.push(
-      `${input.plansSummary?.planSetCount ?? 0} jeu${(input.plansSummary?.planSetCount ?? 0) > 1 ? "x" : ""} de plans reste${(input.plansSummary?.planSetCount ?? 0) > 1 ? "nt" : ""} pilotable${(input.plansSummary?.planSetCount ?? 0) > 1 ? "s" : ""} sans sortir du parcours affaire-first.`
-    );
-  }
+  const adjacentHighlights =
+    adjacentLinks.length > 0
+      ? [
+          "V0 IA et les aides de structuration restent facultatifs: elles accelerent la preparation sans redefinir le parcours principal.",
+        ]
+      : [
+          "Aucune aide adjacente active n'est requise pour continuer le flux principal depuis l'affaire.",
+        ];
 
   const adjacentCard: FlowCard = {
     key: "adjacent",
     label: "Aides adjacentes",
     summary:
-      "Ces surfaces restent secondaires: elles aident a preparer ou reprendre le dossier, sans remplacer le parcours affaire.",
+      "Ces surfaces restent secondaires: elles aident a preparer ou structurer le dossier, sans remplacer le parcours affaire-first.",
     badgeLabel: "Secondaire",
     badgeVariant: "info",
     highlights: adjacentHighlights,
     links: adjacentLinks,
     footnote:
-      "Ouvrez une aide adjacente seulement quand elle repond a un besoin precise de plans, metres ou structuration.",
+      "Ouvrez une aide adjacente seulement quand elle repond a un besoin ponctuel de structuration ou de cadrage IA.",
   };
 
-  const hasLegacyEntry = input.takeoffEnabled && input.currentVersion !== null;
+  const hasLegacyEntry =
+    input.takeoffEnabled &&
+    input.currentVersion !== null &&
+    input.plansSummary?.hasLegacyFallback === true;
   const legacyCard: FlowCard = {
     key: "legacy",
     label: "Fallback legacy",
@@ -106,10 +119,10 @@ function buildCards(
     highlights: hasLegacyEntry
       ? [
           "Le flux principal reste l'affaire; le legacy n'est jamais propose comme voie normale.",
-          `Le fallback pointe vers la V${input.currentVersion?.versionNumber ?? "?"} actuelle pour garder une reprise tracee.`,
+          `Un contexte estimate-first existe deja sur la V${input.currentVersion?.versionNumber ?? "?"}, donc le fallback reste disponible uniquement pour cette reprise.`,
         ]
       : [
-          "Aucun fallback utile n'est propose tant qu'une version active ou le metre affaire-first n'est pas disponible.",
+          "Aucun contexte estimate-first actif n'est detecte sur cette affaire, donc aucun fallback legacy n'est propose comme reprise.",
         ],
     links: hasLegacyEntry
       ? [
