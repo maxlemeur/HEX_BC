@@ -660,7 +660,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  overflow: auto visible;
+  overflow: visible;
 }
 
 /* Progress strip — hidden on desktop where stepper provides same info */

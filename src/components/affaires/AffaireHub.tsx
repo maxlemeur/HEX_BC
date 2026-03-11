@@ -269,11 +269,33 @@ function ActionBar({
   onLaunchMetre: () => void;
 }) {
   const { currentVersion, versionsCount } = summary;
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setMoreOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [moreOpen]);
+
   if (!currentVersion) return null;
+
+  const showCompare = versionsCount > 1;
+  const showAnalyse =
+    takeoffEnabled &&
+    plansSummary &&
+    plansSummary.planSetCount > 0 &&
+    canLaunchNewTakeoffAnalysis(plansSummary.latestJob?.status);
+  const hasSecondaryActions = showCompare || showAnalyse || true; // always has duplicate + variant
 
   return (
     <div className="action-bar animate-fade-in stagger-1">
-      {/* Edit current version */}
+      {/* Edit current version — primary */}
       <Link
         href={`/dashboard/estimates/${currentVersion.id}/edit`}
         className="btn btn-primary btn-sm inline-flex items-center gap-1.5"
@@ -293,6 +315,7 @@ function ActionBar({
         Éditer V{currentVersion.versionNumber}
       </Link>
 
+      {/* V0 IA — contextual */}
       {currentVersion.status === "draft" &&
       (versionZeroSummary?.activeDraft || versionZeroSummary?.canGenerate) ? (
         <Link
@@ -303,7 +326,7 @@ function ActionBar({
         </Link>
       ) : null}
 
-      {/* Export */}
+      {/* Export — frequent */}
       <Link
         href={`/dashboard/estimates/${currentVersion.id}/print`}
         className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
@@ -325,108 +348,107 @@ function ActionBar({
         Exporter
       </Link>
 
-      {/* New version (duplicate) */}
-      <button
-        type="button"
-        onClick={onDuplicate}
-        disabled={pendingAction !== null}
-        aria-busy={pendingAction === "duplicate"}
-        className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-        </svg>
-        {pendingAction === "duplicate" ? "Duplication..." : "Nouvelle version"}
-      </button>
-
-      {/* Variant */}
-      <button
-        type="button"
-        onClick={onCreateVariant}
-        disabled={pendingAction !== null}
-        aria-busy={pendingAction === "variant"}
-        className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M16 3h5v5" />
-          <path d="M8 3H3v5" />
-          <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3" />
-          <path d="m15 9 6-6" />
-        </svg>
-        {pendingAction === "variant"
-          ? "Création variante..."
-          : "Dupliquer (variante)"}
-      </button>
-
-      {/* Compare */}
-      {versionsCount > 1 && (
-        <Link
-          href={`/dashboard/estimates/${currentVersion.id}/diff`}
-          className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+      {/* "Plus" dropdown — secondary actions */}
+      {hasSecondaryActions && (
+        <div className="relative" ref={moreRef}>
+          <button
+            type="button"
+            onClick={() => setMoreOpen((v) => !v)}
+            className="btn btn-secondary btn-sm inline-flex items-center gap-1"
+            aria-haspopup="true"
+            aria-expanded={moreOpen}
           >
-            <line x1="18" x2="18" y1="20" y2="4" />
-            <line x1="6" x2="6" y1="20" y2="4" />
-            <line x1="2" x2="22" y1="12" y2="12" />
-          </svg>
-          Comparer
-        </Link>
-      )}
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="1" />
+              <circle cx="19" cy="12" r="1" />
+              <circle cx="5" cy="12" r="1" />
+            </svg>
+            Plus
+          </button>
+          {moreOpen && (
+            <div className="absolute left-0 top-full z-50 mt-1 min-w-[200px] rounded-lg border border-[var(--slate-200)] bg-white py-1 shadow-lg">
+              {/* New version */}
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreOpen(false);
+                  onDuplicate();
+                }}
+                disabled={pendingAction !== null}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)] disabled:opacity-50"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+                  <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+                </svg>
+                {pendingAction === "duplicate" ? "Duplication..." : "Nouvelle version"}
+              </button>
 
-      {/* Launch metre */}
-      {takeoffEnabled &&
-      plansSummary &&
-      plansSummary.planSetCount > 0 &&
-      canLaunchNewTakeoffAnalysis(plansSummary.latestJob?.status) && (
-        <button
-          type="button"
-          onClick={onLaunchMetre}
-          className="btn btn-secondary btn-sm inline-flex items-center gap-1.5"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <path d="M3 9h18" />
-            <path d="M9 3v18" />
-          </svg>
-          Analyser les plans
-        </button>
+              {/* Variant */}
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreOpen(false);
+                  onCreateVariant();
+                }}
+                disabled={pendingAction !== null}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)] disabled:opacity-50"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 3h5v5" />
+                  <path d="M8 3H3v5" />
+                  <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3" />
+                  <path d="m15 9 6-6" />
+                </svg>
+                {pendingAction === "variant" ? "Création variante..." : "Dupliquer (variante)"}
+              </button>
+
+              {/* Compare */}
+              {showCompare && (
+                <Link
+                  href={`/dashboard/estimates/${currentVersion.id}/diff`}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)]"
+                  onClick={() => setMoreOpen(false)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" x2="18" y1="20" y2="4" />
+                    <line x1="6" x2="6" y1="20" y2="4" />
+                    <line x1="2" x2="22" y1="12" y2="12" />
+                  </svg>
+                  Comparer
+                </Link>
+              )}
+
+              {/* Analyse plans */}
+              {showAnalyse && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    onLaunchMetre();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--slate-700)] hover:bg-[var(--slate-50)]"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <path d="M3 9h18" />
+                    <path d="M9 3v18" />
+                  </svg>
+                  Analyser les plans
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1382,37 +1404,42 @@ export function AffaireHub({
             actionsPortalTarget={actionsPortalTarget}
             toolbar={
               !showImportFlow ? (
-                <div className="space-y-2">
-                  {summary.versionsCount === 0 ? (
-                    <FirstVersionActionBar projectId={summary.project.id} />
-                  ) : summary.versionsCount > 0 ? (
-                    <ActionBar
-                      summary={summary}
-                      versionZeroSummary={versionZeroSummary}
-                      takeoffEnabled={takeoffEnabled}
-                      plansSummary={plansSummary}
-                      pendingAction={pendingAction}
-                      onDuplicate={() => void handleDuplicate()}
-                      onCreateVariant={() => void handleCreateVariant()}
-                      onLaunchMetre={() => setShowLaunchMetreDialog(true)}
-                    />
-                  ) : null}
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {summary.versionsCount === 0 ? (
+                      <FirstVersionActionBar projectId={summary.project.id} />
+                    ) : summary.versionsCount > 0 ? (
+                      <ActionBar
+                        summary={summary}
+                        versionZeroSummary={versionZeroSummary}
+                        takeoffEnabled={takeoffEnabled}
+                        plansSummary={plansSummary}
+                        pendingAction={pendingAction}
+                        onDuplicate={() => void handleDuplicate()}
+                        onCreateVariant={() => void handleCreateVariant()}
+                        onLaunchMetre={() => setShowLaunchMetreDialog(true)}
+                      />
+                    ) : null}
+                    {cockpitState.length > 0 && (
+                      <>
+                        <div className="mx-0.5 h-5 w-px bg-[var(--slate-200)]" />
+                        <CockpitCommandBar
+                          suggestions={cockpitState}
+                          onExecute={handleExecuteCockpitSuggestion}
+                          onToggleHidden={(actionId, isHidden) => {
+                            handleToggleCockpitPreference({ actionId, isHidden });
+                          }}
+                          onTogglePinned={(actionId, isPinned) => {
+                            handleToggleCockpitPreference({ actionId, isPinned });
+                          }}
+                        />
+                      </>
+                    )}
+                  </div>
                   {actionError && (
                     <div className="alert alert-error px-3 py-2 text-xs">
                       {actionError}
                     </div>
-                  )}
-                  {cockpitState.length > 0 && (
-                    <CockpitCommandBar
-                      suggestions={cockpitState}
-                      onExecute={handleExecuteCockpitSuggestion}
-                      onToggleHidden={(actionId, isHidden) => {
-                        handleToggleCockpitPreference({ actionId, isHidden });
-                      }}
-                      onTogglePinned={(actionId, isPinned) => {
-                        handleToggleCockpitPreference({ actionId, isPinned });
-                      }}
-                    />
                   )}
                   {previewSuggestion ? (
                     <CockpitCommandPreview

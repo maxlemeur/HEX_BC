@@ -137,35 +137,37 @@ export function AffaireProjectDetailsCard({
   // View mode — fiche style matching the creation page
   return (
     <section className="animate-fade-in">
-      <div className="flex items-stretch gap-4">
+      <div className="flex items-start gap-4">
         {iconSlot ?? defaultIcon}
-        <div className="grid min-w-0 flex-1 gap-x-6 gap-y-4 lg:grid-cols-[7fr_3fr]">
-          {/* Project name + toolbar — left column */}
-          <div className="flex flex-col lg:row-span-2">
-            <p className="w-full text-3xl font-semibold text-[var(--slate-900)]">
-              {renderValue(values.projectName, "Non renseigne")}
-            </p>
-            {footer ? <div className="mt-3">{footer}</div> : null}
-          </div>
+        <div className="min-w-0 flex-1">
+          <div className="grid gap-x-6 gap-y-1.5 lg:grid-cols-[7fr_3fr]">
+            {/* Project name + toolbar — left column */}
+            <div className="lg:row-span-2">
+              <p className="w-full text-3xl font-semibold text-[var(--slate-900)]">
+                {renderValue(values.projectName, "Non renseigne")}
+              </p>
+              {footer ? <div className="mt-1">{footer}</div> : null}
+            </div>
 
-          {/* Client — right column, top */}
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
-              Client
-            </p>
-            <p className="mt-2 border-b-2 border-transparent pb-2 text-base font-medium text-[var(--slate-700)]">
-              {renderValue(values.clientName, "Non renseigne")}
-            </p>
-          </div>
+            {/* Client — right column, top */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                Client
+              </p>
+              <p className="mt-1 text-base font-medium text-[var(--slate-700)]">
+                {renderValue(values.clientName, "Non renseigne")}
+              </p>
+            </div>
 
-          {/* Reference — right column, bottom */}
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
-              Reference
-            </p>
-            <p className="mt-2 border-b-2 border-transparent pb-2 text-base font-medium text-[var(--slate-700)]">
-              {renderValue(values.reference, "Non renseignee")}
-            </p>
+            {/* Reference — right column, bottom */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--slate-500)]">
+                Reference
+              </p>
+              <p className="mt-1 text-base font-medium text-[var(--slate-700)]">
+                {renderValue(values.reference, "Non renseignee")}
+              </p>
+            </div>
           </div>
         </div>
       </div>
