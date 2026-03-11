@@ -4,7 +4,10 @@ import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-server";
 import { buildAffaireRegisterHubHref, type AffaireRegisterSummary } from "@/lib/affaires/register";
-import type { AffaireHubDpgfSourceResult } from "@/lib/affaires/server";
+import type {
+  AffaireHubDpgfSourceResult,
+  AffaireHubFinishLineSummaryResult,
+} from "@/lib/affaires/server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
@@ -57,8 +60,18 @@ type AffairePilotagePanelProps = {
       }
     | null;
   lineCount: number;
+  finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
   takeoffEnabled?: boolean;
   onOpenSurface?: (surfaceId: CockpitSurfaceId) => void;
+};
+
+type FinishLineCard = {
+  key: "send" | "order";
+  label: string;
+  status: "ready" | "blocked" | "warning" | "waiting" | "unavailable";
+  summary: string;
+  details: string[];
+  action: PilotageAction | null;
 };
 
 function hasValidatedDpgfMapping(dpgfSource: AffaireHubDpgfSourceResult) {
@@ -145,6 +158,242 @@ function getExceptionBadgeLabel(severity: PilotageExceptionSeverity) {
     case "info":
       return "A preparer";
   }
+}
+
+function getFinishLineBadgeVariant(status: FinishLineCard["status"]) {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "blocked":
+      return "error";
+    case "warning":
+      return "warning";
+    case "waiting":
+    case "unavailable":
+      return "neutral";
+  }
+}
+
+function getFinishLineBadgeLabel(status: FinishLineCard["status"]) {
+  switch (status) {
+    case "ready":
+      return "Pret";
+    case "blocked":
+      return "Bloque";
+    case "warning":
+      return "A surveiller";
+    case "waiting":
+      return "En attente";
+    case "unavailable":
+      return "Indisponible";
+  }
+}
+
+function buildEstimateVersionHref(
+  currentVersion: AffairePilotagePanelProps["currentVersion"]
+) {
+  if (!currentVersion) return null;
+  return currentVersion.status === "draft"
+    ? `/dashboard/estimates/${currentVersion.id}/edit`
+    : `/dashboard/estimates/${currentVersion.id}`;
+}
+
+function buildReadyToSendAction(input: {
+  projectId: string;
+  currentVersion: AffairePilotagePanelProps["currentVersion"];
+  finishLineSummary: AffaireHubFinishLineSummaryResult | null | undefined;
+}) {
+  if (!input.currentVersion) {
+    return {
+      kind: "href" as const,
+      label: "Creer un devis",
+      href: `/dashboard/estimates/new?projectId=${input.projectId}`,
+    };
+  }
+
+  const blockingFlag = input.finishLineSummary?.readyToSend.blockingFlags[0] ?? null;
+  if (blockingFlag?.key === "critical_open_questions") {
+    return {
+      kind: "href" as const,
+      label: "Ouvrir le registre",
+      href: `${buildAffaireRegisterHubHref({
+        projectId: input.projectId,
+        status: "open",
+        severity: "critical",
+      })}#register`,
+    };
+  }
+
+  if (blockingFlag?.key === "client_clarification_required") {
+    return {
+      kind: "href" as const,
+      label: "Ouvrir le registre",
+      href: `${buildAffaireRegisterHubHref({
+        projectId: input.projectId,
+        status: "clarify_with_client",
+        severity: null,
+      })}#register`,
+    };
+  }
+
+  if (blockingFlag?.key === "open_questions_pending") {
+    return {
+      kind: "href" as const,
+      label: "Ouvrir le registre",
+      href: `${buildAffaireRegisterHubHref({
+        projectId: input.projectId,
+        status: "open",
+        severity: null,
+      })}#register`,
+    };
+  }
+
+  if (blockingFlag?.key === "no_pdf_generated" && input.currentVersion) {
+    return {
+      kind: "href" as const,
+      label: "Generer le PDF",
+      href: `/dashboard/estimates/${input.currentVersion.id}/print`,
+    };
+  }
+
+  const versionHref = buildEstimateVersionHref(input.currentVersion);
+  if (!versionHref) {
+    return null;
+  }
+
+  return {
+    kind: "href" as const,
+    label: "Reprendre le devis",
+    href: versionHref,
+  };
+}
+
+function buildReadyToOrderAction(input: {
+  currentVersion: AffairePilotagePanelProps["currentVersion"];
+}) {
+  if (!input.currentVersion) {
+    return null;
+  }
+
+  const versionHref = buildEstimateVersionHref(input.currentVersion);
+  if (!versionHref) {
+    return null;
+  }
+
+  return {
+    kind: "href" as const,
+    label: "Revoir les fournisseurs",
+    href: versionHref,
+  };
+}
+
+function buildFinishLineCards(input: {
+  projectId: string;
+  currentVersion: AffairePilotagePanelProps["currentVersion"];
+  finishLineSummary: AffaireHubFinishLineSummaryResult | null | undefined;
+}) {
+  if (!input.currentVersion) {
+    return [
+      {
+        key: "send",
+        label: "Pret a envoyer",
+        status: "waiting",
+        summary: "La sortie devis apparait une fois un premier devis brouillon cree.",
+        details: ["Creez une version de devis pour verifier la sortie client."],
+        action: buildReadyToSendAction(input),
+      },
+      {
+        key: "order",
+        label: "Pret a commander",
+        status: "waiting",
+        summary: "La preparation commandes devient lisible quand les lignes fournisseur existent.",
+        details: ["Les achats restent prepares manuellement depuis l'affaire."],
+        action: null,
+      },
+    ] satisfies FinishLineCard[];
+  }
+
+  if (!input.finishLineSummary) {
+    return [
+      {
+        key: "send",
+        label: "Pret a envoyer",
+        status: "unavailable",
+        summary: "La verification de sortie devis est indisponible pour le moment.",
+        details: ["Rechargez la page ou reprenez le devis pour continuer."],
+        action: buildReadyToSendAction(input),
+      },
+      {
+        key: "order",
+        label: "Pret a commander",
+        status: "unavailable",
+        summary: "La verification achats est indisponible pour le moment.",
+        details: ["Rechargez la page avant de preparer les commandes."],
+        action: buildReadyToOrderAction(input),
+      },
+    ] satisfies FinishLineCard[];
+  }
+
+  const readyToSendDetails = [
+    ...input.finishLineSummary.readyToSend.blockingFlags.map((flag) => flag.label),
+    ...input.finishLineSummary.readyToSend.warningFlags.map((flag) => flag.label),
+  ].slice(0, 3);
+
+  const readyToSendCard: FinishLineCard = {
+    key: "send",
+    label: "Pret a envoyer",
+    status: input.finishLineSummary.readyToSend.status,
+    summary:
+      input.finishLineSummary.readyToSend.status === "ready"
+        ? "Le devis peut sortir sans etape cachee supplementaire."
+        : input.finishLineSummary.readyToSend.status === "warning"
+          ? `${input.finishLineSummary.readyToSend.warningFlags.length} vigilance${input.finishLineSummary.readyToSend.warningFlags.length > 1 ? "s" : ""} a assumer avant l'envoi.`
+          : input.finishLineSummary.readyToSend.status === "blocked"
+            ? `${input.finishLineSummary.readyToSend.blockingFlags.length} blocage${input.finishLineSummary.readyToSend.blockingFlags.length > 1 ? "s" : ""} metier a lever avant l'envoi.`
+            : input.finishLineSummary.readyToSend.errorMessage ??
+              "La sortie devis reste en attente.",
+    details:
+      readyToSendDetails.length > 0
+        ? readyToSendDetails
+        : ["Aucun blocage metier n'est remonte sur la sortie devis."],
+    action: buildReadyToSendAction(input),
+  };
+
+  const order = input.finishLineSummary.readyToOrder;
+  const readyToOrderDetails = [
+    order.missingPriceLinesCount > 0
+      ? `${order.missingPriceLinesCount} ligne${order.missingPriceLinesCount > 1 ? "s" : ""} sans fournisseur retenu`
+      : null,
+    order.ambiguousLinesCount > 0
+      ? `${order.ambiguousLinesCount} ligne${order.ambiguousLinesCount > 1 ? "s" : ""} a arbitrer`
+      : null,
+    order.staleLinesCount > 0
+      ? `${order.staleLinesCount} prix fournisseur${order.staleLinesCount > 1 ? "s" : ""} a revalider`
+      : null,
+  ].filter((detail): detail is string => detail !== null);
+
+  const readyToOrderCard: FinishLineCard = {
+    key: "order",
+    label: "Pret a commander",
+    status: order.status,
+    summary:
+      order.status === "ready"
+        ? `${order.coveredLinesCount} ligne${order.coveredLinesCount > 1 ? "s" : ""} fournisseur preparable${order.coveredLinesCount > 1 ? "s" : ""} sans ressaisie.`
+        : order.status === "waiting"
+          ? "Aucune ligne fournisseur n'est encore identifiable pour preparer des commandes."
+          : order.status === "blocked"
+            ? `${order.orderableLinesCount - order.coveredLinesCount} ligne${order.orderableLinesCount - order.coveredLinesCount > 1 ? "s" : ""} reste${order.orderableLinesCount - order.coveredLinesCount > 1 ? "nt" : ""} a fiabiliser avant la preparation achats.`
+            : order.errorMessage ?? "La preparation achats reste indisponible.",
+    details:
+      readyToOrderDetails.length > 0
+        ? readyToOrderDetails
+        : order.status === "ready"
+          ? ["Les lignes fournisseur sont couvertes a cette etape."]
+          : [order.errorMessage ?? "Les commandes restent preparees manuellement."],
+    action: buildReadyToOrderAction(input),
+  };
+
+  return [readyToSendCard, readyToOrderCard] satisfies FinishLineCard[];
 }
 
 function countDocumentsNeedingReview(
@@ -730,6 +979,7 @@ export function AffairePilotagePanel({
   approvalSummary,
   currentVersion,
   lineCount,
+  finishLineSummary,
   takeoffEnabled = false,
   onOpenSurface,
 }: AffairePilotagePanelProps) {
@@ -751,6 +1001,11 @@ export function AffairePilotagePanel({
     registerSummary,
     approvalSummary,
     allowSurfaceActions,
+  });
+  const finishLineCards = buildFinishLineCards({
+    projectId,
+    currentVersion,
+    finishLineSummary,
   });
 
   return (
@@ -774,6 +1029,50 @@ export function AffairePilotagePanel({
             ? `${exceptions.length} point${exceptions.length > 1 ? "s" : ""} a traiter`
             : "Aucun blocage prioritaire"}
         </Badge>
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        {finishLineCards.map((card) => (
+          <div
+            key={card.key}
+            className="rounded-2xl border border-[var(--slate-200)] bg-white p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
+                  Finish line
+                </p>
+                <h3 className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
+                  {card.label}
+                </h3>
+              </div>
+              <Badge variant={getFinishLineBadgeVariant(card.status)} size="sm" withDot>
+                {getFinishLineBadgeLabel(card.status)}
+              </Badge>
+            </div>
+
+            <p className="mt-3 text-sm leading-6 text-[var(--slate-600)]">
+              {card.summary}
+            </p>
+
+            <ul className="mt-3 space-y-2">
+              {card.details.map((detail) => (
+                <li
+                  key={`${card.key}-${detail}`}
+                  className="rounded-lg bg-[var(--slate-50)] px-3 py-2 text-sm text-[var(--slate-600)]"
+                >
+                  {detail}
+                </li>
+              ))}
+            </ul>
+
+            {card.action ? (
+              <div className="mt-4">
+                <ExceptionActionButton action={card.action} onOpenSurface={onOpenSurface} />
+              </div>
+            ) : null}
+          </div>
+        ))}
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
@@ -906,6 +1205,7 @@ export function AffairePilotagePanel({
 }
 
 export {
+  buildFinishLineCards,
   buildPilotageExceptions,
   buildPilotageSteps,
   buildTakeoffExceptionsHref,

@@ -8,6 +8,9 @@ import {
 import { badRequest, mapSupabaseError, notFound } from "@/lib/estimates/errors";
 import {
   getAuthenticatedContext,
+  getEstimateSendGating,
+  getEstimateSupplierComparisons,
+  listEstimateItems,
   listEstimateProjectVersions,
   type ListEstimateProjectVersionsResult,
 } from "@/lib/estimates/server";
@@ -225,6 +228,30 @@ export type AffaireHubMarginAnalysisResult = {
   versionEvolution: MarginVersionPoint[];
   currentVersionId: string;
 } | null;
+
+type AffaireHubSendGating = Awaited<ReturnType<typeof getEstimateSendGating>>["gating"];
+type AffaireHubSendGatingFlag = AffaireHubSendGating["blockingFlags"][number];
+
+export type AffaireHubFinishLineSummaryResult = {
+  versionId: string;
+  readyToSend: {
+    status: "ready" | "blocked" | "warning" | "waiting" | "unavailable";
+    blockingFlags: AffaireHubSendGatingFlag[];
+    warningFlags: AffaireHubSendGatingFlag[];
+    checkedAt: string | null;
+    stalePriceDays: number | null;
+    errorMessage: string | null;
+  };
+  readyToOrder: {
+    status: "ready" | "blocked" | "waiting" | "unavailable";
+    orderableLinesCount: number;
+    coveredLinesCount: number;
+    ambiguousLinesCount: number;
+    missingPriceLinesCount: number;
+    staleLinesCount: number;
+    errorMessage: string | null;
+  };
+};
 
 function toSafeInteger(value: number | string | null | undefined): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -1140,6 +1167,117 @@ export async function fetchAffaireHubPageData(
     dpgfSource,
   };
 }
+
+const SUPPLIER_COMPARISON_BATCH_SIZE = 200;
+
+async function computeAffaireOrderReadiness(versionId: string) {
+  const estimateItemsResult = await listEstimateItems(versionId);
+  const orderableLineIds = estimateItemsResult.items
+    .filter(
+      (item) =>
+        item.item_type === "line" &&
+        (item.supply_type_id !== null || item.selected_supplier_price_id !== null)
+    )
+    .map((item) => item.id);
+
+  if (orderableLineIds.length === 0) {
+    return {
+      status: "waiting" as const,
+      orderableLinesCount: 0,
+      coveredLinesCount: 0,
+      ambiguousLinesCount: 0,
+      missingPriceLinesCount: 0,
+      staleLinesCount: 0,
+      errorMessage: null,
+    };
+  }
+
+  let coveredLinesCount = 0;
+  let ambiguousLinesCount = 0;
+  let missingPriceLinesCount = 0;
+  let staleLinesCount = 0;
+
+  for (
+    let startIndex = 0;
+    startIndex < orderableLineIds.length;
+    startIndex += SUPPLIER_COMPARISON_BATCH_SIZE
+  ) {
+    const batchItemIds = orderableLineIds.slice(
+      startIndex,
+      startIndex + SUPPLIER_COMPARISON_BATCH_SIZE
+    );
+    const batch = await getEstimateSupplierComparisons(versionId, batchItemIds);
+    coveredLinesCount += batch.coverage_summary.covered_items;
+    ambiguousLinesCount += batch.coverage_summary.ambiguous_items;
+    missingPriceLinesCount += batch.coverage_summary.no_price_items;
+    staleLinesCount += batch.coverage_summary.stale_items;
+  }
+
+  const hasOrderBlockers =
+    ambiguousLinesCount > 0 || missingPriceLinesCount > 0 || staleLinesCount > 0;
+
+  return {
+    status: hasOrderBlockers ? ("blocked" as const) : ("ready" as const),
+    orderableLinesCount: orderableLineIds.length,
+    coveredLinesCount,
+    ambiguousLinesCount,
+    missingPriceLinesCount,
+    staleLinesCount,
+    errorMessage: null,
+  };
+}
+
+export const fetchAffaireHubFinishLineSummary = cache(
+  async (versionId: string): Promise<AffaireHubFinishLineSummaryResult> => {
+    const [sendResult, orderResult] = await Promise.allSettled([
+      getEstimateSendGating(versionId),
+      computeAffaireOrderReadiness(versionId),
+    ]);
+
+    const readyToSend =
+      sendResult.status === "fulfilled"
+        ? {
+            status:
+              sendResult.value.gating.blockingFlags.length > 0
+                ? ("blocked" as const)
+                : sendResult.value.gating.warningFlags.length > 0
+                  ? ("warning" as const)
+                  : ("ready" as const),
+            blockingFlags: sendResult.value.gating.blockingFlags,
+            warningFlags: sendResult.value.gating.warningFlags,
+            checkedAt: sendResult.value.gating.checkedAt,
+            stalePriceDays: sendResult.value.gating.stalePriceDays,
+            errorMessage: null,
+          }
+        : {
+            status: "unavailable" as const,
+            blockingFlags: [],
+            warningFlags: [],
+            checkedAt: null,
+            stalePriceDays: null,
+            errorMessage: "Impossible de verifier la sortie devis pour le moment.",
+          };
+
+    const readyToOrder =
+      orderResult.status === "fulfilled"
+        ? orderResult.value
+        : {
+            status: "unavailable" as const,
+            orderableLinesCount: 0,
+            coveredLinesCount: 0,
+            ambiguousLinesCount: 0,
+            missingPriceLinesCount: 0,
+            staleLinesCount: 0,
+            errorMessage: "Impossible d'evaluer la preparation commandes pour le moment.",
+          };
+
+    return {
+      versionId,
+      readyToSend,
+      readyToOrder,
+    };
+  }
+);
 
 /* ------------------------------------------------------------------ */
 /*  Margin Analysis                                                     */

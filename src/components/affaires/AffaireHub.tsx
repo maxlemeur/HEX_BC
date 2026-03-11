@@ -20,6 +20,7 @@ import { formatEUR } from "@/lib/money";
 import { useUiMode } from "@/hooks/useUiMode";
 import type {
   AffaireHubDpgfSourceResult,
+  AffaireHubFinishLineSummaryResult,
   AffaireHubMarginAnalysisResult,
   AffaireHubSummaryResult,
   AffaireHubTimelineResult,
@@ -111,6 +112,7 @@ type AffaireHubProps = {
   registerSummary?: AffaireRegisterSummary | null;
   registerTimeline?: AffaireRegisterTimelineEvent[];
   versionZeroSummary?: VersionZeroDraftSummary | null;
+  finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
   cockpitSuggestions?: CockpitSuggestion[];
   viewerProfileId?: string | null;
 };
@@ -1043,6 +1045,7 @@ export function AffaireHub({
   registerSummary,
   registerTimeline,
   versionZeroSummary,
+  finishLineSummary,
   cockpitSuggestions,
   viewerProfileId,
 }: AffaireHubProps) {
@@ -1635,6 +1638,7 @@ export function AffaireHub({
                   : null
               }
               lineCount={summary.lineCount}
+              finishLineSummary={finishLineSummary ?? null}
               takeoffEnabled={takeoffEnabled}
               onOpenSurface={
                 isReadOnlyReview

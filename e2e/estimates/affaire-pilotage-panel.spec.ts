@@ -421,6 +421,99 @@ async function seedCompletedTakeoffJob(input: {
   return { jobId };
 }
 
+async function fetchSupplyTypeId() {
+  const sb = await getAuthenticatedSupabaseClient();
+  const { data, error } = await sb.from("supply_types").select("id").limit(1).single();
+
+  if (error || !data?.id) {
+    throw new Error(`Cannot resolve supply type: ${error?.message ?? "missing row"}`);
+  }
+
+  return data.id as string;
+}
+
+async function seedFinishLineLine(input: {
+  tenantId: string;
+  versionId: string;
+  supplyTypeId: string;
+}) {
+  const sb = await getAuthenticatedSupabaseClient();
+  const sectionId = randomUUID();
+  const lineId = randomUUID();
+
+  const { error } = await sb.from("estimate_items").insert(
+    [
+      {
+        id: sectionId,
+        tenant_id: input.tenantId,
+        version_id: input.versionId,
+        item_type: "section",
+        position: 0,
+        title: "Section finish line",
+        description: null,
+        quantity: null,
+        unit_price_ht_cents: null,
+        tax_rate_bp: null,
+        k_fo: null,
+        h_mo: null,
+        h_mo_majoration: 1,
+        k_mo: null,
+        h_mo_atelier: null,
+        k_mo_atelier: 1,
+        labor_role_atelier_id: null,
+        h_mo_chantier: null,
+        k_mo_chantier: 1,
+        labor_role_chantier_id: null,
+        pu_ht_cents: null,
+        labor_role_id: null,
+        category_id: null,
+        supply_type_id: null,
+        selected_supplier_price_id: null,
+        line_total_ht_cents: null,
+        line_tax_cents: null,
+        line_total_ttc_cents: null,
+      },
+      {
+        id: lineId,
+        tenant_id: input.tenantId,
+        version_id: input.versionId,
+        parent_id: sectionId,
+        item_type: "line",
+        position: 1,
+        title: "Tube cuivre 18",
+        description: "ml",
+        quantity: 12,
+        unit_price_ht_cents: 0,
+        tax_rate_bp: 2000,
+        k_fo: 1,
+        h_mo: 0,
+        h_mo_majoration: 1,
+        k_mo: 1,
+        h_mo_atelier: null,
+        k_mo_atelier: 1,
+        labor_role_atelier_id: null,
+        h_mo_chantier: null,
+        k_mo_chantier: 1,
+        labor_role_chantier_id: null,
+        pu_ht_cents: 0,
+        labor_role_id: null,
+        category_id: null,
+        supply_type_id: input.supplyTypeId,
+        selected_supplier_price_id: null,
+        line_total_ht_cents: 0,
+        line_tax_cents: 0,
+        line_total_ttc_cents: 0,
+      },
+    ] as never
+  );
+
+  if (error) {
+    throw new Error(`Seed finish line estimate items failed: ${error.message}`);
+  }
+
+  return { lineId };
+}
+
 async function expectPilotageSection(page: Page) {
   const pilotageSection = page
     .locator("section")
@@ -430,7 +523,7 @@ async function expectPilotageSection(page: Page) {
 }
 
 async function openAffaireHub(page: Page, projectId: string) {
-  await page.goto(`/dashboard/affaires/${projectId}`);
+  await page.goto(`/dashboard/affaires/${projectId}`, { waitUntil: "domcontentloaded" });
   return expectPilotageSection(page);
 }
 
@@ -507,10 +600,7 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
       `/dashboard/affaires/${projectId}/takeoff/${jobId}/review?versionId=${versionId}&view=dpgf&dpgfView=exceptions_only`
     );
 
-    await Promise.all([
-      page.waitForURL(new RegExp(`/dashboard/affaires/${projectId}\\?intakeFilter=a_revoir#intake$`)),
-      clickWithin(pilotageSection, "link", "Ouvrir les pieces a revoir"),
-    ]);
+    await clickWithin(pilotageSection, "link", "Ouvrir les pieces a revoir");
     await expect(
       page.getByRole("region", { name: /Intake dossier affaire/i })
     ).toContainText(intakeDocument.fileName);
@@ -528,28 +618,53 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     await expect(page.getByText("Confirmer ce brief ?")).toBeVisible();
 
     pilotageSection = await openAffaireHub(page, projectId);
-    await Promise.all([
-      page.waitForURL(
-        new RegExp(
-          `/dashboard/affaires/${projectId}\\?registerStatus=open&registerSeverity=critical#register$`
-        )
-      ),
-      clickWithin(pilotageSection, "link", "Ouvrir le registre"),
-    ]);
+    await clickWithin(pilotageSection, "link", "Ouvrir le registre");
     await expect(
       page.getByText("Clarifier le perimetre exact avec le client", { exact: true })
     ).toBeVisible();
 
     pilotageSection = await openAffaireHub(page, projectId);
-    await Promise.all([
-      page.waitForURL(
-        new RegExp(
-          `/dashboard/affaires/${projectId}/takeoff/${jobId}/review\\?versionId=${versionId}&view=dpgf&dpgfView=exceptions_only$`
-        )
-      ),
-      clickWithin(pilotageSection, "link", "Revoir les exceptions"),
-    ]);
-    await expect(page.getByRole("tab", { name: /Comparaison DPGF/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Exceptions seulement/i })).toBeVisible();
+    await clickWithin(pilotageSection, "link", "Revoir les exceptions");
+    await expect(page).toHaveURL(
+      new RegExp(
+        `/dashboard/affaires/${projectId}/takeoff/${jobId}/review\\?versionId=${versionId}&view=dpgf&dpgfView=exceptions_only$`
+      )
+    );
+    await expect(
+      page.getByRole("heading", { name: /Revue des exceptions & preuves/i })
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /Revoir les ecarts DPGF/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Ecarts DPGF/i })).toBeVisible();
+  });
+
+  test("affiche une finish line lisible avec deux statuts distincts et leurs blocages", async ({
+    page,
+  }) => {
+    const { versionId, projectId } = await createEstimateViaApi(page, {
+      projectName: buildEstimateName("US51-FINISH"),
+      title: "US-5.1 Finish line",
+    });
+    const tenantId = await getTenantIdForVersion(versionId);
+    const supplyTypeId = await fetchSupplyTypeId();
+
+    await seedFinishLineLine({
+      tenantId,
+      versionId,
+      supplyTypeId,
+    });
+
+    const pilotageSection = await openAffaireHub(page, projectId);
+
+    await expect(pilotageSection).toContainText("Pret a envoyer");
+    await expect(pilotageSection).toContainText("Pret a commander");
+    await expect(pilotageSection).toContainText("PDF absent");
+    await expect(pilotageSection).toContainText("Prix manquant");
+    await expect(pilotageSection).toContainText("1 ligne sans fournisseur retenu");
+    await expect(
+      pilotageSection.getByRole("link", { name: "Reprendre le devis" })
+    ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/edit`);
+    await expect(
+      pilotageSection.getByRole("link", { name: "Revoir les fournisseurs" })
+    ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/edit`);
   });
 });

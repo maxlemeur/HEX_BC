@@ -18,6 +18,7 @@ import {
 } from "@/lib/affaires/register-server";
 import {
   fetchAffaireHubDpgfSource,
+  fetchAffaireHubFinishLineSummary,
   fetchAffaireHubMarginAnalysis,
   fetchAffaireHubPlansSummary,
   fetchAffaireHubSummary,
@@ -130,6 +131,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     registerScopeOptionsResult,
     versionZeroSummaryResult,
     cockpitPreferencesResult,
+    finishLineSummaryResult,
   ] = await Promise.allSettled([
     currentVersionId ? getEstimateApprovalSummary(currentVersionId) : Promise.resolve(null),
     currentVersionId
@@ -159,6 +161,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       ? fetchVersionZeroDraftSummary({ versionId: currentVersionId })
       : Promise.resolve(null),
     fetchCockpitCommandPreferences(projectId),
+    currentVersionId ? fetchAffaireHubFinishLineSummary(currentVersionId) : Promise.resolve(null),
   ]);
   const approvalSummary =
     approvalSummaryResult.status === "fulfilled" ? approvalSummaryResult.value : null;
@@ -197,6 +200,10 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     cockpitPreferencesResult.status === "fulfilled"
       ? cockpitPreferencesResult.value
       : [];
+  const finishLineSummary =
+    finishLineSummaryResult.status === "fulfilled"
+      ? finishLineSummaryResult.value
+      : null;
   const registerSummary = registerPage?.summary ?? null;
   const registerTimeline = registerPage?.timeline ?? [];
 
@@ -298,6 +305,7 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       registerSummary={registerSummary}
       registerTimeline={registerTimeline}
       versionZeroSummary={versionZeroSummary}
+      finishLineSummary={finishLineSummary}
       cockpitSuggestions={cockpitSuggestions}
       viewerProfileId={profile?.id ?? null}
     />

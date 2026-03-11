@@ -2,8 +2,10 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
 import {
   AffairePilotagePanel,
+  buildFinishLineCards,
   buildPilotageExceptions,
   buildPilotageSteps,
 } from "./AffairePilotagePanel";
@@ -62,6 +64,38 @@ function makeDpgfSource(
     parseMode: "spreadsheet",
     rowCount: 42,
     ...overrides,
+  };
+}
+
+function makeFinishLineSummary(): AffaireHubFinishLineSummaryResult {
+  return {
+    versionId: "version-1",
+    readyToSend: {
+      status: "blocked" as const,
+      blockingFlags: [
+        {
+          key: "no_pdf_generated",
+          severity: "blocking" as const,
+          count: 1,
+          item_ids: [],
+          label: "PDF absent",
+          description: "Aucun document PDF n'est genere pour cette version.",
+        },
+      ],
+      warningFlags: [],
+      checkedAt: "2026-03-11T08:00:00.000Z",
+      stalePriceDays: 30,
+      errorMessage: null,
+    },
+    readyToOrder: {
+      status: "blocked" as const,
+      orderableLinesCount: 3,
+      coveredLinesCount: 1,
+      ambiguousLinesCount: 1,
+      missingPriceLinesCount: 1,
+      staleLinesCount: 0,
+      errorMessage: null,
+    },
   };
 }
 
@@ -255,6 +289,65 @@ describe("AffairePilotagePanel", () => {
         }),
       ]),
     );
+  });
+
+  it("builds two finish-line statuses with explicit next steps", () => {
+    const cards = buildFinishLineCards({
+      projectId: "project-1",
+      currentVersion: {
+        id: "version-1",
+        status: "draft",
+        versionNumber: 1,
+      },
+      finishLineSummary: makeFinishLineSummary(),
+    });
+
+    expect(cards[0]).toMatchObject({
+      key: "send",
+      status: "blocked",
+      action: {
+        kind: "href",
+        label: "Generer le PDF",
+        href: "/dashboard/estimates/version-1/print",
+      },
+    });
+    expect(cards[0]?.details).toContain("PDF absent");
+    expect(cards[1]).toMatchObject({
+      key: "order",
+      status: "blocked",
+      action: {
+        kind: "href",
+        label: "Revoir les fournisseurs",
+        href: "/dashboard/estimates/version-1/edit",
+      },
+    });
+    expect(cards[1]?.details).toContain("1 ligne sans fournisseur retenu");
+  });
+
+  it("renders finish-line cards ahead of the exception queue", () => {
+    render(
+      <AffairePilotagePanel
+        projectId="project-1"
+        intakeWorkspace={makeIntakeWorkspace()}
+        dpgfSource={makeDpgfSource()}
+        plansSummary={null}
+        registerSummary={null}
+        approvalSummary={null}
+        currentVersion={{
+          id: "version-1",
+          status: "draft",
+          versionNumber: 1,
+        }}
+        lineCount={12}
+        finishLineSummary={makeFinishLineSummary()}
+        takeoffEnabled
+      />
+    );
+
+    expect(screen.getByText("Pret a envoyer")).toBeInTheDocument();
+    expect(screen.getByText("Pret a commander")).toBeInTheDocument();
+    expect(screen.getByText("PDF absent")).toBeInTheDocument();
+    expect(screen.getByText("1 ligne sans fournisseur retenu")).toBeInTheDocument();
   });
 
   it("opens the intake upload surface from the exception queue", async () => {
