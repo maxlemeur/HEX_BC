@@ -18,6 +18,10 @@ import {
   IMPORT_ROW_PROVENANCE_KEY,
   type ImportRowProvenance,
 } from "./payload";
+import {
+  buildApprovedTabularPdfRows,
+  buildTabularPdfImportReview,
+} from "./tabular-pdf";
 import { normalizeHeaderRowNumber } from "./header-row";
 
 const DPGF_IMPORTS_BUCKET = "dpgf-imports";
@@ -353,6 +357,8 @@ function hasTabularPdfMarkers(input: JsonRecord, rows: unknown[]) {
   const validation = asRecord(input.validation);
 
   if (
+    input.tables !== undefined ||
+    input.detectedTables !== undefined ||
     input.approvedTables !== undefined ||
     input.approved_tables !== undefined ||
     input.provenanceDefaults !== undefined ||
@@ -857,9 +863,12 @@ export async function createImportFromJsonBody(body: unknown) {
     throw badRequest("Payload JSON invalide.");
   }
 
-  const rawRows = input.rows;
-  if (!Array.isArray(rawRows)) {
-    throw badRequest("Le champ rows est requis et doit etre un tableau.");
+  const rawRowsInput = Array.isArray(input.rows) ? input.rows : null;
+  const rawTablesInput = Array.isArray(input.tables) ? input.tables : null;
+  if (!rawRowsInput && !rawTablesInput) {
+    throw badRequest(
+      "Le payload doit fournir rows ou tables pour converger vers le pipeline canonique."
+    );
   }
 
   const filename = sanitizeFilename(
@@ -868,8 +877,14 @@ export async function createImportFromJsonBody(body: unknown) {
       "import.json"
   );
   const sourceFormat = resolveSourceFormatInput(input);
-  const sourceKind = resolveSourceKindInput(input, rawRows);
-  const importMetadata = resolveJsonImportRecordMetadata(input, rawRows, sourceKind, {
+  const sourceKind = resolveSourceKindInput(input, rawRowsInput ?? rawTablesInput ?? []);
+  const rawRows = rawRowsInput;
+
+  if (!rawRows && !rawTablesInput) {
+    throw badRequest("Le champ rows est requis et doit etre un tableau.");
+  }
+
+  const importMetadata = resolveJsonImportRecordMetadata(input, rawRows ?? [], sourceKind, {
     filename,
     sourceFormat,
   });
@@ -889,7 +904,26 @@ export async function createImportFromJsonBody(body: unknown) {
       isTenantAdmin,
     });
 
-    const normalizedRows = normalizeJsonRowsFromInput(rawRows, input, sourceKind);
+    const approvedPdfTables = parseApprovedPdfTables(
+      asRecord(input.validation)?.approvedTables ??
+        asRecord(input.validation)?.approved_tables ??
+        input.approvedTables ??
+        input.approved_tables
+    );
+
+    if (sourceKind === "tabular_pdf" && rawTablesInput && approvedPdfTables.size === 0) {
+      throw badRequest(
+        "Le payload DPGF PDF doit inclure validation.approvedTables avec au moins un tableau retenu."
+      );
+    }
+
+    const normalizedRows =
+      sourceKind === "tabular_pdf" && rawTablesInput
+        ? buildApprovedTabularPdfRows({
+            body: input,
+            approvedTables: approvedPdfTables,
+          })
+        : normalizeJsonRowsFromInput(rawRows ?? [], input, sourceKind);
 
     importRecord = await createImportRecord(supabase, {
       tenant_id: tenantId,
@@ -922,6 +956,18 @@ export async function createImportFromJsonBody(body: unknown) {
     }
 
     throw formatUnexpectedImportError(error);
+  }
+}
+
+export function reviewTabularPdfImport(body: unknown) {
+  try {
+    return buildTabularPdfImportReview(body);
+  } catch (error) {
+    if (error instanceof Error) {
+      throw badRequest(error.message);
+    }
+
+    throw badRequest("Payload tabular_pdf invalide.");
   }
 }
 

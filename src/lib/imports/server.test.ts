@@ -335,6 +335,72 @@ describe("createImportFromJsonBody", () => {
     });
   });
 
+  it("builds canonical raw rows from reviewed PDF tables without a parallel row envelope", async () => {
+    const { supabase, state } = createImportCreationSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await createImportFromJsonBody({
+      sourceKind: "tabular_pdf",
+      sourceFileName: "lot-cvc-dpgf.pdf",
+      sourceDocumentId: "doc-tables",
+      validation: {
+        approvedTables: [{ sourcePage: 5, tableIndex: 0 }],
+      },
+      tables: [
+        {
+          page: 5,
+          headers: ["Code article", "Description", "Qt"],
+          rows: [
+            { cells: ["A-001", "Cable cuivre", "12"] },
+            { cells: ["A-002", "Disjoncteur", "4"] },
+          ],
+        },
+      ],
+    });
+
+    expect(state.importInsertPayloads[0]).toMatchObject({
+      filename: "lot-cvc-dpgf.pdf",
+      source_format: "pdf",
+    });
+    expect(state.rawRowBatches[0]).toEqual([
+      {
+        import_id: "import-created",
+        row_index: 0,
+        payload: {
+          "Code article": "A-001",
+          Description: "Cable cuivre",
+          Qt: "12",
+          _timax_provenance: {
+            source_page: 5,
+            table_index: 0,
+            source_file_name: "lot-cvc-dpgf.pdf",
+            source_document_id: "doc-tables",
+          },
+        },
+      },
+      {
+        import_id: "import-created",
+        row_index: 1,
+        payload: {
+          "Code article": "A-002",
+          Description: "Disjoncteur",
+          Qt: "4",
+          _timax_provenance: {
+            source_page: 5,
+            table_index: 0,
+            source_file_name: "lot-cvc-dpgf.pdf",
+            source_document_id: "doc-tables",
+          },
+        },
+      },
+    ]);
+    expect(result).toMatchObject({
+      filename: "lot-cvc-dpgf.pdf",
+      row_count: 2,
+      source_format: "pdf",
+    });
+  });
+
   it("rejects tabular PDF imports without explicit approved tables", async () => {
     const { supabase, state } = createImportCreationSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
