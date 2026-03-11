@@ -4,9 +4,16 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+const extractionMocks = vi.hoisted(() => ({
+  extractTabularPdfTablesFromFile: vi.fn(),
+}));
+
+vi.mock("@/lib/imports/tabular-pdf-extraction", () => extractionMocks);
+
 import {
   createImportFromJsonBody,
   listUserImports,
+  reviewTabularPdfImportFile,
 } from "@/lib/imports/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -553,5 +560,45 @@ describe("createImportFromJsonBody", () => {
 
     expect(state.importInsertPayloads).toEqual([]);
     expect(state.rawRowBatches).toEqual([]);
+  });
+
+  it("preserves per-page tableIndex values in the PDF review payload", async () => {
+    extractionMocks.extractTabularPdfTablesFromFile.mockResolvedValue([
+      {
+        source_page: 1,
+        table_index: 0,
+        title: "Page 1",
+        headers: ["Code", "Description"],
+        rows: [{ row_index: 0, cells: ["A-001", "Cable"] }],
+      },
+      {
+        source_page: 2,
+        table_index: 1,
+        title: "Page 2",
+        headers: ["Code", "Description"],
+        rows: [{ row_index: 0, cells: ["A-002", "Gaine"] }],
+      },
+    ]);
+
+    const result = await reviewTabularPdfImportFile({
+      file: new File(["%PDF-1.7"], "lot-cvc.pdf", {
+        type: "application/pdf",
+      }),
+    });
+
+    expect(result.tables).toEqual([
+      expect.objectContaining({
+        page: 1,
+        tableIndex: 0,
+      }),
+      expect.objectContaining({
+        page: 2,
+        tableIndex: 1,
+      }),
+    ]);
+    expect(result.review.suggested_approved_tables).toEqual([
+      { sourcePage: 1, tableIndex: 0 },
+      { sourcePage: 2, tableIndex: 1 },
+    ]);
   });
 });

@@ -362,6 +362,10 @@ function UploadStep({
     Array<{ sourcePage: number; tableIndex: number }>
   >([]);
   const pdfReviewRequestIdRef = useRef(0);
+  const invalidatePendingPdfReview = useCallback(() => {
+    pdfReviewRequestIdRef.current += 1;
+    setIsReviewingPdf(false);
+  }, []);
 
   const {
     imports,
@@ -385,6 +389,7 @@ function UploadStep({
   }, [lastImportId, imports, onImportReady]);
 
   const handleFileSelect = useCallback((file: File) => {
+    invalidatePendingPdfReview();
     setFileError(null);
     setPdfReview(null);
     setApprovedPdfTables([]);
@@ -399,11 +404,10 @@ function UploadStep({
 
     setSelectedFile(file);
     if (ext !== "pdf") {
-      setIsReviewingPdf(false);
       return;
     }
 
-    const requestId = ++pdfReviewRequestIdRef.current;
+    const requestId = pdfReviewRequestIdRef.current;
     setIsReviewingPdf(true);
     void reviewTabularPdfFile(file)
       .then((review) => {
@@ -428,7 +432,7 @@ function UploadStep({
           setIsReviewingPdf(false);
         }
       });
-  }, [reviewTabularPdfFile]);
+  }, [invalidatePendingPdfReview, reviewTabularPdfFile]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -562,6 +566,7 @@ function UploadStep({
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={() => {
+                    invalidatePendingPdfReview();
                     setSelectedFile(null);
                     setFileError(null);
                     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -625,6 +630,7 @@ function UploadStep({
                     });
                   }}
                   onClearFile={() => {
+                    invalidatePendingPdfReview();
                     setSelectedFile(null);
                     setPdfReview(null);
                     setApprovedPdfTables([]);

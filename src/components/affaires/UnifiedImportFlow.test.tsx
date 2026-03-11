@@ -154,6 +154,8 @@ describe("UnifiedImportFlow", () => {
       },
     ];
     const importFile = vi.fn().mockResolvedValue(true);
+    const importReviewedPdfFile = vi.fn().mockResolvedValue(true);
+    const reviewTabularPdfFile = vi.fn();
     const refreshImports = vi.fn();
 
     useUiModeMock.mockReturnValue({
@@ -178,6 +180,8 @@ describe("UnifiedImportFlow", () => {
       lastImportId: currentLastImportId,
       maxClientParseSizeBytes: 5 * 1024 * 1024,
       importFile,
+      importReviewedPdfFile,
+      reviewTabularPdfFile,
       refreshImports,
     }));
 
@@ -615,5 +619,110 @@ describe("UnifiedImportFlow", () => {
         screen.getByRole("button", { name: /Creer le chiffrage/i })
       ).toBeEnabled();
     });
+  });
+
+  it("ignores stale PDF review failures after switching to a non-PDF file", async () => {
+    const user = userEvent.setup();
+    currentLastImportId = null;
+    const deferredReview = createDeferred<{
+      source_file_name: string;
+      source_document_id: string | null;
+      tables: Array<{
+        page: number;
+        tableIndex: number;
+        title: string | null;
+        headers: string[];
+        rows: Array<{ rowIndex: number; cells: string[] }>;
+      }>;
+      review: {
+        review_state: "light_validation";
+        import_filename: string;
+        source_file_name: string;
+        source_document_id: string | null;
+        summary: {
+          total_tables: number;
+          approvable_tables: number;
+          rejected_tables: number;
+          total_rows: number;
+          approvable_rows: number;
+        };
+        suggested_approved_tables: Array<{ sourcePage: number; tableIndex: number }>;
+        tables: unknown[];
+      };
+    }>();
+
+    useImportFlowMock.mockImplementation(() => ({
+      imports: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          status: "completed",
+          fileName: "dpgf.csv",
+          rowsCount: 10,
+          createdAt: "2026-03-05T08:00:00.000Z",
+          mode: "server",
+        },
+      ],
+      isLoadingImports: false,
+      isRefreshing: false,
+      isSubmitting: false,
+      uploadProgress: null,
+      isPolling: false,
+      loadError: null,
+      submitError: null,
+      workerError: null,
+      modeMessage: null,
+      lastMode: "server",
+      lastImportId: currentLastImportId,
+      maxClientParseSizeBytes: 5 * 1024 * 1024,
+      importFile: vi.fn().mockResolvedValue(true),
+      importReviewedPdfFile: vi.fn().mockResolvedValue(true),
+      reviewTabularPdfFile: vi.fn().mockReturnValue(deferredReview.promise),
+      refreshImports: vi.fn(),
+    }));
+
+    const { container } = render(
+      <UnifiedImportFlow projectId="22222222-2222-4222-8222-222222222222" />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Upload")).toBeInTheDocument();
+    });
+
+    const fileInput = container.querySelector("input[type='file']");
+    expect(fileInput).not.toBeNull();
+
+    await user.upload(
+      fileInput as HTMLInputElement,
+      new File(["%PDF-1.7"], "lot-cvc.pdf", {
+        type: "application/pdf",
+      })
+    );
+
+    expect(
+      await screen.findByText(/Detection des tableaux puis validation explicite/i)
+    ).toBeInTheDocument();
+
+    await user.upload(
+      fileInput as HTMLInputElement,
+      new File(["a,b\n1,2"], "lot-cvc.csv", {
+        type: "text/csv",
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("lot-cvc.csv")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText(/Detection des tableaux puis validation explicite/i)
+    ).not.toBeInTheDocument();
+
+    deferredReview.reject(new Error("Analyse du PDF tabulaire impossible."));
+
+    await waitFor(() => {
+      expect(screen.getByText("lot-cvc.csv")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByText("Analyse du PDF tabulaire impossible.")
+    ).not.toBeInTheDocument();
   });
 });

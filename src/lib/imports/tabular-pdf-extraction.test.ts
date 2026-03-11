@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 
-import { detectTabularPdfTablesFromLayout } from "@/lib/imports/tabular-pdf-extraction";
+import {
+  detectTabularPdfTablesFromLayout,
+  extractTabularPdfTablesFromFile,
+} from "@/lib/imports/tabular-pdf-extraction";
 
 describe("detectTabularPdfTablesFromLayout", () => {
   it("detects a tabular block from layout-preserved PDF text", () => {
@@ -50,5 +54,77 @@ describe("detectTabularPdfTablesFromLayout", () => {
     expect(result).toHaveLength(2);
     expect(result[0]?.source_page).toBe(1);
     expect(result[1]?.source_page).toBe(2);
+  });
+
+  it("extracts tables from a PDF file without relying on host binaries", async () => {
+    const document = await PDFDocument.create();
+    const font = await document.embedFont(StandardFonts.Helvetica);
+
+    const page = document.addPage([500, 500]);
+    page.drawText("Lot CVC DPGF", {
+      x: 40,
+      y: 430,
+      font,
+      size: 12,
+    });
+    page.drawText("Code", {
+      x: 40,
+      y: 400,
+      font,
+      size: 12,
+    });
+    page.drawText("Description", {
+      x: 160,
+      y: 400,
+      font,
+      size: 12,
+    });
+    page.drawText("Qt", {
+      x: 320,
+      y: 400,
+      font,
+      size: 12,
+    });
+    page.drawText("A-001", {
+      x: 40,
+      y: 380,
+      font,
+      size: 12,
+    });
+    page.drawText("Cable cuivre", {
+      x: 160,
+      y: 380,
+      font,
+      size: 12,
+    });
+    page.drawText("12", {
+      x: 320,
+      y: 380,
+      font,
+      size: 12,
+    });
+
+    const bytes = await document.save();
+    const buffer = Uint8Array.from(bytes).buffer;
+    const result = await extractTabularPdfTablesFromFile(
+      new File([buffer], "lot-cvc.pdf", {
+        type: "application/pdf",
+      })
+    );
+
+    expect(result).toEqual([
+      {
+        source_page: 1,
+        table_index: 0,
+        title: "Lot CVC DPGF",
+        headers: ["Code", "Description", "Qt"],
+        rows: [
+          {
+            row_index: 0,
+            cells: ["A-001", "Cable cuivre", "12"],
+          },
+        ],
+      },
+    ]);
   });
 });

@@ -986,6 +986,7 @@ export async function reviewTabularPdfImportFile(input: {
     sourceDocumentId: input.sourceDocumentId ?? null,
     tables: tables.map((table) => ({
       page: table.source_page,
+      tableIndex: table.table_index,
       title: table.title,
       headers: table.headers,
       rows: table.rows.map((row) => ({
