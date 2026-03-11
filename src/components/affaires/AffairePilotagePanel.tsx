@@ -10,6 +10,7 @@ import type {
 } from "@/lib/affaires/server";
 import type { EstimateApprovalSummary } from "@/lib/estimates/rules-engine";
 import type { CockpitSurfaceId } from "@/lib/cockpit/suggestions";
+import { AffaireFinishLineActions } from "./AffaireFinishLineActions";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 
 type PilotageStepStatus = "done" | "in_progress" | "blocked" | "waiting";
@@ -44,6 +45,7 @@ type PilotageException = {
 
 type AffairePilotagePanelProps = {
   projectId: string;
+  projectName: string;
   intakeWorkspace: Pick<
     AffaireIntakeWorkspace,
     "documents" | "missingPieces" | "briefDraft"
@@ -251,8 +253,21 @@ function buildReadyToSendAction(input: {
   if (blockingFlag?.key === "no_pdf_generated" && input.currentVersion) {
     return {
       kind: "href" as const,
-      label: "Generer le PDF",
-      href: `/dashboard/estimates/${input.currentVersion.id}/print`,
+      label: "Ouvrir la sortie devis",
+      href: "#finish-line-output",
+    };
+  }
+
+  if (
+    input.currentVersion &&
+    input.finishLineSummary &&
+    (input.finishLineSummary.readyToSend.status === "ready" ||
+      input.finishLineSummary.readyToSend.status === "warning")
+  ) {
+    return {
+      kind: "href" as const,
+      label: "Ouvrir la sortie devis",
+      href: "#finish-line-output",
     };
   }
 
@@ -1013,6 +1028,7 @@ function ExceptionActionButton({
 
 export function AffairePilotagePanel({
   projectId,
+  projectName,
   intakeWorkspace,
   dpgfSource,
   plansSummary,
@@ -1048,6 +1064,9 @@ export function AffairePilotagePanel({
     currentVersion,
     finishLineSummary,
   });
+  const prioritizedBlockerCount =
+    exceptions.length +
+    finishLineCards.filter((card) => card.status === "blocked").length;
 
   return (
     <section className="dashboard-card p-5 animate-fade-in">
@@ -1061,13 +1080,13 @@ export function AffairePilotagePanel({
           </p>
         </div>
         <Badge
-          variant={exceptions.length > 0 ? "warning" : "success"}
+          variant={prioritizedBlockerCount > 0 ? "warning" : "success"}
           size="sm"
           withDot
           className="self-start"
         >
-          {exceptions.length > 0
-            ? `${exceptions.length} point${exceptions.length > 1 ? "s" : ""} a traiter`
+          {prioritizedBlockerCount > 0
+            ? `${prioritizedBlockerCount} point${prioritizedBlockerCount > 1 ? "s" : ""} a traiter`
             : "Aucun blocage prioritaire"}
         </Badge>
       </div>
@@ -1115,6 +1134,13 @@ export function AffairePilotagePanel({
           </div>
         ))}
       </div>
+
+      <AffaireFinishLineActions
+        projectId={projectId}
+        projectName={projectName}
+        currentVersion={currentVersion}
+        finishLineSummary={finishLineSummary}
+      />
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 p-4">

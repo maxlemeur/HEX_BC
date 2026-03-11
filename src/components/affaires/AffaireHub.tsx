@@ -1623,6 +1623,7 @@ export function AffaireHub({
           <div className="mt-4">
             <AffairePilotagePanel
               projectId={summary.project.id}
+              projectName={summary.project.name}
               intakeWorkspace={intakeWorkspace ?? null}
               dpgfSource={dpgfSource}
               plansSummary={plansSummary ?? null}

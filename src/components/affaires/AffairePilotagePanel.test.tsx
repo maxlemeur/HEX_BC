@@ -3,12 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
+import { ToastProvider } from "@/components/ui/Toast";
 import {
   AffairePilotagePanel,
   buildFinishLineCards,
   buildPilotageExceptions,
   buildPilotageSteps,
 } from "./AffairePilotagePanel";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    refresh: vi.fn(),
+  }),
+}));
 
 function makeIntakeWorkspace(overrides?: Partial<Parameters<typeof buildPilotageSteps>[0]["intakeWorkspace"]>) {
   const baseBriefDraft = {
@@ -307,8 +314,8 @@ describe("AffairePilotagePanel", () => {
       status: "blocked",
       action: {
         kind: "href",
-        label: "Generer le PDF",
-        href: "/dashboard/estimates/version-1/print",
+        label: "Ouvrir la sortie devis",
+        href: "#finish-line-output",
       },
     });
     expect(cards[0]?.details).toContain("PDF absent");
@@ -344,22 +351,25 @@ describe("AffairePilotagePanel", () => {
 
   it("renders finish-line cards ahead of the exception queue", () => {
     render(
-      <AffairePilotagePanel
-        projectId="project-1"
-        intakeWorkspace={makeIntakeWorkspace()}
-        dpgfSource={makeDpgfSource()}
-        plansSummary={null}
-        registerSummary={null}
-        approvalSummary={null}
-        currentVersion={{
-          id: "version-1",
-          status: "draft",
-          versionNumber: 1,
-        }}
-        lineCount={12}
-        finishLineSummary={makeFinishLineSummary()}
-        takeoffEnabled
-      />
+      <ToastProvider>
+        <AffairePilotagePanel
+          projectId="project-1"
+          projectName="Projet finish line"
+          intakeWorkspace={makeIntakeWorkspace()}
+          dpgfSource={makeDpgfSource()}
+          plansSummary={null}
+          registerSummary={null}
+          approvalSummary={null}
+          currentVersion={{
+            id: "version-1",
+            status: "draft",
+            versionNumber: 1,
+          }}
+          lineCount={12}
+          finishLineSummary={makeFinishLineSummary()}
+          takeoffEnabled
+        />
+      </ToastProvider>
     );
 
     expect(screen.getByText("Pret a envoyer")).toBeInTheDocument();
@@ -367,8 +377,40 @@ describe("AffairePilotagePanel", () => {
     expect(screen.getByText("PDF absent")).toBeInTheDocument();
     expect(screen.getByText("1 ligne sans fournisseur retenu")).toBeInTheDocument();
     expect(
+      screen.getByText("PDF, email et BDC depuis le meme point")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Preparer l'envoi/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Exporter le BDC/i })).toBeInTheDocument();
+    expect(
       screen.getByRole("link", { name: /Mettre a jour les prix fournisseurs/i })
     ).toHaveAttribute("href", "/dashboard/affaires/project-1/prices");
+  });
+
+  it("counts blocked finish-line cards in the cockpit summary badge", () => {
+    render(
+      <ToastProvider>
+        <AffairePilotagePanel
+          projectId="project-1"
+          projectName="Projet finish line"
+          intakeWorkspace={makeIntakeWorkspace()}
+          dpgfSource={makeDpgfSource()}
+          plansSummary={null}
+          registerSummary={null}
+          approvalSummary={null}
+          currentVersion={{
+            id: "version-1",
+            status: "draft",
+            versionNumber: 1,
+          }}
+          lineCount={12}
+          finishLineSummary={makeFinishLineSummary()}
+          takeoffEnabled
+        />
+      </ToastProvider>
+    );
+
+    expect(screen.getAllByText("2 points a traiter").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Aucun blocage prioritaire")).not.toBeInTheDocument();
   });
 
   it("opens the intake upload surface from the exception queue", async () => {
@@ -376,26 +418,29 @@ describe("AffairePilotagePanel", () => {
     const onOpenSurface = vi.fn();
 
     render(
-      <AffairePilotagePanel
-        projectId="project-1"
-        intakeWorkspace={makeIntakeWorkspace({
-          missingPieces: [
-            {
-              code: "cctp_missing",
-              label: "CCTP manquant",
-              severity: "critical",
-            },
-          ],
-        })}
-        dpgfSource={null}
-        plansSummary={null}
-        registerSummary={null}
-        approvalSummary={null}
-        currentVersion={null}
-        lineCount={0}
-        takeoffEnabled
-        onOpenSurface={onOpenSurface}
-      />,
+      <ToastProvider>
+        <AffairePilotagePanel
+          projectId="project-1"
+          projectName="Projet test"
+          intakeWorkspace={makeIntakeWorkspace({
+            missingPieces: [
+              {
+                code: "cctp_missing",
+                label: "CCTP manquant",
+                severity: "critical",
+              },
+            ],
+          })}
+          dpgfSource={null}
+          plansSummary={null}
+          registerSummary={null}
+          approvalSummary={null}
+          currentVersion={null}
+          lineCount={0}
+          takeoffEnabled
+          onOpenSurface={onOpenSurface}
+        />
+      </ToastProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: /Ajouter des pieces/i }));

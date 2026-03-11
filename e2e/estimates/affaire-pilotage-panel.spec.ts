@@ -7,7 +7,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 loadEnvConfig(path.resolve(__dirname, "../.."));
 
-import { buildEstimateName, loginWithUi } from "./helpers";
+import { buildEstimateName, ensureEstimatePdfReady, loginWithUi } from "./helpers";
 
 function envOrThrow(name: string): string {
   const value = process.env[name]?.trim();
@@ -436,6 +436,8 @@ async function seedFinishLineLine(input: {
   tenantId: string;
   versionId: string;
   supplyTypeId: string;
+  unitPriceHtCents?: number;
+  puHtCents?: number;
 }) {
   const sb = await getAuthenticatedSupabaseClient();
   const sectionId = randomUUID();
@@ -483,7 +485,7 @@ async function seedFinishLineLine(input: {
         title: "Tube cuivre 18",
         description: "ml",
         quantity: 12,
-        unit_price_ht_cents: 0,
+        unit_price_ht_cents: input.unitPriceHtCents ?? 0,
         tax_rate_bp: 2000,
         k_fo: 1,
         h_mo: 0,
@@ -495,14 +497,16 @@ async function seedFinishLineLine(input: {
         h_mo_chantier: null,
         k_mo_chantier: 1,
         labor_role_chantier_id: null,
-        pu_ht_cents: 0,
+        pu_ht_cents: input.puHtCents ?? 0,
         labor_role_id: null,
         category_id: null,
         supply_type_id: input.supplyTypeId,
         selected_supplier_price_id: null,
-        line_total_ht_cents: 0,
-        line_tax_cents: 0,
-        line_total_ttc_cents: 0,
+        line_total_ht_cents: (input.puHtCents ?? 0) * 12,
+        line_tax_cents: Math.round(((input.puHtCents ?? 0) * 12 * 2000) / 10000),
+        line_total_ttc_cents:
+          (input.puHtCents ?? 0) * 12 +
+          Math.round(((input.puHtCents ?? 0) * 12 * 2000) / 10000),
       },
     ] as never
   );
@@ -659,12 +663,58 @@ test.describe("US-1.3 - pilotage affaire centre sur les exceptions", () => {
     await expect(pilotageSection).toContainText("Pret a commander");
     await expect(pilotageSection).toContainText("PDF absent");
     await expect(pilotageSection).toContainText("Prix manquant");
-    await expect(pilotageSection).toContainText("1 ligne sans fournisseur retenu");
+    await expect(pilotageSection).toContainText("1 ligne a arbitrer");
     await expect(
       pilotageSection.getByRole("link", { name: "Reprendre le devis" })
     ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/edit`);
     await expect(
       pilotageSection.getByRole("link", { name: "Revoir les fournisseurs" })
     ).toHaveAttribute("href", `/dashboard/estimates/${versionId}/edit`);
+  });
+
+  test("regroupe PDF, email et BDC dans une seule zone de sortie affaire", async ({
+    page,
+  }) => {
+    const projectName = buildEstimateName("US52-SORTIE");
+    const { versionId, projectId } = await createEstimateViaApi(page, {
+      projectName,
+      title: "US-5.2 Sortie finish line",
+    });
+    const tenantId = await getTenantIdForVersion(versionId);
+    const supplyTypeId = await fetchSupplyTypeId();
+
+    await seedFinishLineLine({
+      tenantId,
+      versionId,
+      supplyTypeId,
+      unitPriceHtCents: 2_500,
+      puHtCents: 2_500,
+    });
+    await ensureEstimatePdfReady(page, versionId);
+
+    const pilotageSection = await openAffaireHub(page, projectId);
+
+    await expect(
+      pilotageSection.getByText("PDF, email et BDC depuis le meme point")
+    ).toBeVisible();
+    await expect(
+      pilotageSection.getByRole("button", { name: "Telecharger le PDF" })
+    ).toBeVisible();
+    await expect(
+      pilotageSection.getByRole("button", { name: "Preparer l'envoi" })
+    ).toBeVisible();
+    await expect(
+      pilotageSection.getByRole("button", { name: "Exporter le BDC" })
+    ).toBeVisible();
+
+    await clickWithin(pilotageSection, "button", "Preparer l'envoi");
+    await expect(
+      page.getByRole("heading", { name: /Envoyer le devis par email/i })
+    ).toBeVisible();
+    await expect(page.getByLabel("Objet *")).toHaveValue(`Devis - ${projectName} V1`);
+    await page.getByRole("button", { name: "Annuler" }).click();
+    await expect(
+      page.getByRole("heading", { name: /Envoyer le devis par email/i })
+    ).not.toBeVisible();
   });
 });
