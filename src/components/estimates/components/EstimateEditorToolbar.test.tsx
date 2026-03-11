@@ -12,6 +12,7 @@ function renderToolbar(overrides?: {
   hasSelectedLines?: boolean;
   uiMode?: "expert" | "simplified";
   isLaborSplitEnabled?: boolean;
+  showAdjacentActions?: boolean;
 }) {
   const actions = {
     setBulkMajorationPercent: vi.fn(),
@@ -88,6 +89,12 @@ function renderToolbar(overrides?: {
         onOpenSupplierPreselectionDialog={vi.fn()}
         onOpenAssemblyPicker={vi.fn()}
         onAddRootSection={vi.fn()}
+        onOpenEstimateStructureDraftDialog={
+          overrides?.showAdjacentActions ? vi.fn() : undefined
+        }
+        onOpenGeneratedOuvrageDialog={
+          overrides?.showAdjacentActions ? vi.fn() : undefined
+        }
         columnPreset="standard"
         columnPresetLabels={{ essential: "Essentiel", standard: "Standard", full: "Complet", custom: "Personnalisé" }}
         onColumnPresetChange={vi.fn()}
@@ -141,6 +148,18 @@ describe("EstimateEditorToolbar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Outils" }));
     expect(
       screen.getByRole("button", { name: "Préselection fournisseurs (2)" })
+    ).toBeInTheDocument();
+  });
+
+  it("labels adjacent estimate helpers explicitly", () => {
+    renderToolbar({ showAdjacentActions: true });
+
+    expect(screen.getByText("Aides adjacentes")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Structure IA" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Generer des ouvrages" })
     ).toBeInTheDocument();
   });
 });

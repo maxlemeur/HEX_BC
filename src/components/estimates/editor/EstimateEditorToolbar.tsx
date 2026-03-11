@@ -304,15 +304,20 @@ export function EstimateEditorToolbar({
           </button>
         ) : null}
         {onOpenVersionZeroDialog ? (
-          <button
-            className="btn btn-secondary btn-sm"
-            type="button"
-            onClick={onOpenVersionZeroDialog}
-            disabled={isVersionZeroActionDisabled}
-            data-testid="estimate-page-toolbar-version-zero-button"
-          >
-            {versionZeroActionLabel}
-          </button>
+          <div className="inline-flex items-center gap-2">
+            <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+              Aide adjacente
+            </span>
+            <button
+              className="btn btn-secondary btn-sm"
+              type="button"
+              onClick={onOpenVersionZeroDialog}
+              disabled={isVersionZeroActionDisabled}
+              data-testid="estimate-page-toolbar-version-zero-button"
+            >
+              {versionZeroActionLabel}
+            </button>
+          </div>
         ) : null}
         {canSend ? (
           <button

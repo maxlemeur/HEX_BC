@@ -301,6 +301,11 @@ export function EstimateEditorToolbar({
             Importer depuis...
           </button>
         ) : null}
+        {onOpenEstimateStructureDraftDialog || onOpenGeneratedOuvrageDialog ? (
+          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+            Aides adjacentes
+          </span>
+        ) : null}
         {onOpenEstimateStructureDraftDialog ? (
           <button
             className="btn btn-secondary btn-sm"
