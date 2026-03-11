@@ -69,12 +69,16 @@ function parseExpectedDeliveryDate(value: unknown) {
 }
 
 function buildTraceabilitySignature(item: {
+  productId: string | null;
+  reference: string | null;
   designation: string;
   quantity: number;
   unitPriceCents: number;
   taxRateBp: number;
 }) {
   return JSON.stringify([
+    item.productId,
+    item.reference,
     item.designation,
     Math.round(item.quantity),
     Math.round(item.unitPriceCents),
@@ -87,6 +91,8 @@ function buildExistingItemTraceabilityIndex(items: ExistingPurchaseOrderItemTrac
 
   for (const item of items) {
     const signature = buildTraceabilitySignature({
+      productId: item.product_id,
+      reference: toNullableString(item.reference),
       designation: item.designation,
       quantity: item.quantity,
       unitPriceCents: item.unit_price_ht_cents,
@@ -139,7 +145,7 @@ function normalizeExistingItemTraceabilityRows(
     return [
       {
         product_id: typeof record.product_id === "string" ? record.product_id : null,
-        reference: typeof record.reference === "string" ? record.reference : null,
+        reference: toNullableString(record.reference),
         designation: record.designation,
         quantity: Number(record.quantity),
         unit_price_ht_cents: Number(record.unit_price_ht_cents),

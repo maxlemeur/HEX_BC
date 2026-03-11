@@ -152,4 +152,51 @@ describe("estimate purchase order drafts route", () => {
       }
     );
   });
+
+  it("accepts the TBD sentinel in POST payloads", async () => {
+    vi.mocked(createEstimatePurchaseOrderDrafts).mockResolvedValue({
+      source_version_id: VERSION_ID,
+      summary: {
+        draft_orders_created: 1,
+        draft_lines_created: 1,
+      },
+      orders: [],
+    } as never);
+
+    const response = await POST(
+      new Request(`http://localhost/api/estimates/${VERSION_ID}/purchase-order-drafts`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          groups: [
+            {
+              supplier_id: SUPPLIER_ID,
+              delivery_site_id: DELIVERY_SITE_ID,
+              item_ids: [ITEM_ID],
+              expectedDeliveryDate: " TBD ",
+            },
+          ],
+        }),
+      }),
+      makeParams()
+    );
+
+    expect(response.status).toBe(201);
+    expect(vi.mocked(createEstimatePurchaseOrderDrafts)).toHaveBeenCalledWith(
+      VERSION_ID,
+      {
+        groups: [
+          {
+            supplier_id: SUPPLIER_ID,
+            delivery_site_id: DELIVERY_SITE_ID,
+            item_ids: [ITEM_ID],
+            expected_delivery_date: "TBD",
+            notes: null,
+          },
+        ],
+      }
+    );
+  });
 });

@@ -705,7 +705,24 @@ export const estimatePurchaseOrderDraftGroupSchema = z.preprocess(
     supplier_id: uuidSchema,
     delivery_site_id: requiredTextSchema,
     item_ids: z.array(uuidSchema).min(1, "Au moins une ligne est requise."),
-    expected_delivery_date: z.union([dateOnlySchema, z.null()]).optional(),
+    expected_delivery_date: z
+      .preprocess((value) => {
+        if (typeof value !== "string") {
+          return value;
+        }
+
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return null;
+        }
+
+        if (trimmed.toUpperCase() === "TBD") {
+          return "TBD";
+        }
+
+        return trimmed;
+      }, z.union([dateOnlySchema, z.literal("TBD"), z.null()]))
+      .optional(),
     notes: optionalNullableTextSchema.optional(),
   })
 ).transform((group) => ({

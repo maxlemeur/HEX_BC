@@ -4,6 +4,7 @@ import { buildPurchaseOrderReference } from "@/lib/reference";
 import {
   badRequest,
   conflict,
+  internalError,
   mapSupabaseError,
   unauthorized,
 } from "@/lib/estimates/errors";
@@ -184,6 +185,10 @@ function parseExpectedDeliveryDate(value: string | null) {
     return null;
   }
 
+  if (trimmed.toUpperCase() === "TBD") {
+    return "TBD";
+  }
+
   if (!isValidDateOnly(trimmed)) {
     throw badRequest("Date de livraison invalide (YYYY-MM-DD attendu).", {
       expected_delivery_date: value,
@@ -210,6 +215,21 @@ async function loadSupplierComparisonMap(versionId: string, itemIds: string[]) {
     stale_price_days: stalePriceDays,
     comparisons,
   };
+}
+
+function normalizeStringIds(rows: unknown[] | null | undefined, key: string) {
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== "object") {
+      return [];
+    }
+
+    const value = (row as Record<string, unknown>)[key];
+    return typeof value === "string" ? [value] : [];
+  });
 }
 
 async function getDraftOrderContext() {
@@ -246,11 +266,63 @@ async function getDraftOrderContext() {
   };
 }
 
+async function listDraftedEstimateItemIds(
+  versionId: string,
+  itemIds: string[],
+  context?: Awaited<ReturnType<typeof getDraftOrderContext>>
+) {
+  if (itemIds.length === 0) {
+    return new Set<string>();
+  }
+
+  const resolvedContext = context ?? (await getDraftOrderContext());
+  const { data: orders, error: ordersError } = await resolvedContext.supabase
+    .from("purchase_orders")
+    .select("id")
+    .eq("tenant_id", resolvedContext.tenantId)
+    .eq("source_estimate_version_id", versionId)
+    .eq("status", "draft");
+
+  if (ordersError) {
+    throw mapSupabaseError(
+      ordersError,
+      "Impossible de verifier les brouillons de commande existants."
+    );
+  }
+
+  const orderIds = normalizeStringIds(orders, "id");
+  if (orderIds.length === 0) {
+    return new Set<string>();
+  }
+
+  const { data: draftedItems, error: draftedItemsError } = await resolvedContext.supabase
+    .from("purchase_order_items")
+    .select("source_estimate_item_id")
+    .eq("tenant_id", resolvedContext.tenantId)
+    .in("purchase_order_id", orderIds)
+    .in("source_estimate_item_id", itemIds);
+
+  if (draftedItemsError) {
+    throw mapSupabaseError(
+      draftedItemsError,
+      "Impossible de verifier les lignes deja rattachees a un brouillon."
+    );
+  }
+
+  return new Set(normalizeStringIds(draftedItems, "source_estimate_item_id"));
+}
+
 export async function getEstimatePurchaseOrderDraftPreparation(
   versionId: string
 ): Promise<EstimatePurchaseOrderDraftPreparation> {
   const { items } = await listEstimateItems(versionId);
-  const supplierLines = items.filter(isSupplierScopedLine);
+  const scopedLines = items.filter(isSupplierScopedLine);
+  const scopedLineIds = scopedLines.map((item) => item.id);
+  const draftedItemIds =
+    scopedLineIds.length > 0
+      ? await listDraftedEstimateItemIds(versionId, scopedLineIds)
+      : new Set<string>();
+  const supplierLines = scopedLines.filter((item) => !draftedItemIds.has(item.id));
   const supplierLineIds = supplierLines.map((item) => item.id);
   const { stale_price_days, comparisons } =
     supplierLineIds.length > 0
@@ -417,6 +489,24 @@ async function assertDeliverySitesAccessible(
   }
 }
 
+async function rollbackCreatedDraftOrders(
+  orderIds: string[],
+  context: Awaited<ReturnType<typeof getDraftOrderContext>>
+) {
+  for (const orderId of Array.from(new Set(orderIds))) {
+    const { error } = await context.supabase
+      .from("purchase_orders")
+      .delete()
+      .eq("id", orderId);
+
+    if (error) {
+      return error;
+    }
+  }
+
+  return null;
+}
+
 export async function createEstimatePurchaseOrderDrafts(
   versionId: string,
   input: EstimatePurchaseOrderDraftsCreateInput
@@ -453,112 +543,148 @@ export async function createEstimatePurchaseOrderDrafts(
   });
 
   const context = await getDraftOrderContext();
+  const alreadyDraftedItemIds = await listDraftedEstimateItemIds(
+    versionId,
+    Array.from(requestedItemIds),
+    context
+  );
+  if (alreadyDraftedItemIds.size > 0) {
+    throw conflict(
+      "Certaines lignes sont deja rattachees a un brouillon de commande.",
+      {
+        item_ids: Array.from(alreadyDraftedItemIds).sort(),
+      },
+      "ORDER_DRAFT_ALREADY_EXISTS"
+    );
+  }
+
   await assertDeliverySitesAccessible(
     Array.from(new Set(input.groups.map((group) => group.delivery_site_id))),
     context
   );
 
   const createdOrders: EstimatePurchaseOrderDraftCreationResult["orders"] = [];
+  const createdOrderIds: string[] = [];
 
-  for (const group of input.groups) {
-    const preparedGroup = groupsBySupplierId.get(group.supplier_id);
-    if (!preparedGroup) {
-      throw conflict("Le groupe fournisseur n'est plus preparable dans cet etat.", {
+  try {
+    for (const group of input.groups) {
+      const preparedGroup = groupsBySupplierId.get(group.supplier_id);
+      if (!preparedGroup) {
+        throw conflict("Le groupe fournisseur n'est plus preparable dans cet etat.", {
+          supplier_id: group.supplier_id,
+        }, "ORDER_DRAFT_PREPARATION_STALE");
+      }
+
+      const lines = preparedGroup.lines.filter((line) => group.item_ids.includes(line.item_id));
+      if (lines.length === 0) {
+        throw badRequest("Chaque groupe doit contenir au moins une ligne draftable.", {
+          supplier_id: group.supplier_id,
+        });
+      }
+
+      const orderDate = new Date();
+      const { orderTotals } = computeTotalsFromInputs(
+        lines.map((line) => ({
+          quantity: line.quantity,
+          unitPriceHtCents: line.unit_price_ht_cents,
+          taxRateBp: line.tax_rate_bp,
+        }))
+      );
+
+      const { data: insertedOrder, error: insertError } = await context.supabase
+        .from("purchase_orders")
+        .insert({
+          reference: `TEMP-${Date.now()}-${group.supplier_id}`,
+          user_id: context.userId,
+          supplier_id: group.supplier_id,
+          delivery_site_id: group.delivery_site_id,
+          status: "draft",
+          expected_delivery_date: parseExpectedDeliveryDate(group.expected_delivery_date),
+          notes: group.notes,
+          total_ht_cents: orderTotals.totalHtCents,
+          total_tax_cents: orderTotals.totalTaxCents,
+          total_ttc_cents: orderTotals.totalTtcCents,
+          currency: "EUR",
+          source_estimate_version_id: versionId,
+        })
+        .select("id, order_number")
+        .single();
+
+      if (insertError || !insertedOrder) {
+        throw mapSupabaseError(insertError, "Impossible de creer le brouillon de commande.");
+      }
+
+      createdOrderIds.push(insertedOrder.id);
+
+      const reference = buildPurchaseOrderReference(
+        insertedOrder.order_number as number,
+        orderDate
+      );
+
+      const { error: updateError } = await context.supabase
+        .from("purchase_orders")
+        .update({
+          reference,
+        })
+        .eq("id", insertedOrder.id);
+
+      if (updateError) {
+        throw mapSupabaseError(updateError, "Impossible de finaliser la reference commande.");
+      }
+
+      const { error: itemsError } = await context.supabase
+        .from("purchase_order_items")
+        .insert(lines.map((line, index) => ({
+          purchase_order_id: insertedOrder.id,
+          position: index + 1,
+          product_id: null,
+          reference: line.supplier_reference,
+          designation: line.item_title,
+          unit_price_ht_cents: line.unit_price_ht_cents,
+          tax_rate_bp: line.tax_rate_bp,
+          quantity: line.quantity,
+          line_total_ht_cents: line.line_total_ht_cents,
+          line_tax_cents: line.line_tax_cents,
+          line_total_ttc_cents: line.line_total_ttc_cents,
+          source_estimate_item_id: line.item_id,
+          source_selected_supplier_price_id: line.selected_supplier_price_id,
+        })));
+
+      if (itemsError) {
+        throw mapSupabaseError(itemsError, "Impossible d'enregistrer les lignes de commande.");
+      }
+
+      createdOrders.push({
+        purchase_order_id: insertedOrder.id,
+        reference,
         supplier_id: group.supplier_id,
-      }, "ORDER_DRAFT_PREPARATION_STALE");
-    }
-
-    const lines = preparedGroup.lines.filter((line) => group.item_ids.includes(line.item_id));
-    if (lines.length === 0) {
-      throw badRequest("Chaque groupe doit contenir au moins une ligne draftable.", {
-        supplier_id: group.supplier_id,
-      });
-    }
-
-    const orderDate = new Date();
-    const { orderTotals } = computeTotalsFromInputs(
-      lines.map((line) => ({
-        quantity: line.quantity,
-        unitPriceHtCents: line.unit_price_ht_cents,
-        taxRateBp: line.tax_rate_bp,
-      }))
-    );
-
-    const { data: insertedOrder, error: insertError } = await context.supabase
-      .from("purchase_orders")
-      .insert({
-        reference: `TEMP-${Date.now()}-${group.supplier_id}`,
-        user_id: context.userId,
-        supplier_id: group.supplier_id,
+        supplier_name: preparedGroup.supplier_name,
         delivery_site_id: group.delivery_site_id,
-        status: "draft",
-        expected_delivery_date: parseExpectedDeliveryDate(group.expected_delivery_date),
-        notes: group.notes,
+        item_count: lines.length,
         total_ht_cents: orderTotals.totalHtCents,
         total_tax_cents: orderTotals.totalTaxCents,
         total_ttc_cents: orderTotals.totalTtcCents,
-        currency: "EUR",
-        source_estimate_version_id: versionId,
-      })
-      .select("id, order_number")
-      .single();
+        ordered_source_item_ids: lines.map((line) => line.item_id),
+      });
+    }
+  } catch (error) {
+    if (createdOrderIds.length > 0) {
+      const rollbackError = await rollbackCreatedDraftOrders(createdOrderIds, context);
 
-    if (insertError || !insertedOrder) {
-      throw mapSupabaseError(insertError, "Impossible de creer le brouillon de commande.");
+      if (rollbackError) {
+        throw internalError(
+          "Echec de la creation des brouillons et du rollback automatique.",
+          {
+            create_error: error instanceof Error ? error.message : "Erreur inconnue.",
+            rollback_error: rollbackError,
+            purchase_order_ids: createdOrderIds,
+          },
+          "ORDER_DRAFT_ROLLBACK_FAILED"
+        );
+      }
     }
 
-    const reference = buildPurchaseOrderReference(
-      insertedOrder.order_number as number,
-      orderDate
-    );
-
-    const { error: updateError } = await context.supabase
-      .from("purchase_orders")
-      .update({
-        reference,
-      })
-      .eq("id", insertedOrder.id);
-
-    if (updateError) {
-      await context.supabase.from("purchase_orders").delete().eq("id", insertedOrder.id);
-      throw mapSupabaseError(updateError, "Impossible de finaliser la reference commande.");
-    }
-
-    const { error: itemsError } = await context.supabase
-      .from("purchase_order_items")
-      .insert(lines.map((line, index) => ({
-        purchase_order_id: insertedOrder.id,
-        position: index + 1,
-        product_id: null,
-        reference: line.supplier_reference,
-        designation: line.item_title,
-        unit_price_ht_cents: line.unit_price_ht_cents,
-        tax_rate_bp: line.tax_rate_bp,
-        quantity: line.quantity,
-        line_total_ht_cents: line.line_total_ht_cents,
-        line_tax_cents: line.line_tax_cents,
-        line_total_ttc_cents: line.line_total_ttc_cents,
-        source_estimate_item_id: line.item_id,
-        source_selected_supplier_price_id: line.selected_supplier_price_id,
-      })));
-
-    if (itemsError) {
-      await context.supabase.from("purchase_orders").delete().eq("id", insertedOrder.id);
-      throw mapSupabaseError(itemsError, "Impossible d'enregistrer les lignes de commande.");
-    }
-
-    createdOrders.push({
-      purchase_order_id: insertedOrder.id,
-      reference,
-      supplier_id: group.supplier_id,
-      supplier_name: preparedGroup.supplier_name,
-      delivery_site_id: group.delivery_site_id,
-      item_count: lines.length,
-      total_ht_cents: orderTotals.totalHtCents,
-      total_tax_cents: orderTotals.totalTaxCents,
-      total_ttc_cents: orderTotals.totalTtcCents,
-      ordered_source_item_ids: lines.map((line) => line.item_id),
-    });
+    throw error;
   }
 
   return {
