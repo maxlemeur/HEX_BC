@@ -4,12 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AffaireHubFinishLineSummaryResult } from "@/lib/affaires/server";
 import { ToastProvider } from "@/components/ui/Toast";
+import { AffairePilotagePanel } from "./AffairePilotagePanel";
 import {
-  AffairePilotagePanel,
   buildFinishLineCards,
   buildPilotageExceptions,
   buildPilotageSteps,
-} from "./AffairePilotagePanel";
+} from "./AffairePilotagePanel.logic";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
