@@ -414,5 +414,9 @@ describe("PlansMetresCard", () => {
     expect(screen.getByText("V3")).toBeInTheDocument();
     expect(screen.getByText("V2")).toBeInTheDocument();
     expect(screen.getByText("Carry-over depuis V1")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reprendre l'analyse" })).toHaveAttribute(
+      "href",
+      "/dashboard/affaires/project-1/takeoff"
+    );
   });
 });

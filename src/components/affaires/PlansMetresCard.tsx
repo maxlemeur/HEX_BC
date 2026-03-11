@@ -154,14 +154,17 @@ export function PlansMetresCard({
   errorMessage,
   onLaunchMetre,
 }: PlansMetresCardProps) {
-  const defaultPlanSetId = plans?.defaultPlanSetId ?? null;
+  const continuityPlanSetId =
+    plans?.latestJob !== null && plans?.latestJob !== undefined
+      ? (plans.latestJob.planSetId ?? null)
+      : (plans?.defaultPlanSetId ?? null);
   const latestJobId = plans?.latestJob?.jobId ?? null;
   const hasPlans = (plans?.planSetCount ?? 0) > 0;
   const { data: continuityData, isLoading: isContinuityLoading } = useSWR(
-    hasPlans ? ["plans-metres-continuity", projectId, defaultPlanSetId] : null,
+    hasPlans ? ["plans-metres-continuity", projectId, continuityPlanSetId] : null,
     () =>
       fetchTakeoffActivityCenter(projectId, {
-        planSetId: defaultPlanSetId,
+        planSetId: continuityPlanSetId,
         limit: 6,
         offset: 0,
       }),
@@ -177,6 +180,12 @@ export function PlansMetresCard({
         latestJobId,
       })
     : null;
+  const continuityActionLabel =
+    continuitySnapshot?.actionRequiredCount
+      ? "Reprendre l'analyse"
+      : continuitySnapshot?.waitingCount
+        ? "Suivre la reprise"
+        : null;
 
   /* Error state */
   if (errorMessage) {
@@ -377,6 +386,17 @@ export function PlansMetresCard({
                   </li>
                 ))}
               </ol>
+
+              {continuityActionLabel ? (
+                <div className="mt-3">
+                  <Link
+                    href={`/dashboard/affaires/${projectId}/takeoff`}
+                    className="btn btn-secondary btn-sm inline-flex"
+                  >
+                    {continuityActionLabel}
+                  </Link>
+                </div>
+              ) : null}
             </>
           ) : null}
         </div>
