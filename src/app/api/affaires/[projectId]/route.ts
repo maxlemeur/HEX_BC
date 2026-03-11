@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   forbidden,
+  mapSupabaseError,
   notFound,
   ok,
   toErrorResponse,
@@ -56,7 +57,7 @@ export async function DELETE(
       .eq("id", projectId);
 
     if (deleteError) {
-      throw new Error(deleteError.message);
+      throw mapSupabaseError(deleteError, "Impossible de supprimer l'affaire.");
     }
 
     return ok({ deleted: true });

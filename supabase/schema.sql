@@ -411,6 +411,29 @@ create trigger guard_estimate_versions_readonly
   before update on public.estimate_versions
   for each row execute procedure public.guard_estimate_versions_readonly();
 
+create or replace function public.guard_estimate_versions_delete_draft_only()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.status <> 'draft' then
+    raise exception
+      using
+        errcode = '42501',
+        message = 'ESTIMATE_VERSION_DELETE_DRAFT_ONLY',
+        detail = 'Only draft estimate versions can be deleted.';
+  end if;
+
+  return old;
+end;
+$$;
+
+drop trigger if exists estimate_versions_delete_draft_only_guard on public.estimate_versions;
+create trigger estimate_versions_delete_draft_only_guard
+  before delete on public.estimate_versions
+  for each row execute procedure public.guard_estimate_versions_delete_draft_only();
+
 create index estimate_versions_project_id_idx on public.estimate_versions (project_id);
 create index estimate_versions_status_idx on public.estimate_versions (status);
 create index estimate_versions_updated_at_idx on public.estimate_versions (updated_at);
@@ -5049,6 +5072,10 @@ language plpgsql
 set search_path = public
 as $$
 begin
+  if tg_op = 'DELETE' and pg_trigger_depth() > 1 then
+    return old;
+  end if;
+
   raise exception
     using
       errcode = '42501',
