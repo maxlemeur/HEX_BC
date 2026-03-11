@@ -2,13 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { NumberInput } from "@/components/ui/NumberInput";
 import { Modal } from "@/components/ui/Modal";
 import { fetchEstimateItemsForVersion } from "@/lib/estimates/client";
-import {
-  previewTakeoffConversion,
-  type TakeoffMappingOverride,
-  type TakeoffPreviewConversionResponse,
+import type {
+  TakeoffMappingOverride,
+  TakeoffPreviewConversionResponse,
 } from "@/lib/takeoff/client";
 import {
   checkApplyGuard,
@@ -16,28 +14,28 @@ import {
   type ApplyGuardResult,
 } from "@/lib/takeoff/guards";
 import type { TakeoffJobItem } from "@/lib/takeoff/types";
-import type { Database } from "@/types/database";
 
-type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
+import { TakeoffApplyWizardConfirmationStep } from "./takeoff-apply-wizard/TakeoffApplyWizardConfirmationStep";
+import { TakeoffApplyWizardPreviewStep } from "./takeoff-apply-wizard/TakeoffApplyWizardPreviewStep";
+import { TakeoffApplyWizardStrategyStep } from "./takeoff-apply-wizard/TakeoffApplyWizardStrategyStep";
+import { TakeoffApplyWizardTargetStep } from "./takeoff-apply-wizard/TakeoffApplyWizardTargetStep";
+import {
+  AUTO_OVERRIDE_VALUE,
+  ROOT_SECTION_LABEL,
+  buildOverrideFromAction,
+  buildSectionOptions,
+  toOverrideList,
+  type SectionOption,
+  type TakeoffApplyStrategy,
+  type TakeoffApplyWizardSubmitPayload,
+  type WizardStep,
+} from "./takeoff-apply-wizard/shared";
+import { useTakeoffApplyPreview } from "./takeoff-apply-wizard/useTakeoffApplyPreview";
 
-type WizardStep = 1 | 2 | 3 | 4;
-
-type SectionOption = {
-  id: string;
-  label: string;
-  summaryLabel: string;
-};
-
-export type TakeoffApplyStrategy = "append" | "replace" | "merge";
-
-export type TakeoffApplyWizardSubmitPayload = {
-  targetSectionId: string | null;
-  targetSectionLabel: string;
-  strategy: TakeoffApplyStrategy;
-  overrides: TakeoffMappingOverride[];
-  override?: boolean;
-  overrideJustification?: string;
-};
+export type {
+  TakeoffApplyStrategy,
+  TakeoffApplyWizardSubmitPayload,
+} from "./takeoff-apply-wizard/shared";
 
 type TakeoffApplyWizardProps = {
   open: boolean;
@@ -58,417 +56,6 @@ type TakeoffApplyWizardProps = {
   onReturnToReview?: () => void;
   presetStrategy?: TakeoffApplyStrategy;
 };
-
-const ROOT_SECTION_VALUE = "__takeoff_root_section__";
-const ROOT_SECTION_LABEL = "Racine du devis";
-const AUTO_OVERRIDE_VALUE = "__takeoff_override_auto__";
-
-const STRATEGY_OPTIONS: Array<{
-  value: TakeoffApplyStrategy;
-  label: string;
-  description: string;
-  impactLabel: string;
-  caution: string;
-}> = [
-  {
-    value: "append",
-    label: "Ajouter sans effacer",
-    description: "Ajoute les lignes extraites dans la zone cible sans toucher au contenu deja en place.",
-    impactLabel: "Le plus sur pour enrichir un devis existant.",
-    caution: "Aucune ligne existante n'est supprimee.",
-  },
-  {
-    value: "replace",
-    label: "Remplacer la zone cible",
-    description: "Remplace le contenu actuel de la zone cible par les lignes issues du metre retenu.",
-    impactLabel: "Impact fort sur la zone choisie.",
-    caution: "Le contenu existant de la zone cible sera remplace.",
-  },
-  {
-    value: "merge",
-    label: "Fusionner avec l'existant",
-    description: "Tente de rapprocher les lignes existantes et les lignes extraites selon les regles serveur.",
-    impactLabel: "Bon compromis quand la zone est deja structuree.",
-    caution: "Relisez l'impact avant confirmation.",
-  },
-];
-
-const OVERRIDE_ACTION_OPTIONS: Array<{
-  value: TakeoffMappingOverride["action"];
-  label: string;
-}> = [
-  { value: "none", label: "Aucune transformation" },
-  { value: "rename", label: "rename" },
-  { value: "set_price", label: "set_price" },
-  { value: "set_category", label: "set_category" },
-  { value: "apply_assembly", label: "apply_assembly" },
-  { value: "skip", label: "skip" },
-];
-
-function toPosition(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  return Number.MAX_SAFE_INTEGER;
-}
-
-function normalizeSectionTitle(title: string | null): string {
-  const normalized = title?.trim();
-  if (!normalized) return "Section sans titre";
-  return normalized;
-}
-
-function compareSections(left: EstimateItem, right: EstimateItem): number {
-  const positionDiff = toPosition(left.position) - toPosition(right.position);
-  if (positionDiff !== 0) return positionDiff;
-
-  const titleDiff = normalizeSectionTitle(left.title).localeCompare(
-    normalizeSectionTitle(right.title),
-    "fr-FR"
-  );
-  if (titleDiff !== 0) return titleDiff;
-
-  return left.id.localeCompare(right.id);
-}
-
-function buildSectionOptions(items: EstimateItem[]): SectionOption[] {
-  const sections = items.filter((item) => item.item_type === "section");
-  const sectionIds = new Set(sections.map((section) => section.id));
-  const childrenByParent = new Map<string | null, EstimateItem[]>();
-
-  for (const section of sections) {
-    const parentId =
-      section.parent_id && sectionIds.has(section.parent_id)
-        ? section.parent_id
-        : null;
-    const siblings = childrenByParent.get(parentId) ?? [];
-    siblings.push(section);
-    childrenByParent.set(parentId, siblings);
-  }
-
-  for (const siblings of childrenByParent.values()) {
-    siblings.sort(compareSections);
-  }
-
-  const visited = new Set<string>();
-  const ordered: SectionOption[] = [];
-
-  const visit = (parentId: string | null, depth: number) => {
-    const children = childrenByParent.get(parentId) ?? [];
-
-    for (const section of children) {
-      if (visited.has(section.id)) continue;
-      visited.add(section.id);
-      const summaryLabel = normalizeSectionTitle(section.title);
-      const indent = depth > 0 ? `${"  ".repeat(depth)}- ` : "";
-      ordered.push({
-        id: section.id,
-        label: `${indent}${summaryLabel}`,
-        summaryLabel,
-      });
-      visit(section.id, depth + 1);
-    }
-  };
-
-  visit(null, 0);
-
-  for (const section of sections) {
-    if (visited.has(section.id)) continue;
-    ordered.push({
-      id: section.id,
-      label: normalizeSectionTitle(section.title),
-      summaryLabel: normalizeSectionTitle(section.title),
-    });
-  }
-
-  return ordered;
-}
-
-function strategyDescription(strategy: TakeoffApplyStrategy) {
-  return STRATEGY_OPTIONS.find((option) => option.value === strategy)?.description ?? "-";
-}
-
-function strategyLabel(strategy: TakeoffApplyStrategy) {
-  return STRATEGY_OPTIONS.find((option) => option.value === strategy)?.label ?? strategy;
-}
-
-function strategyCaution(strategy: TakeoffApplyStrategy) {
-  return STRATEGY_OPTIONS.find((option) => option.value === strategy)?.caution ?? "";
-}
-
-function toOverrideList(overridesByItemId: Record<string, TakeoffMappingOverride>) {
-  return Object.values(overridesByItemId);
-}
-
-function summarizeAction(item: TakeoffPreviewConversionResponse["items"][number]) {
-  if (item.action === "none") {
-    return "Aucune";
-  }
-
-  if (item.rule_name) {
-    return `${item.action} (${item.rule_name})`;
-  }
-
-  return item.action;
-}
-
-function buildOverrideFromAction(input: {
-  item: TakeoffPreviewConversionResponse["items"][number];
-  action: TakeoffMappingOverride["action"];
-}): TakeoffMappingOverride {
-  if (input.action === "rename") {
-    return {
-      item_id: input.item.item_id,
-      action: "rename",
-      action_params: {
-        designation: input.item.transformed.designation,
-      },
-    };
-  }
-
-  if (input.action === "set_price") {
-    return {
-      item_id: input.item.item_id,
-      action: "set_price",
-      action_params: {
-        unit_price_cents: input.item.transformed.unit_price_cents ?? 0,
-      },
-    };
-  }
-
-  if (input.action === "set_category") {
-    return {
-      item_id: input.item.item_id,
-      action: "set_category",
-      action_params: {
-        category_id: input.item.transformed.category_id ?? "",
-      },
-    };
-  }
-
-  if (input.action === "apply_assembly") {
-    return {
-      item_id: input.item.item_id,
-      action: "apply_assembly",
-      action_params: {
-        assembly_id: input.item.transformed.assembly_id ?? "",
-      },
-    };
-  }
-
-  if (input.action === "skip") {
-    return {
-      item_id: input.item.item_id,
-      action: "skip",
-      action_params: {},
-    };
-  }
-
-  return {
-    item_id: input.item.item_id,
-    action: "none",
-    action_params: {},
-  };
-}
-
-function confidenceColor(confidence: number | null): string {
-  if (confidence === null) return "text-[var(--danger)]";
-  if (confidence < 0.3) return "text-[var(--danger)]";
-  if (confidence < 0.5) return "text-[var(--warning)]";
-  if (confidence < 0.8) return "text-[var(--info)]";
-  return "text-[var(--success)]";
-}
-
-function formatConfidencePercent(confidence: number | null): string {
-  if (confidence === null) return "N/A";
-  return `${Math.round(confidence * 100)}%`;
-}
-
-// ---------------------------------------------------------------------------
-// Guard Panel sub-component
-// ---------------------------------------------------------------------------
-
-function GuardPanel({
-  guardResult,
-  items,
-  isAdmin,
-  isVerifying,
-  overrideJustification,
-  onVerifyAll,
-  onVerifyItem,
-  onReturnToReview,
-  onOverrideJustificationChange,
-  onOverrideConfirm,
-}: {
-  guardResult: ApplyGuardResult;
-  items: TakeoffJobItem[];
-  isAdmin: boolean;
-  isVerifying: boolean;
-  overrideJustification: string;
-  onVerifyAll: () => void;
-  onVerifyItem: (itemId: string) => void;
-  onReturnToReview?: () => void;
-  onOverrideJustificationChange: (value: string) => void;
-  onOverrideConfirm: () => void;
-}) {
-  const totalIncluded = items.filter((i) => !i.is_excluded).length;
-  const verifiedCount = items.filter((i) => !i.is_excluded && i.is_verified).length;
-  const progressPercent =
-    totalIncluded > 0 ? Math.round((verifiedCount / totalIncluded) * 100) : 0;
-
-  return (
-    <div className="space-y-4">
-      {/* Banner */}
-      <div className="rounded-xl border border-[var(--warning)] bg-warning-light p-4">
-        <p className="flex items-center gap-2 text-sm font-semibold text-[var(--warning)]">
-          <span aria-hidden="true">&#9888;</span> Verification requise
-        </p>
-        <p className="mt-2 text-sm text-[var(--slate-700)]">
-          {guardResult.blocked_items.length} item(s) ont une confiance faible
-          (&lt;{Math.round(guardResult.threshold * 100)}%) et n&apos;ont pas encore
-          ete verifies. L&apos;IA n&apos;est pas certaine de ces donnees — une
-          verification humaine est obligatoire avant application.
-        </p>
-        {onReturnToReview && (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm mt-3"
-            onClick={onReturnToReview}
-            disabled={isVerifying}
-          >
-            Retour a la revue
-          </button>
-        )}
-      </div>
-
-      {/* Progress bar */}
-      <div className="rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)] p-3">
-        <div className="flex items-center justify-between text-xs text-[var(--slate-700)]">
-          <span>Progression des verifications</span>
-          <span className="font-semibold">
-            {verifiedCount}/{totalIncluded} verifies
-          </span>
-        </div>
-        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[var(--slate-200)]">
-          <div
-            className="h-full rounded-full bg-[var(--success)] transition-all duration-300"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Batch verify button */}
-      <button
-        type="button"
-        className="btn btn-secondary btn-sm w-full"
-        onClick={onVerifyAll}
-        disabled={isVerifying || guardResult.blocked_items.length === 0}
-      >
-        {isVerifying
-          ? "Verification en cours..."
-          : `Tout verifier (${guardResult.blocked_items.length} item(s))`}
-      </button>
-
-      {/* Blocked items table */}
-      <div className="max-h-[200px] overflow-auto rounded-xl border border-[var(--slate-200)]">
-        <table className="min-w-full text-sm">
-          <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-600)]">
-            <tr>
-              <th className="px-3 py-2">Designation</th>
-              <th className="px-3 py-2 text-center">Confiance</th>
-              <th className="px-3 py-2 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {guardResult.blocked_items.map((blocked) => (
-              <tr
-                key={blocked.item_id}
-                className="border-t border-[var(--slate-200)]"
-              >
-                <td className="px-3 py-2 text-[var(--slate-800)]">
-                  {blocked.designation}
-                </td>
-                <td
-                  className={`px-3 py-2 text-center font-semibold ${confidenceColor(blocked.confidence)}`}
-                >
-                  {formatConfidencePercent(blocked.confidence)}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => onVerifyItem(blocked.item_id)}
-                    disabled={isVerifying}
-                  >
-                    Verifier
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Medium confidence warning */}
-      {guardResult.medium_items.length > 0 && (
-        <div className="rounded-xl border border-[var(--info)] bg-info-light p-3">
-          <p className="text-xs font-semibold text-[var(--info)]">
-            Items confiance moyenne (non bloquants)
-          </p>
-          <p className="mt-1 text-xs text-[var(--slate-600)]">
-            {guardResult.medium_items.length} item(s) ont une confiance moyenne
-            (50-80%). Verification recommandee mais non obligatoire.
-          </p>
-          <details className="mt-2">
-            <summary className="cursor-pointer text-xs text-[var(--info)]">
-              Voir les items ({guardResult.medium_items.length})
-            </summary>
-            <ul className="mt-1 space-y-1 text-xs text-[var(--slate-600)]">
-              {guardResult.medium_items.map((medium) => (
-                <li key={medium.item_id} className="flex items-center justify-between">
-                  <span>{medium.designation}</span>
-                  <span className={`font-semibold ${confidenceColor(medium.confidence)}`}>
-                    {formatConfidencePercent(medium.confidence)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </details>
-        </div>
-      )}
-
-      {/* Admin override section */}
-      {isAdmin && (
-        <div className="rounded-xl border border-[var(--danger)] bg-error-light p-4">
-          <p className="text-xs font-semibold text-[var(--danger)]">
-            Override administrateur
-          </p>
-          <p className="mt-1 text-xs text-[var(--slate-600)]">
-            Appliquer malgre les items non verifies. Une justification est obligatoire
-            et sera enregistree dans le journal d&apos;audit.
-          </p>
-          <textarea
-            className="form-input mt-2 w-full text-sm"
-            rows={2}
-            placeholder="Justification (min 10 caracteres)..."
-            value={overrideJustification}
-            onChange={(e) => onOverrideJustificationChange(e.target.value)}
-          />
-          <button
-            type="button"
-            className="btn btn-sm mt-2 border-[var(--danger)] bg-[var(--danger)] text-white hover:opacity-90"
-            onClick={onOverrideConfirm}
-            disabled={isVerifying || overrideJustification.trim().length < 10}
-          >
-            Appliquer malgre les items non verifies
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main wizard component
-// ---------------------------------------------------------------------------
 
 export function TakeoffApplyWizard({
   open,
@@ -495,15 +82,9 @@ export function TakeoffApplyWizard({
   const [sectionOptions, setSectionOptions] = useState<SectionOption[]>([]);
   const [isLoadingSections, setIsLoadingSections] = useState(false);
   const [sectionsError, setSectionsError] = useState<string | null>(null);
-  const [previewData, setPreviewData] =
-    useState<TakeoffPreviewConversionResponse | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [overridesByItemId, setOverridesByItemId] =
     useState<Record<string, TakeoffMappingOverride>>({});
   const overridesRef = useRef<Record<string, TakeoffMappingOverride>>({});
-
-  // Guard state
   const [guardResult, setGuardResult] = useState<ApplyGuardResult | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [overrideJustification, setOverrideJustification] = useState("");
@@ -511,7 +92,6 @@ export function TakeoffApplyWizard({
   const threshold = confidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD;
   const isLevelC = jobLevel === "C";
   const hasGuardItems = !!externalItems && externalItems.length > 0;
-
   const isPreset = presetStrategy !== undefined;
   const totalSteps = isPreset ? 2 : 4;
   const displayStep = isPreset && step === 4 ? 2 : step;
@@ -520,7 +100,6 @@ export function TakeoffApplyWizard({
     overridesRef.current = overridesByItemId;
   }, [overridesByItemId]);
 
-  // Re-run guard whenever items change (e.g. after batch verify)
   useEffect(() => {
     if (!isLevelC || !hasGuardItems || step !== 4) {
       setGuardResult(null);
@@ -528,39 +107,23 @@ export function TakeoffApplyWizard({
     }
     const result = checkApplyGuard(externalItems!, threshold);
     setGuardResult(result);
-  }, [isLevelC, hasGuardItems, externalItems, threshold, step]);
+  }, [externalItems, hasGuardItems, isLevelC, step, threshold]);
 
-  const guardBlocking =
-    isLevelC && guardResult !== null && !guardResult.passed;
-
-  const refreshPreview = useCallback(
-    async (overridesSnapshot: Record<string, TakeoffMappingOverride>) => {
-      setIsLoadingPreview(true);
-      setPreviewError(null);
-
-      try {
-        const response = await previewTakeoffConversion(jobId, {
-          strategy,
-          target_section_id: targetSectionId,
-          overrides:
-            toOverrideList(overridesSnapshot).length > 0
-              ? toOverrideList(overridesSnapshot)
-              : undefined,
-        });
-        setPreviewData(response);
-      } catch (error) {
-        setPreviewData(null);
-        setPreviewError(
-          error instanceof Error
-            ? error.message
-            : "Impossible de calculer la preview de conversion."
-        );
-      } finally {
-        setIsLoadingPreview(false);
-      }
-    },
-    [jobId, strategy, targetSectionId]
-  );
+  const {
+    previewData,
+    previewError,
+    isLoadingPreview,
+    refreshPreview,
+    resetPreview,
+  } = useTakeoffApplyPreview({
+    open,
+    step,
+    isPreset,
+    jobId,
+    strategy,
+    targetSectionId,
+    overridesRef,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -574,8 +137,7 @@ export function TakeoffApplyWizard({
       setSectionOptions([]);
       setSectionsError(null);
       setIsLoadingSections(true);
-      setPreviewData(null);
-      setPreviewError(null);
+      resetPreview();
       setOverridesByItemId({});
       setGuardResult(null);
       setOverrideJustification("");
@@ -602,16 +164,7 @@ export function TakeoffApplyWizard({
     return () => {
       active = false;
     };
-  }, [open, versionId, presetStrategy]);
-
-  useEffect(() => {
-    if (!open) return;
-    // In preset mode, skip step 3 and auto-trigger preview when entering step 4
-    const shouldRefresh = isPreset ? step === 4 : step === 3;
-    if (!shouldRefresh) return;
-
-    void refreshPreview(overridesRef.current);
-  }, [open, step, strategy, targetSectionId, refreshPreview, isPreset]);
+  }, [open, presetStrategy, resetPreview, versionId]);
 
   const selectedSectionLabel = useMemo(() => {
     if (!targetSectionId) return ROOT_SECTION_LABEL;
@@ -632,9 +185,10 @@ export function TakeoffApplyWizard({
   const overrideCount = previewData?.summary.overridden_count ?? serializedOverrides.length;
   const totalExcludedCount =
     excludedCount + (previewData?.summary.excluded_by_mapping_count ?? 0);
-
   const hasPreviewReady =
     previewData !== null && previewError === null && isLoadingPreview === false;
+  const guardBlocking =
+    isLevelC && guardResult !== null && !guardResult.passed;
   const canProceed = isPreset ? step < 4 && step === 1 : step < 4;
   const canGoBack = isPreset ? step === 4 : step > 1;
   const canConfirm =
@@ -647,10 +201,6 @@ export function TakeoffApplyWizard({
   const handleOpenChange = (nextOpen: boolean) => {
     if (isSubmitting && !nextOpen) return;
     onOpenChange(nextOpen);
-  };
-
-  const handleClose = () => {
-    handleOpenChange(false);
   };
 
   const handleConfirm = async () => {
@@ -681,11 +231,11 @@ export function TakeoffApplyWizard({
     if (!onVerifyItems || !guardResult) return;
     setIsVerifying(true);
     try {
-      await onVerifyItems(guardResult.blocked_items.map((i) => i.item_id));
+      await onVerifyItems(guardResult.blocked_items.map((item) => item.item_id));
     } finally {
       setIsVerifying(false);
     }
-  }, [onVerifyItems, guardResult]);
+  }, [guardResult, onVerifyItems]);
 
   const handleVerifyItem = useCallback(
     async (itemId: string) => {
@@ -739,14 +289,16 @@ export function TakeoffApplyWizard({
         <Modal.Header>
           <div>
             <Modal.Title>Appliquer au devis</Modal.Title>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">Etape {displayStep} / {totalSteps}</p>
+            <p className="mt-1 text-sm text-[var(--slate-500)]">
+              Etape {displayStep} / {totalSteps}
+            </p>
           </div>
           <Modal.Close disabled={isSubmitting} />
         </Modal.Header>
 
         <Modal.Body>
           <div className="mb-2 flex items-center gap-2">
-            {Array.from({ length: totalSteps }, (_, i) => i + 1).map((value) => {
+            {Array.from({ length: totalSteps }, (_, index) => index + 1).map((value) => {
               const active = displayStep === value;
               const done = displayStep > value;
               return (
@@ -767,454 +319,73 @@ export function TakeoffApplyWizard({
           </div>
 
           {step === 1 && (
-            <div className="space-y-4">
-              <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
-                  Cible d&apos;application
-                </p>
-                <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
-                  Brouillon actuellement ouvert
-                </p>
-                <p className="mt-1 text-sm text-[var(--slate-600)]">
-                  Les quantites seront injectees dans ce devis brouillon apres confirmation finale.
-                </p>
-                <code className="mt-3 block rounded-lg bg-white px-3 py-2 text-xs text-[var(--slate-700)]">
-                  {versionId}
-                </code>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[var(--slate-700)]">
-                  Section cible
-                </label>
-                <select
-                  className="form-input form-select mt-1 w-full"
-                  value={targetSectionId ?? ROOT_SECTION_VALUE}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setTargetSectionId(value === ROOT_SECTION_VALUE ? null : value);
-                    setPreviewData(null);
-                    setPreviewError(null);
-                  }}
-                  disabled={isLoadingSections || isSubmitting}
-                >
-                  <option value={ROOT_SECTION_VALUE}>{ROOT_SECTION_LABEL}</option>
-                  {sectionOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {isLoadingSections && (
-                <div className="alert alert-info">Chargement des sections...</div>
-              )}
-              {sectionsError && <div className="alert alert-error">{sectionsError}</div>}
-            </div>
+            <TakeoffApplyWizardTargetStep
+              versionId={versionId}
+              targetSectionId={targetSectionId}
+              sectionOptions={sectionOptions}
+              isLoadingSections={isLoadingSections}
+              sectionsError={sectionsError}
+              isSubmitting={isSubmitting}
+              onTargetSectionChange={(value) => {
+                setTargetSectionId(value);
+                resetPreview();
+              }}
+            />
           )}
 
           {step === 2 && !isPreset && (
-            <div className="space-y-3">
-              <div className="rounded-xl border border-[var(--info)]/20 bg-[var(--info)]/5 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--info)]">
-                  Strategie d&apos;application
-                </p>
-                <p className="mt-2 text-sm text-[var(--slate-700)]">
-                  Choisissez comment enrichir le devis. Le wizard vous montre l&apos;impact avant confirmation.
-                </p>
-              </div>
-              {STRATEGY_OPTIONS.map((option) => (
-                <label
-                  key={option.value}
-                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${
-                    strategy === option.value
-                      ? "border-[var(--info)] bg-[var(--info)]/5"
-                      : "border-[var(--slate-200)]"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="takeoff-apply-strategy"
-                    value={option.value}
-                    checked={strategy === option.value}
-                    onChange={() => {
-                      setStrategy(option.value);
-                      setPreviewData(null);
-                      setPreviewError(null);
-                    }}
-                    disabled={isSubmitting}
-                  />
-                  <span>
-                    <span className="block text-sm font-semibold text-[var(--slate-800)]">
-                      {option.label}
-                    </span>
-                    <span className="mt-1 block text-sm text-[var(--slate-600)]">
-                      {option.description}
-                    </span>
-                    <span className="mt-2 block text-xs font-medium text-[var(--slate-700)]">
-                      {option.impactLabel}
-                    </span>
-                    <span className="mt-1 block text-xs text-[var(--slate-500)]">
-                      {option.caution}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
+            <TakeoffApplyWizardStrategyStep
+              strategy={strategy}
+              isSubmitting={isSubmitting}
+              onStrategyChange={(value) => {
+                setStrategy(value);
+                resetPreview();
+              }}
+            />
           )}
 
           {step === 3 && !isPreset && (
-            <div className="space-y-4">
-              <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
-                      Preview d&apos;impact
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
-                      {strategyLabel(strategy)}
-                    </p>
-                    <p className="mt-1 text-sm text-[var(--slate-600)]">
-                      {strategyDescription(strategy)}
-                    </p>
-                    <p className="mt-1 text-xs text-[var(--slate-500)]">
-                      {strategyCaution(strategy)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => void refreshPreview(overridesByItemId)}
-                    disabled={isLoadingPreview || isSubmitting}
-                  >
-                    {isLoadingPreview ? "Calcul..." : "Recalculer la preview"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-3 text-xs text-[var(--slate-700)]">
-                <div className="flex flex-wrap items-center gap-4">
-                  <span>
-                    Items retenus: <strong>{previewData?.summary.included_count ?? includedCount}</strong>
-                  </span>
-                  <span>
-                    Transformations: <strong>{previewData?.summary.transformed_count ?? 0}</strong>
-                  </span>
-                  <span>
-                    Overrides: <strong>{overrideCount}</strong>
-                  </span>
-                  <span>
-                    Hors mapping: <strong>{previewData?.summary.excluded_by_mapping_count ?? 0}</strong>
-                  </span>
-                </div>
-              </div>
-
-              {isLoadingPreview && (
-                <div className="alert alert-info">Calcul de la preview de conversion...</div>
-              )}
-
-              {previewError && (
-                <div className="alert alert-error">{previewError}</div>
-              )}
-
-              {previewData && (
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <PreviewImpactCard
-                      label="Items retenus"
-                      value={previewData.summary.included_count}
-                      hint="lignes candidates pour l'application"
-                    />
-                    <PreviewImpactCard
-                      label="Transformations"
-                      value={previewData.summary.transformed_count}
-                      hint="regles ou mappings proposes"
-                    />
-                    <PreviewImpactCard
-                      label="Overrides"
-                      value={previewData.summary.overridden_count}
-                      hint="ajustements humains avant confirmation"
-                    />
-                    <PreviewImpactCard
-                      label="Hors mapping"
-                      value={previewData.summary.excluded_by_mapping_count}
-                      hint="lignes qui ne seront pas injectees en l'etat"
-                    />
-                  </div>
-
-                  <div className="rounded-xl border border-[var(--slate-200)] bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--slate-500)]">
-                      Provenance visible avant confirmation
-                    </p>
-                    <p className="mt-2 text-sm text-[var(--slate-700)]">
-                      Source du metre :{" "}
-                      <span className="font-medium text-[var(--slate-800)]">
-                        {sourceFileName ?? "job takeoff"}
-                      </span>
-                    </p>
-                    <p className="mt-1 text-sm text-[var(--slate-600)]">
-                      Chaque ligne garde sa reference takeoff quand elle est disponible.
-                    </p>
-                  </div>
-
-                  <div className="max-h-[380px] overflow-auto rounded-xl border border-[var(--slate-200)]">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-[var(--slate-50)] text-left text-xs uppercase tracking-wide text-[var(--slate-600)]">
-                      <tr>
-                        <th className="px-3 py-2">Item</th>
-                        <th className="px-3 py-2">Impact</th>
-                        <th className="px-3 py-2">Provenance</th>
-                        <th className="px-3 py-2">Override</th>
-                        <th className="px-3 py-2">Parametre</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {previewData.items.map((item) => {
-                        const override = overridesByItemId[item.item_id];
-                        const selectedAction = override?.action ?? AUTO_OVERRIDE_VALUE;
-                        const source = sourceByItemId.get(item.item_id);
-
-                        return (
-                          <tr key={item.item_id} className="border-t border-[var(--slate-200)] align-top">
-                            <td className="px-3 py-2">
-                              <p className="font-medium text-[var(--slate-800)]">{item.original.designation}</p>
-                              <p className="text-xs text-[var(--slate-500)]">
-                                Apres: {item.transformed.designation}
-                              </p>
-                            </td>
-                            <td className="px-3 py-2 text-xs text-[var(--slate-700)]">
-                              <p className="font-medium text-[var(--slate-800)]">
-                                {summarizeAction(item)}
-                              </p>
-                              <p className="mt-1 text-[var(--slate-500)]">
-                                {item.transformed.quantity} {item.transformed.unit}
-                              </p>
-                            </td>
-                            <td className="px-3 py-2 text-xs text-[var(--slate-700)]">
-                              {source ? (
-                                <>
-                                  <p className="font-medium text-[var(--slate-800)]">
-                                    {source.source_file_name ?? "Source takeoff"}
-                                  </p>
-                                  <p className="mt-1 text-[var(--slate-500)]">
-                                    {source.source_page !== null
-                                      ? `page ${source.source_page}`
-                                      : "page non renseignee"}
-                                  </p>
-                                </>
-                              ) : (
-                                <span className="text-[var(--slate-500)]">
-                                  Provenance non remontee
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2">
-                              <select
-                                className="form-input form-select w-full"
-                                value={selectedAction}
-                                onChange={(event) =>
-                                  handleOverrideActionChange(item, event.target.value)
-                                }
-                                disabled={isSubmitting}
-                              >
-                                <option value={AUTO_OVERRIDE_VALUE}>Regle auto</option>
-                                {OVERRIDE_ACTION_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="px-3 py-2">
-                              {override?.action === "rename" && (
-                                <input
-                                  className="form-input w-full"
-                                  value={override.action_params.designation}
-                                  onChange={(event) =>
-                                    handleOverrideParamChange(item.item_id, {
-                                      ...override,
-                                      action_params: {
-                                        designation: event.target.value,
-                                      },
-                                    })
-                                  }
-                                />
-                              )}
-                              {override?.action === "set_price" && (
-                                <NumberInput
-                                  min={0}
-                                  className="form-input w-full"
-                                  value={override.action_params.unit_price_cents}
-                                  parseValue={(value) => {
-                                    const parsedValue = Number.parseInt(value, 10);
-                                    if (!Number.isFinite(parsedValue)) {
-                                      return null;
-                                    }
-                                    return Math.max(parsedValue, 0);
-                                  }}
-                                  emptyValue={0}
-                                  onValueChange={(unit_price_cents) =>
-                                    handleOverrideParamChange(item.item_id, {
-                                      ...override,
-                                      action_params: {
-                                        unit_price_cents,
-                                      },
-                                    })
-                                  }
-                                />
-                              )}
-                              {override?.action === "set_category" && (
-                                <input
-                                  className="form-input w-full"
-                                  placeholder="UUID category"
-                                  value={override.action_params.category_id}
-                                  onChange={(event) =>
-                                    handleOverrideParamChange(item.item_id, {
-                                      ...override,
-                                      action_params: {
-                                        category_id: event.target.value,
-                                      },
-                                    })
-                                  }
-                                />
-                              )}
-                              {override?.action === "apply_assembly" && (
-                                <input
-                                  className="form-input w-full"
-                                  placeholder="UUID assembly"
-                                  value={override.action_params.assembly_id}
-                                  onChange={(event) =>
-                                    handleOverrideParamChange(item.item_id, {
-                                      ...override,
-                                      action_params: {
-                                        assembly_id: event.target.value,
-                                      },
-                                    })
-                                  }
-                                />
-                              )}
-                              {(override?.action === "skip" || override?.action === "none") && (
-                                <span className="text-xs text-[var(--slate-500)]">Aucun parametre</span>
-                              )}
-                              {!override && (
-                                <span className="text-xs text-[var(--slate-500)]">
-                                  Utiliser la regle proposee
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                </div>
-              )}
-            </div>
+            <TakeoffApplyWizardPreviewStep
+              strategy={strategy}
+              sourceFileName={sourceFileName}
+              includedCount={includedCount}
+              previewData={previewData}
+              previewError={previewError}
+              isLoadingPreview={isLoadingPreview}
+              overrideCount={overrideCount}
+              overridesByItemId={overridesByItemId}
+              sourceByItemId={sourceByItemId}
+              isSubmitting={isSubmitting}
+              onRefreshPreview={() => void refreshPreview(overridesByItemId)}
+              onOverrideActionChange={handleOverrideActionChange}
+              onOverrideParamChange={handleOverrideParamChange}
+            />
           )}
 
           {step === 4 && (
-            <div className="space-y-4">
-              {/* Guard panel — shown when Level C has blocked items */}
-              {guardBlocking && guardResult && externalItems && (
-                <GuardPanel
-                  guardResult={guardResult}
-                  items={externalItems}
-                  isAdmin={isAdmin}
-                  isVerifying={isVerifying}
-                  overrideJustification={overrideJustification}
-                  onVerifyAll={() => void handleVerifyAll()}
-                  onVerifyItem={(id) => void handleVerifyItem(id)}
-                  onReturnToReview={onReturnToReview}
-                  onOverrideJustificationChange={setOverrideJustification}
-                  onOverrideConfirm={() => void handleOverrideConfirm()}
-                />
-              )}
-
-              {/* Medium-only warning when guard passed but medium items exist */}
-              {isLevelC &&
-                guardResult &&
-                guardResult.passed &&
-                guardResult.medium_items.length > 0 && (
-                  <div className="rounded-xl border border-[var(--info)] bg-info-light p-3">
-                    <p className="text-xs font-semibold text-[var(--info)]">
-                      Items confiance moyenne (non bloquants)
-                    </p>
-                    <p className="mt-1 text-xs text-[var(--slate-600)]">
-                      {guardResult.medium_items.length} item(s) ont une confiance
-                      moyenne (50-80%). Verification recommandee mais non obligatoire.
-                    </p>
-                  </div>
-                )}
-
-              {/* Standard recap — shown when no guard blocking */}
-              {!guardBlocking && (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-[var(--success)]/20 bg-[var(--success)]/5 p-4 text-sm">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--success)]">
-                      Confirmation finale
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-[var(--slate-800)]">
-                      Verifiez une derniere fois l&apos;impact avant d&apos;ecrire dans le devis.
-                    </p>
-                    <p className="mt-1 text-sm text-[var(--slate-600)]">
-                      L&apos;application reste manuelle. Rien n&apos;est injecte tant que vous ne confirmez pas.
-                    </p>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <PreviewImpactCard
-                      label="Items retenus"
-                      value={previewData?.summary.included_count ?? includedCount}
-                      hint="lignes pretes a partir dans le devis"
-                    />
-                    <PreviewImpactCard
-                      label="Items exclus"
-                      value={totalExcludedCount}
-                      hint="laisses hors apply"
-                    />
-                    <PreviewImpactCard
-                      label="Overrides"
-                      value={overrideCount}
-                      hint="ajustements manuels qui seront envoyes"
-                    />
-                    <PreviewImpactCard
-                      label="Assemblages"
-                      value={previewData?.summary.assembly_insertions_count ?? 0}
-                      hint="insertions d'assemblage detectees"
-                    />
-                  </div>
-
-                  <div className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] p-4 text-sm">
-                    <p className="font-semibold text-[var(--slate-800)]">Recapitulatif</p>
-                    <p className="mt-2 text-[var(--slate-700)]">Version cible: {versionId}</p>
-                    <p className="mt-1 text-[var(--slate-700)]">Section cible: {selectedSectionLabel}</p>
-                    <p className="mt-1 text-[var(--slate-700)]">
-                      Strategie: {strategyLabel(strategy)} - {strategyDescription(strategy)}
-                    </p>
-                    <p className="mt-1 text-[var(--slate-700)]">
-                      Source du metre: <strong>{sourceFileName ?? "job takeoff"}</strong>
-                    </p>
-                    <p className="mt-1 text-[var(--slate-700)]">
-                      Provenance visible: fichier source et page takeoff quand ils sont disponibles.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {includedCount === 0 && (
-                <div className="alert alert-info">
-                  Aucun item inclus n&apos;est disponible pour application.
-                </div>
-              )}
-
-              {!hasPreviewReady && !guardBlocking && (
-                <div className="alert alert-error">
-                  Une preview valide est requise avant confirmation.
-                </div>
-              )}
-            </div>
+            <TakeoffApplyWizardConfirmationStep
+              guardBlocking={guardBlocking}
+              guardResult={guardResult}
+              externalItems={externalItems}
+              isAdmin={isAdmin}
+              isVerifying={isVerifying}
+              overrideJustification={overrideJustification}
+              onVerifyAll={() => void handleVerifyAll()}
+              onVerifyItem={(itemId) => void handleVerifyItem(itemId)}
+              onReturnToReview={onReturnToReview}
+              onOverrideJustificationChange={setOverrideJustification}
+              onOverrideConfirm={() => void handleOverrideConfirm()}
+              isLevelC={isLevelC}
+              previewData={previewData}
+              includedCount={includedCount}
+              totalExcludedCount={totalExcludedCount}
+              overrideCount={overrideCount}
+              versionId={versionId}
+              selectedSectionLabel={selectedSectionLabel}
+              strategy={strategy}
+              sourceFileName={sourceFileName}
+              hasPreviewReady={hasPreviewReady}
+            />
           )}
 
           {submitError && <div className="alert alert-error">{submitError}</div>}
@@ -1224,7 +395,7 @@ export function TakeoffApplyWizard({
           <button
             type="button"
             className="btn btn-secondary btn-sm"
-            onClick={handleClose}
+            onClick={() => handleOpenChange(false)}
             disabled={isSubmitting}
           >
             Annuler
@@ -1266,25 +437,5 @@ export function TakeoffApplyWizard({
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>
-  );
-}
-
-function PreviewImpactCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: number;
-  hint: string;
-}) {
-  return (
-    <div className="rounded-xl border border-[var(--slate-200)] bg-white px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-500)]">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-semibold text-[var(--slate-900)]">{value}</p>
-      <p className="mt-1 text-xs text-[var(--slate-500)]">{hint}</p>
-    </div>
   );
 }
