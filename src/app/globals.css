@@ -2092,23 +2092,31 @@ body {
 
 /* Hover-reveal container for section add buttons */
 .estimate-section-hover-actions {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 4px;
-  max-width: 0;
   opacity: 0;
-  overflow: hidden;
-  transition: max-width 0.2s ease, opacity 0.15s ease;
+  transition: opacity 0.15s ease;
   flex-shrink: 0;
-  margin-left: auto;
-  position: relative;
   z-index: 4;
+  background: linear-gradient(to right, transparent, var(--row-bg, white) 12px);
+  padding-left: 16px;
+  pointer-events: none;
 }
 
 .estimate-row--section .estimate-cell--designation:hover .estimate-section-hover-actions {
-  max-width: 320px;
   opacity: 1;
+  pointer-events: auto;
+}
+
+/* Hide action buttons while editing the title */
+.estimate-row--section .estimate-cell--designation:focus-within .estimate-section-hover-actions {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Individual hover button style */
