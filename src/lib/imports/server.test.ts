@@ -282,6 +282,59 @@ describe("createImportFromJsonBody", () => {
     });
   });
 
+  it("uses top-level PDF metadata when the tabular envelope wraps a reviewed PDF", async () => {
+    const { supabase, state } = createImportCreationSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const result = await createImportFromJsonBody({
+      sourceKind: "tabular_pdf",
+      filename: "import.json",
+      sourceFormat: "json",
+      sourceFileName: "lot-cfo-dpgf.pdf",
+      sourceDocumentId: "doc-top-level",
+      validation: {
+        approvedTables: [{ sourcePage: 4, tableIndex: 0 }],
+      },
+      rows: [
+        {
+          cells: {
+            Code: "B-001",
+            Description: "Gaine technique",
+          },
+          provenance: {
+            sourcePage: 4,
+            tableIndex: 0,
+          },
+        },
+      ],
+    });
+
+    expect(state.importInsertPayloads[0]).toMatchObject({
+      filename: "lot-cfo-dpgf.pdf",
+      source_format: "pdf",
+    });
+    expect(state.rawRowBatches[0]).toEqual([
+      {
+        import_id: "import-created",
+        row_index: 0,
+        payload: {
+          Code: "B-001",
+          Description: "Gaine technique",
+          _timax_provenance: {
+            source_page: 4,
+            table_index: 0,
+            source_file_name: "lot-cfo-dpgf.pdf",
+            source_document_id: "doc-top-level",
+          },
+        },
+      },
+    ]);
+    expect(result).toMatchObject({
+      filename: "lot-cfo-dpgf.pdf",
+      source_format: "pdf",
+    });
+  });
+
   it("rejects tabular PDF imports without explicit approved tables", async () => {
     const { supabase, state } = createImportCreationSupabaseMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
@@ -349,6 +402,40 @@ describe("createImportFromJsonBody", () => {
     await expect(
       createImportFromJsonBody({
         sourceKind: "tabular-pdf",
+        validation: {
+          approvedTables: [{ sourcePage: 2, tableIndex: 0 }],
+        },
+        rows: [
+          {
+            cells: {
+              Code: "A-001",
+            },
+            provenance: {
+              sourcePage: 2,
+              tableIndex: 0,
+            },
+          },
+        ],
+      })
+    ).rejects.toMatchObject({
+      status: 400,
+      code: "BAD_REQUEST",
+      message: "sourceKind invalide. Utiliser 'tabular' ou 'tabular_pdf'.",
+    });
+
+    expect(state.importInsertPayloads).toEqual([]);
+    expect(state.rawRowBatches).toEqual([]);
+  });
+
+  it("rejects non-string sourceKind values instead of falling back to tabular", async () => {
+    const { supabase, state } = createImportCreationSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      createImportFromJsonBody({
+        sourceKind: {
+          kind: "tabular_pdf",
+        },
         validation: {
           approvedTables: [{ sourcePage: 2, tableIndex: 0 }],
         },

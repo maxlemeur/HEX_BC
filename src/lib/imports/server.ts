@@ -370,7 +370,11 @@ function hasTabularPdfMarkers(input: JsonRecord, rows: unknown[]) {
 
 function resolveSourceKindInput(input: JsonRecord, rows: unknown[]): ImportSourceKind {
   const direct = input.sourceKind ?? input.source_kind ?? null;
-  if (typeof direct === "string") {
+  if (direct !== null) {
+    if (typeof direct !== "string") {
+      throw badRequest("sourceKind invalide. Utiliser 'tabular' ou 'tabular_pdf'.");
+    }
+
     const normalized = direct.trim().toLowerCase();
     if (normalized === "tabular" || normalized === "tabular_pdf") {
       return normalized;
@@ -459,14 +463,29 @@ function parsePdfProvenanceDefaults(value: unknown) {
   };
 }
 
-function resolvePdfImportFilename(input: JsonRecord, rows: unknown[]) {
+function resolvePdfProvenanceDefaults(input: JsonRecord) {
   const validation = asRecord(input.validation);
-  const provenanceDefaults = parsePdfProvenanceDefaults(
+  const nestedDefaults = parsePdfProvenanceDefaults(
     input.provenanceDefaults ??
       input.provenance_defaults ??
       validation?.provenanceDefaults ??
       validation?.provenance_defaults
   );
+  const topLevelDefaults = parsePdfProvenanceDefaults({
+    sourceFileName: input.sourceFileName ?? input.source_file_name,
+    sourceDocumentId: input.sourceDocumentId ?? input.source_document_id,
+  });
+
+  return {
+    source_file_name:
+      nestedDefaults.source_file_name ?? topLevelDefaults.source_file_name ?? null,
+    source_document_id:
+      nestedDefaults.source_document_id ?? topLevelDefaults.source_document_id ?? null,
+  };
+}
+
+function resolvePdfImportFilename(input: JsonRecord, rows: unknown[]) {
+  const provenanceDefaults = resolvePdfProvenanceDefaults(input);
 
   if (provenanceDefaults.source_file_name) {
     return sanitizeFilename(provenanceDefaults.source_file_name);
@@ -573,12 +592,7 @@ function normalizeJsonRowsFromInput(
     );
   }
 
-  const provenanceDefaults = parsePdfProvenanceDefaults(
-    input.provenanceDefaults ??
-      input.provenance_defaults ??
-      validation?.provenanceDefaults ??
-      validation?.provenance_defaults
-  );
+  const provenanceDefaults = resolvePdfProvenanceDefaults(input);
 
   const normalizedRows: NormalizedImportRow[] = [];
 
