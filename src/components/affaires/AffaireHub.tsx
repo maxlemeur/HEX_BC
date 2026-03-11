@@ -42,6 +42,7 @@ import { BriefDraftCard } from "./BriefDraftCard";
 import { IntakeWorkspace } from "./IntakeWorkspace";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
+import { AffairePersistedProjectDetails } from "./AffairePersistedProjectDetails";
 import { AffairePilotagePanel } from "./AffairePilotagePanel";
 import { PlansMetresCard } from "./PlansMetresCard";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
@@ -1465,6 +1466,19 @@ export function AffaireHub({
           </div>
         </div>
       </div>
+
+      {!isReadOnlyReview && (
+        <div className="mb-4">
+          <AffairePersistedProjectDetails
+            projectId={summary.project.id}
+            initialValues={{
+              projectName: summary.project.name,
+              clientName: summary.project.clientName ?? "",
+              reference: summary.project.reference ?? "",
+            }}
+          />
+        </div>
+      )}
 
       {/* Workflow stepper (Recommendation #1) */}
       <AffaireWorkflowStepper

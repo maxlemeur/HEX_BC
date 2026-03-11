@@ -111,4 +111,33 @@ describe("DELETE /api/affaires/[projectId]", () => {
       }),
     });
   });
+
+  it("maps foreign-key delete errors to a bad request response", async () => {
+    const { supabase } = createSupabaseMock({
+      deleteError: {
+        code: "23503",
+        message:
+          "insert or update on table \"audit_logs\" violates foreign key constraint \"audit_logs_estimate_version_id_fkey\"",
+        details:
+          "Key (estimate_version_id)=(c8dc1d30-028e-4156-be59-ff15dbe32b5f) is not present in table \"estimate_versions\".",
+      },
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      supabase: supabase as never,
+      tenantId: TENANT_ID,
+    } as never);
+
+    const response = await DELETE(new Request("http://localhost"), {
+      params: Promise.resolve({ projectId: PROJECT_ID }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        code: "BAD_REQUEST",
+        message: "Impossible de supprimer l'affaire.",
+      }),
+    });
+  });
 });

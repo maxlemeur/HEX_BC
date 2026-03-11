@@ -14,7 +14,6 @@ import {
 import { useUiMode } from "@/hooks/useUiMode";
 import { useToast } from "@/components/ui/Toast";
 import { toggleAffaireFavoriteAction } from "@/app/dashboard/affaires/_actions/favorites";
-import { QuickCreateAffaireDialog } from "./QuickCreateAffaireDialog";
 import { FilterSearch } from "@/components/TableFilterBar/FilterSearch";
 import { SortControl } from "@/components/TableFilterBar/SortControl";
 import { ResultCount } from "@/components/TableFilterBar/ResultCount";
@@ -123,7 +122,6 @@ export function AffairesPageClient({
     key: "updatedAt",
     direction: initialDir,
   });
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [favoriteOverrides, setFavoriteOverrides] = useState<
     Record<string, boolean>
   >({});
@@ -360,6 +358,10 @@ export function AffairesPageClient({
     [favoritePendingIds, router, toast]
   );
 
+  const handleCreateAffaire = useCallback(() => {
+    router.push("/dashboard/affaires/new");
+  }, [router]);
+
   // -- Computed --
 
   const activeFilterCount = useMemo(() => {
@@ -386,9 +388,7 @@ export function AffairesPageClient({
         <button
           type="button"
           className="btn btn-primary btn-lg shrink-0"
-          onClick={() => setShowCreateDialog(true)}
-          aria-haspopup="dialog"
-          aria-expanded={showCreateDialog}
+          onClick={handleCreateAffaire}
         >
           + Nouvelle affaire
         </button>
@@ -470,7 +470,7 @@ export function AffairesPageClient({
           <AffairesDenseTable
             items={data.list.items}
             emptyVariant={emptyVariant}
-            onCreateAffaire={() => setShowCreateDialog(true)}
+            onCreateAffaire={handleCreateAffaire}
             onToggleFavorite={handleToggleFavorite}
             favoritePendingIds={favoritePendingIds}
           />
@@ -478,7 +478,7 @@ export function AffairesPageClient({
           <AffairesCardList
             items={data.list.items}
             emptyVariant={emptyVariant}
-            onCreateAffaire={() => setShowCreateDialog(true)}
+            onCreateAffaire={handleCreateAffaire}
             onToggleFavorite={handleToggleFavorite}
             favoritePendingIds={favoritePendingIds}
           />
@@ -526,10 +526,6 @@ export function AffairesPageClient({
         </div>
       </div>
 
-      <QuickCreateAffaireDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-      />
     </div>
   );
 }

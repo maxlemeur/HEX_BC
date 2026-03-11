@@ -19,7 +19,11 @@ vi.mock("@/lib/mappings/server", () => ({
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { quickCreateAffaire } from "@/app/dashboard/affaires/_actions/quick-create-affaire";
+import {
+  initializeAffaireDraft,
+  quickCreateAffaire,
+  startAffaireFromImport,
+} from "@/app/dashboard/affaires/_actions/quick-create-affaire";
 import { createMapping } from "@/lib/mappings/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -168,6 +172,7 @@ function createSupabaseStub(input: {
   role: "engineer" | "admin" | "viewer";
   importProjectId?: string | null;
   enableImportLinkUpdate?: boolean;
+  repeatImportSelectCount?: number;
   mappedRows?: unknown[];
   createdProjectId?: string;
   latestMappingId?: string | null;
@@ -197,6 +202,9 @@ function createSupabaseStub(input: {
     tenant_memberships: [membershipBuilder],
     dpgf_imports: [
       ...(importBuilder ? [importBuilder] : []),
+      ...Array.from({ length: input.repeatImportSelectCount ?? 0 }, () =>
+        createImportSelectBuilder(input.importProjectId ?? null)
+      ),
       ...(importUpdateBuilder ? [importUpdateBuilder] : []),
     ],
     dpgf_rows_mapped: mappedRowsBuilder ? [mappedRowsBuilder] : [],
@@ -283,6 +291,26 @@ describe("quickCreateAffaire", () => {
     expect(revalidatePath).toHaveBeenCalledWith(
       `/dashboard/affaires/${CREATED_PROJECT_ID}`
     );
+  });
+
+  it("returns project and version ids when initializing a draft without redirect", async () => {
+    const { supabase } = createSupabaseStub({
+      role: "engineer",
+      createdProjectId: CREATED_PROJECT_ID,
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      initializeAffaireDraft({
+        projectName: "Affaire brouillon",
+        clientName: "Client test",
+        reference: "REF-42",
+      })
+    ).resolves.toEqual({
+      projectId: CREATED_PROJECT_ID,
+      versionId: CREATED_VERSION_ID,
+      redirectUrl: `/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`,
+    });
   });
 
   it("links uploaded import when creating an empty project from low-confidence flow", async () => {
@@ -383,6 +411,56 @@ describe("quickCreateAffaire", () => {
     );
   });
 
+  it("returns an estimate editor destination when import lines are valid", async () => {
+    const { supabase } = createSupabaseStub({
+      role: "engineer",
+      importProjectId: null,
+      mappedRows: [
+        {
+          id: "mapped-1",
+          payload: {
+            mapped_row: {
+              designation: "Cable R2V",
+              quantity: "2",
+              unit_price_ht: "10.00",
+            },
+          },
+        },
+      ],
+      rpcResult: {
+        data: [
+          {
+            project_id: CREATED_PROJECT_ID,
+            version_id: CREATED_VERSION_ID,
+            section_id: "sec-1",
+            inserted_count: 1,
+            total_ht_cents: 2000,
+            total_tax_cents: 400,
+            total_ttc_cents: 2400,
+          },
+        ],
+        error: null,
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      startAffaireFromImport({
+        projectName: "Affaire importee",
+        importId: IMPORT_ID,
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        destination: "estimate_editor",
+        projectId: CREATED_PROJECT_ID,
+        versionId: CREATED_VERSION_ID,
+        redirectUrl: expect.stringContaining(
+          `/dashboard/estimates/${CREATED_VERSION_ID}/edit?`
+        ),
+      })
+    );
+  });
+
   it("rejects import already linked to another project", async () => {
     const { supabase } = createSupabaseStub({
       role: "engineer",
@@ -401,12 +479,13 @@ describe("quickCreateAffaire", () => {
     expect(supabase.rpc).not.toHaveBeenCalled();
   });
 
-  it("creates an empty affaire without linking a non-importable source", async () => {
+  it("creates an empty affaire and links the import when rows are not importable", async () => {
     const { supabase, importUpdateBuilder, projectInsertBuilder, versionInsertBuilder } =
       createSupabaseStub({
         role: "engineer",
         importProjectId: null,
         enableImportLinkUpdate: true,
+        repeatImportSelectCount: 1,
         mappedRows: [
           {
             id: "mapped-invalid",
@@ -433,8 +512,47 @@ describe("quickCreateAffaire", () => {
       project_id: CREATED_PROJECT_ID,
       version_number: 1,
     });
-    expect(importUpdateBuilder?.update).not.toHaveBeenCalled();
+    expect(importUpdateBuilder?.update).toHaveBeenCalledWith({
+      project_id: CREATED_PROJECT_ID,
+    });
     expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+
+  it("returns a hub destination and links the import when rows are not importable", async () => {
+    const { supabase, importUpdateBuilder } = createSupabaseStub({
+      role: "engineer",
+      importProjectId: null,
+      enableImportLinkUpdate: true,
+      repeatImportSelectCount: 1,
+      mappedRows: [
+        {
+          id: "mapped-invalid",
+          payload: {
+            mapped_row: {
+              designation: "",
+              quantity: "0",
+            },
+          },
+        },
+      ],
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(
+      startAffaireFromImport({
+        projectName: "Affaire invalide",
+        importId: IMPORT_ID,
+      })
+    ).resolves.toEqual({
+      destination: "hub",
+      projectId: CREATED_PROJECT_ID,
+      versionId: CREATED_VERSION_ID,
+      redirectUrl: `/dashboard/affaires/${CREATED_PROJECT_ID}?created=1`,
+    });
+
+    expect(importUpdateBuilder?.update).toHaveBeenCalledWith({
+      project_id: CREATED_PROJECT_ID,
+    });
   });
 
   it("rejects viewer role", async () => {

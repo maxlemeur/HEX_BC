@@ -34,10 +34,13 @@ type RpcCreateAffaireFromImportRow = {
   total_ttc_cents: number;
 };
 
-const quickCreateAffaireSchema = z.object({
+const affaireProjectMetadataSchema = z.object({
   projectName: z.string().trim().min(1, "Nom projet requis.").max(200),
   clientName: z.string().trim().max(200).nullable().optional(),
   reference: z.string().trim().max(200).nullable().optional(),
+});
+
+const quickCreateAffaireSchema = affaireProjectMetadataSchema.extend({
   importId: z.string().uuid("importId invalide.").nullable().optional(),
   linkImportId: z.string().uuid("linkImportId invalide.").nullable().optional(),
   mapping: z.record(z.string(), z.union([z.string(), z.null()])).optional(),
@@ -46,6 +49,27 @@ const quickCreateAffaireSchema = z.object({
 });
 
 export type QuickCreateAffaireInput = z.infer<typeof quickCreateAffaireSchema>;
+export type InitializeAffaireDraftInput = z.infer<typeof affaireProjectMetadataSchema>;
+
+export type InitializeAffaireDraftResult = {
+  projectId: string;
+  versionId: string;
+  redirectUrl: string;
+};
+
+export type StartAffaireFromImportResult =
+  | {
+      destination: "hub";
+      projectId: string;
+      versionId: string;
+      redirectUrl: string;
+    }
+  | {
+      destination: "estimate_editor";
+      projectId: string;
+      versionId: string;
+      redirectUrl: string;
+    };
 
 function revalidateQuickCreatePaths(projectId: string, versionId: string | null) {
   revalidatePath("/dashboard/affaires");
@@ -111,12 +135,7 @@ async function createProjectWithEmptyV1({
   return { projectId: project.id, versionId: version.id };
 }
 
-export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
-  const parsed = quickCreateAffaireSchema.safeParse(input);
-  if (!parsed.success) {
-    throw new Error("Payload de creation affaire invalide.");
-  }
-
+async function getQuickCreateContext() {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -131,6 +150,105 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
   ensureEngineerOrAdmin(membership.role);
   const isTenantAdmin = membership.role === "admin";
 
+  return {
+    supabase,
+    membership,
+    userId: user.id,
+    isTenantAdmin,
+  };
+}
+
+async function createAndOptionallyLinkEmptyAffaire(input: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  membership: Awaited<ReturnType<typeof getQuickCreateContext>>["membership"];
+  userId: string;
+  isTenantAdmin: boolean;
+  projectName: string;
+  clientName: string | null;
+  reference: string | null;
+  linkImportId?: string | null;
+}): Promise<InitializeAffaireDraftResult> {
+  const { projectId, versionId } = await createProjectWithEmptyV1({
+    supabase: input.supabase,
+    tenantId: input.membership.tenant_id,
+    userId: input.userId,
+    projectName: input.projectName,
+    clientName: input.clientName,
+    reference: input.reference,
+  });
+
+  if (input.linkImportId) {
+    const importRow = await getImportOrThrow({
+      supabase: input.supabase,
+      importId: input.linkImportId,
+      tenantId: input.membership.tenant_id,
+      userId: input.userId,
+      isTenantAdmin: input.isTenantAdmin,
+    });
+
+    if (importRow.project_id && importRow.project_id !== projectId) {
+      throw new Error("Cet import est deja lie a une autre affaire.");
+    }
+
+    if (!importRow.project_id) {
+      await ensureImportProjectLink({
+        supabase: input.supabase,
+        importId: input.linkImportId,
+        projectId,
+        tenantId: input.membership.tenant_id,
+        userId: input.userId,
+        isTenantAdmin: input.isTenantAdmin,
+      });
+    }
+  }
+
+  const redirectUrl = `/dashboard/affaires/${projectId}?created=1`;
+  revalidateQuickCreatePaths(projectId, versionId);
+
+  return {
+    projectId,
+    versionId,
+    redirectUrl,
+  };
+}
+
+export async function initializeAffaireDraft(
+  input: InitializeAffaireDraftInput & { linkImportId?: string | null }
+): Promise<InitializeAffaireDraftResult> {
+  const parsed = affaireProjectMetadataSchema
+    .extend({
+      linkImportId: z.string().uuid("linkImportId invalide.").nullable().optional(),
+    })
+    .safeParse(input);
+  if (!parsed.success) {
+    throw new Error("Payload de creation affaire invalide.");
+  }
+
+  const context = await getQuickCreateContext();
+
+  return createAndOptionallyLinkEmptyAffaire({
+    supabase: context.supabase,
+    membership: context.membership,
+    userId: context.userId,
+    isTenantAdmin: context.isTenantAdmin,
+    projectName: parsed.data.projectName.trim(),
+    clientName: normalizeNullableText(parsed.data.clientName),
+    reference: normalizeNullableText(parsed.data.reference),
+    linkImportId: parsed.data.linkImportId ?? null,
+  });
+}
+
+export async function startAffaireFromImport(
+  input: QuickCreateAffaireInput
+): Promise<StartAffaireFromImportResult> {
+  const parsed = quickCreateAffaireSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error("Payload de creation affaire invalide.");
+  }
+
+  const { supabase, membership, userId, isTenantAdmin } =
+    await getQuickCreateContext();
+
   const projectName = parsed.data.projectName.trim();
   const clientName = normalizeNullableText(parsed.data.clientName);
   const reference = normalizeNullableText(parsed.data.reference);
@@ -138,49 +256,26 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
   const linkImportId = importId ? null : (parsed.data.linkImportId ?? null);
 
   if (!importId) {
-    const { projectId, versionId } = await createProjectWithEmptyV1({
-      supabase,
-      tenantId: membership.tenant_id,
-      userId: user.id,
-      projectName,
-      clientName,
-      reference,
-    });
-
-    if (linkImportId) {
-      const importRow = await getImportOrThrow({
+    return {
+      destination: "hub",
+      ...(await createAndOptionallyLinkEmptyAffaire({
         supabase,
-        importId: linkImportId,
-        tenantId: membership.tenant_id,
-        userId: user.id,
+        membership,
+        userId,
         isTenantAdmin,
-      });
-
-      if (importRow.project_id && importRow.project_id !== projectId) {
-        throw new Error("Cet import est deja lie a une autre affaire.");
-      }
-
-      if (!importRow.project_id) {
-        await ensureImportProjectLink({
-          supabase,
-          importId: linkImportId,
-          projectId,
-          tenantId: membership.tenant_id,
-          userId: user.id,
-          isTenantAdmin,
-        });
-      }
-    }
-
-    revalidateQuickCreatePaths(projectId, versionId);
-    redirect(`/dashboard/affaires/${projectId}?created=1`);
+        projectName,
+        clientName,
+        reference,
+        linkImportId,
+      })),
+    };
   }
 
   const importRow = await getImportOrThrow({
     supabase,
     importId,
     tenantId: membership.tenant_id,
-    userId: user.id,
+    userId,
     isTenantAdmin,
   });
 
@@ -220,17 +315,19 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
   });
 
   if (normalizedRows.validLines.length === 0) {
-    const { projectId, versionId } = await createProjectWithEmptyV1({
-      supabase,
-      tenantId: membership.tenant_id,
-      userId: user.id,
-      projectName,
-      clientName,
-      reference,
-    });
-
-    revalidateQuickCreatePaths(projectId, versionId);
-    redirect(`/dashboard/affaires/${projectId}?created=1`);
+    return {
+      destination: "hub",
+      ...(await createAndOptionallyLinkEmptyAffaire({
+        supabase,
+        membership,
+        userId,
+        isTenantAdmin,
+        projectName,
+        clientName,
+        reference,
+        linkImportId: importId,
+      })),
+    };
   }
 
   const { data: rpcData, error: rpcError } = await supabase.rpc(
@@ -275,5 +372,15 @@ export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
     mappingId: mappingId ?? "",
   });
 
-  redirect(`/dashboard/estimates/${created.version_id}/edit?${redirectParams.toString()}`);
+  return {
+    destination: "estimate_editor",
+    projectId: created.project_id,
+    versionId: created.version_id,
+    redirectUrl: `/dashboard/estimates/${created.version_id}/edit?${redirectParams.toString()}`,
+  };
+}
+
+export async function quickCreateAffaire(input: QuickCreateAffaireInput) {
+  const result = await startAffaireFromImport(input);
+  redirect(result.redirectUrl);
 }
