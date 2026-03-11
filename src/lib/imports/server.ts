@@ -22,6 +22,7 @@ import {
   buildApprovedTabularPdfRows,
   buildTabularPdfImportReview,
 } from "./tabular-pdf";
+import { extractTabularPdfTablesFromFile } from "./tabular-pdf-extraction";
 import { normalizeHeaderRowNumber } from "./header-row";
 
 const DPGF_IMPORTS_BUCKET = "dpgf-imports";
@@ -973,6 +974,42 @@ export function reviewTabularPdfImport(body: unknown) {
 
     throw badRequest("Payload tabular_pdf invalide.");
   }
+}
+
+export async function reviewTabularPdfImportFile(input: {
+  file: File;
+  sourceDocumentId?: string | null;
+}) {
+  const tables = await extractTabularPdfTablesFromFile(input.file);
+  const review = reviewTabularPdfImport({
+    sourceFileName: input.file.name,
+    sourceDocumentId: input.sourceDocumentId ?? null,
+    tables: tables.map((table) => ({
+      page: table.source_page,
+      title: table.title,
+      headers: table.headers,
+      rows: table.rows.map((row) => ({
+        rowIndex: row.row_index,
+        cells: row.cells,
+      })),
+    })),
+  });
+
+  return {
+    source_file_name: input.file.name,
+    source_document_id: input.sourceDocumentId ?? null,
+    tables: tables.map((table) => ({
+      page: table.source_page,
+      tableIndex: table.table_index,
+      title: table.title,
+      headers: table.headers,
+      rows: table.rows.map((row) => ({
+        rowIndex: row.row_index,
+        cells: row.cells,
+      })),
+    })),
+    review,
+  };
 }
 
 export async function createImportFromMultipartFormData(formData: FormData) {

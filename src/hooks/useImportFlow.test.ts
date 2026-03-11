@@ -10,6 +10,7 @@ vi.mock("@/hooks/useFileParser", () => ({
 }));
 
 import { useImportFlow } from "@/hooks/useImportFlow";
+import type { TabularPdfReviewPayload } from "@/hooks/useImportFlow";
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -175,5 +176,106 @@ describe("useImportFlow", () => {
     expect(createInit.body).toBeInstanceOf(FormData);
     const formData = createInit.body as FormData;
     expect(formData.get("projectId")).toBe(projectId);
+  });
+
+  it("reviews then imports a tabular pdf through the canonical JSON contract", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ ok: true, data: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            ok: true,
+            data: {
+              source_file_name: "lot-cvc.pdf",
+              source_document_id: null,
+              tables: [
+                {
+                  page: 2,
+                  tableIndex: 0,
+                  title: "Lot CVC",
+                  headers: ["Code", "Description"],
+                  rows: [{ rowIndex: 0, cells: ["A-001", "Cable"] }],
+                },
+              ],
+              review: {
+                review_state: "light_validation",
+                import_filename: "lot-cvc.pdf",
+                source_file_name: "lot-cvc.pdf",
+                source_document_id: null,
+                summary: {
+                  total_tables: 1,
+                  approvable_tables: 1,
+                  rejected_tables: 0,
+                  total_rows: 1,
+                  approvable_rows: 1,
+                },
+                suggested_approved_tables: [{ sourcePage: 2, tableIndex: 0 }],
+                tables: [],
+              },
+            },
+          },
+          200
+        )
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            ok: true,
+            data: {
+              id: "pdf-import-id",
+            },
+          },
+          201
+        )
+      )
+      .mockResolvedValueOnce(jsonResponse({ ok: true, data: [] }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useImportFlow());
+
+    await waitFor(() => {
+      expect(result.current.isLoadingImports).toBe(false);
+    });
+
+    const file = new File(["%PDF-1.7"], "lot-cvc.pdf", {
+      type: "application/pdf",
+    });
+
+    let reviewResult: TabularPdfReviewPayload | null = null;
+    await act(async () => {
+      reviewResult = await result.current.reviewTabularPdfFile(file);
+    });
+
+    expect((reviewResult as TabularPdfReviewPayload | null)?.review.review_state).toBe(
+      "light_validation"
+    );
+
+    let success = false;
+    await act(async () => {
+      success = await result.current.importReviewedPdfFile({
+        file,
+        pdfReview: reviewResult!,
+        approvedTables: [{ sourcePage: 2, tableIndex: 0 }],
+      });
+    });
+
+    expect(success).toBe(true);
+    expect(result.current.lastImportId).toBe("pdf-import-id");
+
+    const createCall = fetchMock.mock.calls[2];
+    expect(createCall?.[0]).toBe("/api/imports");
+    const createInit = createCall?.[1] as RequestInit;
+    const payload = JSON.parse(String(createInit.body)) as {
+      sourceKind: string;
+      validation: { approvedTables: Array<{ sourcePage: number; tableIndex: number }> };
+      tables: Array<{ page: number }>;
+    };
+    expect(payload.sourceKind).toBe("tabular_pdf");
+    expect(payload.validation.approvedTables).toEqual([
+      { sourcePage: 2, tableIndex: 0 },
+    ]);
+    expect(payload.tables[0]?.page).toBe(2);
   });
 });

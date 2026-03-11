@@ -56,17 +56,17 @@ export type TabularPdfImportReview = {
   tables: TabularPdfReviewTable[];
 };
 
-type ParsedTabularPdfRow = {
+export type TabularPdfDetectedRow = {
   row_index: number;
   cells: string[];
 };
 
-type ParsedTabularPdfTable = {
+export type TabularPdfDetectedTable = {
   source_page: number;
   table_index: number;
   title: string | null;
   headers: string[];
-  rows: ParsedTabularPdfRow[];
+  rows: TabularPdfDetectedRow[];
 };
 
 type TabularPdfDefaults = {
@@ -192,7 +192,7 @@ function parseProvenanceDefaults(input: JsonRecord): TabularPdfDefaults {
   };
 }
 
-function parseTableRows(rows: unknown[], tableIndex: number): ParsedTabularPdfRow[] {
+function parseTableRows(rows: unknown[], tableIndex: number): TabularPdfDetectedRow[] {
   return rows.map((row, rowIndex) => {
     const record = asRecord(row);
     if (!record) {
@@ -222,7 +222,7 @@ function parseTableRows(rows: unknown[], tableIndex: number): ParsedTabularPdfRo
   });
 }
 
-function parseDetectedTables(value: unknown): ParsedTabularPdfTable[] {
+function parseDetectedTables(value: unknown): TabularPdfDetectedTable[] {
   const tables = Array.isArray(value) ? value : null;
   if (!tables) {
     throw new Error("tables est requis pour un DPGF PDF tabulaire.");
@@ -270,7 +270,7 @@ function parseDetectedTables(value: unknown): ParsedTabularPdfTable[] {
   });
 }
 
-function summarizeTableIssues(table: ParsedTabularPdfTable): TabularPdfTableIssue[] {
+function summarizeTableIssues(table: TabularPdfDetectedTable): TabularPdfTableIssue[] {
   const issues: TabularPdfTableIssue[] = [];
   const nonEmptyHeaders = table.headers.filter((header) => header.length > 0);
 

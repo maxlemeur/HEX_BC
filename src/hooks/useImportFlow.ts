@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useFileParser, type ParsedImportRow } from "@/hooks/useFileParser";
+import type { TabularPdfImportReview } from "@/lib/imports/tabular-pdf";
 
 type RefreshOptions = {
   silent?: boolean;
@@ -25,6 +26,31 @@ export type ImportListItem = {
   rowsCount: number | null;
   createdAt: string | null;
   mode: ImportExecutionMode;
+};
+
+export type TabularPdfDetectedRow = {
+  rowIndex: number;
+  cells: string[];
+};
+
+export type TabularPdfDetectedTable = {
+  page: number;
+  tableIndex: number;
+  title: string | null;
+  headers: string[];
+  rows: TabularPdfDetectedRow[];
+};
+
+export type ApprovedPdfTable = {
+  sourcePage: number;
+  tableIndex: number;
+};
+
+export type TabularPdfReviewPayload = {
+  source_file_name: string | null;
+  source_document_id: string | null;
+  tables: TabularPdfDetectedTable[];
+  review: TabularPdfImportReview;
 };
 
 const CLIENT_PARSE_MAX_SIZE_BYTES = 5 * 1024 * 1024;
@@ -258,6 +284,83 @@ async function postWorkerImport(
   return extractCreatedImportId(response);
 }
 
+async function postTabularPdfReview(file: File): Promise<TabularPdfReviewPayload> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch("/api/imports/tabular-pdf/review-file", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await extractErrorMessage(
+        response,
+        "Analyse du PDF tabulaire impossible."
+      )
+    );
+  }
+
+  const payload = (await response.json()) as unknown;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Reponse invalide lors de l'analyse du PDF tabulaire.");
+  }
+
+  const data =
+    (payload as { data?: TabularPdfReviewPayload }).data ??
+    (payload as TabularPdfReviewPayload);
+
+  if (!data || typeof data !== "object" || !Array.isArray(data.tables)) {
+    throw new Error("Reponse invalide lors de l'analyse du PDF tabulaire.");
+  }
+
+  return data;
+}
+
+async function postReviewedPdfImport(input: {
+  file: File;
+  pdfReview: TabularPdfReviewPayload;
+  approvedTables: ApprovedPdfTable[];
+  projectId?: string | null;
+}): Promise<string | null> {
+  const response = await fetch("/api/imports", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      mode: "server",
+      parseMode: "server",
+      filename: input.file.name,
+      sourceFormat: "pdf",
+      sourceKind: "tabular_pdf",
+      sourceFileName: input.pdfReview.source_file_name ?? input.file.name,
+      sourceDocumentId: input.pdfReview.source_document_id,
+      projectId: input.projectId ?? null,
+      validation: {
+        approvedTables: input.approvedTables,
+      },
+      tables: input.pdfReview.tables.map((table) => ({
+        page: table.page,
+        tableIndex: table.tableIndex,
+        title: table.title,
+        headers: table.headers,
+        rows: table.rows.map((row) => ({
+          rowIndex: row.rowIndex,
+          cells: row.cells,
+        })),
+      })),
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Creation de l'import PDF impossible."));
+  }
+
+  return extractCreatedImportId(response);
+}
+
 type UploadProgressCallback = (progress: number) => void;
 
 async function postServerFallback(
@@ -484,6 +587,70 @@ export function useImportFlow(options?: UseImportFlowOptions) {
     [parseFile, projectId]
   );
 
+  const reviewTabularPdfFile = useCallback(async (file: File) => {
+    return postTabularPdfReview(file);
+  }, []);
+
+  const importReviewedPdfFile = useCallback(
+    async (input: {
+      file: File;
+      pdfReview: TabularPdfReviewPayload;
+      approvedTables: ApprovedPdfTable[];
+    }): Promise<boolean> => {
+      setIsSubmitting(true);
+      setUploadProgress(null);
+      setSubmitError(null);
+      setWorkerError(null);
+      setModeMessage(null);
+      setLastMode(null);
+      setLastImportId(null);
+
+      try {
+        const createdImportId = await postReviewedPdfImport({
+          file: input.file,
+          pdfReview: input.pdfReview,
+          approvedTables: input.approvedTables,
+          projectId,
+        });
+
+        if (createdImportId) {
+          setLastImportId(createdImportId);
+        }
+        setModeMessage(
+          "PDF tabulaire valide, import canonique cree."
+        );
+        setLastMode("server");
+
+        try {
+          const nextImports = await fetchImportsList();
+          setImports(nextImports);
+          if (!createdImportId && nextImports.length > 0) {
+            setLastImportId(nextImports[0].id);
+          }
+          setLoadError(null);
+        } catch (refreshError) {
+          setLoadError(
+            refreshError instanceof Error
+              ? refreshError.message
+              : "Impossible de charger la liste des imports."
+          );
+        }
+
+        return true;
+      } catch (error) {
+        setSubmitError(
+          error instanceof Error
+            ? error.message
+            : "Impossible de lancer l'import PDF."
+        );
+        return false;
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [projectId]
+  );
+
   useEffect(() => {
     void refreshImports();
   }, [refreshImports]);
@@ -524,6 +691,8 @@ export function useImportFlow(options?: UseImportFlowOptions) {
     lastImportId,
     maxClientParseSizeBytes: CLIENT_PARSE_MAX_SIZE_BYTES,
     importFile,
+    reviewTabularPdfFile,
+    importReviewedPdfFile,
     refreshImports: refreshNow,
   };
 }

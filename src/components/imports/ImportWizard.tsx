@@ -3,12 +3,25 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useImportFlow, type ImportListItem } from "@/hooks/useImportFlow";
+import { TabularPdfReviewPanel } from "@/components/imports/TabularPdfReviewPanel";
+import {
+  useImportFlow,
+  type ImportListItem,
+  type TabularPdfReviewPayload,
+} from "@/hooks/useImportFlow";
 
-const ACCEPTED_FILE_TYPES = ".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls"]);
+const ACCEPTED_FILE_TYPES = ".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls", "pdf"]);
 
-type FileStage = "idle" | "validating" | "scanning" | "invalid" | "ready" | "header_needed";
+type FileStage =
+  | "idle"
+  | "validating"
+  | "scanning"
+  | "reviewing_pdf"
+  | "pdf_review"
+  | "invalid"
+  | "ready"
+  | "header_needed";
 
 function formatDate(value: string | null): string {
   if (!value) return "-";
@@ -180,6 +193,11 @@ export function ImportWizard() {
   const [detectedHeaders, setDetectedHeaders] = useState<string[]>([]);
   const [detectedHeaderRow, setDetectedHeaderRow] = useState<number | null>(null);
   const [formatError, setFormatError] = useState<string | null>(null);
+  const [pdfReviewError, setPdfReviewError] = useState<string | null>(null);
+  const [pdfReview, setPdfReview] = useState<TabularPdfReviewPayload | null>(null);
+  const [approvedPdfTables, setApprovedPdfTables] = useState<
+    Array<{ sourcePage: number; tableIndex: number }>
+  >([]);
   const scanAbortRef = useRef(0);
 
   const {
@@ -195,6 +213,8 @@ export function ImportWizard() {
     lastMode,
     lastImportId,
     importFile,
+    importReviewedPdfFile,
+    reviewTabularPdfFile,
     refreshImports,
   } = useImportFlow();
 
@@ -204,6 +224,9 @@ export function ImportWizard() {
     setDetectedHeaders([]);
     setDetectedHeaderRow(null);
     setFormatError(null);
+    setPdfReviewError(null);
+    setPdfReview(null);
+    setApprovedPdfTables([]);
     setHeaderRowInput("");
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -223,8 +246,11 @@ export function ImportWizard() {
       // Step 1: Validate format (show briefly)
       setFileStage("validating");
       setFormatError(null);
+      setPdfReviewError(null);
       setDetectedHeaders([]);
       setDetectedHeaderRow(null);
+      setPdfReview(null);
+      setApprovedPdfTables([]);
       setHeaderRowInput("");
 
       const ext = getFileExtension(selectedFile.name);
@@ -234,7 +260,7 @@ export function ImportWizard() {
         if (scanAbortRef.current !== scanId) return;
         setFileStage("invalid");
         setFormatError(
-          `Le format .${ext ?? "inconnu"} n'est pas supporté. Utilisez un fichier CSV, XLSX ou XLS.`
+          `Le format .${ext ?? "inconnu"} n'est pas supporté. Utilisez un fichier CSV, XLSX, XLS ou PDF.`
         );
         return;
       }
@@ -242,6 +268,28 @@ export function ImportWizard() {
       // Brief pause to show "validation" step
       await new Promise((r) => setTimeout(r, 400));
       if (scanAbortRef.current !== scanId) return;
+
+      if (ext === "pdf") {
+        setFileStage("reviewing_pdf");
+
+        try {
+          const review = await reviewTabularPdfFile(selectedFile);
+          if (scanAbortRef.current !== scanId) return;
+
+          setPdfReview(review);
+          setApprovedPdfTables(review.review.suggested_approved_tables);
+          setFileStage("pdf_review");
+        } catch (error) {
+          if (scanAbortRef.current !== scanId) return;
+          setFileStage("invalid");
+          setPdfReviewError(
+            error instanceof Error
+              ? error.message
+              : "Analyse du PDF tabulaire impossible."
+          );
+        }
+        return;
+      }
 
       // Step 2: Scan for headers
       setFileStage("scanning");
@@ -268,7 +316,7 @@ export function ImportWizard() {
     };
 
     void run();
-  }, [selectedFile]);
+  }, [reviewTabularPdfFile, selectedFile]);
 
   const handleSubmit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -294,8 +342,43 @@ export function ImportWizard() {
 
       resetFileSelectionState();
     },
-    [selectedFile, isSubmitting, headerRowInput, importFile]
+    [
+      headerRowInput,
+      importFile,
+      isSubmitting,
+      selectedFile,
+    ]
   );
+
+  const handlePdfReviewSubmit = useCallback(async () => {
+    if (!selectedFile || isSubmitting) return;
+    setDismissedSuccess(false);
+
+    if (!pdfReview) {
+      setPdfReviewError("Analyse PDF indisponible. Recommencez avec un autre fichier.");
+      return;
+    }
+
+    if (approvedPdfTables.length === 0) {
+      setPdfReviewError("Retenez au moins un tableau avant de rejoindre le mapping standard.");
+      return;
+    }
+
+    const success = await importReviewedPdfFile({
+      file: selectedFile,
+      pdfReview,
+      approvedTables: approvedPdfTables,
+    });
+    if (!success) return;
+
+    resetFileSelectionState();
+  }, [
+    approvedPdfTables,
+    importReviewedPdfFile,
+    isSubmitting,
+    pdfReview,
+    selectedFile,
+  ]);
 
   function clearSelectedFile() {
     resetFileSelectionState();
@@ -506,6 +589,27 @@ export function ImportWizard() {
             </div>
           )}
 
+          {fileStage === "reviewing_pdf" && selectedFile && (
+            <div className="animate-fade-in rounded-xl border-2 border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 p-5">
+              <div className="flex items-center gap-4">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-blue)]/10">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--brand-blue)]/30 border-t-[var(--brand-blue)]" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-[var(--slate-800)]">
+                    {selectedFile.name}
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--brand-blue)]">
+                    Detection des tableaux puis validation explicite...
+                  </p>
+                </div>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={clearSelectedFile}>
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ── Stage: INVALID — Bad format ── */}
           {fileStage === "invalid" && selectedFile && (
             <div className="animate-fade-in rounded-xl border-2 border-[var(--error)] bg-[var(--error)]/5 p-5">
@@ -522,7 +626,7 @@ export function ImportWizard() {
                     {selectedFile.name}
                   </p>
                   <p className="mt-0.5 text-xs text-[var(--error)]">
-                    {formatError}
+                    {pdfReviewError ?? formatError}
                   </p>
                 </div>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={clearSelectedFile}>
@@ -530,6 +634,38 @@ export function ImportWizard() {
                 </button>
               </div>
             </div>
+          )}
+
+          {fileStage === "pdf_review" && selectedFile && pdfReview && (
+            <TabularPdfReviewPanel
+              fileName={selectedFile.name}
+              fileSizeLabel={formatSize(selectedFile.size)}
+              pdfReview={pdfReview}
+              approvedTables={approvedPdfTables}
+              onToggleTable={(table) => {
+                setPdfReviewError(null);
+                setApprovedPdfTables((current) => {
+                  const alreadySelected = current.some(
+                    (entry) =>
+                      entry.sourcePage === table.sourcePage &&
+                      entry.tableIndex === table.tableIndex
+                  );
+                  if (alreadySelected) {
+                    return current.filter(
+                      (entry) =>
+                        !(
+                          entry.sourcePage === table.sourcePage &&
+                          entry.tableIndex === table.tableIndex
+                        )
+                    );
+                  }
+                  return [...current, table];
+                });
+              }}
+              onClearFile={clearSelectedFile}
+              onSubmit={() => void handlePdfReviewSubmit()}
+              isSubmitting={isSubmitting}
+            />
           )}
 
           {/* ── Stage: READY — Headers detected, ready to import ── */}
@@ -709,6 +845,10 @@ export function ImportWizard() {
 
         {submitError ? (
           <div className="alert alert-error mt-3">{submitError}</div>
+        ) : null}
+
+        {pdfReviewError ? (
+          <div className="alert alert-error mt-3">{pdfReviewError}</div>
         ) : null}
 
         {headerRowError ? (

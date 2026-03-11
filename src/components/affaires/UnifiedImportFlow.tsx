@@ -16,8 +16,9 @@ import {
   getUnifiedImportFlowTakeoffCarryOverPreview,
   type ConfirmUnifiedImportFlowResult,
 } from "@/app/dashboard/affaires/_actions/import-flow";
+import { TabularPdfReviewPanel } from "@/components/imports/TabularPdfReviewPanel";
 import type { ColumnMapping } from "@/components/mappings/ColumnMapper";
-import { useImportFlow } from "@/hooks/useImportFlow";
+import { useImportFlow, type TabularPdfReviewPayload } from "@/hooks/useImportFlow";
 import { useUiMode } from "@/hooks/useUiMode";
 import type {
   MappingAutoValidation,
@@ -93,8 +94,8 @@ const STEP_LABELS: Record<Step, string> = {
 };
 
 const ACCEPTED_FILE_TYPES =
-  ".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls"]);
+  ".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const VALID_EXTENSIONS = new Set(["csv", "xlsx", "xls", "pdf"]);
 
 const TARGET_FIELDS = [
   { value: "hex_code", label: "Reference article", required: true },
@@ -355,6 +356,12 @@ function UploadStep({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [isReviewingPdf, setIsReviewingPdf] = useState(false);
+  const [pdfReview, setPdfReview] = useState<TabularPdfReviewPayload | null>(null);
+  const [approvedPdfTables, setApprovedPdfTables] = useState<
+    Array<{ sourcePage: number; tableIndex: number }>
+  >([]);
+  const pdfReviewRequestIdRef = useRef(0);
 
   const {
     imports,
@@ -364,6 +371,8 @@ function UploadStep({
     submitError,
     lastImportId,
     importFile,
+    importReviewedPdfFile,
+    reviewTabularPdfFile,
   } = useImportFlow({ projectId });
 
   // Auto-advance when import is parsed/completed
@@ -377,16 +386,49 @@ function UploadStep({
 
   const handleFileSelect = useCallback((file: File) => {
     setFileError(null);
+    setPdfReview(null);
+    setApprovedPdfTables([]);
     const ext = getFileExtension(file.name);
     if (!ext || !VALID_EXTENSIONS.has(ext)) {
       setFileError(
-        `Le format .${ext ?? "inconnu"} n'est pas supporte. Utilisez CSV, XLSX ou XLS.`,
+        `Le format .${ext ?? "inconnu"} n'est pas supporte. Utilisez CSV, XLSX, XLS ou PDF.`,
       );
       setSelectedFile(null);
       return;
     }
+
     setSelectedFile(file);
-  }, []);
+    if (ext !== "pdf") {
+      setIsReviewingPdf(false);
+      return;
+    }
+
+    const requestId = ++pdfReviewRequestIdRef.current;
+    setIsReviewingPdf(true);
+    void reviewTabularPdfFile(file)
+      .then((review) => {
+        if (pdfReviewRequestIdRef.current !== requestId) return;
+        setPdfReview(review);
+        setApprovedPdfTables(review.review.suggested_approved_tables);
+      })
+      .catch((error) => {
+        if (pdfReviewRequestIdRef.current !== requestId) return;
+        setFileError(
+          error instanceof Error
+            ? error.message
+            : "Analyse du PDF tabulaire impossible."
+        );
+        setSelectedFile(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+      })
+      .finally(() => {
+        if (pdfReviewRequestIdRef.current === requestId) {
+          setIsReviewingPdf(false);
+        }
+      });
+  }, [reviewTabularPdfFile]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -400,12 +442,34 @@ function UploadStep({
 
   const handleSubmit = useCallback(async () => {
     if (!selectedFile || isSubmitting) return;
-    const success = await importFile(selectedFile);
+
+    const extension = getFileExtension(selectedFile.name);
+    let success = false;
+    if (extension === "pdf") {
+      if (!pdfReview) {
+        setFileError("Analyse PDF indisponible. Rechargez le fichier avant de continuer.");
+        return;
+      }
+      if (approvedPdfTables.length === 0) {
+        setFileError("Retenez au moins un tableau avant de rejoindre le mapping standard.");
+        return;
+      }
+      success = await importReviewedPdfFile({
+        file: selectedFile,
+        pdfReview,
+        approvedTables: approvedPdfTables,
+      });
+    } else {
+      success = await importFile(selectedFile);
+    }
+
     if (success) {
       setSelectedFile(null);
+      setPdfReview(null);
+      setApprovedPdfTables([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
-  }, [selectedFile, isSubmitting, importFile]);
+  }, [approvedPdfTables, importFile, importReviewedPdfFile, isSubmitting, pdfReview, selectedFile]);
 
   const waitingForParse =
     Boolean(lastImportId) && !isSubmitting && isPolling;
@@ -465,7 +529,7 @@ function UploadStep({
                   Glissez-deposez votre fichier DPGF ici
                 </p>
                 <p className="mt-1 text-xs text-[var(--slate-500)]">
-                  CSV, XLSX ou XLS — ou cliquez pour parcourir
+                  CSV, XLSX, XLS ou PDF tabulaire — ou cliquez pour parcourir
                 </p>
               </div>
             </div>
@@ -483,7 +547,7 @@ function UploadStep({
           </div>
 
           {/* Selected file info */}
-          {selectedFile && !fileError && (
+          {selectedFile && !fileError && getFileExtension(selectedFile.name) !== "pdf" && (
             <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-[var(--slate-200)] px-4 py-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-[var(--slate-800)]">
@@ -524,6 +588,55 @@ function UploadStep({
               </div>
             </div>
           )}
+
+          {selectedFile && getFileExtension(selectedFile.name) === "pdf" && !fileError ? (
+            isReviewingPdf ? (
+              <div className="mt-4 rounded-lg border border-[var(--brand-blue)] bg-[var(--brand-blue)]/5 px-4 py-4">
+                <div className="flex items-center gap-3 text-sm text-[var(--slate-700)]">
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--brand-blue)]/30 border-t-[var(--brand-blue)]" />
+                  Detection des tableaux puis validation explicite...
+                </div>
+              </div>
+            ) : pdfReview ? (
+              <div className="mt-4">
+                <TabularPdfReviewPanel
+                  fileName={selectedFile.name}
+                  fileSizeLabel={`${(selectedFile.size / 1024).toFixed(1)} Ko`}
+                  pdfReview={pdfReview}
+                  approvedTables={approvedPdfTables}
+                  onToggleTable={(table) => {
+                    setFileError(null);
+                    setApprovedPdfTables((current) => {
+                      const alreadySelected = current.some(
+                        (entry) =>
+                          entry.sourcePage === table.sourcePage &&
+                          entry.tableIndex === table.tableIndex
+                      );
+                      if (alreadySelected) {
+                        return current.filter(
+                          (entry) =>
+                            !(
+                              entry.sourcePage === table.sourcePage &&
+                              entry.tableIndex === table.tableIndex
+                            )
+                        );
+                      }
+                      return [...current, table];
+                    });
+                  }}
+                  onClearFile={() => {
+                    setSelectedFile(null);
+                    setPdfReview(null);
+                    setApprovedPdfTables([]);
+                    setFileError(null);
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                  onSubmit={() => void handleSubmit()}
+                  isSubmitting={isSubmitting}
+                />
+              </div>
+            ) : null
+          ) : null}
         </div>
       )}
 
