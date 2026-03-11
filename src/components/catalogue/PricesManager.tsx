@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { PriceBookCsvImport } from "@/components/catalogue/PriceBookCsvImport";
 import { TableFilterBar } from "@/components/TableFilterBar";
@@ -75,6 +75,10 @@ export function PricesManager({
     setEditingItem(item);
     setIsFormOpen(true);
   }
+
+  const handleImported = useCallback(() => {
+    void refresh().catch(() => undefined);
+  }, [refresh]);
 
   return (
     <div className="space-y-6">
@@ -151,7 +155,7 @@ export function PricesManager({
         {isCsvOpen ? (
           <div className="border-t border-[var(--slate-200)]">
             <PriceBookCsvImport
-              onImported={refresh}
+              onImported={handleImported}
               onLookupsUpdated={reloadLookups}
               lookups={lookups}
             />

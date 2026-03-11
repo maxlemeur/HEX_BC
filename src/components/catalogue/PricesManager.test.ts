@@ -54,6 +54,7 @@ vi.mock("swr", () => ({
 }));
 
 const tableFilterBarTransformMock = vi.hoisted(() => vi.fn((data: unknown[]) => data));
+const priceBookCsvImportPropsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/TableFilterBar", () => ({
   TableFilterBar: (props: { data: unknown[]; onDataChange: (items: unknown[]) => void }) => {
@@ -68,7 +69,10 @@ vi.mock("@/components/TableFilterBar", () => ({
 }));
 
 vi.mock("@/components/catalogue/PriceBookCsvImport", () => ({
-  PriceBookCsvImport: () => createElement("div", { "data-testid": "csv-import" }),
+  PriceBookCsvImport: (props: unknown) => {
+    priceBookCsvImportPropsMock(props);
+    return createElement("div", { "data-testid": "csv-import" });
+  },
 }));
 
 vi.mock("@/components/ui/SearchableSelect", () => ({
@@ -188,6 +192,25 @@ describe("PricesManager", () => {
     await user.click(screen.getByRole("button", { name: /Importer un fichier de prix/i }));
 
     expect(screen.getByTestId("csv-import")).toBeInTheDocument();
+  });
+
+  it("does not surface refresh failures through the CSV import completion callback", async () => {
+    const user = userEvent.setup();
+    const mutate = setupSWR();
+    mutate.mockRejectedValueOnce(new Error("refresh failed"));
+    renderManager();
+
+    await user.click(screen.getByRole("button", { name: /Importer un fichier de prix/i }));
+
+    const props = priceBookCsvImportPropsMock.mock.calls.at(-1)?.[0] as
+      | { onImported?: () => Promise<void> | void }
+      | undefined;
+
+    expect(props?.onImported).toBeTypeOf("function");
+    expect(() => props?.onImported?.()).not.toThrow();
+    await waitFor(() => {
+      expect(mutate).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("renders stats cards when supplier prices exist", () => {
