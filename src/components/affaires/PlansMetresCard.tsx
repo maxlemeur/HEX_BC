@@ -12,6 +12,7 @@ import {
   type TakeoffContinuitySnapshot,
 } from "@/lib/takeoff/continuity";
 import type { TakeoffDocumentRecommendation } from "@/lib/takeoff/document-classifier";
+import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
 import {
   canLaunchNewTakeoffAnalysis,
   isTakeoffVisibleJobInFlight,
@@ -74,6 +75,13 @@ const FE_STATUS_BADGE: Record<string, BadgeVariant> = {
   review_required: "warning",
   action_required: "error",
 };
+
+const TAKEOFF_CONTINUITY_PAGE_SIZE = 50;
+const CONTINUITY_WAITING_STATUSES = new Set([
+  "queued",
+  "processing",
+  "provider_pending",
+]);
 
 /* ------------------------------------------------------------------ */
 /*  Icons                                                              */
@@ -144,6 +152,34 @@ function getPlanSetContextCopy(input: {
   };
 }
 
+async function fetchTakeoffContinuityJobs(
+  projectId: string,
+  planSetId: string | null
+): Promise<TakeoffActivityCenterJobRow[]> {
+  const jobs: TakeoffActivityCenterJobRow[] = [];
+  let nextOffset = 0;
+  let total = Number.POSITIVE_INFINITY;
+
+  while (nextOffset < total) {
+    const response = await fetchTakeoffActivityCenter(projectId, {
+      planSetId,
+      limit: TAKEOFF_CONTINUITY_PAGE_SIZE,
+      offset: nextOffset,
+    });
+
+    jobs.push(...response.jobs);
+    total = response.pagination.total;
+
+    if (response.jobs.length === 0) {
+      break;
+    }
+
+    nextOffset += response.jobs.length;
+  }
+
+  return jobs;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -160,23 +196,18 @@ export function PlansMetresCard({
       : (plans?.defaultPlanSetId ?? null);
   const latestJobId = plans?.latestJob?.jobId ?? null;
   const hasPlans = (plans?.planSetCount ?? 0) > 0;
-  const { data: continuityData, isLoading: isContinuityLoading } = useSWR(
+  const { data: continuityJobs } = useSWR(
     hasPlans ? ["plans-metres-continuity", projectId, continuityPlanSetId] : null,
-    () =>
-      fetchTakeoffActivityCenter(projectId, {
-        planSetId: continuityPlanSetId,
-        limit: 6,
-        offset: 0,
-      }),
+    () => fetchTakeoffContinuityJobs(projectId, continuityPlanSetId),
     {
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
       keepPreviousData: true,
     }
   );
-  const continuitySnapshot: TakeoffContinuitySnapshot | null = continuityData
+  const continuitySnapshot: TakeoffContinuitySnapshot | null = continuityJobs
     ? buildTakeoffContinuitySnapshot({
-        jobs: continuityData.jobs,
+        jobs: continuityJobs,
         latestJobId,
       })
     : null;
@@ -184,9 +215,7 @@ export function PlansMetresCard({
     continuitySnapshot?.latestStatusRaw === "action_required"
       ? "Reprendre l'analyse"
       : continuitySnapshot &&
-          ["queued", "processing", "provider_pending"].includes(
-            continuitySnapshot.latestStatusRaw
-          )
+          CONTINUITY_WAITING_STATUSES.has(continuitySnapshot.latestStatusRaw)
         ? "Suivre la reprise"
         : null;
 
@@ -339,68 +368,62 @@ export function PlansMetresCard({
         </div>
       )}
 
-      {(isContinuityLoading || continuitySnapshot) && (
+      {continuitySnapshot && (
         <div className="mt-3 rounded-lg border border-[var(--slate-200)] bg-[var(--slate-50)]/70 px-3 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-medium text-[var(--slate-800)]">
-              {isContinuityLoading
-                ? "Analyse de reprise en cours…"
-                : continuitySnapshot?.title}
+              {continuitySnapshot.title}
             </p>
           </div>
 
-          {!isContinuityLoading && continuitySnapshot ? (
-            <>
-              <p className="mt-1 text-xs leading-5 text-[var(--slate-500)]">
-                {continuitySnapshot.description}
-              </p>
+          <p className="mt-1 text-xs leading-5 text-[var(--slate-500)]">
+            {continuitySnapshot.description}
+          </p>
 
-              <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                <span className="rounded-full bg-[var(--success)]/10 px-2.5 py-1 font-medium text-[var(--success)]">
-                  {continuitySnapshot.acquiredCount} acquis
-                </span>
-                <span className="rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-1 font-medium text-[var(--brand-blue)]">
-                  {continuitySnapshot.waitingCount} en attente
-                </span>
-                <span className="rounded-full bg-[var(--warning)]/10 px-2.5 py-1 font-medium text-[var(--warning)]">
-                  {continuitySnapshot.actionRequiredCount} a corriger
-                </span>
-              </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-[var(--success)]/10 px-2.5 py-1 font-medium text-[var(--success)]">
+              {continuitySnapshot.acquiredCount} acquis
+            </span>
+            <span className="rounded-full bg-[var(--brand-blue)]/10 px-2.5 py-1 font-medium text-[var(--brand-blue)]">
+              {continuitySnapshot.waitingCount} en attente
+            </span>
+            <span className="rounded-full bg-[var(--warning)]/10 px-2.5 py-1 font-medium text-[var(--warning)]">
+              {continuitySnapshot.actionRequiredCount} a corriger
+            </span>
+          </div>
 
-              <ol className="mt-3 space-y-2">
-                {continuitySnapshot.history.map((entry) => (
-                  <li
-                    key={entry.jobId}
-                    className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2"
-                  >
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-400)]">
-                        {entry.versionLabel}
-                      </span>
-                      <span className="text-sm text-[var(--slate-700)]">
-                        {entry.statusLabel}
-                      </span>
-                    </div>
-                    {entry.carriedOverFrom ? (
-                      <p className="mt-1 text-xs text-[var(--slate-500)]">
-                        Carry-over depuis {entry.carriedOverFrom}
-                      </p>
-                    ) : null}
-                  </li>
-                ))}
-              </ol>
-
-              {continuityActionLabel ? (
-                <div className="mt-3">
-                  <Link
-                    href={`/dashboard/affaires/${projectId}/takeoff`}
-                    className="btn btn-secondary btn-sm inline-flex"
-                  >
-                    {continuityActionLabel}
-                  </Link>
+          <ol className="mt-3 space-y-2">
+            {continuitySnapshot.history.map((entry) => (
+              <li
+                key={entry.jobId}
+                className="rounded-lg border border-[var(--slate-200)] bg-white px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--slate-400)]">
+                    {entry.versionLabel}
+                  </span>
+                  <span className="text-sm text-[var(--slate-700)]">
+                    {entry.statusLabel}
+                  </span>
                 </div>
-              ) : null}
-            </>
+                {entry.carriedOverFrom ? (
+                  <p className="mt-1 text-xs text-[var(--slate-500)]">
+                    Carry-over depuis {entry.carriedOverFrom}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+
+          {continuityActionLabel ? (
+            <div className="mt-3">
+              <Link
+                href={`/dashboard/affaires/${projectId}/takeoff`}
+                className="btn btn-secondary btn-sm inline-flex"
+              >
+                {continuityActionLabel}
+              </Link>
+            </div>
           ) : null}
         </div>
       )}
