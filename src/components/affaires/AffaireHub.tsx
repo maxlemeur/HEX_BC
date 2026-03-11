@@ -38,6 +38,7 @@ import type {
   AffaireRegisterTimelineEvent,
 } from "@/lib/affaires/register";
 import { AffaireRegisterCard } from "./AffaireRegisterCard";
+import { AffaireFlowHierarchyPanel } from "./AffaireFlowHierarchyPanel";
 import { BriefDraftCard } from "./BriefDraftCard";
 import { IntakeWorkspace } from "./IntakeWorkspace";
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
@@ -1633,6 +1634,16 @@ export function AffaireHub({
               />
             </div>
           )}
+
+          <div className="mt-4">
+            <AffaireFlowHierarchyPanel
+              projectId={summary.project.id}
+              currentVersion={summary.currentVersion ?? null}
+              versionZeroSummary={versionZeroSummary}
+              takeoffEnabled={takeoffEnabled}
+              plansSummary={plansSummary ?? null}
+            />
+          </div>
 
           <div className="mt-4">
             <AffairePilotagePanel
