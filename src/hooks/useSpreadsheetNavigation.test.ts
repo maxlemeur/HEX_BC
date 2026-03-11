@@ -1,4 +1,5 @@
-import { renderHook } from "@testing-library/react";
+import { render, renderHook, screen, waitFor } from "@testing-library/react";
+import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,6 +10,42 @@ import {
   resolveSpreadsheetPointerCommand,
   useSpreadsheetNavigation,
 } from "@/hooks/useSpreadsheetNavigation";
+
+function NavigationHarness({
+  rows,
+}: {
+  rows: Array<{ rowId: string; columnKeys: string[] }>;
+}) {
+  const navigation = useSpreadsheetNavigation({ rows });
+
+  return createElement(
+    "div",
+    null,
+    createElement("input", { "data-testid": "outside-editor" }),
+    ...rows.map((row) => {
+      const cell = { rowId: row.rowId, columnKey: row.columnKeys[0] ?? "title" };
+      const cellProps = navigation.getCellProps(cell);
+      const editorProps = navigation.getEditorProps<HTMLInputElement>(cell);
+
+      return createElement(
+        "div",
+        {
+          key: row.rowId,
+          ...cellProps,
+          "data-testid": `cell-${row.rowId}`,
+        },
+        createElement("input", {
+          "data-testid": `editor-${row.rowId}`,
+          ref: editorProps.ref,
+          tabIndex: editorProps.tabIndex,
+          onFocus: editorProps.onFocus,
+          onBlur: editorProps.onBlur,
+          onKeyDown: editorProps.onKeyDown,
+        })
+      );
+    })
+  );
+}
 
 describe("useSpreadsheetNavigation helpers", () => {
   it("builds a model with unique non-empty columns only", () => {
@@ -100,6 +137,35 @@ describe("useSpreadsheetNavigation helpers", () => {
     expect(second.getEditorProps).toBe(first.getEditorProps);
     expect(second.isCellActive).toBe(first.isCellActive);
     expect(second.isCellEditing).toBe(first.isCellEditing);
+  });
+
+  it("does not steal focus from another editor when rows change", async () => {
+    const { rerender } = render(
+      createElement(NavigationHarness, {
+        rows: [{ rowId: "row-1", columnKeys: ["title"] }],
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("cell-row-1")).toHaveFocus();
+    });
+
+    const outsideEditor = screen.getByTestId("outside-editor");
+    outsideEditor.focus();
+    expect(outsideEditor).toHaveFocus();
+
+    rerender(
+      createElement(NavigationHarness, {
+        rows: [
+          { rowId: "row-1", columnKeys: ["title"] },
+          { rowId: "row-2", columnKeys: ["title"] },
+        ],
+      })
+    );
+
+    await waitFor(() => {
+      expect(outsideEditor).toHaveFocus();
+    });
   });
 
   it("starts editing on single click for editable cell container", () => {

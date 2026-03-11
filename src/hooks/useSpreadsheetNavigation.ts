@@ -469,7 +469,19 @@ export function useSpreadsheetNavigation({
     lastMissingCellNotifiedRef.current = null;
     lastFocusedCellIdRef.current = activeCellId;
 
-    if (document.activeElement !== cellElement) {
+    const activeElement = document.activeElement;
+    if (
+      activeElement &&
+      activeElement !== document.body &&
+      activeElement !== cellElement &&
+      activeElement instanceof Node &&
+      !cellElement.contains(activeElement) &&
+      isEditorElement(activeElement)
+    ) {
+      return;
+    }
+
+    if (activeElement !== cellElement) {
       cellElement.focus();
     }
   }, [
