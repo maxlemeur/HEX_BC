@@ -1211,12 +1211,14 @@ export function AffairePilotagePanel({
         ))}
       </div>
 
-      <AffaireFinishLineActions
-        projectId={projectId}
-        projectName={projectName}
-        currentVersion={currentVersion}
-        finishLineSummary={finishLineSummary}
-      />
+      {!ghost ? (
+        <AffaireFinishLineActions
+          projectId={projectId}
+          projectName={projectName}
+          currentVersion={currentVersion}
+          finishLineSummary={finishLineSummary}
+        />
+      ) : null}
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-2xl border border-[var(--slate-200)] bg-[var(--slate-50)]/70 p-4">

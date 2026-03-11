@@ -129,6 +129,18 @@ const DATE_FMT = new Intl.DateTimeFormat("fr-FR", {
   year: "numeric",
 });
 
+export function shouldShowAffaireCreatedOnboardingBanner(input: {
+  showOnboardingBanner: boolean;
+  intakeWorkspace: Pick<AffaireIntakeWorkspace, "documents"> | null | undefined;
+  dpgfSource: AffaireHubDpgfSourceResult;
+}) {
+  return (
+    input.showOnboardingBanner &&
+    (input.intakeWorkspace?.documents?.length ?? 0) === 0 &&
+    !input.dpgfSource
+  );
+}
+
 function fmtDate(iso: string) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "-" : DATE_FMT.format(d);
@@ -1024,8 +1036,13 @@ export function AffaireHub({
     if (shownCreatedToastProjectIds.has(projectId)) return;
 
     shownCreatedToastProjectIds.add(projectId);
-    const hasDossier = (intakeWorkspace?.documents?.length ?? 0) > 0;
-    if (!hasDossier) {
+    if (
+      shouldShowAffaireCreatedOnboardingBanner({
+        showOnboardingBanner: true,
+        intakeWorkspace,
+        dpgfSource,
+      })
+    ) {
       setShowOnboardingBanner(true);
     }
     toast.success({
@@ -1299,7 +1316,11 @@ export function AffaireHub({
       </nav>
 
       {/* Onboarding banner (post-creation, no dossier) */}
-      {showOnboardingBanner && (intakeWorkspace?.documents?.length ?? 0) === 0 && (
+      {shouldShowAffaireCreatedOnboardingBanner({
+        showOnboardingBanner,
+        intakeWorkspace,
+        dpgfSource,
+      }) && (
         <AffaireCreatedOnboardingBanner
           onDismiss={() => setShowOnboardingBanner(false)}
           onScrollToIntake={() => {

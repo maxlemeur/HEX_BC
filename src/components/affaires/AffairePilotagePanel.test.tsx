@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -512,6 +512,32 @@ describe("AffairePilotagePanel", () => {
     );
 
     expect(screen.getAllByText("1 point a traiter").length).toBeGreaterThan(0);
+  });
+
+  it("does not expose finish-line actions when the panel is rendered in ghost mode", () => {
+    const { container } = render(
+      <ToastProvider>
+        <AffairePilotagePanel
+          projectId=""
+          projectName="Projet ghost"
+          intakeWorkspace={null}
+          dpgfSource={null}
+          plansSummary={null}
+          registerSummary={null}
+          approvalSummary={null}
+          currentVersion={null}
+          lineCount={0}
+          finishLineSummary={null}
+          takeoffEnabled
+          ghost
+        />
+      </ToastProvider>,
+    );
+
+    expect(within(container).queryByRole("link", { name: /Creer un devis/i })).not.toBeInTheDocument();
+    expect(
+      within(container).queryByText("PDF, email et BDC depuis le meme point")
+    ).not.toBeInTheDocument();
   });
 
   it("opens the intake upload surface from the exception queue", async () => {
