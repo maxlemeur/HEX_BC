@@ -9,7 +9,6 @@ loadEnvConfig(path.resolve(__dirname, "../.."));
 
 import {
   buildEstimateName,
-  createEstimateViaWizard,
   duplicateEstimateViaApi,
   loginWithUi,
 } from "./helpers";
@@ -76,6 +75,61 @@ async function extractProjectId(page: Page, versionId: string) {
 
   expect(projectId, "project_id should be present in estimate version response").toBeTruthy();
   return projectId as string;
+}
+
+async function createEstimateViaApi(
+  page: Page,
+  options: {
+    projectName: string;
+    title: string;
+    dateDevis?: string;
+    validiteJours?: number;
+  }
+) {
+  const response = await page.request.post("/api/estimates", {
+    failOnStatusCode: false,
+    data: {
+      project: {
+        name: options.projectName,
+      },
+      version: {
+        title: options.title,
+        date_devis: options.dateDevis ?? "2026-03-11",
+        validite_jours: options.validiteJours ?? 30,
+      },
+    },
+  });
+  const body = await response.text();
+
+  expect(
+    response.status(),
+    `Failed to create estimate. status=${response.status()} body=${body}`
+  ).toBe(201);
+
+  const payload = JSON.parse(body) as {
+    data?: {
+      version?: {
+        id?: string;
+        project_id?: string;
+      };
+      version_id?: string;
+      project_id?: string;
+    };
+    version_id?: string;
+    project_id?: string;
+  };
+
+  const versionId =
+    payload.data?.version?.id ??
+    payload.data?.version_id ??
+    payload.version_id ??
+    null;
+
+  if (!versionId) {
+    throw new Error(`Unable to extract version id from payload: ${body}`);
+  }
+
+  return { versionId };
 }
 
 async function getTenantIdForVersion(versionId: string) {
@@ -272,7 +326,7 @@ test.describe("US-6.2 - reprise apres attente, erreur ou echec partiel", () => {
     page,
   }) => {
     const sourceFileName = "us62-partial-recovery.pdf";
-    const { versionId: sourceVersionId } = await createEstimateViaWizard(page, {
+    const { versionId: sourceVersionId } = await createEstimateViaApi(page, {
       projectName: buildEstimateName("US62-PARTIAL"),
       title: "US-6.2 Reprise partielle",
     });
@@ -324,10 +378,13 @@ test.describe("US-6.2 - reprise apres attente, erreur ou echec partiel", () => {
     await expect(plansSection.getByText("1 acquis")).toBeVisible();
     await expect(plansSection.getByText("0 en attente")).toBeVisible();
     await expect(plansSection.getByText("1 a corriger")).toBeVisible();
-    await expect(plansSection.getByText("V2")).toBeVisible();
-    await expect(plansSection.getByText("Echec a corriger")).toBeVisible();
-    await expect(plansSection.getByText("V1")).toBeVisible();
-    await expect(plansSection.getByText("Analyse terminee")).toBeVisible();
+    const partialRecoveryHistory = plansSection.locator("ol").first();
+    await expect(
+      partialRecoveryHistory.locator("li").filter({ hasText: "V2" }).first()
+    ).toContainText("Echec a corriger");
+    await expect(
+      partialRecoveryHistory.locator("li").filter({ hasText: "V1" }).first()
+    ).toContainText("Analyse terminee");
 
     const resumeLink = plansSection.getByRole("link", { name: "Reprendre l'analyse" });
     await expect(resumeLink).toHaveAttribute(
@@ -343,7 +400,7 @@ test.describe("US-6.2 - reprise apres attente, erreur ou echec partiel", () => {
     page,
   }) => {
     const sourceFileName = "us62-pending-recovery.pdf";
-    const { versionId: sourceVersionId } = await createEstimateViaWizard(page, {
+    const { versionId: sourceVersionId } = await createEstimateViaApi(page, {
       projectName: buildEstimateName("US62-PENDING"),
       title: "US-6.2 Reprise en attente",
     });
@@ -395,10 +452,13 @@ test.describe("US-6.2 - reprise apres attente, erreur ou echec partiel", () => {
     await expect(plansSection.getByText("1 acquis")).toBeVisible();
     await expect(plansSection.getByText("1 en attente")).toBeVisible();
     await expect(plansSection.getByText("0 a corriger")).toBeVisible();
-    await expect(plansSection.getByText("V2")).toBeVisible();
-    await expect(plansSection.getByText("En attente provider")).toBeVisible();
-    await expect(plansSection.getByText("V1")).toBeVisible();
-    await expect(plansSection.getByText("Analyse terminee")).toBeVisible();
+    const pendingRecoveryHistory = plansSection.locator("ol").first();
+    await expect(
+      pendingRecoveryHistory.locator("li").filter({ hasText: "V2" }).first()
+    ).toContainText("En attente provider");
+    await expect(
+      pendingRecoveryHistory.locator("li").filter({ hasText: "V1" }).first()
+    ).toContainText("Analyse terminee");
 
     const followLink = plansSection.getByRole("link", { name: "Suivre la reprise" });
     await expect(followLink).toHaveAttribute(
