@@ -1,15 +1,41 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SWRConfig } from "swr";
 
+import { fetchTakeoffActivityCenter } from "@/lib/takeoff/client";
 import { PlansMetresCard } from "@/components/affaires/PlansMetresCard";
+
+vi.mock("@/lib/takeoff/client", () => ({
+  fetchTakeoffActivityCenter: vi.fn(),
+}));
+
+function renderWithSWR(ui: ReactNode) {
+  return render(
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      {ui}
+    </SWRConfig>
+  );
+}
 
 describe("PlansMetresCard", () => {
   afterEach(() => {
     cleanup();
+    vi.mocked(fetchTakeoffActivityCenter).mockReset();
   });
 
   it("uses reviewVersionId for the exceptions CTA", () => {
-    render(
+    vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
+      counters: {
+        technicalJobs: 0,
+        usableJobs: 1,
+        blockingExceptionsJobs: 1,
+      },
+      jobs: [],
+      pagination: { limit: 6, offset: 0, total: 0 },
+    });
+
+    renderWithSWR(
       <PlansMetresCard
         projectId="project-1"
         plans={{
@@ -41,7 +67,7 @@ describe("PlansMetresCard", () => {
   });
 
   it("does not show dismiss CTA in empty state", () => {
-    render(<PlansMetresCard projectId="project-1" plans={null} />);
+    renderWithSWR(<PlansMetresCard projectId="project-1" plans={null} />);
 
     expect(
       screen.queryByRole("button", { name: "Continuer sans plans" })
@@ -49,7 +75,17 @@ describe("PlansMetresCard", () => {
   });
 
   it("keeps register signals visible and exposes a register CTA even when coverage is unavailable", () => {
-    render(
+    vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
+      counters: {
+        technicalJobs: 0,
+        usableJobs: 1,
+        blockingExceptionsJobs: 0,
+      },
+      jobs: [],
+      pagination: { limit: 6, offset: 0, total: 0 },
+    });
+
+    renderWithSWR(
       <PlansMetresCard
         projectId="project-1"
         plans={{
@@ -79,7 +115,17 @@ describe("PlansMetresCard", () => {
   });
 
   it("surfaces intake provenance and confirms that no reupload is needed", () => {
-    render(
+    vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
+      counters: {
+        technicalJobs: 0,
+        usableJobs: 0,
+        blockingExceptionsJobs: 0,
+      },
+      jobs: [],
+      pagination: { limit: 6, offset: 0, total: 0 },
+    });
+
+    renderWithSWR(
       <PlansMetresCard
         projectId="project-1"
         plans={{
@@ -113,7 +159,78 @@ describe("PlansMetresCard", () => {
   });
 
   it("exposes retry and remediation CTAs when the latest job needs action", () => {
-    render(
+    vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
+      counters: {
+        technicalJobs: 1,
+        usableJobs: 1,
+        blockingExceptionsJobs: 1,
+      },
+      jobs: [
+        {
+          jobId: "job-1",
+          estimateVersionId: "version-target",
+          versionLabel: "V3",
+          lotLabel: null,
+          planSetLabel: "Plans principaux",
+          levelLabel: "Standard",
+          processingStrategy: "sync",
+          providerBatchState: null,
+          providerBatchUpdatedAt: null,
+          providerReconcileDueAt: null,
+          providerReconcileLeaseExpiresAt: null,
+          statusLabel: "Echec a corriger",
+          statusRaw: "action_required",
+          technicalStatusRaw: "failed",
+          operatorState: "none",
+          operatorStateLabel: null,
+          canReconcile: false,
+          canCancel: false,
+          canResubmit: true,
+          itemCount: 0,
+          coveragePercent: 0,
+          exceptionCount: 0,
+          confidenceLabel: "Faible",
+          appliedCount: 0,
+          createdAt: "2026-03-11T10:00:00.000Z",
+          carriedOverFrom: null,
+          neverApplied: true,
+          retryCount: 1,
+        },
+        {
+          jobId: "job-0",
+          estimateVersionId: "version-previous",
+          versionLabel: "V2",
+          lotLabel: null,
+          planSetLabel: "Plans principaux",
+          levelLabel: "Standard",
+          processingStrategy: "sync",
+          providerBatchState: null,
+          providerBatchUpdatedAt: null,
+          providerReconcileDueAt: null,
+          providerReconcileLeaseExpiresAt: null,
+          statusLabel: "Analyse terminee",
+          statusRaw: "completed",
+          technicalStatusRaw: "completed",
+          operatorState: "none",
+          operatorStateLabel: null,
+          canReconcile: false,
+          canCancel: false,
+          canResubmit: false,
+          itemCount: 12,
+          coveragePercent: 84,
+          exceptionCount: 0,
+          confidenceLabel: "Elevee",
+          appliedCount: 1,
+          createdAt: "2026-03-11T09:00:00.000Z",
+          carriedOverFrom: "V1",
+          neverApplied: false,
+          retryCount: 0,
+        },
+      ],
+      pagination: { limit: 6, offset: 0, total: 2 },
+    });
+
+    renderWithSWR(
       <PlansMetresCard
         projectId="project-1"
         onLaunchMetre={vi.fn()}
@@ -153,7 +270,17 @@ describe("PlansMetresCard", () => {
   });
 
   it("replaces the launch CTA with a follow CTA while an analysis is already running", () => {
-    render(
+    vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
+      counters: {
+        technicalJobs: 1,
+        usableJobs: 1,
+        blockingExceptionsJobs: 0,
+      },
+      jobs: [],
+      pagination: { limit: 6, offset: 0, total: 0 },
+    });
+
+    renderWithSWR(
       <PlansMetresCard
         projectId="project-1"
         onLaunchMetre={vi.fn()}
@@ -182,5 +309,110 @@ describe("PlansMetresCard", () => {
     expect(
       screen.queryByRole("button", { name: "Analyser les plans" })
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps prior statuses visible when resuming after a partial failure", async () => {
+    vi.mocked(fetchTakeoffActivityCenter).mockResolvedValue({
+      counters: {
+        technicalJobs: 1,
+        usableJobs: 1,
+        blockingExceptionsJobs: 1,
+      },
+      jobs: [
+        {
+          jobId: "job-1",
+          estimateVersionId: "version-target",
+          versionLabel: "V3",
+          lotLabel: null,
+          planSetLabel: "Plans principaux",
+          levelLabel: "Standard",
+          processingStrategy: "sync",
+          providerBatchState: null,
+          providerBatchUpdatedAt: null,
+          providerReconcileDueAt: null,
+          providerReconcileLeaseExpiresAt: null,
+          statusLabel: "Echec a corriger",
+          statusRaw: "action_required",
+          technicalStatusRaw: "failed",
+          operatorState: "none",
+          operatorStateLabel: null,
+          canReconcile: false,
+          canCancel: false,
+          canResubmit: true,
+          itemCount: 0,
+          coveragePercent: 0,
+          exceptionCount: 0,
+          confidenceLabel: "Faible",
+          appliedCount: 0,
+          createdAt: "2026-03-11T10:00:00.000Z",
+          carriedOverFrom: null,
+          neverApplied: true,
+          retryCount: 1,
+        },
+        {
+          jobId: "job-0",
+          estimateVersionId: "version-previous",
+          versionLabel: "V2",
+          lotLabel: null,
+          planSetLabel: "Plans principaux",
+          levelLabel: "Standard",
+          processingStrategy: "sync",
+          providerBatchState: null,
+          providerBatchUpdatedAt: null,
+          providerReconcileDueAt: null,
+          providerReconcileLeaseExpiresAt: null,
+          statusLabel: "Analyse terminee",
+          statusRaw: "completed",
+          technicalStatusRaw: "completed",
+          operatorState: "none",
+          operatorStateLabel: null,
+          canReconcile: false,
+          canCancel: false,
+          canResubmit: false,
+          itemCount: 12,
+          coveragePercent: 84,
+          exceptionCount: 0,
+          confidenceLabel: "Elevee",
+          appliedCount: 1,
+          createdAt: "2026-03-11T09:00:00.000Z",
+          carriedOverFrom: "V1",
+          neverApplied: false,
+          retryCount: 0,
+        },
+      ],
+      pagination: { limit: 6, offset: 0, total: 2 },
+    });
+
+    renderWithSWR(
+      <PlansMetresCard
+        projectId="project-1"
+        onLaunchMetre={vi.fn()}
+        plans={{
+          defaultPlanSetId: "plan-set-1",
+          planSetCount: 1,
+          planFileCount: 1,
+          totalSizeBytes: 1024,
+          latestJob: {
+            jobId: "job-1",
+            status: "action_required",
+            label: "Echec a corriger",
+            reviewVersionId: "version-target",
+          },
+          coveragePercent: null,
+          exceptionCount: null,
+          openQuestionsCount: 0,
+          failureReasonLabel:
+            "Delai depasse. Relancez l'analyse ou essayez un niveau plus rapide.",
+        }}
+      />
+    );
+
+    expect(await screen.findByText("Reprise apres echec partiel")).toBeInTheDocument();
+    expect(screen.getByText("1 acquis")).toBeInTheDocument();
+    expect(screen.getByText("0 en attente")).toBeInTheDocument();
+    expect(screen.getByText("1 a corriger")).toBeInTheDocument();
+    expect(screen.getByText("V3")).toBeInTheDocument();
+    expect(screen.getByText("V2")).toBeInTheDocument();
+    expect(screen.getByText("Carry-over depuis V1")).toBeInTheDocument();
   });
 });
