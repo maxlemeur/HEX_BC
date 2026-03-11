@@ -152,4 +152,57 @@ describe("ImportWizard", () => {
     await user.click(screen.getByRole("button", { name: "Actualiser" }));
     expect(refreshImportsMock).toHaveBeenCalledTimes(1);
   });
+
+  it("re-shows the success CTA after importing another file", async () => {
+    let flowState = createFlowState({
+      lastImportId: "import-1",
+    });
+    useImportFlowMock.mockImplementation(() => flowState);
+    importFileMock.mockImplementation(async () => {
+      flowState = createFlowState({
+        lastImportId: "import-2",
+      });
+      return true;
+    });
+
+    const user = userEvent.setup();
+    const { container } = render(<ImportWizard />);
+
+    await user.click(
+      screen.getByRole("button", { name: /importer un autre fichier/i })
+    );
+
+    const fileInput = container.querySelector(
+      "#import-file-input"
+    ) as HTMLInputElement | null;
+    expect(fileInput).not.toBeNull();
+    if (!fileInput) {
+      throw new Error("File input not found");
+    }
+
+    const file = new File(["xlsx-data"], "devis.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    await user.upload(fileInput, file);
+
+    await waitFor(
+      () => {
+        expect(screen.getByText(/ligne 2/i)).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+
+    await user.click(screen.getByRole("button", { name: /lancer l'import/i }));
+
+    await waitFor(() => {
+      expect(importFileMock).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: /mapper les colonnes/i })
+      ).toHaveAttribute("href", "/dashboard/mappings?import_id=import-2");
+    });
+  });
 });

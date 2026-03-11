@@ -65,6 +65,7 @@ export function ImportWizard() {
     importFile,
     importReviewedPdfFile,
     isSubmitting,
+    onImportStart: () => setDismissedSuccess(false),
     reviewTabularPdfFile,
   });
 

@@ -35,6 +35,7 @@ type UseImportWizardFileStageInput = {
     approvedTables: ApprovedPdfTable[];
   }) => Promise<boolean>;
   isSubmitting: boolean;
+  onImportStart: () => void;
   reviewTabularPdfFile: (file: File) => Promise<TabularPdfReviewPayload>;
 };
 
@@ -66,6 +67,7 @@ export function useImportWizardFileStage({
   importFile,
   importReviewedPdfFile,
   isSubmitting,
+  onImportStart,
   reviewTabularPdfFile,
 }: UseImportWizardFileStageInput): UseImportWizardFileStageResult {
   const [approvedPdfTables, setApprovedPdfTables] = useState<ApprovedPdfTable[]>([]);
@@ -214,12 +216,20 @@ export function useImportWizardFileStage({
       }
 
       setHeaderRowError(null);
+      onImportStart();
       const success = await importFile(selectedFile, { headerRowNumber });
       if (!success) return;
 
       resetFileSelectionState();
     },
-    [headerRowInput, importFile, isSubmitting, resetFileSelectionState, selectedFile]
+    [
+      headerRowInput,
+      importFile,
+      isSubmitting,
+      onImportStart,
+      resetFileSelectionState,
+      selectedFile,
+    ]
   );
 
   const handlePdfReviewSubmit = useCallback(async () => {
@@ -235,6 +245,7 @@ export function useImportWizardFileStage({
       return;
     }
 
+    onImportStart();
     const success = await importReviewedPdfFile({
       file: selectedFile,
       pdfReview,
@@ -247,6 +258,7 @@ export function useImportWizardFileStage({
     approvedPdfTables,
     importReviewedPdfFile,
     isSubmitting,
+    onImportStart,
     pdfReview,
     resetFileSelectionState,
     selectedFile,
