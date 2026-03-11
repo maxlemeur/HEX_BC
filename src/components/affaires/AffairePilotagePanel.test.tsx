@@ -413,6 +413,67 @@ describe("AffairePilotagePanel", () => {
     expect(screen.queryByText("Aucun blocage prioritaire")).not.toBeInTheDocument();
   });
 
+  it("does not double-count register blockers already surfaced in exceptions", () => {
+    render(
+      <ToastProvider>
+        <AffairePilotagePanel
+          projectId="project-1"
+          projectName="Projet finish line"
+          intakeWorkspace={makeIntakeWorkspace()}
+          dpgfSource={makeDpgfSource()}
+          plansSummary={null}
+          registerSummary={{
+            openQuestionsCount: 1,
+            criticalOpenCount: 1,
+            nonCriticalOpenCount: 0,
+            clarifyWithClientCount: 0,
+            openAssumptionCount: 1,
+            openMissingPieceCount: 0,
+          }}
+          approvalSummary={null}
+          currentVersion={{
+            id: "version-1",
+            status: "draft",
+            versionNumber: 1,
+          }}
+          lineCount={12}
+          finishLineSummary={{
+            versionId: "version-1",
+            readyToSend: {
+              status: "blocked",
+              blockingFlags: [
+                {
+                  key: "critical_open_questions",
+                  severity: "blocking",
+                  count: 1,
+                  item_ids: [],
+                  label: "Question critique ouverte",
+                  description: "Une question critique reste ouverte.",
+                },
+              ],
+              warningFlags: [],
+              checkedAt: "2026-03-11T08:00:00.000Z",
+              stalePriceDays: 30,
+              errorMessage: null,
+            },
+            readyToOrder: {
+              status: "ready",
+              orderableLinesCount: 3,
+              coveredLinesCount: 3,
+              ambiguousLinesCount: 0,
+              missingPriceLinesCount: 0,
+              staleLinesCount: 0,
+              errorMessage: null,
+            },
+          }}
+          takeoffEnabled
+        />
+      </ToastProvider>
+    );
+
+    expect(screen.getAllByText("1 point a traiter").length).toBeGreaterThan(0);
+  });
+
   it("opens the intake upload surface from the exception queue", async () => {
     const user = userEvent.setup();
     const onOpenSurface = vi.fn();

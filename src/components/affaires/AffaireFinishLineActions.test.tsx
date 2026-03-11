@@ -132,6 +132,38 @@ describe("AffaireFinishLineActions", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps email preparation disabled on finalized versions", () => {
+    renderActions({
+      currentVersion: {
+        id: "version-1",
+        status: "accepted",
+        versionNumber: 1,
+      },
+      finishLineSummary: makeFinishLineSummary({
+        readyToSend: {
+          status: "ready",
+          blockingFlags: [],
+          warningFlags: [],
+          checkedAt: "2026-03-11T09:00:00.000Z",
+          stalePriceDays: 30,
+          errorMessage: null,
+        },
+      }),
+    });
+
+    const button = within(
+      getLatestByTestId("affaire-finish-line-email")
+    ).getByRole("button", {
+      name: /Preparer l'envoi/i,
+    });
+
+    expect(button).toBeDisabled();
+    expect(
+      screen.getAllByText(/L'envoi email reste reserve aux versions brouillon ou envoyee/i)
+        .length
+    ).toBeGreaterThan(0);
+  });
+
   it("keeps email preparation disabled while the finish line is blocked", () => {
     renderActions({
       finishLineSummary: makeFinishLineSummary({
@@ -181,9 +213,7 @@ describe("AffaireFinishLineActions", () => {
     );
 
     await waitFor(() => {
-      expect(requestEstimatePdfGenerationMock).toHaveBeenCalledWith("version-1", {
-        force: true,
-      });
+      expect(requestEstimatePdfGenerationMock).toHaveBeenCalledWith("version-1");
     });
     expect(window.open).toHaveBeenCalledWith(
       "https://example.test/devis-v1.pdf",

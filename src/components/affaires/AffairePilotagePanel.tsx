@@ -76,6 +76,45 @@ type FinishLineCard = {
   action: PilotageAction | null;
 };
 
+function isRegisterExceptionCoveringSendBlocker(
+  flagKey: NonNullable<AffaireHubFinishLineSummaryResult>["readyToSend"]["blockingFlags"][number]["key"],
+  exceptionIds: ReadonlySet<string>,
+) {
+  switch (flagKey) {
+    case "critical_open_questions":
+      return exceptionIds.has("register-critical");
+    case "client_clarification_required":
+    case "open_questions_pending":
+      return exceptionIds.has("register-open") || exceptionIds.has("register-critical");
+    default:
+      return false;
+  }
+}
+
+function countPrioritizedFinishLineBlockers(input: {
+  finishLineCards: FinishLineCard[];
+  finishLineSummary: AffaireHubFinishLineSummaryResult | null | undefined;
+  exceptions: PilotageException[];
+}) {
+  const exceptionIds = new Set(input.exceptions.map((exception) => exception.id));
+
+  return input.finishLineCards.reduce((count, card) => {
+    if (card.status !== "blocked") {
+      return count;
+    }
+
+    if (card.key !== "send" || !input.finishLineSummary) {
+      return count + 1;
+    }
+
+    const hasDistinctBlocker = input.finishLineSummary.readyToSend.blockingFlags.some(
+      (flag) => !isRegisterExceptionCoveringSendBlocker(flag.key, exceptionIds)
+    );
+
+    return count + (hasDistinctBlocker ? 1 : 0);
+  }, 0);
+}
+
 function hasValidatedDpgfMapping(dpgfSource: AffaireHubDpgfSourceResult) {
   return (
     dpgfSource !== null &&
@@ -1066,7 +1105,11 @@ export function AffairePilotagePanel({
   });
   const prioritizedBlockerCount =
     exceptions.length +
-    finishLineCards.filter((card) => card.status === "blocked").length;
+    countPrioritizedFinishLineBlockers({
+      finishLineCards,
+      finishLineSummary,
+      exceptions,
+    });
 
   return (
     <section className="dashboard-card p-5 animate-fade-in">

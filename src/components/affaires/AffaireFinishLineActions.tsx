@@ -37,6 +37,15 @@ type FeedbackState =
     }
   | null;
 
+function canSendEstimateByEmail(
+  currentVersion: AffaireFinishLineActionsProps["currentVersion"]
+) {
+  return (
+    currentVersion !== null &&
+    (currentVersion.status === "draft" || currentVersion.status === "sent")
+  );
+}
+
 function wait(delayMs: number) {
   return new Promise<void>((resolve) => {
     setTimeout(resolve, delayMs);
@@ -81,8 +90,17 @@ function toSafeErrorMessage(error: unknown, fallback: string) {
 }
 
 function getSendActionState(
+  currentVersion: AffaireFinishLineActionsProps["currentVersion"],
   finishLineSummary: AffaireFinishLineActionsProps["finishLineSummary"]
 ) {
+  if (currentVersion && !canSendEstimateByEmail(currentVersion)) {
+    return {
+      status: "unavailable" as const,
+      note: `L'envoi email reste reserve aux versions brouillon ou envoyee. Cette version est ${formatVersionStatus(currentVersion.status).toLowerCase()}.`,
+      disabled: true,
+    };
+  }
+
   const send = finishLineSummary?.readyToSend ?? null;
   if (!send) {
     return {
@@ -144,7 +162,7 @@ export function AffaireFinishLineActions({
   const [pdfFeedback, setPdfFeedback] = useState<FeedbackState>(null);
   const [isExportingBdc, setIsExportingBdc] = useState(false);
   const [bdcError, setBdcError] = useState<string | null>(null);
-  const sendActionState = getSendActionState(finishLineSummary);
+  const sendActionState = getSendActionState(currentVersion, finishLineSummary);
   const defaultSubject = useMemo(() => {
     if (!currentVersion) {
       return `Devis - ${projectName}`;
@@ -184,9 +202,7 @@ export function AffaireFinishLineActions({
     setPdfFeedback(null);
 
     try {
-      const initialStatus = await requestEstimatePdfGeneration(currentVersion.id, {
-        force: true,
-      });
+      const initialStatus = await requestEstimatePdfGeneration(currentVersion.id);
 
       const downloadUrl =
         initialStatus.status === "ready" && initialStatus.downloadUrl
@@ -322,7 +338,7 @@ export function AffaireFinishLineActions({
               <p className="text-sm font-semibold text-[var(--slate-800)]">PDF du devis</p>
               <p className="mt-2 text-sm leading-6 text-[var(--slate-600)]">
                 Le document telecharge correspond a la {formatVersionLabel(currentVersion).toLowerCase()}.
-                Il est regenere si besoin au moment du telechargement.
+                Il reutilise le PDF existant si disponible, puis le regenere seulement si besoin.
               </p>
               <div className="mt-4" data-testid="affaire-finish-line-pdf">
                 <button
