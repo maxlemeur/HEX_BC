@@ -1,4 +1,8 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import type {
   TabularPdfDetectedRow,
@@ -50,6 +54,7 @@ type LayoutLine = {
 };
 
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
+const execFileAsync = promisify(execFile);
 
 function splitLayoutPages(layoutText: string) {
   return layoutText
@@ -379,7 +384,7 @@ async function loadPdfJs() {
   return pdfJsModulePromise;
 }
 
-async function extractLayoutTextFromPdf(file: File) {
+async function extractLayoutTextFromPdfWithPdfJs(file: File) {
   const pdfjs = await loadPdfJs();
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(await file.arrayBuffer()),
@@ -409,6 +414,32 @@ async function extractLayoutTextFromPdf(file: File) {
       await document.destroy();
     } else {
       loadingTask.destroy();
+    }
+  }
+}
+
+async function extractLayoutTextFromPdfWithPdftotext(file: File) {
+  const tempDir = await mkdtemp(join(tmpdir(), "timax-tabular-pdf-"));
+  const pdfPath = join(tempDir, "input.pdf");
+  const textPath = join(tempDir, "layout.txt");
+
+  try {
+    await writeFile(pdfPath, Buffer.from(await file.arrayBuffer()));
+    await execFileAsync("pdftotext", ["-layout", "-enc", "UTF-8", pdfPath, textPath]);
+    return await readFile(textPath, "utf8");
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function extractLayoutTextFromPdf(file: File) {
+  try {
+    return await extractLayoutTextFromPdfWithPdfJs(file);
+  } catch (pdfJsError) {
+    try {
+      return await extractLayoutTextFromPdfWithPdftotext(file);
+    } catch {
+      throw pdfJsError;
     }
   }
 }
