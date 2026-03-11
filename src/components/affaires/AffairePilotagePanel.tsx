@@ -65,6 +65,7 @@ type AffairePilotagePanelProps = {
   finishLineSummary?: AffaireHubFinishLineSummaryResult | null;
   takeoffEnabled?: boolean;
   onOpenSurface?: (surfaceId: CockpitSurfaceId) => void;
+  ghost?: boolean;
 };
 
 type FinishLineCard = {
@@ -1073,6 +1074,14 @@ function ExceptionActionButton({
   );
 }
 
+const GHOST_STEPS: PilotageStep[] = [
+  { key: "dossier", label: "Dossier", status: "waiting", summary: "Deposez les pieces du dossier pour lancer le cadrage." },
+  { key: "brief", label: "Brief", status: "waiting", summary: "Le brief apparait une fois les pieces deposees." },
+  { key: "devis", label: "Structure devis", status: "waiting", summary: "Importez le DPGF pour materialiser la base du devis." },
+  { key: "metre", label: "Metre & preuves", status: "waiting", summary: "Le metre assiste s'active apres import." },
+  { key: "validation", label: "Validation & sortie", status: "waiting", summary: "La sortie se prepare quand la structure est stabilisee." },
+];
+
 export function AffairePilotagePanel({
   projectId,
   projectName,
@@ -1086,41 +1095,55 @@ export function AffairePilotagePanel({
   finishLineSummary,
   takeoffEnabled = false,
   onOpenSurface,
+  ghost = false,
 }: AffairePilotagePanelProps) {
   const allowSurfaceActions = typeof onOpenSurface === "function";
-  const steps = buildPilotageSteps({
-    intakeWorkspace,
-    dpgfSource,
-    plansSummary,
-    approvalSummary,
-    currentVersion,
-    lineCount,
-    takeoffEnabled,
-  });
-  const exceptions = buildPilotageExceptions({
-    projectId,
-    intakeWorkspace,
-    dpgfSource,
-    plansSummary,
-    registerSummary,
-    approvalSummary,
-    allowSurfaceActions,
-  });
-  const finishLineCards = buildFinishLineCards({
-    projectId,
-    currentVersion,
-    finishLineSummary,
-  });
-  const prioritizedBlockerCount =
-    exceptions.length +
-    countPrioritizedFinishLineBlockers({
-      finishLineCards,
-      finishLineSummary,
-      exceptions,
-    });
+  const steps = ghost
+    ? GHOST_STEPS
+    : buildPilotageSteps({
+        intakeWorkspace,
+        dpgfSource,
+        plansSummary,
+        approvalSummary,
+        currentVersion,
+        lineCount,
+        takeoffEnabled,
+      });
+  const exceptions = ghost
+    ? []
+    : buildPilotageExceptions({
+        projectId,
+        intakeWorkspace,
+        dpgfSource,
+        plansSummary,
+        registerSummary,
+        approvalSummary,
+        allowSurfaceActions,
+      });
+  const finishLineCards = ghost
+    ? []
+    : buildFinishLineCards({
+        projectId,
+        currentVersion,
+        finishLineSummary,
+      });
+  const prioritizedBlockerCount = ghost
+    ? 0
+    : exceptions.length +
+      countPrioritizedFinishLineBlockers({
+        finishLineCards,
+        finishLineSummary,
+        exceptions,
+      });
 
   return (
-    <section className="dashboard-card p-5 animate-fade-in">
+    <section className={`dashboard-card p-5 animate-fade-in${ghost ? " relative" : ""}`}>
+      {ghost && (
+        <div className="absolute inset-x-0 top-0 z-10 rounded-t-xl bg-[var(--slate-100)] px-4 py-2 text-center text-xs font-medium text-[var(--slate-500)]">
+          Ce panneau s&apos;activera une fois l&apos;affaire creee
+        </div>
+      )}
+      <div className={ghost ? "pointer-events-none pt-6 opacity-60" : ""}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-[var(--slate-800)]">
@@ -1131,14 +1154,16 @@ export function AffairePilotagePanel({
           </p>
         </div>
         <Badge
-          variant={prioritizedBlockerCount > 0 ? "warning" : "success"}
+          variant={ghost ? "neutral" : prioritizedBlockerCount > 0 ? "warning" : "success"}
           size="sm"
           withDot
           className="self-start"
         >
-          {prioritizedBlockerCount > 0
-            ? `${prioritizedBlockerCount} point${prioritizedBlockerCount > 1 ? "s" : ""} a traiter`
-            : "Aucun blocage prioritaire"}
+          {ghost
+            ? "En attente"
+            : prioritizedBlockerCount > 0
+              ? `${prioritizedBlockerCount} point${prioritizedBlockerCount > 1 ? "s" : ""} a traiter`
+              : "Aucun blocage prioritaire"}
         </Badge>
       </div>
 
@@ -1317,6 +1342,7 @@ export function AffairePilotagePanel({
             </ul>
           )}
         </div>
+      </div>
       </div>
     </section>
   );

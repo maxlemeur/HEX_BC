@@ -48,10 +48,10 @@ import { AffairePilotagePanel } from "./AffairePilotagePanel";
 import { PlansMetresCard } from "./PlansMetresCard";
 import type { AffaireHubPlansSummaryData } from "./PlansMetresCard";
 import {
-  buildAffaireWorkflowSteps,
-  type WorkflowStep,
   shouldRenderPlansSection,
 } from "./affaire-workflow";
+import { AffaireCreatedOnboardingBanner } from "./AffaireCreatedOnboardingBanner";
+import { AffaireWorkflowStepper } from "./AffaireWorkflowStepper";
 import {
   TakeoffLaunchPrompt,
   shouldShowTakeoffPrompt,
@@ -498,115 +498,6 @@ function AffaireProgressStrip({
         </span>
       ))}
     </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Section: Workflow Stepper (Recommendation #1)                      */
-/* ------------------------------------------------------------------ */
-
-const STEPPER_ANCHOR_MAP: Record<string, string> = {
-  dossier: "intake",
-  brief: "brief",
-  dpgf: "dpgf",
-  devis: "financial",
-  validation: "approval",
-  envoi: "approval",
-};
-
-const STEPPER_SHORT_LABELS: Record<string, string> = {
-  dossier: "Dos.",
-  brief: "Bri.",
-  dpgf: "DPG",
-  devis: "Dev.",
-  validation: "Val.",
-  envoi: "Env.",
-};
-
-function AffaireWorkflowStepper({
-  summary,
-  dpgfSource,
-  intakeWorkspace,
-  approvalSummary,
-  lineCount,
-}: {
-  summary: AffaireHubSummaryResult;
-  dpgfSource: AffaireHubDpgfSourceResult;
-  intakeWorkspace?: AffaireIntakeWorkspace | null;
-  approvalSummary?: EstimateApprovalSummary | null;
-  lineCount: number;
-}) {
-  const steps: WorkflowStep[] = useMemo(() => {
-    const hasDocs = (intakeWorkspace?.documents?.length ?? 0) > 0;
-    const briefConfirmed = intakeWorkspace?.briefDraft?.status === "confirme";
-    const hasDpgf = dpgfSource !== null;
-    const hasLines = lineCount > 0;
-    const versionStatus = summary.currentVersion?.status ?? "draft";
-    const isSent = versionStatus === "sent" || versionStatus === "accepted";
-
-    return buildAffaireWorkflowSteps({
-      hasDocs,
-      briefConfirmed,
-      hasDpgf,
-      hasLines,
-      approvalStatus: approvalSummary?.approvalStatus,
-      isSent,
-    });
-  }, [summary, dpgfSource, intakeWorkspace, approvalSummary, lineCount]);
-
-  return (
-    <nav aria-label="Avancement de l'affaire" className="mb-4 animate-fade-in">
-      <ol className="flex w-full items-center justify-between">
-        {steps.map((step, i) => (
-          <li key={step.key} className="flex items-center">
-            {i > 0 && (
-              <div
-                aria-hidden="true"
-                className={`h-px min-w-4 flex-1 sm:min-w-6 ${
-                  step.status === "done"
-                    ? "bg-[var(--success)]"
-                    : "bg-[var(--slate-200)]"
-                }`}
-              />
-            )}
-            <a
-              href={`#${STEPPER_ANCHOR_MAP[step.key] ?? step.key}`}
-              className="flex items-center gap-1.5"
-            >
-              <span
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold sm:h-6 sm:w-6 ${
-                  step.status === "done"
-                    ? "bg-[var(--success)] text-white"
-                    : step.status === "current"
-                      ? "border-2 border-[var(--brand-blue)] bg-white text-[var(--brand-blue)]"
-                      : "border border-[var(--slate-200)] bg-[var(--slate-50)] text-[var(--slate-400)]"
-                }`}
-              >
-                {step.status === "done" ? (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 6 9 17l-5-5" />
-                  </svg>
-                ) : (
-                  i + 1
-                )}
-              </span>
-              <span
-                className={`text-xs font-medium ${
-                  step.status === "done"
-                    ? "text-[var(--success)]"
-                    : step.status === "current"
-                      ? "text-[var(--brand-blue)]"
-                      : "text-[var(--slate-400)]"
-                }`}
-              >
-                <span className="sm:hidden">{STEPPER_SHORT_LABELS[step.key] ?? step.label}</span>
-                <span className="hidden sm:inline">{step.label}</span>
-              </span>
-            </a>
-          </li>
-        ))}
-      </ol>
-    </nav>
   );
 }
 
@@ -1074,6 +965,9 @@ export function AffaireHub({
     ].join(":"),
   });
 
+  // --- Onboarding banner (post-creation guidance) ---
+  const [showOnboardingBanner, setShowOnboardingBanner] = useState(false);
+
   // --- Hoisted state from former QuickActionsCard ---
   const [pendingAction, setPendingAction] = useState<"duplicate" | "variant" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1130,13 +1024,17 @@ export function AffaireHub({
     if (shownCreatedToastProjectIds.has(projectId)) return;
 
     shownCreatedToastProjectIds.add(projectId);
+    const hasDossier = (intakeWorkspace?.documents?.length ?? 0) > 0;
+    if (!hasDossier) {
+      setShowOnboardingBanner(true);
+    }
     toast.success({
       title: "Affaire créée !",
       description: dpgfSource
         ? "DPGF lié — importez les lignes depuis l'éditeur."
         : undefined,
     });
-  }, [justCreated, router, summary.project.id, toast, dpgfSource]);
+  }, [justCreated, router, summary.project.id, toast, dpgfSource, intakeWorkspace]);
 
   useEffect(() => {
     clearPromptTemporaryDismissal();
@@ -1399,6 +1297,21 @@ export function AffaireHub({
           </li>
         </ol>
       </nav>
+
+      {/* Onboarding banner (post-creation, no dossier) */}
+      {showOnboardingBanner && (intakeWorkspace?.documents?.length ?? 0) === 0 && (
+        <AffaireCreatedOnboardingBanner
+          onDismiss={() => setShowOnboardingBanner(false)}
+          onScrollToIntake={() => {
+            setShowOnboardingBanner(false);
+            document.getElementById("intake")?.scrollIntoView({ behavior: "smooth" });
+          }}
+          onOpenImportFlow={() => {
+            setShowOnboardingBanner(false);
+            setShowImportFlow(true);
+          }}
+        />
+      )}
 
       {/* Read-only review banner for director */}
       {isReadOnlyReview && (

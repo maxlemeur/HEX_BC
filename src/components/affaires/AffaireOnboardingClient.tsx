@@ -10,36 +10,16 @@ import {
   type AffaireProjectDetailsValues,
 } from "@/components/affaires/AffaireProjectDetailsCard";
 import { AffaireImportBootstrapSection } from "@/components/affaires/AffaireImportBootstrapSection";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { OnboardingIntakeDropzone } from "@/components/affaires/OnboardingIntakeDropzone";
+import { AffairePilotagePanel } from "./AffairePilotagePanel";
+import { AffaireWorkflowStepper } from "./AffaireWorkflowStepper";
 
 const INITIAL_METADATA: AffaireProjectDetailsValues = {
   projectName: "",
   clientName: "",
   reference: "",
 };
-
-const PLACEHOLDER_STEPS = [
-  {
-    title: "Brief affaire",
-    description:
-      "Le brief sera genere automatiquement apres le traitement des pieces deposees.",
-  },
-  {
-    title: "Source DPGF",
-    description:
-      "Le flux expert DPGF peut pre-remplir la structure du devis sans quitter cette page.",
-  },
-  {
-    title: "Devis",
-    description:
-      "Une V1 brouillon sera creee au premier acte, puis vous reprendrez dans le hub ou l'editeur.",
-  },
-  {
-    title: "Validation",
-    description:
-      "Les controles de sortie et d'approbation restent disponibles une fois l'affaire creee.",
-  },
-];
 
 export function AffaireOnboardingClient() {
   const router = useRouter();
@@ -84,19 +64,51 @@ export function AffaireOnboardingClient() {
 
   return (
     <div className="animate-fade-in">
-      <div className="page-header flex items-start justify-between gap-6">
+      {/* Breadcrumb (matches hub layout) */}
+      <nav aria-label="Fil d'Ariane" className="mb-4">
+        <ol className="flex items-center gap-1.5 text-sm text-[var(--slate-500)]">
+          <li>
+            <Link
+              href="/dashboard/affaires"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-[var(--slate-600)] transition-colors hover:bg-[var(--slate-100)] hover:text-[var(--slate-900)]"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+              Retour a la liste
+            </Link>
+          </li>
+          <li aria-hidden="true" className="text-[var(--slate-300)]">/</li>
+          <li className="truncate font-medium text-[var(--slate-700)]">
+            Nouvelle affaire
+          </li>
+        </ol>
+      </nav>
+
+      {/* Header (matches hub pattern) */}
+      <div className="mb-4 flex flex-col gap-3">
         <div>
           <h1 className="page-title">Nouvelle affaire</h1>
-          <p className="page-description">
+          <p className="mt-1 text-sm text-[var(--slate-500)]">
             Demarrez directement dans le hub de cadrage, sans creer de brouillon avant action utile.
           </p>
         </div>
-        <Link className="btn btn-secondary btn-lg" href="/dashboard/affaires">
-          Retour
-        </Link>
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-5">
+      {/* Workflow stepper — ghost mode (all upcoming) */}
+      <AffaireWorkflowStepper ghost />
+
+      {/* Main grid (5 columns, matches hub) */}
+      <div className="grid gap-4 lg:grid-cols-5">
         <div className="space-y-4 lg:col-span-3">
           <AffaireProjectDetailsCard
             mode="edit"
@@ -163,37 +175,42 @@ export function AffaireOnboardingClient() {
         </div>
 
         <div className="space-y-4 lg:col-span-2">
-          <section className="dashboard-card p-5">
-            <h2 className="text-sm font-semibold text-[var(--slate-800)]">
-              Suite du parcours
-            </h2>
-            <p className="mt-1 text-sm text-[var(--slate-500)]">
-              Le hub final garde la meme logique metier. Cette page anticipe simplement le premier acte.
-            </p>
+          <AffairePilotagePanel
+            ghost
+            projectId=""
+            projectName=""
+            intakeWorkspace={null}
+            dpgfSource={null}
+            plansSummary={null}
+            registerSummary={null}
+            approvalSummary={null}
+            currentVersion={null}
+            lineCount={0}
+          />
 
-            <ol className="mt-5 space-y-3">
-              {PLACEHOLDER_STEPS.map((step, index) => (
-                <li
-                  key={step.title}
-                  className="rounded-xl border border-[var(--slate-200)] bg-[var(--slate-50)] px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--slate-300)] bg-white text-xs font-semibold text-[var(--slate-500)]">
-                      {index + 1}
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium text-[var(--slate-800)]">
-                        {step.title}
-                      </p>
-                      <p className="mt-1 text-xs text-[var(--slate-500)]">
-                        {step.description}
-                      </p>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </section>
+          <EmptyState
+            icon={
+              <svg
+                width="26"
+                height="26"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                <path d="M14 2v6h6" />
+                <path d="M12 18v-6" />
+                <path d="m9 15 3-3 3 3" />
+              </svg>
+            }
+            title="Devis non initialise"
+            description="Le devis sera cree automatiquement au premier acte utile dans l'affaire."
+            className="border border-dashed border-[var(--slate-200)] bg-[var(--slate-50)]/70 py-10"
+          />
         </div>
       </div>
     </div>
