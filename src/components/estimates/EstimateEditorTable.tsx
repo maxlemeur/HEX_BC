@@ -18,11 +18,9 @@ import {
   type SectionTotals,
 } from "@/lib/estimate-calculations";
 import {
-  formatCurrency,
   type SupportedEstimateCurrency,
 } from "@/lib/money";
 import { PastePreviewDialog } from "@/components/estimates/PastePreviewDialog";
-import { EstimateEditorBody } from "@/components/estimates/components/EstimateEditorBody";
 import {
   EstimateEditorRow,
   getSpreadsheetColumnKeys,
@@ -31,11 +29,9 @@ import {
   EstimateSuggestionRow,
   type SuggestionPreview,
 } from "@/components/estimates/components/EstimateSuggestionRow";
+import { EstimateEditorTableChrome } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableChrome";
+import { EstimateEditorTableSectionDialogs } from "@/components/estimates/components/estimate-editor-table/EstimateEditorTableSectionDialogs";
 import { EstimateEditorToolbar } from "@/components/estimates/components/EstimateEditorToolbar";
-import { ColumnHeaderHelp, COLUMN_HEADER_TOOLTIPS } from "@/components/estimates/components/ColumnHeaderHelp";
-import {
-  sendEstimateSuggestionRuleFeedback,
-} from "@/lib/estimates/client";
 import { AssemblyPicker } from "@/components/estimates/AssemblyPicker";
 import { QuickTemplatePicker } from "@/components/estimates/editor/QuickTemplatePicker";
 import { QuickAssemblyPicker } from "@/components/estimates/editor/QuickAssemblyPicker";
@@ -52,6 +48,9 @@ import { EstimateSpreadsheetProvider } from "@/components/estimates/context/Esti
 import {
   useEstimateClipboard,
 } from "@/components/estimates/hooks/useEstimateClipboard";
+import {
+  useEstimateEditorSuggestions,
+} from "@/components/estimates/hooks/useEstimateEditorSuggestions";
 import {
   useEstimateKeyboardShortcuts,
 } from "@/components/estimates/hooks/useEstimateKeyboardShortcuts";
@@ -99,15 +98,23 @@ import {
   formatAddSectionLabelForLevel,
 } from "@/lib/estimates/hierarchy";
 import {
-  rankSuggestions,
-} from "@/lib/estimates/suggestion-scoring";
-import {
   type ClipboardPreviewValues,
 } from "@/lib/estimates/clipboard";
 import {
   type TreeConnectorMeta,
 } from "@/lib/estimates/tree-connectors";
+import {
+  type SuggestionCorrectionPayload,
+  type SuggestionLearningRuleBoost,
+  type SuggestionLearningState,
+} from "@/components/estimates/estimate-editor-table-types";
 import type { Database } from "@/types/database";
+
+export type {
+  SuggestionCorrectionPayload,
+  SuggestionLearningRuleBoost,
+  SuggestionLearningState,
+} from "@/components/estimates/estimate-editor-table-types";
 
 type EstimateItem = Database["public"]["Tables"]["estimate_items"]["Row"];
 type EstimateEditorItemMeta = {
@@ -164,32 +171,6 @@ type SuggestionCorrectionValue = string | number | null;
 type SuggestionAppliedValues = Partial<
   Record<SuggestionCorrectionFieldName, SuggestionCorrectionValue>
 >;
-
-export type SuggestionLearningRuleBoost = {
-  rule_id: string;
-  learning_boost: number;
-  overrides: {
-    description?: string | null;
-    category_id?: string | null;
-    k_fo?: number | null;
-    k_mo?: number | null;
-    labor_role_id?: string | null;
-    supply_type_id?: string | null;
-  };
-};
-
-export type SuggestionLearningState = {
-  enabled: boolean;
-  by_rule_id: Record<string, SuggestionLearningRuleBoost>;
-};
-
-export type SuggestionCorrectionPayload = {
-  rule_id: string;
-  field_name: SuggestionCorrectionFieldName;
-  original_value: string | null;
-  corrected_value: string | null;
-  item_title: string;
-};
 
 type AppliedSuggestionContext = {
   ruleId: string;
@@ -313,7 +294,6 @@ type EstimateEditorTableProps = {
 const DEFAULT_UNITS = ["u", "ml", "m2", "ens"];
 const EMPTY_QUALITY_FLAGS: EstimateQualityFlagKey[] = [];
 const EMPTY_SECTION_DUPLICATE_TARGETS: EstimateSectionDuplicateTarget[] = [];
-const SUGGESTION_SCORE_MAX = 5;
 
 type ConversionReassignedChild = {
   id: string;
@@ -325,41 +305,6 @@ type ConvertEstimateItemResult = {
   item: EstimateItem;
   reassigned_children: ConversionReassignedChild[];
 };
-
-function toSuggestionUsageCount(rule: SuggestionRule | Record<string, unknown>) {
-  const usageValue = (rule as Record<string, unknown>).usage_count;
-  if (typeof usageValue === "number" && Number.isFinite(usageValue) && usageValue >= 0) {
-    return Math.floor(usageValue);
-  }
-  if (typeof usageValue === "string") {
-    const parsed = Number.parseInt(usageValue, 10);
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return parsed;
-    }
-  }
-  return 0;
-}
-
-function toSuggestionLastUsedAt(rule: SuggestionRule | Record<string, unknown>) {
-  const lastUsedAt = (rule as Record<string, unknown>).last_used_at;
-  return typeof lastUsedAt === "string" ? lastUsedAt : undefined;
-}
-
-function addDismissedSuggestion(
-  previous: Record<string, Record<string, boolean>>,
-  itemId: string,
-  ruleId: string
-) {
-  const itemDismissed = previous[itemId];
-  if (itemDismissed?.[ruleId]) return previous;
-  return {
-    ...previous,
-    [itemId]: {
-      ...(itemDismissed ?? {}),
-      [ruleId]: true,
-    },
-  };
-}
 
 function resolveApiErrorMessage(payload: unknown, fallback: string) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -601,30 +546,6 @@ function toNonEmptyString(value: unknown) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function toSuggestionLearningBoost(rule: SuggestionRule | Record<string, unknown>) {
-  const rawBoost = (rule as Record<string, unknown>).learning_boost;
-  if (typeof rawBoost === "number" && Number.isFinite(rawBoost)) {
-    return Math.max(rawBoost, 0);
-  }
-  if (typeof rawBoost === "string") {
-    const parsed = Number.parseFloat(rawBoost);
-    if (Number.isFinite(parsed)) {
-      return Math.max(parsed, 0);
-    }
-  }
-  return 0;
-}
-
-function toSuggestionSupplyTypeId(rule: SuggestionRule | Record<string, unknown>) {
-  const supplyTypeId = (rule as Record<string, unknown>).supply_type_id;
-  return toNonEmptyString(supplyTypeId);
-}
-
-function hasSuggestionLearningEnrichment(rule: SuggestionRule | Record<string, unknown>) {
-  if (toSuggestionLearningBoost(rule) > 0) return true;
-  return (rule as Record<string, unknown>).learning_overrides_applied === true;
-}
-
 function normalizeSuggestionCorrectionValue(
   fieldName: SuggestionCorrectionFieldName,
   value: unknown
@@ -849,21 +770,6 @@ export function EstimateEditorTable({
   const [isQuickTemplatePickerOpen, setIsQuickTemplatePickerOpen] = useState(false);
   const [isQuickAssemblyPickerOpen, setIsQuickAssemblyPickerOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [dismissedSuggestionsByItemId, setDismissedSuggestionsByItemId] = useState<
-    Record<string, Record<string, boolean>>
-  >({});
-  const [selectedSuggestionByItemId, setSelectedSuggestionByItemId] = useState<
-    Record<string, string>
-  >({});
-  const [feedbackPendingByItemId, setFeedbackPendingByItemId] = useState<
-    Record<string, boolean>
-  >({});
-  const [usageCountOverrideByRuleId, setUsageCountOverrideByRuleId] = useState<
-    Record<string, number>
-  >({});
-  const [lastUsedAtOverrideByRuleId, setLastUsedAtOverrideByRuleId] = useState<
-    Record<string, string>
-  >({});
   const [isItemConversionPending, setIsItemConversionPending] = useState(false);
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
     () => new Set()
@@ -1014,10 +920,6 @@ export function EstimateEditorTable({
     [sectionDuplicateTargets, versionId]
   );
   const isSuggestionLearningEnabled = learningState?.enabled === true;
-  const learningByRuleId = useMemo(
-    () => (isSuggestionLearningEnabled ? learningState.by_rule_id : {}),
-    [isSuggestionLearningEnabled, learningState]
-  );
 
   useEffect(() => {
     const lineIds = new Set(
@@ -1055,59 +957,6 @@ export function EstimateEditorTable({
       return next.size === previous.size ? previous : next;
     });
   }, [items]);
-
-  const orderedRules = useMemo(
-    () => [...suggestionRules].sort((a, b) => a.position - b.position),
-    [suggestionRules]
-  );
-
-  const scoringRules = useMemo(() => {
-    return orderedRules.map((rule) => {
-      const enrichedRule: SuggestionRule & Record<string, unknown> = { ...rule };
-      const learningBoost = learningByRuleId[rule.id];
-      const usageCountOverride = usageCountOverrideByRuleId[rule.id];
-      const lastUsedAtOverride = lastUsedAtOverrideByRuleId[rule.id];
-
-      if (learningBoost) {
-        enrichedRule.learning_boost = Math.max(learningBoost.learning_boost, 0);
-        enrichedRule.learning_overrides_applied = true;
-
-        const overrides = learningBoost.overrides;
-        if (overrides.description !== undefined) {
-          enrichedRule.unit = overrides.description;
-        }
-        if (overrides.category_id !== undefined) {
-          enrichedRule.category_id = overrides.category_id;
-        }
-        if (overrides.k_fo !== undefined) {
-          enrichedRule.k_fo = overrides.k_fo;
-        }
-        if (overrides.k_mo !== undefined) {
-          enrichedRule.k_mo = overrides.k_mo;
-        }
-        if (overrides.labor_role_id !== undefined) {
-          enrichedRule.labor_role_id = overrides.labor_role_id;
-        }
-        if (overrides.supply_type_id !== undefined) {
-          enrichedRule.supply_type_id = overrides.supply_type_id;
-        }
-      }
-
-      if (usageCountOverride !== undefined) {
-        enrichedRule.usage_count = usageCountOverride;
-      }
-      if (lastUsedAtOverride !== undefined) {
-        enrichedRule.last_used_at = lastUsedAtOverride;
-      }
-
-      return enrichedRule;
-    });
-  }, [
-    lastUsedAtOverrideByRuleId,
-    learningByRuleId,
-    orderedRules,
-    usageCountOverrideByRuleId,
-  ]);
 
   const categoryById = useMemo(() => {
     const map = new Map<string, EstimateCategory>();
@@ -1157,6 +1006,29 @@ export function EstimateEditorTable({
     });
     return next;
   }, [items, supplyTypeById, supplyTypeDrafts]);
+
+  const {
+    feedbackPendingByItemId,
+    selectedSuggestionByItemId,
+    setSelectedSuggestionByItemId,
+    suggestionsByItemId,
+    sendSuggestionFeedback,
+    dismissSuggestion,
+    markSuggestionDismissed,
+    applySuggestionDrafts,
+  } = useEstimateEditorSuggestions({
+    items,
+    visibleLineIds,
+    isReadOnly,
+    suggestionRules,
+    learningState,
+    categoryById,
+    supplyTypeById,
+    supplyTypeByLowerName,
+    roleById,
+    setUnitDrafts,
+    setSupplyTypeDrafts,
+  });
 
   const handleUnitDraftChange = useCallback((itemId: string, value: string) => {
     setUnitDrafts((prev) => {
@@ -1538,88 +1410,6 @@ export function EstimateEditorTable({
     onOpenAssemblyPicker: () => setIsAssemblyPickerOpen(true),
   });
 
-  const sendSuggestionFeedback = useCallback(
-    async (
-      item: EstimateItem,
-      suggestion: SuggestionPreview,
-      feedback: "accept" | "reject"
-    ) => {
-      if (item.item_type !== "line") return;
-
-      setFeedbackPendingByItemId((prev) => ({ ...prev, [item.id]: true }));
-
-      const optimisticUsageCount =
-        feedback === "accept" ? suggestion.usageCount + 1 : suggestion.usageCount;
-      const optimisticLastUsedAt =
-        feedback === "accept" ? new Date().toISOString() : null;
-
-      if (feedback === "accept") {
-        setUsageCountOverrideByRuleId((prev) => ({
-          ...prev,
-          [suggestion.rule.id]: optimisticUsageCount,
-        }));
-        if (optimisticLastUsedAt) {
-          setLastUsedAtOverrideByRuleId((prev) => ({
-            ...prev,
-            [suggestion.rule.id]: optimisticLastUsedAt,
-          }));
-        }
-      }
-
-      try {
-        const updatedRule = await sendEstimateSuggestionRuleFeedback(
-          item.version_id,
-          suggestion.rule.id,
-          feedback
-        );
-
-        if (!updatedRule || feedback !== "accept") {
-          return;
-        }
-
-        setUsageCountOverrideByRuleId((prev) => ({
-          ...prev,
-          [suggestion.rule.id]: toSuggestionUsageCount(updatedRule),
-        }));
-
-        const lastUsedAt = toSuggestionLastUsedAt(updatedRule);
-        if (lastUsedAt) {
-          setLastUsedAtOverrideByRuleId((prev) => ({
-            ...prev,
-            [suggestion.rule.id]: lastUsedAt,
-          }));
-        }
-      } catch (error) {
-        console.error("Impossible d'enregistrer le feedback de suggestion.", error);
-
-        if (feedback === "accept") {
-          setUsageCountOverrideByRuleId((prev) => ({
-            ...prev,
-            [suggestion.rule.id]: suggestion.usageCount,
-          }));
-          const previousLastUsedAt = toSuggestionLastUsedAt(suggestion.rule);
-          setLastUsedAtOverrideByRuleId((prev) => {
-            const next = { ...prev };
-            if (previousLastUsedAt) {
-              next[suggestion.rule.id] = previousLastUsedAt;
-            } else {
-              delete next[suggestion.rule.id];
-            }
-            return next;
-          });
-        }
-      } finally {
-        setFeedbackPendingByItemId((prev) => {
-          if (!prev[item.id]) return prev;
-          const next = { ...prev };
-          delete next[item.id];
-          return next;
-        });
-      }
-    },
-    []
-  );
-
   const applySuggestion = useCallback(
     (item: EstimateItem, suggestion: SuggestionPreview) => {
       if (isReadOnly || item.item_type !== "line") return;
@@ -1628,15 +1418,13 @@ export function EstimateEditorTable({
       const unitValue = suggestion.rule.unit?.trim();
       if (unitValue) {
         patch.description = unitValue;
-        setUnitDrafts((prev) => ({ ...prev, [item.id]: unitValue }));
       }
-      const explicitSupplyTypeId = toSuggestionSupplyTypeId(suggestion.rule);
+      const explicitSupplyTypeId = toNonEmptyString(
+        (suggestion.rule as SuggestionRule & Record<string, unknown>)
+          .supply_type_id
+      );
       if (explicitSupplyTypeId) {
         patch.supply_type_id = explicitSupplyTypeId;
-        setSupplyTypeDrafts((prev) => ({
-          ...prev,
-          [item.id]: supplyTypeById.get(explicitSupplyTypeId)?.name ?? "",
-        }));
       }
       if (suggestion.rule.category_id) {
         patch.category_id = suggestion.rule.category_id;
@@ -1650,13 +1438,6 @@ export function EstimateEditorTable({
               patch.supply_type_id = matchedSupplyType.id;
             }
           }
-          setSupplyTypeDrafts((prev) => ({
-            ...prev,
-            [item.id]:
-              explicitSupplyTypeId
-                ? (supplyTypeById.get(explicitSupplyTypeId)?.name ?? category.name)
-                : category.name,
-          }));
         }
       }
       if (suggestion.rule.k_fo !== null) patch.k_fo = suggestion.rule.k_fo;
@@ -1674,105 +1455,21 @@ export function EstimateEditorTable({
         trackedFieldDivergences: {},
       };
 
+      applySuggestionDrafts(item.id, suggestion);
       patchItemWithSuggestionTracking(item.id, patch, { persist: true });
-      setDismissedSuggestionsByItemId((prev) =>
-        addDismissedSuggestion(prev, item.id, suggestion.rule.id)
-      );
+      markSuggestionDismissed(item.id, suggestion.rule.id);
       void sendSuggestionFeedback(item, suggestion, "accept");
     },
     [
+      applySuggestionDrafts,
       categoryById,
       isReadOnly,
+      markSuggestionDismissed,
       patchItemWithSuggestionTracking,
       sendSuggestionFeedback,
-      supplyTypeById,
       supplyTypeByLowerName,
     ]
   );
-
-  const dismissSuggestion = useCallback(
-    (item: EstimateItem, suggestion: SuggestionPreview) => {
-      if (item.item_type !== "line") return;
-      setDismissedSuggestionsByItemId((prev) =>
-        addDismissedSuggestion(prev, item.id, suggestion.rule.id)
-      );
-      void sendSuggestionFeedback(item, suggestion, "reject");
-    },
-    [sendSuggestionFeedback]
-  );
-
-  const buildSuggestionParts = useCallback(
-    (rule: SuggestionRule) => {
-      const parts: string[] = [];
-      if (rule.category_id) {
-        const category = categoryById.get(rule.category_id);
-        parts.push(`Type FO: ${category?.name ?? "Catégorie inconnue"}`);
-      }
-      const supplyTypeId = toSuggestionSupplyTypeId(rule);
-      if (supplyTypeId) {
-        const supplyType = supplyTypeById.get(supplyTypeId);
-        parts.push(`Materiau: ${supplyType?.name ?? "Type inconnu"}`);
-      }
-      if (rule.unit) parts.push(`Unite: ${rule.unit}`);
-      if (rule.k_fo !== null) parts.push(`K FO: ${rule.k_fo}`);
-      if (rule.k_mo !== null) parts.push(`K MO: ${rule.k_mo}`);
-      if (rule.labor_role_id) {
-        const role = roleById.get(rule.labor_role_id);
-        parts.push(`Role MO: ${role?.name ?? "Role inconnu"}`);
-      }
-      return parts;
-    },
-    [categoryById, roleById, supplyTypeById]
-  );
-
-  const suggestionsByItemId = useMemo(() => {
-    const map = new Map<string, SuggestionPreview[]>();
-    if (isReadOnly) return map;
-
-    items.forEach((item) => {
-      if (item.item_type !== "line") return;
-      if (!visibleLineIds.has(item.id)) return;
-
-      const dismissedRuleIds = dismissedSuggestionsByItemId[item.id] ?? {};
-      const rankedSuggestions = rankSuggestions({
-        title: item.title,
-        rules: scoringRules,
-        limit: SUGGESTION_SCORE_MAX,
-      });
-
-      const visibleSuggestions = rankedSuggestions
-        .filter((suggestion) => !dismissedRuleIds[suggestion.rule.id])
-        .map((suggestion) => {
-          const rule = suggestion.rule as SuggestionRule & Record<string, unknown>;
-          const learningBoost = toSuggestionLearningBoost(rule);
-          const parts = buildSuggestionParts(rule);
-          return {
-            rule,
-            score: suggestion.score,
-            matchKind: suggestion.matchKind,
-            matchedKeyword: suggestion.matchedKeyword,
-            usageCount: suggestion.usageCount,
-            learningBoost,
-            isLearned: hasSuggestionLearningEnrichment(rule),
-            parts,
-          } satisfies SuggestionPreview;
-        })
-        .filter((suggestion) => suggestion.parts.length > 0);
-
-      if (visibleSuggestions.length > 0) {
-        map.set(item.id, visibleSuggestions);
-      }
-    });
-
-    return map;
-  }, [
-    buildSuggestionParts,
-    dismissedSuggestionsByItemId,
-    isReadOnly,
-    items,
-    scoringRules,
-    visibleLineIds,
-  ]);
 
   const renderSuggestionRow = useCallback(
     (item: EstimateItem, suggestions: SuggestionPreview[]) => {
@@ -2281,529 +1978,168 @@ export function EstimateEditorTable({
     <EstimateEditorProvider value={estimateEditorContextValue}>
       <EstimateEditorRowActionsProvider value={rowActionsContextValue}>
         <EstimateSpreadsheetProvider navigation={spreadsheetNavigation}>
-          <div ref={tableCardRef} data-testid="estimate-editor-table-shell" data-density="compact">
-      <div className="dashboard-card relative z-10 p-6" data-testid="estimate-editor-table-card">
-        <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
-        <EstimateEditorToolbar
-          uiMode={uiMode}
-          isViewerMode={isViewerMode}
-          qualityCounts={qualityCounts}
-          qualityFilter={qualityFilter}
-          outlierDetectionMethod={outlierDetectionMethod}
-          outlierThreshold={outlierThreshold}
-          isUndoRedoBusy={isUndoRedoBusy}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          bulkMoveDestinations={bulkMoveDestinations}
-          categories={categories}
-          laborRoles={laborRoles}
-          bulkSuggestionEligibleCount={bulkSuggestionEligibleCount}
-          supplierPreselectionEligibleCount={supplierPreselectionEligibleCount}
-          onQualityFilterChange={onQualityFilterChange}
-          onOutlierDetectionMethodChange={onOutlierDetectionMethodChange}
-          onOutlierThresholdChange={onOutlierThresholdChange}
-          onUndo={onUndo}
-          onRedo={onRedo}
-          onApplyBulkMajoration={handleApplyBulkMajoration}
-          onBulkDeleteSelection={handleBulkDeleteSelection}
-          onApplyBulkMove={handleApplyBulkMove}
-          onApplyBulkCategory={handleApplyBulkCategory}
-          onApplyBulkLaborRole={handleApplyBulkLaborRole}
-          onOpenBulkSuggestDialog={onOpenBulkSuggestDialog}
-          onOpenSupplierPreselectionDialog={onOpenSupplierPreselectionDialog}
-          onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
-          onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
-          onOpenEstimateStructureDraftDialog={onOpenEstimateStructureDraftDialog}
-          onOpenGeneratedOuvrageDialog={onOpenGeneratedOuvrageDialog}
-          onAddRootSection={() => onAddSection(null)}
-          rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
-          onExpandAllSections={handleExpandAllSections}
-          onCollapseAllSections={handleCollapseAllSections}
-          columnPreset={columnVisibility.preset}
-          columnPresetLabels={columnVisibility.presetLabels}
-          onColumnPresetChange={columnVisibility.setPreset}
-          searchTerm={searchTerm}
-          onSearchChange={setSearchTerm}
-          columnVisibleColumns={columnVisibility.visibleColumns}
-          allAdvancedColumns={columnVisibility.allAdvancedColumns}
-          columnLabels={columnVisibility.columnLabels}
-          onToggleColumn={columnVisibility.toggleColumn}
-          hiddenAdvancedCount={columnVisibility.hiddenAdvancedCount}
-          onToggleAdvancedColumns={columnVisibility.toggleAdvancedColumns}
-          isLaborSplitEnabled={isLaborSplitEnabled}
-          onOpenSettings={onOpenSettings}
-          isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}
-          onToggleQuickTemplatePicker={() => {
-            setIsQuickTemplatePickerOpen((prev) => !prev);
-            setIsQuickAssemblyPickerOpen(false);
-          }}
-          isQuickAssemblyPickerOpen={isQuickAssemblyPickerOpen}
-          onToggleQuickAssemblyPicker={() => {
-            setIsQuickAssemblyPickerOpen((prev) => !prev);
-            setIsQuickTemplatePickerOpen(false);
-          }}
-          quickTemplatePickerNode={
-            <QuickTemplatePicker
-              isOpen={isQuickTemplatePickerOpen}
-              isReadOnly={isReadOnly}
-              onInsert={(templateId) =>
-                onInsertTemplate(templateId, insertionAnchorItemId)
-              }
-              onClose={() => setIsQuickTemplatePickerOpen(false)}
-            />
-          }
-          quickAssemblyPickerNode={
-            <QuickAssemblyPicker
-              isOpen={isQuickAssemblyPickerOpen}
-              isReadOnly={isReadOnly}
-              onInsert={(assemblyId) =>
-                onInsertAssembly(assemblyId, insertionAnchorItemId)
-              }
-              onClose={() => setIsQuickAssemblyPickerOpen(false)}
-            />
-          }
-        />
-        {activeLineBreadcrumb ? (
-          <div className="mt-2 text-xs text-[var(--slate-500)]">
-            Chemin actif: {activeLineBreadcrumb}
-          </div>
-        ) : null}
-        </div>
-        {headerRight && (
-          <div className="shrink-0">{headerRight}</div>
-        )}
-        </div>
-
-      {actionError && (
-        <div className="alert alert-error mt-4" data-testid="estimate-editor-table-error-alert">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <path d="m15 9-6 6" />
-            <path d="m9 9 6 6" />
-          </svg>
-          {actionError}
-        </div>
-      )}
-
-      </div>
-
-      <div
-        ref={scrollContainerRef}
-        className="estimate-table-scroll mt-2 overflow-x-auto"
-        data-testid="estimate-editor-table-scroll"
-      >
-      <div
-        className={`estimate-table${isLaborSplitEnabled ? " estimate-table--labor-split" : ""}`}
-        style={dynamicGridStyle}
-        data-testid="estimate-editor-table"
-      >
-        {/* Super-header: FO / MO column group labels */}
-        <div className="estimate-table__super-head" aria-hidden="true">
-          <div
-            className="estimate-super-head__spacer"
-            style={{ gridColumn: "1 / span 3" }}
-          />
-          <div
-            className="estimate-super-head__group estimate-super-head__group--fo"
-            style={{ gridColumn: `${superHeaderSpans.foStart} / span ${superHeaderSpans.foSpan}` }}
-          >
-            Fournitures
-          </div>
-          <div
-            className="estimate-super-head__group estimate-super-head__group--mo"
-            style={{ gridColumn: `${superHeaderSpans.moStart} / span ${superHeaderSpans.moSpan}` }}
-          >
-            Main d&apos;oeuvre
-          </div>
-          <div
-            className="estimate-super-head__spacer"
-            style={{ gridColumn: `${superHeaderSpans.puStart} / span 3` }}
-          />
-        </div>
-        <div className="estimate-table__head" data-testid="estimate-editor-table-head">
-          <div className="relative flex items-center gap-2">
-            <input
-              type="checkbox"
-              className="estimate-line-checkbox"
-              checked={allVisibleSelected}
-              onChange={(event) => toggleAllVisibleLines(event.target.checked)}
-              disabled={isReadOnly || visibleLineIdList.length === 0}
-              aria-label="Sélectionner toutes les lignes visibles"
-              data-testid="estimate-editor-select-all-visible-lines-checkbox"
-            />
-            <ColumnHeaderHelp label="Désignation" tooltip={COLUMN_HEADER_TOOLTIPS["Désignation"]} />
-          </div>
-          <div className="relative"><ColumnHeaderHelp label="Qté" tooltip={COLUMN_HEADER_TOOLTIPS["Qté"]} /></div>
-          <div className="relative"><ColumnHeaderHelp label="U" tooltip={COLUMN_HEADER_TOOLTIPS["U"]} /></div>
-          <div className="relative estimate-col--fo"><ColumnHeaderHelp label="PR. FO" tooltip={COLUMN_HEADER_TOOLTIPS["PR. FO"]} /></div>
-          {isLaborSplitEnabled ? (
-            <>
-              <div className="relative estimate-col--fo"><ColumnHeaderHelp label="Type FO" tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]} /></div>
-              <div className="relative estimate-col--fo"><ColumnHeaderHelp label="K FO" tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]} /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} allowWrap /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO atelier"]} allowWrap /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO atelier"]} allowWrap /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO atelier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO atelier"]} allowWrap /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["h MO chantier"]} allowWrap /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO chantier"]} allowWrap /></div>
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO chantier" tooltip={COLUMN_HEADER_TOOLTIPS["K MO chantier"]} allowWrap /></div>
-            </>
-          ) : (
-            <>
-              {columnVisibility.visibleColumns.has("supply_type") ? (
-                <div className="relative estimate-col--fo"><ColumnHeaderHelp label="Type FO" tooltip={COLUMN_HEADER_TOOLTIPS["Type FO"]} /></div>
-              ) : null}
-              {columnVisibility.visibleColumns.has("k_fo") ? (
-                <div className="relative estimate-col--fo"><ColumnHeaderHelp label="K FO" tooltip={COLUMN_HEADER_TOOLTIPS["K FO"]} /></div>
-              ) : null}
-              <div className="relative estimate-col--mo"><ColumnHeaderHelp label="h MO" tooltip={COLUMN_HEADER_TOOLTIPS["h MO"]} /></div>
-              {columnVisibility.visibleColumns.has("h_mo_majoration") ? (
-                <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Majoration MO (%)" tooltip={COLUMN_HEADER_TOOLTIPS["Majoration MO (%)"]} allowWrap /></div>
-              ) : null}
-              {columnVisibility.visibleColumns.has("labor_role") ? (
-                <div className="relative estimate-col--mo"><ColumnHeaderHelp label="Type MO" tooltip={COLUMN_HEADER_TOOLTIPS["Type MO"]} /></div>
-              ) : null}
-              {columnVisibility.visibleColumns.has("k_mo") ? (
-                <div className="relative estimate-col--mo"><ColumnHeaderHelp label="K MO" tooltip={COLUMN_HEADER_TOOLTIPS["K MO"]} /></div>
-              ) : null}
-            </>
-          )}
-          <div className="relative estimate-cell--pu-separator"><ColumnHeaderHelp label="P.U." tooltip={COLUMN_HEADER_TOOLTIPS["P.U."]} /></div>
-          <div className="relative"><ColumnHeaderHelp label="Prix total" tooltip={COLUMN_HEADER_TOOLTIPS["Prix total"]} /></div>
-          <div></div>
-        </div>
-        <EstimateEditorBody
-          items={items}
-          hasVisibleRows={hasVisibleRowsForRender}
-          isReadOnly={isReadOnly}
-          hideEditingActions={isViewerMode}
-          onAddRootSection={() => onAddSection(null)}
-          rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
-          onResetQualityFilter={() => onQualityFilterChange("all_lines")}
-          sensors={sensors}
-          onDragEnd={handleDragEnd}
-          isVirtualized={isVirtualized}
-          virtualizedSortableIds={virtualizedSortableIds}
-          virtualTotalSize={virtualTotalSize}
-          virtualItems={virtualItems}
-          flattenedRows={flattenedRows}
-          measureElement={measureElement}
-          virtualScrollRef={virtualScrollRef}
-          virtualBodyStyle={virtualBodyStyle}
-          onBodyMouseDown={handleTableBodyMouseDown}
-          spreadsheetRowCount={spreadsheetNavigationRows.length}
-          renderVirtualRow={renderVirtualRow}
-          renderList={() => renderList(null)}
-        />
-        {hasVisibleRowsForRender ? (
-          <div className="estimate-table__footer" data-testid="estimate-editor-table-footer">
-            <div className="font-semibold text-[var(--slate-800)]">Total</div>
-            <div></div>
-            <div></div>
-            <div className="text-right font-medium text-[var(--slate-700)]" title="Total Fournitures">
-              {formatCurrency(grandTotals.foTotal, currency)}
-            </div>
-            {isLaborSplitEnabled ? (
-              <>
-                <div></div><div></div><div></div>
-                <div></div><div></div><div></div>
-                <div></div><div></div><div></div>
-              </>
-            ) : (
-              <>
-                {columnVisibility.visibleColumns.has("supply_type") ? <div></div> : null}
-                {columnVisibility.visibleColumns.has("k_fo") ? <div></div> : null}
-                <div className="text-right font-medium text-[var(--slate-700)]" title="Total Main d'œuvre">
-                  {formatCurrency(grandTotals.moTotal, currency)}
-                </div>
-                {columnVisibility.visibleColumns.has("h_mo_majoration") ? <div></div> : null}
-                {columnVisibility.visibleColumns.has("labor_role") ? <div></div> : null}
-                {columnVisibility.visibleColumns.has("k_mo") ? <div></div> : null}
-              </>
-            )}
-            <div></div>
-            <div className="text-right font-semibold text-[var(--slate-900)]" title="Total HT">
-              {formatCurrency(grandTotals.htTotal, currency)}
-            </div>
-            <div></div>
-          </div>
-        ) : null}
-      </div>
-      </div>
-
-      {sectionContextMenu && !isViewerMode ? (
-        <div
-          className="estimate-supplier-comparison-context-menu estimate-section-context-menu"
-          role="menu"
-          aria-label="Actions de section"
-          data-testid="estimate-section-context-menu"
-          style={{
-            right: `${sectionContextMenu.right}px`,
-            top: `${sectionContextMenu.y}px`,
-          }}
-        >
-          <button
-            type="button"
-            className="estimate-supplier-comparison-context-menu__action"
-            role="menuitem"
-            onClick={() => {
-              const id = sectionContextMenu!.sectionId;
-              closeSectionContextMenu();
-              onAddLine(id);
-            }}
-            disabled={isReadOnly || !sectionContextMeta?.canAddLine}
-            data-testid="estimate-section-context-add-line-button"
-          >
-            {sectionContextMeta?.addLineLabel ?? "+ Ligne"}
-          </button>
-          {sectionContextMeta?.canAddSection ? (
-            <button
-              type="button"
-              className="estimate-supplier-comparison-context-menu__action"
-              role="menuitem"
-              onClick={() => {
-                const id = sectionContextMenu!.sectionId;
-                closeSectionContextMenu();
-                onAddSection(id);
-              }}
-              disabled={isReadOnly}
-              data-testid="estimate-section-context-add-section-button"
-            >
-              {sectionContextMeta.addSectionLabel}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="estimate-supplier-comparison-context-menu__action"
-            role="menuitem"
-            onClick={() => void handleConvertSectionToLine(sectionContextMenu.sectionId)}
-            disabled={
-              isReadOnly ||
-              isItemConversionPending ||
-              Boolean(sectionContextMeta?.hasChildren)
-            }
-            title={
-              sectionContextMeta?.hasChildren
-                ? "Conversion impossible: la section contient des enfants."
-                : undefined
-            }
-            data-testid="estimate-section-context-convert-to-line-button"
-          >
-            Convertir en ligne
-          </button>
-          <div className="estimate-section-context-menu__separator" />
-          <button
-            type="button"
-            className="estimate-supplier-comparison-context-menu__action"
-            role="menuitem"
-            onClick={() => void handleDuplicateSectionInPlace()}
-            disabled={!onDuplicateSection}
-            data-testid="estimate-section-context-duplicate-button"
-          >
-            Dupliquer la section
-          </button>
-          <button
-            type="button"
-            className="estimate-supplier-comparison-context-menu__action"
-            role="menuitem"
-            onClick={handleOpenDuplicateSectionDialog}
-            disabled={
-              !onDuplicateSectionToVersion ||
-              availableSectionDuplicateTargets.length === 0
-            }
-            data-testid="estimate-section-context-duplicate-to-version-button"
-          >
-            Dupliquer vers un autre devis
-          </button>
-          <button
-            type="button"
-            className="estimate-supplier-comparison-context-menu__action"
-            role="menuitem"
-            onClick={handleOpenSaveAsAssemblyDialog}
-            data-testid="estimate-section-context-save-as-assembly-button"
-          >
-            Enregistrer comme assemblage
-          </button>
-          <div className="estimate-section-context-menu__separator" />
-          <button
-            type="button"
-            className="estimate-supplier-comparison-context-menu__action estimate-supplier-comparison-context-menu__action--danger"
-            role="menuitem"
-            onClick={() => {
-              const id = sectionContextMenu!.sectionId;
-              closeSectionContextMenu();
-              if (window.confirm("Êtes-vous sûr de vouloir supprimer ce chapitre et toutes ses lignes ?")) {
-                onDeleteItem(id);
-              }
-            }}
-            disabled={isReadOnly}
-            data-testid="estimate-section-context-delete-button"
-          >
-            Supprimer la section
-          </button>
-        </div>
-      ) : null}
-
-      {duplicateSectionDialogSectionId ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4"
-          data-testid="estimate-duplicate-section-dialog-backdrop"
-        >
-          <div
-            className="dashboard-card w-full max-w-xl p-6"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="duplicate-section-dialog-title"
-            data-testid="estimate-duplicate-section-dialog"
-          >
-            <div className="mb-4 flex items-start justify-between gap-4">
-              <div>
-                <h2
-                  id="duplicate-section-dialog-title"
-                  className="text-lg font-semibold text-[var(--slate-800)]"
-                >
-                  Dupliquer vers un autre devis
-                </h2>
-                <p className="mt-1 text-sm text-[var(--slate-500)]">
-                  Choisissez une version en brouillon.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={closeDuplicateSectionDialog}
-                disabled={isDuplicateSectionPending}
-              >
-                Fermer
-              </button>
-            </div>
-
-            {availableSectionDuplicateTargets.length === 0 ? (
-              <div className="alert alert-info">
-                Aucun devis brouillon disponible en cible.
-              </div>
-            ) : (
-              <label className="form-label block">
-                Devis cible
-                <select
-                  className="input mt-2 w-full"
-                  value={duplicateSectionTargetVersionId}
-                  onChange={(event) =>
-                    setDuplicateSectionTargetVersionId(event.target.value)
-                  }
-                  disabled={isDuplicateSectionPending}
-                >
-                  {availableSectionDuplicateTargets.map((target) => (
-                    <option key={target.versionId} value={target.versionId}>
-                      {target.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={closeDuplicateSectionDialog}
-                disabled={isDuplicateSectionPending}
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => void handleConfirmDuplicateSectionToVersion()}
-                disabled={
-                  isDuplicateSectionPending ||
-                  !duplicateSectionTargetVersionId ||
-                  availableSectionDuplicateTargets.length === 0
+          <EstimateEditorTableChrome
+            tableCardRef={tableCardRef}
+            headerRight={headerRight}
+            toolbarNode={
+              <EstimateEditorToolbar
+                uiMode={uiMode}
+                isViewerMode={isViewerMode}
+                qualityCounts={qualityCounts}
+                qualityFilter={qualityFilter}
+                outlierDetectionMethod={outlierDetectionMethod}
+                outlierThreshold={outlierThreshold}
+                isUndoRedoBusy={isUndoRedoBusy}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                bulkMoveDestinations={bulkMoveDestinations}
+                categories={categories}
+                laborRoles={laborRoles}
+                bulkSuggestionEligibleCount={bulkSuggestionEligibleCount}
+                supplierPreselectionEligibleCount={
+                  supplierPreselectionEligibleCount
                 }
-              >
-                {isDuplicateSectionPending ? "Duplication..." : "Dupliquer"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {saveAsAssemblyDialogSectionId ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,6,23,0.45)] p-4"
-          data-testid="estimate-save-as-assembly-dialog-backdrop"
-        >
-          <div
-            className="dashboard-card w-full max-w-xl p-6"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="save-as-assembly-dialog-title"
-            data-testid="estimate-save-as-assembly-dialog"
-          >
-            <div className="mb-4 flex items-start justify-between gap-4">
-              <div>
-                <h2
-                  id="save-as-assembly-dialog-title"
-                  className="text-lg font-semibold text-[var(--slate-800)]"
-                >
-                  Enregistrer comme assemblage
-                </h2>
-                <p className="mt-1 text-sm text-[var(--slate-500)]">
-                  Les lignes de cette section seront enregistrées comme assemblage réutilisable.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={closeSaveAsAssemblyDialog}
-                disabled={isSaveAsAssemblyPending}
-              >
-                Fermer
-              </button>
-            </div>
-
-            <label className="form-label block">
-              Nom de l&apos;assemblage
-              <input
-                ref={saveAsAssemblyNameInputRef}
-                className="input mt-2 w-full"
-                type="text"
-                value={saveAsAssemblyName}
-                onChange={(event) => setSaveAsAssemblyName(event.target.value)}
-                disabled={isSaveAsAssemblyPending}
+                onQualityFilterChange={onQualityFilterChange}
+                onOutlierDetectionMethodChange={
+                  onOutlierDetectionMethodChange
+                }
+                onOutlierThresholdChange={onOutlierThresholdChange}
+                onUndo={onUndo}
+                onRedo={onRedo}
+                onApplyBulkMajoration={handleApplyBulkMajoration}
+                onBulkDeleteSelection={handleBulkDeleteSelection}
+                onApplyBulkMove={handleApplyBulkMove}
+                onApplyBulkCategory={handleApplyBulkCategory}
+                onApplyBulkLaborRole={handleApplyBulkLaborRole}
+                onOpenBulkSuggestDialog={onOpenBulkSuggestDialog}
+                onOpenSupplierPreselectionDialog={
+                  onOpenSupplierPreselectionDialog
+                }
+                onOpenAssemblyPicker={() => setIsAssemblyPickerOpen(true)}
+                onOpenImportFromEstimateDialog={onOpenImportFromEstimateDialog}
+                onOpenEstimateStructureDraftDialog={
+                  onOpenEstimateStructureDraftDialog
+                }
+                onOpenGeneratedOuvrageDialog={onOpenGeneratedOuvrageDialog}
+                onAddRootSection={() => onAddSection(null)}
+                rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
+                onExpandAllSections={handleExpandAllSections}
+                onCollapseAllSections={handleCollapseAllSections}
+                columnPreset={columnVisibility.preset}
+                columnPresetLabels={columnVisibility.presetLabels}
+                onColumnPresetChange={columnVisibility.setPreset}
+                searchTerm={searchTerm}
+                onSearchChange={setSearchTerm}
+                columnVisibleColumns={columnVisibility.visibleColumns}
+                allAdvancedColumns={columnVisibility.allAdvancedColumns}
+                columnLabels={columnVisibility.columnLabels}
+                onToggleColumn={columnVisibility.toggleColumn}
+                hiddenAdvancedCount={columnVisibility.hiddenAdvancedCount}
+                onToggleAdvancedColumns={columnVisibility.toggleAdvancedColumns}
+                isLaborSplitEnabled={isLaborSplitEnabled}
+                onOpenSettings={onOpenSettings}
+                isQuickTemplatePickerOpen={isQuickTemplatePickerOpen}
+                onToggleQuickTemplatePicker={() => {
+                  setIsQuickTemplatePickerOpen((prev) => !prev);
+                  setIsQuickAssemblyPickerOpen(false);
+                }}
+                isQuickAssemblyPickerOpen={isQuickAssemblyPickerOpen}
+                onToggleQuickAssemblyPicker={() => {
+                  setIsQuickAssemblyPickerOpen((prev) => !prev);
+                  setIsQuickTemplatePickerOpen(false);
+                }}
+                quickTemplatePickerNode={
+                  <QuickTemplatePicker
+                    isOpen={isQuickTemplatePickerOpen}
+                    isReadOnly={isReadOnly}
+                    onInsert={(templateId) =>
+                      onInsertTemplate(templateId, insertionAnchorItemId)
+                    }
+                    onClose={() => setIsQuickTemplatePickerOpen(false)}
+                  />
+                }
+                quickAssemblyPickerNode={
+                  <QuickAssemblyPicker
+                    isOpen={isQuickAssemblyPickerOpen}
+                    isReadOnly={isReadOnly}
+                    onInsert={(assemblyId) =>
+                      onInsertAssembly(assemblyId, insertionAnchorItemId)
+                    }
+                    onClose={() => setIsQuickAssemblyPickerOpen(false)}
+                  />
+                }
               />
-            </label>
+            }
+            activeLineBreadcrumb={activeLineBreadcrumb}
+            actionError={actionError}
+            scrollContainerRef={scrollContainerRef}
+            isLaborSplitEnabled={isLaborSplitEnabled}
+            dynamicGridStyle={dynamicGridStyle}
+            superHeaderSpans={superHeaderSpans}
+            visibleColumns={columnVisibility.visibleColumns}
+            allVisibleSelected={allVisibleSelected}
+            onToggleAllVisibleLines={toggleAllVisibleLines}
+            visibleLineIdCount={visibleLineIdList.length}
+            items={items}
+            hasVisibleRowsForRender={hasVisibleRowsForRender}
+            isReadOnly={isReadOnly}
+            isViewerMode={isViewerMode}
+            onAddRootSection={() => onAddSection(null)}
+            rootAddSectionLabel={formatAddSectionLabelForLevel(1)}
+            onResetQualityFilter={() => onQualityFilterChange("all_lines")}
+            sensors={sensors}
+            onDragEnd={handleDragEnd}
+            isVirtualized={isVirtualized}
+            virtualizedSortableIds={virtualizedSortableIds}
+            virtualTotalSize={virtualTotalSize}
+            virtualItems={virtualItems}
+            flattenedRows={flattenedRows}
+            measureElement={measureElement}
+            virtualScrollRef={virtualScrollRef}
+            virtualBodyStyle={virtualBodyStyle}
+            onBodyMouseDown={handleTableBodyMouseDown}
+            spreadsheetRowCount={spreadsheetNavigationRows.length}
+            renderVirtualRow={renderVirtualRow}
+            renderList={() => renderList(null)}
+            grandTotals={grandTotals}
+            currency={currency}
+          />
 
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={closeSaveAsAssemblyDialog}
-                disabled={isSaveAsAssemblyPending}
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => void handleConfirmSaveAsAssembly()}
-                disabled={isSaveAsAssemblyPending || !saveAsAssemblyName.trim()}
-              >
-                {isSaveAsAssemblyPending ? "Enregistrement..." : "Enregistrer"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+          <EstimateEditorTableSectionDialogs
+            isViewerMode={isViewerMode}
+            isReadOnly={isReadOnly}
+            isItemConversionPending={isItemConversionPending}
+            sectionContextMenu={sectionContextMenu}
+            sectionContextMeta={sectionContextMeta}
+            onCloseSectionContextMenu={closeSectionContextMenu}
+            onAddLine={onAddLine}
+            onAddSection={onAddSection}
+            onConvertSectionToLine={handleConvertSectionToLine}
+            onDuplicateSectionInPlace={handleDuplicateSectionInPlace}
+            onOpenDuplicateSectionDialog={handleOpenDuplicateSectionDialog}
+            onOpenSaveAsAssemblyDialog={handleOpenSaveAsAssemblyDialog}
+            onDeleteSection={onDeleteItem}
+            onDuplicateSection={onDuplicateSection}
+            onDuplicateSectionToVersion={onDuplicateSectionToVersion}
+            availableSectionDuplicateTargets={availableSectionDuplicateTargets}
+            duplicateSectionDialogSectionId={duplicateSectionDialogSectionId}
+            duplicateSectionTargetVersionId={duplicateSectionTargetVersionId}
+            onDuplicateSectionTargetVersionIdChange={
+              setDuplicateSectionTargetVersionId
+            }
+            isDuplicateSectionPending={isDuplicateSectionPending}
+            onCloseDuplicateSectionDialog={closeDuplicateSectionDialog}
+            onConfirmDuplicateSectionToVersion={
+              handleConfirmDuplicateSectionToVersion
+            }
+            saveAsAssemblyDialogSectionId={saveAsAssemblyDialogSectionId}
+            saveAsAssemblyName={saveAsAssemblyName}
+            onSaveAsAssemblyNameChange={setSaveAsAssemblyName}
+            saveAsAssemblyNameInputRef={saveAsAssemblyNameInputRef}
+            isSaveAsAssemblyPending={isSaveAsAssemblyPending}
+            onCloseSaveAsAssemblyDialog={closeSaveAsAssemblyDialog}
+            onConfirmSaveAsAssembly={handleConfirmSaveAsAssembly}
+          />
 
       {supplierComparisonMenu ? (
         <div
@@ -2892,7 +2228,6 @@ export function EstimateEditorTable({
 
       {/* Spacer so table content isn't hidden behind the fixed bulk-selection bar */}
       {hasSelectedLines && <div className="h-16" />}
-      </div>
         </EstimateSpreadsheetProvider>
       </EstimateEditorRowActionsProvider>
     </EstimateEditorProvider>
