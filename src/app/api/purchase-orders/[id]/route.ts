@@ -25,6 +25,26 @@ type UpdatePurchaseOrderPayload = {
   items?: LinePayload[];
 };
 
+type ExistingPurchaseOrderItemTrace = {
+  product_id: string | null;
+  reference: string | null;
+  designation: string;
+  quantity: number;
+  unit_price_ht_cents: number;
+  tax_rate_bp: number;
+  source_estimate_item_id: string | null;
+  source_selected_supplier_price_id: string | null;
+};
+
+type CleanedLineItem = {
+  productId: string | null;
+  reference: string | null;
+  designation: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateBp: number;
+};
+
 function toNullableString(value: unknown) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -46,6 +66,100 @@ function parseExpectedDeliveryDate(value: unknown) {
   }
 
   return trimmed;
+}
+
+function buildTraceabilitySignature(item: {
+  designation: string;
+  quantity: number;
+  unitPriceCents: number;
+  taxRateBp: number;
+}) {
+  return JSON.stringify([
+    item.designation,
+    Math.round(item.quantity),
+    Math.round(item.unitPriceCents),
+    Math.round(item.taxRateBp),
+  ]);
+}
+
+function buildExistingItemTraceabilityIndex(items: ExistingPurchaseOrderItemTrace[]) {
+  const index = new Map<string, ExistingPurchaseOrderItemTrace[]>();
+
+  for (const item of items) {
+    const signature = buildTraceabilitySignature({
+      designation: item.designation,
+      quantity: item.quantity,
+      unitPriceCents: item.unit_price_ht_cents,
+      taxRateBp: item.tax_rate_bp,
+    });
+
+    const bucket = index.get(signature);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      index.set(signature, [item]);
+    }
+  }
+
+  return index;
+}
+
+function takeMatchingTraceability(
+  index: Map<string, ExistingPurchaseOrderItemTrace[]>,
+  item: CleanedLineItem
+) {
+  const signature = buildTraceabilitySignature(item);
+  const bucket = index.get(signature);
+  const match = bucket?.shift() ?? null;
+
+  if (bucket && bucket.length === 0) {
+    index.delete(signature);
+  }
+
+  return match;
+}
+
+function normalizeExistingItemTraceabilityRows(
+  rows: unknown[] | null | undefined
+): ExistingPurchaseOrderItemTrace[] {
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== "object") {
+      return [];
+    }
+
+    const record = row as Record<string, unknown>;
+    if (typeof record.designation !== "string") {
+      return [];
+    }
+
+    return [
+      {
+        product_id: typeof record.product_id === "string" ? record.product_id : null,
+        reference: typeof record.reference === "string" ? record.reference : null,
+        designation: record.designation,
+        quantity: Number(record.quantity),
+        unit_price_ht_cents: Number(record.unit_price_ht_cents),
+        tax_rate_bp: Number(record.tax_rate_bp),
+        source_estimate_item_id:
+          typeof record.source_estimate_item_id === "string"
+            ? record.source_estimate_item_id
+            : null,
+        source_selected_supplier_price_id:
+          typeof record.source_selected_supplier_price_id === "string"
+            ? record.source_selected_supplier_price_id
+            : null,
+      },
+    ].filter(
+      (item) =>
+        Number.isFinite(item.quantity) &&
+        Number.isFinite(item.unit_price_ht_cents) &&
+        Number.isFinite(item.tax_rate_bp)
+    );
+  });
 }
 
 export async function PUT(
@@ -135,7 +249,7 @@ export async function PUT(
   // If items are provided, replace all existing items
   if (parsedPayload.items !== undefined) {
     const items = Array.isArray(parsedPayload.items) ? parsedPayload.items : [];
-    const cleanedItems = items
+    const cleanedItems: CleanedLineItem[] = items
       .map((item) => ({
         productId: item.productId ?? null,
         reference: toNullableString(item.reference ?? null),
@@ -163,6 +277,30 @@ export async function PUT(
       );
     }
 
+    const { data: existingItems, error: existingItemsError } = await supabase
+      .from("purchase_order_items")
+      .select(
+        [
+          "product_id",
+          "reference",
+          "designation",
+          "quantity",
+          "unit_price_ht_cents",
+          "tax_rate_bp",
+          "source_estimate_item_id",
+          "source_selected_supplier_price_id",
+        ].join(", ")
+      )
+      .eq("purchase_order_id", id);
+
+    if (existingItemsError) {
+      return NextResponse.json({ error: existingItemsError.message }, { status: 400 });
+    }
+
+    const traceabilityIndex = buildExistingItemTraceabilityIndex(
+      normalizeExistingItemTraceabilityRows(existingItems)
+    );
+
     // Delete existing items
     const { error: deleteError } = await supabase
       .from("purchase_order_items")
@@ -185,6 +323,7 @@ export async function PUT(
     // Insert new items
     const itemsToInsert = cleanedItems.map((item, index) => {
       const totals = lineTotals[index];
+      const traceability = takeMatchingTraceability(traceabilityIndex, item);
       return {
         purchase_order_id: id,
         position: index + 1,
@@ -197,6 +336,9 @@ export async function PUT(
         line_total_ht_cents: totals.lineTotalHtCents,
         line_tax_cents: totals.lineTaxCents,
         line_total_ttc_cents: totals.lineTotalTtcCents,
+        source_estimate_item_id: traceability?.source_estimate_item_id ?? null,
+        source_selected_supplier_price_id:
+          traceability?.source_selected_supplier_price_id ?? null,
       };
     });
 

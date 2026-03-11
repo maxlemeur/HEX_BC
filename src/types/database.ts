@@ -262,6 +262,7 @@ export type Database = {
           total_tax_cents: number;
           total_ttc_cents: number;
           currency: string;
+          source_estimate_version_id: string | null;
         };
         Insert: {
           id?: string;
@@ -281,6 +282,7 @@ export type Database = {
           total_tax_cents?: number;
           total_ttc_cents?: number;
           currency?: string;
+          source_estimate_version_id?: string | null;
         };
         Update: {
           id?: string;
@@ -300,6 +302,7 @@ export type Database = {
           total_tax_cents?: number;
           total_ttc_cents?: number;
           currency?: string;
+          source_estimate_version_id?: string | null;
         };
         Relationships: [];
       };
@@ -320,6 +323,8 @@ export type Database = {
           line_total_ht_cents: number;
           line_tax_cents: number;
           line_total_ttc_cents: number;
+          source_estimate_item_id: string | null;
+          source_selected_supplier_price_id: string | null;
         };
         Insert: {
           id?: string;
@@ -337,6 +342,8 @@ export type Database = {
           line_total_ht_cents?: number;
           line_tax_cents?: number;
           line_total_ttc_cents?: number;
+          source_estimate_item_id?: string | null;
+          source_selected_supplier_price_id?: string | null;
         };
         Update: {
           id?: string;
@@ -354,6 +361,8 @@ export type Database = {
           line_total_ht_cents?: number;
           line_tax_cents?: number;
           line_total_ttc_cents?: number;
+          source_estimate_item_id?: string | null;
+          source_selected_supplier_price_id?: string | null;
         };
         Relationships: [];
       };

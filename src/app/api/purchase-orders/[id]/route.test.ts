@@ -13,6 +13,19 @@ const ORDER_ID = "44444444-4444-4444-8444-444444444444";
 
 function createPutSupabaseMock() {
   const headerUpdates: Record<string, unknown>[] = [];
+  const insertedItems: Record<string, unknown>[] = [];
+  const existingItems = [
+    {
+      product_id: "prod-1",
+      reference: "REF-001",
+      designation: 'Coffret "A"',
+      quantity: 2,
+      unit_price_ht_cents: 1250,
+      tax_rate_bp: 2000,
+      source_estimate_item_id: "estimate-item-1",
+      source_selected_supplier_price_id: "supplier-price-1",
+    },
+  ];
 
   const selectSingle = vi.fn().mockResolvedValue({
     data: {
@@ -46,6 +59,22 @@ function createPutSupabaseMock() {
     };
   });
 
+  const purchaseOrderItemsSelectEq = vi.fn().mockResolvedValue({
+    data: existingItems,
+    error: null,
+  });
+  const purchaseOrderItemsSelect = vi.fn(() => ({
+    eq: purchaseOrderItemsSelectEq,
+  }));
+  const purchaseOrderItemsDeleteEq = vi.fn().mockResolvedValue({ error: null });
+  const purchaseOrderItemsDelete = vi.fn(() => ({
+    eq: purchaseOrderItemsDeleteEq,
+  }));
+  const purchaseOrderItemsInsert = vi.fn((payload: Record<string, unknown>[]) => {
+    insertedItems.push(...payload);
+    return Promise.resolve({ error: null });
+  });
+
   const supabase = {
     auth: {
       getUser: vi.fn().mockResolvedValue({
@@ -64,6 +93,13 @@ function createPutSupabaseMock() {
           update: purchaseOrdersUpdate,
         };
       }
+      if (table === "purchase_order_items") {
+        return {
+          select: purchaseOrderItemsSelect,
+          delete: purchaseOrderItemsDelete,
+          insert: purchaseOrderItemsInsert,
+        };
+      }
 
       throw new Error(`Unexpected table: ${table}`);
     }),
@@ -73,6 +109,7 @@ function createPutSupabaseMock() {
     supabase,
     headerUpdates,
     selectEq,
+    insertedItems,
   };
 }
 
@@ -140,5 +177,36 @@ describe("purchase orders [id] route regressions", () => {
     expect(response.status).toBe(200);
     expect(headerUpdates).toHaveLength(1);
     expect(headerUpdates[0]?.["expected_delivery_date"]).toBe("TBD");
+  });
+
+  it("preserves source traceability when an unchanged draft line is re-saved", async () => {
+    const { supabase, insertedItems } = createPutSupabaseMock();
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const request = new Request(`http://localhost/api/purchase-orders/${ORDER_ID}`, {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        items: [
+          {
+            productId: "prod-1",
+            reference: "REF-001",
+            designation: 'Coffret "A"',
+            quantity: 2,
+            unitPriceCents: 1250,
+            taxRateBp: 2000,
+          },
+        ],
+      }),
+    });
+
+    const response = await PUT(request, { params: Promise.resolve({ id: ORDER_ID }) });
+
+    expect(response.status).toBe(200);
+    expect(insertedItems).toHaveLength(1);
+    expect(insertedItems[0]?.["source_estimate_item_id"]).toBe("estimate-item-1");
+    expect(insertedItems[0]?.["source_selected_supplier_price_id"]).toBe("supplier-price-1");
   });
 });

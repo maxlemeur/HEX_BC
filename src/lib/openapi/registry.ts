@@ -13,6 +13,7 @@ import {
   createSuggestionRuleSchema,
   deleteEstimateItemSchema,
   duplicateEstimateTemplateSchema,
+  estimatePurchaseOrderDraftsCreateSchema,
   estimateSupplierComparisonsRequestSchema,
   instantiateEstimateFromTemplateSchema,
   listEstimateAssembliesQuerySchema,
@@ -712,6 +713,89 @@ const estimateSupplierPreselectionReviewSchema = z.object({
   exceptions: z.array(estimateSupplierPreselectionExceptionSchema),
 });
 
+const estimatePurchaseOrderDraftBlockedReasonSchema = z.enum([
+  "selection_missing",
+  "stale",
+  "ambiguous",
+  "no_price",
+  "missing_quantity",
+  "non_integer_quantity",
+  "missing_unit_price",
+]);
+
+const estimatePurchaseOrderDraftLineSchema = z.object({
+  item_id: uuidSchema,
+  item_title: z.string(),
+  quantity: z.number(),
+  unit_price_ht_cents: z.number().int(),
+  tax_rate_bp: z.number().int(),
+  line_total_ht_cents: z.number().int(),
+  line_tax_cents: z.number().int(),
+  line_total_ttc_cents: z.number().int(),
+  selected_supplier_price_id: uuidSchema,
+  supplier_reference: z.string().nullable(),
+  product_designation: z.string(),
+});
+
+const estimatePurchaseOrderDraftGroupSchema = z.object({
+  group_key: z.string(),
+  supplier_id: uuidSchema,
+  supplier_name: z.string(),
+  line_count: z.number().int(),
+  total_ht_cents: z.number().int(),
+  total_tax_cents: z.number().int(),
+  total_ttc_cents: z.number().int(),
+  lines: z.array(estimatePurchaseOrderDraftLineSchema),
+});
+
+const estimatePurchaseOrderDraftBlockedLineSchema = z.object({
+  item_id: uuidSchema,
+  item_title: z.string(),
+  quantity: z.number().nullable(),
+  unit_price_ht_cents: z.number().int().nullable(),
+  tax_rate_bp: z.number().int().nullable(),
+  selected_supplier_price_id: uuidSchema.nullable(),
+  reason: estimatePurchaseOrderDraftBlockedReasonSchema,
+  coverage_status: z.enum(["covered", "ambiguous", "no_price", "stale"]).nullable(),
+  risk_flags: z.array(
+    z.enum([
+      "multiple_alternatives",
+      "selection_missing",
+      "selected_stale",
+      "selected_not_best_price",
+    ])
+  ),
+  selected_alternative: estimateSupplierComparisonAlternativeSchema.nullable(),
+  alternatives: z.array(estimateSupplierComparisonAlternativeSchema),
+});
+
+const estimatePurchaseOrderDraftPreparationSummarySchema = z.object({
+  total_supplier_lines: z.number().int(),
+  draftable_lines: z.number().int(),
+  blocked_lines: z.number().int(),
+  supplier_groups: z.number().int(),
+  selection_missing_lines: z.number().int(),
+  stale_lines: z.number().int(),
+  ambiguous_lines: z.number().int(),
+  no_price_lines: z.number().int(),
+  missing_quantity_lines: z.number().int(),
+  non_integer_quantity_lines: z.number().int(),
+  missing_unit_price_lines: z.number().int(),
+});
+
+const estimatePurchaseOrderDraftCreationOrderSchema = z.object({
+  purchase_order_id: uuidSchema,
+  reference: z.string(),
+  supplier_id: uuidSchema,
+  supplier_name: z.string(),
+  delivery_site_id: z.string(),
+  item_count: z.number().int(),
+  total_ht_cents: z.number().int(),
+  total_tax_cents: z.number().int(),
+  total_ttc_cents: z.number().int(),
+  ordered_source_item_ids: z.array(uuidSchema),
+});
+
 const estimateBatchResultSchema = z.object({
   committed: z.boolean(),
   version: estimateVersionTokenSchema,
@@ -963,6 +1047,23 @@ const estimateSupplierComparisonsDataSchema = z.object({
   coverage_summary: estimateSupplierComparisonCoverageSummarySchema,
   comparisons: z.array(estimateSupplierComparisonSchema),
   bulk_preselection: estimateSupplierPreselectionReviewSchema,
+});
+
+const estimatePurchaseOrderDraftPreparationDataSchema = z.object({
+  version_id: uuidSchema,
+  stale_price_days: z.number().int(),
+  summary: estimatePurchaseOrderDraftPreparationSummarySchema,
+  groups: z.array(estimatePurchaseOrderDraftGroupSchema),
+  blocked_lines: z.array(estimatePurchaseOrderDraftBlockedLineSchema),
+});
+
+const estimatePurchaseOrderDraftCreationDataSchema = z.object({
+  source_version_id: uuidSchema,
+  summary: z.object({
+    draft_orders_created: z.number().int(),
+    draft_lines_created: z.number().int(),
+  }),
+  orders: z.array(estimatePurchaseOrderDraftCreationOrderSchema),
 });
 
 const estimateSuggestPricesDataSchema = z.object({
@@ -2193,6 +2294,14 @@ const apiEstimateSupplierComparisonsSchemaDefinition = successResponseSchemaDefi
   "ApiEstimateSupplierComparisonsResponse",
   estimateSupplierComparisonsDataSchema
 );
+const apiEstimatePurchaseOrderDraftPreparationSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimatePurchaseOrderDraftPreparationResponse",
+  estimatePurchaseOrderDraftPreparationDataSchema
+);
+const apiEstimatePurchaseOrderDraftCreationSchemaDefinition = successResponseSchemaDefinition(
+  "ApiEstimatePurchaseOrderDraftCreationResponse",
+  estimatePurchaseOrderDraftCreationDataSchema
+);
 const apiEstimateSuggestPricesSchemaDefinition = successResponseSchemaDefinition(
   "ApiEstimateSuggestPricesResponse",
   estimateSuggestPricesDataSchema
@@ -2937,6 +3046,13 @@ const supplierComparisonsBody = jsonBody({
   name: "EstimateSupplierComparisonsRequest",
   description: "Liste des lignes a comparer par fournisseur.",
   schema: estimateSupplierComparisonsRequestSchema,
+});
+
+const createEstimatePurchaseOrderDraftsBody = jsonBody({
+  name: "EstimatePurchaseOrderDraftsRequest",
+  description:
+    "Creation explicite de brouillons de commandes depuis les choix fournisseur deja retenus.",
+  schema: estimatePurchaseOrderDraftsCreateSchema,
 });
 
 const createCategoryBody = jsonBody({
@@ -4115,6 +4231,37 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
       "200": jsonResponse(
         "Comparatifs fournisseurs retournes.",
         apiEstimateSupplierComparisonsSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "get",
+    path: "/api/estimates/{versionId}/purchase-order-drafts",
+    summary: "Preparer des brouillons de commandes",
+    description:
+      "Retourne les groupes fournisseur draftables et les lignes non commandables depuis une version de devis.",
+    tags: ["Estimate Output"],
+    parameters: [versionIdPathParameter],
+    responses: {
+      "200": jsonResponse(
+        "Preparation des brouillons de commandes retournee.",
+        apiEstimatePurchaseOrderDraftPreparationSchemaDefinition
+      ),
+    },
+  },
+  {
+    method: "post",
+    path: "/api/estimates/{versionId}/purchase-order-drafts",
+    summary: "Creer des brouillons de commandes",
+    description:
+      "Cree explicitement des brouillons de commandes par fournisseur a partir des lignes draftables de la version.",
+    tags: ["Estimate Output"],
+    parameters: [versionIdPathParameter],
+    requestBody: createEstimatePurchaseOrderDraftsBody,
+    responses: {
+      "201": jsonResponse(
+        "Brouillons de commandes crees.",
+        apiEstimatePurchaseOrderDraftCreationSchemaDefinition
       ),
     },
   },

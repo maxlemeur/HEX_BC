@@ -685,6 +685,80 @@ export const estimateSupplierComparisonsRequestSchema = z
     });
   });
 
+export const estimatePurchaseOrderDraftGroupSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      supplier_id: record.supplier_id ?? record.supplierId,
+      delivery_site_id: record.delivery_site_id ?? record.deliverySiteId,
+      item_ids: record.item_ids ?? record.itemIds,
+      expected_delivery_date:
+        record.expected_delivery_date ?? record.expectedDeliveryDate,
+      notes: record.notes,
+    };
+  },
+  z.object({
+    supplier_id: uuidSchema,
+    delivery_site_id: requiredTextSchema,
+    item_ids: z.array(uuidSchema).min(1, "Au moins une ligne est requise."),
+    expected_delivery_date: z.union([dateOnlySchema, z.null()]).optional(),
+    notes: optionalNullableTextSchema.optional(),
+  })
+).transform((group) => ({
+  supplier_id: group.supplier_id,
+  delivery_site_id: group.delivery_site_id,
+  item_ids: Array.from(new Set(group.item_ids)),
+  expected_delivery_date: group.expected_delivery_date ?? null,
+  notes: group.notes ?? null,
+}));
+
+export const estimatePurchaseOrderDraftsCreateSchema = z
+  .preprocess((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    return {
+      groups: record.groups,
+    };
+  }, z.object({
+    groups: z
+      .array(estimatePurchaseOrderDraftGroupSchema)
+      .min(1, "Au moins un groupe fournisseur est requis.")
+      .max(50, "Trop de groupes dans une seule requete."),
+  }))
+  .superRefine((payload, ctx) => {
+    const requestedItemIds = new Set<string>();
+
+    payload.groups.forEach((group, groupIndex) => {
+      if (group.item_ids.length > 200) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "item_ids ne peut pas contenir plus de 200 identifiants.",
+          path: ["groups", groupIndex, "item_ids"],
+        });
+      }
+
+      group.item_ids.forEach((itemId, itemIndex) => {
+        if (!requestedItemIds.has(itemId)) {
+          requestedItemIds.add(itemId);
+          return;
+        }
+
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Une ligne ne peut etre commandee qu'une seule fois par requete.",
+          path: ["groups", groupIndex, "item_ids", itemIndex],
+        });
+      });
+    });
+  });
+
 const nullableNonNegativeNumberSchema = z.union([nonNegativeNumberSchema, z.null()]);
 
 export const createEstimateCategorySchema = z.object({
