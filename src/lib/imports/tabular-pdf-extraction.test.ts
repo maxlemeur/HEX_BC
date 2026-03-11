@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
 import {
+  __testing__,
   detectTabularPdfTablesFromLayout,
   extractTabularPdfTablesFromFile,
 } from "@/lib/imports/tabular-pdf-extraction";
@@ -54,6 +55,135 @@ describe("detectTabularPdfTablesFromLayout", () => {
     expect(result).toHaveLength(2);
     expect(result[0]?.source_page).toBe(1);
     expect(result[1]?.source_page).toBe(2);
+  });
+
+  it("keeps narrow rendered cells separated when rebuilding layout text", () => {
+    const layoutText = __testing__.buildPageLayoutText({
+      items: [
+        {
+          str: "Code",
+          transform: [1, 0, 0, 1, 40, 120],
+          width: 24,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "Description",
+          transform: [1, 0, 0, 1, 92, 120],
+          width: 66,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "IIIIIIII",
+          transform: [1, 0, 0, 1, 40, 100],
+          width: 16,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "Cable cuivre",
+          transform: [1, 0, 0, 1, 66, 100],
+          width: 66,
+          height: 12,
+          hasEOL: false,
+        },
+      ],
+    });
+
+    const rowLine = layoutText.split("\n")[1];
+    expect(rowLine).toMatch(/^IIIIIIII\s{2,}Cable cuivre$/);
+  });
+
+  it("preserves blank lines between same-page tables in rebuilt layout text", () => {
+    const layoutText = __testing__.buildPageLayoutText({
+      items: [
+        {
+          str: "Code",
+          transform: [1, 0, 0, 1, 40, 220],
+          width: 24,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "Description",
+          transform: [1, 0, 0, 1, 120, 220],
+          width: 66,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "A-001",
+          transform: [1, 0, 0, 1, 40, 200],
+          width: 28,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "Cable",
+          transform: [1, 0, 0, 1, 120, 200],
+          width: 30,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "Code",
+          transform: [1, 0, 0, 1, 40, 140],
+          width: 24,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "Description",
+          transform: [1, 0, 0, 1, 120, 140],
+          width: 66,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "B-002",
+          transform: [1, 0, 0, 1, 40, 120],
+          width: 28,
+          height: 12,
+          hasEOL: false,
+        },
+        {
+          str: "Gaine",
+          transform: [1, 0, 0, 1, 120, 120],
+          width: 32,
+          height: 12,
+          hasEOL: false,
+        },
+      ],
+    });
+
+    expect(layoutText).toContain("\n\n");
+    expect(detectTabularPdfTablesFromLayout(layoutText)).toEqual([
+      {
+        source_page: 1,
+        table_index: 0,
+        title: null,
+        headers: ["Code", "Description"],
+        rows: [
+          {
+            row_index: 0,
+            cells: ["A-001", "Cable"],
+          },
+        ],
+      },
+      {
+        source_page: 1,
+        table_index: 1,
+        title: null,
+        headers: ["Code", "Description"],
+        rows: [
+          {
+            row_index: 0,
+            cells: ["B-002", "Gaine"],
+          },
+        ],
+      },
+    ]);
   });
 
   it("extracts tables from a PDF file without relying on host binaries", async () => {

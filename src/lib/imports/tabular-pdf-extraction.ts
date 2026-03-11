@@ -278,7 +278,7 @@ function renderLayoutLine(line: LayoutLine) {
 
   const charUnit = estimateCharacterUnit(positionedItems);
   const baseX = getItemX(firstTextItem);
-  let cursor = 0;
+  let renderedCursor = 0;
   let output = "";
 
   for (const item of positionedItems) {
@@ -287,26 +287,48 @@ function renderLayoutLine(line: LayoutLine) {
       Math.round((getItemX(item) - baseX) / charUnit)
     );
 
-    if (targetColumn > cursor) {
-      const gap = targetColumn - cursor;
+    if (targetColumn > renderedCursor) {
+      const gap = targetColumn - renderedCursor;
       output += " ".repeat(gap);
-      cursor += gap;
+      renderedCursor += gap;
     }
+
+    const renderedSpan = item.width > 0
+      ? Math.max(1, Math.round(item.width / charUnit))
+      : Math.max(1, item.str.length);
 
     if (item.str.trim().length === 0) {
-      const whitespaceWidth = item.width > 0
-        ? Math.max(1, Math.round(item.width / charUnit))
-        : 1;
-      output += " ".repeat(whitespaceWidth);
-      cursor += whitespaceWidth;
-      continue;
+      output += " ".repeat(renderedSpan);
+    } else {
+      output += item.str;
     }
 
-    output += item.str;
-    cursor += item.str.length;
+    renderedCursor = Math.max(renderedCursor, targetColumn + renderedSpan);
   }
 
   return output.trimEnd();
+}
+
+function estimateLineUnit(lines: LayoutLine[]) {
+  const yGaps = lines
+    .slice(1)
+    .map((line, index) => lines[index].y - line.y)
+    .filter((gap) => Number.isFinite(gap) && gap > 0);
+  const medianGap = median(yGaps);
+  if (medianGap !== null) {
+    return Math.max(medianGap, 1);
+  }
+
+  const textHeights = lines
+    .flatMap((line) => line.items)
+    .map((item) => item.height)
+    .filter((height) => Number.isFinite(height) && height > 0);
+  const medianHeight = median(textHeights);
+  if (medianHeight !== null) {
+    return Math.max(medianHeight * 1.25, 1);
+  }
+
+  return 14;
 }
 
 function buildPageLayoutText(content: PdfTextContent) {
@@ -314,8 +336,28 @@ function buildPageLayoutText(content: PdfTextContent) {
     .map(asPdfTextItem)
     .filter((item): item is PdfTextItem => item !== null);
 
-  return buildLayoutLines(textItems)
-    .map(renderLayoutLine)
+  const layoutLines = buildLayoutLines(textItems);
+  const lineUnit = estimateLineUnit(layoutLines);
+  const renderedLines = layoutLines.flatMap((line, index) => {
+    const output = [renderLayoutLine(line)];
+    const nextLine = layoutLines[index + 1];
+    if (!nextLine) {
+      return output;
+    }
+
+    const yGap = line.y - nextLine.y;
+    const blankLineCount = Math.max(
+      0,
+      Math.min(6, Math.round(yGap / lineUnit) - 1)
+    );
+    for (let blankIndex = 0; blankIndex < blankLineCount; blankIndex += 1) {
+      output.push("");
+    }
+
+    return output;
+  });
+
+  return renderedLines
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
 }
@@ -389,3 +431,7 @@ export async function extractTabularPdfTablesFromFile(file: File) {
     );
   }
 }
+
+export const __testing__ = {
+  buildPageLayoutText,
+};
